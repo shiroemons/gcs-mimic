@@ -2,6 +2,7 @@
 
 use crate::{
     bucket::CatalogError,
+    fsutil,
     storage::{
         admin::AdminError,
         failure::{Link, TypedSource, chain},
@@ -30,6 +31,8 @@ pub(crate) enum SyncError {
     Conflict(conflicts::Error),
     /// Native filesystem, watch and descriptor failures.
     Io(io::Error),
+    /// A directory the pass had to open kept failing to open while its name still held one.
+    Unopenable(fsutil::Unopenable),
     /// Write-back recovery left this stop in place, so no pass may start.
     Recovery(Stop),
     /// The root's naming rules could not be established, so no name may be mapped.
@@ -72,6 +75,7 @@ pub(crate) enum Cause<'a> {
     Catalog(&'a CatalogError),
     Sqlite(&'a rusqlite::Error),
     Io(&'a io::Error),
+    Unopenable(fsutil::Unopenable),
     /// A failure no decision depends on, such as a serde or join error.
     Other,
 }
@@ -90,6 +94,7 @@ impl<'a> Cause<'a> {
             Link::Catalog(error) => Self::Catalog(error),
             Link::Sqlite(error) => Self::Sqlite(error),
             Link::Io(error) => Self::Io(error),
+            Link::Unopenable(error) => Self::Unopenable(*error),
             Link::Failure(_)
             | Link::Exhausted(_)
             | Link::Context(_)
@@ -113,6 +118,7 @@ impl<'a> Cause<'a> {
             Self::Sqlite(error) => Failure::of_sqlite(error),
             Self::Io(error) => Failure::of_io(error),
             Self::Conflict(error) => Failure::of_conflict(error),
+            Self::Unopenable(error) => Some(Failure::of_unopenable(error)),
             Self::Stop(_) | Self::Other => None,
         }
     }
@@ -179,6 +185,7 @@ impl<'a> Cause<'a> {
             | Self::Catalog(_)
             | Self::Sqlite(_)
             | Self::Io(_)
+            | Self::Unopenable(_)
             | Self::Other => None,
         }
     }
@@ -247,6 +254,7 @@ impl fmt::Display for SyncError {
             Self::Writeback(error) => fmt::Display::fmt(error, f),
             Self::Conflict(error) => fmt::Display::fmt(error, f),
             Self::Io(error) => fmt::Display::fmt(error, f),
+            Self::Unopenable(error) => fmt::Display::fmt(error, f),
             Self::Recovery(stop) => fmt::Display::fmt(stop, f),
             Self::RootNaming(error) => fmt::Display::fmt(error, f),
             Self::RescanStopped(stopped) => {
@@ -282,6 +290,7 @@ impl TypedSource for SyncError {
             Self::Writeback(error) => Some(Link::Writeback(error)),
             Self::Conflict(error) => Some(Link::Conflict(error)),
             Self::Io(error) => Some(Link::Io(error)),
+            Self::Unopenable(error) => Some(Link::Unopenable(error)),
             Self::Recovery(stop) => Some(Link::Stop(stop)),
             // The probe's own text is this error's; its I/O failure is the next link.
             Self::RootNaming(error) => error.typed_source(),
@@ -343,6 +352,7 @@ impl From<SyncError> for io::Error {
             | SyncError::Root(_)
             | SyncError::Writeback(_)
             | SyncError::Conflict(_)
+            | SyncError::Unopenable(_)
             | SyncError::Recovery(_)
             | SyncError::RootNaming(_)
             | SyncError::RescanStopped(_)

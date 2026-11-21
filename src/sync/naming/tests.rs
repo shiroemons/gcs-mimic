@@ -3,9 +3,7 @@
     reason = "Clippy does not exempt platform-gated test modules; fixture unwraps must fail the test"
 )]
 
-#[cfg(target_os = "linux")]
-use super::probe::{COMPOSED_FOLDED, FOLDED};
-use super::probe::{DIRECTORY, UNLINKED, inject};
+use super::probe::{COMPOSED_FOLDED, DIRECTORY, FOLDED, UNLINKED, inject};
 use super::*;
 use crate::{
     config::Config,
@@ -207,6 +205,33 @@ async fn a_folded_name_left_in_the_probe_directory_is_no_proof_of_folding() {
     assert_eq!(observed.case, Case::Sensitive);
     assert_eq!(observed.normalization, Normalization::Sensitive);
     assert!(probe_entries(&tree.0).is_empty());
+    drop((writeback, root));
+    catalog.close().await.unwrap();
+}
+
+/// A folded spelling that keeps failing to open while it reaches the probe's file tells neither
+/// that the root folds it nor that it does not: the probe fails as a failure that passes, which
+/// the mirror tries again, and records no rules. A macOS file system folds a spelling the probe
+/// never creates onto one it does, so only there does such a name hold an entry.
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn a_folded_name_that_keeps_failing_to_open_fails_the_probe_as_a_failure_that_passes() {
+    let (_data, tree, catalog, root, _config) = unprobed_fixture(None).await;
+    let writeback = root.default_writeback().await.unwrap();
+    let observed = writeback.probe_naming().await.unwrap().unwrap();
+    let folded = match (observed.case, observed.normalization) {
+        (Case::Insensitive, _) => FOLDED,
+        (Case::Sensitive, Normalization::Insensitive) => COMPOSED_FOLDED,
+        (Case::Sensitive, Normalization::Sensitive) => panic!("the test directory folds no name"),
+    };
+    let directory = tree.0.join(mapping::WORKSPACE).join(DIRECTORY);
+    let failing = crate::fsutil::FailingOpens::vanishing(&directory, folded, usize::MAX);
+    let error = activate(&writeback).await.unwrap_err();
+    drop(failing);
+    assert!(matches!(error, SyncError::RootNaming(_)), "{error:?}");
+    assert!(error.is_transient(), "{error:?}");
+    assert!(root.naming().is_err(), "a failed probe records no rules");
+    activate(&writeback).await.unwrap();
     drop((writeback, root));
     catalog.close().await.unwrap();
 }

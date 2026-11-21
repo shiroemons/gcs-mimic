@@ -4,7 +4,11 @@
 //! by every complete scan.
 
 use super::report::remedy::Correction;
-use super::{mapping, naming::RootNaming, tree::TreeEntry};
+use super::{
+    mapping,
+    naming::RootNaming,
+    tree::{EntryError, TreeEntry},
+};
 use crate::{
     diagnostics::{self, LogLevel},
     fsutil::FileIdentity,
@@ -14,7 +18,6 @@ use std::{
     borrow::Cow,
     collections::HashSet,
     ffi::OsStr,
-    io,
     path::{Path, PathBuf},
 };
 
@@ -33,7 +36,7 @@ pub(crate) enum EntryClass {
     /// A regular file no object is made from, which holds nothing back.
     Skipped(Skip),
     /// An entry that could not be read this time.
-    Unreadable(io::ErrorKind),
+    Unreadable(EntryError),
     /// An entry no object can take, where a missing tracked file may have gone.
     Unrepresentable(EntryProblem),
 }
@@ -369,6 +372,7 @@ impl EntryReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
 
     /// Past the bound the report keeps counting without growing, so a tree full of unsafe entries
     /// cannot make the mirror's memory grow with it.
@@ -464,13 +468,13 @@ mod tests {
             error: None,
         };
         let unreadable = TreeEntry {
-            error: Some(io::ErrorKind::PermissionDenied),
+            error: Some(EntryError::Io(io::ErrorKind::PermissionDenied)),
             ..entry("bucket", true, None)
         };
         let cases = [
             (
                 unreadable,
-                EntryClass::Unreadable(io::ErrorKind::PermissionDenied),
+                EntryClass::Unreadable(EntryError::Io(io::ErrorKind::PermissionDenied)),
             ),
             (
                 entry(".DS_Store", false, None),

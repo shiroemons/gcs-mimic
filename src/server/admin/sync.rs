@@ -1126,6 +1126,8 @@ pub(super) fn root_error(error: &RootError) -> ApiError {
     match error {
         RootError::Admin(error) => admin_error(error).unwrap_or_else(busy),
         RootError::InUse => busy(),
+        // A read that a later attempt may make, as of a failed storage read.
+        RootError::UnopenableMarker => io_failure(),
         RootError::Unsupported { .. } => ApiError::new(
             StatusCode::NOT_IMPLEMENTED,
             "notImplemented",
@@ -1142,6 +1144,14 @@ pub(super) fn root_error(error: &RootError) -> ApiError {
             "Synchronization root cannot be verified; preserve the tree and workspace and inspect server diagnostics",
         ),
     }
+}
+
+fn io_failure() -> ApiError {
+    ApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "io_failure",
+        "Restore storage access, then retry",
+    )
 }
 
 /// Corrupt stored state needs a restored data directory, whichever control found it.
@@ -1161,11 +1171,7 @@ fn admin_error(error: &AdminError) -> Option<ApiError> {
             "disk_full",
             "Free disk space without deleting synchronization data, then retry",
         ),
-        AdminError::Io(_) => ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "io_failure",
-            "Restore storage access, then retry",
-        ),
+        AdminError::Io(_) => io_failure(),
         AdminError::Busy { .. }
         | AdminError::Closed
         | AdminError::SeedProjectMismatch
@@ -1213,6 +1219,7 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
                 Cause::Root(error) => Some(root_error(error)),
                 Cause::Admin(error) => admin_error(error),
                 Cause::Writeback(error) => writeback_error(error),
+                Cause::Unopenable(_) => Some(io_failure()),
                 Cause::Conflict(_)
                 | Cause::Stop(_)
                 | Cause::Catalog(_)

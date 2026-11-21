@@ -207,7 +207,7 @@ fn scans_cross_pages_once_and_reject_replaced_directories() {
     fs::create_dir(tree.0.join("bucket")).unwrap();
     let (_, page) = scan.page(&root).unwrap();
     assert!(page.iter().any(|entry| entry.path == Path::new("bucket")
-        && entry.error == Some(io::ErrorKind::ResourceBusy)));
+        && entry.error == Some(EntryError::Io(io::ErrorKind::ResourceBusy))));
 }
 
 /// A scan opens each entry under the name its directory just listed and confirms no spelling

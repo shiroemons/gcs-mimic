@@ -7,11 +7,13 @@
 
 use super::Reconciliation;
 use crate::{
+    fsutil,
     storage::sync_state::root::Baseline,
     sync::{
         entries::{EntryProblem, EntryReport, Skip},
         failure::Failure,
         report::verdict::TreeSide,
+        tree::EntryError,
     },
 };
 use std::{
@@ -31,26 +33,46 @@ pub(in crate::sync) enum ReadFailure {
     Unknown,
 }
 
+impl ReadFailure {
+    /// A transient failure passes and a volume's lasts, as [`Failure`] classifies them for every
+    /// step; the other classes say nothing about a read.
+    fn of(class: Failure) -> Option<Self> {
+        match class {
+            Failure::Transient => Some(Self::Passing),
+            Failure::Volume => Some(Self::Lasting),
+            Failure::Superseded | Failure::PathLocal => None,
+        }
+    }
+}
+
+impl From<EntryError> for ReadFailure {
+    fn from(error: EntryError) -> Self {
+        match error {
+            EntryError::Unopenable => {
+                Self::of(Failure::of_unopenable(fsutil::Unopenable)).unwrap_or(Self::Unknown)
+            }
+            EntryError::Io(kind) => kind.into(),
+        }
+    }
+}
+
 impl From<io::ErrorKind> for ReadFailure {
-    /// A transient kind passes and a volume's kind lasts, as [`Failure`] classifies them for
-    /// every step; the kinds only a read gives this meaning to are decided here.
+    /// The kinds only a read gives a meaning to are decided here, after [`Self::of`].
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "io::ErrorKind is non-exhaustive, and a kind this match does not name is unknown"
     )]
     fn from(kind: io::ErrorKind) -> Self {
-        match Failure::of_kind(kind) {
-            Some(Failure::Transient) => Self::Passing,
-            Some(Failure::Volume) => Self::Lasting,
-            Some(Failure::Superseded | Failure::PathLocal) | None => match kind {
+        Failure::of_kind(kind)
+            .and_then(Self::of)
+            .unwrap_or(match kind {
                 // The entry went away or was replaced while the pass read it.
                 io::ErrorKind::NotFound
                 | io::ErrorKind::NotADirectory
                 | io::ErrorKind::IsADirectory => Self::Passing,
                 io::ErrorKind::PermissionDenied => Self::Lasting,
                 _ => Self::Unknown,
-            },
-        }
+            })
     }
 }
 
@@ -307,8 +329,8 @@ impl Reconciliation {
     /// Counts a working-tree entry the pass could not read. One that waiting may clear is left
     /// for a later pass; any other is named like an entry no object can take, since only an
     /// operator changes it, and the report counts it apart from those.
-    pub(in crate::sync) fn count_read_failure(&mut self, path: &Path, kind: io::ErrorKind) {
-        match ReadFailure::from(kind) {
+    pub(in crate::sync) fn count_read_failure(&mut self, path: &Path, error: EntryError) {
+        match ReadFailure::from(error) {
             ReadFailure::Passing => self.count_deferred(path),
             ReadFailure::Lasting | ReadFailure::Unknown => {
                 self.unrepresentable
@@ -535,7 +557,10 @@ mod tests {
 
     /// A pass with one entry it could not read for a reason waiting does not clear.
     fn with_unreadable(mut pass: Reconciliation) -> Reconciliation {
-        pass.count_read_failure(Path::new("bucket/locked"), io::ErrorKind::PermissionDenied);
+        pass.count_read_failure(
+            Path::new("bucket/locked"),
+            EntryError::Io(io::ErrorKind::PermissionDenied),
+        );
         pass
     }
 
@@ -660,7 +685,7 @@ mod tests {
             |pass: &mut Reconciliation| {
                 pass.count_read_failure(
                     Path::new("bucket/locked"),
-                    io::ErrorKind::PermissionDenied,
+                    EntryError::Io(io::ErrorKind::PermissionDenied),
                 );
             },
             |pass: &mut Reconciliation| {
@@ -711,7 +736,10 @@ mod tests {
             baseline_complete: true,
             ..Default::default()
         };
-        pass.count_read_failure(Path::new("bucket/vanished"), io::ErrorKind::NotFound);
+        pass.count_read_failure(
+            Path::new("bucket/vanished"),
+            EntryError::Io(io::ErrorKind::NotFound),
+        );
         assert_eq!((pass.deferred, pass.unreadable()), (1, 0));
         assert_eq!(
             pass.deferred_files.first(),
@@ -723,7 +751,7 @@ mod tests {
             (io::ErrorKind::StorageFull, 2),
             (io::ErrorKind::InvalidData, 3),
         ] {
-            pass.count_read_failure(Path::new("bucket/locked"), kind);
+            pass.count_read_failure(Path::new("bucket/locked"), EntryError::Io(kind));
             assert_eq!(
                 (pass.deferred, pass.unreadable()),
                 (1, unreadable),
@@ -750,7 +778,10 @@ mod tests {
         let mut pass = Reconciliation::default();
         let mut reconciled = Reconciliation::default();
         reconciled.count_unmapped_object();
-        reconciled.count_read_failure(Path::new("bucket/locked"), io::ErrorKind::PermissionDenied);
+        reconciled.count_read_failure(
+            Path::new("bucket/locked"),
+            EntryError::Io(io::ErrorKind::PermissionDenied),
+        );
         pass.absorb_hold(&reconciled);
         assert_eq!(pass.gate().hold(), Hold::Unreadable);
         assert_eq!(pass.unrepresentable_entries().get(), 0);

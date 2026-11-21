@@ -164,6 +164,9 @@ pub enum RootError {
     RootChanged,
     MissingMarker,
     InvalidMarker,
+    /// The marker kept failing to open while its name still held an entry: neither missing nor
+    /// invalid, so the root is not taken for one without a marker and a staged marker stays.
+    UnopenableMarker,
     ForeignMarker,
     ReinitializeDenied,
     /// The selected directory has no marker and holds more than files directly in it, and the
@@ -224,6 +227,7 @@ impl std::fmt::Display for RootError {
             Self::RootChanged => f.write_str("RootChanged"),
             Self::MissingMarker => f.write_str("MissingMarker"),
             Self::InvalidMarker => f.write_str("InvalidMarker"),
+            Self::UnopenableMarker => f.write_str("UnopenableMarker"),
             Self::ForeignMarker => f.write_str("ForeignMarker"),
             Self::ReinitializeDenied => f.write_str("ReinitializeDenied"),
             Self::ReplacementOccupied { .. } => f.write_str("ReplacementOccupied"),
@@ -245,6 +249,7 @@ impl TypedSource for RootError {
             Self::Unsupported { cause, .. } => (cause.0.raw_os_error().is_some()
                 || cause.0.get_ref().is_some())
             .then_some(Link::Io(&cause.0)),
+            Self::UnopenableMarker => Some(Link::Unopenable(&fsutil::Unopenable)),
             Self::InUse
             | Self::RootChanged
             | Self::MissingMarker
@@ -293,9 +298,8 @@ fn marker_open_error(error: io::Error) -> RootError {
     }
 }
 /// Opens the marker `name` in `directory`, `None` when nothing is there. A marker that kept
-/// failing to open while its name still held an entry is neither missing nor invalid: reading it
-/// fails, so the caller neither takes the directory for one without a marker nor removes a
-/// staged marker.
+/// failing to open while its name still held an entry fails the read
+/// ([`RootError::UnopenableMarker`]).
 fn open_marker(
     directory: &File,
     lookup: &fsutil::Lookup,
@@ -304,10 +308,7 @@ fn open_marker(
     match lookup.regular_unconfirmed(directory, name.as_ref()) {
         Ok(fsutil::Opened::Entry(file)) => Ok(Some(file)),
         Ok(fsutil::Opened::Missing(_)) => Ok(None),
-        Ok(fsutil::Opened::Unopenable) => Err(RootError::at(
-            Stage::ReadMarker,
-            io::Error::from(fsutil::Unopenable),
-        )),
+        Ok(fsutil::Opened::Unopenable) => Err(RootError::UnopenableMarker),
         Err(error) => Err(marker_open_error(error)),
     }
 }

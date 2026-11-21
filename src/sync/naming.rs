@@ -180,6 +180,9 @@ pub(crate) enum ProbeError {
     /// The probe could not create, list or remove its entries, as on a read-only or full
     /// filesystem.
     Io(io::Error),
+    /// A spelling the probe looked up kept failing to open while it reached an entry, so
+    /// whether the filesystem folds it is unknown until the probe runs again.
+    Unopenable(crate::fsutil::Unopenable),
     /// The filesystem listed a probe name under another spelling, such as another letter case
     /// or Unicode normalization. An exported object would come back from the next scan under
     /// that spelling and be ingested as a second object.
@@ -192,7 +195,7 @@ impl ProbeError {
     /// reason.
     pub(crate) fn pause_reason(&self) -> PauseReason {
         match self {
-            Self::Io(_) => PauseReason::IoFailure,
+            Self::Io(_) | Self::Unopenable(_) => PauseReason::IoFailure,
             Self::RewritesNames => PauseReason::ObserverFailure,
         }
     }
@@ -216,6 +219,9 @@ impl fmt::Display for ProbeError {
             Self::Io(_) => {
                 "Cannot probe the file naming rules of sync_dir in its .gcs-mimic-sync-work directory; make sync_dir writable with free space, then request a rescan"
             }
+            Self::Unopenable(_) => {
+                "Cannot probe the file naming rules of sync_dir yet: a name the probe looked up in its .gcs-mimic-sync-work directory kept failing to open; synchronization probes again"
+            }
             // The status reports the generic pause remedy, which asks for a rescan; this text has
             // to say that a rescan cannot help and name the step that does.
             Self::RewritesNames => {
@@ -235,6 +241,7 @@ impl TypedSource for ProbeError {
     fn typed_source(&self) -> Option<Link<'_>> {
         match self {
             Self::Io(error) => Some(Link::Io(error)),
+            Self::Unopenable(error) => Some(Link::Unopenable(error)),
             Self::RewritesNames => None,
         }
     }

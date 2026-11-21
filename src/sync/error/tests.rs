@@ -501,3 +501,55 @@ fn only_a_failure_at_one_path_concerns_one_object() {
     let capacity = SyncError::Writeback(writeback::Error::Capacity);
     assert!(!capacity.concerns_one_object());
 }
+
+/// A native watch whose build meets a directory that keeps failing to open while its name still
+/// holds one fails as a failure that passes, so the mirror builds the watch again rather than
+/// stopping, as it does for a build that met exhausted descriptors.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn a_watch_build_that_meets_a_directory_that_keeps_failing_to_open_is_built_again() {
+    let tree = crate::test_support::TestDir::new();
+    std::fs::create_dir(tree.0.join("bucket")).unwrap();
+    let root = crate::fsutil::open_directory_nofollow(&tree.0).unwrap();
+    let _failing = crate::fsutil::FailingOpens::vanishing(&tree.0, "bucket", usize::MAX);
+    let Err(error) =
+        crate::source_tree::watch::build(&root, &tree.0, crate::source_tree::TreeLimits::default())
+    else {
+        panic!("the watch was built over a directory that does not open");
+    };
+    let error = SyncError::Root(RootError::from(AdminError::backend(error)));
+    assert!(error.is_watch_retryable(), "{error:?}");
+    assert!(error.is_transient(), "{error:?}");
+}
+
+/// A root marker that keeps failing to open while its name still holds it fails the activation
+/// as a failure that passes, which the mirror tries again, and the marker stays.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn a_marker_that_keeps_failing_to_open_fails_activation_as_a_failure_that_passes() {
+    use crate::storage::sync_state::root::Activation;
+    use crate::sync::mapping::MARKER;
+    let data = crate::test_support::TestDir::new();
+    let tree = crate::test_support::TestDir::new();
+    let catalog = crate::storage::Catalog::open(&data.0).await.unwrap();
+    drop(
+        catalog
+            .sync_state()
+            .activate_root(&tree.0, Activation::Open)
+            .await
+            .unwrap(),
+    );
+    let failing = crate::fsutil::FailingOpens::vanishing(&tree.0, MARKER, usize::MAX);
+    let Err(error) = catalog
+        .sync_state()
+        .activate_root(&tree.0, Activation::Open)
+        .await
+    else {
+        panic!("the root was activated over a marker that does not open");
+    };
+    drop(failing);
+    let error = SyncError::Root(error);
+    assert!(error.is_transient(), "{error:?}");
+    assert!(tree.0.join(MARKER).exists());
+    catalog.close().await.unwrap();
+}

@@ -685,14 +685,10 @@ async fn write_back_members(
                 {
                     DirectoryCreation::Created | DirectoryCreation::Finding => {}
                     // Every member in a bucket directory that does not open would be left
-                    // behind. The write-back fails as the failed open does instead, which
-                    // leaves this member and those after it for the next pass.
+                    // behind. The write-back fails as a failure that passes instead, which
+                    // leaves this member and those after it to the run the mirror retries.
                     DirectoryCreation::Deferred => {
-                        return Err(SyncError::Writeback(
-                            crate::storage::sync_state::writeback::Error::Root(RootError::Admin(
-                                std::io::Error::from(fsutil::Unopenable).into(),
-                            )),
-                        ));
+                        return Err(SyncError::Unopenable(fsutil::Unopenable));
                     }
                 }
                 buckets.insert(candidate.bucket.clone());

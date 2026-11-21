@@ -21,6 +21,7 @@ use crate::{
         Pass, Reconciliation, SyncError,
         entries::{EntryClass, classify},
         interrupt::{Interrupt, Interrupted},
+        tree::EntryError,
     },
 };
 use std::{io, path::PathBuf};
@@ -258,7 +259,7 @@ pub(in crate::sync) async fn external_files(
                 return Ok(());
             }
             match classify(&entry, naming) {
-                EntryClass::Unreadable(io::ErrorKind::ResourceBusy) => {
+                EntryClass::Unreadable(EntryError::Io(io::ErrorKind::ResourceBusy)) => {
                     return Err(io::Error::from(io::ErrorKind::ResourceBusy).into());
                 }
                 EntryClass::Unreadable(kind) => counts.count_read_failure(&entry.path, kind),

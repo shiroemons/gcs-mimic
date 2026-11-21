@@ -1,5 +1,5 @@
 use super::interrupt::{Interrupt, Interrupted};
-use super::tree::TreeScan as Scan;
+use super::tree::{EntryError, TreeScan as Scan};
 use super::{
     Pass, SyncError,
     entries::{EntryClass, EntryProblem, classify, path_text},
@@ -309,19 +309,19 @@ impl Ingest<'_> {
     }
 
     /// Counts a file or directory that could not be read this time and says how to restore it.
-    /// The gate decides from `kind` whether a later pass may read it or an operator must act.
-    fn defer(&mut self, path: &std::path::Path, kind: io::ErrorKind) {
+    /// The gate decides from `error` whether a later pass may read it or an operator must act.
+    fn defer(&mut self, path: &std::path::Path, error: EntryError) {
         let path = if path.as_os_str().is_empty() {
             std::path::Path::new(".")
         } else {
             path
         };
-        self.summary.count_read_failure(path, kind);
+        self.summary.count_read_failure(path, error);
         diagnostics::emit(
             LogLevel::Warn,
             "sync_source_deferred",
             serde_json::json!({
-                "path":path_text(path),"reason":kind.to_string(),
+                "path":path_text(path),"reason":error.to_string(),
                 "remedy":super::report::command::logged(&Correction::UnreadableFile.remedy())
             }),
         );
@@ -421,7 +421,7 @@ impl Ingest<'_> {
                 if error.kind() != io::ErrorKind::NotFound
                     && Failure::of_kind(error.kind()) != Some(Failure::Volume) =>
             {
-                self.defer(&holder.path, error.kind());
+                self.defer(&holder.path, EntryError::Io(error.kind()));
                 return Ok(());
             }
             Err(RootError::Admin(

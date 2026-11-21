@@ -35,6 +35,13 @@ pub(crate) enum Error {
         expect(dead_code, reason = "only the Linux and macOS watches list the tree")
     )]
     Tree(AdminError),
+    /// A directory of the tree kept failing to open while its name still held one. Passed over,
+    /// its subtree would go unwatched, so the build fails, and the mirror builds it again.
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos")),
+        expect(dead_code, reason = "only the Linux and macOS watches list the tree")
+    )]
+    Unopenable(crate::fsutil::Unopenable),
     /// The tree has more directories than the watch may add.
     #[cfg_attr(
         all(not(target_os = "linux"), not(test)),
@@ -92,6 +99,7 @@ impl fmt::Display for Error {
         match self {
             Self::Io(error) => fmt::Display::fmt(error, f),
             Self::Tree(error) => fmt::Display::fmt(error, f),
+            Self::Unopenable(error) => fmt::Display::fmt(error, f),
             Self::Limit(limit) => fmt::Display::fmt(limit, f),
         }
     }
@@ -102,6 +110,7 @@ impl std::error::Error for Error {
         match self {
             Self::Io(error) => Some(error),
             Self::Tree(error) => Some(error),
+            Self::Unopenable(error) => Some(error),
             Self::Limit(limit) => Some(limit),
         }
     }
@@ -115,9 +124,8 @@ impl From<io::Error> for Error {
 
 /// The directory at `name` in `directory` that a watch that adds one watch per directory adds,
 /// `None` for an entry it passes over: one gone, an alias of another name, or no directory. A
-/// directory that kept failing to open while its name still held one fails the build as a step
-/// that timed out, which the mirror retries by building the watch again: passed over, its
-/// subtree would go unwatched.
+/// directory that kept failing to open while its name still held one fails the build
+/// ([`Error::Unopenable`]).
 #[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
 fn child_directory(
     lookup: &crate::fsutil::Lookup,
@@ -128,10 +136,7 @@ fn child_directory(
     match lookup.directory(directory, name, DirectoryOpen::Existing) {
         Ok(Child::Directory { file, .. }) => Ok(Some(file)),
         Ok(Child::Missing(_) | Child::Alias) => Ok(None),
-        Ok(Child::Unopenable) => Err(Error::Io(io::Error::new(
-            io::ErrorKind::TimedOut,
-            crate::fsutil::Unopenable,
-        ))),
+        Ok(Child::Unopenable) => Err(Error::Unopenable(crate::fsutil::Unopenable)),
         Err(error)
             if error.kind() == io::ErrorKind::NotFound
                 || crate::sync::tree::structural_entry_error(&error) =>

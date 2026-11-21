@@ -20,6 +20,7 @@ use crate::{
         correspond::{PathEntry, observe_path},
         failure::{Failure, unless_superseded},
         naming::RootNaming,
+        tree::EntryError,
     },
 };
 use std::{fs::File, io, path::PathBuf};
@@ -165,7 +166,7 @@ impl Ingest<'_> {
             Err(RootError::Admin(AdminError::Io(error)))
                 if Failure::of_kind(error.kind()) != Some(Failure::Volume) =>
             {
-                self.defer(&candidate.path, error.kind());
+                self.defer(&candidate.path, EntryError::Io(error.kind()));
                 self.record_observation(&candidate.binding, &candidate.name, PathStop::IoFailure)
                     .await?;
                 return Ok(None);
@@ -231,7 +232,7 @@ impl Ingest<'_> {
                 Ok(None)
             }
             Err(NotDurable::Io(error)) => {
-                self.defer(path.as_ref(), error.kind());
+                self.defer(path.as_ref(), EntryError::Io(error.kind()));
                 self.record_observation(binding, name, PathStop::IoFailure)
                     .await?;
                 Ok(None)

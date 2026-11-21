@@ -210,6 +210,18 @@ impl Live {
         drop(self.root);
         self.catalog.close().await.unwrap();
     }
+
+    /// Waits for the run to end with the failure it met, and closes the catalog.
+    pub(super) async fn failed(self) -> SyncError {
+        let error = tokio::time::timeout(HANG_GUARD, self.worker)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
+        drop(self.root);
+        self.catalog.close().await.unwrap();
+        error
+    }
 }
 
 /// The directory goes away while the server runs, and an API write into its bucket follows. The

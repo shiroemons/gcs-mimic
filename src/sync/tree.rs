@@ -86,7 +86,23 @@ pub(crate) struct TreeEntry {
     pub(crate) path: PathBuf,
     pub(crate) identity: Option<FileIdentity>,
     pub(crate) directory: bool,
-    pub(crate) error: Option<io::ErrorKind>,
+    pub(crate) error: Option<EntryError>,
+}
+/// Why a scan could not read an entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EntryError {
+    /// Opening it, or listing the directory, failed with this kind.
+    Io(io::ErrorKind),
+    /// It kept failing to open while its name still held one.
+    Unopenable,
+}
+impl std::fmt::Display for EntryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(kind) => std::fmt::Display::fmt(kind, f),
+            Self::Unopenable => std::fmt::Display::fmt(&fsutil::Unopenable, f),
+        }
+    }
 }
 /// The directories of the scan's frames, reopened from the root. `lost` is the first frame that
 /// could not be reopened or was replaced; it is reported as an entry and dropped with the frames
@@ -103,7 +119,7 @@ impl TreeEntry {
             path: frame.path.clone(),
             identity: None,
             directory: true,
-            error: Some(error),
+            error: Some(EntryError::Io(error)),
         }
     }
 }
@@ -238,9 +254,8 @@ impl TreeScan {
             // exact spelling before it reads it (`open_source`), and the next scan lists the new
             // name.
             // An entry gone since the listing is passed over. One that kept failing to open while
-            // its name still held it is a read failure that a later scan reads again, of the
-            // kind the open kept failing with: passing over a tracked file would take it for one
-            // that is gone.
+            // its name still held it is a read failure that a later scan reads again: passing
+            // over a tracked file would take it for one that is gone.
             match self.lookup.directory_unconfirmed(directory, &name) {
                 Ok(Opened::Entry(file)) => {
                     // The root's frame is level 0, so this count is the level of the child.
@@ -253,14 +268,16 @@ impl TreeScan {
                     entry.directory = true;
                 }
                 Ok(Opened::Missing(_)) => continue,
-                Ok(Opened::Unopenable) => entry.error = Some(io::ErrorKind::NotFound),
-                Err(error) if !structural_entry_error(&error) => entry.error = Some(error.kind()),
+                Ok(Opened::Unopenable) => entry.error = Some(EntryError::Unopenable),
+                Err(error) if !structural_entry_error(&error) => {
+                    entry.error = Some(EntryError::Io(error.kind()));
+                }
                 Err(_) => match self.lookup.regular_unconfirmed(directory, &name) {
                     Ok(Opened::Entry(file)) => entry.identity = Some(fsutil::stat_identity(&file)?),
                     Ok(Opened::Missing(_)) => continue,
-                    Ok(Opened::Unopenable) => entry.error = Some(io::ErrorKind::NotFound),
+                    Ok(Opened::Unopenable) => entry.error = Some(EntryError::Unopenable),
                     Err(error) if !structural_entry_error(&error) => {
-                        entry.error = Some(error.kind())
+                        entry.error = Some(EntryError::Io(error.kind()));
                     }
                     Err(_) => {}
                 },

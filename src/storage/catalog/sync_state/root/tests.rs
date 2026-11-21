@@ -59,22 +59,21 @@ async fn a_marker_that_briefly_fails_to_open_is_still_read() {
 }
 
 /// A marker that keeps failing to open while its name still holds it is neither missing nor
-/// invalid: reading it fails with the read error, so the root is not taken for one without a
-/// marker, and a staged marker stays rather than being removed as an invalid one.
+/// invalid: reading it fails, so the root is not taken for one without a marker, and a staged
+/// marker stays rather than being removed as an invalid one.
 #[test]
 fn a_marker_that_keeps_failing_to_open_fails_the_read_and_stays() {
     let tree = TestDir::new();
     let directory = fsutil::open_directory_nofollow(&tree.0).unwrap();
     let clock = std::sync::Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
     let lookup = fsutil::Lookup::unprobed_on(clock);
-    let unsettled = |error: &RootError| matches!(error, RootError::Admin(AdminError::Io(cause)) if cause.kind() == io::ErrorKind::NotFound);
     for name in [MARKER, MARKER_STAGING] {
         fs::write(tree.0.join(name), b"{}").unwrap();
         let _failing = fsutil::FailingOpens::vanishing(&tree.0, name, usize::MAX);
         let Err(error) = marker_state(&directory, &lookup) else {
             panic!("{name}: the marker state was read");
         };
-        assert!(unsettled(&error), "{name}: {error:?}");
+        assert_eq!(error, RootError::UnopenableMarker, "{name}");
         assert!(tree.0.join(name).exists(), "{name}");
         fs::remove_file(tree.0.join(name)).unwrap();
     }

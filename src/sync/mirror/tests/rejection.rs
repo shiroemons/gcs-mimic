@@ -560,3 +560,26 @@ async fn a_member_whose_write_back_is_obsolete_stays_until_its_file_is_back() {
     written_back(&live.catalog, &tree.0, &bucket).await;
     live.stop().await;
 }
+
+/// A bucket directory that a user puts back empty as the write-back of a rejected set reaches
+/// it, and that keeps failing to open while its name still holds it, fails the run as a failure
+/// that passes, which the mirror retries rather than pausing over, with both members left. The
+/// next run writes both files back once the directory opens.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bucket_directory_that_keeps_failing_to_open_leaves_the_set_to_a_retried_run() {
+    let hook = member_hook();
+    let (data, tree, bucket, live) = awaiting_pair(Some(hook.clone())).await;
+    reject_control(&live.commands, &live.root).await;
+    reach_member(&hook).await;
+    fs::create_dir(tree.0.join(BUCKET)).unwrap();
+    let failing = fsutil::FailingOpens::vanishing(&tree.0, BUCKET, usize::MAX);
+    hook.release.notify_one();
+    let error = live.failed().await;
+    drop(failing);
+    assert!(error.is_transient(), "{error:?}");
+    let live = Live::start_with(&data.0, &tree.0, None).await;
+    assert_eq!(wait_control(&live.commands).await.reason, WaitReason::Ready);
+    assert_eq!(left_to_write_back(&live.root).await, 0);
+    written_back(&live.catalog, &tree.0, &bucket).await;
+    live.stop().await;
+}

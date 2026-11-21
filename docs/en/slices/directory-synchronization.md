@@ -629,7 +629,8 @@ finds nothing under is still missing then. A name that still fails is neither
 present nor absent: ingestion defers the file as a changing source, the
 deletion inventory counts the path as unobservable (`io-failure`) and deletes
 nothing for it, an export or write-back step defers to a later pass, and a
-marker read fails with the read error instead of passing for a missing marker.
+marker read fails, as a transient failure that is tried again, instead of
+passing for a missing marker or removing a staged one.
 An export step that meets such a name after it began, while it copies the body,
 installs it or records or acknowledges the installed file as durable, is retried
 as a transient failure with its private copy kept; an observation of a file
@@ -639,12 +640,16 @@ and the write-back recovery that starts each run settles the operation the step
 left: installed bytes stay at the target, and a copy not installed yet goes.
 The scan follows the same rule for each entry a listing names: it passes over
 only an entry proved gone, and counts one that still fails as a deferred read
-failure. The Linux native watch, which adds a watch for each directory, fails
-its build on a directory that still fails, and the mirror builds it again as
-after any transient failure, so that subtree is not left unwatched. A bucket directory that still fails is neither forgotten as a missing
-one nor taken for an empty one: a reconciliation or a bucket's creation defers
-the bucket to a later pass, while the write-back of a rejected deletion set
-fails on it as on any failed open, which leaves its members for the next pass.
+failure. The native watch, which on Linux adds a watch for each directory and
+on macOS lists the tree before it subscribes, fails its build on a directory
+that still fails, and the mirror builds it again as after any transient
+failure, so that subtree is not left unwatched. The naming probe fails the same
+way on a spelling it looks up that still fails, and probes again. A bucket
+directory that still fails is neither forgotten as a missing one nor taken for
+an empty one: a reconciliation or a bucket's creation defers the bucket to a
+later pass, while the write-back of a rejected deletion set fails the run on it
+as a transient failure, which leaves its members to the run the mirror tries
+again.
 A member below a directory that still fails stays to write back rather than
 being marked done, so no inventory takes its missing file for a deletion. An
 export that opens its

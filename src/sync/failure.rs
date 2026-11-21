@@ -4,6 +4,7 @@
 
 use crate::{
     bucket::CatalogError,
+    fsutil,
     storage::{
         admin::AdminError,
         failure::{Link, chain},
@@ -95,6 +96,13 @@ impl Failure {
         }
     }
 
+    /// What an entry that kept failing to open while its name still held one says, wherever a
+    /// step met it: whether the name holds anything is unknown until a later read, so the step
+    /// is tried again.
+    pub(in crate::sync) fn of_unopenable(_: fsutil::Unopenable) -> Self {
+        Self::Transient
+    }
+
     /// What a catalog failure says: an unavailable catalog comes back.
     pub(in crate::sync) fn of_catalog(error: &CatalogError) -> Option<Self> {
         matches!(error, CatalogError::Unavailable(_)).then_some(Self::Transient)
@@ -128,11 +136,13 @@ impl Failure {
         }
     }
 
-    /// What a catalog write about one name says, as the root reports it.
+    /// What a catalog write about one name says, as the root reports it. A marker that kept
+    /// failing to open decides as its next link does.
     pub(in crate::sync) fn of_root(error: &RootError) -> Option<Self> {
         match error {
             RootError::Admin(error) => Self::of_admin(error),
-            RootError::InUse
+            RootError::UnopenableMarker
+            | RootError::InUse
             | RootError::Unsupported { .. }
             | RootError::RootChanged
             | RootError::MissingMarker
@@ -154,7 +164,9 @@ impl Failure {
                 Some(Self::Superseded)
             }
             writeback::Error::Admin(error) => Self::of_admin(error),
-            writeback::Error::Raced(RaceReason::Unopenable) => Some(Self::Transient),
+            writeback::Error::Raced(RaceReason::Unopenable) => {
+                Some(Self::of_unopenable(fsutil::Unopenable))
+            }
             writeback::Error::Raced(
                 RaceReason::ParentChanged
                 | RaceReason::Respelled

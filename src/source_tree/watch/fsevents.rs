@@ -1,5 +1,6 @@
 use super::*;
 use crate::fsutil::FileIdentity;
+use crate::sync::tree::EntryError;
 use std::{
     collections::HashMap,
     ffi::{CStr, OsStr, c_void},
@@ -431,8 +432,14 @@ pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> Result<Nati
     while !scan.is_empty() {
         let (next, page) = scan.page(root).map_err(Error::Tree)?;
         scan = next;
-        if let Some(kind) = page.into_iter().find_map(|entry| entry.error) {
-            return Err(io::Error::from(kind).into());
+        match page.into_iter().find_map(|entry| entry.error) {
+            None => {}
+            Some(EntryError::Io(kind)) => return Err(io::Error::from(kind).into()),
+            // Passed over, the directory's subtree would go unwatched, so the build fails and
+            // the mirror builds the watch again.
+            Some(EntryError::Unopenable) => {
+                return Err(Error::Unopenable(crate::fsutil::Unopenable));
+            }
         }
     }
     let bytes = path.as_os_str().as_bytes();

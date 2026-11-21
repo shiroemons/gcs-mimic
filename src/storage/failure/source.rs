@@ -8,6 +8,7 @@
 use super::{BackendCause, BackendFailure, MemoryBudget, MemoryExhausted};
 use crate::{
     bucket::CatalogError,
+    fsutil::Unopenable,
     object::ObjectError,
     source_tree::watch,
     storage::{
@@ -37,6 +38,9 @@ pub(crate) enum Source {
     Executor(ExecutorError),
     /// A journal refusal that an import resume names to the operator.
     Resume(ResumeError),
+    /// An entry that kept failing to open while its name still held one, which the retry
+    /// decisions take for a failure that passes.
+    Unopenable(Unopenable),
     /// A failure no storage, sync or adapter decision reads.
     Leaf(Leaf),
 }
@@ -62,6 +66,7 @@ impl Source {
             Self::Connection(error) => Link::Connection(error),
             Self::Executor(error) => Link::Executor(error),
             Self::Resume(error) => Link::Resume(error),
+            Self::Unopenable(error) => Link::Unopenable(error),
             Self::Leaf(Leaf(error)) => Link::Leaf(&**error),
         }
     }
@@ -92,6 +97,7 @@ pub(crate) enum Link<'a> {
     Executor(&'a ExecutorError),
     Rollback(&'a RollbackError),
     Resume(&'a ResumeError),
+    Unopenable(&'a Unopenable),
     /// A failure no decision reads, or any error below one, an I/O error or an SQLite error.
     Leaf(&'a (dyn Error + 'static)),
 }
@@ -115,6 +121,7 @@ impl<'a> Link<'a> {
             Self::Executor(error) => error,
             Self::Rollback(error) => error,
             Self::Resume(error) => error,
+            Self::Unopenable(error) => error,
             Self::Leaf(error) => error,
         }
     }
@@ -122,7 +129,7 @@ impl<'a> Link<'a> {
     /// The next link: the error `as_error().source()` returns, by type.
     pub(crate) fn source(self) -> Option<Link<'a>> {
         match self {
-            Self::Failure(_) | Self::Stop(_) => None,
+            Self::Failure(_) | Self::Stop(_) | Self::Unopenable(_) => None,
             Self::Exhausted(error) => error.typed_source(),
             Self::Context(error) => error.typed_source(),
             Self::Catalog(error) => error.typed_source(),
@@ -227,6 +234,7 @@ typed_sources!(
     Connection(ConnectionUnavailable),
     Executor(ExecutorError),
     Resume(ResumeError),
+    Unopenable(Unopenable),
 );
 
 /// A RAM blob failure is the budget it exhausted or the I/O error it met.
@@ -239,13 +247,15 @@ impl From<BlobError> for Source {
     }
 }
 
-/// A native watch that could not be built keeps the I/O error or the tree listing failure it met,
-/// so the mirror's retry decision still reads them; a watch limit is a leaf.
+/// A native watch that could not be built keeps the I/O error, the tree listing failure or the
+/// directory that kept failing to open it met, so the mirror's retry decision still reads them;
+/// a watch limit is a leaf.
 impl From<watch::Error> for Source {
     fn from(error: watch::Error) -> Self {
         match error {
             watch::Error::Io(error) => Self::Io(error),
             watch::Error::Tree(error) => Self::Admin(error),
+            watch::Error::Unopenable(error) => Self::Unopenable(error),
             watch::Error::Limit(limit) => limit.into(),
         }
     }

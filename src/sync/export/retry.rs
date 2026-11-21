@@ -28,7 +28,8 @@ pub(super) fn retryable(error: &writeback::Error) -> bool {
     let error = match error {
         writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => error,
         // An entry that kept failing to open is looked at again; the step is read afresh.
-        writeback::Error::Raced(RaceReason::Unopenable) => return true,
+        writeback::Error::Raced(RaceReason::Unopenable)
+        | writeback::Error::Root(RootError::UnopenableMarker) => return true,
         writeback::Error::Root(
             RootError::InUse
             | RootError::Unsupported { .. }

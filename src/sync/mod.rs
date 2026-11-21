@@ -137,6 +137,7 @@ fn activation_remedy(error: &RootError, catalog: CatalogId) -> String {
         | RootError::Unsupported { .. }
         | RootError::MissingMarker
         | RootError::InvalidMarker
+        | RootError::UnopenableMarker
         | RootError::ForeignMarker
         | RootError::ReinitializeDenied => format!(
             "restore the intended mount/root and stop other writers. For an associated root with a missing marker only, back up the tree and restart with --sync-reinitialize {catalog}. Preserve foreign/malformed markers and select a fresh unassociated directory; never overwrite them. A foreign .gcs-mimic-sync.json may have been committed to Git or copied from another environment: add it to .gitignore, preserve the tree and select a fresh directory, or select the intended data_dir."
