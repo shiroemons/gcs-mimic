@@ -935,6 +935,33 @@ async fn a_listed_file_that_fails_to_open_stays_in_the_scan() {
     catalog.close().await.unwrap();
 }
 
+/// A file the scan opened that keeps failing to open when ingestion opens it to stage it is
+/// deferred, not taken for gone, and no object is made of it until it opens.
+#[tokio::test]
+async fn a_file_that_keeps_failing_to_open_for_ingestion_is_deferred() {
+    let (_data, tree, catalog, root, config, clock) = clocked_fixture().await;
+    let bucket = tree.0.join("test-bucket");
+    fs::create_dir(&bucket).unwrap();
+    fs::write(bucket.join("object"), b"bytes").unwrap();
+    clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
+    let failing = fsutil::FailingOpens::vanishing_after(&bucket, "object", 1, usize::MAX);
+    let scanned = scan(&catalog, &root, &config).await;
+    assert_eq!((scanned.ingested, scanned.deferred), (0, 1));
+    let name = crate::storage::admin::ObjectName::new("object").unwrap();
+    let test_bucket = crate::storage::admin::BucketName::new("test-bucket").unwrap();
+    assert!(
+        catalog
+            .admin(Origin::Api)
+            .get_object(&test_bucket, &name, None)
+            .await
+            .is_err()
+    );
+    drop(failing);
+    assert_eq!(scan(&catalog, &root, &config).await.ingested, 1);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// A bucket directory whose open fails with `ENOENT` for a moment while the root still holds it
 /// is no missing directory: the root keeps the bucket it observed.
 #[tokio::test]

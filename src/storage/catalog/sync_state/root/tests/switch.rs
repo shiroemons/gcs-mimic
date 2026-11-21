@@ -103,11 +103,14 @@ fn canonical(path: &Path) -> String {
 }
 
 fn published(root: &Path) -> RootId {
-    read_marker(&fsutil::open_directory_nofollow(root).unwrap())
-        .unwrap()
-        .unwrap()
-        .0
-        .root_id
+    read_marker(
+        &fsutil::open_directory_nofollow(root).unwrap(),
+        &fsutil::Lookup::unprobed(),
+    )
+    .unwrap()
+    .unwrap()
+    .0
+    .root_id
 }
 
 /// Every table with a `root_id` column loses the rows of a root the catalog forgets: a statement

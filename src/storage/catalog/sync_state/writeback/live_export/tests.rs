@@ -95,9 +95,27 @@ impl Fixture {
 
     /// A fixture whose root assumes `naming` instead of probing its filesystem.
     async fn with_naming(naming: crate::sync::naming::RootNaming) -> Self {
+        Self::on_clock(naming, std::sync::Arc::new(SystemClock)).await
+    }
+
+    /// A fixture on a clock the test sets, so that a lookup's waits for a name to open again pass
+    /// without sleeping.
+    async fn clocked() -> Self {
+        let clock = crate::clock::ManualClock::new(std::time::SystemTime::now());
+        Self::on_clock(
+            crate::sync::naming::RootNaming::posix(),
+            std::sync::Arc::new(clock),
+        )
+        .await
+    }
+
+    async fn on_clock(
+        naming: crate::sync::naming::RootNaming,
+        clock: std::sync::Arc<dyn crate::clock::Clock>,
+    ) -> Self {
         let data = TestDir::new();
         let tree = TestDir::new();
-        let catalog = Catalog::open(&data.0).await.unwrap();
+        let catalog = Catalog::open_with_clock(&data.0, clock).await.unwrap();
         let bucket = BucketName::new("test-bucket").unwrap();
         catalog
             .admin(Origin::Api)
@@ -1502,4 +1520,53 @@ fn a_workspace_entry_that_keeps_failing_to_open_is_never_empty() {
         displaced_entry(&directory, &lookup, id).map(|file| file.is_some()),
         Err(Error::Raced(RaceReason::Unsettled))
     );
+}
+
+/// An observation whose target keeps failing to open while the name still holds the exported
+/// body is never taken for one that finished, and the body stays as it is.
+#[tokio::test]
+async fn an_observation_whose_target_keeps_failing_to_open_does_not_finish() {
+    let fixture = Fixture::clocked().await;
+    let record = fixture.publish("object", b"api").await;
+    let operation = fixture.begin("object").await;
+    for _ in 0..8 {
+        if fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap()
+            == InstallOutcome::Complete
+        {
+            break;
+        }
+    }
+    drop(operation);
+    let operation = observation(
+        &fixture.writeback,
+        &fixture.bucket,
+        &ObjectName::new("object").unwrap(),
+        Generation::new(record.generation).unwrap(),
+        fixture.catalog.current_fence().await.unwrap(),
+    )
+    .await;
+    let failing =
+        fsutil::FailingOpens::vanishing(&fixture.tree.0.join("test-bucket"), "object", usize::MAX);
+    let mut outcome = Ok(InstallOutcome::Pending);
+    for _ in 0..8 {
+        outcome = fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await;
+        if outcome != Ok(InstallOutcome::Pending) {
+            break;
+        }
+    }
+    drop(failing);
+    assert_eq!(outcome, Ok(InstallOutcome::Raced));
+    assert_eq!(
+        fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
+        b"api"
+    );
+    drop(operation);
+    fixture.close().await;
 }

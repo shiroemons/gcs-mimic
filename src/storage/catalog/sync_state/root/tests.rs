@@ -47,12 +47,37 @@ async fn a_marker_that_briefly_fails_to_open_is_still_read() {
     );
     let vanishing = fsutil::FailingOpens::vanishing(&tree.0, MARKER, 2);
     assert!(
-        read_marker(&fsutil::open_directory_nofollow(&tree.0).unwrap())
-            .unwrap()
-            .is_some()
+        read_marker(
+            &fsutil::open_directory_nofollow(&tree.0).unwrap(),
+            &fsutil::Lookup::unprobed()
+        )
+        .unwrap()
+        .is_some()
     );
     assert_eq!(vanishing.left(), 0);
     catalog.close().await.unwrap();
+}
+
+/// A marker that keeps failing to open while its name still holds it is neither missing nor
+/// invalid: reading it fails with the read error, so the root is not taken for one without a
+/// marker, and a staged marker stays rather than being removed as an invalid one.
+#[test]
+fn a_marker_that_keeps_failing_to_open_fails_the_read_and_stays() {
+    let tree = TestDir::new();
+    let directory = fsutil::open_directory_nofollow(&tree.0).unwrap();
+    let clock = std::sync::Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
+    let lookup = fsutil::Lookup::unprobed_on(clock);
+    let unsettled = |error: &RootError| matches!(error, RootError::Admin(AdminError::Io(cause)) if cause.kind() == io::ErrorKind::NotFound);
+    for name in [MARKER, MARKER_STAGING] {
+        fs::write(tree.0.join(name), b"{}").unwrap();
+        let _failing = fsutil::FailingOpens::vanishing(&tree.0, name, usize::MAX);
+        let Err(error) = marker_state(&directory, &lookup) else {
+            panic!("{name}: the marker state was read");
+        };
+        assert!(unsettled(&error), "{name}: {error:?}");
+        assert!(tree.0.join(name).exists(), "{name}");
+        fs::remove_file(tree.0.join(name)).unwrap();
+    }
 }
 
 #[test]
@@ -898,9 +923,12 @@ async fn marker_crash_and_power_loss_snapshots_resume_only_complete_owned_marker
                     .unwrap(),
             );
             assert!(
-                read_marker(&fsutil::open_directory_nofollow(&tree.0).unwrap())
-                    .unwrap()
-                    .is_some()
+                read_marker(
+                    &fsutil::open_directory_nofollow(&tree.0).unwrap(),
+                    &fsutil::Lookup::unprobed()
+                )
+                .unwrap()
+                .is_some()
             );
             reopened.close().await.unwrap();
         }

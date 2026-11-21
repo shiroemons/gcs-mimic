@@ -278,8 +278,11 @@ impl Marker {
     }
 }
 
-fn read_marker(directory: &File) -> Result<Option<(Marker, FileIdentity)>, RootError> {
-    read_marker_name(directory, MARKER)
+fn read_marker(
+    directory: &File,
+    lookup: &fsutil::Lookup,
+) -> Result<Option<(Marker, FileIdentity)>, RootError> {
+    read_marker_name(directory, lookup, MARKER)
 }
 fn marker_open_error(error: io::Error) -> RootError {
     if error.kind() == io::ErrorKind::NotFound || crate::sync::tree::structural_entry_error(&error)
@@ -293,8 +296,12 @@ fn marker_open_error(error: io::Error) -> RootError {
 /// failing to open while its name still held an entry is neither missing nor invalid: reading it
 /// fails, so the caller neither takes the directory for one without a marker nor removes a
 /// staged marker.
-fn open_marker(directory: &File, name: &str) -> Result<Option<File>, RootError> {
-    match fsutil::Lookup::unprobed().regular_unconfirmed(directory, name.as_ref()) {
+fn open_marker(
+    directory: &File,
+    lookup: &fsutil::Lookup,
+    name: &str,
+) -> Result<Option<File>, RootError> {
+    match lookup.regular_unconfirmed(directory, name.as_ref()) {
         Ok(fsutil::Opened::Entry(file)) => Ok(Some(file)),
         Ok(fsutil::Opened::Missing(_)) => Ok(None),
         Ok(fsutil::Opened::Transient) => Err(RootError::at(
@@ -306,9 +313,10 @@ fn open_marker(directory: &File, name: &str) -> Result<Option<File>, RootError> 
 }
 fn read_marker_name(
     directory: &File,
+    lookup: &fsutil::Lookup,
     name: &str,
 ) -> Result<Option<(Marker, FileIdentity)>, RootError> {
-    let Some(file) = open_marker(directory, name)? else {
+    let Some(file) = open_marker(directory, lookup, name)? else {
         return Ok(None);
     };
     let before = fsutil::stat_identity(&file).at(Stage::ReadMarker)?;
@@ -325,7 +333,7 @@ fn read_marker_name(
         return Err(RootError::InvalidMarker);
     }
     // A marker gone while it was read is invalid.
-    let current = open_marker(directory, name)?.ok_or(RootError::InvalidMarker)?;
+    let current = open_marker(directory, lookup, name)?.ok_or(RootError::InvalidMarker)?;
     if fsutil::stat_identity(&current).at(Stage::ReadMarker)? != before {
         return Err(RootError::InvalidMarker);
     }
@@ -346,11 +354,11 @@ impl MarkerState {
         }
     }
 }
-fn marker_state(directory: &File) -> Result<MarkerState, RootError> {
-    if let Some((marker, identity)) = read_marker(directory)? {
+fn marker_state(directory: &File, lookup: &fsutil::Lookup) -> Result<MarkerState, RootError> {
+    if let Some((marker, identity)) = read_marker(directory, lookup)? {
         return Ok(MarkerState::Published(marker, identity));
     }
-    match read_marker_name(directory, MARKER_STAGING) {
+    match read_marker_name(directory, lookup, MARKER_STAGING) {
         Ok(Some((marker, _))) => Ok(MarkerState::Staged(marker)),
         Ok(None) => Ok(MarkerState::Absent),
         Err(RootError::InvalidMarker) => {
@@ -402,6 +410,7 @@ fn stage_marker(owns: &Ownership, marker: Marker) -> Result<switch::Staged, Root
 
 fn publish_marker(
     owns: &Ownership,
+    lookup: &fsutil::Lookup,
     status: RootStatus,
     marker: &MarkerState,
 ) -> Result<FileIdentity, RootError> {
@@ -445,7 +454,7 @@ fn publish_marker(
             fault::hit_io(&owns.path, Step::SyncMarkerPublished).at(stage)?;
         }
     }
-    let (current, identity) = read_marker(root)?.ok_or(RootError::MissingMarker)?;
+    let (current, identity) = read_marker(root, lookup)?.ok_or(RootError::MissingMarker)?;
     if !current.owned_by(status) {
         return Err(RootError::ForeignMarker);
     }
@@ -682,12 +691,12 @@ impl RootLease {
             Arc::clone(&self.catalog().0.clock),
         ))
     }
-    /// Lookups of names the mirror made itself, such as its private workspace entries, whose
-    /// spelling no naming rule decides. They need no probe, so recovery can use them before the
-    /// root's naming rules are known, and they wait on the catalog's clock as [`Self::lookup`]
-    /// does.
+    /// Lookups of names the mirror made itself, such as its private workspace entries and the
+    /// root marker, whose spelling no naming rule decides. They need no probe, so recovery can
+    /// use them before the root's naming rules are known, and they wait on the catalog's clock
+    /// as [`Self::lookup`] does.
     pub(crate) fn private_lookup(&self) -> crate::fsutil::Lookup {
-        crate::fsutil::Lookup::unprobed_on(Arc::clone(&self.catalog().0.clock))
+        self.state.private_lookup()
     }
     /// Records the probed naming rules. A later probe of the same pinned root that observes other
     /// rules means its filesystem changed underneath it.
@@ -750,8 +759,8 @@ impl RootLease {
 
     fn validate(&self) -> Result<(), RootError> {
         self.ownership.validate()?;
-        let (marker, identity) =
-            read_marker(self.ownership.lock.file())?.ok_or(RootError::MissingMarker)?;
+        let (marker, identity) = read_marker(self.ownership.lock.file(), &self.private_lookup())?
+            .ok_or(RootError::MissingMarker)?;
         if !marker.owned_by(self.status) {
             return Err(RootError::ForeignMarker);
         }
@@ -820,6 +829,11 @@ impl RootLease {
 }
 
 impl SyncState {
+    /// See [`RootLease::private_lookup`].
+    fn private_lookup(&self) -> fsutil::Lookup {
+        fsutil::Lookup::unprobed_on(Arc::clone(&self.0.0.clock))
+    }
+
     pub async fn activate_root(
         &self,
         path: impl AsRef<Path>,
@@ -831,6 +845,7 @@ impl SyncState {
             .await?;
         let path = path.as_ref().to_owned();
         let data_dir = self.0.0.data_dir.clone();
+        let lookup = self.private_lookup();
         let catalog = self.catalog_id().await?;
         // Detached ownership makes cancellation safe across the separate durability domains.
         let state = self.clone();
@@ -867,7 +882,7 @@ impl SyncState {
                         _catalog_permit: permit,
                     };
                     ownership.validate()?;
-                    let marker = marker_state(ownership.lock.file())?;
+                    let marker = marker_state(ownership.lock.file(), &lookup)?;
                     Ok((Arc::new(ownership), marker))
                 })
                 .await?;
@@ -927,11 +942,12 @@ impl SyncState {
             Arc::new(change.summary())
         });
         let owns = ownership.clone();
+        let lookup = self.private_lookup();
         let marker_identity = self
             .0
             .0
             .file_workers
-            .run(move || publish_marker(&owns, status, &marker))
+            .run(move || publish_marker(&owns, &lookup, status, &marker))
             .await?;
         Ok(RootLease {
             ownership,
