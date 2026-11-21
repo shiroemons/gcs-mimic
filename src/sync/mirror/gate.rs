@@ -10,6 +10,7 @@ use crate::{
     storage::sync_state::root::Baseline,
     sync::{
         entries::{EntryProblem, EntryReport, Skip},
+        failure::Failure,
         report::verdict::TreeSide,
     },
 };
@@ -31,24 +32,24 @@ pub(in crate::sync) enum ReadFailure {
 }
 
 impl From<io::ErrorKind> for ReadFailure {
+    /// A transient kind passes and a volume's kind lasts, as [`Failure`] classifies them for
+    /// every step; the kinds only a read gives this meaning to are decided here.
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "io::ErrorKind is non-exhaustive, and a kind this match does not name is unknown"
     )]
     fn from(kind: io::ErrorKind) -> Self {
-        match kind {
-            io::ErrorKind::NotFound
-            | io::ErrorKind::ResourceBusy
-            | io::ErrorKind::NotADirectory
-            | io::ErrorKind::IsADirectory
-            | io::ErrorKind::Interrupted
-            | io::ErrorKind::WouldBlock
-            | io::ErrorKind::TimedOut => Self::Passing,
-            io::ErrorKind::PermissionDenied
-            | io::ErrorKind::StorageFull
-            | io::ErrorKind::QuotaExceeded
-            | io::ErrorKind::ReadOnlyFilesystem => Self::Lasting,
-            _ => Self::Unknown,
+        match Failure::of_kind(kind) {
+            Some(Failure::Transient) => Self::Passing,
+            Some(Failure::Volume) => Self::Lasting,
+            Some(Failure::Superseded | Failure::PathLocal) | None => match kind {
+                // The entry went away or was replaced while the pass read it.
+                io::ErrorKind::NotFound
+                | io::ErrorKind::NotADirectory
+                | io::ErrorKind::IsADirectory => Self::Passing,
+                io::ErrorKind::PermissionDenied => Self::Lasting,
+                _ => Self::Unknown,
+            },
         }
     }
 }
@@ -424,6 +425,38 @@ impl BaselineGate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A read that failed for an entry going away, a busy or interrupted call or a timeout passes;
+    /// a missing permission or a whole file system's failure lasts; any other kind is unknown.
+    #[test]
+    fn a_read_failure_passes_lasts_or_is_unknown_by_its_kind() {
+        for kind in [
+            io::ErrorKind::NotFound,
+            io::ErrorKind::ResourceBusy,
+            io::ErrorKind::NotADirectory,
+            io::ErrorKind::IsADirectory,
+            io::ErrorKind::Interrupted,
+            io::ErrorKind::WouldBlock,
+            io::ErrorKind::TimedOut,
+        ] {
+            assert_eq!(ReadFailure::from(kind), ReadFailure::Passing, "{kind:?}");
+        }
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::StorageFull,
+            io::ErrorKind::QuotaExceeded,
+            io::ErrorKind::ReadOnlyFilesystem,
+        ] {
+            assert_eq!(ReadFailure::from(kind), ReadFailure::Lasting, "{kind:?}");
+        }
+        for kind in [
+            io::ErrorKind::InvalidInput,
+            io::ErrorKind::Other,
+            io::ErrorKind::AlreadyExists,
+        ] {
+            assert_eq!(ReadFailure::from(kind), ReadFailure::Unknown, "{kind:?}");
+        }
+    }
 
     /// Only the tree side decides: any number of unmapped objects leaves a pass clear, and one
     /// entry the tree could not take in holds it back.

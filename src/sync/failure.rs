@@ -8,10 +8,13 @@ use crate::{
         admin::AdminError,
         failure::{Link, chain},
         sync_state::{
+            conflicts,
+            observation::PauseReason,
             root::RootError,
             writeback::{self, RaceReason},
         },
     },
+    sync::error::Cause,
 };
 use std::io;
 
@@ -30,6 +33,9 @@ pub(in crate::sync) enum Failure {
     /// The whole file system's: a full disk, an exhausted quota or a read-only file system fails
     /// every later write there as well, so no one path is to blame.
     Volume,
+    /// Only the path one export was writing failed: an I/O failure there, or a file that changed
+    /// under the export. Only a whole chain says this ([`scope`]); no one link does.
+    PathLocal,
     /// It passes on its own: catalog contention, an admission timeout, an interrupted or
     /// timed-out call, descriptor or memory pressure, or an entry that kept failing to open
     /// while its name still held it.
@@ -103,6 +109,25 @@ impl Failure {
         .then_some(Self::Transient)
     }
 
+    /// What a conflict capture's failure says. The file it was to capture going away after the
+    /// step read it is a change of the tree, as a target that changed is.
+    pub(in crate::sync) fn of_conflict(error: &conflicts::Error) -> Option<Self> {
+        match error {
+            conflicts::Error::Admin(AdminError::Io(cause))
+                if cause.kind() == io::ErrorKind::NotFound =>
+            {
+                Some(Self::Superseded)
+            }
+            conflicts::Error::Admin(error) => Self::of_admin(error),
+            conflicts::Error::TargetChanged => Some(Self::Superseded),
+            conflicts::Error::Root(_)
+            | conflicts::Error::RevisionMismatch
+            | conflicts::Error::OperationIdReused
+            | conflicts::Error::InvalidResolution
+            | conflicts::Error::Capacity => None,
+        }
+    }
+
     /// What a catalog write about one name says, as the root reports it.
     pub(in crate::sync) fn of_root(error: &RootError) -> Option<Self> {
         match error {
@@ -149,6 +174,38 @@ impl Failure {
             | writeback::Error::WorkspaceChanged => None,
         }
     }
+}
+
+/// Whether a failure, given as the causes of its chain, is the whole file system's
+/// ([`Failure::Volume`]), concerns only the path one export was writing
+/// ([`Failure::PathLocal`]), or neither. A volume failure anywhere in the chain decides first;
+/// then the first cause that names a pause reason, which is the path's only for an I/O failure;
+/// with none, a conflict, a displaced target or a capture target that changed is the path's.
+/// Write-back stops, conflict capacity and catalog failures concern every export.
+pub(in crate::sync) fn scope<'a, C: Iterator<Item = Cause<'a>>>(
+    causes: impl Fn() -> C,
+) -> Option<Failure> {
+    if causes().any(|cause| cause.failure() == Some(Failure::Volume)) {
+        return Some(Failure::Volume);
+    }
+    let path_local = match causes().find_map(Cause::pause_reason) {
+        Some(PauseReason::IoFailure) => true,
+        Some(
+            PauseReason::ConflictCapacity
+            | PauseReason::RecoveryRequired
+            | PauseReason::ObserverFailure
+            | PauseReason::SourceChanging
+            | PauseReason::SourceUnrepresentable,
+        ) => false,
+        None => causes().any(|cause| {
+            matches!(
+                cause,
+                Cause::Writeback(writeback::Error::Conflict(_) | writeback::Error::Displaced(_))
+                    | Cause::Conflict(conflicts::Error::TargetChanged)
+            )
+        }),
+    };
+    path_local.then_some(Failure::PathLocal)
 }
 
 /// Whether descriptor or memory pressure, or another transient I/O failure, is in `error`'s

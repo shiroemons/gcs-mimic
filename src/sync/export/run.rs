@@ -15,7 +15,7 @@ use crate::{
     },
     sync::{SyncError, failure::Failure, report::remedy::newer_edit_remedy},
 };
-use std::{fs::File, io};
+use std::fs::File;
 
 impl LiveObject<'_> {
     /// Exports `plan`; `Some` is the export, skipped because preserving the file it would replace
@@ -211,15 +211,7 @@ impl LiveObject<'_> {
             .await
         {
             Ok(captured) => captured,
-            Err(
-                crate::storage::sync_state::conflicts::Error::TargetChanged
-                | crate::storage::sync_state::conflicts::Error::Admin(
-                    AdminError::Precondition | AdminError::NotFound,
-                ),
-            ) => return Ok(None),
-            Err(crate::storage::sync_state::conflicts::Error::Admin(AdminError::Io(cause)))
-                if cause.kind() == io::ErrorKind::NotFound =>
-            {
+            Err(error) if Failure::of_conflict(&error) == Some(Failure::Superseded) => {
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -237,7 +229,9 @@ impl LiveObject<'_> {
                 .await
             {
                 Ok((_, reader)) => plan.source = Some(reader.into_file()?),
-                Err(AdminError::Precondition | AdminError::NotFound) => return Ok(None),
+                Err(error) if Failure::of_admin(&error) == Some(Failure::Superseded) => {
+                    return Ok(None);
+                }
                 Err(error) => return Err(error.into()),
             }
         }

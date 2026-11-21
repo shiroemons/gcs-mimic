@@ -104,7 +104,7 @@ impl<'a> Cause<'a> {
 
     /// The class [`Failure`] gives this link alone. A link that wraps another decides as that
     /// one does, since the chain reaches it next.
-    fn failure(self) -> Option<Failure> {
+    pub(in crate::sync) fn failure(self) -> Option<Failure> {
         match self {
             Self::Admin(error) => Failure::of_admin(error),
             Self::Root(error) => Failure::of_root(error),
@@ -112,7 +112,8 @@ impl<'a> Cause<'a> {
             Self::Catalog(error) => Failure::of_catalog(error),
             Self::Sqlite(error) => Failure::of_sqlite(error),
             Self::Io(error) => Failure::of_io(error),
-            Self::Conflict(_) | Self::Stop(_) | Self::Other => None,
+            Self::Conflict(error) => Failure::of_conflict(error),
+            Self::Stop(_) | Self::Other => None,
         }
     }
 
@@ -120,12 +121,7 @@ impl<'a> Cause<'a> {
         self.failure() == Some(Failure::Transient)
     }
 
-    /// Whether this failure is the file system's rather than one path's.
-    fn concerns_the_volume(self) -> bool {
-        self.failure() == Some(Failure::Volume)
-    }
-
-    fn pause_reason(self) -> Option<PauseReason> {
+    pub(in crate::sync) fn pause_reason(self) -> Option<PauseReason> {
         match self {
             Self::Stop(stop) => Some(match stop {
                 Stop::ConflictCapacity => PauseReason::ConflictCapacity,
@@ -227,33 +223,12 @@ impl SyncError {
             .unwrap_or(PauseReason::ObserverFailure)
     }
 
-    /// Whether the failure concerns only the path one export was writing: an I/O failure there
-    /// or a file that changed under the export. An export that observes a finding again keeps
-    /// that finding for a later pass on such a failure; a full disk, an exhausted quota, a
-    /// read-only file system, write-back stops, conflict capacity and catalog failures concern
-    /// every export and still fail the pass.
+    /// Whether the failure concerns only the path one export was writing
+    /// ([`Failure::PathLocal`], as [`super::failure::scope`] decides). An export that observes a
+    /// finding again keeps that finding for a later pass on such a failure; any other fails the
+    /// pass.
     pub(super) fn concerns_one_object(&self) -> bool {
-        if self.causes().any(Cause::concerns_the_volume) {
-            return false;
-        }
-        match self.causes().find_map(Cause::pause_reason) {
-            Some(PauseReason::IoFailure) => true,
-            Some(
-                PauseReason::ConflictCapacity
-                | PauseReason::RecoveryRequired
-                | PauseReason::ObserverFailure
-                | PauseReason::SourceChanging
-                | PauseReason::SourceUnrepresentable,
-            ) => false,
-            None => self.causes().any(|cause| {
-                matches!(
-                    cause,
-                    Cause::Writeback(
-                        writeback::Error::Conflict(_) | writeback::Error::Displaced(_)
-                    ) | Cause::Conflict(conflicts::Error::TargetChanged)
-                )
-            }),
-        }
+        super::failure::scope(|| self.causes()) == Some(Failure::PathLocal)
     }
 
     /// Whether a deletion pass met a concurrent change and must start over, not fail.
