@@ -628,7 +628,9 @@ failure. A bucket directory that still fails is neither forgotten as a missing
 one nor taken for an empty one. So does the second open that tells what kind
 of entry holds a name that failed to open as a file or as a directory: an
 entry that went or kept failing meanwhile leaves the path to a later read
-rather than being taken for a symlink or special file.
+rather than being taken for a symlink or special file. Write-back opens its
+private entries in `.gcs-mimic-sync-work` the same way, so a body an exchange
+moved there is never taken for none and left there untracked.
 
 A filesystem that stores a created name under another spelling, in letter case
 or Unicode normalization, cannot keep the mapping reversible. The mirror pauses

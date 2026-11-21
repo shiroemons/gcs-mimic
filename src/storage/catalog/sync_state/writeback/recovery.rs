@@ -33,6 +33,7 @@ fn owned_body(
 fn remove_owned(
     root: &File,
     workspace: &File,
+    lookup: &fsutil::Lookup,
     item: &Pending,
     owned: Option<OwnedBody>,
     #[cfg(test)] faults: &Paths,
@@ -42,6 +43,7 @@ fn remove_owned(
         faults.hit(Step::SyncRecoveryUnlink)?;
         if !owned.unlink(
             workspace,
+            lookup,
             item,
             #[cfg(test)]
             faults,
@@ -150,11 +152,12 @@ impl Writeback {
             })
             .await?;
         let selected = item.clone();
+        let lookup = self.lease.private_lookup();
         #[cfg(test)]
         let faults = self.fault_paths();
         let result = self
             .fs(move |root, workspace| {
-                let Some(body) = entry(workspace, selected.token.id)? else {
+                let Some(body) = entry(workspace, &lookup, selected.token.id)? else {
                     return Ok(());
                 };
                 let Some(owned) = owned_body(&body, &selected, tracked.as_ref())? else {
@@ -164,6 +167,7 @@ impl Writeback {
                 remove_owned(
                     root,
                     workspace,
+                    &lookup,
                     &selected,
                     Some(owned),
                     #[cfg(test)]
@@ -181,18 +185,20 @@ impl Writeback {
 
     async fn cancel_recovered(&self, item: Pending) -> Result<(), Error> {
         let selected = item.clone();
+        let lookup = self.lease.private_lookup();
         #[cfg(test)]
         let faults = self.fault_paths();
         let result = self
             .fs(move |root, workspace| {
                 // Before arming, this opaque intent can contain only its private API copy; any
                 // other operation's surviving body is protected.
-                let owned = entry(workspace, selected.token.id)?
+                let owned = entry(workspace, &lookup, selected.token.id)?
                     .map(|body| OwnedBody::unarmed(&body, &selected)?.ok_or(Error::Protected))
                     .transpose()?;
                 if remove_owned(
                     root,
                     workspace,
+                    &lookup,
                     &selected,
                     owned,
                     #[cfg(test)]

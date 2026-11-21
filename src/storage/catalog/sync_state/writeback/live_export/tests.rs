@@ -1476,3 +1476,30 @@ async fn an_observation_waits_out_a_target_that_briefly_fails_to_open() {
     drop(operation);
     fixture.close().await;
 }
+
+/// A private workspace entry that keeps failing to open while its name still holds it is a race
+/// the operation is read again after, never a name that holds nothing: taken for empty, the
+/// body an exchange displaced into the workspace would stay there with nothing tracking it. One
+/// that fails only for a moment is the entry.
+#[test]
+fn a_workspace_entry_that_keeps_failing_to_open_is_never_empty() {
+    let workspace = TestDir::new();
+    let id = OpaqueId::SAMPLE;
+    fs::write(workspace.0.join(id.to_hex()), b"displaced").unwrap();
+    let directory = File::open(&workspace.0).unwrap();
+    let clock = std::sync::Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
+    let lookup = fsutil::Lookup::probed(fsutil::Matching::Exact, clock);
+    let briefly = fsutil::FailingOpens::vanishing(&workspace.0, &id.to_hex(), 2);
+    assert!(entry(&directory, &lookup, id).unwrap().is_some());
+    assert_eq!(briefly.left(), 0);
+    drop(briefly);
+    let _failing = fsutil::FailingOpens::vanishing(&workspace.0, &id.to_hex(), usize::MAX);
+    assert_eq!(
+        entry(&directory, &lookup, id).map(|file| file.is_some()),
+        Err(Error::Raced(RaceReason::Unsettled))
+    );
+    assert_eq!(
+        displaced_entry(&directory, &lookup, id).map(|file| file.is_some()),
+        Err(Error::Raced(RaceReason::Unsettled))
+    );
+}

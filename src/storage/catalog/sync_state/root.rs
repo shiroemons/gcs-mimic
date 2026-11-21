@@ -682,6 +682,13 @@ impl RootLease {
             Arc::clone(&self.catalog().0.clock),
         ))
     }
+    /// Lookups of names the mirror made itself, such as its private workspace entries, whose
+    /// spelling no naming rule decides. They need no probe, so recovery can use them before the
+    /// root's naming rules are known, and they wait on the catalog's clock as [`Self::lookup`]
+    /// does.
+    pub(crate) fn private_lookup(&self) -> crate::fsutil::Lookup {
+        crate::fsutil::Lookup::unprobed_on(Arc::clone(&self.catalog().0.clock))
+    }
     /// Records the probed naming rules. A later probe of the same pinned root that observes other
     /// rules means its filesystem changed underneath it.
     pub(crate) fn record_naming(&self, naming: RootNaming) -> Result<(), RootError> {

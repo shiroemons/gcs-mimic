@@ -72,10 +72,11 @@ impl OwnedBody {
     pub(in crate::storage::catalog::sync_state::writeback) fn unlink(
         self,
         workspace: &File,
+        lookup: &fsutil::Lookup,
         item: &Pending,
         #[cfg(test)] faults: &faults::Paths,
     ) -> Result<bool, Error> {
-        let Some(current) = entry(workspace, item.token.id)? else {
+        let Some(current) = entry(workspace, lookup, item.token.id)? else {
             return Ok(false);
         };
         if fsutil::stat_identity(&current)? != self.0 {

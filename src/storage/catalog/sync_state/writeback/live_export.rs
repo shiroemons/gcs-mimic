@@ -527,7 +527,7 @@ fn install_target(
         ControlFlow::Continue(current) => current,
         ControlFlow::Break(ended) => return Ok(ended),
     };
-    let retained = entry(workspace, install.item.token.id)?;
+    let retained = entry(workspace, &install.lookup, install.item.token.id)?;
     let directory = match current {
         Current::File { file, directory } => {
             if !already_installed(install.staged, file.as_ref(), retained.as_ref())? {
@@ -673,8 +673,12 @@ fn rename(
 /// its check, so it is not the tracked body: the attempt fails `Protected` and the entry stays.
 /// Inspecting it then cannot open it either, so the root stops on that entry failure rather
 /// than counting a protected body.
-fn displaced_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
-    match fsutil::open_regular_at(workspace, id.to_hex().as_ref()) {
+fn displaced_entry(
+    workspace: &File,
+    lookup: &fsutil::Lookup,
+    id: OpaqueId,
+) -> Result<Option<File>, Error> {
+    match lookup.regular_unconfirmed(workspace, id.to_hex().as_ref()) {
         Err(error) if crate::sync::tree::structural_entry_error(&error) => Err(Error::Protected),
         opened => present(opened),
     }
@@ -700,7 +704,7 @@ fn settle(
     let selected = &install.item;
     #[cfg(test)]
     failure(selected.token.root, "installed")?;
-    if let Some(file) = displaced_entry(workspace, selected.token.id)? {
+    if let Some(file) = displaced_entry(workspace, &install.lookup, selected.token.id)? {
         let displaced = install
             .tracked
             .as_ref()
@@ -712,6 +716,7 @@ fn settle(
         failure(selected.token.root, "displaced-unlink")?;
         if !displaced.unlink(
             workspace,
+            &install.lookup,
             selected,
             #[cfg(test)]
             &install.faults,
@@ -858,6 +863,7 @@ impl Writeback {
             Body::Observe { .. } | Body::Remove => None,
         };
         let selected = operation.item.clone();
+        let lookup = self.lease.private_lookup();
         let staged = self
             .fs(move |_, workspace| {
                 let Some(source) = source else {
@@ -888,9 +894,9 @@ impl Writeback {
                     #[cfg(test)]
                     faults.copy_created(&selected);
                 }
-                let file = entry(workspace, selected.token.id)?.ok_or(Error::Invariant(
-                    "a private copy is gone after it was written",
-                ))?;
+                let file = entry(workspace, &lookup, selected.token.id)?.ok_or(
+                    Error::Invariant("a private copy is gone after it was written"),
+                )?;
                 if let body::Match::Differs = body::same_content(&file, (&selected).into())? {
                     return Err(AdminError::Checksum.into());
                 }
@@ -1118,7 +1124,7 @@ impl Writeback {
                 // Another file in the private copy's entry means the namespace already changed.
                 // The copy itself under another inode number is not one: a failure before
                 // installation confirmed the copy leaves `staged` as it was recorded.
-                if let Some(retained) = entry(workspace, item.token.id)?
+                if let Some(retained) = entry(workspace, &lookup, item.token.id)?
                     && !body::staged_node(&retained, staged)?
                     && matches!(
                         body::own_copy(&retained, staged, (&item).into())?,
@@ -1132,7 +1138,10 @@ impl Writeback {
                 target_file(root, naming, &lookup, &item.path)?
                     .map_or(Ok(false), |file| body::staged_node(&file, staged))
             } else {
-                Ok(item.kind == Kind::Remove && entry(workspace, item.token.id)?.is_some())
+                Ok(
+                    item.kind == Kind::Remove
+                        && entry(workspace, &lookup, item.token.id)?.is_some(),
+                )
             }
         })
         .await
@@ -1309,10 +1318,11 @@ impl Writeback {
                 {
                     return Err(Error::Protected);
                 }
-                if let Some(file) = entry(workspace, selected.token.id)? {
+                if let Some(file) = entry(workspace, &lookup, selected.token.id)? {
                     let owned = OwnedBody::staged(&file, &selected, staged)?;
                     if !owned.unlink(
                         workspace,
+                        &lookup,
                         &selected,
                         #[cfg(test)]
                         &faults,

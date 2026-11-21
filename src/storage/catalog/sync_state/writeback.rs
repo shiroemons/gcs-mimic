@@ -708,8 +708,8 @@ fn parent(
     }
     Ok(Some(directory))
 }
-fn entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
-    present(fsutil::open_regular_at(workspace, id.to_hex().as_ref()))
+fn entry(workspace: &File, lookup: &fsutil::Lookup, id: OpaqueId) -> Result<Option<File>, Error> {
+    present(lookup.regular_unconfirmed(workspace, id.to_hex().as_ref()))
 }
 /// Like [`entry`], but open for writing, so that a retried copy can empty and refill the private
 /// copy a failed attempt left. A private copy that another name also links is `Protected`:
@@ -736,12 +736,15 @@ fn refillable_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Erro
     }
     Ok(Some(file))
 }
-/// A missing workspace entry is `None`; any other failure to open it is an error.
-fn present(opened: io::Result<File>) -> Result<Option<File>, Error> {
-    match opened {
-        Ok(f) => Ok(Some(f)),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e.into()),
+/// A workspace entry the lookup proved missing is `None`, and any other failure to open it is an
+/// error. One that kept failing to open while its name still held an entry is a race the
+/// operation is read again after: taken for none, a body an exchange displaced into the
+/// workspace would stay there with nothing tracking it.
+fn present(opened: io::Result<fsutil::Opened<File>>) -> Result<Option<File>, Error> {
+    match opened? {
+        fsutil::Opened::Entry(file) => Ok(Some(file)),
+        fsutil::Opened::Missing(_) => Ok(None),
+        fsutil::Opened::Transient => Err(Error::Raced(RaceReason::Unsettled)),
     }
 }
 fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {
@@ -829,7 +832,7 @@ fn fingerprint(
     item: &Pending,
     observed_ns: i128,
 ) -> Result<Option<SyncFingerprint>, Error> {
-    if entry(workspace, item.token.id)?.is_some() {
+    if entry(workspace, lookup, item.token.id)?.is_some() {
         return Err(Error::Protected);
     }
     let file = observe_target(root, naming, lookup, &item.path)?.into_file()?;
@@ -874,7 +877,7 @@ fn verify_fingerprint(
     item: &Pending,
     expected: Option<&SyncFingerprint>,
 ) -> Result<Option<Durable>, Error> {
-    if entry(workspace, item.token.id)?.is_some() {
+    if entry(workspace, lookup, item.token.id)?.is_some() {
         return Err(Error::Protected);
     }
     let durable = match (
@@ -1038,9 +1041,10 @@ impl Writeback {
             return Err(Error::Obsolete(StaleReason::Completed));
         }
         let id = token.id;
+        let lookup = self.lease.private_lookup();
         let observed = self
             .fs(move |root, workspace| {
-                let Some(file) = entry(workspace, id)? else {
+                let Some(file) = entry(workspace, &lookup, id)? else {
                     workspace.sync_all()?;
                     root.sync_all()?;
                     return Ok(None);

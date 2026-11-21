@@ -122,7 +122,12 @@ impl Listings {
 impl Lookup {
     /// Lookups that know nothing about the filesystem: each directory's own answer decides.
     pub(crate) fn unprobed() -> Self {
-        Self::with(Known::Nothing, Arc::new(SystemClock))
+        Self::unprobed_on(Arc::new(SystemClock))
+    }
+
+    /// Like [`Self::unprobed`], telling the time and waiting on `clock`.
+    pub(crate) fn unprobed_on(clock: Arc<dyn Clock>) -> Self {
+        Self::with(Known::Nothing, clock)
     }
 
     /// Lookups below a root whose probe matched names as `matching` says, telling the time of a
