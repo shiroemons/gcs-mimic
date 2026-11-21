@@ -90,16 +90,14 @@ async fn forget_missing_directories(
             }
             after = Some(bucket.name.clone());
             let selected = bucket.name.clone();
+            let lookup = root.lookup()?;
+            // Only a directory proved gone is forgotten; one that kept failing to open stays.
             let absent = root
                 .file_job(move |root| {
-                    match fsutil::directory_at(
-                        root,
-                        selected.as_str().as_ref(),
-                        fsutil::DirectoryOpen::Existing,
-                    ) {
-                        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
-                        Ok(_) | Err(_) => Ok(false),
-                    }
+                    Ok(matches!(
+                        lookup.existing_directory(root, selected.as_str().as_ref()),
+                        Ok(fsutil::Opened::Missing(_))
+                    ))
                 })
                 .await?;
             if absent {
@@ -236,14 +234,11 @@ async fn holds_entries(
     let lookup = root.lookup()?;
     Ok(root
         .file_job(move |root| {
-            let directory = match fsutil::directory_at(
-                root,
-                bucket.as_str().as_ref(),
-                fsutil::DirectoryOpen::Existing,
-            ) {
-                Ok(directory) => directory,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-                Err(_) => return Ok(true),
+            let directory = match lookup.existing_directory(root, bucket.as_str().as_ref()) {
+                Ok(fsutil::Opened::Entry(directory)) => directory,
+                Ok(fsutil::Opened::Missing(_)) => return Ok(false),
+                // What a directory that kept failing to open holds is unknown.
+                Ok(fsutil::Opened::Transient(_)) | Err(_) => return Ok(true),
             };
             let mut names = fsutil::DirectoryNames::default();
             loop {

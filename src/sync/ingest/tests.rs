@@ -927,6 +927,57 @@ async fn ingest_takes_in_a_file_that_briefly_fails_to_open() {
     catalog.close().await.unwrap();
 }
 
+/// A file the scan lists whose open fails with `ENOENT` while its name still holds it stays in
+/// the scan: one that opens again is ingested, and one that keeps failing is deferred as a read
+/// failure rather than passed over as a file that is gone.
+#[tokio::test]
+async fn a_listed_file_that_fails_to_open_stays_in_the_scan() {
+    let (_data, tree, catalog, root, config, clock) = clocked_fixture().await;
+    let bucket = tree.0.join("test-bucket");
+    fs::create_dir(&bucket).unwrap();
+    fs::write(bucket.join("tracked"), b"tracked").unwrap();
+    clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
+    assert_eq!(scan(&catalog, &root, &config).await.ingested, 1);
+    fs::write(bucket.join("object"), b"bytes").unwrap();
+    clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
+    let briefly = fsutil::VanishingOpens::of(&bucket, "object", 2);
+    let stuck = fsutil::VanishingOpens::of(&bucket, "tracked", usize::MAX);
+    let scanned = scan(&catalog, &root, &config).await;
+    assert_eq!((scanned.ingested, scanned.deferred), (1, 1));
+    assert_eq!(briefly.left(), 0);
+    assert_eq!(object(&catalog, "test-bucket/object").await.size, 5);
+    drop(stuck);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// A bucket directory whose open fails with `ENOENT` for a moment while the root still holds it
+/// is no missing directory: the root keeps the bucket it observed.
+#[tokio::test]
+async fn a_bucket_directory_that_briefly_fails_to_open_is_not_forgotten() {
+    let (_data, tree, catalog, root, config, clock) = clocked_fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/object"), b"bytes").unwrap();
+    clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
+    assert_eq!(scan(&catalog, &root, &config).await.ingested, 1);
+    let buckets = || async {
+        root.sync_buckets_page(None, crate::storage::sync_state::PageLimit::LARGEST)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|bucket| (bucket.name, bucket.incarnation))
+            .collect::<Vec<_>>()
+    };
+    let observed = buckets().await;
+    assert_eq!(observed.len(), 1);
+    let vanishing = fsutil::VanishingOpens::of(&tree.0, "test-bucket", 2);
+    scan(&catalog, &root, &config).await;
+    assert_eq!(vanishing.left(), 0);
+    assert_eq!(buckets().await, observed);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn ingest_new_files_use_seed_mime_and_bucket_default_hold() {
     let (_data, tree, catalog, root, mut config) = fixture().await;

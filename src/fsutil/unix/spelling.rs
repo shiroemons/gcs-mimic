@@ -77,16 +77,23 @@ pub(crate) fn existing_regular(
     open_entry(parent, name, lookup, || open_regular_at(parent, name))
 }
 
+pub(crate) fn existing_directory(
+    parent: &File,
+    name: &OsStr,
+    lookup: &Lookup,
+) -> io::Result<Opened<File>> {
+    open_entry(parent, name, lookup, || {
+        directory_at(parent, name, DirectoryOpen::Existing)
+    })
+}
+
 pub(crate) fn child_directory(
     parent: &File,
     name: &OsStr,
     open: DirectoryOpen,
     lookup: &Lookup,
 ) -> io::Result<Child> {
-    let opened = open_entry(parent, name, lookup, || {
-        directory_at(parent, name, DirectoryOpen::Existing)
-    })?;
-    let (file, created) = match opened {
+    let (file, created) = match existing_directory(parent, name, lookup)? {
         Opened::Entry(file) => (file, Created::No),
         Opened::Missing(vacant) => {
             if open == DirectoryOpen::Existing {

@@ -4,7 +4,7 @@ use super::{
     mapping::{LexicalReason, Obstruction, Unplaced},
     naming::RootNaming,
 };
-use crate::fsutil::{self, Child, DirectoryNames, DirectoryOpen, Lookup, NodeId};
+use crate::fsutil::{self, Child, DirectoryNames, DirectoryOpen, Lookup, NodeId, Opened};
 pub(crate) use crate::source_tree::TreeLimits;
 use crate::source_tree::{LARGE_TREE_ENTRIES, warn_large_tree};
 use crate::{config::MAX_TREE_DEPTH, fsutil::FileIdentity, storage::admin::AdminError};
@@ -237,8 +237,11 @@ impl TreeScan {
             // name, as one renamed just after the scan would be: ingest reopens a file under its
             // exact spelling before it reads it (`open_source`), and the next scan lists the new
             // name.
-            match fsutil::directory_at(directory, &name, DirectoryOpen::Existing) {
-                Ok(file) => {
+            // An entry gone since the listing is passed over. One that kept failing to open while
+            // its name still held it is a read failure that a later scan reads again: passing
+            // over a tracked file would take it for one that is gone.
+            match self.lookup.existing_directory(directory, &name) {
+                Ok(Opened::Entry(file)) => {
                     // The root's frame is level 0, so this count is the level of the child.
                     if self.frames.len() > self.limits.deepest_directory() {
                         return Err(self.limits.too_deep());
@@ -248,11 +251,13 @@ impl TreeScan {
                     directories.push(file);
                     entry.directory = true;
                 }
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Ok(Opened::Missing(_)) => continue,
+                Ok(Opened::Transient(error)) => entry.error = Some(error.kind()),
                 Err(error) if !structural_entry_error(&error) => entry.error = Some(error.kind()),
-                Err(_) => match fsutil::open_regular_at(directory, &name) {
-                    Ok(file) => entry.identity = Some(fsutil::stat_identity(&file)?),
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(_) => match self.lookup.existing_regular(directory, &name) {
+                    Ok(Opened::Entry(file)) => entry.identity = Some(fsutil::stat_identity(&file)?),
+                    Ok(Opened::Missing(_)) => continue,
+                    Ok(Opened::Transient(error)) => entry.error = Some(error.kind()),
                     Err(error) if !structural_entry_error(&error) => {
                         entry.error = Some(error.kind())
                     }

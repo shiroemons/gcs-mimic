@@ -21,6 +21,13 @@ pub(crate) fn existing_regular(
 ) -> io::Result<super::Opened<File>> {
     Err(io::ErrorKind::Unsupported.into())
 }
+pub(crate) fn existing_directory(
+    _: &File,
+    _: &OsStr,
+    _: &super::Lookup,
+) -> io::Result<super::Opened<File>> {
+    Err(io::ErrorKind::Unsupported.into())
+}
 use std::{
     ffi::{OsStr, OsString},
     fs::File,

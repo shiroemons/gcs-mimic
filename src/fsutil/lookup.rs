@@ -262,6 +262,17 @@ impl Lookup {
         imp::existing_regular(parent, name, self)
     }
 
+    /// Opens the existing directory `name` in `parent` without following a symlink or confirming
+    /// its spelling, for a name a listing gave or the mirror names itself, under the same rule
+    /// ([`Opened`]).
+    pub(crate) fn existing_directory(
+        &self,
+        parent: &File,
+        name: &OsStr,
+    ) -> io::Result<Opened<File>> {
+        imp::existing_directory(parent, name, self)
+    }
+
     /// Waits `duration` on the lookup's clock before a name that failed to open is opened again.
     #[cfg_attr(
         not(unix),
