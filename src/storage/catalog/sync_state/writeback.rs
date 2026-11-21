@@ -43,7 +43,7 @@ pub(crate) use live_export::{InstallOutcome, LiveExport, LiveSource};
 pub(crate) use live_export::{
     inject_failure as inject_live_export_failure,
     inject_failure_after as inject_live_export_failure_after,
-    inject_io_failure as inject_live_export_io_failure,
+    inject_io_failure as inject_live_export_io_failure, inject_stale_fence,
 };
 pub(crate) use reason::{RaceReason, StaleReason};
 use target::{TargetState, observe_target};

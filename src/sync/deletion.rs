@@ -637,9 +637,10 @@ pub(super) async fn execute_with(
 /// after a protected deletion does: through the ordinary write-back, and only into a path that
 /// is still empty, so a file put there meanwhile stays as it is and is ingested as any file is.
 /// A bucket directory that went with the files is created again first. Each member is marked
-/// done once its write-back ended, and the others stay in the catalog: a stop or a failure
-/// leaves them to the next start, retry or rescan, which resume here before any inventory.
-/// Nothing is left to do for a root without a rejected set.
+/// done once its path holds its file or something put there meanwhile, or its object is gone
+/// ([`settles`]), and the others stay in the catalog: a file that could not be written back
+/// yet, a stop or a failure leaves them to the next pass, start, retry or rescan, which resume
+/// here before any inventory. Nothing is left to do for a root without a rejected set.
 pub(super) async fn write_back_rejected(
     catalog: &Catalog,
     root: &RootLease,
@@ -683,9 +684,8 @@ async fn write_back_members(
                     .await?
                 {
                     DirectoryCreation::Created | DirectoryCreation::Finding => {}
-                    // A restore into a directory that does not open passes its file over, and
-                    // the inventory after this write-back would take that file for one the user
-                    // deleted. The write-back fails as the failed open does instead, which
+                    // Every member in a bucket directory that does not open would be left
+                    // behind. The write-back fails as the failed open does instead, which
                     // leaves this member and those after it for the next pass.
                     DirectoryCreation::Deferred => {
                         return Err(SyncError::Writeback(
@@ -697,17 +697,30 @@ async fn write_back_members(
                 }
                 buckets.insert(candidate.bucket.clone());
             }
-            ended.record(
-                super::export::restore::restore_from_catalog(
-                    catalog,
-                    root,
-                    &candidate.bucket,
-                    &candidate.name,
-                )
-                .await?,
-            );
-            root.settle_rejected_member(candidate.ordinal).await?;
+            let restored = super::export::restore::restore_from_catalog(
+                catalog,
+                root,
+                &candidate.bucket,
+                &candidate.name,
+            )
+            .await?;
+            ended.record(restored);
+            if settles(restored) {
+                root.settle_rejected_member(candidate.ordinal).await?;
+            }
         }
+    }
+}
+
+/// Whether a member of a rejected set whose restore ended as `restored` is done. A member stays
+/// until its path holds its file or something put there meanwhile, or its object is gone: while
+/// it stays no inventory runs, and once it is done the next inventory may take its path, seen
+/// empty, for a file the user deleted, which a set below every threshold deletes without asking.
+fn settles(restored: super::export::restore::Restored) -> bool {
+    use super::export::restore::Restored;
+    match restored {
+        Restored::Written | Restored::Kept | Restored::Gone => true,
+        Restored::Skipped => false,
     }
 }
 
@@ -716,7 +729,10 @@ async fn write_back_members(
 struct WriteBack {
     restored: u64,
     kept: u64,
+    /// Members whose object went, which nothing is left to write back for.
     skipped: u64,
+    /// Members whose file could not be written back yet, which stay for a later pass.
+    left: u64,
 }
 
 impl WriteBack {
@@ -725,19 +741,27 @@ impl WriteBack {
         match restored {
             Restored::Written => self.restored += 1,
             Restored::Kept => self.kept += 1,
-            Restored::Skipped => self.skipped += 1,
+            Restored::Gone => self.skipped += 1,
+            Restored::Skipped => self.left += 1,
         }
     }
 
     /// Logs what this write-back of `pending` did, which ended as `finished`: at the info level
     /// with nothing remaining once every file is back, which is when the waits it held back go
-    /// on, and as a warning when it stopped or failed with members left, which the next start,
-    /// retry or rescan writes back before it looks for deleted files. A failure names its cause
-    /// and asks for it to be corrected first, since a write-back that keeps failing keeps
-    /// deletions from being detected.
+    /// on, and as a warning when it stopped, failed or could not write a file back yet with
+    /// members left, which the next start, retry or rescan writes back before it looks for
+    /// deleted files. A failure names its cause and asks for it to be corrected first, since a
+    /// write-back that keeps failing keeps deletions from being detected.
     fn report(&self, pending: &PendingRejection, finished: &Result<Interrupted, SyncError>) {
         let revision = pending.revision.to_hex();
         let (reason, remedy) = match finished {
+            Ok(Interrupted::No) if self.left > 0 => (
+                Some(format!(
+                    "{} file(s) could not be written back yet: a directory on the path kept failing to open, the object or the tree changed meanwhile, or an entry the write-back does not replace holds the path",
+                    self.left
+                )),
+                "The next pass, start, retry or rescan writes the remaining files back before it looks for deleted files; if a directory keeps failing to open, restore access to it, and if a file is no longer needed, delete its object through the API, which leaves it out",
+            ),
             Ok(Interrupted::No) => {
                 diagnostics::emit(
                     LogLevel::Info,

@@ -82,6 +82,24 @@ pub(crate) fn inject_renumbered_copy(root: RootId, count: usize) {
 #[cfg(test)]
 const RENUMBERED_COPY: &str = "renumbered-copy";
 
+/// Makes the next `count` live exports of `root` find their journal fence obsolete as they
+/// begin, as when the journal starts a new epoch between an export's plan and its begin.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) fn inject_stale_fence(root: RootId, count: usize) {
+    inject_failure(root, STALE_FENCE, count);
+}
+
+#[cfg(test)]
+const STALE_FENCE: &str = "stale-fence";
+
+#[cfg(test)]
+fn stale_fence(root: RootId) -> Result<(), Error> {
+    match armed(root, STALE_FENCE)? {
+        Some(_) => Err(Error::Obsolete(StaleReason::JournalFence)),
+        None => Ok(()),
+    }
+}
+
 /// The kind of failure a test armed `phase` for `root` with, if it did; each armed count fires
 /// once, after the hits it skips.
 #[cfg(test)]
@@ -768,6 +786,8 @@ impl Writeback {
             let (item,body,proof) = this.db(move |c| {
                 #[cfg(test)]
                 failure(root,"prepare")?;
+                #[cfg(test)]
+                stale_fence(root)?;
                 let tx = c.transaction()?;
                 check_fence(&tx, fence)?;
                 super::super::matching(&tx,&binding,bucket.as_str())?;

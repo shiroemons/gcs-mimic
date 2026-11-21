@@ -707,8 +707,7 @@ impl RootLease {
     }
 
     /// Marks the member `ordinal` of the root's rejected set done: its file is written back, a
-    /// file or entry put at its path meanwhile stays instead, or its object changed and the
-    /// export of the change takes over.
+    /// file or entry put at its path meanwhile stays instead, or its object is gone.
     pub(crate) async fn settle_rejected_member(&self, ordinal: Ordinal) -> Result<(), RootError> {
         let root = self.status().root_id;
         let scope = self.control_scope();

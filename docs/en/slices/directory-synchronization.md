@@ -646,8 +646,10 @@ its build on a directory that still fails, and the mirror builds it again as
 after any transient failure, so that subtree is not left unwatched. A bucket directory that still fails is neither forgotten as a missing
 one nor taken for an empty one: a reconciliation or a bucket's creation defers
 the bucket to a later pass, while the write-back of a rejected deletion set
-fails on it as on any failed open, since the inventory after the write-back
-would take the files it passed over for deleted ones. An export that opens its
+fails on it as on any failed open, which leaves its members for the next pass.
+A member below a directory that still fails stays to write back rather than
+being marked done, so no inventory takes its missing file for a deletion. An
+export that opens its
 target again to confirm the read of it defers the same way when the name went
 or kept failing meanwhile. So does the second open that tells what kind
 of entry holds a name that failed to open as a file or as a directory: an
@@ -1141,8 +1143,12 @@ until it is approved or rejected or every file it holds is back: a set that
 replaces it, because some files came back, others went or the tree gained
 files, waits whenever it holds one of those files, across a restart and an
 upgrade too. A rejection is durable: the write-back of the rejected files
-resumes at the next start, retry or rescan, and no inventory runs until it has
-finished.
+resumes at the next pass, start, retry or rescan, and no inventory runs until it
+has finished. A member is done only once its path holds its file, or something
+put there meanwhile, or its object is gone through the API; one whose file the
+write-back could not write yet, such as when a directory on its path kept
+failing to open or the export found itself obsolete, stays, so its missing file
+is never taken for a deletion.
 
 Inspect candidates with `GET /_internal/sync?view=deletions&revision=REVISION`,
 following its cursors to completion. Every page belongs to that exact frozen set,

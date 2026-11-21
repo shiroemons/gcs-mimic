@@ -132,19 +132,23 @@ empty, recreating a missing bucket directory first, and then runs the exports
 that waited for that directory. A file put at a member's path meanwhile is not
 overwritten, also when it appears just before the rename that would install
 the copy, and is ingested as any file is. The rejection is stored with the set
-and each member is marked done once its write-back ended, so a stop, a failure
-or a power loss part way leaves the remaining members in the catalog, and the
-next start, retry or rescan writes them back before anything else. No inventory
-runs while a member is left: one that ran in between would see one file back
-and another still missing, a deletion below every threshold. A rejected
-revision is never confirmed, approved or rejected again. The write-back logs
-`sync_deletions_rejected` with how many files it restored, how many paths it
-kept because something was put there meanwhile, and how many it skipped because
-the object changed or went. The write-back that brings the last file back logs
-it at the info level with `remaining` 0, which is when the waits it held back
-go on; a write-back that stopped or failed part way logs it as a warning with
-the number of files remaining, and a failure also with its reason and what to
-correct. While files are left, the status counts them as
+and each member is marked done only once its path holds its file, or something
+put there meanwhile, or its object is gone through the API. A member whose file
+could not be written yet stays: a directory on its path that kept failing to
+open, an object or tracked file that changed meanwhile, an export that found
+itself obsolete, an entry the write-back does not replace at its path, or a tree
+that changed under every attempt. So do the members a stop, a failure or a
+power loss part way left, and the next pass, start, retry or rescan writes them
+back before anything else. No inventory runs while a member is left: one that
+ran in between would see one file back and another still missing, a deletion
+below every threshold. A rejected revision is never confirmed, approved or
+rejected again. The write-back logs `sync_deletions_rejected` with how many
+files it restored, how many paths it kept because something was put there
+meanwhile, and how many it skipped because the object went. The write-back that
+brings the last file back logs it at the info level with `remaining` 0, which
+is when the waits it held back go on; a write-back that stopped, failed or could
+not write a file yet logs it as a warning with the number of files remaining,
+its reason and what to correct. While files are left, the status counts them as
 `observation.rejected_writeback` and reads the directory as `SourceChanging`,
 not `Ready`, and `gcs-mimic sync wait` answers once they are all back. A
 write-back that keeps failing, such as for a missing permission, pauses
@@ -155,9 +159,9 @@ of a wait that pauses or runs out of time, and of the root-stop finding, opens
 with how many remain and points at the `sync_deletions_rejected` log for why
 their write-back stopped; a wait with nothing else changing says that the
 server writes them back itself rather than asking the programs that write in
-the directory to finish. The write-back skips a member whose object changed or
-went, so deleting the object of a file whose write-back keeps failing, through
-the API, leaves that file out, and the remedy says so. A stale, approved or
+the directory to finish. The write-back skips a member whose object went, so
+deleting the object of a file whose write-back keeps failing, through the API,
+leaves that file out, and the remedy says so. A stale, approved or
 already rejected revision returns 409, as approval does. The 409 of a decision
 says what became of the set: approved or rejected already; not the set that
 waits now, which it names with how many of the tracked files are missing in

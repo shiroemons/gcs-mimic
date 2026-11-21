@@ -8,12 +8,13 @@
     reason = "Clippy does not exempt platform-gated test modules; fixture unwraps must fail the test"
 )]
 use super::baseline::exists;
+use super::ingest_durability::Started;
 use super::missing_bucket::{
     BODY, BUCKET, Live, TRACKED, reject_control, released, tracked_pair, wait_control,
 };
 use super::*;
 use crate::storage::fault::{Fault, Step};
-use crate::storage::sync_state::deletions::DeletionSet;
+use crate::storage::sync_state::deletions::{Begun, DeletionSet, Guard};
 use crate::sync::WaitReason;
 use crate::sync::report::verdict::{Holdup, Outstanding};
 use crate::sync::test_support::restore_tree;
@@ -39,13 +40,84 @@ async fn reach_member(hook: &Hook) {
 /// Starts the mirror over the pair, with `hook` when there is one, removes the bucket
 /// directory and rescans, which takes both files to approval.
 async fn awaiting_pair(hook: Option<std::sync::Arc<Hook>>) -> (TestDir, TestDir, BucketName, Live) {
-    let (data, tree, bucket) = tracked_pair().await;
+    awaiting(tracked_pair().await, hook).await
+}
+
+/// Starts the mirror over the tracked `fixture`, with `hook` when there is one, removes the
+/// bucket directory and rescans, which takes both files to approval.
+async fn awaiting(
+    (data, tree, bucket): (TestDir, TestDir, BucketName),
+    hook: Option<std::sync::Arc<Hook>>,
+) -> (TestDir, TestDir, BucketName, Live) {
     let live = Live::start_with(&data.0, &tree.0, hook).await;
     fs::remove_dir_all(tree.0.join(BUCKET)).unwrap();
     rescan_control(&live.commands).await;
     let set = live.root.deletion_set().await.unwrap().unwrap();
     assert_eq!((set.candidate_count, set.guarded), (2, true));
     (data, tree, bucket, live)
+}
+
+/// The member whose file goes in a directory of its own.
+const NESTED: &str = "nested/first";
+
+/// A root whose bucket directory holds `nested/first` and `second`, which a start tracked and
+/// whose baseline it completed.
+async fn tracked_nested() -> (TestDir, TestDir, BucketName) {
+    let (data, tree, catalog, bucket, root) = live_fixture().await;
+    drop(root);
+    catalog.close().await.unwrap();
+    let directory = tree.0.join(BUCKET);
+    fs::create_dir_all(directory.join("nested")).unwrap();
+    fs::write(directory.join(NESTED), BODY).unwrap();
+    fs::write(directory.join("second"), BODY).unwrap();
+    Started::start(&data.0, &tree.0).await.close().await;
+    (data, tree, bucket)
+}
+
+/// How many opens of a name in a row fail before one lookup gives the name up: the waits
+/// between them start at 2 ms and double until they spend the lookup's second.
+const OPENS_ONE_LOOKUP_WAITS_THROUGH: usize = 10;
+
+/// Rejects the set of [`tracked_nested`] that waits for approval. As the write-back reaches its
+/// first member, a user puts the member's directory back empty, and its opens fail with `ENOENT`
+/// for as long as one lookup waits for it, as a mount still bringing it over answers. Returns
+/// once that write-back reached its other member. A failure that lasted longer would also fail
+/// the rebuild of the native watch that the new directory brings about, which is not what these
+/// tests look at.
+async fn rejected_behind_a_failing_directory(
+    hook: &std::sync::Arc<Hook>,
+) -> (TestDir, TestDir, BucketName, Live) {
+    let (data, tree, bucket, live) = awaiting(tracked_nested().await, Some(hook.clone())).await;
+    reject_control(&live.commands, &live.root).await;
+    reach_member(hook).await;
+    let directory = tree.0.join(BUCKET);
+    fs::create_dir_all(directory.join("nested")).unwrap();
+    let failing =
+        fsutil::FailingOpens::vanishing(&directory, "nested", OPENS_ONE_LOOKUP_WAITS_THROUGH);
+    hook.release.notify_one();
+    reach_member(hook).await;
+    assert_eq!(failing.left(), 0);
+    hook.release.notify_one();
+    (data, tree, bucket, live)
+}
+
+/// Runs `work` until a pass reaches a member of the rejected set again, which `hook` then
+/// holds, and returns `work` to finish once the caller releases it.
+async fn until_a_pass_reaches_a_member_again<F: std::future::Future>(
+    hook: &Hook,
+    work: F,
+) -> std::pin::Pin<Box<F>> {
+    let mut work = Box::pin(work);
+    tokio::select! {
+        biased;
+        () = reach_member(hook) => work,
+        _ = &mut work => panic!("no pass reached a member of the rejected set again"),
+    }
+}
+
+/// How many members of the root's rejected set are left to write back.
+async fn left_to_write_back(root: &RootLease) -> u64 {
+    root.observation().await.unwrap().rejected_writeback
 }
 
 /// Both objects are there, and the tree holds the file of each.
@@ -402,4 +474,89 @@ async fn a_rejected_revision_is_never_approved_after_a_failed_write_back() {
     );
     written_back(&running.catalog, &tree.0, &bucket).await;
     running.finish().await;
+}
+
+/// The directory a member's file goes in is back but keeps failing to open, so the write-back
+/// cannot tell what its path holds and writes nothing. The member stays to write back instead
+/// of being marked done with its file missing: the status counts it, no inventory starts, which
+/// would take the missing file for a deletion below every threshold and run it without asking,
+/// and its object stays until a later pass, once the directory opens, writes the file back and
+/// the member is done.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_member_whose_directory_keeps_failing_to_open_stays_until_its_file_is_back() {
+    let hook = member_hook();
+    let (_data, tree, bucket, live) = rejected_behind_a_failing_directory(&hook).await;
+    let waited = until_a_pass_reaches_a_member_again(&hook, wait_control(&live.commands)).await;
+    assert_eq!(left_to_write_back(&live.root).await, 1);
+    assert!(matches!(
+        live.root
+            .begin_deletion_inventory(Guard::Enabled)
+            .await
+            .unwrap(),
+        Begun::RejectionPending
+    ));
+    assert!(exists(&live.catalog, &bucket, NESTED).await);
+    assert!(!tree.0.join(BUCKET).join(NESTED).exists());
+    assert_eq!(fs::read(tree.0.join(BUCKET).join("second")).unwrap(), BODY);
+
+    hook.release.notify_one();
+    let waited = released(&hook, waited).await;
+    assert_eq!(waited.reason, WaitReason::Ready);
+    assert_eq!(left_to_write_back(&live.root).await, 0);
+    for name in [NESTED, "second"] {
+        assert!(exists(&live.catalog, &bucket, name).await, "{name}");
+        assert_eq!(
+            fs::read(tree.0.join(BUCKET).join(name)).unwrap(),
+            BODY,
+            "{name}"
+        );
+    }
+    live.stop().await;
+}
+
+/// A member left to write back because its directory kept failing to open is done once its
+/// object is deleted through the API: nothing is left to write back, so it no longer holds the
+/// root's deletions.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_member_left_to_write_back_is_done_once_its_object_is_deleted() {
+    let hook = member_hook();
+    let (_data, tree, bucket, live) = rejected_behind_a_failing_directory(&hook).await;
+    let waited = until_a_pass_reaches_a_member_again(&hook, wait_control(&live.commands)).await;
+    assert_eq!(left_to_write_back(&live.root).await, 1);
+    let name = ObjectName::new(NESTED).unwrap();
+    let admin = live.catalog.admin(Origin::Api);
+    let record = admin.get_object(&bucket, &name, None).await.unwrap();
+    admin
+        .delete_object(
+            &bucket,
+            &name,
+            GenerationCondition::Is(Generation::new(record.generation).unwrap()),
+        )
+        .await
+        .unwrap();
+
+    hook.release.notify_one();
+    let waited = released(&hook, waited).await;
+    assert_eq!(waited.reason, WaitReason::Ready);
+    assert_eq!(left_to_write_back(&live.root).await, 0);
+    assert!(!exists(&live.catalog, &bucket, NESTED).await);
+    assert!(!tree.0.join(BUCKET).join(NESTED).exists());
+    assert!(exists(&live.catalog, &bucket, "second").await);
+    assert_eq!(fs::read(tree.0.join(BUCKET).join("second")).unwrap(), BODY);
+    live.stop().await;
+}
+
+/// The export that writes the first member back finds the journal moved past the fence it
+/// planned at, which ends it as obsolete without writing the file. The member stays and a later
+/// pass writes it back, instead of being marked done with its file missing, which the inventory
+/// after would take for a deletion below every threshold and run without asking.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_member_whose_write_back_is_obsolete_stays_until_its_file_is_back() {
+    let (_data, tree, bucket, live) = awaiting_pair(None).await;
+    crate::storage::sync_state::writeback::inject_stale_fence(live.root.status().root_id, 1);
+    reject_control(&live.commands, &live.root).await;
+    assert_eq!(wait_control(&live.commands).await.reason, WaitReason::Ready);
+    assert_eq!(left_to_write_back(&live.root).await, 0);
+    written_back(&live.catalog, &tree.0, &bucket).await;
+    live.stop().await;
 }
