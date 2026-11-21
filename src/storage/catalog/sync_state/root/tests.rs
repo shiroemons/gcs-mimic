@@ -135,10 +135,12 @@ fn marker_descriptor_pressure_retains_its_retryable_cause() {
                 .is_some_and(|cause| cause.raw_os_error() == Some(errno))
         }));
     }
-    assert_eq!(
+    // Only a lookup's proof says a marker is missing; an open that answers `ENOENT` by itself
+    // fails the read instead of passing for an invalid marker, which would remove a staged one.
+    assert!(matches!(
         marker_open_error(io::ErrorKind::NotFound.into()),
-        RootError::InvalidMarker
-    );
+        RootError::Admin(AdminError::Io(ref cause)) if cause.kind() == io::ErrorKind::NotFound
+    ));
 }
 
 #[tokio::test]

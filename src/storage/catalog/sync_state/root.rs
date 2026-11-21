@@ -289,9 +289,12 @@ fn read_marker(
 ) -> Result<Option<(Marker, FileIdentity)>, RootError> {
     read_marker_name(directory, lookup, MARKER)
 }
+/// A marker whose name holds something other than a regular file is invalid. Every other failure
+/// to open it, `ENOENT` included, fails the read: only the lookup's proof says a marker is
+/// missing, and an invalid one is removed when staged, which an unproven `ENOENT` would do to a
+/// marker still there.
 fn marker_open_error(error: io::Error) -> RootError {
-    if error.kind() == io::ErrorKind::NotFound || crate::sync::tree::structural_entry_error(&error)
-    {
+    if crate::sync::tree::structural_entry_error(&error) {
         RootError::InvalidMarker
     } else {
         RootError::at(Stage::ReadMarker, error)
