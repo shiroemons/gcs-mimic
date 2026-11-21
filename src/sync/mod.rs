@@ -17,7 +17,7 @@ pub(crate) mod naming;
 mod reevaluate;
 pub mod report;
 pub use report::{
-    outcome::{Outcome, UnknownWaitReason, WaitReason},
+    outcome::{Outcome, UnknownWaitReason, Unsettled, WaitReason},
     verdict::UnmappedObjects,
 };
 mod status;

@@ -631,7 +631,7 @@ fn without_an_endpoint_the_command_controls_the_server_the_environment_configure
     assert_eq!(options.connection(&options.endpoint), "");
     let paused = json!({"reason":"Paused","paused_reason":"IoFailure",
         "remedy":"Restore access; then resume synchronization: gcs-mimic sync rescan --endpoint URL"});
-    let advice = WaitOutcome::read(&paused).advice(&options.connection(&options.endpoint));
+    let advice = WaitReading::read(&paused).advice(&options.connection(&options.endpoint));
     assert!(
         advice.errors[0]
             .fix
@@ -1012,13 +1012,13 @@ fn a_wait_that_ended_on_source_entries_names_the_first_of_them() {
             {"path":"INVALID-BUCKET","reason":"unmappable-name"},
             {"path":"bucket/link","reason":"unsafe-entry"}]}});
     assert_eq!(
-        WaitOutcome::read(&many).advice(connection).errors[0].fix,
+        WaitReading::read(&many).advice(connection).errors[0].fix,
         "sync wait ended with SourceUnrepresentable (7 source entries: INVALID-BUCKET [unmappable-name], bucket/link [unsafe-entry], and 5 more): Rename them; then wait again: gcs-mimic sync wait --endpoint http://127.0.0.1:4443"
     );
     let one = json!({"reason":"SourceUnrepresentable","remedy":remedy,
         "source_entries":{"total":1,"omitted":0,"entries":[{"path":"bucket/secret","reason":"unreadable"}]}});
     assert!(
-        WaitOutcome::read(&one).advice(connection).errors[0]
+        WaitReading::read(&one).advice(connection).errors[0]
             .fix
             .starts_with(
                 "sync wait ended with SourceUnrepresentable (1 source entry: bucket/secret [unreadable]): "
@@ -1036,7 +1036,7 @@ fn a_wait_that_ended_on_path_stops_names_the_first_of_them() {
         "path_stops":{"total":6,"omitted":5,"entries":[
             {"path":"test-bucket/Photo.jpg","reason":"AliasEdited"}]}});
     assert_eq!(
-        WaitOutcome::read(&stops).advice(connection).errors[0].fix,
+        WaitReading::read(&stops).advice(connection).errors[0].fix,
         "sync wait ended with FindingsPending (6 path stops: test-bucket/Photo.jpg [AliasEdited], and 5 more): Inspect the findings; then wait again: gcs-mimic sync wait --endpoint http://127.0.0.1:4443"
     );
 }
@@ -1048,7 +1048,7 @@ fn a_ready_wait_names_the_files_frozen_for_several_objects() {
     let connection = "--endpoint http://127.0.0.1:4443";
     let warning = |files: Value| {
         let body = json!({"reason":"Ready","frozen_files":files});
-        let advice = WaitOutcome::read(&body).advice(connection);
+        let advice = WaitReading::read(&body).advice(connection);
         assert!(advice.errors.is_empty());
         advice
             .warnings
@@ -1080,7 +1080,7 @@ fn a_ready_wait_names_the_files_frozen_for_several_objects() {
     let pending = json!({"reason":"FindingsPending","frozen_files":{"total":1,"omitted":0,
         "entries":[{"path":"b/A","objects":2}]}});
     assert!(
-        WaitOutcome::read(&pending)
+        WaitReading::read(&pending)
             .advice(connection)
             .warnings
             .is_empty()
@@ -1128,7 +1128,7 @@ fn names_from_the_server_reach_the_terminal_with_their_control_characters_escape
     let answer = json!({"reason":"SourceUnrepresentable",
         "remedy":format!("Rename {hostile}; then wait again: gcs-mimic sync wait --endpoint URL"),
         "source_entries":{"total":1,"omitted":0,"entries":[{"path":hostile,"reason":"unmappable-name"}]}});
-    let advice = WaitOutcome::read(&answer).advice("");
+    let advice = WaitReading::read(&answer).advice("");
     assert_eq!(raw(&advice), "");
     assert_eq!(
         advice.errors[0].fix,
@@ -1137,7 +1137,7 @@ fn names_from_the_server_reach_the_terminal_with_their_control_characters_escape
         )
     );
     let ready = json!({"reason":"Ready","findings":{"unmapped":1,"revision":hostile}});
-    let advice = WaitOutcome::read(&ready).advice("");
+    let advice = WaitReading::read(&ready).advice("");
     assert_eq!(raw(&advice), "");
     assert!(advice.warnings[0].fix.ends_with(escaped), "{advice:?}");
     let refused = json!({"error":{"code":409,"message":format!("Cannot export {hostile}")}});
@@ -1197,32 +1197,31 @@ fn a_wait_stops_at_once_for_what_waiting_cannot_change() {
 /// or an answer without a reason, like any other failed command.
 #[test]
 fn a_wait_exits_with_the_status_of_how_it_ended() {
-    use Outcome::{ActionNeeded, Failed, InProgress};
-    for (name, failure) in [
-        ("Ready", None),
-        ("Timeout", Some(InProgress)),
-        ("Stopped", Some(Failed)),
-        ("Paused", Some(ActionNeeded)),
-        ("JournalChanged", Some(InProgress)),
-        ("SourceChanging", Some(InProgress)),
-        ("SourceUnrepresentable", Some(ActionNeeded)),
-        ("DeletionApproval", Some(ActionNeeded)),
-        ("FindingsPending", Some(ActionNeeded)),
+    use Unsettled::{ActionNeeded, Failed, InProgress};
+    for (name, outcome) in [
+        ("Ready", Outcome::Ready),
+        ("Timeout", Outcome::Unsettled(InProgress)),
+        ("Stopped", Outcome::Unsettled(Failed)),
+        ("Paused", Outcome::Unsettled(ActionNeeded)),
+        ("JournalChanged", Outcome::Unsettled(InProgress)),
+        ("SourceChanging", Outcome::Unsettled(InProgress)),
+        ("SourceUnrepresentable", Outcome::Unsettled(ActionNeeded)),
+        ("DeletionApproval", Outcome::Unsettled(ActionNeeded)),
+        ("FindingsPending", Outcome::Unsettled(ActionNeeded)),
     ] {
         let reason: WaitReason = name.parse().unwrap();
-        let outcome = reason.outcome();
+        assert_eq!(reason.outcome(), outcome, "{name}");
         assert_eq!(
-            Some(outcome).filter(|outcome| *outcome != Outcome::Ready),
-            failure,
+            outcome.asks_again(),
+            outcome == Outcome::Unsettled(InProgress),
             "{name}"
         );
-        assert_eq!(outcome.asks_again(), failure == Some(InProgress), "{name}");
     }
     assert_eq!(
-        [Failed, ActionNeeded, InProgress].map(Outcome::exit_code),
+        [Failed, ActionNeeded, InProgress].map(Unsettled::exit_code),
         [1, 2, 3]
     );
-    let ended = |answer: Value, status| match WaitOutcome::read(&answer)
+    let ended = |answer: Value, status| match WaitReading::read(&answer)
         .conclude(status, "--endpoint http://127.0.0.1:4443")
     {
         Ok(()) => (None, Vec::new()),
@@ -1275,7 +1274,7 @@ fn wait_advice_names_the_command_to_run_next() {
     let connection = "--endpoint https://127.0.0.1:4443 --ca-cert ca.pem --token-file token";
     let revision = "0123456789abcdef0123456789abcdef0123456789abcdef";
     let ready = json!({"reason":"Ready","findings":{"unmapped":2,"revision":revision}});
-    let advice = WaitOutcome::read(&ready).advice(connection);
+    let advice = WaitReading::read(&ready).advice(connection);
     assert!(!advice.is_err());
     let [hint] = advice.warnings.as_slice() else {
         panic!("one hint expected: {advice:?}");
@@ -1287,14 +1286,14 @@ fn wait_advice_names_the_command_to_run_next() {
         )
     );
     let clear = json!({"reason":"Ready","findings":{"unmapped":0,"revision":revision}});
-    let advice = WaitOutcome::read(&clear).advice(connection);
+    let advice = WaitReading::read(&clear).advice(connection);
     assert!(
         advice.warnings.is_empty() && advice.errors.is_empty(),
         "{advice:?}"
     );
     let paused = json!({"reason":"Paused","paused_reason":"IoFailure","findings":null,
         "remedy":"Restore access, then run gcs-mimic sync rescan --endpoint URL"});
-    let advice = WaitOutcome::read(&paused).advice(connection);
+    let advice = WaitReading::read(&paused).advice(connection);
     let [error] = advice.errors.as_slice() else {
         panic!("one error expected: {advice:?}");
     };
@@ -1308,7 +1307,7 @@ fn wait_advice_names_the_command_to_run_next() {
     // A wait that the objects failed names them in its one error, without the success's hint.
     let refused = json!({"reason":"FindingsPending","findings":{"unmapped":2,"revision":revision},
         "remedy":"2 objects remain; the findings view lists them: gcs-mimic sync status --endpoint URL"});
-    let advice = WaitOutcome::read(&refused).advice(connection);
+    let advice = WaitReading::read(&refused).advice(connection);
     assert!(advice.warnings.is_empty(), "{advice:?}");
     assert_eq!(advice.errors.len(), 1, "{advice:?}");
     let inputs = crate::test_support::TestDir::new();
@@ -1401,7 +1400,7 @@ fn every_advised_command_parses_as_this_command_line() {
                 "findings":{"unmapped":1,"revision":catalog::SAMPLE_FINDINGS_REVISION}})
         });
         for answer in answers.chain([ready]) {
-            let diagnostics = WaitOutcome::read(&answer).advice(connection);
+            let diagnostics = WaitReading::read(&answer).advice(connection);
             let given = diagnostics.warnings.into_iter().chain(diagnostics.errors);
             advised.extend(given.map(|diagnostic| (diagnostic.fix, connection.clone())));
         }
@@ -1666,7 +1665,7 @@ fn once(options: &Options) -> (&str, Option<&Value>) {
 /// that names no reason.
 #[test]
 fn a_wait_exits_with_the_status_its_reason_maps_to() {
-    let exit_of = |answer: Value, status| match WaitOutcome::read(&answer).conclude(status, "") {
+    let exit_of = |answer: Value, status| match WaitReading::read(&answer).conclude(status, "") {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => error.exit_code(),
     };

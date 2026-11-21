@@ -6,7 +6,7 @@ use gcs_mimic::{
     config_input::{DurationError, RenamedEnvironmentVariable, duration},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     net::is_local_address,
-    sync::{Decision, Outcome, UnmappedObjects, WaitReason, handshake, report::command},
+    sync::{Decision, Outcome, UnmappedObjects, Unsettled, WaitReason, handshake, report::command},
     tls,
 };
 use http_body_util::{BodyExt, Full};
@@ -915,7 +915,7 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
     }
     let connection = options.connection(&endpoint);
     match options.plan {
-        Plan::Wait(_) => WaitOutcome::read(&reply.body).conclude(reply.status, &connection),
+        Plan::Wait(_) => WaitReading::read(&reply.body).conclude(reply.status, &connection),
         Plan::Status if reply.status.is_success() => {
             status_advice(&reply.body).write(io::stderr().lock())?;
             Ok(())
@@ -988,7 +988,7 @@ fn http_failure(status: StatusCode, message: Option<&str>, connection: &str) -> 
 
 /// What the command reads from a wait's answer to advise its user.
 #[derive(Debug, Default, PartialEq, Eq)]
-struct WaitOutcome<'a> {
+struct WaitReading<'a> {
     reason: Option<WaitReason>,
     /// The objects the tree cannot hold, and the findings revision that lists them.
     unmapped: Option<(u64, &'a str)>,
@@ -1015,7 +1015,7 @@ struct FrozenFiles {
     objects: u64,
 }
 
-impl<'a> WaitOutcome<'a> {
+impl<'a> WaitReading<'a> {
     fn read(body: &'a Value) -> Self {
         let text = |value: &'a Value, key| value.get(key).and_then(Value::as_str);
         let findings = body.get("findings");
@@ -1035,22 +1035,23 @@ impl<'a> WaitOutcome<'a> {
     }
 
     /// Ends the command for a wait whose last answer came with `status`: a ready wait writes its
-    /// advice and succeeds, and any other fails with its advice and the [`Outcome`] of its
+    /// advice and succeeds, and any other fails with its advice and the [`Unsettled`] of its
     /// reason, which sets the exit status. An answer that names no reason the command knows
     /// fails like any other request.
     fn conclude(&self, status: StatusCode, connection: &str) -> Result<(), CliError> {
         let advice = self.advice(connection);
-        match self.reason.map_or(Outcome::Failed, WaitReason::outcome) {
+        match self
+            .reason
+            .map_or(Outcome::Unsettled(Unsettled::Failed), WaitReason::outcome)
+        {
             Outcome::Ready => {
                 advice.write(io::stderr().lock())?;
                 Ok(())
             }
-            Outcome::Failed if !advice.is_err() => {
+            Outcome::Unsettled(Unsettled::Failed) if !advice.is_err() => {
                 Err(http_failure(status, self.message, connection).into())
             }
-            outcome @ (Outcome::Failed | Outcome::ActionNeeded | Outcome::InProgress) => {
-                Err(CliError::Wait(advice, outcome))
-            }
+            Outcome::Unsettled(unsettled) => Err(CliError::Wait(advice, unsettled)),
         }
     }
 
@@ -1518,7 +1519,7 @@ impl Options {
                 Some(&wait_body(unmapped, millis)),
                 slice + WAIT_MARGIN,
             )?;
-            let Some(reason) = WaitOutcome::read(&reply.body)
+            let Some(reason) = WaitReading::read(&reply.body)
                 .reason
                 .filter(|reason| reason.outcome().asks_again())
             else {

@@ -1,7 +1,6 @@
 //! Why `sync wait` ended.
 
 use super::verdict::Holdup;
-use hyper::StatusCode;
 use std::{error::Error, fmt};
 
 /// Why `sync wait` ended.
@@ -19,11 +18,21 @@ pub enum WaitReason {
 }
 
 /// How a wait ended, as the one place that decides what a caller does next: the command's exit
-/// status, whether it asks the server again, and the HTTP status of the answer all follow it.
+/// status and whether it asks the server again follow it. The HTTP status of the answer follows
+/// the reason instead, since a wait that ran out of time answers differently from one that saw
+/// the tree still changing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// Nothing holds synchronization back, even while objects a wait only reports remain.
     Ready,
+    /// Something holds it back.
+    Unsettled(Unsettled),
+}
+
+/// How a wait that did not end ready ended. It has no ready variant, so that an error built
+/// from it cannot describe a success.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unsettled {
     /// Work was still in progress, so that another wait may succeed without anyone repairing
     /// anything: the deadline passed, the tree was still changing, or the journal was rebuilt
     /// under the wait.
@@ -34,31 +43,40 @@ pub enum Outcome {
     Failed,
 }
 
+impl Unsettled {
+    /// The exit status of `sync wait` that did not end ready.
+    pub const fn exit_code(self) -> u8 {
+        match self {
+            Self::Failed => 1,
+            Self::ActionNeeded => 2,
+            Self::InProgress => 3,
+        }
+    }
+}
+
 impl Outcome {
     /// The exit status of `sync wait`, so that a script tells how it ended without reading the
     /// answer.
     pub const fn exit_code(self) -> u8 {
         match self {
             Self::Ready => 0,
-            Self::Failed => 1,
-            Self::ActionNeeded => 2,
-            Self::InProgress => 3,
+            Self::Unsettled(unsettled) => unsettled.exit_code(),
         }
     }
 
     /// Whether a wait that ended so is asked again while time remains.
     pub const fn asks_again(self) -> bool {
         match self {
-            Self::InProgress => true,
-            Self::Ready | Self::ActionNeeded | Self::Failed => false,
+            Self::Unsettled(Unsettled::InProgress) => true,
+            Self::Ready | Self::Unsettled(Unsettled::ActionNeeded | Unsettled::Failed) => false,
         }
     }
 }
 
 /// How a wait answers the first condition that holds after its pass. Every write-back stop is
 /// work an operator must finish, as the findings that stop a wait are, and the objects a wait
-/// refuses are findings too. A baseline still open after the wait's own pass is work in
-/// progress, which [`WaitReason::outcome`] reads as a tree still changing.
+/// refuses are findings too. A baseline still open after the wait's own pass answers as a tree
+/// still changing, which [`WaitReason::outcome`] reads as work in progress.
 impl From<Holdup> for WaitReason {
     fn from(holdup: Holdup) -> Self {
         match holdup {
@@ -106,29 +124,14 @@ impl WaitReason {
     pub const fn outcome(self) -> Outcome {
         match self {
             Self::Ready => Outcome::Ready,
-            Self::Timeout | Self::SourceChanging | Self::JournalChanged => Outcome::InProgress,
+            Self::Timeout | Self::SourceChanging | Self::JournalChanged => {
+                Outcome::Unsettled(Unsettled::InProgress)
+            }
             Self::Paused
             | Self::SourceUnrepresentable
             | Self::DeletionApproval
-            | Self::FindingsPending => Outcome::ActionNeeded,
-            Self::Stopped => Outcome::Failed,
-        }
-    }
-
-    /// The HTTP status a wait that ended for this reason answers with: 200 when ready, 408 when
-    /// its time ran out, and 409 for every other end, so that a caller reading only the status
-    /// tells success from failure.
-    pub(crate) const fn http_status(self) -> StatusCode {
-        match self {
-            Self::Ready => StatusCode::OK,
-            Self::Timeout => StatusCode::REQUEST_TIMEOUT,
-            Self::Stopped
-            | Self::Paused
-            | Self::JournalChanged
-            | Self::SourceChanging
-            | Self::SourceUnrepresentable
-            | Self::DeletionApproval
-            | Self::FindingsPending => StatusCode::CONFLICT,
+            | Self::FindingsPending => Outcome::Unsettled(Unsettled::ActionNeeded),
+            Self::Stopped => Outcome::Unsettled(Unsettled::Failed),
         }
     }
 }

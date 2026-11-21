@@ -500,8 +500,26 @@ async fn wait(
         result: &result,
     };
     let mut response = bounded(&super::encode(&answer)?)?;
-    *response.status_mut() = result.reason.http_status();
+    *response.status_mut() = wait_status(result.reason);
     Ok(response)
+}
+
+/// The status a wait that ended for `reason` answers with: 200 when ready, 408 when its time
+/// ran out, and 409 for every other end, so that a caller reading only the status tells
+/// success from failure. It follows the reason rather than the outcome, since a wait that saw
+/// the tree still changing is in progress like one that ran out of time but answers 409.
+const fn wait_status(reason: WaitReason) -> StatusCode {
+    match reason {
+        WaitReason::Ready => StatusCode::OK,
+        WaitReason::Timeout => StatusCode::REQUEST_TIMEOUT,
+        WaitReason::Stopped
+        | WaitReason::Paused
+        | WaitReason::JournalChanged
+        | WaitReason::SourceChanging
+        | WaitReason::SourceUnrepresentable
+        | WaitReason::DeletionApproval
+        | WaitReason::FindingsPending => StatusCode::CONFLICT,
+    }
 }
 
 /// The answer to an accepted approval or rejection of a deletion set, which names the decision:

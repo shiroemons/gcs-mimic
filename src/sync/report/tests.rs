@@ -1,7 +1,8 @@
 //! What a running synchronization reports for each condition that can hold it back: the status
-//! `state` and the reason a wait ends with, side by side. The HTTP status of a wait and the exit
-//! code of `sync wait` are pinned beside the code that decides them, in the admin control tests
-//! and the command's own tests, each keyed by the same reasons.
+//! `state` and the reason a wait ends with, side by side. What each reason maps to is pinned
+//! beside the code that decides it, each keyed by the same reasons: the outcome, exit status
+//! and whether to ask again in the outcome tests, the HTTP status in the admin control tests,
+//! and the exit status the command reaches from an answer in the command's own tests.
 
 use super::{
     ending::{Unfinished, WaitResult},
@@ -96,7 +97,7 @@ fn row(
     }
 }
 
-/// The rows of a running mirror, in the order the conditions are checked.
+/// The rows of a running mirror, in the order `Outstanding::first` checks the conditions.
 fn running_rows() -> Vec<Row> {
     let paused = |reason| Summary {
         paused_reason: Some(reason),
@@ -272,7 +273,13 @@ fn running_rows() -> Vec<Row> {
             WaitReason::Ready,
         ),
     ];
-    for (name, tree) in [
+    // A guarded set that waits for approval comes right after the tree sides that stop a wait
+    // for good or for a while, and before the conflicts and findings a settled tree leaves.
+    let before_findings = rows
+        .iter()
+        .position(|row| row.name == "tree with conflicts")
+        .unwrap_or(rows.len());
+    let approvals = [
         (
             "deletions awaiting approval on a settled tree",
             TreeSide::Settled,
@@ -281,18 +288,18 @@ fn running_rows() -> Vec<Row> {
             "deletions awaiting approval beside conflicts",
             TreeSide::Conflicting,
         ),
-    ] {
-        rows.push(Row {
-            set: Some(withheld_set()),
-            ..row(
-                name,
-                scanned(tree),
-                tree,
-                ControlState::DeletionApproval,
-                WaitReason::DeletionApproval,
-            )
-        });
-    }
+    ]
+    .map(|(name, tree)| Row {
+        set: Some(withheld_set()),
+        ..row(
+            name,
+            scanned(tree),
+            tree,
+            ControlState::DeletionApproval,
+            WaitReason::DeletionApproval,
+        )
+    });
+    rows.splice(before_findings..before_findings, approvals);
     rows
 }
 

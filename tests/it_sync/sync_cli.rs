@@ -3,7 +3,7 @@
 use crate::common;
 use gcs_mimic::{
     config_input::RenamedEnvironmentVariable,
-    sync::{Outcome, WaitReason},
+    sync::{Outcome, Unsettled, WaitReason},
 };
 use std::fs;
 mod ambiguous;
@@ -143,7 +143,7 @@ fn wait_exit(answer: &Value) -> i32 {
     let outcome = answer["reason"]
         .as_str()
         .and_then(|reason| reason.parse::<WaitReason>().ok())
-        .map_or(Outcome::Failed, WaitReason::outcome);
+        .map_or(Outcome::Unsettled(Unsettled::Failed), WaitReason::outcome);
     i32::from(outcome.exit_code())
 }
 

@@ -14,73 +14,53 @@ fn wait_reasons_parse_from_the_names_they_serialize_as() {
 }
 
 /// Every way a wait ends has one outcome, and the outcome alone decides the exit status and
-/// whether the command asks again; the HTTP status follows the reason, with 408 only for a wait
-/// whose time ran out.
+/// whether the command asks again.
 #[test]
-fn a_wait_reason_decides_the_outcome_the_exit_status_and_the_http_status() {
-    use hyper::StatusCode;
-    for (reason, outcome, code, asks_again, status) in [
-        (WaitReason::Ready, Outcome::Ready, 0, false, StatusCode::OK),
-        (
-            WaitReason::Timeout,
-            Outcome::InProgress,
-            3,
-            true,
-            StatusCode::REQUEST_TIMEOUT,
-        ),
+fn a_wait_reason_decides_the_outcome_the_exit_status_and_whether_to_ask_again() {
+    use Unsettled::{ActionNeeded, Failed, InProgress};
+    for (reason, outcome, code, asks_again) in [
+        (WaitReason::Ready, Outcome::Ready, 0, false),
+        (WaitReason::Timeout, Outcome::Unsettled(InProgress), 3, true),
         (
             WaitReason::SourceChanging,
-            Outcome::InProgress,
+            Outcome::Unsettled(InProgress),
             3,
             true,
-            StatusCode::CONFLICT,
         ),
         (
             WaitReason::JournalChanged,
-            Outcome::InProgress,
+            Outcome::Unsettled(InProgress),
             3,
             true,
-            StatusCode::CONFLICT,
         ),
         (
             WaitReason::Paused,
-            Outcome::ActionNeeded,
+            Outcome::Unsettled(ActionNeeded),
             2,
             false,
-            StatusCode::CONFLICT,
         ),
         (
             WaitReason::SourceUnrepresentable,
-            Outcome::ActionNeeded,
+            Outcome::Unsettled(ActionNeeded),
             2,
             false,
-            StatusCode::CONFLICT,
         ),
         (
             WaitReason::DeletionApproval,
-            Outcome::ActionNeeded,
+            Outcome::Unsettled(ActionNeeded),
             2,
             false,
-            StatusCode::CONFLICT,
         ),
         (
             WaitReason::FindingsPending,
-            Outcome::ActionNeeded,
+            Outcome::Unsettled(ActionNeeded),
             2,
             false,
-            StatusCode::CONFLICT,
         ),
-        (
-            WaitReason::Stopped,
-            Outcome::Failed,
-            1,
-            false,
-            StatusCode::CONFLICT,
-        ),
+        (WaitReason::Stopped, Outcome::Unsettled(Failed), 1, false),
     ] {
         assert_eq!(reason.outcome(), outcome, "{reason}");
         assert_eq!(outcome.exit_code(), code, "{reason}");
         assert_eq!(outcome.asks_again(), asks_again, "{reason}");
-        assert_eq!(reason.http_status(), status, "{reason}");
     }
 }
