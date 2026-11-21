@@ -94,8 +94,11 @@ sparse files. Protected bodies block new destructive work until explicit recover
 or resolution; no quota eviction or automatic rollback discards them.
 
 API-priority replacement first captures a divergent external body in the owned
-conflict store and uses its exact proof for the checked exchange. A later edit
-cannot be erased with an older proof. Conflict registration and recovery retain
+conflict store and uses its exact proof for the checked exchange. The target is
+compared with the captured size, mtime and hashes, as a tracked body is, both before
+the exchange and once it is displaced; its device and ctime are not, so a
+permission change after the capture does not report the same body as another
+conflict. A later edit cannot be erased with an older proof. Conflict registration and recovery retain
 the original project, incarnation and generation, including after recreation.
 
 A catalog-owned execution semaphore serializes transitions across independently
@@ -148,7 +151,9 @@ With cloning disabled, the copy uses the entry created for the clone, and no
 unlink runs. A test holds installation after its check of a tracked target and
 before the exchange: a permission change or a same-bytes replacement under a new
 inode number there completes the export, while other bytes of the same size and
-mtime, or a symlink, stay in the private entry and stop the root.
+mtime, or a symlink, stay in the private entry and stop the root. An export
+over a preserved conflict completes when the target's permissions changed after
+the capture, and the conflict store keeps the captured copy.
 
 Ingest and export tests record a tracked fingerprint under another inode number.
 Unchanged bytes are hashed without staging and are not reported as a conflict

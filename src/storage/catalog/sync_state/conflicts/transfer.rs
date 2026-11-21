@@ -288,7 +288,6 @@ impl RootLease {
             name: request.name.clone(),
             expected_generation: request.expected_generation,
             fingerprint,
-            device: observed.device,
         }))
     }
 

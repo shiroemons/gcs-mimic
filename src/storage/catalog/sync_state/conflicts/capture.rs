@@ -216,7 +216,6 @@ impl RootLease {
             name: request.name.clone(),
             expected_generation: request.expected_generation,
             fingerprint,
-            device: original.device,
         }))
     }
     pub(super) async fn capture_inner(
@@ -322,7 +321,6 @@ impl RootLease {
             name: request.name,
             expected_generation: request.expected_generation,
             fingerprint,
-            device: original.device,
         })
     }
     pub(super) async fn cleanup_capture(&self, id: OpaqueId) -> Result<(), Error> {

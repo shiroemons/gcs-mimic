@@ -207,6 +207,50 @@ async fn preserved_native_export_never_removes_a_later_external_body_or_an_unpro
     }
 }
 
+/// A preserved target whose permissions change after its capture, which changes its ctime,
+/// still holds the captured bytes, and their hashes show it: the export over it completes
+/// instead of reporting the same body as another conflict, and the conflict store keeps the
+/// captured copy.
+#[tokio::test]
+async fn preserved_native_export_replaces_a_captured_target_whose_permissions_changed() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new(BODY.len() as u64, 1).await;
+    let (operation, id) = fixture.preserved().await;
+    let path = fixture.tree.0.join("test-bucket/object");
+    let before = fsutil::FileIdentity::from(&fs::metadata(&path).unwrap());
+    let mode = fs::metadata(&path).unwrap().permissions().mode() ^ 0o040;
+    fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+    let after = fsutil::FileIdentity::from(&fs::metadata(&path).unwrap());
+    assert_ne!(before.changed_ns, after.changed_ns);
+    let mut result = InstallOutcome::Pending;
+    for _ in 0..8 {
+        result = fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap();
+        if result != InstallOutcome::Pending {
+            break;
+        }
+    }
+    assert_eq!(result, InstallOutcome::Complete);
+    assert_eq!(fs::read(&path).unwrap(), b"api winner");
+    assert_eq!(
+        fs::read(fixture.data.0.join("sync-conflicts").join(id)).unwrap(),
+        BODY
+    );
+    assert_eq!(
+        (
+            fixture.writeback.status().await.unwrap().stop(),
+            fixture.page().await.usage.entries
+        ),
+        (Stop::Ready, 1)
+    );
+    fixture.assert_api().await;
+    drop(operation);
+    fixture.close().await;
+}
+
 #[tokio::test]
 async fn protected_zero_byte_transfer_reserves_a_second_physical_entry() {
     let fixture = Fixture::new(4096, 1).await;

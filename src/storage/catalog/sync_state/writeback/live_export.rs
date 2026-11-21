@@ -272,12 +272,6 @@ impl Purpose {
             Self::Ordinary | Self::RestoreAbsent | Self::ObserveProtected => None,
         }
     }
-
-    /// Only a preserved original pins the device its replacement must stay on.
-    fn source_device(&self) -> Option<u64> {
-        self.conflict()
-            .map(super::super::conflicts::CapturedConflict::device)
-    }
 }
 
 /// How far an export has progressed; each `advance_live_export` call moves at most one step.
@@ -392,30 +386,6 @@ fn confirm_copy(
         }),
     );
     Err(Error::Protected)
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum IdentityStage {
-    BeforeExchange,
-    Displaced,
-}
-fn matches_source(
-    file: &File,
-    expected: &SyncRecord,
-    device: Option<u64>,
-    stage: IdentityStage,
-) -> Result<body::Match, Error> {
-    if let Some(device) = device {
-        let identity = fsutil::stat_identity(file)?;
-        // Rename changes ctime; the pre-exchange capture must still match every original observation.
-        if identity.device != device
-            || (stage == IdentityStage::BeforeExchange
-                && identity.changed_ns != expected.fingerprint.ctime_ns)
-        {
-            return Ok(body::Match::Differs);
-        }
-    }
-    matches_tracked(file, expected)
 }
 
 fn api_original(c: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> Result<(), Error> {
@@ -651,11 +621,10 @@ fn expected_target(
     }
     let replacement = match (file, install.tracked.as_ref()) {
         (None, _) => fsutil::Replacement::NoReplace,
+        // A preserved conflict's capture is the tracked record here, checked as a tracked body
+        // is, without its device or ctime: a permission change after the capture is no new edit.
         (Some(file), Some(expected)) => {
-            let device = install.purpose.source_device();
-            if let body::Match::Differs =
-                matches_source(file, expected, device, IdentityStage::BeforeExchange)?
-            {
+            if let body::Match::Differs = matches_tracked(file, expected)? {
                 return Ok(ControlFlow::Break(Installed::Changed));
             }
             fsutil::Replacement::Exchange
@@ -724,9 +693,9 @@ fn displaced_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error
 
 /// Unlinks the tracked body that installation moved out of the target, if any, then syncs what
 /// installation changed: the directory that holds the target, the workspace and the tree's root.
-/// Only here is that body judged, by [`OwnedBody::displaced`], whatever happened to it between
-/// the check before the rename and the rename itself: its bytes decide, as they do when restart
-/// recovery finds it ([`OwnedBody::tracked`]).
+/// Only here is that body judged, whatever happened to it between the check before the rename
+/// and the rename itself, by [`OwnedBody::tracked`]: the rule restart recovery judges it by when
+/// it finds it there, so both give the same answer.
 fn settle(
     root: &File,
     workspace: &File,
@@ -737,10 +706,10 @@ fn settle(
     #[cfg(test)]
     failure(selected.token.root, "installed")?;
     if let Some(file) = displaced_entry(workspace, selected.token.id)? {
-        let device = install.purpose.source_device();
-        let displaced = install.tracked.as_ref().map_or(Ok(None), |expected| {
-            OwnedBody::displaced(&file, expected, device)
-        })?;
+        let displaced = install
+            .tracked
+            .as_ref()
+            .map_or(Ok(None), |expected| OwnedBody::tracked(&file, expected))?;
         let Some(displaced) = displaced else {
             return Err(Error::Protected);
         };

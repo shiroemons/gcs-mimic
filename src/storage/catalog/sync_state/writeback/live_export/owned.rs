@@ -24,7 +24,9 @@ impl OwnedBody {
             .map(Self))
     }
 
-    /// `file` when it still holds the tracked body, by [`matches_tracked`].
+    /// `file` when it still holds the tracked body, by [`matches_tracked`]: what installation's
+    /// rename moved out of the target into the private entry, or what restart recovery finds
+    /// there. An export over a preserved conflict tracks the capture's record.
     pub(in crate::storage::catalog::sync_state::writeback) fn tracked(
         file: &File,
         tracked: &SyncRecord,
@@ -43,20 +45,6 @@ impl OwnedBody {
             return Ok(None);
         }
         Ok(Some(Self(fsutil::stat_identity(file)?)))
-    }
-
-    /// `file`, the body that installation moved out of the target into the private entry, when
-    /// it is still the tracked body `expected` it replaced, observed on the source's `device`.
-    pub(super) fn displaced(
-        file: &File,
-        expected: &SyncRecord,
-        device: Option<u64>,
-    ) -> Result<Option<Self>, Error> {
-        Ok(
-            matches_source(file, expected, device, IdentityStage::Displaced)?
-                .same()
-                .map(Self),
-        )
     }
 
     /// `file` as the copy that `item`, a publication, staged as `staged` and no target took:
