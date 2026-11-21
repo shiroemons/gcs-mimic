@@ -1,8 +1,8 @@
 //! What startup read before it decides how to take the selected directory.
 //!
-//! Reading is all that happens here: [`decide`](super::decide::decide) takes these values and
-//! nothing else, so what it does with a directory never depends on a read it makes itself, and a
-//! test builds any combination of the two without a directory or a catalog.
+//! [`decide`](super::decide::decide) takes these values and nothing else, so what it does with a
+//! directory never depends on a read it makes itself, and a test builds any combination of the
+//! two without a directory or a catalog.
 
 use super::{Marker, switch::Registered};
 use crate::{fsutil::NodeId, storage::sync_state::CatalogId};

@@ -243,6 +243,7 @@ struct Row {
 fn decides_every_combination_once(ask: Ask, rows: &[Row]) {
     let mut seen = Vec::new();
     for row in rows {
+        let before = seen.len();
         for &layout in row.layouts {
             for &found in row.found {
                 if !found.exists_in(layout) {
@@ -270,6 +271,12 @@ fn decides_every_combination_once(ask: Ask, rows: &[Row]) {
                 );
             }
         }
+        assert!(
+            seen.len() > before,
+            "{ask:?}: a row of {:?} with {:?} matches no combination",
+            row.layouts,
+            row.found
+        );
     }
     for layout in LAYOUTS {
         for found in FOUND {

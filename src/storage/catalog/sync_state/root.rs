@@ -106,8 +106,8 @@ pub enum Activation {
     Reinitialize { catalog_id: CatalogId },
 }
 
-/// A step of taking the selected directory that meets the filesystem, so that an operation the
-/// platform or the filesystem does not support says which step it stopped.
+/// A filesystem operation on the synchronized directory, at startup or while synchronizing, so
+/// that one the platform or the filesystem does not support says which it was.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {
     /// Locking the selected directory.
@@ -122,8 +122,6 @@ pub enum Stage {
     PublishMarker,
     /// Listing the directory to prove it holds only root files.
     ListRootFiles,
-    /// Registering a new root in place of the registered ones.
-    SwitchRoot,
     /// Reading what changed in the tree since the last pass.
     WatchChanges,
 }
@@ -137,7 +135,6 @@ impl std::fmt::Display for Stage {
             Self::WriteMarker => "staging the marker",
             Self::PublishMarker => "publishing the marker",
             Self::ListRootFiles => "listing the directory",
-            Self::SwitchRoot => "switching the root",
             Self::WatchChanges => "reading the tree's changes",
         })
     }
@@ -177,30 +174,34 @@ pub enum RootError {
 }
 
 impl RootError {
-    /// Classifies a failure of `stage`, for `map_err`: an unsupported operation names the stage,
-    /// and any other failure is a storage failure that keeps its cause.
+    /// Classifies a failure of `stage`: an unsupported operation names the stage, and any other
+    /// failure is a storage failure that keeps its cause.
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "io::ErrorKind is non_exhaustive; every kind but Unsupported is a storage failure"
     )]
-    pub(crate) fn at<E: Into<io::Error>>(stage: Stage) -> impl Fn(E) -> Self {
-        move |error| {
-            let error = error.into();
-            match error.kind() {
-                io::ErrorKind::Unsupported => Self::Unsupported {
-                    stage,
-                    cause: UnsupportedCause(error),
-                },
-                _ => Self::Admin(error.into()),
-            }
+    pub(crate) fn at(stage: Stage, error: impl Into<io::Error>) -> Self {
+        let error = error.into();
+        match error.kind() {
+            io::ErrorKind::Unsupported => Self::Unsupported {
+                stage,
+                cause: UnsupportedCause(error),
+            },
+            _ => Self::Admin(error.into()),
         }
     }
 }
 
-/// Reaches the fault seam `step` in `path`'s tree, as `stage`.
-#[cfg(test)]
-fn seam(path: &Path, step: super::super::fault::Step, stage: Stage) -> Result<(), RootError> {
-    super::super::fault::hit_io(path, step).map_err(RootError::at(stage))
+/// Classifies the failure of an operation by the stage it belongs to, so that a seam and the real
+/// operation beside it map their errors the same way.
+pub(crate) trait AtStage<T> {
+    fn at(self, stage: Stage) -> Result<T, RootError>;
+}
+
+impl<T, E: Into<io::Error>> AtStage<T> for Result<T, E> {
+    fn at(self, stage: Stage) -> Result<T, RootError> {
+        self.map_err(|error| RootError::at(stage, error))
+    }
 }
 
 impl From<AdminError> for RootError {
@@ -239,7 +240,11 @@ impl TypedSource for RootError {
     fn typed_source(&self) -> Option<Link<'_>> {
         match self {
             Self::Admin(error) => Some(Link::Admin(error)),
-            Self::Unsupported { cause, .. } => Some(Link::Io(&cause.0)),
+            // A cause that only has a kind, as an unsupported operation reports, adds nothing to
+            // the chain, as for an `AdminError`.
+            Self::Unsupported { cause, .. } => (cause.0.raw_os_error().is_some()
+                || cause.0.get_ref().is_some())
+            .then_some(Link::Io(&cause.0)),
             Self::InUse
             | Self::RootChanged
             | Self::MissingMarker
@@ -276,15 +281,12 @@ impl Marker {
 fn read_marker(directory: &File) -> Result<Option<(Marker, FileIdentity)>, RootError> {
     read_marker_name(directory, MARKER)
 }
-fn read_failed(error: impl Into<io::Error>) -> RootError {
-    RootError::at(Stage::ReadMarker)(error)
-}
 fn marker_open_error(error: io::Error) -> RootError {
     if error.kind() == io::ErrorKind::NotFound || crate::sync::tree::structural_entry_error(&error)
     {
         RootError::InvalidMarker
     } else {
-        read_failed(error)
+        RootError::at(Stage::ReadMarker, error)
     }
 }
 fn read_marker_name(
@@ -296,13 +298,13 @@ fn read_marker_name(
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(marker_open_error(error)),
     };
-    let before = fsutil::stat_identity(&file).map_err(read_failed)?;
+    let before = fsutil::stat_identity(&file).at(Stage::ReadMarker)?;
     let mut bytes = Vec::with_capacity(4097);
     (&file)
         .take(4097)
         .read_to_end(&mut bytes)
-        .map_err(read_failed)?;
-    if bytes.len() > 4096 || before != fsutil::stat_identity(&file).map_err(read_failed)? {
+        .at(Stage::ReadMarker)?;
+    if bytes.len() > 4096 || before != fsutil::stat_identity(&file).at(Stage::ReadMarker)? {
         return Err(RootError::InvalidMarker);
     }
     let marker: Marker = serde_json::from_slice(&bytes).map_err(|_| RootError::InvalidMarker)?;
@@ -310,7 +312,7 @@ fn read_marker_name(
         return Err(RootError::InvalidMarker);
     }
     let current = fsutil::open_regular_at(directory, name.as_ref()).map_err(marker_open_error)?;
-    if fsutil::stat_identity(&current).map_err(read_failed)? != before {
+    if fsutil::stat_identity(&current).at(Stage::ReadMarker)? != before {
         return Err(RootError::InvalidMarker);
     }
     Ok(Some((marker, before)))
@@ -338,8 +340,7 @@ fn marker_state(directory: &File) -> Result<MarkerState, RootError> {
         Ok(Some((marker, _))) => Ok(MarkerState::Staged(marker)),
         Ok(None) => Ok(MarkerState::Absent),
         Err(RootError::InvalidMarker) => {
-            fsutil::unlink_file_at(directory, MARKER_STAGING.as_ref())
-                .map_err(RootError::at(Stage::WriteMarker))?;
+            fsutil::unlink_file_at(directory, MARKER_STAGING.as_ref()).at(Stage::WriteMarker)?;
             Ok(MarkerState::Absent)
         }
         Err(error) => Err(error),
@@ -349,7 +350,7 @@ fn remove_staging(directory: &File) -> Result<(), RootError> {
     match fsutil::unlink_file_at(directory, MARKER_STAGING.as_ref()) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(RootError::at(Stage::WriteMarker)(error)),
+        Err(error) => Err(RootError::at(Stage::WriteMarker, error)),
     }
 }
 
@@ -358,29 +359,29 @@ fn remove_staging(directory: &File) -> Result<(), RootError> {
 /// its root at this directory and removes otherwise.
 fn stage_marker(owns: &Ownership, marker: Marker) -> Result<switch::Staged, RootError> {
     #[cfg(test)]
-    use super::super::fault::Step;
-    let failed = RootError::at(Stage::WriteMarker);
+    use super::super::fault::{self, Step};
+    let stage = Stage::WriteMarker;
     let root = owns.lock.file();
     remove_staging(root)?;
     let bytes = serde_json::to_vec(&marker).map_err(AdminError::backend)?;
-    let mut file = fsutil::create_regular_at(root, MARKER_STAGING.as_ref()).map_err(&failed)?;
+    let mut file = fsutil::create_regular_at(root, MARKER_STAGING.as_ref()).at(stage)?;
     #[cfg(test)]
     {
         #[cfg(unix)]
-        super::super::fault::file_created(&owns.path.join(MARKER_STAGING));
-        seam(&owns.path, Step::SyncMarkerWrite, Stage::WriteMarker)?;
+        fault::file_created(&owns.path.join(MARKER_STAGING));
+        fault::hit_io(&owns.path, Step::SyncMarkerWrite).at(stage)?;
     }
-    file.write_all(&bytes).map_err(&failed)?;
+    file.write_all(&bytes).at(stage)?;
     #[cfg(test)]
-    seam(&owns.path, Step::SyncMarkerSync, Stage::WriteMarker)?;
-    file.sync_all().map_err(&failed)?;
-    root.sync_all().map_err(&failed)?;
+    fault::hit_io(&owns.path, Step::SyncMarkerSync).at(stage)?;
+    file.sync_all().at(stage)?;
+    root.sync_all().at(stage)?;
     #[cfg(test)]
     {
-        super::super::fault::file_synced(&owns.path, &file.metadata().map_err(&failed)?);
+        fault::file_synced(&owns.path, &file.metadata().at(stage)?);
         #[cfg(unix)]
-        super::super::fault::dir_synced(&owns.path);
-        seam(&owns.path, Step::SyncMarkerPrepared, Stage::WriteMarker)?;
+        fault::dir_synced(&owns.path);
+        fault::hit_io(&owns.path, Step::SyncMarkerPrepared).at(stage)?;
     }
     Ok(switch::Staged(marker))
 }
@@ -391,38 +392,37 @@ fn publish_marker(
     marker: &MarkerState,
 ) -> Result<FileIdentity, RootError> {
     #[cfg(test)]
-    use super::super::fault::Step;
-    let failed = RootError::at(Stage::PublishMarker);
+    use super::super::fault::{self, Step};
+    let stage = Stage::PublishMarker;
     owns.validate()?;
     let root = owns.lock.file();
     #[cfg(test)]
-    seam(&owns.path, Step::SyncMarkerReserved, Stage::PublishMarker)?;
+    fault::hit_io(&owns.path, Step::SyncMarkerReserved).at(stage)?;
     if matches!(marker, MarkerState::Absent) {
         stage_marker(owns, Marker::new(status))?;
     }
     if !matches!(marker, MarkerState::Published(..)) {
         #[cfg(test)]
-        seam(&owns.path, Step::SyncMarkerRename, Stage::PublishMarker)?;
+        fault::hit_io(&owns.path, Step::SyncMarkerRename).at(stage)?;
         fsutil::durable_replace_between(root, MARKER_STAGING.as_ref(), root, MARKER.as_ref(), None)
             .map_err(|error| match error {
                 FsError::Io(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                     RootError::ForeignMarker
                 }
-                error @ (FsError::Io(_) | FsError::Unsupported) => failed(error),
+                error @ (FsError::Io(_) | FsError::Unsupported) => RootError::at(stage, error),
             })?;
         #[cfg(test)]
         {
             #[cfg(unix)]
-            super::super::fault::renamed(&owns.path.join(MARKER_STAGING), &owns.path.join(MARKER));
-            seam(&owns.path, Step::SyncMarkerParentSync, Stage::PublishMarker)?;
+            fault::renamed(&owns.path.join(MARKER_STAGING), &owns.path.join(MARKER));
+            fault::hit_io(&owns.path, Step::SyncMarkerParentSync).at(stage)?;
         }
-        root.sync_all()
-            .map_err(RootError::at(Stage::PublishMarker))?;
+        root.sync_all().at(stage)?;
         #[cfg(test)]
         {
             #[cfg(unix)]
-            super::super::fault::dir_synced(&owns.path);
-            seam(&owns.path, Step::SyncMarkerPublished, Stage::PublishMarker)?;
+            fault::dir_synced(&owns.path);
+            fault::hit_io(&owns.path, Step::SyncMarkerPublished).at(stage)?;
         }
     }
     let (current, identity) = read_marker(root)?.ok_or(RootError::MissingMarker)?;
@@ -469,9 +469,7 @@ enum Reservation {
 
 fn reserve(
     connection: &mut Connection,
-    location: &[u8],
-    identity: FileIdentity,
-    marker: Option<Marker>,
+    disk: &DiskFacts<'_>,
     catalog: CatalogId,
     activation: Activation,
 ) -> Result<Reservation, RootError> {
@@ -481,17 +479,12 @@ fn reserve(
     if catalog_id(&transaction)? != catalog {
         return Err(RootError::ForeignMarker);
     }
-    let node = identity.node();
-    let disk = DiskFacts {
-        location,
-        node,
-        marker,
-    };
+    let (location, node) = (disk.location, disk.node);
     let facts = CatalogFacts {
         id: catalog,
         registered: switch::registered(&transaction)?,
     };
-    let decision = decide(&disk, &facts, activation)?;
+    let decision = decide(disk, &facts, activation)?;
     let registered = facts.registered;
     let (root_id, baseline, change) = match decision {
         Decision::Open { root, complete } => (root, Baseline::from_complete(complete), None),
@@ -553,11 +546,10 @@ impl Ownership {
                 {
                     RootError::RootChanged
                 } else {
-                    RootError::at(Stage::Identity)(error)
+                    RootError::at(Stage::Identity, error)
                 }
             })?;
-            let identity =
-                fsutil::stat_identity(&current).map_err(RootError::at(Stage::Identity))?;
+            let identity = fsutil::stat_identity(&current).at(Stage::Identity)?;
             if identity.node() != self.identity.node() {
                 return Err(RootError::RootChanged);
             }
@@ -821,21 +813,21 @@ impl SyncState {
                 .0
                 .file_workers
                 .run(move || {
-                    let located = RootError::at(Stage::Identity);
-                    let selected_path = std::path::absolute(&path).map_err(&located)?;
+                    let selected_path = std::path::absolute(&path).at(Stage::Identity)?;
                     let lock = lock::acquire_directory(&selected_path).map_err(|error| {
                         if error.kind() == io::ErrorKind::WouldBlock {
                             RootError::InUse
                         } else {
-                            RootError::at(Stage::Lock)(error)
+                            RootError::at(Stage::Lock, error)
                         }
                     })?;
-                    let canonical = selected_path.canonicalize().map_err(&located)?;
-                    if crate::source_tree::paths_overlap(&canonical, &data_dir).map_err(&located)? {
+                    let canonical = selected_path.canonicalize().at(Stage::Identity)?;
+                    if crate::source_tree::paths_overlap(&canonical, &data_dir)
+                        .at(Stage::Identity)?
+                    {
                         return Err(RootError::RootChanged);
                     }
-                    let identity = fsutil::stat_identity(lock.file())
-                        .map_err(RootError::at(Stage::Identity))?;
+                    let identity = fsutil::stat_identity(lock.file()).at(Stage::Identity)?;
                     let ownership = Ownership {
                         lock,
                         path: canonical,
@@ -879,7 +871,8 @@ impl SyncState {
                     }
                     MarkerState::Published(..) | MarkerState::Absent => true,
                 };
-                Ok::<_,RootError>((reserve(connection,&location,identity,marker.marker().filter(|_| valid),catalog,activation),valid))
+                let disk = DiskFacts { location: &location, node: identity.node(), marker: marker.marker().filter(|_| valid) };
+                Ok::<_,RootError>((reserve(connection,&disk,catalog,activation),valid))
             })
             .await?;
         let marker = if matches!(marker, MarkerState::Staged(_)) && !staging_valid {

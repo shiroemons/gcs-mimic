@@ -165,7 +165,10 @@ fn synchronization_diagnostics_summarize_wrapped_causes() {
         ),
         (RootError::InUse, "synchronization root: InUse"),
         (
-            RootError::at(Stage::PublishMarker)(io::Error::from(io::ErrorKind::Unsupported)),
+            RootError::at(
+                Stage::PublishMarker,
+                io::Error::from(io::ErrorKind::Unsupported),
+            ),
             "synchronization root: Unsupported while publishing the marker",
         ),
         (RootError::RootChanged, "synchronization root: RootChanged"),

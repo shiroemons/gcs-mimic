@@ -174,9 +174,7 @@ fn storage_failures_require_capacity_or_access_repairs() {
         for (path, actual) in [
             (
                 "root",
-                root_error(&RootError::at(
-                    crate::storage::sync_state::root::Stage::Lock,
-                )(io::Error::from(kind))),
+                root_error(&RootError::Admin(AdminError::from(io::Error::from(kind)))),
             ),
             (
                 "control",

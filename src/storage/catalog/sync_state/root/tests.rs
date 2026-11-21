@@ -35,10 +35,48 @@ async fn setup() -> (TestDir, TestDir, Catalog) {
 
 #[test]
 fn unrelated_would_block_keeps_its_io_cause() {
-    let error = RootError::at(Stage::Lock)(io::Error::from_raw_os_error(libc::EAGAIN));
+    let error = RootError::at(
+        Stage::ReadMarker,
+        io::Error::from_raw_os_error(libc::EAGAIN),
+    );
     assert!(
         matches!(error, RootError::Admin(AdminError::Io(ref cause)) if cause.source().and_then(|source| source.downcast_ref::<io::Error>()).and_then(io::Error::raw_os_error) == Some(libc::EAGAIN))
     );
+}
+
+#[test]
+fn an_unsupported_operation_keeps_its_os_error_as_the_source_of_the_stage_it_stopped() {
+    let error = RootError::at(
+        Stage::PublishMarker,
+        io::Error::from_raw_os_error(libc::ENOSYS),
+    );
+    assert!(matches!(
+        error,
+        RootError::Unsupported {
+            stage: Stage::PublishMarker,
+            ..
+        }
+    ));
+    assert!(crate::error::causes(&error).any(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .is_some_and(|cause| cause.raw_os_error() == Some(libc::ENOSYS))
+    }));
+}
+
+#[test]
+fn an_unsupported_operation_that_reports_only_a_kind_adds_nothing_to_the_chain() {
+    for cause in [
+        io::Error::from(io::ErrorKind::Unsupported),
+        io::Error::from(FsError::Unsupported),
+    ] {
+        let error = RootError::at(Stage::Lock, cause);
+        assert!(std::error::Error::source(&error).is_none());
+        assert_eq!(
+            error.to_string(),
+            "synchronization root: Unsupported while locking the directory"
+        );
+    }
 }
 
 #[test]
@@ -706,28 +744,38 @@ async fn sync_root_schema_migration_rolls_back_retries_and_preserves_state() {
 #[tokio::test]
 async fn sync_root_activation_failure_boundaries_never_publish_partial_markers() {
     use crate::storage::catalog::fault::{self, Fault, Step};
-    for phase in [
-        Step::SyncMarkerReserved,
-        Step::SyncMarkerWrite,
-        Step::SyncMarkerPrepared,
-        Step::SyncMarkerParentSync,
-        Step::SyncMarkerPublished,
+    /// What a restart finds after the failed activation.
+    #[derive(Clone, Copy)]
+    enum Left {
+        /// No marker: opening is refused until the operator reinitializes.
+        NoMarker,
+        /// A marker the catalog registered, which opening takes.
+        Resumable,
+    }
+    for (step, left) in [
+        (Step::SyncMarkerReserved, Left::NoMarker),
+        (Step::SyncMarkerWrite, Left::NoMarker),
+        (Step::SyncMarkerPrepared, Left::Resumable),
+        (Step::SyncMarkerParentSync, Left::Resumable),
+        (Step::SyncMarkerPublished, Left::Resumable),
     ] {
         let (data, root, catalog) = setup().await;
         let id = catalog.sync_state().catalog_id().await.unwrap();
-        fault::arm(&root.0, phase, 0, Fault::Io(io::ErrorKind::Other));
+        fault::arm(&root.0, step, 0, Fault::Io(io::ErrorKind::Other));
         assert!(
             catalog
                 .sync_state()
                 .activate_root(&root.0, Activation::Open)
                 .await
-                .is_err()
+                .is_err(),
+            "{step:?}"
         );
+        assert_eq!(fault::pending(&root.0), 0, "{step:?} was not reached");
         catalog.close().await.unwrap();
         let catalog = Catalog::open(&data.0).await.unwrap();
         let state = catalog.sync_state();
-        match phase {
-            Step::SyncMarkerReserved | Step::SyncMarkerWrite => {
+        match left {
+            Left::NoMarker => {
                 assert!(!root.0.join(MARKER).exists());
                 assert!(matches!(
                     state.activate_root(&root.0, Activation::Open).await,
@@ -740,7 +788,7 @@ async fn sync_root_activation_failure_boundaries_never_publish_partial_markers()
                         .unwrap(),
                 );
             }
-            _ => {
+            Left::Resumable => {
                 let lease = state
                     .activate_root(&root.0, Activation::Open)
                     .await

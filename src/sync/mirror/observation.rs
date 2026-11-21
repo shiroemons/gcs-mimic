@@ -115,9 +115,8 @@ impl HistoryScan<'_> {
         root: &RootLease,
         summary: &Reconciliation,
     ) -> Result<(), RootError> {
-        let watching = RootError::at(Stage::WatchChanges);
-        let generation = self.generation.map_err(&watching)?;
-        self.watcher.poll_changes().map_err(&watching)?;
+        let generation = self.generation.at(Stage::WatchChanges)?;
+        self.watcher.poll_changes().at(Stage::WatchChanges)?;
         if generation == Some(self.watcher.generation)
             && self.watcher.pending.is_none()
             && summary.gate().hold().infers_deletions()

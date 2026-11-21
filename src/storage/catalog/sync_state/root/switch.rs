@@ -30,11 +30,11 @@
 
 use super::{
     super::{CatalogId, SyncState},
-    Baseline, Marker, MarkerState, Ownership, RootError, RootId, RootStatus, Stage, remove_staging,
-    stage_marker,
+    AtStage, Baseline, Marker, MarkerState, Ownership, RootError, RootId, RootStatus, Stage,
+    remove_staging, stage_marker,
 };
 #[cfg(test)]
-use crate::storage::catalog::fault::Step;
+use crate::storage::catalog::fault::{self, Step};
 use crate::{
     fsutil::{self, NodeId},
     storage::{
@@ -178,7 +178,7 @@ impl RootFiles {
     /// Lists the directory `owns` holds. One that holds anything else is no proof.
     fn prove(owns: &Ownership) -> Result<Option<Self>, RootError> {
         owns.validate()?;
-        let listed = root_files(owns.lock.file()).map_err(RootError::at(Stage::ListRootFiles))?;
+        let listed = root_files(owns.lock.file()).at(Stage::ListRootFiles)?;
         Ok(listed.map(|files| Self {
             location: owns.path.as_os_str().as_encoded_bytes().to_vec(),
             node: owns.identity.node(),
@@ -345,7 +345,7 @@ impl SyncState {
                 let proof = RootFiles::prove(&owns)?.ok_or(occupied)?;
                 let staged = stage_marker(&owns, Marker::new(status))?;
                 #[cfg(test)]
-                super::seam(&owns.path, Step::SyncRootSwitchStaged, Stage::SwitchRoot)?;
+                fault::hit_io(&owns.path, Step::SyncRootSwitchStaged).at(Stage::WriteMarker)?;
                 Ok::<_, RootError>((proof, staged))
             })
             .await?;
@@ -370,7 +370,9 @@ impl SyncState {
             self.0
                 .0
                 .file_workers
-                .run(move || super::seam(&owns.path, Step::SyncRootSwitched, Stage::SwitchRoot))
+                .run(move || {
+                    fault::hit_io(&owns.path, Step::SyncRootSwitched).at(Stage::WriteMarker)
+                })
                 .await?;
         }
         Ok((status, MarkerState::Staged(marker), change))
@@ -412,18 +414,15 @@ fn switch(
     )?;
     change.root_files = Some(proof.files);
     #[cfg(test)]
-    super::seam(
-        &crate::storage::catalog::fault::database_dir(&transaction),
+    fault::hit_io(
+        &fault::database_dir(&transaction),
         Step::SyncRootSwitchStaged,
-        Stage::SwitchRoot,
-    )?;
+    )
+    .map_err(|error| RootError::Admin(error.into()))?;
     transaction.commit().map_err(unavailable)?;
     #[cfg(test)]
-    super::seam(
-        &crate::storage::catalog::fault::database_dir(connection),
-        Step::SyncRootSwitched,
-        Stage::SwitchRoot,
-    )?;
+    fault::hit_io(&fault::database_dir(connection), Step::SyncRootSwitched)
+        .map_err(|error| RootError::Admin(error.into()))?;
     Ok(Switch::Committed(change))
 }
 

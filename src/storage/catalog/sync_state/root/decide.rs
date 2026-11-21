@@ -2,8 +2,8 @@
 //! [`switch`](super::switch) describes.
 //!
 //! [`decide`] is pure: it reads the facts [`DiskFacts`] and [`CatalogFacts`] hold, writes
-//! nothing and returns what the caller does, so every refusal happens before the tree or the
-//! catalog is touched.
+//! nothing and returns what the caller does. A refusal returns before `reserve` writes the
+//! catalog and before startup writes a marker.
 
 use super::{
     Activation, RootError, RootId,
