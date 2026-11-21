@@ -5,6 +5,7 @@ use super::*;
 use crate::storage::fault::{Crash, Fault, Step};
 use crate::sync::test_support::{operation_entries, restore_tree};
 use crate::sync::{WaitReason, report::ending::WaitResult};
+use std::os::unix::fs::PermissionsExt;
 
 const BEFORE: &[u8] = b"before\0api";
 const AFTER: &[u8] = b"after\0\xffapi";
@@ -68,6 +69,61 @@ impl Change {
             (step, _) => panic!("no installation checkpoint: {step:?}"),
         }
     }
+}
+
+/// Other bytes of the tracked body's size.
+const OTHER: &[u8] = b"BEFORE\0API";
+
+/// What reaches the tracked target after installation checked it and before the rename that
+/// exchanges it with the copy or moves it out. A user's write is synced, so a power loss keeps it.
+#[derive(Clone, Copy, Debug)]
+enum Race {
+    /// Its permissions change, which changes its ctime.
+    Permissions,
+    /// It comes back under another inode number with the same bytes and modification time.
+    Renumbered,
+    /// It holds other bytes of the same size under the same modification time.
+    OtherBytes,
+}
+
+impl Race {
+    const ALL: [Self; 3] = [Self::Permissions, Self::Renumbered, Self::OtherBytes];
+
+    /// The bytes the rename moves into the private entry.
+    fn displaced(self) -> &'static [u8] {
+        match self {
+            Self::Permissions | Self::Renumbered => BEFORE,
+            Self::OtherBytes => OTHER,
+        }
+    }
+
+    fn apply(self, tree: &Path) {
+        let path = tree.join(TARGET);
+        let before = fs::metadata(&path).unwrap();
+        let modified = before.modified().unwrap();
+        match self {
+            Self::Permissions => {
+                let mode = before.permissions().mode() ^ 0o040;
+                fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+            }
+            Self::Renumbered => {
+                let copy = path.with_file_name("object.renumbered");
+                write_synced(tree, &copy, BEFORE, modified);
+                fs::rename(&copy, &path).unwrap();
+            }
+            Self::OtherBytes => write_synced(tree, &path, OTHER, modified),
+        }
+    }
+}
+
+/// Writes `bytes` to `path` under the modification time `modified` and syncs the file, recording
+/// that sync in the power-loss model of `tree`, which sees only the emulator's own syncs.
+fn write_synced(tree: &Path, path: &Path, bytes: &[u8], modified: std::time::SystemTime) {
+    fs::write(path, bytes).unwrap();
+    let file = fs::File::options().write(true).open(path).unwrap();
+    file.set_modified(modified).unwrap();
+    file.sync_all().unwrap();
+    fault::file_synced(tree, &file.metadata().unwrap());
 }
 
 /// The bytes of each private workspace entry.
@@ -257,17 +313,29 @@ impl Crashed {
     /// Crashes or loses power at `step` of `change`'s export and restores the snapshot, checking
     /// that it holds exactly the state the checkpoint promises.
     async fn at(change: Change, step: Step, crash: Crash) -> Self {
-        Self::run(change, step, crash, None).await
+        Self::run(change, step, crash, None, None).await
     }
 
     /// Like [`Self::at`] at [`Step::SyncCopyFailed`], after the export failed because the sync of
     /// `failing`, a parent of the rename, failed inside the rename's call.
     async fn failing(change: Change, failing: &str, crash: Crash) -> Self {
-        Self::run(change, Step::SyncCopyFailed, crash, Some(failing)).await
+        Self::run(change, Step::SyncCopyFailed, crash, Some(failing), None).await
     }
 
-    async fn run(change: Change, step: Step, crash: Crash, failing: Option<&str>) -> Self {
-        let case = format!("{change:?} {step:?} {crash:?} {failing:?}");
+    /// Like [`Self::at`] at [`Step::SyncCopyRenamed`], after `race` reached the target between
+    /// installation's check of it and the rename.
+    async fn raced(change: Change, crash: Crash, race: Race) -> Self {
+        Self::run(change, Step::SyncCopyRenamed, crash, None, Some(race)).await
+    }
+
+    async fn run(
+        change: Change,
+        step: Step,
+        crash: Crash,
+        failing: Option<&str>,
+        race: Option<Race>,
+    ) -> Self {
+        let case = format!("{change:?} {step:?} {crash:?} {failing:?} {race:?}");
         let (data, tree, catalog, bucket, _) = live_fixture().await;
         let before = match change.before() {
             Some(body) => Some(publish_origin(&catalog, &bucket, body, Origin::Api).await),
@@ -288,12 +356,25 @@ impl Crashed {
             .catalog
             .inject(step, 0, Fault::Snapshot(snapshot_data.clone()));
         let failing_sync = failing.map(|failing| FailingSync::of(&tree.0.join(failing)));
+        let held = race.map(|race| (race, install_race::Held::arm(&tree.0, Step::SyncCopyRename)));
         let api = change_api(&started.catalog, &bucket, change, before.as_ref()).await;
-        let waited = started.wait().await;
+        let waited = match held {
+            Some((race, held)) => {
+                let (waited, ()) =
+                    tokio::join!(started.wait(), held.change(|| race.apply(&tree.0)));
+                waited
+            }
+            None => started.wait().await,
+        };
         drop(failing_sync);
-        match failing {
-            None => assert_eq!(waited.unwrap().reason, WaitReason::Ready, "{case}"),
-            Some(_) => assert!(waited.is_err(), "{case}"),
+        match (failing, race) {
+            (Some(_), _) => assert!(waited.is_err(), "{case}"),
+            (None, Some(Race::OtherBytes)) => assert!(
+                waited.is_err(),
+                "{case}: {:?}",
+                waited.as_ref().map(|waited| &waited.reason)
+            ),
+            (None, _) => assert_eq!(waited.unwrap().reason, WaitReason::Ready, "{case}"),
         }
         assert_eq!(fault::pending(&tree.0), 0, "{case}");
         assert_eq!(started.catalog.pending_faults(), 0, "{case}");
@@ -301,6 +382,7 @@ impl Crashed {
 
         restore_tree(&snapshot_tree, &tree.0, &[TARGET]);
         let (copy, target) = change.snapshot(step, crash);
+        let copy = race.map_or(copy, |race| Some(race.displaced()));
         assert_eq!(
             workspace_bodies(&tree.0),
             copy.into_iter().map(<[u8]>::to_vec).collect::<Vec<_>>(),
@@ -506,6 +588,39 @@ async fn a_tracked_body_edited_under_its_recorded_mtime_stays_protected_through_
     }
 }
 
+/// A crash or power loss right after the rename of an overwrite or a removal whose target
+/// changed between installation's check and the rename leaves the private entry holding what the
+/// rename moved there, and restart recovery judges it by its bytes. A permission change or a new
+/// inode number over the tracked bytes is reclaimed: the restart reports no conflict, `sync wait`
+/// succeeds and the target converges. Other bytes of the same size and modification time stay
+/// protected: the restart moves them into the conflict store and reports them, and the target
+/// still converges to the API state.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_crash_after_a_raced_rename_recovers_by_the_bytes_the_rename_moved() {
+    for change in [Change::Overwrite, Change::Remove] {
+        for race in Race::ALL {
+            for &crash in Crash::ALL {
+                let case = format!("{change:?} {race:?} {crash:?}");
+                let crashed = Crashed::raced(change, crash, race).await;
+                match race {
+                    Race::Permissions | Race::Renumbered => crashed.recovers_cleanly(&case).await,
+                    Race::OtherBytes => {
+                        let mut started = crashed.start(crashed.open().await).await;
+                        assert_eq!(
+                            started.wait().await.unwrap().reason,
+                            WaitReason::FindingsPending,
+                            "{case}"
+                        );
+                        assert_eq!(conflict_bodies(&crashed.data), [OTHER], "{case}");
+                        assert_converged(&started, &crashed.bucket, crashed.api.as_ref()).await;
+                        started.close().await;
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// A crash or power loss while recovery reclaims a private entry, at each of its unlink, sync and
 /// completion boundaries, leaves a state the next restart reclaims the same way: no conflict,
 /// `sync wait` succeeds and the target converges. The two cases reclaim the API copy that a power
@@ -527,7 +642,7 @@ async fn crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart() 
         ] {
             for &again in Crash::ALL {
                 let case = format!("{step:?} {crash:?} then {again_at:?} {again:?}");
-                let crashed = Crashed::run(Change::Overwrite, step, crash, failing).await;
+                let crashed = Crashed::run(Change::Overwrite, step, crash, failing, None).await;
                 let snapshots = TestDir::new();
                 let (snapshot_data, snapshot_tree) =
                     (snapshots.0.join("data"), snapshots.0.join("tree"));

@@ -38,7 +38,7 @@ impl Held {
     }
 
     /// Waits until the work is held, runs `change`, then lets the work go on.
-    async fn change(self, change: impl FnOnce()) {
+    pub(super) async fn change(self, change: impl FnOnce()) {
         tokio::time::timeout(HANG_GUARD, self.entered)
             .await
             .unwrap()

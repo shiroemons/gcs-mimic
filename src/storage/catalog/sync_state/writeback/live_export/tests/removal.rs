@@ -98,3 +98,39 @@ async fn a_removal_leaves_a_missing_directory_missing() {
     drop(operation);
     fixture.close().await;
 }
+
+/// A symlink that takes a tracked target after the removal checked it and before the rename moves
+/// the target out is never moved: the rename first opens what it moves, without following a
+/// symlink, to sync it, and fails there. The symlink stays at the target, the private entry stays
+/// empty, and the root stops for recovery.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_symlink_that_took_a_removed_target_before_the_rename_stays_at_the_target() {
+    let fixture = Fixture::new().await;
+    let record = exported(&fixture, "object").await;
+    let operation = begin_removal(&fixture, &record).await;
+    let result = super::exchange::race_exchange(&fixture, &operation, |path| {
+        fs::remove_file(path).unwrap();
+        std::os::unix::fs::symlink("elsewhere", path).unwrap();
+    })
+    .await;
+    assert!(
+        matches!(&result, Err(Error::Admin(AdminError::Io(error)))
+            if error.kind() == io::Error::from_raw_os_error(libc::ELOOP).kind()),
+        "{result:?}"
+    );
+    assert_eq!(
+        fs::read_link(fixture.tree.0.join("test-bucket/object")).unwrap(),
+        std::path::Path::new("elsewhere")
+    );
+    assert!(
+        !super::exchange::private_entry(&fixture, &operation)
+            .await
+            .exists()
+    );
+    assert_eq!(
+        fixture.writeback.status().await.unwrap().stop(),
+        Stop::RecoveryRequired
+    );
+    drop(operation);
+    fixture.close().await;
+}
