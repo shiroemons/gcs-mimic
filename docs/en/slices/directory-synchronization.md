@@ -95,8 +95,12 @@ cursor remains at the pre-scan fence so writes during the scan are replayed.
 No debounce timer or idle polling is used. API bucket deletion leaves its
 directory in place; deleting directories is PENDING.
 
-Updates compare the tracked size, nanosecond mtime and stable MD5/CRC32C before
-replacement; ctime must remain stable during verification. The inode number is
+Updates compare the tracked size and stable MD5/CRC32C before replacement; the
+file's stat identity must remain stable while it is hashed. The recorded mtime is
+not compared: a time read at another precision than it was recorded at, such as
+exFAT's 10 ms or the microseconds a container's file sharing truncates
+nanoseconds to, would turn an unchanged tracked file into a false conflict, so a
+differing time only leads to the hash. The inode number is
 not compared, because Docker Desktop shared folders can report a new number for
 an unchanged file. The exchange itself compares nothing and retains the
 displaced body in the private entry, which is unlinked only once the same rule
@@ -148,7 +152,7 @@ intent and lets other buckets progress; observations do not require that parent
 to remain present for a replacement they never perform. File/ancestor
 permission and transient I/O failures retry inspection without recording a
 permanent mapping finding or advancing the journal cursor. Permission repair
-may change ctime; matching size, mtime and stable MD5/CRC32C still prove the
+may change ctime; matching size and stable MD5/CRC32C still prove the
 tracked body before checked replacement. Symlinks, special files and type
 collisions retain their structural findings.
 
@@ -1121,8 +1125,8 @@ ordering: the removal, its parent's sync, and only then the rename that installs
 the object.
 
 On Linux with supported `renameat2(RENAME_EXCHANGE)`, exchange existing target
-and prepared output, then validate the actual displaced body's size, mtime and
-hashes through its retained name; its inode number and ctime are not compared.
+and prepared output, then validate the actual displaced body's size and hashes
+through its retained name; its mtime, inode number and ctime are not compared.
 Changed displaced content is a conflict
 and must be saved before cleanup; API output remains the winner. Recheck the
 installed output too: another external replacement after exchange is fresh input,

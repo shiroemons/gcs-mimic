@@ -215,7 +215,7 @@ pub(crate) async fn retrack_restored(
                     Err(error) => return Err(error.into()),
                 };
                 let digest = body::Digest::new(size, crate::hashing::Hashes { md5, crc32c });
-                let body::Match::Same(identity) = body::same_content(&file, digest, None)? else {
+                let body::Match::Same(identity) = body::same_content(&file, digest)? else {
                     continue;
                 };
                 connection

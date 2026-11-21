@@ -42,10 +42,13 @@ deletion or recreation.
    rule, so the private copy under a new number stays an ordinary retryable
    failure, and any other body in its entry still stops the root as displaced.
    Re-reading the identity after hashing must again differ only in the inode
-   number. A tracked body at the target is checked by size, mtime and hashes
-   before the exchange. The exchange compares nothing: what it moved into the
-   private entry is checked again by the same rule, which ignores the inode
-   number and ctime, and unlinked only when it still holds the tracked body. A
+   number. A tracked body at the target is checked by size and hashes before
+   the exchange; its recorded mtime is not compared, since a time read at
+   another precision, such as exFAT's 10 ms or a container's truncated
+   nanoseconds, would report an unchanged file as a conflict. The exchange
+   compares nothing: what it moved into the private entry is checked again by
+   the same rule, which ignores the mtime, inode number and ctime, and is
+   unlinked only when it still holds the tracked body. A
    permission change or a new inode number between the check and the exchange
    thus completes the export, as restart recovery's rule does after a crash at
    that point; other bytes, or an entry that is not a regular file, stay
@@ -95,7 +98,7 @@ or resolution; no quota eviction or automatic rollback discards them.
 
 API-priority replacement first captures a divergent external body in the owned
 conflict store and uses its exact proof for the checked exchange. The target is
-compared with the captured size, mtime and hashes, as a tracked body is, both before
+compared with the captured size and hashes, as a tracked body is, both before
 the exchange and once it is displaced; its device and ctime are not, so a
 permission change after the capture does not report the same body as another
 conflict. A later edit cannot be erased with an older proof. Conflict registration and recovery retain
@@ -153,7 +156,10 @@ before the exchange: a permission change or a same-bytes replacement under a new
 inode number there completes the export, while other bytes of the same size and
 mtime, or a symlink, stay in the private entry and stop the root. An export
 over a preserved conflict completes when the target's permissions changed after
-the capture, and the conflict store keeps the captured copy.
+the capture, and the conflict store keeps the captured copy. A tracked
+target that holds its bytes under a modification time rounded to 10 ms or to
+whole microseconds is replaced without a conflict, while other bytes of the
+same size under such a time are still a conflict.
 
 Ingest and export tests record a tracked fingerprint under another inode number.
 Unchanged bytes are hashed without staging and are not reported as a conflict

@@ -62385,9 +62385,9 @@
         },
         {
           "id": "sync-installation-crash-and-ack-recovery",
-          "description": "PASS: a parent sync that fails inside an installation's rename leaves the rename volatile, and a crash or Fault::PowerLoss snapshot right after the failed attempt recovers on restart to the API state without a conflict, whether the power loss undid the rename or an abort kept it. A tracked body that an overwrite displaced or a removal moved aside, with its bytes unchanged and only its modification time moved, stays protected through restart, as installation would have kept it. Parent directories an export creates survive a crash snapshot, and a power-loss snapshot only after their directory sync. An external deletion or edit between the rename and the acknowledgement, or a touch after the durable record, fails the export when it checks the file again: synchronization pauses as observer-failure and write-back reports RecoveryRequired with a finding that sync resolve --recovery cannot select. The rescan the pause asks for cancels the operation without changing the target and reconciles it: an edit is kept as a registered conflict while the API body is installed, a deleted file gets the API body again and a touched file is tracked, with the API object as written. Scope: docs/en/slices/directory-synchronization.md#live-export-verification.",
+          "description": "PASS: a parent sync that fails inside an installation's rename leaves the rename volatile, and a crash or Fault::PowerLoss snapshot right after the failed attempt recovers on restart to the API state without a conflict, whether the power loss undid the rename or an abort kept it. A tracked body that an overwrite displaced or a removal moved aside, with its bytes unchanged and only its modification time moved, is reclaimed through restart by its size and hashes, the rule installation unlinks a displaced body by, and a file beside the target keeps its bytes. Parent directories an export creates survive a crash snapshot, and a power-loss snapshot only after their directory sync. An external deletion or edit between the rename and the acknowledgement, or a touch after the durable record, fails the export when it checks the file again: synchronization pauses as observer-failure and write-back reports RecoveryRequired with a finding that sync resolve --recovery cannot select. The rescan the pause asks for cancels the operation without changing the target and reconciles it: an edit is kept as a registered conflict while the API body is installed, a deleted file gets the API body again and a touched file is tracked, with the API object as written. Scope: docs/en/slices/directory-synchronization.md#live-export-verification.",
           "result": "PASS",
-          "test_ids": ["a_crash_after_a_parent_sync_failed_inside_the_rename_recovers_cleanly", "a_tracked_body_with_another_modification_time_stays_protected_through_restart", "created_parents_survive_crash_and_power_loss_only_after_directory_sync", "an_external_change_before_the_acknowledgement_is_settled_by_a_rescan"]
+          "test_ids": ["a_crash_after_a_parent_sync_failed_inside_the_rename_recovers_cleanly", "a_tracked_body_whose_modification_time_alone_moved_is_reclaimed_through_restart", "created_parents_survive_crash_and_power_loss_only_after_directory_sync", "an_external_change_before_the_acknowledgement_is_settled_by_a_rescan"]
         },
         {
           "id": "sync-live-export-retry",
@@ -62628,7 +62628,7 @@
         "a_private_entry_one_byte_off_stays_protected_through_restart",
         "crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart",
         "a_crash_after_a_parent_sync_failed_inside_the_rename_recovers_cleanly",
-        "a_tracked_body_with_another_modification_time_stays_protected_through_restart",
+        "a_tracked_body_whose_modification_time_alone_moved_is_reclaimed_through_restart",
         "created_parents_survive_crash_and_power_loss_only_after_directory_sync",
         "an_external_change_before_the_acknowledgement_is_settled_by_a_rescan",
         "shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition",
@@ -62837,7 +62837,7 @@
           "result": "PASS",
           "verified_at": "2026-11-20",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["a_crash_after_a_parent_sync_failed_inside_the_rename_recovers_cleanly", "a_tracked_body_with_another_modification_time_stays_protected_through_restart", "created_parents_survive_crash_and_power_loss_only_after_directory_sync", "an_external_change_before_the_acknowledgement_is_settled_by_a_rescan", "shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition", "sync_root_activation_baseline_reopen_and_reinitialize_preserve_data", "unsafe_source_and_missing_marker_never_produce_a_delete"]
+          "test_ids": ["a_crash_after_a_parent_sync_failed_inside_the_rename_recovers_cleanly", "a_tracked_body_whose_modification_time_alone_moved_is_reclaimed_through_restart", "created_parents_survive_crash_and_power_loss_only_after_directory_sync", "an_external_change_before_the_acknowledgement_is_settled_by_a_rescan", "shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition", "sync_root_activation_baseline_reopen_and_reinitialize_preserve_data", "unsafe_source_and_missing_marker_never_produce_a_delete"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync -- --test-threads=4 (50 passed, on macOS, at 719e084f)",

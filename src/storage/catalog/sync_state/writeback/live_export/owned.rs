@@ -19,9 +19,7 @@ impl OwnedBody {
         if item.kind != Kind::Publish {
             return Ok(None);
         }
-        Ok(body::same_content(file, item.into(), None)?
-            .same()
-            .map(Self))
+        Ok(body::same_content(file, item.into())?.same().map(Self))
     }
 
     /// `file` when it still holds the tracked body, by [`matches_tracked`]: what installation's

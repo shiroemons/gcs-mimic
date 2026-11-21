@@ -11,8 +11,7 @@ use live_export::faults::Paths;
 /// The proof that recovery may remove `body`, the private entry of the armed operation `item`:
 /// a regular file that no other name links and that holds exactly the operation's API copy or,
 /// by the rule installation unlinks a displaced body by, the tracked body. A link elsewhere would
-/// make the unlink keep bytes at that other name, and any other bytes or modification time may be
-/// an external edit.
+/// make the unlink keep bytes at that other name, and any other bytes may be an external edit.
 fn owned_body(
     body: &File,
     item: &Pending,

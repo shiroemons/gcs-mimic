@@ -507,12 +507,15 @@ async fn a_private_entry_one_byte_off_stays_protected_through_restart() {
     }
 }
 
-/// Recovery reclaims a tracked body by the rule installation unlinks a displaced one by, which
-/// compares the modification time as well as the bytes. The body an overwrite displaced or a
-/// removal moved aside, with its bytes unchanged and only its modification time moved, stays
-/// protected through the restart, as installation would have kept it.
+/// Recovery reclaims a tracked body by its size and hashes, the rule installation unlinks a
+/// displaced one by; a modification time alone never decides that a body differs. The body an
+/// overwrite displaced or a removal moved aside, with its bytes unchanged and only its
+/// modification time moved, is reclaimed through the restart: the wait succeeds without a
+/// conflict, the target converges to the API state with the workspace empty, and a file beside
+/// the target keeps its bytes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_tracked_body_with_another_modification_time_stays_protected_through_restart() {
+async fn a_tracked_body_whose_modification_time_alone_moved_is_reclaimed_through_restart() {
+    const NEIGHBOR: &[u8] = b"beside\0the target";
     for change in [Change::Overwrite, Change::Remove] {
         let case = format!("{change:?}");
         let crashed = Crashed::at(change, Step::SyncCopyRenamed, Crash::Abort).await;
@@ -526,14 +529,17 @@ async fn a_tracked_body_with_another_modification_time_stays_protected_through_r
             .set_modified(modified + Duration::from_secs(1))
             .unwrap();
         assert_eq!(fs::read(&entry).unwrap(), BEFORE, "{case}");
+        let neighbor = crashed.tree.0.join("test-bucket/neighbor");
+        fs::write(&neighbor, NEIGHBOR).unwrap();
         let mut started = crashed.start(crashed.open().await).await;
         assert_eq!(
             started.wait().await.unwrap().reason,
-            WaitReason::FindingsPending,
+            WaitReason::Ready,
             "{case}"
         );
-        assert_eq!(conflict_bodies(&crashed.data), [BEFORE], "{case}");
+        assert!(conflict_bodies(&crashed.data).is_empty(), "{case}");
         assert_converged(&started, &crashed.bucket, crashed.api.as_ref()).await;
+        assert_eq!(fs::read(&neighbor).unwrap(), NEIGHBOR, "{case}");
         started.close().await;
     }
 }

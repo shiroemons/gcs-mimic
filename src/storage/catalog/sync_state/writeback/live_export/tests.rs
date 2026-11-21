@@ -17,6 +17,7 @@ mod empty_directory;
 mod exchange;
 mod migration;
 mod removal;
+mod timestamps;
 
 pub(crate) async fn pending(operation: &LiveExport) -> Pending {
     operation.0.lock().await.item.clone()

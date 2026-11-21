@@ -69,17 +69,16 @@ impl Match {
 }
 
 /// Whether `file` holds exactly the bytes of `digest`: its size and the hashes read through this
-/// handle match, and its identity did not change while they were read. With `mtime`, the
-/// modification time recorded with the body, a file whose own differs is taken to differ without
-/// reading it. The inode number and ctime are not compared: Docker Desktop's shared folders can
-/// report a new number for an unchanged file, and repairing its permissions changes its ctime.
-pub(super) fn same_content(
-    file: &File,
-    digest: Digest,
-    mtime: Option<i128>,
-) -> Result<Match, Error> {
+/// handle match, and its identity did not change while they were read. Only those two stat
+/// observations of this one handle are compared with each other. No recorded time is compared:
+/// a modification time read at another precision than it was recorded at, such as exFAT's
+/// 10 ms or the microseconds a container's file sharing truncates nanoseconds to, would make the
+/// tracked body look edited, so only the hashes decide. Nor are the inode number and ctime:
+/// Docker Desktop's shared folders can report a new number for an unchanged file, and repairing
+/// its permissions changes its ctime.
+pub(super) fn same_content(file: &File, digest: Digest) -> Result<Match, Error> {
     let before = fsutil::stat_identity(file)?;
-    if before.size != digest.size || mtime.is_some_and(|mtime| mtime != before.modified_ns) {
+    if before.size != digest.size {
         return Ok(Match::Differs);
     }
     let fsutil::HashOutcome::Complete(hashes) =
@@ -147,12 +146,10 @@ pub(super) fn own_copy(
             content: CopyContent::NotChecked,
         });
     }
-    let confirmed = same_content(file, digest, None)?
-        .same()
-        .filter(|confirmed| {
-            let changes = staged.changed_fields(confirmed);
-            changes.is_empty() || changes.is_inode_only()
-        });
+    let confirmed = same_content(file, digest)?.same().filter(|confirmed| {
+        let changes = staged.changed_fields(confirmed);
+        changes.is_empty() || changes.is_inode_only()
+    });
     Ok(match confirmed {
         Some(confirmed) => CopyMatch::Same(confirmed),
         None => CopyMatch::Differs {

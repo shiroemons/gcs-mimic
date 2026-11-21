@@ -337,12 +337,11 @@ struct Install {
     faults: faults::Paths,
 }
 
-/// Whether `file` still holds the tracked body, by [`body::same_content`] with the recorded
-/// modification time. Installation and restart recovery both decide with this, so recovery
-/// removes no tracked body that installation would have kept.
+/// Whether `file` still holds the tracked body, by [`body::same_content`]. Installation and
+/// restart recovery both decide with this, so recovery removes no tracked body that
+/// installation would have kept.
 fn matches_tracked(file: &File, tracked: &SyncRecord) -> Result<body::Match, Error> {
-    let fingerprint = &tracked.fingerprint;
-    body::same_content(file, fingerprint.into(), Some(fingerprint.mtime_ns))
+    body::same_content(file, (&tracked.fingerprint).into())
 }
 
 /// The step that checks a private copy against its staged identity.
@@ -443,9 +442,7 @@ fn observe_target(
     item: &Pending,
 ) -> Result<bool, Error> {
     match target(root, naming, lookup, &item.path)? {
-        Some(file) => Ok(body::same_content(&file, item.into(), None)?
-            .same()
-            .is_some()),
+        Some(file) => Ok(body::same_content(&file, item.into())?.same().is_some()),
         None => Ok(false),
     }
 }
@@ -894,7 +891,7 @@ impl Writeback {
                     faults.copy_created(&selected);
                 }
                 let file = entry(workspace, selected.token.id)?.ok_or_else(stale)?;
-                if let body::Match::Differs = body::same_content(&file, (&selected).into(), None)? {
+                if let body::Match::Differs = body::same_content(&file, (&selected).into())? {
                     return Err(AdminError::Checksum.into());
                 }
                 #[cfg(test)]
