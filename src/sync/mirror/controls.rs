@@ -3,15 +3,10 @@
 use super::*;
 use crate::{
     config::Config,
-    diagnostics::LogLevel,
     storage::{
         Catalog,
-        admin::AdminError,
         change_journal::JournalFence,
-        sync_state::{
-            root::{RootError, RootLease},
-            writeback::Writeback,
-        },
+        sync_state::{root::RootLease, writeback::Writeback},
     },
     sync::{
         EntryReportSender, Reconciliation, SyncError, error::StoppedRescan, interrupt::Interrupt,
@@ -192,83 +187,9 @@ impl LiveControl<'_> {
         Ok(())
     }
 
-    /// Authorizes `decision` on the deletion set `revision` for `identity`, then inventories the
-    /// tree again if the set still waits for the decision, so that a native notification since
-    /// the last pass that left its members as they were does not make it stale. A stop or an
-    /// API change during that inventory refuses the decision: the set was not compared with the
-    /// tree at the current fence, so recording a decision on it would apply to members nobody
-    /// confirmed. The refusal does not rely on the decision's own check of the fence.
-    async fn decidable(
-        &self,
-        decision: Decision,
-        revision: crate::storage::sync_state::OpaqueId,
-        identity: Option<crate::auth::Identity>,
-    ) -> Result<(), ControlError> {
-        use crate::sync::deletion::Rechecked;
-        self.scope
-            .root
-            .authorize_controls(self.scope.config.seed_project.clone(), identity)
-            .await?;
-        match crate::sync::deletion::recheck(
-            self.scope.root,
-            self.scope.config,
-            revision,
-            Interrupt::new(self.scope.stopping),
-        )
-        .await
-        .map_err(ControlError::Failed)?
-        {
-            Rechecked::Interrupted => Err(ControlError::Shutdown),
-            Rechecked::Superseded(error) => Err(self.refuse(decision, revision, error).await),
-            // The decision itself refuses a set that is no longer the one waiting.
-            Rechecked::Confirmed | Rechecked::Replaced | Rechecked::NotAwaiting => Ok(()),
-        }
-    }
-
-    /// Refuses `decision` on the set `revision`, which `error` found no longer decidable, with
-    /// what became of the set, read right after on this worker, which alone takes inventories,
-    /// so that the answer can say what to do instead of trying again.
-    async fn refuse(
-        &self,
-        decision: Decision,
-        revision: crate::storage::sync_state::OpaqueId,
-        error: SyncError,
-    ) -> ControlError {
-        match self.scope.root.refusal(revision).await {
-            Ok(refusal) => ControlError::Stale {
-                decision,
-                revision,
-                refusal,
-                error,
-            },
-            Err(failed) => failed.into(),
-        }
-    }
-
-    /// Records `decision` on the set `revision`. A set that no longer waits for it is refused
-    /// with what became of it.
-    async fn apply(
-        &self,
-        decision: Decision,
-        revision: crate::storage::sync_state::OpaqueId,
-    ) -> Result<crate::storage::sync_state::deletions::DeletionSet, ControlError> {
-        let root = self.scope.root;
-        let applied = match decision {
-            Decision::Approve => root.approve_deletions(revision).await,
-            Decision::Reject => root.reject_deletions(revision).await,
-        };
-        let error = match applied {
-            Ok(set) => return Ok(set),
-            Err(error) => error,
-        };
-        if !matches!(error, RootError::Admin(AdminError::Precondition)) {
-            return Err(error.into());
-        }
-        Err(self.refuse(decision, revision, error.into()).await)
-    }
-
-    /// Approves or rejects the deletion set `revision`, as `decision` says, answers, and then
-    /// runs the approved set or writes the rejected set's files back from their objects.
+    /// Decides the deletion set `revision` as `decision` says. The members held back the exports
+    /// into their bucket's missing directory, which the deletions or the write-back brought back
+    /// and no tree change would run again, so a decision that ran retries them.
     async fn decide(
         &mut self,
         decision: Decision,
@@ -276,32 +197,17 @@ impl LiveControl<'_> {
         reply: Reply<crate::storage::sync_state::deletions::DeletionSet>,
         identity: Option<crate::auth::Identity>,
     ) -> Result<(), SyncError> {
-        let root = self.scope.root;
-        let decided = match self.decidable(decision, revision, identity).await {
-            Ok(()) => self.apply(decision, revision).await,
-            Err(error) => Err(error),
-        };
-        let set = decided.as_ref().ok().cloned();
-        let _ = reply.send(decided);
-        let Some(set) = set else {
-            return Ok(());
-        };
-        let interrupt = Interrupt::new(self.scope.stopping);
-        match decision {
-            Decision::Approve => {
-                crate::sync::deletion::execute_with(self.scope.catalog, root, set, interrupt)
-                    .await?
-                    .report(LogLevel::Info);
-            }
-            Decision::Reject => {
-                crate::sync::deletion::write_back_rejected(self.scope.catalog, root, interrupt)
-                    .await?;
+        use crate::sync::deletion::Decided;
+        let decided =
+            crate::sync::deletion::decide(self.scope, decision, revision, reply, identity).await?;
+        match decided {
+            Decided::Refused => Ok(()),
+            Decided::Applied => {
+                let interrupt = Interrupt::new(self.scope.stopping);
+                Box::pin(self.state.skipped.retry(self.scope, interrupt))
+                    .await
+                    .map(drop)
             }
         }
-        // The members held back the exports into their bucket's missing directory, which the
-        // deletions or the write-back brought back and no tree change would run again.
-        Box::pin(self.state.skipped.retry(self.scope, interrupt))
-            .await
-            .map(drop)
     }
 }

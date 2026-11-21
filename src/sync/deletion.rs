@@ -33,7 +33,9 @@ use std::{
     path::Path,
 };
 
+mod decide;
 mod presence;
+pub(super) use decide::{Decided, decide};
 pub(crate) use presence::Missing;
 pub(super) use presence::{Observed, Presence, Unobservable, observe, presence};
 
@@ -105,65 +107,6 @@ pub(super) async fn inventory_with(
     match root.begin_deletion_inventory(guard).await? {
         Begun::Started(inventory) => take_inventory(root, guard, inventory, interrupt).await,
         Begun::RejectionPending => Ok(InventoryOutcome::RejectionPending),
-    }
-}
-
-/// What the inventory before a decision found about the set the decision names.
-#[derive(Debug)]
-pub(super) enum Rechecked {
-    /// The tree shows the set's members as they were, so the revision stands.
-    Confirmed,
-    /// The tree shows other members, and a new set under a new revision replaced it.
-    Replaced,
-    /// The set did not wait for a decision; the set stays as stored.
-    NotAwaiting,
-    /// An API or bucket change moved the journal while the inventory compared the members, as
-    /// the error says, so the set was not compared with the tree at the current fence. The
-    /// decision is refused without being recorded.
-    Superseded(SyncError),
-    /// A stop ended the inventory before it compared every member, so nothing is known about
-    /// the set.
-    Interrupted,
-}
-
-/// Inventories the tree again before an approval or rejection of the set `revision`, when that
-/// set still waits for one, so that the decision applies to what the tree shows now: a native
-/// notification no longer withdraws such a set. Finding the same members keeps the revision,
-/// whatever notification arrived since the last pass; finding others replaces the set, and the
-/// decision then fails as stale, naming the new one. Only the members decide, as in every
-/// inventory, so an API write since the set was taken keeps the revision unless it touched a
-/// member; an update of a member's bucket, which may make the deletions unrecoverable, replaces
-/// the set whatever the tree shows. A valid waiting set means the last pass let
-/// deletions be inferred, so no gate is consulted. A change of the journal during this
-/// inventory supersedes it, and the decision is refused without trying to record it.
-pub(super) async fn recheck(
-    root: &RootLease,
-    config: &Config,
-    revision: OpaqueId,
-    interrupt: Interrupt<'_>,
-) -> Result<Rechecked, SyncError> {
-    let guard = Guard::from(config.sync_delete_guard);
-    let inventory = match root.begin_deletion_recheck(guard, revision).await? {
-        Recheck::Confirm(inventory) => inventory,
-        Recheck::Replace => match root.begin_new_deletion_inventory(guard).await? {
-            Begun::Started(inventory) => inventory,
-            Begun::RejectionPending => return Ok(Rechecked::NotAwaiting),
-        },
-        Recheck::NotAwaiting => return Ok(Rechecked::NotAwaiting),
-    };
-    match take_inventory(root, guard, inventory, interrupt).await {
-        Ok(InventoryOutcome::Confirmed(_)) => Ok(Rechecked::Confirmed),
-        Ok(InventoryOutcome::Finished(_)) => Ok(Rechecked::Replaced),
-        // A recheck waits on no pass, so it never ends in `NotInferred`; a rejection left
-        // between the two inventories is not a decision's to wait for either, and ends it as a
-        // stop does.
-        Ok(
-            InventoryOutcome::Interrupted
-            | InventoryOutcome::RejectionPending
-            | InventoryOutcome::NotInferred,
-        ) => Ok(Rechecked::Interrupted),
-        Err(error) if error.is_stale_deletion() => Ok(Rechecked::Superseded(error)),
-        Err(error) => Err(error),
     }
 }
 
