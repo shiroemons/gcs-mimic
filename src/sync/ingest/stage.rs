@@ -46,7 +46,7 @@ pub(super) fn open_source(
         PathEntry::File { parent, file } => (parent, file),
         PathEntry::Directory(error)
         | PathEntry::Special(error)
-        | PathEntry::NameRejected(error)
+        | PathEntry::NameRejected { error, .. }
         | PathEntry::Unreadable(error) => return Err(error.into()),
         PathEntry::Absent { .. }
         | PathEntry::Unplaced(_)

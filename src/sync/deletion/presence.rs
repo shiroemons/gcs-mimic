@@ -6,7 +6,7 @@ use crate::{
     storage::sync_state::{deletions::Candidate, root::RootLease},
     sync::{
         SyncError,
-        correspond::{Above, PathEntry, name_rejected, observe_path},
+        correspond::{Above, PathEntry, observe_path},
         report::remedy::Correction,
         tree,
     },
@@ -263,7 +263,7 @@ pub(in crate::sync) async fn presence(
                 PathEntry::Directory(_) | PathEntry::Special(_) => {
                     Looked::At(Presence::Unobservable(Unobservable::EntryReplaced))
                 }
-                PathEntry::NameRejected(_) => {
+                PathEntry::NameRejected { .. } => {
                     Looked::At(Presence::Unobservable(Unobservable::NameRejected))
                 }
                 // A name that kept failing to open while it held an entry is no deletion: the
@@ -328,11 +328,9 @@ fn missing_above(
 /// Classifies a failed lookup of the path: the file system refused its name, another kind of
 /// entry holds its place, or reading it failed.
 fn lookup_failure(error: io::Error) -> Presence {
-    Presence::Unobservable(if name_rejected(&error) {
-        Unobservable::NameRejected
-    } else if tree::structural_entry_error(&error) {
-        Unobservable::EntryReplaced
-    } else {
-        Unobservable::Io(error)
+    Presence::Unobservable(match tree::OpenFailure::from(error) {
+        tree::OpenFailure::Refused(..) => Unobservable::NameRejected,
+        tree::OpenFailure::OtherKind(_) => Unobservable::EntryReplaced,
+        tree::OpenFailure::Failed(error) => Unobservable::Io(error),
     })
 }

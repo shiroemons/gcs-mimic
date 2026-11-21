@@ -308,7 +308,11 @@ impl TreeScan {
             // An entry gone since the listing is passed over. One that kept failing to open while
             // its name still held it is a read failure that a later scan reads again: passing
             // over a tracked file would take it for one that is gone.
-            match self.lookup.directory_unconfirmed(directory, &name) {
+            match self
+                .lookup
+                .directory_unconfirmed(directory, &name)
+                .map_err(OpenFailure::from)
+            {
                 Ok(Opened::Entry(file)) => {
                     // The root's frame is level 0, so this count is the level of the child.
                     if self.frames.len() > self.limits.deepest_directory() {
@@ -321,15 +325,19 @@ impl TreeScan {
                 }
                 Ok(Opened::Missing(_)) => continue,
                 Ok(Opened::Unopenable) => entry.error = Some(EntryError::Unopenable),
-                Err(error) if !structural_entry_error(&error) => {
-                    entry.error = Some(EntryError::Io((&error).into()));
+                Err(failure) if !failure.scans_as_another_kind() => {
+                    entry.error = Some(EntryError::Io(failure.error().into()));
                 }
-                Err(_) => match self.lookup.regular_unconfirmed(directory, &name) {
+                Err(_) => match self
+                    .lookup
+                    .regular_unconfirmed(directory, &name)
+                    .map_err(OpenFailure::from)
+                {
                     Ok(Opened::Entry(file)) => entry.identity = Some(fsutil::stat_identity(&file)?),
                     Ok(Opened::Missing(_)) => continue,
                     Ok(Opened::Unopenable) => entry.error = Some(EntryError::Unopenable),
-                    Err(error) if !structural_entry_error(&error) => {
-                        entry.error = Some(EntryError::Io((&error).into()));
+                    Err(failure) if !failure.scans_as_another_kind() => {
+                        entry.error = Some(EntryError::Io(failure.error().into()));
                     }
                     Err(_) => {}
                 },
@@ -360,6 +368,61 @@ pub(crate) enum ParentError {
 impl From<io::Error> for ParentError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+/// Why the file system refused a name it was asked to open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    /// `EINVAL`. Some file systems answer it for an entry of another kind than the open asked
+    /// for, so a scan reads it as such an entry and an export as one it does not replace.
+    Invalid,
+    /// `ENAMETOOLONG` or `EILSEQ`: the name itself.
+    Name,
+}
+
+/// What a failed open of a name says, read from its error once, so that every reader of the
+/// path tells a refused name from another kind of entry the same way.
+#[derive(Debug)]
+pub(crate) enum OpenFailure {
+    Refused(Refusal, io::Error),
+    /// Another kind of entry than the open asked for holds the name
+    /// ([`structural_entry_error`]).
+    OtherKind(io::Error),
+    /// Reading the name failed.
+    Failed(io::Error),
+}
+
+impl From<io::Error> for OpenFailure {
+    fn from(error: io::Error) -> Self {
+        if error.raw_os_error() == Some(libc::EINVAL) {
+            Self::Refused(Refusal::Invalid, error)
+        } else if error.kind() == io::ErrorKind::InvalidFilename
+            || error.raw_os_error() == Some(libc::EILSEQ)
+        {
+            Self::Refused(Refusal::Name, error)
+        } else if structural_entry_error(&error) {
+            Self::OtherKind(error)
+        } else {
+            Self::Failed(error)
+        }
+    }
+}
+
+impl OpenFailure {
+    fn error(&self) -> &io::Error {
+        match self {
+            Self::Refused(_, error) | Self::OtherKind(error) | Self::Failed(error) => error,
+        }
+    }
+
+    /// Whether a scan reads the failure as an entry of a kind it does not take in rather than as
+    /// a failed read.
+    fn scans_as_another_kind(&self) -> bool {
+        match self {
+            Self::Refused(Refusal::Invalid, _) | Self::OtherKind(_) => true,
+            Self::Refused(Refusal::Name, _) | Self::Failed(_) => false,
+        }
     }
 }
 

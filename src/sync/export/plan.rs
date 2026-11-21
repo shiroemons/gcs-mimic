@@ -22,7 +22,7 @@ use crate::{
         mapping::{self, LexicalReason, Obstruction, PathMapping, Unplaced},
         naming::RootNaming,
         report::remedy::Correction,
-        tree::{ParentError, ParentOpen, parent},
+        tree::{ParentError, ParentOpen, Refusal, parent},
     },
 };
 use std::{
@@ -417,10 +417,17 @@ fn inspect(
         // The entry's name refused as invalid was read as the kind of entry there before the
         // refusal was told apart, and the export keeps answering it as an entry it does not
         // replace. The other refusals fail the step, as they did.
-        PathEntry::NameRejected(error) if error.raw_os_error() == Some(libc::EINVAL) => {
+        PathEntry::NameRejected {
+            refusal: Refusal::Invalid,
+            ..
+        } => {
             return Ok(Target::Replaced(Obstruction::UnsafeEntry));
         }
-        PathEntry::NameRejected(error) | PathEntry::Unreadable(error) => {
+        PathEntry::NameRejected {
+            refusal: Refusal::Name,
+            error,
+        }
+        | PathEntry::Unreadable(error) => {
             return Err(error.into());
         }
         // The name kept failing to open while it held an entry: a later read decides.

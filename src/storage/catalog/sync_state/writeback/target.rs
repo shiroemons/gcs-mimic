@@ -52,7 +52,9 @@ pub(super) fn observe_target(
         PathEntry::Respelled(_) => TargetState::Changed(RaceReason::Respelled),
         // Read again by the export the race leads to.
         PathEntry::Unopenable => TargetState::Changed(RaceReason::Unopenable),
-        PathEntry::NameRejected(error) | PathEntry::Unreadable(error) => return Err(error.into()),
+        PathEntry::NameRejected { error, .. } | PathEntry::Unreadable(error) => {
+            return Err(error.into());
+        }
     })
 }
 

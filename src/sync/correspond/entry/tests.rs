@@ -92,7 +92,7 @@ fn another_kind_of_entry_at_the_path_or_above_it_is_told_apart() {
     ));
     assert!(matches!(
         tree.observe(&format!("bucket/{}", "n".repeat(4096))),
-        PathEntry::NameRejected(_)
+        PathEntry::NameRejected { .. }
     ));
 }
 
@@ -140,7 +140,7 @@ fn a_name_the_file_system_refuses_is_rejected_whatever_it_holds() {
             let _refused = fsutil::FailingOpens::refusing(&bucket, name, errno);
             let observed = tree.observe(&format!("bucket/{name}"));
             assert!(
-                matches!(&observed, PathEntry::NameRejected(error) if error.raw_os_error() == Some(errno)),
+                matches!(&observed, PathEntry::NameRejected { error, .. } if error.raw_os_error() == Some(errno)),
                 "{errno} {name}: {observed:?}"
             );
         }

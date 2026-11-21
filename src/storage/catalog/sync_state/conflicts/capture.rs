@@ -110,7 +110,7 @@ impl RootLease {
                         | PathEntry::Unopenable => Err(Error::TargetChanged),
                         PathEntry::Directory(error)
                         | PathEntry::Special(error)
-                        | PathEntry::NameRejected(error)
+                        | PathEntry::NameRejected { error, .. }
                         | PathEntry::Unreadable(error) => Err(error.into()),
                     }
                 })

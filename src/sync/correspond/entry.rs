@@ -10,7 +10,7 @@ use crate::{
     sync::{
         mapping::{LexicalReason, Unplaced},
         naming::RootNaming,
-        tree::{self, ParentError, ParentOpen},
+        tree::{self, OpenFailure, ParentError, ParentOpen, Refusal},
     },
 };
 use std::{fs::File, io, path::Path};
@@ -39,7 +39,7 @@ pub(crate) enum PathEntry {
     /// this error.
     Special(io::Error),
     /// The file system refused the name of the entry or of a directory above it.
-    NameRejected(io::Error),
+    NameRejected { refusal: Refusal, error: io::Error },
     /// Reading a directory above the entry, or the entry itself, failed.
     Unreadable(io::Error),
     /// The entry, or a directory above it, kept failing to open while its name still held an
@@ -95,9 +95,10 @@ pub(crate) fn observe_path(
         },
         Ok(RegularChild::Unopenable) => PathEntry::Unopenable,
         // `EINVAL` is both a refused name and an error of the kind of entry; the refusal decides,
-        // in this one place.
-        Err(error) if !name_rejected(&error) && tree::structural_entry_error(&error) => {
-            match lookup.directory_unconfirmed(&directory, name) {
+        // and the export answers it as the kind of entry it was read as before (`Refusal`).
+        Err(error) => match OpenFailure::from(error) {
+            OpenFailure::Refused(refusal, error) => PathEntry::NameRejected { refusal, error },
+            OpenFailure::OtherKind(error) => match lookup.directory_unconfirmed(&directory, name) {
                 Ok(fsutil::Opened::Entry(_)) => PathEntry::Directory(error),
                 // The entry that failed to open as a file is gone or kept failing to open as a
                 // directory: the path changed while it was read, and a later read decides.
@@ -105,26 +106,19 @@ pub(crate) fn observe_path(
                     PathEntry::Unopenable
                 }
                 Err(_) => PathEntry::Special(error),
-            }
-        }
-        Err(error) => unreadable(error),
+            },
+            OpenFailure::Failed(error) => PathEntry::Unreadable(error),
+        },
     }
 }
 
-/// A failed read of the path that is not about the kind of entry it holds: the file system
-/// refused a name, or reading failed.
+/// A failed read of a directory above the path: the file system refused a name, or reading
+/// failed.
 fn unreadable(error: io::Error) -> PathEntry {
-    if name_rejected(&error) {
-        PathEntry::NameRejected(error)
-    } else {
-        PathEntry::Unreadable(error)
+    match OpenFailure::from(error) {
+        OpenFailure::Refused(refusal, error) => PathEntry::NameRejected { refusal, error },
+        OpenFailure::OtherKind(error) | OpenFailure::Failed(error) => PathEntry::Unreadable(error),
     }
-}
-
-/// Whether the file system refused a name itself (`ENAMETOOLONG`, `EILSEQ` or `EINVAL`).
-pub(crate) fn name_rejected(error: &io::Error) -> bool {
-    error.kind() == io::ErrorKind::InvalidFilename
-        || matches!(error.raw_os_error(), Some(libc::EILSEQ | libc::EINVAL))
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
