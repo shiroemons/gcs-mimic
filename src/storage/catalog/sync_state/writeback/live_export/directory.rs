@@ -310,7 +310,7 @@ impl RemovableDirectory {
             Ok(fsutil::Child::Alias | fsutil::Child::Missing(_)) => Ok(Err(Kept::NotDirectory)),
             // A directory that kept failing to open is proved again by the export the race leads
             // to.
-            Ok(fsutil::Child::Transient(_)) => Err(Error::Raced(RaceReason::Unsettled)),
+            Ok(fsutil::Child::Transient) => Err(Error::Raced(RaceReason::Unsettled)),
             Err(error) if crate::sync::tree::structural_entry_error(&error) => {
                 Ok(Err(Kept::NotDirectory))
             }
@@ -356,7 +356,7 @@ fn remove_metadata(
             Ok(
                 fsutil::RegularChild::Missing(_)
                 | fsutil::RegularChild::Respelled(_)
-                | fsutil::RegularChild::Transient(_),
+                | fsutil::RegularChild::Transient,
             ) => continue,
             Err(error) if crate::sync::tree::structural_entry_error(&error) => continue,
             Err(error) => return Err(error.into()),
@@ -400,7 +400,7 @@ fn unchanged(
         Ok(fsutil::Child::Missing(_)) => return Ok(Ok(())),
         Ok(fsutil::Child::Alias) => return Ok(Err(Kept::NotDirectory)),
         // A directory that kept failing to open is proved again by the export the race leads to.
-        Ok(fsutil::Child::Transient(_)) => return Err(Error::Raced(RaceReason::Unsettled)),
+        Ok(fsutil::Child::Transient) => return Err(Error::Raced(RaceReason::Unsettled)),
         Err(error) if crate::sync::tree::structural_entry_error(&error) => {
             return Ok(Err(Kept::NotDirectory));
         }

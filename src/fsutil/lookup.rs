@@ -546,7 +546,7 @@ mod open_failure_tests {
         let _directory = VanishingOpens::of(&entries.dir.0, "directory", usize::MAX);
         assert!(matches!(
             entries.lookup().regular(&entries.parent, "file".as_ref()),
-            Ok(RegularChild::Transient(error)) if error.kind() == io::ErrorKind::NotFound
+            Ok(RegularChild::Transient)
         ));
         assert!(entries.waited() >= Duration::from_secs(1));
         assert!(matches!(
@@ -555,13 +555,13 @@ mod open_failure_tests {
                 "directory".as_ref(),
                 DirectoryOpen::Existing
             ),
-            Ok(Child::Transient(_))
+            Ok(Child::Transient)
         ));
         assert!(matches!(
             entries
                 .lookup()
                 .regular_unconfirmed(&entries.parent, "file".as_ref()),
-            Ok(Opened::Transient(_))
+            Ok(Opened::Transient)
         ));
         let waited = entries.waited();
         assert!(matches!(

@@ -150,7 +150,7 @@ impl Probe {
             RegularChild::File(_) | RegularChild::Respelled(_) => Ok(Folded::Together),
             RegularChild::Missing(_) => Ok(Folded::Apart),
             // Whether `folded` reaches `created` is unknown until a later probe.
-            RegularChild::Transient(error) => Err(error),
+            RegularChild::Transient => Err(io::Error::from(fsutil::Unsettled)),
         };
         drop(file);
         self.remove(created)?;

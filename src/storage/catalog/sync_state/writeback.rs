@@ -235,7 +235,7 @@ impl From<crate::sync::tree::ParentError> for Error {
             }
             // A directory that kept failing to open is read again by the export the race leads
             // to.
-            ParentError::Transient(_) => Self::Raced(RaceReason::Unsettled),
+            ParentError::Transient => Self::Raced(RaceReason::Unsettled),
         }
     }
 }

@@ -23,16 +23,16 @@ fn open_entry<T>(
     let mut waited = Duration::ZERO;
     let mut wait = FIRST_RETRY;
     loop {
-        let error = match open() {
+        match open() {
             Ok(entry) => return Ok(Opened::Entry(entry)),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => error,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
-        };
+        }
         if !holds_entry(parent, name)? {
             return Ok(Opened::Missing(Vacant::proven()));
         }
         if waited >= VANISHING_LIMIT {
-            return Ok(Opened::Transient(error));
+            return Ok(Opened::Transient);
         }
         lookup.pause(wait);
         waited += wait;
@@ -108,7 +108,7 @@ pub(crate) fn child_directory(
             }
             create_child(parent, name)?
         }
-        Opened::Transient(error) => return Ok(Child::Transient(error)),
+        Opened::Transient => return Ok(Child::Transient),
     };
     if spelled_as_opened(parent, name, &file, lookup)? {
         Ok(Child::Directory { file, created })
@@ -147,7 +147,7 @@ pub(crate) fn child_regular(
     let file = match regular_unconfirmed(parent, name, lookup)? {
         Opened::Entry(file) => file,
         Opened::Missing(vacant) => return Ok(RegularChild::Missing(vacant)),
-        Opened::Transient(error) => return Ok(RegularChild::Transient(error)),
+        Opened::Transient => return Ok(RegularChild::Transient),
     };
     if spelled_as_opened(parent, name, &file, lookup)? {
         return Ok(RegularChild::File(file));

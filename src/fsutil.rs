@@ -116,7 +116,7 @@ pub(crate) enum Child {
     Alias,
     Missing(Vacant),
     /// The name kept failing to open while an entry stood under it ([`Opened::Transient`]).
-    Transient(io::Error),
+    Transient,
 }
 
 #[cfg_attr(
@@ -134,7 +134,7 @@ pub(crate) enum RegularChild {
     Respelled(io::Result<ListedSpelling>),
     Missing(Vacant),
     /// The name kept failing to open while an entry stood under it ([`Opened::Transient`]).
-    Transient(io::Error),
+    Transient,
 }
 
 /// What opening a name found, under the rule that only `fstatat` finding nothing shows that the
@@ -155,10 +155,32 @@ pub(crate) enum Opened<T> {
     Entry(T),
     /// Nothing: `fstatat`, not following a symlink, found nothing under the name.
     Missing(Vacant),
-    /// The open kept failing with this error while `fstatat` still found an entry under the
-    /// name, until the retries ran out. Whether the name holds anything is unknown, and a later
-    /// read decides.
-    Transient(io::Error),
+    /// The open kept failing with `ENOENT` while `fstatat` still found an entry under the name,
+    /// until the retries ran out. Whether the name holds anything is unknown, and a later read
+    /// decides. No error comes with it: the answer is made only that way, so the open's error
+    /// tells nothing the variant does not, and a caller that must fail uses [`Unsettled`].
+    Transient,
+}
+
+/// A name that kept failing to open while `fstatat` still found an entry under it
+/// ([`Opened::Transient`]), as the error of a step that fails rather than waits for a later read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Unsettled;
+
+impl std::fmt::Display for Unsettled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the entry kept failing to open while its name still held one")
+    }
+}
+
+impl std::error::Error for Unsettled {}
+
+impl From<Unsettled> for io::Error {
+    /// An error of the kind the open kept failing with, so that callers judge it as they judge
+    /// a failed open.
+    fn from(error: Unsettled) -> Self {
+        Self::new(io::ErrorKind::NotFound, error)
+    }
 }
 
 /// Proof that `fstatat`, not following a symlink, found nothing under a name. Only a lookup

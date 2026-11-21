@@ -238,8 +238,9 @@ impl TreeScan {
             // exact spelling before it reads it (`open_source`), and the next scan lists the new
             // name.
             // An entry gone since the listing is passed over. One that kept failing to open while
-            // its name still held it is a read failure that a later scan reads again: passing
-            // over a tracked file would take it for one that is gone.
+            // its name still held it is a read failure that a later scan reads again, of the
+            // kind the open kept failing with: passing over a tracked file would take it for one
+            // that is gone.
             match self.lookup.directory_unconfirmed(directory, &name) {
                 Ok(Opened::Entry(file)) => {
                     // The root's frame is level 0, so this count is the level of the child.
@@ -252,12 +253,12 @@ impl TreeScan {
                     entry.directory = true;
                 }
                 Ok(Opened::Missing(_)) => continue,
-                Ok(Opened::Transient(error)) => entry.error = Some(error.kind()),
+                Ok(Opened::Transient) => entry.error = Some(io::ErrorKind::NotFound),
                 Err(error) if !structural_entry_error(&error) => entry.error = Some(error.kind()),
                 Err(_) => match self.lookup.regular_unconfirmed(directory, &name) {
                     Ok(Opened::Entry(file)) => entry.identity = Some(fsutil::stat_identity(&file)?),
                     Ok(Opened::Missing(_)) => continue,
-                    Ok(Opened::Transient(error)) => entry.error = Some(error.kind()),
+                    Ok(Opened::Transient) => entry.error = Some(io::ErrorKind::NotFound),
                     Err(error) if !structural_entry_error(&error) => {
                         entry.error = Some(error.kind())
                     }
@@ -282,7 +283,7 @@ pub(crate) enum ParentError {
     Missing,
     /// A directory on the path kept failing to open while its name still held an entry
     /// ([`fsutil::Opened::Transient`]): whether it is there is unknown until a later read.
-    Transient(io::Error),
+    Transient,
     Io(io::Error),
 }
 impl From<io::Error> for ParentError {
@@ -370,7 +371,7 @@ pub(crate) fn parent(
             }
             Ok(Child::Alias) => return Err(ParentError::Finding(Obstruction::Collision.into())),
             Ok(Child::Missing(_)) => return Err(ParentError::Missing),
-            Ok(Child::Transient(error)) => return Err(ParentError::Transient(error)),
+            Ok(Child::Transient) => return Err(ParentError::Transient),
             Err(error) if !structural_entry_error(&error) => return Err(error.into()),
             Err(_) if fsutil::open_regular_at(&directory, component).is_ok() => {
                 return Err(ParentError::Finding(Obstruction::Collision.into()));

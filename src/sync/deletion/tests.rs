@@ -83,7 +83,7 @@ async fn a_tracked_file_that_fails_to_open_is_never_a_deletion_candidate() {
         presence(&root, &lookup, "test-bucket/0000".to_owned())
             .await
             .unwrap(),
-        Presence::Unobservable(Unobservable::Io(_))
+        Presence::Unobservable(Unobservable::Unsettled)
     ));
 }
 

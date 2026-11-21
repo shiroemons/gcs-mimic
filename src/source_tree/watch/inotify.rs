@@ -56,7 +56,7 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> Result<Native, Error> {
                 native.register(&file)?;
                 stack.push(WatchFrame::new(file));
             }
-            Ok(fsutil::Child::Missing(_) | fsutil::Child::Alias | fsutil::Child::Transient(_)) => {}
+            Ok(fsutil::Child::Missing(_) | fsutil::Child::Alias | fsutil::Child::Transient) => {}
             Err(error)
                 if error.kind() == io::ErrorKind::NotFound
                     || crate::sync::tree::structural_entry_error(&error) => {}

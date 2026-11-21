@@ -127,7 +127,8 @@ pub(in crate::sync) async fn create_directory(
         match parent(root, naming, &lookup, &directory, ParentOpen::Create) {
             Ok(_) => Ok(true),
             Err(ParentError::Finding(_) | ParentError::Missing) => Ok(false),
-            Err(ParentError::Transient(error) | ParentError::Io(error)) => Err(error.into()),
+            Err(ParentError::Transient) => Err(io::Error::from(crate::fsutil::Unsettled).into()),
+            Err(ParentError::Io(error)) => Err(error.into()),
         }
     })
     .await

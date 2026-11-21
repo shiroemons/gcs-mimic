@@ -111,6 +111,9 @@ pub(in crate::sync) enum Unobservable {
     NameMismatch,
     /// Reading the path failed.
     Io(io::Error),
+    /// The file, or a directory above it, kept failing to open while its name still held an
+    /// entry ([`fsutil::Opened::Transient`]). It is logged as a failed read is.
+    Unsettled,
 }
 
 impl Unobservable {
@@ -123,7 +126,7 @@ impl Unobservable {
             Self::Alias => "alias",
             Self::EntryReplaced => "entry-replaced",
             Self::NameMismatch => "name-mismatch",
-            Self::Io(_) => "io-failure",
+            Self::Io(_) | Self::Unsettled => "io-failure",
         }
     }
 
@@ -140,7 +143,8 @@ impl Unobservable {
             | Self::ParentBlocked
             | Self::Alias
             | Self::NameMismatch
-            | Self::Io(_) => false,
+            | Self::Io(_)
+            | Self::Unsettled => false,
         }
     }
 
@@ -157,7 +161,7 @@ impl Unobservable {
             Self::ParentBlocked => Correction::BlockedParent.remedy(),
             Self::Alias => Correction::AliasedName.remedy(),
             Self::EntryReplaced => Correction::ReplacedEntry.remedy(),
-            Self::Io(_) => Correction::UnreadablePath.remedy(),
+            Self::Io(_) | Self::Unsettled => Correction::UnreadablePath.remedy(),
         }
     }
 }
@@ -166,6 +170,7 @@ impl fmt::Display for Unobservable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(error) => write!(f, "{}: {error}", self.as_str()),
+            Self::Unsettled => write!(f, "{}: {}", self.as_str(), fsutil::Unsettled),
             Self::BeyondLimit
             | Self::InvalidPath
             | Self::NameRejected
@@ -259,9 +264,10 @@ pub(in crate::sync) async fn presence(
                 }
                 // A name that kept failing to open while it held an entry is no deletion: the
                 // next inventory reads it again.
-                PathEntry::Unreadable(error) | PathEntry::Transient(error) => {
+                PathEntry::Unreadable(error) => {
                     Looked::At(Presence::Unobservable(Unobservable::Io(error)))
                 }
+                PathEntry::Transient => Looked::At(Presence::Unobservable(Unobservable::Unsettled)),
             })
         })
         .await?;
@@ -297,7 +303,7 @@ fn missing_above(root: &File, lookup: &fsutil::Lookup, path: &Path) -> Presence 
         Ok(fsutil::Child::Missing(_)) => Presence::Absent(Removal::BucketDirectory),
         Ok(fsutil::Child::Directory { .. }) => Presence::Absent(Removal::Files),
         Ok(fsutil::Child::Alias) => Presence::Unobservable(Unobservable::ParentBlocked),
-        Ok(fsutil::Child::Transient(error)) => Presence::Unobservable(Unobservable::Io(error)),
+        Ok(fsutil::Child::Transient) => Presence::Unobservable(Unobservable::Unsettled),
         Err(error) => lookup_failure(error),
     }
 }

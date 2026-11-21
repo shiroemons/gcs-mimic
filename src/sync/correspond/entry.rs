@@ -37,7 +37,7 @@ pub(crate) enum PathEntry {
     Unreadable(io::Error),
     /// The entry, or a directory above it, kept failing to open while its name still held an
     /// entry ([`fsutil::Opened::Transient`]): what the path holds is unknown until a later read.
-    Transient(io::Error),
+    Transient,
 }
 
 /// How far down the path of an absent entry is there.
@@ -68,7 +68,7 @@ pub(crate) fn observe_path(
             };
         }
         Err(ParentError::Finding(reason)) => return PathEntry::Unplaced(reason),
-        Err(ParentError::Transient(error)) => return PathEntry::Transient(error),
+        Err(ParentError::Transient) => return PathEntry::Transient,
         Err(ParentError::Io(error)) => return unreadable(error),
     };
     match lookup.regular(&directory, name) {
@@ -80,7 +80,7 @@ pub(crate) fn observe_path(
         Ok(RegularChild::Missing(_)) => PathEntry::Absent {
             above: Above::Present,
         },
-        Ok(RegularChild::Transient(error)) => PathEntry::Transient(error),
+        Ok(RegularChild::Transient) => PathEntry::Transient,
         Err(error) if tree::structural_entry_error(&error) => {
             if fsutil::directory_at(&directory, name, fsutil::DirectoryOpen::Existing).is_ok() {
                 PathEntry::Directory(error)

@@ -104,10 +104,10 @@ fn a_path_whose_entries_keep_failing_to_open_is_never_absent() {
     let observe =
         |path: &str| observe_path(&tree.root, RootNaming::posix(), &lookup, Path::new(path));
     let file = fsutil::VanishingOpens::of(&tree.dir.0.join("bucket"), "file", usize::MAX);
-    assert!(matches!(observe("bucket/file"), PathEntry::Transient(_)));
+    assert!(matches!(observe("bucket/file"), PathEntry::Transient));
     drop(file);
     let _bucket = fsutil::VanishingOpens::of(&tree.dir.0, "bucket", usize::MAX);
-    assert!(matches!(observe("bucket/file"), PathEntry::Transient(_)));
+    assert!(matches!(observe("bucket/file"), PathEntry::Transient));
 }
 
 /// A listing that the lookups kept from before a change that left the directory's timestamps as

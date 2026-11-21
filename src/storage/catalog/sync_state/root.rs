@@ -297,7 +297,10 @@ fn open_marker(directory: &File, name: &str) -> Result<Option<File>, RootError> 
     match fsutil::Lookup::unprobed().regular_unconfirmed(directory, name.as_ref()) {
         Ok(fsutil::Opened::Entry(file)) => Ok(Some(file)),
         Ok(fsutil::Opened::Missing(_)) => Ok(None),
-        Ok(fsutil::Opened::Transient(error)) => Err(RootError::at(Stage::ReadMarker, error)),
+        Ok(fsutil::Opened::Transient) => Err(RootError::at(
+            Stage::ReadMarker,
+            io::Error::from(fsutil::Unsettled),
+        )),
         Err(error) => Err(marker_open_error(error)),
     }
 }

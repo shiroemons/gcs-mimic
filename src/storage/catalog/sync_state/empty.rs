@@ -70,7 +70,7 @@ pub(super) fn contents(directory: &File, lookup: &fsutil::Lookup) -> io::Result<
             // Gone since the listing: nothing of it is left.
             Ok(fsutil::RegularChild::Missing(_)) => {}
             // An entry that kept failing to open may hold anything.
-            Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Transient(_)) => {
+            Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Transient) => {
                 return Ok(Contents::Holds);
             }
             Err(error) if crate::sync::tree::structural_entry_error(&error) => {
