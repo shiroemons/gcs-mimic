@@ -121,10 +121,17 @@ impl Error {
     /// path to the target no longer resolving, or an alias in the place of an entry, is a user's
     /// concurrent change, which a new export plans around, not a failure of the root: pausing the
     /// whole root over it would leave every other path unsynchronized until an operator rescans.
+    /// An entry that kept failing to open ([`RaceReason::Unsettled`]) is no such change: the
+    /// step fails, and its caller tries it again, as after any failure that passes by itself.
     fn changed(&self) -> bool {
         match self {
             Self::Admin(AdminError::Precondition)
-            | Self::Raced(_)
+            | Self::Raced(
+                RaceReason::ParentChanged
+                | RaceReason::Respelled
+                | RaceReason::TargetChanged
+                | RaceReason::DirectoryChanged,
+            )
             | Self::Obsolete(_)
             | Self::Invariant(_) => true,
             Self::Admin(_)
@@ -134,8 +141,15 @@ impl Error {
             | Self::Capacity
             | Self::RecoveryRequired
             | Self::Protected
-            | Self::WorkspaceChanged => false,
+            | Self::WorkspaceChanged
+            | Self::Raced(RaceReason::Unsettled) => false,
         }
+    }
+
+    /// Whether the tree at the target is not the one the step read, or kept failing to open:
+    /// either way the target holds nothing the step can still reach.
+    fn unreachable(&self) -> bool {
+        self.changed() || matches!(self, Self::Raced(RaceReason::Unsettled))
     }
 
     /// Whether the step's operation is moot: [`Self::changed`], or the catalog no longer holds

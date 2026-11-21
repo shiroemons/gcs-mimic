@@ -1546,6 +1546,103 @@ async fn an_installed_export_whose_target_keeps_failing_to_open_is_left_to_recov
     fixture.close().await;
 }
 
+/// An observation whose target keeps failing to open once it is installed, when it records the
+/// target as durable or acknowledges it, fails that step as unsettled each time it is tried: it
+/// is neither a conflict, which would preserve the target as the user's, nor obsolete. Once the
+/// target opens again, the recovery before the next run settles the operation it left, and the
+/// observation that run begins completes.
+#[tokio::test]
+async fn an_observation_whose_installed_target_keeps_failing_to_open_is_neither_a_conflict_nor_obsolete()
+ {
+    let fixture = Fixture::clocked().await;
+    let generation = fixture.publish("object", b"api").await.generation;
+    let name = ObjectName::new("object").unwrap();
+    let target = fixture.tree.0.join("test-bucket/object");
+    let (writeback, bucket, catalog, name) =
+        (&fixture.writeback, &fixture.bucket, &fixture.catalog, &name);
+    let observe = || async move {
+        observation(
+            writeback,
+            bucket,
+            name,
+            Generation::new(generation).unwrap(),
+            catalog.current_fence().await.unwrap(),
+        )
+        .await
+    };
+    let complete = |operation: LiveExport| async move {
+        for _ in 0..8 {
+            if writeback
+                .advance_live_export(operation.clone())
+                .await
+                .unwrap()
+                == InstallOutcome::Complete
+            {
+                return;
+            }
+        }
+        panic!("the export did not complete");
+    };
+    complete(fixture.begin("object").await).await;
+    let reached = |stage: &str, progress: &Progress| match stage {
+        "durable" => matches!(progress, Progress::Installed(_)),
+        _ => matches!(progress, Progress::Durable { .. }),
+    };
+    for stage in ["durable", "acknowledged"] {
+        let operation = observe().await;
+        for _ in 0..8 {
+            if reached(stage, &operation.0.lock().await.progress) {
+                break;
+            }
+            assert_eq!(
+                fixture
+                    .writeback
+                    .advance_live_export(operation.clone())
+                    .await
+                    .unwrap(),
+                InstallOutcome::Pending,
+                "{stage}"
+            );
+        }
+        assert!(
+            reached(stage, &operation.0.lock().await.progress),
+            "{stage}"
+        );
+        let failing = fsutil::FailingOpens::vanishing(
+            &fixture.tree.0.join("test-bucket"),
+            "object",
+            usize::MAX,
+        );
+        for _ in 0..2 {
+            let result = fixture
+                .writeback
+                .advance_live_export(operation.clone())
+                .await;
+            assert!(
+                matches!(result, Err(Error::Raced(RaceReason::Unsettled))),
+                "{stage}: {result:?}"
+            );
+        }
+        assert!(failing.left() < usize::MAX, "{stage}");
+        assert_eq!(
+            fixture.writeback.status().await.unwrap().entries,
+            1,
+            "{stage}"
+        );
+        drop(failing);
+        drop(operation);
+        let usage = fixture.writeback.recover_pending().await.unwrap();
+        assert_eq!(
+            (usage.entries, usage.reserved_bytes, usage.stop()),
+            (0, 0, Stop::Ready),
+            "{stage}"
+        );
+        complete(observe().await).await;
+        assert_eq!(fs::read(&target).unwrap(), b"api", "{stage}");
+    }
+    fixture.close().await;
+}
+
 /// A private workspace entry that keeps failing to open while its name still holds it is a race
 /// the operation is read again after, never a name that holds nothing: taken for empty, the
 /// body an exchange displaced into the workspace would stay there with nothing tracking it. One

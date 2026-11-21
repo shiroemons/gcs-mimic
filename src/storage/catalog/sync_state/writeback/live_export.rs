@@ -141,9 +141,10 @@ pub(crate) enum InstallOutcome {
 }
 
 /// The regular file at an export's target, where a failed or cancelled attempt may have left its
-/// copy. A directory at the target holds no copy, and a path that no longer resolves
-/// ([`Error::changed`]) holds nothing the export can reach: a copy installed before the user
-/// changed the path went with the directory they moved, as any file of theirs does.
+/// copy. A directory at the target holds no copy, and a path that no longer resolves or keeps
+/// failing to open ([`Error::unreachable`]) holds nothing the export can reach: a copy installed
+/// before the user changed the path went with the directory they moved, as any file of theirs
+/// does.
 fn target_file(
     root: &File,
     naming: RootNaming,
@@ -159,7 +160,7 @@ fn target_file(
             | TargetState::Changed(_),
         ) => Ok(None),
         Ok(TargetState::Unsafe(error)) => Err(error.into()),
-        Err(error) if error.changed() => {
+        Err(error) if error.unreachable() => {
             error.record_invariant();
             Ok(None)
         }
@@ -972,9 +973,11 @@ impl Writeback {
                     // Recovery owns displaced bytes; an automatic retry must not unlink them.
                     return Err(Error::Displaced(Box::new(error)));
                 }
-                if error.changed() {
+                if error.unreachable() {
                     error.record_invariant();
-                    // The copy is not at the target, so cancelling unlinks only the private copy.
+                    // The copy is not at the target, so cancelling unlinks only the private copy,
+                    // and the export the race leads to reads a target that kept failing to open
+                    // again.
                     operation.progress = operation.progress.cancel(InstallOutcome::Raced);
                     self.cancel_live_copy(operation).await?;
                     return Ok(InstallOutcome::Raced);
