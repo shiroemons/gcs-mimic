@@ -308,6 +308,20 @@ enum Interference<'a> {
     Race(Race),
 }
 
+/// What the bucket holds besides the object the export changes.
+#[derive(Clone, Copy, Debug)]
+enum Beside {
+    Nothing,
+    /// The object [`NEIGHBOR_NAME`], exported to [`NEIGHBOR_PATH`] and tracked before the
+    /// export starts.
+    ExportedNeighbor,
+}
+
+/// The name and bytes of the neighbor [`Beside::ExportedNeighbor`] exports, and its file.
+const NEIGHBOR_NAME: &str = "neighbor";
+const NEIGHBOR: &[u8] = b"beside\0the target";
+const NEIGHBOR_PATH: &str = "test-bucket/neighbor";
+
 /// The tree and catalog left by a crash or power loss during an export, restored from the
 /// snapshot it took.
 struct Crashed {
@@ -316,6 +330,8 @@ struct Crashed {
     bucket: BucketName,
     /// The API record the change left.
     api: Option<ObjectRecord>,
+    /// The API record of the neighbor, when there is one.
+    neighbor: Option<ObjectRecord>,
     /// The directories `data` needs, removed when the test is done with them.
     _owned: Vec<TestDir>,
 }
@@ -324,7 +340,19 @@ impl Crashed {
     /// Crashes or loses power at `step` of `change`'s export and restores the snapshot, checking
     /// that it holds exactly the state the checkpoint promises.
     async fn at(change: Change, step: Step, crash: Crash) -> Self {
-        Self::run(change, step, crash, Interference::None).await
+        Self::run(change, step, crash, Interference::None, Beside::Nothing).await
+    }
+
+    /// Like [`Self::at`], with [`Beside::ExportedNeighbor`] beside the target.
+    async fn beside_neighbor(change: Change, step: Step, crash: Crash) -> Self {
+        Self::run(
+            change,
+            step,
+            crash,
+            Interference::None,
+            Beside::ExportedNeighbor,
+        )
+        .await
     }
 
     /// Like [`Self::at`] at [`Step::SyncCopyFailed`], after the export failed because the sync of
@@ -335,6 +363,7 @@ impl Crashed {
             Step::SyncCopyFailed,
             crash,
             Interference::FailingSync(failing),
+            Beside::Nothing,
         )
         .await
     }
@@ -347,16 +376,29 @@ impl Crashed {
             Step::SyncCopyRenamed,
             crash,
             Interference::Race(race),
+            Beside::Nothing,
         )
         .await
     }
 
-    async fn run(change: Change, step: Step, crash: Crash, interference: Interference<'_>) -> Self {
-        let case = format!("{change:?} {step:?} {crash:?} {interference:?}");
+    async fn run(
+        change: Change,
+        step: Step,
+        crash: Crash,
+        interference: Interference<'_>,
+        beside: Beside,
+    ) -> Self {
+        let case = format!("{change:?} {step:?} {crash:?} {interference:?} {beside:?}");
         let (data, tree, catalog, bucket, _) = live_fixture().await;
         let before = match change.before() {
             Some(body) => Some(publish_origin(&catalog, &bucket, body, Origin::Api).await),
             None => None,
+        };
+        let neighbor = match beside {
+            Beside::ExportedNeighbor => {
+                Some(publish_named(&catalog, &bucket, NEIGHBOR_NAME, NEIGHBOR, Origin::Api).await)
+            }
+            Beside::Nothing => None,
         };
         if matches!(interference, Interference::FailingSync(_)) {
             fs::create_dir_all(tree.0.join("test-bucket")).unwrap();
@@ -366,6 +408,15 @@ impl Crashed {
             fs::read(tree.0.join(TARGET)).ok().as_deref(),
             change.before()
         );
+        if let Some(neighbor) = &neighbor {
+            assert_eq!(fs::read(tree.0.join(NEIGHBOR_PATH)).unwrap(), NEIGHBOR);
+            assert_eq!(
+                tracked_generation_at(&started.catalog, &started.root, &bucket, NEIGHBOR_PATH)
+                    .await,
+                Some(neighbor.generation),
+                "{case}"
+            );
+        }
         let snapshots = TestDir::new();
         let (snapshot_data, snapshot_tree) = (snapshots.0.join("data"), snapshots.0.join("tree"));
         fault::arm(&tree.0, step, 0, crash.fault(snapshot_tree.clone()));
@@ -427,6 +478,7 @@ impl Crashed {
             data: snapshot_data,
             bucket,
             api,
+            neighbor,
             _owned: vec![data, snapshots],
         }
     }
@@ -540,14 +592,13 @@ async fn a_private_entry_one_byte_off_stays_protected_through_restart() {
 /// displaced one by; a modification time alone never decides that a body differs. The body an
 /// overwrite displaced or a removal moved aside, with its bytes unchanged and only its
 /// modification time moved, is reclaimed through the restart: the wait succeeds without a
-/// conflict, the target converges to the API state with the workspace empty, and a file beside
-/// the target keeps its bytes.
+/// conflict, the target converges to the API state with the workspace empty, and another object
+/// exported beside the target keeps its bytes and its tracked generation.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_tracked_body_whose_modification_time_alone_moved_is_reclaimed_through_restart() {
-    const NEIGHBOR: &[u8] = b"beside\0the target";
     for change in [Change::Overwrite, Change::Remove] {
         let case = format!("{change:?}");
-        let crashed = Crashed::at(change, Step::SyncCopyRenamed, Crash::Abort).await;
+        let crashed = Crashed::beside_neighbor(change, Step::SyncCopyRenamed, Crash::Abort).await;
         let entry = operation_entries(&crashed.tree.0.join(mapping::WORKSPACE))
             .into_iter()
             .next()
@@ -558,8 +609,6 @@ async fn a_tracked_body_whose_modification_time_alone_moved_is_reclaimed_through
             .set_modified(modified + Duration::from_secs(1))
             .unwrap();
         assert_eq!(fs::read(&entry).unwrap(), BEFORE, "{case}");
-        let neighbor = crashed.tree.0.join("test-bucket/neighbor");
-        fs::write(&neighbor, NEIGHBOR).unwrap();
         let mut started = crashed.start(crashed.open().await).await;
         assert_eq!(
             started.wait().await.unwrap().reason,
@@ -568,7 +617,22 @@ async fn a_tracked_body_whose_modification_time_alone_moved_is_reclaimed_through
         );
         assert!(conflict_bodies(&crashed.data).is_empty(), "{case}");
         assert_converged(&started, &crashed.bucket, crashed.api.as_ref()).await;
-        assert_eq!(fs::read(&neighbor).unwrap(), NEIGHBOR, "{case}");
+        assert_eq!(
+            fs::read(crashed.tree.0.join(NEIGHBOR_PATH)).unwrap(),
+            NEIGHBOR,
+            "{case}"
+        );
+        assert_eq!(
+            tracked_generation_at(
+                &started.catalog,
+                &started.root,
+                &crashed.bucket,
+                NEIGHBOR_PATH
+            )
+            .await,
+            Some(crashed.neighbor.as_ref().unwrap().generation),
+            "{case}"
+        );
         started.close().await;
     }
 }
@@ -681,7 +745,14 @@ async fn crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart() 
         ] {
             for &again in Crash::ALL {
                 let case = format!("{step:?} {crash:?} then {again_at:?} {again:?}");
-                let crashed = Crashed::run(Change::Overwrite, step, crash, interference).await;
+                let crashed = Crashed::run(
+                    Change::Overwrite,
+                    step,
+                    crash,
+                    interference,
+                    Beside::Nothing,
+                )
+                .await;
                 let snapshots = TestDir::new();
                 let (snapshot_data, snapshot_tree) =
                     (snapshots.0.join("data"), snapshots.0.join("tree"));

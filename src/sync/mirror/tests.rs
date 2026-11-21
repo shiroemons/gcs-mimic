@@ -708,10 +708,20 @@ async fn tracked_generation(
     root: &RootLease,
     bucket: &BucketName,
 ) -> Option<i64> {
+    tracked_generation_at(catalog, root, bucket, "test-bucket/object").await
+}
+
+/// The generation the tree tracks at `path` for `bucket`, if it tracks one.
+async fn tracked_generation_at(
+    catalog: &Catalog,
+    root: &RootLease,
+    bucket: &BucketName,
+    path: &str,
+) -> Option<i64> {
     let binding = root.sync_binding(bucket).await.unwrap();
     catalog
         .sync_state()
-        .get_path(binding, "test-bucket/object".into())
+        .get_path(binding, path.into())
         .await
         .unwrap()
         .map(|record| record.generation.get())
