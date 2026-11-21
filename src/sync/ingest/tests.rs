@@ -1411,3 +1411,57 @@ async fn ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_sett
     drop(root);
     catalog.close().await.unwrap();
 }
+
+/// A stage whose file changed or went away while it was read, or whose catalog moved on, leaves
+/// the file to a later pass; a read failure of the file alone defers it as unreadable; anything
+/// else, a whole file system's failure included, fails the pass.
+#[test]
+fn a_failed_stage_says_whether_its_file_changed_failed_to_read_or_fails_the_pass() {
+    use std::io::{self, ErrorKind};
+    let admin = |error| RootError::Admin(error);
+    let failed_io = |kind: ErrorKind| admin(AdminError::Io(kind.into()));
+    for changed in [
+        admin(AdminError::Precondition),
+        admin(AdminError::NotFound),
+        admin(AdminError::SourceChanged { fields: Vec::new() }),
+        failed_io(ErrorKind::NotFound),
+    ] {
+        let label = format!("{changed:?}");
+        assert!(
+            matches!(StageFailure::from(changed), StageFailure::Changed),
+            "{label}"
+        );
+    }
+    for unreadable in [
+        failed_io(ErrorKind::PermissionDenied),
+        failed_io(ErrorKind::TimedOut),
+        admin(AdminError::Io(
+            io::Error::from_raw_os_error(libc::EMFILE).into(),
+        )),
+    ] {
+        let label = format!("{unreadable:?}");
+        assert!(
+            matches!(StageFailure::from(unreadable), StageFailure::Unreadable(_)),
+            "{label}"
+        );
+    }
+    for failed in [
+        failed_io(ErrorKind::StorageFull),
+        failed_io(ErrorKind::QuotaExceeded),
+        failed_io(ErrorKind::ReadOnlyFilesystem),
+        admin(AdminError::DiskFull(ErrorKind::StorageFull.into())),
+        admin(AdminError::Busy {
+            retry_after: Duration::ZERO,
+        }),
+        admin(AdminError::Hold),
+        admin(AdminError::Forbidden),
+        RootError::InUse,
+        RootError::UnopenableMarker,
+    ] {
+        let label = format!("{failed:?}");
+        assert!(
+            matches!(StageFailure::from(failed), StageFailure::Failed(_)),
+            "{label}"
+        );
+    }
+}

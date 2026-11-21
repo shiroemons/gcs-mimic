@@ -148,13 +148,11 @@ impl FailureClass {
     }
 
     /// What a conflict capture's failure says. The file it was to capture going away after the
-    /// step read it is a change of the tree, as a target that changed is. A workspace entry that
-    /// kept failing to open decides as its next link does.
+    /// step read it is a change of the tree ([`changed_while_read`]), as a target that changed
+    /// is. A workspace entry that kept failing to open decides as its next link does.
     pub(in crate::sync) fn of_conflict(error: &conflicts::Error) -> Option<Self> {
         match error {
-            conflicts::Error::Admin(AdminError::Io(cause))
-                if cause.kind() == io::ErrorKind::NotFound =>
-            {
+            conflicts::Error::Admin(error) if changed_while_read(error, FileRead::Capture) => {
                 Some(Self::Superseded)
             }
             conflicts::Error::Admin(error) => Self::of_admin(error),
@@ -218,6 +216,44 @@ impl FailureClass {
             | writeback::Error::Protected
             | writeback::Error::WorkspaceChanged => None,
         }
+    }
+}
+
+/// What read the bytes of a file that a step chose ([`changed_while_read`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::sync) enum FileRead {
+    /// Ingestion staged the file through the catalog.
+    Stage,
+    /// A conflict capture copied the file into the conflict store.
+    Capture,
+}
+
+/// Whether reading a file that a step chose failed because the tree changed under the read,
+/// which a later pass reads again rather than failing: the file went away after the step chose
+/// it, as the open that follows a listing finds (`Io(NotFound)`). A stage also takes a file
+/// whose identity changed while its bytes were copied (`SourceChanged`) for such a change: only
+/// staging through the catalog compares the file's identity before and after the copy and
+/// reports a difference so, while a capture compares the bytes it copied and reports a change
+/// as `TargetChanged`.
+pub(in crate::sync) fn changed_while_read(error: &AdminError, read: FileRead) -> bool {
+    match error {
+        AdminError::Io(cause) => cause.kind() == io::ErrorKind::NotFound,
+        AdminError::SourceChanged { .. } => read == FileRead::Stage,
+        AdminError::Busy { .. }
+        | AdminError::DiskFull(_)
+        | AdminError::Closed
+        | AdminError::Precondition
+        | AdminError::Hold
+        | AdminError::SeedProjectMismatch
+        | AdminError::SeedMetadataBudget { .. }
+        | AdminError::Corrupt(_)
+        | AdminError::NotFound
+        | AdminError::Invalid(_)
+        | AdminError::Checksum
+        | AdminError::TooLarge
+        | AdminError::Forbidden
+        | AdminError::BodyAborted(_)
+        | AdminError::Backend(_) => false,
     }
 }
 

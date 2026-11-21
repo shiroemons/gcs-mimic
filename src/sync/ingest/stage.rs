@@ -8,7 +8,7 @@ use crate::{
     fsutil::{self, FileIdentity},
     storage::{
         admin::{AdminError, ObjectName, StagedObject},
-        failure::IoCause,
+        failure::{IoCause, Link},
         sync_state::{
             SyncBinding, SyncFingerprint, SyncPath,
             durable::{self, Durable, NotDurable},
@@ -17,14 +17,14 @@ use crate::{
         },
     },
     sync::{
-        SyncError,
+        Cause, SyncError,
         correspond::{PathEntry, observe_path},
-        failure::{FailureClass, superseded, unless_superseded},
+        failure::{FileRead, Scope, changed_while_read, scope, superseded, unless_superseded},
         naming::RootNaming,
         tree::EntryError,
     },
 };
-use std::{fs::File, io, path::PathBuf};
+use std::{fs::File, path::PathBuf};
 
 struct PinnedSource {
     file: File,
@@ -102,16 +102,12 @@ impl From<RootError> for StageFailure {
         if superseded(&error) {
             return Self::Changed;
         }
+        let path_local = scope(|| Cause::chain(Link::Root(&error))) == Some(Scope::PathLocal);
         match error {
-            RootError::Admin(AdminError::SourceChanged { .. }) => Self::Changed,
-            RootError::Admin(AdminError::Io(cause)) if cause.kind() == io::ErrorKind::NotFound => {
+            RootError::Admin(ref admin) if changed_while_read(admin, FileRead::Stage) => {
                 Self::Changed
             }
-            RootError::Admin(AdminError::Io(cause))
-                if FailureClass::of_kind(cause.kind()) != Some(FailureClass::Volume) =>
-            {
-                Self::Unreadable(cause)
-            }
+            RootError::Admin(AdminError::Io(cause)) if path_local => Self::Unreadable(cause),
             error => Self::Failed(error),
         }
     }
