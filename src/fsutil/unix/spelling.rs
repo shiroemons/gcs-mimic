@@ -1,5 +1,5 @@
 use super::*;
-use crate::fsutil::{Child, Created, Lookup, Opened, RegularChild, Spelling, Vacant};
+use crate::fsutil::{Child, Created, ListedSpelling, Lookup, Opened, RegularChild, Vacant};
 use std::time::Duration;
 
 /// How long a name that `fstatat` still finds may keep failing to open with `ENOENT` before a
@@ -69,7 +69,7 @@ fn holds_entry(parent: &File, name: &OsStr) -> io::Result<bool> {
     }
 }
 
-pub(crate) fn existing_regular(
+pub(crate) fn regular_unconfirmed(
     parent: &File,
     name: &OsStr,
     lookup: &Lookup,
@@ -77,7 +77,7 @@ pub(crate) fn existing_regular(
     open_entry(parent, name, lookup, || open_regular_at(parent, name))
 }
 
-pub(crate) fn existing_directory(
+pub(crate) fn directory_unconfirmed(
     parent: &File,
     name: &OsStr,
     lookup: &Lookup,
@@ -93,7 +93,7 @@ pub(crate) fn child_directory(
     open: DirectoryOpen,
     lookup: &Lookup,
 ) -> io::Result<Child> {
-    let (file, created) = match existing_directory(parent, name, lookup)? {
+    let (file, created) = match directory_unconfirmed(parent, name, lookup)? {
         Opened::Entry(file) => (file, Created::No),
         Opened::Missing(vacant) => {
             if open == DirectoryOpen::Existing {
@@ -137,7 +137,7 @@ pub(crate) fn child_regular(
     name: &OsStr,
     lookup: &Lookup,
 ) -> io::Result<RegularChild> {
-    let file = match existing_regular(parent, name, lookup)? {
+    let file = match regular_unconfirmed(parent, name, lookup)? {
         Opened::Entry(file) => file,
         Opened::Missing(vacant) => return Ok(RegularChild::Missing(vacant)),
         Opened::Transient(error) => return Ok(RegularChild::Transient(error)),
@@ -149,7 +149,7 @@ pub(crate) fn child_regular(
         // The listing read now spells the file as it was opened. What answered otherwise, such as
         // a listing kept from before a change the directory's timestamps did not show, is older
         // than this listing, which is the answer; a kept listing is not trusted again.
-        Ok(Spelling::Listed(spelling)) if OsStr::new(&spelling) == name => {
+        Ok(ListedSpelling::Listed(spelling)) if OsStr::new(&spelling) == name => {
             lookup.forget(parent)?;
             Ok(RegularChild::File(file))
         }
@@ -167,10 +167,10 @@ pub(crate) fn child_regular(
     unsafe_code,
     reason = "fstatat on a pinned descriptor has no safe std equivalent"
 )]
-fn listed_spelling(parent: &File, file: &File) -> io::Result<Spelling> {
+fn listed_spelling(parent: &File, file: &File) -> io::Result<ListedSpelling> {
     use std::os::unix::fs::MetadataExt;
     if !super::sole_regular_link(file)? {
-        return Ok(Spelling::Unnamed);
+        return Ok(ListedSpelling::Unnamed);
     }
     let metadata = file.metadata()?;
     let mut found: Option<OsString> = None;
@@ -206,7 +206,7 @@ fn listed_spelling(parent: &File, file: &File) -> io::Result<Spelling> {
     })?;
     Ok(found
         .and_then(|spelling| spelling.into_string().ok())
-        .map_or(Spelling::Unnamed, Spelling::Listed))
+        .map_or(ListedSpelling::Unnamed, ListedSpelling::Listed))
 }
 
 /// A listed entry's device as [`std::os::unix::fs::MetadataExt::dev`] reports it, which widens
@@ -353,8 +353,8 @@ mod tests {
         let spelling = |name: &str| {
             let file = super::super::open_regular_at(&parent, name.as_ref()).ok()?;
             match listed_spelling(&parent, &file).unwrap() {
-                Spelling::Listed(spelling) => Some(spelling),
-                Spelling::Unnamed => None,
+                ListedSpelling::Listed(spelling) => Some(spelling),
+                ListedSpelling::Unnamed => None,
             }
         };
         assert_eq!(spelling("Actual").as_deref(), Some("Actual"));

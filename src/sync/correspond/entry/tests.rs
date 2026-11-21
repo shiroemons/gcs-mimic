@@ -155,7 +155,7 @@ fn a_file_reached_under_another_spelling_names_the_listed_one() {
     }
     assert!(matches!(
         tree.observe("bucket/actual"),
-        PathEntry::Respelled(Spelling::Listed(spelling)) if spelling == "Actual"
+        PathEntry::Respelled(ListedSpelling::Listed(spelling)) if spelling == "Actual"
     ));
     fs::hard_link(
         tree.dir.0.join("bucket/Actual"),
@@ -164,6 +164,6 @@ fn a_file_reached_under_another_spelling_names_the_listed_one() {
     .unwrap();
     assert!(matches!(
         tree.observe("bucket/actual"),
-        PathEntry::Respelled(Spelling::Unnamed)
+        PathEntry::Respelled(ListedSpelling::Unnamed)
     ));
 }

@@ -95,7 +95,7 @@ async fn forget_missing_directories(
             let absent = root
                 .file_job(move |root| {
                     Ok(matches!(
-                        lookup.existing_directory(root, selected.as_str().as_ref()),
+                        lookup.directory_unconfirmed(root, selected.as_str().as_ref()),
                         Ok(fsutil::Opened::Missing(_))
                     ))
                 })
@@ -234,7 +234,7 @@ async fn holds_entries(
     let lookup = root.lookup()?;
     Ok(root
         .file_job(move |root| {
-            let directory = match lookup.existing_directory(root, bucket.as_str().as_ref()) {
+            let directory = match lookup.directory_unconfirmed(root, bucket.as_str().as_ref()) {
                 Ok(fsutil::Opened::Entry(directory)) => directory,
                 Ok(fsutil::Opened::Missing(_)) => return Ok(false),
                 // What a directory that kept failing to open holds is unknown.

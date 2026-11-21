@@ -131,7 +131,7 @@ pub(crate) enum RegularChild {
     /// A regular file that the name reached under another letter case or normalization of it,
     /// with the spelling the directory lists it under, or the error the listing failed with. A
     /// caller that only needs to know that the spelling differs is not failed by the listing.
-    Respelled(io::Result<Spelling>),
+    Respelled(io::Result<ListedSpelling>),
     Missing(Vacant),
     /// The name kept failing to open while an entry stood under it ([`Opened::Transient`]).
     Transient(io::Error),
@@ -192,7 +192,7 @@ impl Vacant {
         reason = "descriptor-relative lookup is unsupported on this platform"
     )
 )]
-pub(crate) enum Spelling {
+pub(crate) enum ListedSpelling {
     /// The one name the directory lists the file under.
     Listed(String),
     /// No one name: other names link the file, the listed name is not UTF-8, or the file left the

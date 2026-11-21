@@ -9,7 +9,7 @@ use crate::storage::sync_state::findings::alias::Holding;
 use crate::sync::mirror::export_checkpoint;
 use crate::{
     diagnostics::{self, LogLevel},
-    fsutil::{self, Spelling},
+    fsutil::{self, ListedSpelling},
     object::ObjectRecord,
     storage::{
         admin::{Admin, AdminError, Generation},
@@ -396,7 +396,7 @@ fn inspect(
         PathEntry::File { parent, file } => (parent, file),
         PathEntry::Absent { .. } => return Ok(Target::Absent),
         PathEntry::Unplaced(reason) => return Ok(Target::Finding(reason)),
-        PathEntry::Respelled(Spelling::Listed(spelling)) => {
+        PathEntry::Respelled(ListedSpelling::Listed(spelling)) => {
             return Ok(path
                 .with_file_name(spelling)
                 .into_os_string()
@@ -409,7 +409,7 @@ fn inspect(
         }
         // Without one spelling to name, such as for a file other names link to, the entry
         // stays a collision of this object alone.
-        PathEntry::Respelled(Spelling::Unnamed) => {
+        PathEntry::Respelled(ListedSpelling::Unnamed) => {
             return Ok(Target::Finding(Obstruction::Collision.into()));
         }
         PathEntry::Directory(_) => return Ok(Target::Directory),

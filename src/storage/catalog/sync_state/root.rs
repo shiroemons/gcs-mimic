@@ -294,7 +294,7 @@ fn marker_open_error(error: io::Error) -> RootError {
 /// fails, so the caller neither takes the directory for one without a marker nor removes a
 /// staged marker.
 fn open_marker(directory: &File, name: &str) -> Result<Option<File>, RootError> {
-    match fsutil::Lookup::unprobed().existing_regular(directory, name.as_ref()) {
+    match fsutil::Lookup::unprobed().regular_unconfirmed(directory, name.as_ref()) {
         Ok(fsutil::Opened::Entry(file)) => Ok(Some(file)),
         Ok(fsutil::Opened::Missing(_)) => Ok(None),
         Ok(fsutil::Opened::Transient(error)) => Err(RootError::at(Stage::ReadMarker, error)),

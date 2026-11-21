@@ -2,7 +2,7 @@
 //! the tree cannot show is no evidence either way, so it keeps its own object and nothing else.
 
 use crate::{
-    fsutil::{self, Spelling},
+    fsutil::{self, ListedSpelling},
     storage::sync_state::{deletions::Candidate, root::RootLease},
     sync::{
         SyncError,
@@ -238,13 +238,13 @@ pub(in crate::sync) async fn presence(
                 PathEntry::Unplaced(_) => {
                     Looked::At(Presence::Unobservable(Unobservable::ParentBlocked))
                 }
-                PathEntry::Respelled(Spelling::Listed(spelling)) => {
+                PathEntry::Respelled(ListedSpelling::Listed(spelling)) => {
                     match path.with_file_name(spelling).into_os_string().into_string() {
                         Ok(spelled) => Looked::Spelled(spelled),
                         Err(_) => Looked::At(Presence::Unobservable(Unobservable::Alias)),
                     }
                 }
-                PathEntry::Respelled(Spelling::Unnamed) => {
+                PathEntry::Respelled(ListedSpelling::Unnamed) => {
                     Looked::At(Presence::Unobservable(Unobservable::Alias))
                 }
                 PathEntry::Directory(error) | PathEntry::Special(error) => {

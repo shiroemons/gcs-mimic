@@ -258,19 +258,23 @@ impl Lookup {
     /// Opens the regular file `name` in `parent` without following a symlink or confirming its
     /// spelling, for a file the mirror names itself, under the rule [`Self::regular`] applies to
     /// a name that fails to open ([`Opened`]).
-    pub(crate) fn existing_regular(&self, parent: &File, name: &OsStr) -> io::Result<Opened<File>> {
-        imp::existing_regular(parent, name, self)
+    pub(crate) fn regular_unconfirmed(
+        &self,
+        parent: &File,
+        name: &OsStr,
+    ) -> io::Result<Opened<File>> {
+        imp::regular_unconfirmed(parent, name, self)
     }
 
     /// Opens the existing directory `name` in `parent` without following a symlink or confirming
     /// its spelling, for a name a listing gave or the mirror names itself, under the same rule
     /// ([`Opened`]).
-    pub(crate) fn existing_directory(
+    pub(crate) fn directory_unconfirmed(
         &self,
         parent: &File,
         name: &OsStr,
     ) -> io::Result<Opened<File>> {
-        imp::existing_directory(parent, name, self)
+        imp::directory_unconfirmed(parent, name, self)
     }
 
     /// Waits `duration` on the lookup's clock before a name that failed to open is opened again.
@@ -556,7 +560,7 @@ mod open_failure_tests {
         assert!(matches!(
             entries
                 .lookup()
-                .existing_regular(&entries.parent, "file".as_ref()),
+                .regular_unconfirmed(&entries.parent, "file".as_ref()),
             Ok(Opened::Transient(_))
         ));
         let waited = entries.waited();

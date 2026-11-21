@@ -240,7 +240,7 @@ impl TreeScan {
             // An entry gone since the listing is passed over. One that kept failing to open while
             // its name still held it is a read failure that a later scan reads again: passing
             // over a tracked file would take it for one that is gone.
-            match self.lookup.existing_directory(directory, &name) {
+            match self.lookup.directory_unconfirmed(directory, &name) {
                 Ok(Opened::Entry(file)) => {
                     // The root's frame is level 0, so this count is the level of the child.
                     if self.frames.len() > self.limits.deepest_directory() {
@@ -254,7 +254,7 @@ impl TreeScan {
                 Ok(Opened::Missing(_)) => continue,
                 Ok(Opened::Transient(error)) => entry.error = Some(error.kind()),
                 Err(error) if !structural_entry_error(&error) => entry.error = Some(error.kind()),
-                Err(_) => match self.lookup.existing_regular(directory, &name) {
+                Err(_) => match self.lookup.regular_unconfirmed(directory, &name) {
                     Ok(Opened::Entry(file)) => entry.identity = Some(fsutil::stat_identity(&file)?),
                     Ok(Opened::Missing(_)) => continue,
                     Ok(Opened::Transient(error)) => entry.error = Some(error.kind()),

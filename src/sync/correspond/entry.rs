@@ -5,7 +5,7 @@
 //! names the spelling the directory lists it under.
 
 use crate::{
-    fsutil::{self, Lookup, RegularChild, Spelling},
+    fsutil::{self, ListedSpelling, Lookup, RegularChild},
     sync::{
         mapping::{LexicalReason, Unplaced},
         naming::RootNaming,
@@ -25,7 +25,7 @@ pub(crate) enum PathEntry {
     /// The regular file under the path's exact spelling, and the directory that holds it.
     File { parent: File, file: File },
     /// A regular file that the name reached under another spelling of it.
-    Respelled(Spelling),
+    Respelled(ListedSpelling),
     /// A directory holds the name, which failed to open as a regular file with this error.
     Directory(io::Error),
     /// A symlink or special file holds the name, which failed to open as a regular file with

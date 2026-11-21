@@ -1,6 +1,8 @@
 use super::{DirectoryOpen, FileOpen, clear_errno, component, open_at, validate_name};
 mod spelling;
-pub(crate) use spelling::{child_directory, child_regular, existing_directory, existing_regular};
+pub(crate) use spelling::{
+    child_directory, child_regular, directory_unconfirmed, regular_unconfirmed,
+};
 use std::{
     ffi::{CStr, OsStr, OsString},
     fs::File,

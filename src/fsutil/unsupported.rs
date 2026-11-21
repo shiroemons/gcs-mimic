@@ -14,14 +14,14 @@ pub(crate) fn child_regular(
 ) -> io::Result<super::RegularChild> {
     Err(io::ErrorKind::Unsupported.into())
 }
-pub(crate) fn existing_regular(
+pub(crate) fn regular_unconfirmed(
     _: &File,
     _: &OsStr,
     _: &super::Lookup,
 ) -> io::Result<super::Opened<File>> {
     Err(io::ErrorKind::Unsupported.into())
 }
-pub(crate) fn existing_directory(
+pub(crate) fn directory_unconfirmed(
     _: &File,
     _: &OsStr,
     _: &super::Lookup,
