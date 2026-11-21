@@ -8,6 +8,7 @@ use crate::{
     fsutil::{self, FileIdentity},
     storage::{
         admin::{AdminError, ObjectName, StagedObject},
+        failure::IoCause,
         sync_state::{
             SyncBinding, SyncFingerprint, SyncPath,
             durable::{self, Durable, NotDurable},
@@ -18,7 +19,7 @@ use crate::{
     sync::{
         SyncError,
         correspond::{PathEntry, observe_path},
-        failure::{Failure, unless_superseded},
+        failure::{Failure, superseded, unless_superseded},
         naming::RootNaming,
         tree::EntryError,
     },
@@ -76,6 +77,43 @@ pub(super) fn recheck_source(
         Ok(())
     } else {
         Err(AdminError::Precondition)
+    }
+}
+
+/// What a failed stage of a file says, decided here once for every caller.
+pub(super) enum StageFailure {
+    /// The file changed or went away while the stage read it, or the catalog moved on meanwhile:
+    /// a later pass reads it again.
+    Changed,
+    /// Reading the file failed in a way that concerns this path only: it is deferred as a read
+    /// failure.
+    Unreadable(IoCause),
+    /// Anything else fails the pass. An exhausted quota or a read-only file system is the whole
+    /// file system's failure, not this path's, so it fails the pass as a full disk does.
+    Failed(RootError),
+}
+
+impl From<RootError> for StageFailure {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "every failure not named here fails the pass"
+    )]
+    fn from(error: RootError) -> Self {
+        if superseded(&error) {
+            return Self::Changed;
+        }
+        match error {
+            RootError::Admin(AdminError::SourceChanged { .. }) => Self::Changed,
+            RootError::Admin(AdminError::Io(cause)) if cause.kind() == io::ErrorKind::NotFound => {
+                Self::Changed
+            }
+            RootError::Admin(AdminError::Io(cause))
+                if Failure::of_kind(cause.kind()) != Some(Failure::Volume) =>
+            {
+                Self::Unreadable(cause)
+            }
+            error => Self::Failed(error),
+        }
     }
 }
 
@@ -142,16 +180,13 @@ impl Ingest<'_> {
         &mut self,
         candidate: &Candidate,
     ) -> Result<Option<(StagedObject, SyncFingerprint)>, SyncError> {
-        let staged = match self.stage(candidate.path.clone(), candidate.identity).await {
+        let staged = match self
+            .stage(candidate.path.clone(), candidate.identity)
+            .await
+            .map_err(StageFailure::from)
+        {
             Ok(staged) => staged,
-            Err(RootError::Admin(error))
-                if matches!(
-                    &error,
-                    AdminError::Precondition
-                        | AdminError::NotFound
-                        | AdminError::SourceChanged { .. }
-                ) || matches!(&error, AdminError::Io(cause) if cause.kind() == io::ErrorKind::NotFound) =>
-            {
+            Err(StageFailure::Changed) => {
                 self.summary.count_deferred(&candidate.path);
                 self.record_observation(
                     &candidate.binding,
@@ -161,17 +196,13 @@ impl Ingest<'_> {
                 .await?;
                 return Ok(None);
             }
-            // An exhausted quota or a read-only file system is the whole file system's failure,
-            // not this path's, so it fails the pass as a full disk does.
-            Err(RootError::Admin(AdminError::Io(error)))
-                if Failure::of_kind(error.kind()) != Some(Failure::Volume) =>
-            {
+            Err(StageFailure::Unreadable(error)) => {
                 self.defer(&candidate.path, EntryError::Io((&error).into()));
                 self.record_observation(&candidate.binding, &candidate.name, PathStop::IoFailure)
                     .await?;
                 return Ok(None);
             }
-            Err(error) => return Err(error.into()),
+            Err(StageFailure::Failed(error)) => return Err(error.into()),
         };
         let hashes = staged.hashes();
         self.clear_observation(candidate.binding.clone(), candidate.name.clone())

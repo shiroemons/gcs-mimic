@@ -13,7 +13,7 @@ use crate::{
     object::{MapPatch, ObjectMetadataUpdate, Patch, UploadChunk},
     storage::{
         admin::{Origin, Publication, PublishMode},
-        sync_state::observation::PathStop,
+        sync_state::{observation::PathStop, root::RootError},
     },
     test_support::{TestDir, eventually_async, eventually_some_async},
 };

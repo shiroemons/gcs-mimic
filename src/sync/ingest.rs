@@ -3,7 +3,7 @@ use super::tree::{EntryError, TreeScan as Scan};
 use super::{
     Pass, SyncError,
     entries::{EntryClass, EntryProblem, classify, path_text},
-    failure::{Failure, superseded},
+    failure::superseded,
     mirror::Reconciliation,
     naming::RootNaming,
     report::{remedy::Correction, verdict::TreeSide},
@@ -22,17 +22,18 @@ use crate::{
             SyncBinding, SyncFingerprint, SyncPath, SyncRecord,
             durable::SyncedDirectories,
             observation::{AliasEdit, Transition},
-            root::{RootError, RootLease},
+            root::RootLease,
         },
     },
 };
-use std::{fs::File, io, path::PathBuf};
+use std::{fs::File, path::PathBuf};
 
 mod candidate;
 mod publish;
 mod stage;
 mod stops;
 
+use stage::StageFailure;
 use stops::clear_missing_observations;
 
 /// A changed regular file selected for ingestion, with what `candidate` already parsed from it.
@@ -413,30 +414,22 @@ impl Ingest<'_> {
             }
             Err(error) => return Err(error.into()),
         };
-        let staged = match self.stage(holder.path.clone(), holder.identity).await {
+        // A failed stage decides as at the stage of any other file.
+        let staged = match self
+            .stage(holder.path.clone(), holder.identity)
+            .await
+            .map_err(StageFailure::from)
+        {
             Ok(staged) => staged,
-            // A full disk, an exhausted quota or a read-only file system fails the pass, as at the
-            // stage of any other file.
-            Err(RootError::Admin(AdminError::Io(error)))
-                if error.kind() != io::ErrorKind::NotFound
-                    && Failure::of_kind(error.kind()) != Some(Failure::Volume) =>
-            {
+            Err(StageFailure::Unreadable(error)) => {
                 self.defer(&holder.path, EntryError::Io((&error).into()));
                 return Ok(());
             }
-            Err(RootError::Admin(
-                AdminError::Precondition | AdminError::NotFound | AdminError::SourceChanged { .. },
-            )) => {
+            Err(StageFailure::Changed) => {
                 self.summary.count_deferred(&holder.path);
                 return Ok(());
             }
-            Err(RootError::Admin(AdminError::Io(error)))
-                if error.kind() == io::ErrorKind::NotFound =>
-            {
-                self.summary.count_deferred(&holder.path);
-                return Ok(());
-            }
-            Err(error) => return Err(error.into()),
+            Err(StageFailure::Failed(error)) => return Err(error.into()),
         };
         let hashes = staged.hashes();
         let fingerprint =
