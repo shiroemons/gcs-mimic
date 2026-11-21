@@ -1,7 +1,7 @@
 //! Descriptor-relative traversal shared by synchronization and catalog write-back.
 
 use super::{
-    failure::Failure,
+    failure::FailureClass,
     mapping::{LexicalReason, Obstruction, Unplaced},
     naming::RootNaming,
 };
@@ -127,8 +127,8 @@ impl EntryIo {
         }
     }
     /// What the one classification says of the failure, as it says of the error it was.
-    pub(in crate::sync) fn class(self) -> Option<Failure> {
-        Failure::of_io(&match self {
+    pub(in crate::sync) fn class(self) -> Option<FailureClass> {
+        FailureClass::of_io(&match self {
             Self::Os(errno) => io::Error::from_raw_os_error(errno),
             Self::Kind(kind) => kind.into(),
         })

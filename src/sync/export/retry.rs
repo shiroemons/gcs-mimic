@@ -17,7 +17,7 @@ use crate::{
     sync::{
         SyncError,
         error::Cause,
-        failure::{Failure, transient_below},
+        failure::{FailureClass, transient_below},
         report::remedy::export_retry_remedy,
         tree::{ParentError, ParentOpen, parent},
     },
@@ -29,7 +29,7 @@ pub(super) const EXPORT_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), 
 
 /// Whether a failed export step is tried again within [`RetryBudget::EXPORT`]: a failure that
 /// passes, or one of the whole file system, which an operator may clear before the budget runs
-/// out ([`Failure::retries`]). A step that still fails then fails the path as before.
+/// out ([`FailureClass::retries`]). A step that still fails then fails the path as before.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "a variant not named here retries as its class says, and the classification names every variant"
@@ -49,14 +49,14 @@ pub(super) fn retryable(error: &writeback::Error) -> bool {
                     return true;
                 }
                 // Descriptor or memory pressure shows only in the I/O failure below.
-                AdminError::Io(_) if transient_below(error) => Some(Failure::Transient),
-                error => Failure::of_admin(error),
+                AdminError::Io(_) if transient_below(error) => Some(FailureClass::Transient),
+                error => FailureClass::of_admin(error),
             }
         }
         // An entry that kept failing to open is told by the link below the error that met it.
-        error => Cause::chain(Link::Writeback(error)).find_map(Cause::failure),
+        error => Cause::chain(Link::Writeback(error)).find_map(Cause::class),
     };
-    class.is_some_and(Failure::retries)
+    class.is_some_and(FailureClass::retries)
 }
 
 pub(super) async fn wait_retry(

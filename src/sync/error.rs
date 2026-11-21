@@ -13,7 +13,7 @@ use crate::{
             writeback::{self, Stop},
         },
     },
-    sync::{failure::Failure, naming::ProbeError},
+    sync::{failure::FailureClass, naming::ProbeError},
     task::JobPanicked,
 };
 use std::{error::Error, fmt, io};
@@ -112,24 +112,24 @@ impl<'a> Cause<'a> {
         chain(link).map(Self::of)
     }
 
-    /// The class [`Failure`] gives this link alone. A link that wraps another decides as that
+    /// The class [`FailureClass`] gives this link alone. A link that wraps another decides as that
     /// one does, since the chain reaches it next.
-    pub(in crate::sync) fn failure(self) -> Option<Failure> {
+    pub(in crate::sync) fn class(self) -> Option<FailureClass> {
         match self {
-            Self::Admin(error) => Failure::of_admin(error),
-            Self::Root(error) => Failure::of_root(error),
-            Self::Writeback(error) => Failure::of_writeback(error),
-            Self::Catalog(error) => Failure::of_catalog(error),
-            Self::Sqlite(error) => Failure::of_sqlite(error),
-            Self::Io(error) => Failure::of_io(error),
-            Self::Conflict(error) => Failure::of_conflict(error),
-            Self::Unopenable(error) => Some(Failure::of_unopenable(error)),
+            Self::Admin(error) => FailureClass::of_admin(error),
+            Self::Root(error) => FailureClass::of_root(error),
+            Self::Writeback(error) => FailureClass::of_writeback(error),
+            Self::Catalog(error) => FailureClass::of_catalog(error),
+            Self::Sqlite(error) => FailureClass::of_sqlite(error),
+            Self::Io(error) => FailureClass::of_io(error),
+            Self::Conflict(error) => FailureClass::of_conflict(error),
+            Self::Unopenable(error) => Some(FailureClass::of_unopenable(error)),
             Self::Stop(_) | Self::Other => None,
         }
     }
 
     fn is_transient(self) -> bool {
-        self.failure() == Some(Failure::Transient)
+        self.class() == Some(FailureClass::Transient)
     }
 
     pub(in crate::sync) fn pause_reason(self) -> Option<PauseReason> {
@@ -237,11 +237,11 @@ impl SyncError {
     }
 
     /// Whether the failure concerns only the path one export was writing
-    /// ([`Failure::PathLocal`], as [`super::failure::scope`] decides). An export that observes a
+    /// ([`FailureClass::PathLocal`], as [`super::failure::scope`] decides). An export that observes a
     /// finding again keeps that finding for a later pass on such a failure; any other fails the
     /// pass.
     pub(super) fn concerns_one_object(&self) -> bool {
-        super::failure::scope(|| self.causes()) == Some(Failure::PathLocal)
+        super::failure::scope(|| self.causes()) == Some(FailureClass::PathLocal)
     }
 
     /// Whether a deletion pass met a concurrent change and must start over, not fail.

@@ -10,7 +10,7 @@ use crate::{
             writeback::{InstallOutcome, LiveSource},
         },
     },
-    sync::{Reconciliation, SyncError, backoff::RetryBudget, failure::Failure},
+    sync::{Reconciliation, SyncError, backoff::RetryBudget, failure::FailureClass},
 };
 
 /// What a restore from the catalog left at the object's path.
@@ -103,7 +103,7 @@ async fn restore_once(
     {
         Ok(operation) => operation,
         // A superseded step skips the restore, a broken invariant among them, as a race does.
-        Err(error) if Failure::of_writeback(&error) == Some(Failure::Superseded) => {
+        Err(error) if FailureClass::of_writeback(&error) == Some(FailureClass::Superseded) => {
             return Ok(Some(Restored::Skipped));
         }
         Err(error) => return Err(error.into()),

@@ -19,7 +19,7 @@ use crate::{
     sync::{
         SyncError,
         correspond::{PathEntry, observe_path},
-        failure::{Failure, superseded, unless_superseded},
+        failure::{FailureClass, superseded, unless_superseded},
         naming::RootNaming,
         tree::EntryError,
     },
@@ -108,7 +108,7 @@ impl From<RootError> for StageFailure {
                 Self::Changed
             }
             RootError::Admin(AdminError::Io(cause))
-                if Failure::of_kind(cause.kind()) != Some(Failure::Volume) =>
+                if FailureClass::of_kind(cause.kind()) != Some(FailureClass::Volume) =>
             {
                 Self::Unreadable(cause)
             }

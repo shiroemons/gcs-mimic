@@ -11,10 +11,14 @@ fn each_io_kind_has_one_class() {
         io::ErrorKind::Interrupted,
         io::ErrorKind::ResourceBusy,
     ] {
-        assert_eq!(Failure::of_kind(kind), Some(Failure::Transient), "{kind:?}");
         assert_eq!(
-            Failure::of_admin(&AdminError::Io(io::Error::from(kind).into())),
-            Some(Failure::Transient),
+            FailureClass::of_kind(kind),
+            Some(FailureClass::Transient),
+            "{kind:?}"
+        );
+        assert_eq!(
+            FailureClass::of_admin(&AdminError::Io(io::Error::from(kind).into())),
+            Some(FailureClass::Transient),
             "{kind:?}"
         );
     }
@@ -23,17 +27,21 @@ fn each_io_kind_has_one_class() {
         io::ErrorKind::QuotaExceeded,
         io::ErrorKind::ReadOnlyFilesystem,
     ] {
-        assert_eq!(Failure::of_kind(kind), Some(Failure::Volume), "{kind:?}");
+        assert_eq!(
+            FailureClass::of_kind(kind),
+            Some(FailureClass::Volume),
+            "{kind:?}"
+        );
     }
     for errno in [libc::EMFILE, libc::ENFILE, libc::EAGAIN, libc::ENOMEM] {
         assert_eq!(
-            Failure::of_io(&io::Error::from_raw_os_error(errno)),
-            Some(Failure::Transient),
+            FailureClass::of_io(&io::Error::from_raw_os_error(errno)),
+            Some(FailureClass::Transient),
             "{errno}"
         );
     }
     for kind in [io::ErrorKind::PermissionDenied, io::ErrorKind::NotFound] {
-        assert_eq!(Failure::of_kind(kind), None, "{kind:?}");
+        assert_eq!(FailureClass::of_kind(kind), None, "{kind:?}");
     }
 }
 
@@ -42,8 +50,8 @@ fn each_io_kind_has_one_class() {
 #[test]
 fn a_write_back_failure_is_classified_by_what_it_says_about_the_step() {
     assert_eq!(
-        Failure::of_writeback(&writeback::Error::Raced(RaceReason::Unopenable)),
-        Some(Failure::Transient)
+        FailureClass::of_writeback(&writeback::Error::Raced(RaceReason::Unopenable)),
+        Some(FailureClass::Transient)
     );
     for error in [
         writeback::Error::Raced(RaceReason::TargetChanged),
@@ -55,8 +63,8 @@ fn a_write_back_failure_is_classified_by_what_it_says_about_the_step() {
         )),
     ] {
         assert_eq!(
-            Failure::of_writeback(&error),
-            Some(Failure::Superseded),
+            FailureClass::of_writeback(&error),
+            Some(FailureClass::Superseded),
             "{error:?}"
         );
     }
@@ -65,6 +73,6 @@ fn a_write_back_failure_is_classified_by_what_it_says_about_the_step() {
         writeback::Error::Protected,
         writeback::Error::Root(RootError::Admin(AdminError::Precondition)),
     ] {
-        assert_eq!(Failure::of_writeback(&error), None, "{error:?}");
+        assert_eq!(FailureClass::of_writeback(&error), None, "{error:?}");
     }
 }

@@ -11,7 +11,7 @@ use crate::{
     storage::sync_state::root::Baseline,
     sync::{
         entries::{EntryProblem, EntryReport, Skip},
-        failure::Failure,
+        failure::FailureClass,
         report::verdict::TreeSide,
         tree::EntryError,
     },
@@ -34,13 +34,13 @@ pub(in crate::sync) enum ReadFailure {
 }
 
 impl ReadFailure {
-    /// A transient failure passes and a volume's lasts, as [`Failure`] classifies them for every
+    /// A transient failure passes and a volume's lasts, as [`FailureClass`] classifies them for every
     /// step; the other classes say nothing about a read.
-    fn of(class: Failure) -> Option<Self> {
+    fn of(class: FailureClass) -> Option<Self> {
         match class {
-            Failure::Transient => Some(Self::Passing),
-            Failure::Volume => Some(Self::Lasting),
-            Failure::Superseded | Failure::PathLocal => None,
+            FailureClass::Transient => Some(Self::Passing),
+            FailureClass::Volume => Some(Self::Lasting),
+            FailureClass::Superseded | FailureClass::PathLocal => None,
         }
     }
 }
@@ -51,7 +51,7 @@ impl From<EntryError> for ReadFailure {
     fn from(error: EntryError) -> Self {
         match error {
             EntryError::Unopenable => {
-                Self::of(Failure::of_unopenable(fsutil::Unopenable)).unwrap_or(Self::Unknown)
+                Self::of(FailureClass::of_unopenable(fsutil::Unopenable)).unwrap_or(Self::Unknown)
             }
             EntryError::Io(cause) => cause
                 .class()

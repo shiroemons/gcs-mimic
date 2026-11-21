@@ -28,7 +28,7 @@ mod tests;
 /// permission, a corrupt catalog or a write-back stop, needs an operator, and the decision that
 /// reads it says how.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::sync) enum Failure {
+pub(in crate::sync) enum FailureClass {
     /// A concurrent change made the step moot: the object, its generation or its bucket changed
     /// after the step read them, or the tree no longer holds what the step read there. The
     /// journal or the next pass brings that change, so the step is planned again, not failed.
@@ -45,7 +45,7 @@ pub(in crate::sync) enum Failure {
     Transient,
 }
 
-impl Failure {
+impl FailureClass {
     /// Whether a step that failed so is tried again within a retry budget: a failure that passes,
     /// or one of the whole file system, which an operator may clear before the budget runs out.
     /// A step the budget does not see through fails as it would have without the retries.
@@ -204,16 +204,16 @@ impl Failure {
 }
 
 /// Whether a failure, given as the causes of its chain, is the whole file system's
-/// ([`Failure::Volume`]), concerns only the path one export was writing
-/// ([`Failure::PathLocal`]), or neither. A volume failure anywhere in the chain decides first;
+/// ([`FailureClass::Volume`]), concerns only the path one export was writing
+/// ([`FailureClass::PathLocal`]), or neither. A volume failure anywhere in the chain decides first;
 /// then the first cause that names a pause reason, which is the path's only for an I/O failure;
 /// with none, a conflict, a displaced target or a capture target that changed is the path's.
 /// Write-back stops, conflict capacity and catalog failures concern every export.
 pub(in crate::sync) fn scope<'a, C: Iterator<Item = Cause<'a>>>(
     causes: impl Fn() -> C,
-) -> Option<Failure> {
-    if causes().any(|cause| cause.failure() == Some(Failure::Volume)) {
-        return Some(Failure::Volume);
+) -> Option<FailureClass> {
+    if causes().any(|cause| cause.class() == Some(FailureClass::Volume)) {
+        return Some(FailureClass::Volume);
     }
     let path_local = match causes().find_map(Cause::pause_reason) {
         Some(PauseReason::IoFailure) => true,
@@ -232,14 +232,14 @@ pub(in crate::sync) fn scope<'a, C: Iterator<Item = Cause<'a>>>(
             )
         }),
     };
-    path_local.then_some(Failure::PathLocal)
+    path_local.then_some(FailureClass::PathLocal)
 }
 
 /// Whether descriptor or memory pressure, or another transient I/O failure, is in `error`'s
 /// chain, where the admin failure's own kind does not show it.
 pub(in crate::sync) fn transient_below(error: &AdminError) -> bool {
     chain(Link::Admin(error)).any(
-        |link| matches!(link, Link::Io(error) if Failure::of_io(error) == Some(Failure::Transient)),
+        |link| matches!(link, Link::Io(error) if FailureClass::of_io(error) == Some(FailureClass::Transient)),
     )
 }
 
@@ -248,7 +248,7 @@ pub(in crate::sync) fn transient_below(error: &AdminError) -> bool {
 /// changed. The journal brings that change to the next replay or pass, which records what then
 /// holds; failing would pause the whole mirror over a race it resolves by itself.
 pub(in crate::sync) fn superseded(error: &RootError) -> bool {
-    Failure::of_root(error) == Some(Failure::Superseded)
+    FailureClass::of_root(error) == Some(FailureClass::Superseded)
 }
 
 /// The result of a catalog write about one name, with a write that a concurrent change made
