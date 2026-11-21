@@ -6,6 +6,12 @@ use super::*;
 use crate::storage::sync_state::conflicts::ConflictTarget;
 use crate::storage::sync_state::findings::FindingKind;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::sync::export::{
+    reconcile::{external_files, reconcile},
+    restore::{Restored, restore_from_catalog},
+    retry::{EXPORT_BACKOFF, EXPORT_RETRIES, retryable, with_retry},
+};
+
 use crate::sync::test_support::{Retrack, hooked_worker, retrack};
 use crate::{
     clock::SystemClock,
@@ -16,8 +22,22 @@ use crate::{
     },
     test_support::{HANG_GUARD, TestDir, eventually_async},
 };
+use crate::{
+    fsutil,
+    object::ObjectRecord,
+    storage::{
+        admin::Generation,
+        change_journal::JournalFence,
+        sync_state::writeback::{self, LiveResult, LiveSource, Stop},
+    },
+    sync::{
+        EntryReportSender,
+        mapping::{self, Reason},
+    },
+};
 use bytes::Bytes;
 use std::fs;
+use std::fs::File;
 
 mod acknowledgement;
 mod alias;

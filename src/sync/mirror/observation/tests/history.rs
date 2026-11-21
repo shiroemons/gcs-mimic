@@ -3,6 +3,7 @@
     reason = "fixture failures must fail at their source in platform-gated tests"
 )]
 use super::*;
+use crate::sync::EntryReportSender;
 use crate::test_support::TestDir;
 use std::fs;
 

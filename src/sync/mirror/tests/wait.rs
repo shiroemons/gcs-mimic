@@ -1,6 +1,7 @@
 //! What ends a `sync wait`, and what a successful one counts.
 
 use super::*;
+use crate::sync::export::SkippedExport;
 use crate::sync::{WaitReason, report::ending::WaitResult};
 
 /// The state of a live run whose baseline is complete and that replays the journal from `cursor`.

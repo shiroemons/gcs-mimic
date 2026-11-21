@@ -587,7 +587,7 @@ impl Ingest<'_> {
             Err(AdminError::NotFound) => None,
             Err(error) => return Err(error.into()),
         };
-        if super::mirror::hierarchy_collision(&self.admin, &bucket, &name).await? {
+        if super::export::reconcile::hierarchy_collision(&self.admin, &bucket, &name).await? {
             self.summary
                 .count_unrepresentable_entry(&path, EntryProblem::PathCollision);
             return Ok(None);

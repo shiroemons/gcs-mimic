@@ -1,4 +1,5 @@
 use super::*;
+use crate::sync::EntryReportSender;
 use crate::test_support::eventually_some_async;
 mod history;
 

@@ -606,7 +606,7 @@ pub(super) async fn execute_with(
                     )
                     .await?;
                     root.invalidate_deletions().await?;
-                    super::mirror::restore_from_catalog(
+                    super::export::restore::restore_from_catalog(
                         catalog,
                         root,
                         &candidate.bucket,
@@ -622,7 +622,7 @@ pub(super) async fn execute_with(
                 }
             }
             if restored_buckets.insert(candidate.bucket.clone()) {
-                super::mirror::create_directory(
+                super::export::retry::create_directory(
                     root,
                     std::path::PathBuf::from(candidate.bucket.as_str()),
                 )
@@ -680,7 +680,7 @@ async fn write_back_members(
                 return Ok(interrupted);
             }
             if !buckets.contains(&candidate.bucket) {
-                super::mirror::create_directory(
+                super::export::retry::create_directory(
                     root,
                     std::path::PathBuf::from(candidate.bucket.as_str()),
                 )
@@ -688,7 +688,7 @@ async fn write_back_members(
                 buckets.insert(candidate.bucket.clone());
             }
             ended.record(
-                super::mirror::restore_from_catalog(
+                super::export::restore::restore_from_catalog(
                     catalog,
                     root,
                     &candidate.bucket,
@@ -710,8 +710,8 @@ struct WriteBack {
 }
 
 impl WriteBack {
-    fn record(&mut self, restored: super::mirror::Restored) {
-        use super::mirror::Restored;
+    fn record(&mut self, restored: super::export::restore::Restored) {
+        use super::export::restore::Restored;
         match restored {
             Restored::Written => self.restored += 1,
             Restored::Kept => self.kept += 1,

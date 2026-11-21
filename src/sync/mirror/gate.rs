@@ -406,7 +406,7 @@ impl Reconciliation {
 
 /// Whether a reconciliation may record the baseline as complete, as the latest ingestion left it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum BaselineGate {
+pub(in crate::sync) enum BaselineGate {
     Allowed,
     Deferred,
 }
