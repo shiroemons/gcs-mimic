@@ -1116,6 +1116,98 @@ async fn an_alias_partner_keeps_its_finding_of_another_reason() {
     catalog.close().await.unwrap();
 }
 
+/// Tracking the file at an alias spelling again, as the rehash of a racy fingerprint does,
+/// keeps the alias finding of the object tracked there while another live object's finding
+/// names the same spelling, since the file still stands for both. Once the other object went
+/// through the API, tracking the file again settles the finding.
+#[tokio::test]
+async fn tracking_an_alias_file_again_keeps_its_finding_until_the_partner_goes() {
+    use super::super::{SyncFingerprint, SyncPath, SyncUpdate, durable::Durable};
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    let binding = lease.sync_binding(&bucket).await.unwrap();
+    let (holder, name) = (
+        ObjectName::new("Case").unwrap(),
+        ObjectName::new("case").unwrap(),
+    );
+    let held = publish(&catalog, &data, &bucket, holder.as_str()).await;
+    let generation = publish(&catalog, &data, &bucket, name.as_str()).await;
+    let spelling = "test-bucket/Case";
+    let state = catalog.sync_state();
+    let mut hasher = crate::hashing::Hasher::default();
+    hasher.update(b"finding body");
+    let hashes = hasher.finish();
+    let track = || {
+        let fingerprint = SyncFingerprint {
+            size: 12,
+            mtime_ns: 1,
+            ctime_ns: 1,
+            inode: 1,
+            md5: hashes.md5,
+            crc32c: hashes.crc32c,
+            racy: true,
+        };
+        let path = SyncPath::try_from(spelling.to_owned()).unwrap();
+        let durable = Durable::assumed(path);
+        let update = SyncUpdate::new(binding.clone(), durable, fingerprint).unwrap();
+        state.acknowledge(&holder, held, update)
+    };
+    track().await.unwrap();
+    lease
+        .record_alias(
+            binding.clone(),
+            name.clone(),
+            generation,
+            spelling.to_owned(),
+        )
+        .await
+        .unwrap();
+    let findings = || async {
+        let mut found: Vec<_> = lease
+            .findings_page(0, 8)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|finding| (finding.name, finding.reason))
+            .collect();
+        found.sort_by(|left, right| left.0.cmp(&right.0));
+        found
+    };
+    let alias = FindingKind::Unmapped(Reason::Alias);
+    let both = [("Case".to_owned(), alias), ("case".to_owned(), alias)];
+    assert_eq!(findings().await, both);
+
+    track().await.unwrap();
+    assert_eq!(findings().await, both);
+
+    catalog
+        .admin(Origin::Api)
+        .delete_object(&bucket, &name, GenerationCondition::Is(generation))
+        .await
+        .unwrap();
+    track().await.unwrap();
+    let left: Vec<_> = findings()
+        .await
+        .into_iter()
+        .filter(|(found, _)| found == "Case")
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
 #[test]
 fn finding_effects_block_export_conflicts_report_names_and_skip_ignored_names() {
     assert_eq!(FindingKind::ExportConflict.effect(), FindingEffect::Blocks);
