@@ -188,7 +188,7 @@ async fn an_inventory_names_the_first_unobservable_paths_and_counts_the_rest() {
         .begin_deletion_inventory(Guard::Enabled)
         .await
         .unwrap()
-        .unwrap();
+        .expect_started();
     let mut unobserved = Unobserved::default();
     let counted = count_candidates(
         &root,
@@ -217,7 +217,7 @@ async fn an_inventory_names_the_first_unobservable_paths_and_counts_the_rest() {
         .finish_deletion_inventory(inventory)
         .await
         .unwrap()
-        .unwrap();
+        .expect_set();
     assert_eq!(set.candidate_count, 0);
     drop(root);
     catalog.close().await.unwrap();
@@ -240,12 +240,12 @@ async fn expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candida
         stopping: &stopping,
         deadline: Some(tokio::time::Instant::now()),
     };
-    assert!(
+    assert!(matches!(
         inventory_with(&root, &config, summary.gate(), deadline)
             .await
-            .unwrap()
-            .is_none()
-    );
+            .unwrap(),
+        InventoryOutcome::Interrupted
+    ));
     assert_eq!(
         root.deletion_set().await.unwrap().unwrap().revision,
         set.revision

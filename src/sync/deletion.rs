@@ -19,8 +19,9 @@ use crate::{
         sync_state::{
             OpaqueId, Ordinal, PageLimit, SyncBinding,
             deletions::{
-                BucketGone, Candidate, Confirmed, DeletionAuthorization, DeletionSet,
-                EmptiedAtStart, Guard, Inventory, Named, PendingRejection, Recheck, Removal,
+                Begun, BucketGone, Candidate, Completion, Confirmed, DeletionAuthorization,
+                DeletionSet, EmptiedAtStart, Guard, Inventory, Named, PendingRejection, Recheck,
+                Removal,
             },
             observation::PathStop,
             root::{Baseline, RootError, RootLease},
@@ -52,7 +53,35 @@ pub(super) async fn inventory(
     pass: PassGate,
     stopping: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<Option<DeletionSet>, SyncError> {
-    inventory_with(root, config, pass, Interrupt::new(stopping)).await
+    Ok(inventory_with(root, config, pass, Interrupt::new(stopping))
+        .await?
+        .into_set())
+}
+
+/// What taking an inventory ended in.
+#[derive(Debug)]
+pub(in crate::sync) enum InventoryOutcome {
+    /// A new set was written.
+    Finished(DeletionSet),
+    /// The root's earlier set was confirmed, under its own revision.
+    Confirmed(DeletionSet),
+    /// The pass does not let deletions be inferred, so the root's set was withdrawn instead.
+    NotInferred,
+    /// A stop or a deadline ended the inventory before it compared every file.
+    Interrupted,
+    /// A rejection whose files are not all written back leaves nothing to inventory until the
+    /// write-back that starts each pass finishes them.
+    RejectionPending,
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+impl InventoryOutcome {
+    fn into_set(self) -> Option<DeletionSet> {
+        match self {
+            Self::Finished(set) | Self::Confirmed(set) => Some(set),
+            Self::NotInferred | Self::Interrupted | Self::RejectionPending => None,
+        }
+    }
 }
 
 /// Inventories the tracked files missing after `pass`, and returns the complete set. A set the
@@ -64,21 +93,19 @@ pub(super) async fn inventory_with(
     config: &Config,
     pass: PassGate,
     interrupt: Interrupt<'_>,
-) -> Result<Option<DeletionSet>, SyncError> {
+) -> Result<InventoryOutcome, SyncError> {
     if interrupt.check() != Interrupted::No {
-        return Ok(None);
+        return Ok(InventoryOutcome::Interrupted);
     }
     if !pass.hold().infers_deletions() {
         root.invalidate_deletions().await?;
-        return Ok(None);
+        return Ok(InventoryOutcome::NotInferred);
     }
     let guard = Guard::from(config.sync_delete_guard);
-    // A rejection whose files are not all written back leaves nothing to inventory until the
-    // write-back that starts each pass finishes them.
-    let Some(inventory) = root.begin_deletion_inventory(guard).await? else {
-        return Ok(None);
-    };
-    take_inventory(root, guard, inventory, interrupt).await
+    match root.begin_deletion_inventory(guard).await? {
+        Begun::Started(inventory) => take_inventory(root, guard, inventory, interrupt).await,
+        Begun::RejectionPending => Ok(InventoryOutcome::RejectionPending),
+    }
 }
 
 /// What the inventory before a decision found about the set the decision names.
@@ -119,53 +146,59 @@ pub(super) async fn recheck(
     let inventory = match root.begin_deletion_recheck(guard, revision).await? {
         Recheck::Confirm(inventory) => inventory,
         Recheck::Replace => match root.begin_new_deletion_inventory(guard).await? {
-            Some(inventory) => inventory,
-            None => return Ok(Rechecked::NotAwaiting),
+            Begun::Started(inventory) => inventory,
+            Begun::RejectionPending => return Ok(Rechecked::NotAwaiting),
         },
         Recheck::NotAwaiting => return Ok(Rechecked::NotAwaiting),
     };
     match take_inventory(root, guard, inventory, interrupt).await {
-        Ok(Some(set)) if set.revision == revision => Ok(Rechecked::Confirmed),
-        Ok(Some(_)) => Ok(Rechecked::Replaced),
-        Ok(None) => Ok(Rechecked::Interrupted),
+        Ok(InventoryOutcome::Confirmed(_)) => Ok(Rechecked::Confirmed),
+        Ok(InventoryOutcome::Finished(_)) => Ok(Rechecked::Replaced),
+        // A recheck waits on no pass, so it never ends in `NotInferred`; a rejection left
+        // between the two inventories is not a decision's to wait for either, and ends it as a
+        // stop does.
+        Ok(
+            InventoryOutcome::Interrupted
+            | InventoryOutcome::RejectionPending
+            | InventoryOutcome::NotInferred,
+        ) => Ok(Rechecked::Interrupted),
         Err(error) if error.is_stale_deletion() => Ok(Rechecked::Superseded(error)),
         Err(error) => Err(error),
     }
 }
 
 /// Counts `inventory` to its end and returns its set, starting a new one whenever the earlier set
-/// it confirms turns out to differ. `None` means the pass was interrupted, or a rejection left
+/// it confirms turns out to differ. The pass may end interrupted, or with a rejection that left
 /// files to write back, which only a decision between two inventories can, so never here.
 async fn take_inventory(
     root: &RootLease,
     guard: Guard,
     mut inventory: Inventory,
     interrupt: Interrupt<'_>,
-) -> Result<Option<DeletionSet>, SyncError> {
+) -> Result<InventoryOutcome, SyncError> {
     loop {
         let mut unobserved = Unobserved::default();
         let Some(counted) =
             count_candidates(root, &mut inventory, interrupt, &mut unobserved).await?
         else {
-            return Ok(None);
+            return Ok(InventoryOutcome::Interrupted);
         };
         if counted == Confirmed::Same {
             unobserved.warn();
-        }
-        let new_set = inventory.writes_new_set();
-        if counted == Confirmed::Same
-            && let Some(set) = root.finish_deletion_inventory(inventory).await?
-        {
-            if new_set {
-                warn_awaiting_approval(root, &set).await?;
+            match root.finish_deletion_inventory(inventory).await? {
+                Completion::Finished(set) => {
+                    warn_awaiting_approval(root, &set).await?;
+                    return Ok(InventoryOutcome::Finished(set));
+                }
+                Completion::Confirmed(set) => return Ok(InventoryOutcome::Confirmed(set)),
+                Completion::Diverged => {}
             }
-            return Ok(Some(set));
         }
         // The root's earlier set differs from what the tree shows now, so a new one replaces it.
-        let Some(next) = root.begin_new_deletion_inventory(guard).await? else {
-            return Ok(None);
-        };
-        inventory = next;
+        match root.begin_new_deletion_inventory(guard).await? {
+            Begun::Started(next) => inventory = next,
+            Begun::RejectionPending => return Ok(InventoryOutcome::RejectionPending),
+        }
     }
 }
 

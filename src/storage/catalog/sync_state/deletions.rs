@@ -70,7 +70,7 @@ pub(in crate::storage) mod held;
 pub(in crate::storage) mod history;
 mod scan;
 mod verdict;
-pub(crate) use scan::{Confirmed, Inventory, Recheck};
+pub(crate) use scan::{Begun, Completion, Confirmed, Inventory, Recheck};
 use verdict::{HeldFiles, SetFacts, SetVerdict, verdict};
 #[cfg(test)]
 mod tests;

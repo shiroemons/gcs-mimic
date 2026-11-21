@@ -29,15 +29,6 @@ pub(crate) struct Inventory {
 }
 
 impl Inventory {
-    /// Whether finishing this inventory writes a set under a revision nobody has seen yet,
-    /// rather than confirming the root's earlier set under its own.
-    pub(crate) fn writes_new_set(&self) -> bool {
-        match self.draft {
-            Draft::New => true,
-            Draft::Confirming { .. } => false,
-        }
-    }
-
     /// Adds a bucket all of whose tracked files went at once, as `gone` says, which no single
     /// page shows: the pages count across it.
     pub(crate) fn saw_bucket_gone(&mut self, bucket: &BucketName, gone: BucketGone) {
@@ -58,6 +49,47 @@ impl Inventory {
             },
             first_gone: None,
             removed_buckets: Named::default(),
+        }
+    }
+}
+
+/// How starting an inventory ended.
+pub(crate) enum Begun {
+    Started(Inventory),
+    /// The root's rejected set has files left to write back, which no inventory may take for
+    /// deleted ones.
+    RejectionPending,
+}
+
+#[cfg(test)]
+impl Begun {
+    /// The inventory a test expects to have started.
+    pub(crate) fn expect_started(self) -> Inventory {
+        match self {
+            Self::Started(inventory) => inventory,
+            Self::RejectionPending => panic!("a rejection with files left blocked the inventory"),
+        }
+    }
+}
+
+/// How completing an inventory ended.
+pub(crate) enum Completion {
+    /// A new set was written under a revision nobody has seen yet.
+    Finished(DeletionSet),
+    /// The root's earlier set was confirmed under its own revision.
+    Confirmed(DeletionSet),
+    /// The inventory meant to confirm the earlier set, but its member count or guard decision
+    /// differs, so a new set must replace it.
+    Diverged,
+}
+
+#[cfg(test)]
+impl Completion {
+    /// The set a test expects the inventory to have completed.
+    pub(crate) fn expect_set(self) -> DeletionSet {
+        match self {
+            Self::Finished(set) | Self::Confirmed(set) => set,
+            Self::Diverged => panic!("the inventory diverged from the earlier set"),
         }
     }
 }
@@ -152,23 +184,20 @@ fn same_members(
 
 impl RootLease {
     /// Starts an inventory. When the root's earlier set may be confirmed, nothing is written
-    /// until the inventory ends; otherwise the earlier set is replaced by a new draft. `None`
-    /// while the root's rejected set has files left to write back, which no inventory may
-    /// take for deleted ones.
-    pub(crate) async fn begin_deletion_inventory(
-        &self,
-        guard: Guard,
-    ) -> Result<Option<Inventory>, RootError> {
+    /// until the inventory ends; otherwise the earlier set is replaced by a new draft. No
+    /// inventory starts while the root's rejected set has files left to write back, which it
+    /// would take for deleted ones ([`Begun::RejectionPending`]).
+    pub(crate) async fn begin_deletion_inventory(&self, guard: Guard) -> Result<Begun, RootError> {
         self.start_deletion_inventory(guard, Start::ConfirmEarlier)
             .await
     }
 
     /// Starts an inventory that replaces the root's earlier set, after one that tried to
-    /// confirm it found other members; `None` as for [`Self::begin_deletion_inventory`].
+    /// confirm it found other members; [`Begun::RejectionPending`] as for [`Self::begin_deletion_inventory`].
     pub(crate) async fn begin_new_deletion_inventory(
         &self,
         guard: Guard,
-    ) -> Result<Option<Inventory>, RootError> {
+    ) -> Result<Begun, RootError> {
         self.start_deletion_inventory(guard, Start::New).await
     }
 
@@ -216,7 +245,7 @@ impl RootLease {
         &self,
         guard: Guard,
         start: Start,
-    ) -> Result<Option<Inventory>, RootError> {
+    ) -> Result<Begun, RootError> {
         self.revalidate().await?;
         let root = self.status().root_id;
         let scope = self.control_scope();
@@ -229,13 +258,15 @@ impl RootLease {
                     return Err(CatalogError::PreconditionFailed);
                 }
                 if rejected_remaining(&transaction, root)? > 0 {
-                    return Ok(None);
+                    return Ok(Begun::RejectionPending);
                 }
                 let current = fence(&transaction)?;
                 if start == Start::ConfirmEarlier
                     && let Some(revision) = reusable(&transaction, root, &current, guard)?
                 {
-                    return Ok(Some(Inventory::confirming(revision, root, current)));
+                    return Ok(Begun::Started(Inventory::confirming(
+                        revision, root, current,
+                    )));
                 }
                 let revision = OpaqueId::generate().map_err(unavailable)?;
                 let scan_revision = OpaqueId::generate().map_err(unavailable)?;
@@ -257,7 +288,7 @@ impl RootLease {
                     ],
                 )?;
                 transaction.commit()?;
-                Ok(Some(Inventory {
+                Ok(Begun::Started(Inventory {
                     revision,
                     root,
                     fence: current,
@@ -396,18 +427,19 @@ impl RootLease {
         Ok(confirmed)
     }
 
-    /// Completes the inventory and returns its set. A new set takes its guard decision now: by
-    /// the counts, by a bucket gone at once, or because it holds a file of the set that waited
-    /// before it ([`held`]), which keeps a wait going until someone decides or every file of
-    /// it is back. A confirming inventory returns the earlier set, made valid again when a
-    /// change invalidated it meanwhile and carried to this inventory's journal fence, or `None`
-    /// when its member count or guard decision differs from the earlier set's. The members
-    /// themselves were compared page by page; the denominator may differ, as when a file the
-    /// set does not hold was added, and the set keeps the one it was taken with.
+    /// Completes the inventory and returns its set. A new set takes its guard decision now
+    /// ([`verdict`]): by the counts, by a bucket gone at once, or because it holds a file of the
+    /// set that waited before it ([`held`]), which keeps a wait going until someone decides or
+    /// every file of it is back. A confirming inventory returns the earlier set, made valid
+    /// again when a change invalidated it meanwhile and carried to this inventory's journal
+    /// fence, or says it diverged when its member count or guard decision differs from the
+    /// earlier set's. The members themselves were compared page by page; the denominator may
+    /// differ, as when a file the set does not hold was added, and the set keeps the one it was
+    /// taken with.
     pub(crate) async fn finish_deletion_inventory(
         &self,
         inventory: Inventory,
-    ) -> Result<Option<DeletionSet>, RootError> {
+    ) -> Result<Completion, RootError> {
         self.revalidate().await?;
         let scope = self.control_scope();
         let finished = self.catalog().run_admin(move |connection| {
@@ -438,7 +470,7 @@ impl RootLease {
                 }
                 Draft::Confirming { .. } => {
                     if candidates!=stored_candidates || guard!=stored {
-                        return Ok(None);
+                        return Ok(Completion::Diverged);
                     }
                     // Only a set that a change invalidated, or that the journal moved past, is
                     // written; an unchanged one stays as it was.
@@ -454,10 +486,16 @@ impl RootLease {
                 };
                 snapshot.seen=Seen{cause,removed_buckets:inventory.removed_buckets};
             }
-            Ok(Some(snapshot))
+            Ok(match inventory.draft {
+                Draft::New => Completion::Finished(snapshot),
+                Draft::Confirming { .. } => Completion::Confirmed(snapshot),
+            })
         }).await?;
-        if let Some(set) = &finished {
-            self.keep_seen(set.revision, set.seen.clone());
+        match &finished {
+            Completion::Finished(set) | Completion::Confirmed(set) => {
+                self.keep_seen(set.revision, set.seen.clone());
+            }
+            Completion::Diverged => {}
         }
         Ok(finished)
     }
