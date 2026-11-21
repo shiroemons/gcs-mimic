@@ -1,14 +1,16 @@
-//! The two comparisons of a file with a body that write-back knows. [`own_copy`] asks whether a
-//! file is the private copy this operation staged; [`same_content`] asks whether a file holds the
-//! bytes of a body the operation recorded: its API copy, the tracked body it replaces or removes,
-//! or a preserved conflict. Installation, cancellation and restart recovery decide through these
-//! two alone, so one body cannot get two answers from them. A stat comparison only ever shows
-//! that a file differs; that it holds a body takes its hashes or the staged copy's identity.
+//! The three questions write-back asks of a file. [`own_copy`] asks whether a file is the private
+//! copy this operation staged; [`same_content`] asks whether a file holds the bytes of a body the
+//! operation recorded: its API copy, the tracked body it replaces or removes, or a preserved
+//! conflict; [`staged_node`] asks whether a file is the staged copy's inode, wherever a rename put
+//! it. Installation, cancellation and restart recovery decide through these alone, so one body
+//! cannot get two answers from them. A stat comparison only ever shows that a file differs; that
+//! it holds a body takes its hashes or the staged copy's identity.
 
 use super::{Error, Pending, SyncFingerprint};
 use crate::{
     fsutil::{self, FileIdentity, IdentityChanges},
     hashing::Hashes,
+    storage::catalog::sync_state::SyncRecord,
 };
 use std::{fs::File, io};
 
@@ -19,6 +21,7 @@ pub(super) struct Digest {
     hashes: Hashes,
 }
 
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 impl Digest {
     pub(super) fn new(size: u64, hashes: Hashes) -> Self {
         Self { size, hashes }
@@ -28,25 +31,33 @@ impl Digest {
 /// The body `item` records: the API copy of a publication, or the tracked body a removal removes.
 impl From<&Pending> for Digest {
     fn from(item: &Pending) -> Self {
-        Self::new(
-            item.size,
-            Hashes {
+        Self {
+            size: item.size,
+            hashes: Hashes {
                 md5: item.md5,
                 crc32c: item.crc32c,
             },
-        )
+        }
     }
 }
 
 impl From<&SyncFingerprint> for Digest {
     fn from(fingerprint: &SyncFingerprint) -> Self {
-        Self::new(
-            fingerprint.size,
-            Hashes {
+        Self {
+            size: fingerprint.size,
+            hashes: Hashes {
                 md5: fingerprint.md5,
                 crc32c: fingerprint.crc32c,
             },
-        )
+        }
+    }
+}
+
+/// The body a tracked record names: the file an export replaces or removes, or, for an export
+/// over a preserved conflict, the capture.
+impl From<&SyncRecord> for Digest {
+    fn from(record: &SyncRecord) -> Self {
+        Self::from(&record.fingerprint)
     }
 }
 
@@ -60,7 +71,7 @@ pub(super) enum Match {
 
 impl Match {
     /// The identity of a file that holds the body; `None` when it differs.
-    pub(super) fn same(self) -> Option<FileIdentity> {
+    pub(super) fn identity(self) -> Option<FileIdentity> {
         match self {
             Self::Same(identity) => Some(identity),
             Self::Differs => None,
@@ -146,7 +157,7 @@ pub(super) fn own_copy(
             content: CopyContent::NotChecked,
         });
     }
-    let confirmed = same_content(file, digest)?.same().filter(|confirmed| {
+    let confirmed = same_content(file, digest)?.identity().filter(|confirmed| {
         let changes = staged.changed_fields(confirmed);
         changes.is_empty() || changes.is_inode_only()
     });
@@ -157,4 +168,15 @@ pub(super) fn own_copy(
             content: CopyContent::Differs,
         },
     })
+}
+
+/// Whether `file` is the inode the private copy was staged under, `staged`, by its device and
+/// inode number alone. A rename keeps both but changes the ctime, so [`own_copy`], which compares
+/// every field, cannot recognize the copy once installation renamed it into the target; this asks
+/// only where the staged inode is. Its limit is the other side of that: a copy that installation
+/// put in place and that then came back under another inode number, as Docker Desktop's shared
+/// folders can report, is not recognized, and the operation stops as protected with every byte
+/// kept.
+pub(super) fn staged_node(file: &File, staged: FileIdentity) -> Result<bool, Error> {
+    Ok(fsutil::stat_identity(file)?.node() == staged.node())
 }

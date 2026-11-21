@@ -337,13 +337,6 @@ struct Install {
     faults: faults::Paths,
 }
 
-/// Whether `file` still holds the tracked body, by [`body::same_content`]. Installation and
-/// restart recovery both decide with this, so recovery removes no tracked body that
-/// installation would have kept.
-fn matches_tracked(file: &File, tracked: &SyncRecord) -> Result<body::Match, Error> {
-    body::same_content(file, (&tracked.fingerprint).into())
-}
-
 /// The step that checks a private copy against its staged identity.
 #[derive(Clone, Copy)]
 enum CopyCheck {
@@ -442,7 +435,10 @@ fn observe_target(
     item: &Pending,
 ) -> Result<bool, Error> {
     match target(root, naming, lookup, &item.path)? {
-        Some(file) => Ok(body::same_content(&file, item.into())?.same().is_some()),
+        Some(file) => Ok(matches!(
+            body::same_content(&file, item.into())?,
+            body::Match::Same(_)
+        )),
         None => Ok(false),
     }
 }
@@ -589,10 +585,7 @@ fn already_installed(
     let Some(staged) = staged else {
         return Ok(retained.is_some());
     };
-    Ok(current
-        .map(fsutil::stat_identity)
-        .transpose()?
-        .is_some_and(|current| current.node() == staged.node()))
+    current.map_or(Ok(false), |current| body::staged_node(current, staged))
 }
 
 /// Checks that the target, holding `file`, still holds what the export expects and that the
@@ -621,7 +614,7 @@ fn expected_target(
         // A preserved conflict's capture is the tracked record here, checked as a tracked body
         // is, without its device or ctime: a permission change after the capture is no new edit.
         (Some(file), Some(expected)) => {
-            if let body::Match::Differs = matches_tracked(file, expected)? {
+            if let body::Match::Differs = body::same_content(file, expected.into())? {
                 return Ok(ControlFlow::Break(Installed::Changed));
             }
             fsutil::Replacement::Exchange
@@ -1119,7 +1112,7 @@ impl Writeback {
                 // The copy itself under another inode number is not one: a failure before
                 // installation confirmed the copy leaves `staged` as it was recorded.
                 if let Some(retained) = entry(workspace, item.token.id)?
-                    && fsutil::stat_identity(&retained)?.node() != staged.node()
+                    && !body::staged_node(&retained, staged)?
                     && matches!(
                         body::own_copy(&retained, staged, (&item).into())?,
                         body::CopyMatch::Differs { .. }
@@ -1129,10 +1122,8 @@ impl Writeback {
                 }
                 // Failing on what holds no installed copy, as opening a file there does, would
                 // replace the error that ended the attempt.
-                let current = target_file(root, naming, &lookup, &item.path)?
-                    .map(|file| fsutil::stat_identity(&file))
-                    .transpose()?;
-                Ok(current.is_some_and(|current| current.node() == staged.node()))
+                target_file(root, naming, &lookup, &item.path)?
+                    .map_or(Ok(false), |file| body::staged_node(&file, staged))
             } else {
                 Ok(item.kind == Kind::Remove && entry(workspace, item.token.id)?.is_some())
             }
@@ -1309,7 +1300,7 @@ impl Writeback {
                 // neither is anything at a path that no longer resolves.
                 if let Some(staged) = staged
                     && let Some(file) = target_file(root, naming, &lookup, &selected.path)?
-                    && fsutil::stat_identity(&file)?.node() == staged.node()
+                    && body::staged_node(&file, staged)?
                 {
                     return Err(Error::Protected);
                 }

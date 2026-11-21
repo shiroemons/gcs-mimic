@@ -19,17 +19,21 @@ impl OwnedBody {
         if item.kind != Kind::Publish {
             return Ok(None);
         }
-        Ok(body::same_content(file, item.into())?.same().map(Self))
+        Ok(body::same_content(file, item.into())?.identity().map(Self))
     }
 
-    /// `file` when it still holds the tracked body, by [`matches_tracked`]: what installation's
-    /// rename moved out of the target into the private entry, or what restart recovery finds
-    /// there. An export over a preserved conflict tracks the capture's record.
+    /// `file` when it still holds the tracked body, by [`body::same_content`]: what
+    /// installation's rename moved out of the target into the private entry, or what restart
+    /// recovery finds there. Installation and recovery both prove it here, so recovery removes no
+    /// tracked body that installation would have kept. An export over a preserved conflict tracks
+    /// the capture's record.
     pub(in crate::storage::catalog::sync_state::writeback) fn tracked(
         file: &File,
         tracked: &SyncRecord,
     ) -> Result<Option<Self>, Error> {
-        Ok(matches_tracked(file, tracked)?.same().map(Self))
+        Ok(body::same_content(file, tracked.into())?
+            .identity()
+            .map(Self))
     }
 
     /// `file` as the private copy of `item` before it is armed. Only the copy step wrote it and

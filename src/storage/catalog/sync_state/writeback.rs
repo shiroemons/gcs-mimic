@@ -826,22 +826,20 @@ fn fingerprint(
     let result = match (item.kind, file) {
         (Kind::Remove, None) => None,
         (Kind::Publish, Some(file)) => {
-            let before = fsutil::stat_identity(&file)?;
-            if before.device != fsutil::stat_identity(root)?.device || before.size != item.size {
-                return Err(stale());
-            }
-            let fsutil::HashOutcome::Complete(hashes) =
-                fsutil::hash_exact(&file, item.size, |_| Ok::<_, io::Error>(()))?
-            else {
+            let body::Match::Same(before) = body::same_content(&file, item.into())? else {
                 return Err(stale());
             };
-            file.sync_all()?;
-            if before != fsutil::stat_identity(&file)?
-                || hashes.md5 != item.md5
-                || hashes.crc32c != item.crc32c
-            {
+            if before.device != fsutil::stat_identity(root)?.device {
                 return Err(stale());
             }
+            file.sync_all()?;
+            if before != fsutil::stat_identity(&file)? {
+                return Err(stale());
+            }
+            let hashes = crate::hashing::Hashes {
+                md5: item.md5,
+                crc32c: item.crc32c,
+            };
             Some(SyncFingerprint::observed(before, hashes, observed_ns))
         }
         _ => return Err(stale()),
