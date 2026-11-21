@@ -372,7 +372,6 @@ impl EntryReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io;
 
     /// Past the bound the report keeps counting without growing, so a tree full of unsafe entries
     /// cannot make the mirror's memory grow with it.
@@ -468,13 +467,13 @@ mod tests {
             error: None,
         };
         let unreadable = TreeEntry {
-            error: Some(EntryError::Io(io::ErrorKind::PermissionDenied.into())),
+            error: Some(EntryError::Io(std::io::ErrorKind::PermissionDenied.into())),
             ..entry("bucket", true, None)
         };
         let cases = [
             (
                 unreadable,
-                EntryClass::Unreadable(EntryError::Io(io::ErrorKind::PermissionDenied.into())),
+                EntryClass::Unreadable(EntryError::Io(std::io::ErrorKind::PermissionDenied.into())),
             ),
             (
                 entry(".DS_Store", false, None),
