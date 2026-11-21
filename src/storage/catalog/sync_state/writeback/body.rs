@@ -2,9 +2,11 @@
 //! copy this operation staged; [`same_content`] asks whether a file holds the bytes of a body the
 //! operation recorded: its API copy, the tracked body it replaces or removes, or a preserved
 //! conflict; [`staged_node`] asks whether a file is the staged copy's inode, wherever a rename put
-//! it. Installation, cancellation and restart recovery decide through these alone, so one body
-//! cannot get two answers from them. A stat comparison only ever shows that a file differs; that
-//! it holds a body takes its hashes or the staged copy's identity.
+//! it. Installation, cancellation and restart recovery decide through these alone, so one file
+//! compared with one record cannot get two answers from them. They can still compare a file with
+//! different records: over a preserved conflict, installation compares with the capture and
+//! recovery with the record in `sync_objects`. A stat comparison only ever shows that a file
+//! differs; that it holds a body takes its hashes or the staged copy's identity.
 
 use super::{Error, Pending, SyncFingerprint};
 use crate::{
