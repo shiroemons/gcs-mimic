@@ -1446,6 +1446,10 @@ All control JSON is capped at 64 KiB, rejects unknown fields and wrong types;
 GET bodies are rejected. Responses are capped at 256 KiB with paged detail.
 Unknown method returns 405; unknown route/disabled sync returns 404; malformed
 input 400, oversize 413, stale conditions 409, closed service or a catalog wait past its budget 503.
+A control whose write-back step met a tree or catalog other than it planned answers 409 as a
+stale condition; one whose step met an entry that kept failing to open while its name still
+held it answers 503 `io_failure`, since nothing changed and the same control may succeed when
+tried again.
 Accepted asynchronous mutations return 202 with operation ID; completed reads
 and wait return 200, wait deadline 408 and an existing stop 409. A rescan that
 fails and leaves synchronization paused answers 409 with the `paused_reason`, the

@@ -29,6 +29,7 @@ pub(crate) mod tree;
 pub(crate) use deletion::Missing;
 pub(crate) use error::{Cause, Pass, SyncError};
 pub use export::reconcile::reconcile;
+pub(crate) use failure::FailureClass;
 pub use mirror::{Reconciliation, Task, start};
 use status::EntryReportSender;
 pub use status::{MirrorState, MirrorStatus, UnknownMirrorState};

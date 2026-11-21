@@ -28,7 +28,7 @@ mod tests;
 /// permission, a corrupt catalog or a write-back stop, needs an operator, and the decision that
 /// reads it says how.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::sync) enum FailureClass {
+pub(crate) enum FailureClass {
     /// A concurrent change made the step moot: the object, its generation or its bucket changed
     /// after the step read them, or the tree no longer holds what the step read there. The
     /// journal or the next pass brings that change, so the step is planned again, not failed.
@@ -190,7 +190,7 @@ impl FailureClass {
 
     /// What a write-back step's failure says. The root's own failures and write-back stops have
     /// no class here: recovery or an operator settles them.
-    pub(in crate::sync) fn of_writeback(error: &writeback::Error) -> Option<Self> {
+    pub(crate) fn of_writeback(error: &writeback::Error) -> Option<Self> {
         match error {
             // The step met an entry it was to create, which the user made meanwhile.
             writeback::Error::Admin(AdminError::Io(cause))

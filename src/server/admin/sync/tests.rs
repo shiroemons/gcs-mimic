@@ -55,7 +55,16 @@ fn a_write_back_step_that_met_a_changed_state_answers_as_a_changed_revision() {
     ))));
     assert_eq!(expected.status, StatusCode::CONFLICT);
     for error in [
-        Error::Raced(RaceReason::Unopenable),
+        Error::Raced(RaceReason::ParentChanged),
+        Error::Raced(RaceReason::Respelled),
+        Error::Raced(RaceReason::TargetChanged),
+        Error::Raced(RaceReason::DirectoryChanged),
+        Error::Obsolete(StaleReason::JournalFence),
+        Error::Obsolete(StaleReason::Bucket),
+        Error::Obsolete(StaleReason::Object),
+        Error::Obsolete(StaleReason::Tracked),
+        Error::Obsolete(StaleReason::Baseline),
+        Error::Obsolete(StaleReason::Revision),
         Error::Obsolete(StaleReason::Completed),
         Error::Obsolete(StaleReason::Root),
         Error::Invariant("broken"),
@@ -65,6 +74,26 @@ fn a_write_back_step_that_met_a_changed_state_answers_as_a_changed_revision() {
         assert_eq!(actual.status, expected.status, "{label}");
         assert_eq!(actual.message, expected.message, "{label}");
     }
+}
+
+/// A write-back step whose entry kept failing to open met no change: the read may succeed when
+/// the control is tried again, so it answers as a failed storage read does, 503, as an
+/// unopenable root marker does, rather than as a changed revision that asks for a rescan.
+#[test]
+fn a_write_back_step_whose_entry_kept_failing_to_open_answers_as_a_failed_read() {
+    use crate::storage::sync_state::writeback::{Error, RaceReason};
+    let expected = root_error(&RootError::UnopenableMarker);
+    let actual = control_error(&ControlError::Failed(SyncError::Writeback(Error::Raced(
+        RaceReason::Unopenable,
+    ))));
+    assert_eq!(
+        (actual.status, actual.reason, &actual.message),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "io_failure",
+            &expected.message
+        )
+    );
 }
 
 /// Each decision route takes its own decision, spelled out here rather than taken from the code

@@ -18,7 +18,7 @@ use crate::{
         root::{RootChange, RootError, RootLease, RootStatus},
     },
     sync::{
-        Cause, Decision, MirrorState, Reconciliation, UnmappedObjects, WaitReason,
+        Cause, Decision, FailureClass, MirrorState, Reconciliation, UnmappedObjects, WaitReason,
         control::{Command, ControlError, PauseChange, Registration},
         entries::{EntryListing, EntryReport},
         handshake,
@@ -1185,21 +1185,28 @@ fn admin_error(error: &AdminError) -> Option<ApiError> {
     })
 }
 
-/// A write-back step that met the tree or the catalog other than it planned, or broke an
-/// invariant, answers as a stale revision, as each did when it failed with a precondition. The
-/// other failures answer by the root or admin failure further down the chain, if any.
+/// A write-back step's own failure answers by its class: one that met the tree or the catalog
+/// other than it planned, or broke an invariant, as a stale revision, as each did when it failed
+/// with a precondition; one that passes by itself, an entry that kept failing to open, as a
+/// failed storage read that a later attempt may make. An admin or root failure, and a failure
+/// without a class, answer by the failure further down the chain, if any.
 fn writeback_error(error: &crate::storage::sync_state::writeback::Error) -> Option<ApiError> {
     use crate::storage::sync_state::writeback::Error;
     match error {
-        Error::Raced(_) | Error::Obsolete(_) | Error::Invariant(_) => Some(stale()),
-        Error::Admin(_)
-        | Error::Root(_)
+        Error::Admin(_) | Error::Root(_) => None,
+        Error::Raced(_)
+        | Error::Obsolete(_)
+        | Error::Invariant(_)
         | Error::Conflict(_)
         | Error::Displaced(_)
         | Error::Capacity
         | Error::RecoveryRequired
         | Error::Protected
-        | Error::WorkspaceChanged => None,
+        | Error::WorkspaceChanged => match FailureClass::of_writeback(error)? {
+            FailureClass::Superseded => Some(stale()),
+            FailureClass::Transient => Some(io_failure()),
+            FailureClass::Volume | FailureClass::PathLocal => None,
+        },
     }
 }
 
