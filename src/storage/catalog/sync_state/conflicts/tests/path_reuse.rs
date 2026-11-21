@@ -53,6 +53,45 @@ fn target(fixture: &Fixture) -> PathBuf {
     path
 }
 
+/// A file that keeps failing to open while its name still holds it is not captured: the capture
+/// ends as one whose target changed does, which a later capture reads again, with nothing held
+/// in the conflict store and the file where it was. Once the file opens, a capture takes it.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn capture_path_leaves_a_file_that_keeps_failing_to_open_to_a_later_capture() {
+    let fixture = Fixture::new().await;
+    let path = target(&fixture);
+    let failing = fsutil::FailingOpens::vanishing(
+        &fixture.tree.0.join("test-bucket"),
+        "object.txt",
+        usize::MAX,
+    );
+    assert!(matches!(
+        fixture.lease.capture_path(fixture.request().await).await,
+        Err(Error::TargetChanged)
+    ));
+    drop(failing);
+    assert_eq!(fixture.page().await.usage.entries, 0);
+    assert_eq!(fs::read(&path).unwrap(), b"external\0\xff");
+    let copy = fixture
+        .lease
+        .capture_path(fixture.request().await)
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read(
+            fixture
+                .data
+                .0
+                .join("sync-conflicts")
+                .join(copy.id().to_string())
+        )
+        .unwrap(),
+        b"external\0\xff"
+    );
+    fixture.close().await;
+}
+
 #[tokio::test]
 async fn capture_path_reuses_verified_bytes_after_only_the_api_generation_changes() {
     let fixture = Fixture::new().await;

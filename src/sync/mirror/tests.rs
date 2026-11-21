@@ -3043,6 +3043,56 @@ async fn a_bucket_directory_that_keeps_failing_to_open_defers_its_bucket() {
     catalog.close().await.unwrap();
 }
 
+/// The replay of a bucket the API created, whose directory's name holds an entry that keeps
+/// failing to open, defers the bucket to a later pass rather than failing the replay, and makes
+/// nothing over that entry. Once the directory opens, a pass exports into it.
+#[tokio::test]
+async fn a_replayed_bucket_whose_directory_keeps_failing_to_open_is_deferred() {
+    let bucket = BucketName::new("test-bucket").unwrap();
+    let (_data, tree, catalog, root, _config, _clock) =
+        crate::sync::test_support::clocked_fixture(Some(&bucket)).await;
+    catalog.enable_change_journal().await.unwrap();
+    let cursor = catalog.current_fence().await.unwrap();
+    let other = BucketName::new("zz-other").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&other, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    let directory = tree.0.join("zz-other");
+    fs::create_dir(&directory).unwrap();
+    let failing = fsutil::FailingOpens::vanishing(&tree.0, "zz-other", usize::MAX);
+    let fence = catalog.current_fence().await.unwrap();
+    let ChangeRead::Page(page) = catalog
+        .read_changes(cursor, Some(fence), 256)
+        .await
+        .unwrap()
+    else {
+        panic!("the journal kept every change since the cursor");
+    };
+    let writeback = root.default_writeback().await.unwrap();
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    let summary = replay_page(
+        &catalog,
+        &root,
+        &writeback,
+        page,
+        &stopping,
+        &mut SkippedExports::default(),
+    )
+    .await
+    .unwrap();
+    drop(failing);
+    drop(writeback);
+    assert_eq!(summary.deferred, 1);
+    assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+    publish_origin(&catalog, &other, b"other", Origin::Api).await;
+    assert_eq!(reconcile(&catalog, &root).await.unwrap().exported, 1);
+    assert_eq!(fs::read(directory.join("object")).unwrap(), b"other");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// A collision carried over from schema 57 does not say whether it was a name collision or an
 /// export conflict. A reconciliation that meets the name collision again records it as one.
 #[tokio::test]
