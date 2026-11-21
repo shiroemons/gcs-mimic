@@ -19,6 +19,7 @@ use crate::{
     fsutil::{self, NodeId},
     object::ObjectError,
     sync::{
+        FailureClass,
         mapping::{self, PathMapping},
         naming::{Observation, ProbeError, RootNaming},
     },
@@ -128,6 +129,33 @@ impl Error {
         Self::Invariant(broken)
     }
 
+    /// What write-back makes of a step that the one classification calls superseded
+    /// ([`FailureClass::of_writeback`]). The two ways write-back departs from that class are here
+    /// and nowhere else:
+    ///
+    /// - An entry the step was to create, which a user made meanwhile (`AlreadyExists`), is
+    ///   raised as an error rather than cancelled here, as it was before the classification
+    ///   called it superseded; the export that sees the error plans the path again. The two
+    ///   agree once write-back's decisions come from the classification's outcome table.
+    /// - A catalog entry that went away (`Admin(NotFound)`) makes the operation moot, but
+    ///   nothing the step read changed under it, so it is [`Moot::Gone`], not
+    ///   [`Moot::Changed`].
+    fn moot(&self) -> Moot {
+        if let Self::Admin(AdminError::Io(cause)) = self
+            && cause.kind() == io::ErrorKind::AlreadyExists
+        {
+            return Moot::Live;
+        }
+        if matches!(self, Self::Admin(AdminError::NotFound)) {
+            return Moot::Gone;
+        }
+        if FailureClass::of_writeback(self) == Some(FailureClass::Superseded) {
+            Moot::Changed
+        } else {
+            Moot::Live
+        }
+    }
+
     /// Whether the step met the tree or the catalog other than it read or planned them, by its
     /// own checks or by a catalog call that answered `Precondition`. Every such step ends the
     /// same way: its operation is cancelled or planned again. A tree changed under an
@@ -138,26 +166,7 @@ impl Error {
     /// An entry that kept failing to open ([`RaceReason::Unopenable`]) is no such change: the
     /// step fails, and its caller tries it again, as after any failure that passes by itself.
     fn changed(&self) -> bool {
-        match self {
-            Self::Admin(AdminError::Precondition)
-            | Self::Raced(
-                RaceReason::ParentChanged
-                | RaceReason::Respelled
-                | RaceReason::TargetChanged
-                | RaceReason::DirectoryChanged,
-            )
-            | Self::Obsolete(_)
-            | Self::Invariant(_) => true,
-            Self::Admin(_)
-            | Self::Root(_)
-            | Self::Conflict(_)
-            | Self::Displaced(_)
-            | Self::Capacity
-            | Self::RecoveryRequired
-            | Self::Protected
-            | Self::WorkspaceChanged
-            | Self::Raced(RaceReason::Unopenable) => false,
-        }
+        self.moot() == Moot::Changed
     }
 
     /// Whether the tree at the target is not the one the step read, or kept failing to open:
@@ -169,8 +178,19 @@ impl Error {
     /// Whether the step's operation is moot: [`Self::changed`], or the catalog no longer holds
     /// what it names.
     fn superseded(&self) -> bool {
-        self.changed() || matches!(self, Self::Admin(AdminError::NotFound))
+        self.moot() != Moot::Live
     }
+}
+
+/// Whether a write-back step's operation is moot, and why ([`Error::moot`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Moot {
+    /// The step met the tree or the catalog other than it read or planned them.
+    Changed,
+    /// The catalog no longer holds what the operation names.
+    Gone,
+    /// The operation still stands: the step failed, or stopped, for another reason.
+    Live,
 }
 
 impl From<super::conflicts::Error> for Error {
