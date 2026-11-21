@@ -1179,8 +1179,27 @@ fn admin_error(error: &AdminError) -> Option<ApiError> {
     })
 }
 
-/// The response to a queued control that produced no result. The first root or admin failure in
-/// the chain decides it; a control that never ran answers as a closed queue does.
+/// A write-back step that met the tree or the catalog other than it planned, or broke an
+/// invariant, answers as a stale revision, as each did when it failed with a precondition. The
+/// other failures answer by the root or admin failure further down the chain, if any.
+fn writeback_error(error: &crate::storage::sync_state::writeback::Error) -> Option<ApiError> {
+    use crate::storage::sync_state::writeback::Error;
+    match error {
+        Error::Raced(_) | Error::Obsolete(_) | Error::Invariant(_) => Some(stale()),
+        Error::Admin(_)
+        | Error::Root(_)
+        | Error::Conflict(_)
+        | Error::Displaced(_)
+        | Error::Capacity
+        | Error::RecoveryRequired
+        | Error::Protected
+        | Error::WorkspaceChanged => None,
+    }
+}
+
+/// The response to a queued control that produced no result. The first root, admin or
+/// write-back failure in the chain that names a response decides it; a control that never ran
+/// answers as a closed queue does.
 pub(super) fn control_error(error: &ControlError) -> ApiError {
     match error {
         ControlError::Failed(error) => error
@@ -1188,8 +1207,8 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
             .find_map(|cause| match cause {
                 Cause::Root(error) => Some(root_error(error)),
                 Cause::Admin(error) => admin_error(error),
-                Cause::Writeback(_)
-                | Cause::Conflict(_)
+                Cause::Writeback(error) => writeback_error(error),
+                Cause::Conflict(_)
                 | Cause::Stop(_)
                 | Cause::Catalog(_)
                 | Cause::Sqlite(_)

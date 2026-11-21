@@ -44,6 +44,29 @@ fn nested_control_errors_keep_status_and_text() {
     }
 }
 
+/// A write-back step that met the tree or the catalog other than it planned, or broke an
+/// invariant, answers as a changed revision, 409, as it did when each was a failed precondition,
+/// rather than as a busy queue.
+#[test]
+fn a_write_back_step_that_met_a_changed_state_answers_as_a_changed_revision() {
+    use crate::storage::sync_state::writeback::{Error, RaceReason, StaleReason};
+    let expected = control_error(&ControlError::Failed(SyncError::Writeback(Error::Admin(
+        AdminError::Precondition,
+    ))));
+    assert_eq!(expected.status, StatusCode::CONFLICT);
+    for error in [
+        Error::Raced(RaceReason::Unsettled),
+        Error::Obsolete(StaleReason::Completed),
+        Error::Obsolete(StaleReason::Root),
+        Error::Invariant("broken"),
+    ] {
+        let label = format!("{error:?}");
+        let actual = control_error(&ControlError::Failed(SyncError::Writeback(error)));
+        assert_eq!(actual.status, expected.status, "{label}");
+        assert_eq!(actual.message, expected.message, "{label}");
+    }
+}
+
 /// Each decision route takes its own decision, spelled out here rather than taken from the code
 /// under test: a rejection taken as an approval would delete the objects it was to keep. A
 /// route that only resembles one takes none.
