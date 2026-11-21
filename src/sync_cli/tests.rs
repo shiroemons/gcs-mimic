@@ -1656,3 +1656,38 @@ fn once(options: &Options) -> (&str, Option<&Value>) {
         }
     }
 }
+
+/// Every way a wait ends exits with its own status: 0 ready, 2 for what needs someone to act,
+/// 3 for work still in progress when the time ran out, and 1 for a stopped server or an answer
+/// that names no reason.
+#[test]
+fn a_wait_exits_with_the_status_its_reason_maps_to() {
+    let exit_of = |answer: Value, status| match WaitOutcome::read(&answer).conclude(status, "") {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => error.exit_code(),
+    };
+    for (reason, status, code) in [
+        ("Ready", StatusCode::OK, 0),
+        ("Timeout", StatusCode::REQUEST_TIMEOUT, 3),
+        ("SourceChanging", StatusCode::CONFLICT, 3),
+        ("JournalChanged", StatusCode::CONFLICT, 3),
+        ("Paused", StatusCode::CONFLICT, 2),
+        ("SourceUnrepresentable", StatusCode::CONFLICT, 2),
+        ("DeletionApproval", StatusCode::CONFLICT, 2),
+        ("FindingsPending", StatusCode::CONFLICT, 2),
+        ("Stopped", StatusCode::CONFLICT, 1),
+    ] {
+        assert_eq!(
+            exit_of(json!({ "reason": reason }), status),
+            std::process::ExitCode::from(code),
+            "{reason}"
+        );
+    }
+    assert_eq!(
+        exit_of(
+            json!({"error":{"code":503}}),
+            StatusCode::SERVICE_UNAVAILABLE
+        ),
+        std::process::ExitCode::FAILURE
+    );
+}

@@ -10,3 +10,6 @@ pub(super) mod outcome;
 pub(crate) mod remedy;
 pub(crate) mod state;
 pub(crate) mod verdict;
+
+#[cfg(test)]
+mod tests;

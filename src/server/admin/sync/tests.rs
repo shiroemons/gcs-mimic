@@ -2320,3 +2320,58 @@ async fn rejecting_a_held_set_writes_its_files_back_and_refuses_a_stale_or_used_
     }
     fixture.finish().await;
 }
+
+/// A wait answers 200 only when it ended ready, 408 when its time ran out, and 409 for every
+/// other way it ended, so a caller that reads only the status tells success from failure.
+#[test]
+fn a_wait_answers_with_a_status_that_tells_how_it_ended() {
+    use crate::sync::report::verdict::Holdup;
+    let held = |holdup| WaitResult::held(holdup, None, None);
+    let cut = |why| WaitResult::unfinished(why, None, None);
+    for (result, reason, status) in [
+        (held(Holdup::Ready), WaitReason::Ready, StatusCode::OK),
+        (
+            WaitResult::timeout(),
+            WaitReason::Timeout,
+            StatusCode::REQUEST_TIMEOUT,
+        ),
+        (
+            cut(Unfinished::Stopped),
+            WaitReason::Stopped,
+            StatusCode::CONFLICT,
+        ),
+        (
+            held(Holdup::Paused(PauseReason::IoFailure)),
+            WaitReason::Paused,
+            StatusCode::CONFLICT,
+        ),
+        (
+            cut(Unfinished::JournalChanged),
+            WaitReason::JournalChanged,
+            StatusCode::CONFLICT,
+        ),
+        (
+            cut(Unfinished::SourceChanging),
+            WaitReason::SourceChanging,
+            StatusCode::CONFLICT,
+        ),
+        (
+            held(Holdup::SourceUnrepresentable),
+            WaitReason::SourceUnrepresentable,
+            StatusCode::CONFLICT,
+        ),
+        (
+            held(Holdup::DeletionApproval),
+            WaitReason::DeletionApproval,
+            StatusCode::CONFLICT,
+        ),
+        (
+            held(Holdup::FindingsPending),
+            WaitReason::FindingsPending,
+            StatusCode::CONFLICT,
+        ),
+    ] {
+        assert_eq!(result.reason, reason);
+        assert_eq!(wait_status(&result), status, "{reason}");
+    }
+}
