@@ -71,8 +71,11 @@ mod wait;
 
 use super::backoff::{Backoff, RETRY_DELAY_MAX};
 use super::export::{
-    SkippedExports, reconcile::Step, reconcile::reconcile_with, reconcile_live_object,
-    retry::create_directory,
+    SkippedExports,
+    reconcile::Step,
+    reconcile::reconcile_with,
+    reconcile_live_object,
+    retry::{DirectoryCreation, create_directory},
 };
 use super::reevaluate::{Changed, Observing};
 pub(super) use controls::LiveScope;
@@ -782,7 +785,13 @@ async fn replay_page_with(
                 continue;
             }
             if !super::deletion::bucket_directory_held(root, &bucket).await? {
-                create_directory(root, PathBuf::from(bucket.as_str())).await?;
+                match create_directory(root, PathBuf::from(bucket.as_str())).await? {
+                    // The scans count what occupies the directory's place.
+                    DirectoryCreation::Created | DirectoryCreation::Finding => {}
+                    DirectoryCreation::Deferred => {
+                        summary.count_deferred(Path::new(bucket.as_str()));
+                    }
+                }
             }
         }
     }

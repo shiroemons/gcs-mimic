@@ -436,7 +436,11 @@ fn inspect(
         return Ok(Target::Conflicting);
     };
     let after = fsutil::stat_identity(&file)?;
-    let reopened = fsutil::open_regular_at(&directory, name)?;
+    // A name that went, or kept failing to open, since the read is a change a later read
+    // decides, as it is before the read.
+    let fsutil::Opened::Entry(reopened) = lookup.regular_unconfirmed(&directory, name)? else {
+        return Err(AdminError::Precondition);
+    };
     let current_parent = parent(
         root,
         naming,

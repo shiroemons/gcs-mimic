@@ -7,7 +7,7 @@
 pub(crate) use super::mirror::{RescanFault, arm_rescan_fault};
 use super::{Hook, Missing, RootLease};
 use crate::{
-    clock::SystemClock,
+    clock::{Clock, ManualClock, SystemClock},
     config::Config,
     fsutil,
     storage::{
@@ -24,7 +24,7 @@ use std::{
     io,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 /// How [`retrack`] records a file's tracked fingerprint.
@@ -95,13 +95,37 @@ pub(super) async fn fixture(
     (data, tree, catalog, probed(root).await, config)
 }
 
+/// Like [`fixture`], on a catalog whose clock the test sets. A lookup that waits for a name to
+/// open again waits on this clock, so its waits pass without sleeping.
+pub(super) async fn clocked_fixture(
+    bucket: Option<&BucketName>,
+) -> (
+    TestDir,
+    TestDir,
+    Catalog,
+    RootLease,
+    Config,
+    Arc<ManualClock>,
+) {
+    let clock = Arc::new(ManualClock::new(SystemTime::now()));
+    let (data, tree, catalog, root, config) = unprobed_fixture_on(bucket, clock.clone()).await;
+    (data, tree, catalog, probed(root).await, config, clock)
+}
+
 /// An activated root whose naming rules nobody has probed yet, as the mirror receives it.
 pub(super) async fn unprobed_fixture(
     bucket: Option<&BucketName>,
 ) -> (TestDir, TestDir, Catalog, RootLease, Config) {
+    unprobed_fixture_on(bucket, Arc::new(SystemClock)).await
+}
+
+async fn unprobed_fixture_on(
+    bucket: Option<&BucketName>,
+    clock: Arc<dyn Clock>,
+) -> (TestDir, TestDir, Catalog, RootLease, Config) {
     let data = TestDir::new();
     let tree = TestDir::new();
-    let catalog = Catalog::open(&data.0).await.unwrap();
+    let catalog = Catalog::open_with_clock(&data.0, clock).await.unwrap();
     if let Some(bucket) = bucket {
         catalog
             .admin(Origin::Api)

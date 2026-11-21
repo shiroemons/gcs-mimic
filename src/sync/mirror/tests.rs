@@ -3113,6 +3113,50 @@ async fn a_target_whose_name_the_file_system_refuses_is_an_unsafe_entry() {
     catalog.close().await.unwrap();
 }
 
+/// A target that keeps failing to open when the export opens it again, to confirm that its read
+/// held, is read again by a later pass, rather than failing this pass with the open's error.
+#[tokio::test]
+async fn a_target_that_keeps_failing_to_reopen_after_its_read_is_deferred() {
+    let bucket = BucketName::new("test-bucket").unwrap();
+    let (_data, tree, catalog, root, _config, _clock) =
+        crate::sync::test_support::clocked_fixture(Some(&bucket)).await;
+    let directory = tree.0.join("test-bucket");
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join("object"), b"api").unwrap();
+    publish_origin(&catalog, &bucket, b"api", Origin::Api).await;
+    let reopen = fsutil::FailingOpens::vanishing_after(&directory, "object", 1, usize::MAX);
+    let summary = reconcile(&catalog, &root).await.unwrap();
+    // The export defers it, and so does the scan for files the API does not hold.
+    assert_eq!((summary.identical, summary.deferred), (0, 2));
+    drop(reopen);
+    assert_eq!(reconcile(&catalog, &root).await.unwrap().identical, 1);
+    assert_eq!(fs::read(directory.join("object")).unwrap(), b"api");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// A bucket directory that keeps failing to open while the root holds it defers its bucket to a
+/// later pass, rather than failing this pass, and nothing is exported into it meanwhile.
+#[tokio::test]
+async fn a_bucket_directory_that_keeps_failing_to_open_defers_its_bucket() {
+    let bucket = BucketName::new("test-bucket").unwrap();
+    let (_data, tree, catalog, root, _config, _clock) =
+        crate::sync::test_support::clocked_fixture(Some(&bucket)).await;
+    let directory = tree.0.join("test-bucket");
+    fs::create_dir(&directory).unwrap();
+    publish_origin(&catalog, &bucket, b"api", Origin::Api).await;
+    let failing = fsutil::FailingOpens::vanishing(&tree.0, "test-bucket", usize::MAX);
+    let summary = reconcile(&catalog, &root).await.unwrap();
+    // The bucket's exports wait for it, and so does the scan for files the API does not hold.
+    assert_eq!((summary.exported, summary.deferred), (0, 2));
+    drop(failing);
+    assert!(!directory.join("object").exists());
+    assert_eq!(reconcile(&catalog, &root).await.unwrap().exported, 1);
+    assert_eq!(fs::read(directory.join("object")).unwrap(), b"api");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// A collision carried over from schema 57 does not say whether it was a name collision or an
 /// export conflict. A reconciliation that meets the name collision again records it as one.
 #[tokio::test]

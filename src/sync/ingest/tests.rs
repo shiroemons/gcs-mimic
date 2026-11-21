@@ -31,23 +31,7 @@ async fn clocked_fixture() -> (
     Config,
     Arc<crate::clock::ManualClock>,
 ) {
-    let data = TestDir::new();
-    let tree = TestDir::new();
-    let clock = Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
-    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
-        .await
-        .unwrap();
-    let config = Config {
-        data_dir: data.0.clone(),
-        sync_dir: Some(tree.0.clone()),
-        ..Default::default()
-    };
-    let root = crate::sync::preflight(&catalog, &config)
-        .await
-        .unwrap()
-        .unwrap();
-    let root = crate::sync::test_support::probed(root).await;
-    (data, tree, catalog, root, config, clock)
+    crate::sync::test_support::clocked_fixture(None).await
 }
 
 async fn scan(catalog: &Catalog, root: &RootLease, config: &Config) -> Reconciliation {

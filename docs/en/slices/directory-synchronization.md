@@ -625,7 +625,12 @@ marker read fails with the read error instead of passing for a missing marker.
 The scan follows the same rule for each entry a listing names: it passes over
 only an entry proved gone, and counts one that still fails as a deferred read
 failure. A bucket directory that still fails is neither forgotten as a missing
-one nor taken for an empty one. So does the second open that tells what kind
+one nor taken for an empty one: a reconciliation or a bucket's creation defers
+the bucket to a later pass, while the write-back of a rejected deletion set
+fails on it as on any failed open, since the inventory after the write-back
+would take the files it passed over for deleted ones. An export that opens its
+target again to confirm the read of it defers the same way when the name went
+or kept failing meanwhile. So does the second open that tells what kind
 of entry holds a name that failed to open as a file or as a directory: an
 entry that went or kept failing meanwhile leaves the path to a later read
 rather than being taken for a symlink or special file. Write-back opens its

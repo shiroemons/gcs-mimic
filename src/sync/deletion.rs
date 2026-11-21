@@ -2,7 +2,9 @@
 
 use super::interrupt::{Interrupt, Interrupted};
 use super::{
-    SyncError, mapping,
+    SyncError,
+    export::retry::{DirectoryCreation, create_directory},
+    mapping,
     mirror::PassGate,
     report::{
         command::{AtHand, AwaitingSet},
@@ -615,11 +617,15 @@ pub(super) async fn execute_with(
                 }
             }
             if restored_buckets.insert(candidate.bucket.clone()) {
-                super::export::retry::create_directory(
-                    root,
-                    std::path::PathBuf::from(candidate.bucket.as_str()),
-                )
-                .await?;
+                match create_directory(root, std::path::PathBuf::from(candidate.bucket.as_str()))
+                    .await?
+                {
+                    // An entry that fails to open is still there, and a later pass's
+                    // reconciliation makes the directory if it is not one.
+                    DirectoryCreation::Created
+                    | DirectoryCreation::Finding
+                    | DirectoryCreation::Deferred => {}
+                }
             }
             applied.record(&candidate.path);
         }
@@ -673,11 +679,22 @@ async fn write_back_members(
                 return Ok(interrupted);
             }
             if !buckets.contains(&candidate.bucket) {
-                super::export::retry::create_directory(
-                    root,
-                    std::path::PathBuf::from(candidate.bucket.as_str()),
-                )
-                .await?;
+                match create_directory(root, std::path::PathBuf::from(candidate.bucket.as_str()))
+                    .await?
+                {
+                    DirectoryCreation::Created | DirectoryCreation::Finding => {}
+                    // A restore into a directory that does not open passes its file over, and
+                    // the inventory after this write-back would take that file for one the user
+                    // deleted. The write-back fails as the failed open does instead, which
+                    // leaves this member and those after it for the next pass.
+                    DirectoryCreation::Deferred => {
+                        return Err(SyncError::Writeback(
+                            crate::storage::sync_state::writeback::Error::Root(RootError::Admin(
+                                std::io::Error::from(fsutil::Unsettled).into(),
+                            )),
+                        ));
+                    }
+                }
                 buckets.insert(candidate.bucket.clone());
             }
             ended.record(

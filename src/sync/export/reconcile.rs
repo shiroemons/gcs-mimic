@@ -1,6 +1,9 @@
 //! One full reconciliation of the tree with the API.
 
-use super::{SkippedExports, reconcile_live_object, retry::create_directory};
+use super::{
+    SkippedExports, reconcile_live_object,
+    retry::{DirectoryCreation, create_directory},
+};
 use crate::sync::mirror::BaselineGate;
 use crate::{
     object::ObjectRecord,
@@ -150,10 +153,16 @@ impl Reconciler<'_> {
                 // What occupies the directory's place is a tree entry, which the scans count. A
                 // directory gone with files the inventory takes to approval stays gone, and so do
                 // the exports into it that `LiveObject::export` holds back.
-                if !crate::sync::deletion::bucket_directory_held(self.root, &bucket).await?
-                    && !create_directory(self.root, directory).await?
-                {
-                    self.summary.count_unmapped_object();
+                if !crate::sync::deletion::bucket_directory_held(self.root, &bucket).await? {
+                    match create_directory(self.root, directory.clone()).await? {
+                        DirectoryCreation::Created => {}
+                        DirectoryCreation::Finding => self.summary.count_unmapped_object(),
+                        // Each export into it would wait for it in turn: the bucket waits whole.
+                        DirectoryCreation::Deferred => {
+                            self.summary.count_deferred(&directory);
+                            continue;
+                        }
+                    }
                 }
                 if self.objects(&bucket).await? == Step::Stopped
                     || self.tracked_deletions(&bucket).await? == Step::Stopped

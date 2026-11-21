@@ -117,17 +117,30 @@ pub(super) async fn file_job_retry<T: Send + 'static>(
     .await
 }
 
+/// What [`create_directory`] left at its path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::sync) enum DirectoryCreation {
+    /// The directory is there, whether this made it or it already was.
+    Created,
+    /// A finding keeps the path from holding the directory.
+    Finding,
+    /// An entry at the path, or above it, kept failing to open: a later pass tries again.
+    Deferred,
+}
+
 pub(in crate::sync) async fn create_directory(
     root: &RootLease,
     directory: PathBuf,
-) -> Result<bool, SyncError> {
+) -> Result<DirectoryCreation, SyncError> {
     let naming = root.naming()?;
     let lookup = root.lookup()?;
     file_job_retry(root, move |root| {
         match parent(root, naming, &lookup, &directory, ParentOpen::Create) {
-            Ok(_) => Ok(true),
-            Err(ParentError::Finding(_) | ParentError::Missing(_)) => Ok(false),
-            Err(ParentError::Transient) => Err(io::Error::from(crate::fsutil::Unsettled).into()),
+            Ok(_) => Ok(DirectoryCreation::Created),
+            Err(ParentError::Finding(_) | ParentError::Missing(_)) => {
+                Ok(DirectoryCreation::Finding)
+            }
+            Err(ParentError::Transient) => Ok(DirectoryCreation::Deferred),
             Err(ParentError::Io(error)) => Err(error.into()),
         }
     })
