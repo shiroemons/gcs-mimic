@@ -100,6 +100,7 @@ fn restore_check_error(error: Error) -> AdminError {
             ObjectError::Io(cause).into()
         }
         Error::Admin(AdminError::Corrupt(cause)) => ObjectError::Corrupt(cause).into(),
+        Error::Unopenable(error) => ObjectError::backend(error).into(),
         // Every other failure reports a changed target, and the batch moves on to the next element.
         Error::Admin(
             AdminError::Precondition
@@ -551,6 +552,7 @@ impl RootLease {
                 self.conflict_db(move|connection| {connection.prepare_cached("UPDATE sync_conflicts SET retained=?2 WHERE id=?1 AND state=0 AND retained IS NULL")?.execute(params![id,blob])?;Ok(())}).await?;
             }
         }
+        let lookup = self.private_lookup();
         self.conflict_files(move |_| {
             let directory = match capture::open_store(&data) {
                 Ok(directory) => directory,
@@ -563,6 +565,7 @@ impl RootLease {
             };
             checked_unlink(
                 &directory,
+                &lookup,
                 id,
                 observation.as_ref(),
                 #[cfg(test)]
@@ -593,57 +596,57 @@ impl RootLease {
     }
 }
 
+/// Unlinks the private entry `id` in `directory` once it still holds what `expected` observed;
+/// one the lookup proved missing is already unlinked.
 pub(super) fn checked_unlink(
     directory: &File,
+    lookup: &fsutil::Lookup,
     id: OpaqueId,
     expected: Option<&Observation>,
     #[cfg(test)] data: &std::path::Path,
     #[cfg(test)] parent: &std::path::Path,
 ) -> Result<(), Error> {
     let name = id.to_hex();
-    match fsutil::open_regular_at(directory, name.as_ref()) {
-        Ok(file) => {
-            if let Some(expected) = expected {
-                if observe(
-                    &file,
-                    if expected.hashes.is_some() {
-                        HashMode::Body
-                    } else {
-                        HashMode::Metadata
-                    },
-                )? != *expected
-                {
-                    return Err(Error::TargetChanged);
-                }
-            } else {
+    if let Some(file) = private_entry(directory, lookup, id)? {
+        if let Some(expected) = expected {
+            if observe(
+                &file,
+                if expected.hashes.is_some() {
+                    HashMode::Body
+                } else {
+                    HashMode::Metadata
+                },
+            )? != *expected
+            {
                 return Err(Error::TargetChanged);
             }
-            let again = fsutil::open_regular_at(directory, name.as_ref())?;
-            if fsutil::stat_identity(&again)? != fsutil::stat_identity(&file)? {
-                return Err(Error::TargetChanged);
-            }
-            #[cfg(test)]
-            {
-                fault::hit(
-                    parent.parent().ok_or(Error::TargetChanged)?,
-                    fault::Step::ConflictUnlink,
-                )?;
-                fault::hit(data, fault::Step::ConflictUnlink)?;
-            }
-            #[cfg(all(test, unix))]
-            super::super::super::fault::unlinked(&parent.join(&name), &file)?;
-            fsutil::unlink_file_at(directory, name.as_ref())?;
-            #[cfg(test)]
-            {
-                fault::hit(
-                    parent.parent().ok_or(Error::TargetChanged)?,
-                    fault::Step::ConflictUnlinked,
-                )?;
-                fault::hit(data, fault::Step::ConflictUnlinked)?;
-            }
+        } else {
+            return Err(Error::TargetChanged);
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+        let again = private_entry(directory, lookup, id)?
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        if fsutil::stat_identity(&again)? != fsutil::stat_identity(&file)? {
+            return Err(Error::TargetChanged);
+        }
+        #[cfg(test)]
+        {
+            fault::hit(
+                parent.parent().ok_or(Error::TargetChanged)?,
+                fault::Step::ConflictUnlink,
+            )?;
+            fault::hit(data, fault::Step::ConflictUnlink)?;
+        }
+        #[cfg(all(test, unix))]
+        super::super::super::fault::unlinked(&parent.join(&name), &file)?;
+        fsutil::unlink_file_at(directory, name.as_ref())?;
+        #[cfg(test)]
+        {
+            fault::hit(
+                parent.parent().ok_or(Error::TargetChanged)?,
+                fault::Step::ConflictUnlinked,
+            )?;
+            fault::hit(data, fault::Step::ConflictUnlinked)?;
+        }
     }
     #[cfg(test)]
     {

@@ -77,6 +77,16 @@ pub(crate) fn regular_unconfirmed(
     open_entry(parent, name, lookup, || open_regular_at(parent, name))
 }
 
+pub(crate) fn regular_writable_unconfirmed(
+    parent: &File,
+    name: &OsStr,
+    lookup: &Lookup,
+) -> io::Result<Opened<File>> {
+    open_entry(parent, name, lookup, || {
+        open_regular_writable_at(parent, name)
+    })
+}
+
 pub(crate) fn directory_unconfirmed(
     parent: &File,
     name: &OsStr,

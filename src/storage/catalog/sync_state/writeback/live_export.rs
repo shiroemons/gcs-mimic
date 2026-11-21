@@ -899,7 +899,7 @@ impl Writeback {
                 // retry refills it in place rather than removing and creating the name again;
                 // `fsutil::clone_or_copy_into` says why, and `refillable_entry` names the one
                 // macOS copy that cannot be refilled.
-                let partial = refillable_entry(workspace, selected.token.id)?;
+                let partial = refillable_entry(workspace, &lookup, selected.token.id)?;
                 if let Some(file) = &partial {
                     file.set_len(0)?;
                     #[cfg(test)]

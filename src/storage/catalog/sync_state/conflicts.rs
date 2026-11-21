@@ -60,6 +60,10 @@ pub(crate) enum Error {
     TargetChanged,
     OperationIdReused,
     InvalidResolution,
+    /// A workspace entry, or the workspace, kept failing to open while its name still held one.
+    /// Whether the body is still there is unknown, so the step neither finishes as if it were
+    /// gone nor reports a changed target, and is tried again.
+    Unopenable(fsutil::Unopenable),
 }
 impl From<AdminError> for Error {
     fn from(error: AdminError) -> Self {
@@ -107,6 +111,7 @@ impl std::fmt::Display for Error {
             Self::TargetChanged => f.write_str("TargetChanged"),
             Self::OperationIdReused => f.write_str("OperationIdReused"),
             Self::InvalidResolution => f.write_str("InvalidResolution"),
+            Self::Unopenable(_) => f.write_str("Unopenable"),
         }
     }
 }
@@ -120,6 +125,7 @@ impl TypedSource for Error {
         match self {
             Self::Admin(error) => Some(Link::Admin(error)),
             Self::Root(error) => Some(Link::Root(error)),
+            Self::Unopenable(error) => Some(Link::Unopenable(error)),
             Self::Capacity
             | Self::RevisionMismatch
             | Self::TargetChanged
@@ -284,18 +290,38 @@ fn data_path(lease: &RootLease) -> PathBuf {
 }
 
 /// Opens the workspace a protected operation was recorded in; a replaced directory is a changed
-/// target.
-fn open_workspace(root: &File, recorded: NodeId) -> Result<File, Error> {
-    let directory = fsutil::directory_at(
-        root,
-        crate::sync::mapping::WORKSPACE.as_ref(),
-        fsutil::DirectoryOpen::Existing,
-    )?;
+/// target. Only the lookup's proof makes it a missing workspace, which fails as the open of a
+/// missing name does.
+fn open_workspace(root: &File, lookup: &fsutil::Lookup, recorded: NodeId) -> Result<File, Error> {
+    let directory =
+        match lookup.directory_unconfirmed(root, crate::sync::mapping::WORKSPACE.as_ref())? {
+            fsutil::Opened::Entry(directory) => directory,
+            fsutil::Opened::Missing(_) => {
+                return Err(io::Error::from(io::ErrorKind::NotFound).into());
+            }
+            fsutil::Opened::Unopenable => return Err(Error::Unopenable(fsutil::Unopenable)),
+        };
     let identity = fsutil::stat_identity(&directory)?;
     if identity.node() != recorded {
         return Err(Error::TargetChanged);
     }
     Ok(directory)
+}
+
+/// The private entry `id` in `directory`, `None` once the lookup proved it missing. One that kept
+/// failing to open while its name still held an entry fails the step, to be tried again: taken
+/// for none, a transfer would finish on its accepted copy and a discard on an unlink it never
+/// made, with the body still there and nothing tracking it.
+fn private_entry(
+    directory: &File,
+    lookup: &fsutil::Lookup,
+    id: OpaqueId,
+) -> Result<Option<File>, Error> {
+    match lookup.regular_unconfirmed(directory, id.to_hex().as_ref())? {
+        fsutil::Opened::Entry(file) => Ok(Some(file)),
+        fsutil::Opened::Missing(_) => Ok(None),
+        fsutil::Opened::Unopenable => Err(Error::Unopenable(fsutil::Unopenable)),
+    }
 }
 
 impl RootLease {

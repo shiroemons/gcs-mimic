@@ -21,6 +21,13 @@ pub(crate) fn regular_unconfirmed(
 ) -> io::Result<super::Opened<File>> {
     Err(io::ErrorKind::Unsupported.into())
 }
+pub(crate) fn regular_writable_unconfirmed(
+    _: &File,
+    _: &OsStr,
+    _: &super::Lookup,
+) -> io::Result<super::Opened<File>> {
+    Err(io::ErrorKind::Unsupported.into())
+}
 pub(crate) fn directory_unconfirmed(
     _: &File,
     _: &OsStr,
@@ -89,10 +96,6 @@ pub fn open_directory_nofollow(_: &Path) -> io::Result<File> {
 }
 
 pub fn open_regular_at(_: &File, _: &OsStr) -> io::Result<File> {
-    Err(io::ErrorKind::Unsupported.into())
-}
-
-pub(crate) fn open_regular_writable_at(_: &File, _: &OsStr) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }
 

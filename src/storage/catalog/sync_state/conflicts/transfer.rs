@@ -187,14 +187,11 @@ impl RootLease {
     ) -> Result<bool, Error> {
         let item = self.transfer_context(id).await?;
         let selected = item.clone();
+        let lookup = self.private_lookup();
         let absent = self
             .conflict_files(move |root| {
-                let workspace = open_workspace(root, selected.node)?;
-                match fsutil::open_regular_at(&workspace, selected.id.to_hex().as_ref()) {
-                    Ok(_) => Ok(false),
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
-                    Err(error) => Err(error.into()),
-                }
+                let workspace = open_workspace(root, &lookup, selected.node)?;
+                Ok(private_entry(&workspace, &lookup, selected.id)?.is_none())
             })
             .await?;
         if !absent {
@@ -360,14 +357,11 @@ impl RootLease {
     ) -> Result<(), Error> {
         let selected = self.transfer_context(id).await?;
         let probe = self.transfer_context(id).await?;
+        let lookup = self.private_lookup();
         let source = self
             .conflict_files(move |root| {
-                let workspace = open_workspace(root, probe.node)?;
-                match fsutil::open_regular_at(&workspace, probe.id.to_hex().as_ref()) {
-                    Ok(file) => Ok(Some(file)),
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-                    Err(error) => Err(error.into()),
-                }
+                let workspace = open_workspace(root, &lookup, probe.node)?;
+                private_entry(&workspace, &lookup, probe.id)
             })
             .await?;
         let proof = if let Some(source) = source {
@@ -384,14 +378,14 @@ impl RootLease {
     ) -> Result<(), Error> {
         let selected = self.transfer_context(id).await?;
         let id = selected.id;
+        let lookup = self.private_lookup();
         let size = self
             .conflict_files(move |root| {
-                let workspace = open_workspace(root, selected.node)?;
-                match fsutil::open_regular_at(&workspace, selected.id.to_hex().as_ref()) {
-                    Ok(file) => Ok(Some(fsutil::stat_identity(&file)?.size)),
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-                    Err(error) => Err(error.into()),
-                }
+                let workspace = open_workspace(root, &lookup, selected.node)?;
+                let Some(file) = private_entry(&workspace, &lookup, selected.id)? else {
+                    return Ok(None);
+                };
+                Ok(Some(fsutil::stat_identity(&file)?.size))
             })
             .await?;
         if let Some(size) = size {
@@ -493,10 +487,12 @@ impl RootLease {
         #[cfg(test)]
         let parent = self.fault_tree().join(WORKSPACE);
         let expected = proof.source.clone();
+        let lookup = self.private_lookup();
         self.conflict_files(move |root| {
-            let workspace = open_workspace(root, selected.node)?;
+            let workspace = open_workspace(root, &lookup, selected.node)?;
             resolve::checked_unlink(
                 &workspace,
+                &lookup,
                 selected.id,
                 Some(&expected),
                 #[cfg(test)]

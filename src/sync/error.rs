@@ -162,7 +162,8 @@ impl<'a> Cause<'a> {
                 | conflicts::Error::RevisionMismatch
                 | conflicts::Error::TargetChanged
                 | conflicts::Error::OperationIdReused
-                | conflicts::Error::InvalidResolution,
+                | conflicts::Error::InvalidResolution
+                | conflicts::Error::Unopenable(_),
             )
             | Self::Admin(
                 AdminError::Busy { .. }

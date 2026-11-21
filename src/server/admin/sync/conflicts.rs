@@ -239,6 +239,7 @@ pub(in crate::server::admin) fn error(error: conflicts::Error) -> ApiError {
             "conflict_capacity",
             "Resolve retained conflicts before retrying; no source body was discarded",
         ),
+        conflicts::Error::Unopenable(_) => super::io_failure(),
     }
 }
 

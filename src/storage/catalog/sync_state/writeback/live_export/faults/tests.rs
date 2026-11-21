@@ -68,6 +68,30 @@ async fn descriptor_exhaustion_does_not_persist_workspace_recovery() {
     fixture.shut_down().await;
 }
 
+/// A workspace that keeps failing to open while its name still holds it is not taken for one
+/// replaced: the step fails, to be tried again, and records no recovery, so the root does not
+/// stop for an operator over a directory that opens again.
+#[tokio::test]
+async fn a_workspace_that_keeps_failing_to_open_does_not_persist_workspace_recovery() {
+    let fixture = Fixture::new().await;
+    let failing = fsutil::FailingOpens::vanishing(&fixture.tree.0, mapping::WORKSPACE, usize::MAX);
+    let status = fixture.writeback.status().await;
+    let reopen = fixture.root.writeback(limits()).await.err();
+    drop(failing);
+    assert!(
+        matches!(status, Err(Error::Raced(RaceReason::Unopenable))),
+        "{status:?}"
+    );
+    assert!(
+        matches!(reopen, Some(Error::Raced(RaceReason::Unopenable))),
+        "{reopen:?}"
+    );
+    let status = fixture.writeback.status().await.unwrap();
+    assert!(!status.recovery);
+    assert_eq!(status.stop(), Stop::Ready);
+    fixture.shut_down().await;
+}
+
 #[tokio::test]
 async fn workspace_access_failures_keep_their_cause_without_persisting_recovery() {
     use std::os::unix::fs::PermissionsExt;
@@ -358,6 +382,52 @@ async fn a_retried_copy_refills_the_partial_private_copy_in_place() {
     );
     assert_eq!(copied(&copy), (inode, BODY.to_vec()));
     drain(&fixture.writeback, operation).await;
+    assert_eq!(
+        fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
+        BODY
+    );
+    unchanged_api(&fixture.catalog, &fixture.record).await;
+    fixture.shut_down().await;
+}
+
+/// A retry whose partial private copy keeps failing to open while its name still holds it does
+/// not take the copy for one a failed attempt never made: the step fails, to be tried again, with
+/// the copy left as it was, and once the copy opens the export completes.
+#[tokio::test]
+async fn a_retry_whose_private_copy_keeps_failing_to_open_is_tried_again() {
+    use std::os::unix::fs::MetadataExt;
+    let fixture = Fixture::new().await;
+    let operation = fixture.begin().await;
+    fixture.catalog.inject(
+        Step::SyncCopySync,
+        0,
+        fault::Fault::Io(io::ErrorKind::WriteZero),
+    );
+    assert!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .is_err()
+    );
+    let workspace = fixture.tree.0.join(mapping::WORKSPACE);
+    let copy = only_entry(&workspace);
+    let inode = fs::metadata(&copy).unwrap().ino();
+    let name = copy.file_name().unwrap().to_str().unwrap().to_owned();
+    let failing = fsutil::FailingOpens::vanishing(&workspace, &name, usize::MAX);
+    let result = fixture
+        .writeback
+        .advance_live_export(operation.clone())
+        .await;
+    drop(failing);
+    assert!(
+        matches!(result, Err(Error::Raced(RaceReason::Unopenable))),
+        "{result:?}"
+    );
+    assert_eq!(only_entry(&workspace), copy);
+    assert_eq!(fs::metadata(&copy).unwrap().ino(), inode);
+    drain(&fixture.writeback, operation).await;
+    assert!(!copy.exists());
     assert_eq!(
         fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
         BODY

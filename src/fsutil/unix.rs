@@ -2,6 +2,7 @@ use super::{DirectoryOpen, FileOpen, clear_errno, component, open_at, validate_n
 mod spelling;
 pub(crate) use spelling::{
     child_directory, child_regular, directory_unconfirmed, regular_unconfirmed,
+    regular_writable_unconfirmed,
 };
 use std::{
     ffi::{CStr, OsStr, OsString},
@@ -275,6 +276,8 @@ pub fn open_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
 
 /// Opens only an existing regular single-component entry under the pinned directory, for writing.
 pub(crate) fn open_regular_writable_at(directory: &File, name: &OsStr) -> io::Result<File> {
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    super::failing_open(directory, name)?;
     open_at(directory, &component(name)?, FileOpen::ExistingWritable)
 }
 

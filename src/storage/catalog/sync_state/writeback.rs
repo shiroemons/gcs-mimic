@@ -515,8 +515,9 @@ impl RootLease {
             let _owner=owner;
             sql::row(c, "SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1", [root],|r|Ok(NodeId::from_be_bytes(r.get(0)?,r.get(1)?))).optional().map_err(unavailable)
         }).await?;
+        let lookup = self.private_lookup();
         let directory = self
-            .file_job(move |root| Ok(select_workspace(root, expected)))
+            .file_job(move |root| Ok(select_workspace(root, &lookup, expected)))
             .await?;
         let directory = match directory {
             Ok(directory) => directory,
@@ -746,11 +747,13 @@ fn entry(workspace: &File, lookup: &fsutil::Lookup, id: OpaqueId) -> Result<Opti
 /// Like [`entry`], but open for writing, so that a retried copy can empty and refill the private
 /// copy a failed attempt left. A private copy that another name also links is `Protected`:
 /// emptying it would empty that name too.
-fn refillable_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
+fn refillable_entry(
+    workspace: &File,
+    lookup: &fsutil::Lookup,
+    id: OpaqueId,
+) -> Result<Option<File>, Error> {
     let name = id.to_hex();
-    let file = match fsutil::open_regular_writable_at(workspace, name.as_ref()) {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+    let opened = match lookup.regular_writable_unconfirmed(workspace, name.as_ref()) {
         // A macOS clone keeps its source's mode, so a copy cloned from a read-only blob, such as
         // one that publication cloned from a read-only seed or ingested file, cannot be opened
         // for writing. Only that copy is removed for a new clone, which keeps the mode the
@@ -761,7 +764,10 @@ fn refillable_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Erro
             fsutil::unlink_file_at(workspace, name.as_ref())?;
             return Ok(None);
         }
-        Err(e) => return Err(e.into()),
+        opened => opened,
+    };
+    let Some(file) = present(opened)? else {
+        return Ok(None);
     };
     if !fsutil::sole_regular_link(&file)? {
         return Err(Error::Protected);
@@ -779,8 +785,8 @@ fn present(opened: io::Result<fsutil::Opened<File>>) -> Result<Option<File>, Err
         fsutil::Opened::Unopenable => Err(Error::Raced(RaceReason::Unopenable)),
     }
 }
-fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {
-    let selected = workspace_directory(root, fsutil::DirectoryOpen::Existing)?;
+fn verify_workspace(root: &File, lookup: &fsutil::Lookup, workspace: &File) -> Result<(), Error> {
+    let selected = workspace_directory(root, lookup, fsutil::DirectoryOpen::Existing)?;
     let selected = fsutil::stat_identity(&selected)?;
     let owned = fsutil::stat_identity(workspace)?;
     if selected.node() != owned.node() || owned.device != fsutil::stat_identity(root)?.device {
@@ -790,9 +796,14 @@ fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {
 }
 
 /// Opens the workspace and checks it is the one this root recorded; the first use creates it.
-fn select_workspace(root: &File, recorded: Option<NodeId>) -> Result<File, Error> {
+fn select_workspace(
+    root: &File,
+    lookup: &fsutil::Lookup,
+    recorded: Option<NodeId>,
+) -> Result<File, Error> {
     let directory = workspace_directory(
         root,
+        lookup,
         if recorded.is_none() {
             fsutil::DirectoryOpen::CreateIfMissing
         } else {
@@ -815,12 +826,13 @@ fn select_workspace(root: &File, recorded: Option<NodeId>) -> Result<File, Error
 /// Runs `job` between two workspace checks; a failed check replaces the job's own result.
 fn verified<T>(
     root: &File,
+    lookup: &fsutil::Lookup,
     workspace: &File,
     job: impl FnOnce(&File, &File) -> Result<T, Error>,
 ) -> Result<T, Error> {
-    verify_workspace(root, workspace)?;
+    verify_workspace(root, lookup, workspace)?;
     let result = job(root, workspace);
-    verify_workspace(root, workspace)?;
+    verify_workspace(root, lookup, workspace)?;
     result
 }
 
@@ -833,10 +845,33 @@ fn workspace_open_error(error: io::Error) -> Error {
     }
 }
 
-fn workspace_directory(root: &File, open: fsutil::DirectoryOpen) -> Result<File, Error> {
+/// Opens the workspace, creating it when `open` allows. Only the lookup's proof makes it missing,
+/// which is a changed workspace when it must exist. One that kept failing to open while its name
+/// still held one is a race the step is tried again after: taken for a changed workspace, it
+/// would stop the root for an operator over a directory that opens again.
+fn workspace_directory(
+    root: &File,
+    lookup: &fsutil::Lookup,
+    open: fsutil::DirectoryOpen,
+) -> Result<File, Error> {
     #[cfg(test)]
     workspace_failure(root)?;
-    fsutil::directory_at(root, mapping::WORKSPACE.as_ref(), open).map_err(workspace_open_error)
+    let name = mapping::WORKSPACE.as_ref();
+    match (
+        lookup
+            .directory_unconfirmed(root, name)
+            .map_err(workspace_open_error)?,
+        open,
+    ) {
+        (fsutil::Opened::Entry(directory), _) => Ok(directory),
+        (fsutil::Opened::Missing(_), fsutil::DirectoryOpen::CreateIfMissing) => {
+            fsutil::directory_at(root, name, open).map_err(workspace_open_error)
+        }
+        (fsutil::Opened::Missing(_), fsutil::DirectoryOpen::Existing) => {
+            Err(Error::WorkspaceChanged)
+        }
+        (fsutil::Opened::Unopenable, _) => Err(Error::Raced(RaceReason::Unopenable)),
+    }
 }
 #[cfg(test)]
 static WORKSPACE_FAILURES: std::sync::Mutex<Vec<(u64, u64, i32)>> =
@@ -1006,9 +1041,10 @@ impl Writeback {
         job: impl FnOnce(&File, &File) -> Result<T, Error> + Send + 'static,
     ) -> Result<T, Error> {
         let workspace = self.workspace.clone();
+        let lookup = self.lease.private_lookup();
         let result = self
             .lease
-            .file_job(move |root| Ok(verified(root, &workspace, job)))
+            .file_job(move |root| Ok(verified(root, &lookup, &workspace, job)))
             .await?;
         if matches!(result, Err(Error::WorkspaceChanged)) {
             self.lease.mark_workspace_changed().await?;

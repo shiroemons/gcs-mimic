@@ -118,7 +118,8 @@ impl Failure {
     }
 
     /// What a conflict capture's failure says. The file it was to capture going away after the
-    /// step read it is a change of the tree, as a target that changed is.
+    /// step read it is a change of the tree, as a target that changed is. A workspace entry that
+    /// kept failing to open decides as its next link does.
     pub(in crate::sync) fn of_conflict(error: &conflicts::Error) -> Option<Self> {
         match error {
             conflicts::Error::Admin(AdminError::Io(cause))
@@ -129,6 +130,7 @@ impl Failure {
             conflicts::Error::Admin(error) => Self::of_admin(error),
             conflicts::Error::TargetChanged => Some(Self::Superseded),
             conflicts::Error::Root(_)
+            | conflicts::Error::Unopenable(_)
             | conflicts::Error::RevisionMismatch
             | conflicts::Error::OperationIdReused
             | conflicts::Error::InvalidResolution

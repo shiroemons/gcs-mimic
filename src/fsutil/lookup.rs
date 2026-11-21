@@ -307,6 +307,16 @@ impl Lookup {
         imp::regular_unconfirmed(parent, name, self)
     }
 
+    /// Like [`Self::regular_unconfirmed`], open for writing, for a private file the mirror refills
+    /// in place.
+    pub(crate) fn regular_writable_unconfirmed(
+        &self,
+        parent: &File,
+        name: &OsStr,
+    ) -> io::Result<Opened<File>> {
+        imp::regular_writable_unconfirmed(parent, name, self)
+    }
+
     /// Opens the existing directory `name` in `parent` without following a symlink or confirming
     /// its spelling, for a name a listing gave or the mirror names itself, under the same rule
     /// ([`Opened`]).

@@ -234,6 +234,59 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
     fixture.close().await;
 }
 
+/// A discard whose workspace entry keeps failing to open while its name still holds it does not
+/// take the entry for one already unlinked: the resolution fails, to be tried again, with the
+/// operation and its body kept, and the same request then discards the body.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn a_discard_whose_workspace_entry_keeps_failing_to_open_does_not_finish() {
+    let fixture = Fixture::new().await;
+    let (writeback, id) = protected_workspace(&fixture, 10).await;
+    let inspected = fixture
+        .lease
+        .recovery_page(
+            Ordinal::START,
+            PageLimit::LARGEST,
+            ControlAuthority::Permissive,
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    let request = ResolveRequest {
+        operation_id: "unopenable-discard".into(),
+        action: Action::Discard,
+        target: ResolveTarget::Recovery(RecoveryTarget {
+            recovery_id: id.parse().unwrap(),
+            revision: inspected.recovery_revision,
+            target_identity: inspected.target_identity,
+            confirmation: Confirmation::BackupVerified,
+        }),
+    };
+    let workspace = fixture.tree.0.join(crate::sync::mapping::WORKSPACE);
+    let failing = fsutil::FailingOpens::vanishing(&workspace, &id, usize::MAX);
+    let result = fixture
+        .lease
+        .resolve_conflict(request.clone(), ControlAuthority::Permissive, 4096)
+        .await;
+    drop(failing);
+    assert!(matches!(result, Err(Error::Unopenable(_))), "{result:?}");
+    assert_eq!(fs::metadata(workspace.join(&id)).unwrap().len(), 10);
+    assert_eq!(writeback.status().await.unwrap().entries, 1);
+    assert!(
+        fixture
+            .lease
+            .resolve_conflict(request, ControlAuthority::Permissive, 4096)
+            .await
+            .unwrap()
+            .completed
+    );
+    assert!(!workspace.join(&id).exists());
+    assert_eq!(writeback.status().await.unwrap().entries, 0);
+    drop(writeback);
+    fixture.close().await;
+}
+
 #[tokio::test]
 async fn conflict_exact_entry_capacity_counts_zero_length_reservations() {
     let fixture = Fixture::new().await;

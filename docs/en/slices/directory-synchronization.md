@@ -657,9 +657,15 @@ target again to confirm the read of it defers the same way when the name went
 or kept failing meanwhile. So does the second open that tells what kind
 of entry holds a name that failed to open as a file or as a directory: an
 entry that went or kept failing meanwhile leaves the path to a later read
-rather than being taken for a symlink or special file. Write-back opens its
-private entries in `.gcs-mimic-sync-work` the same way, so a body an exchange
-moved there is never taken for none and left there untracked. A write-back
+rather than being taken for a symlink or special file. Write-back opens
+`.gcs-mimic-sync-work` and its private entries the same way, so a body an
+exchange moved there is never taken for none and left there untracked: a
+workspace that still fails is not taken for a replaced one, which would stop
+the root for an operator, and a retried copy does not create its private copy
+anew over one that still fails. The transfer of a protected body to
+`sync-conflicts`, its recovery and a recovery discard do not finish as if the
+workspace entry were gone either: each fails as a transient failure that is
+tried again. A write-back
 step that finds one of its own invariants broken, which is a bug, ends as a
 race does and the export plans again; an error-level
 `sync_writeback_invariant` event names the invariant.
@@ -1316,7 +1322,9 @@ target identity/revision and confirmation. If that cannot be committed, retain a
 bytes and the stop: a storage failure (including ENOSPC) returns 503 `disk_full` or
 `io_failure`, busy or closing storage returns 503 `backendError` to retry the same
 operation ID, and corrupt stored state returns 503 `backendError` to restore a valid
-data directory. Then unlink only the checked protected entry, sync its parent, and durably finish
+data directory. A protected entry that keeps failing to open while its name still
+holds it returns 503 `io_failure` with the body kept, to retry the same operation
+ID. Then unlink only the checked protected entry, sync its parent, and durably finish
 the resolution and quota/state update. Keep the quota charge, original-owner
 requirement and recovery stop until durable completion; 202 acknowledges acceptance,
 not completion or root resumption. An unlink/parent-sync/completion failure remains

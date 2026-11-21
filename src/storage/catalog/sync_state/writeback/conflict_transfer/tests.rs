@@ -350,6 +350,53 @@ async fn protected_transfer_reuses_registered_copy_and_retains_changed_body_copy
     }
 }
 
+/// A transfer whose workspace entry keeps failing to open while its name still holds it does not
+/// take the entry for one already moved to the store: neither recovery nor the transfer finishes
+/// on the accepted copy, the operation keeps protecting the body, and once the entry opens, a
+/// body changed meanwhile is retained as a conflict of its own.
+#[tokio::test]
+async fn a_protected_transfer_whose_workspace_entry_keeps_failing_to_open_does_not_finish() {
+    use crate::storage::catalog::fault::{Fault, Step};
+    let fixture = Fixture::new(4096, 1000).await;
+    let item = fixture.protected(BODY).await;
+    fixture.catalog.inject(
+        Step::TransferAccepted,
+        0,
+        Fault::Io(io::ErrorKind::StorageFull),
+    );
+    assert!(fixture.writeback.preserve_protected().await.is_err());
+    assert_eq!(fixture.catalog.pending_faults(), 0);
+    let workspace = fixture.tree.0.join(mapping::WORKSPACE);
+    let name = item.token.id().to_string();
+    let entry = workspace.join(&name);
+    fs::write(&entry, b"changed\0body").unwrap();
+    let failing = fsutil::FailingOpens::vanishing(&workspace, &name, usize::MAX);
+    let recovered = fixture.writeback.recover_pending().await;
+    let preserved = fixture.writeback.preserve_protected().await;
+    drop(failing);
+    for result in [recovered.map(drop), preserved.map(drop)] {
+        assert!(
+            matches!(
+                result,
+                Err(Error::Conflict(
+                    crate::storage::sync_state::conflicts::Error::Unopenable(_)
+                ))
+            ),
+            "{result:?}"
+        );
+    }
+    assert_eq!(fs::read(&entry).unwrap(), b"changed\0body");
+    assert_eq!(
+        fixture.writeback.status().await.unwrap().protected_entries,
+        1
+    );
+    fixture.writeback.preserve_protected().await.unwrap();
+    assert_eq!(fixture.page().await.items.len(), 2);
+    assert!(!entry.exists());
+    fixture.assert_api().await;
+    fixture.close().await;
+}
+
 #[tokio::test]
 async fn preserved_export_uses_exact_byte_and_entry_budget_once() {
     let fixture = Fixture::new(BODY.len() as u64, 1).await;

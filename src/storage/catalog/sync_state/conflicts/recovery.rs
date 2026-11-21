@@ -127,14 +127,13 @@ impl RootLease {
         let mut page_bytes = 0;
         for selected in pending {
             let item = selected.clone();
+            let lookup = self.private_lookup();
             let observation = self
                 .conflict_files(move |root| {
-                    let workspace = open_workspace(root, item.node)?;
-                    match fsutil::open_regular_at(&workspace, item.id.to_hex().as_ref()) {
-                        Ok(file) => observe(&file, HashMode::Metadata).map(Some),
-                        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-                        Err(error) => Err(error.into()),
-                    }
+                    let workspace = open_workspace(root, &lookup, item.node)?;
+                    private_entry(&workspace, &lookup, item.id)?
+                        .map(|file| observe(&file, HashMode::Metadata))
+                        .transpose()
                 })
                 .await?;
             let auth = authority.clone();
@@ -251,10 +250,12 @@ impl RootLease {
         let entry = selected.clone();
         #[cfg(test)]
         let parent = self.fault_tree().join(WORKSPACE);
+        let lookup = self.private_lookup();
         self.conflict_files(move |root| {
-            let workspace = open_workspace(root, entry.node)?;
+            let workspace = open_workspace(root, &lookup, entry.node)?;
             resolve::checked_unlink(
                 &workspace,
+                &lookup,
                 entry.id,
                 Some(&observation),
                 #[cfg(test)]
