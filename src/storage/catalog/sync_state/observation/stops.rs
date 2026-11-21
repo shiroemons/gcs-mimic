@@ -255,7 +255,10 @@ pub(crate) struct ListedStop {
 
 impl RootLease {
     /// The first `limit` path stops of this root, in the order they were recorded.
-    pub(crate) async fn first_path_stops(&self, limit: u32) -> Result<Vec<ListedStop>, RootError> {
+    pub(crate) async fn first_path_stops(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<ListedStop>, RootError> {
         let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog()

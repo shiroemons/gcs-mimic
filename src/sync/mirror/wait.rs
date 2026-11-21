@@ -1,5 +1,6 @@
 use super::gate::Hold;
 use super::*;
+use crate::storage::sync_state::observation::ListedStop;
 use crate::sync::control::{Listed, Unfinished, WaitFindings, WaitReason, WaitResult};
 use crate::sync::outstanding::{Holdup, Outstanding, TreeSide};
 
@@ -167,7 +168,11 @@ impl LiveControl<'_> {
         // Read only for the answer that names them, a wait that ended on findings or succeeded,
         // and only when the counts say there are any.
         if holdup == Holdup::FindingsPending && observation.path_stops > 0 {
-            let first = self.scope.root.first_path_stops(LISTED_STOPS).await?;
+            let first = self
+                .scope
+                .root
+                .first_path_stops(Listed::<ListedStop>::NAMED)
+                .await?;
             findings.stops = Listed::of(first, observation.path_stops);
         } else if holdup == Holdup::Ready && observation.unmapped_findings > 1 {
             let frozen = self.scope.root.frozen_files().await?;
@@ -177,9 +182,6 @@ impl LiveControl<'_> {
         Ok((Decided::Holdup(holdup), findings))
     }
 }
-
-/// The path stops a wait's answer names.
-const LISTED_STOPS: u32 = 5;
 
 /// How a wait whose pass finished decided: by the first condition that holds, or because it
 /// ran out of time or the server is stopping.
