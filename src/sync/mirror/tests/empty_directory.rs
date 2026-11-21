@@ -87,7 +87,7 @@ async fn a_refused_removal_is_one_collision_and_other_exports_continue() {
         assert_eq!(findings[0].name.as_str(), "a");
         assert_eq!(
             findings[0].reason,
-            FindingKind::Unmapped(Reason::DirectoryOccupied)
+            FindingKind::Obstructed(Obstruction::DirectoryOccupied)
         );
         assert!(workspace_bodies(&tree.0).is_empty());
         started.close().await;
@@ -278,7 +278,7 @@ async fn a_symlink_at_the_target_is_neither_followed_nor_removed() {
         .map(|finding| (finding.name, finding.reason))
         .collect::<Vec<_>>();
     findings.sort_by(|left, right| left.0.cmp(&right.0));
-    let unsafe_entry = FindingKind::Unmapped(Reason::UnsafeEntry);
+    let unsafe_entry = FindingKind::Obstructed(Obstruction::UnsafeEntry);
     assert_eq!(
         findings,
         [

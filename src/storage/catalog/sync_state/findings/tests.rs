@@ -90,11 +90,21 @@ async fn sync_findings_idempotent_pages_conditional_removal_and_restart() {
         let name = ObjectName::new(format!("nested/{index:03}.swp")).unwrap();
         let generation = publish(&catalog, &data, &bucket, name.as_str()).await;
         lease
-            .record_finding(binding.clone(), name.clone(), generation, Reason::Ignored)
+            .record_finding(
+                binding.clone(),
+                name.clone(),
+                generation,
+                LexicalReason::Ignored.into(),
+            )
             .await
             .unwrap();
         lease
-            .record_finding(binding.clone(), name, generation, Reason::Ignored)
+            .record_finding(
+                binding.clone(),
+                name,
+                generation,
+                LexicalReason::Ignored.into(),
+            )
             .await
             .unwrap();
     }
@@ -120,7 +130,7 @@ async fn sync_findings_idempotent_pages_conditional_removal_and_restart() {
                 binding.clone(),
                 name.clone(),
                 old.generation,
-                Reason::Ignored
+                LexicalReason::Ignored.into()
             )
             .await
             .is_err()
@@ -130,7 +140,7 @@ async fn sync_findings_idempotent_pages_conditional_removal_and_restart() {
             binding.clone(),
             name.clone(),
             new_generation,
-            Reason::Collision,
+            Obstruction::Collision.into(),
         )
         .await
         .unwrap();
@@ -195,18 +205,18 @@ async fn sync_findings_reject_foreign_bindings_and_stale_incarnations() {
                 foreign_binding,
                 name.clone(),
                 generation,
-                Reason::InvalidName
+                LexicalReason::InvalidName.into()
             )
             .await
             .is_err()
     );
     for reason in [
-        Reason::InvalidName,
-        Reason::HostRestriction,
-        Reason::Reserved,
-        Reason::Ignored,
-        Reason::Collision,
-        Reason::UnsafeEntry,
+        LexicalReason::InvalidName.into(),
+        LexicalReason::HostRestriction.into(),
+        LexicalReason::Reserved.into(),
+        LexicalReason::Ignored.into(),
+        Obstruction::Collision.into(),
+        Unplaced::from(Obstruction::UnsafeEntry),
     ] {
         lease
             .record_finding(binding.clone(), name.clone(), generation, reason)
@@ -214,7 +224,7 @@ async fn sync_findings_reject_foreign_bindings_and_stale_incarnations() {
             .unwrap();
         assert_eq!(
             lease.findings_page(0, 1).await.unwrap()[0].reason,
-            FindingKind::Unmapped(reason)
+            FindingKind::from(reason)
         );
     }
     let old = lease.findings_page(0, 1).await.unwrap().remove(0);
@@ -253,13 +263,23 @@ async fn sync_findings_reject_foreign_bindings_and_stale_incarnations() {
     let new_generation = publish(&catalog, &data, &bucket, name.as_str()).await;
     assert!(
         lease
-            .record_finding(binding, name.clone(), new_generation, Reason::InvalidName)
+            .record_finding(
+                binding,
+                name.clone(),
+                new_generation,
+                LexicalReason::InvalidName.into()
+            )
             .await
             .is_err()
     );
     let new_binding = catalog.sync_state().binding(&bucket).await.unwrap();
     lease
-        .record_finding(new_binding, name, new_generation, Reason::InvalidName)
+        .record_finding(
+            new_binding,
+            name,
+            new_generation,
+            LexicalReason::InvalidName.into(),
+        )
         .await
         .unwrap();
     assert!(matches!(
@@ -346,7 +366,7 @@ async fn finding_owner_migration_backfills_only_proven_incarnations_and_rolls_ba
                 catalog.sync_state().binding(&bucket).await.unwrap(),
                 ObjectName::new("a//b").unwrap(),
                 generation,
-                Reason::InvalidName,
+                LexicalReason::InvalidName.into(),
             )
             .await
             .unwrap();
@@ -595,13 +615,15 @@ async fn mapping_findings_revision_moves_with_findings_only_and_not_for_an_ident
     let tracked = revisions(&lease).await;
     assert_eq!(tracked, start);
 
-    let record = |reason| lease.record_finding(binding.clone(), name.clone(), generation, reason);
-    record(Reason::InvalidName).await.unwrap();
+    let record = |reason: LexicalReason| {
+        lease.record_finding(binding.clone(), name.clone(), generation, reason.into())
+    };
+    record(LexicalReason::InvalidName).await.unwrap();
     let recorded = revisions(&lease).await;
     assert_eq!(recorded.0, tracked.0 + 1);
-    record(Reason::InvalidName).await.unwrap();
+    record(LexicalReason::InvalidName).await.unwrap();
     assert_eq!(revisions(&lease).await, recorded);
-    record(Reason::Reserved).await.unwrap();
+    record(LexicalReason::Reserved).await.unwrap();
     let changed = revisions(&lease).await;
     assert_eq!(changed.0, recorded.0 + 1);
 
@@ -646,7 +668,12 @@ async fn name_findings_keep_an_export_conflict_of_the_same_incarnation() {
     let name = ObjectName::new("object").unwrap();
     let generation = publish(&catalog, &data, &bucket, name.as_str()).await;
     lease
-        .record_finding(binding.clone(), name.clone(), generation, Reason::Collision)
+        .record_finding(
+            binding.clone(),
+            name.clone(),
+            generation,
+            Obstruction::Collision.into(),
+        )
         .await
         .unwrap();
     lease
@@ -661,7 +688,11 @@ async fn name_findings_keep_an_export_conflict_of_the_same_incarnation() {
     assert_eq!(reason(&lease).await, FindingKind::ExportConflict);
 
     // The same generation's name finding leaves the conflict and writes nothing.
-    for unmapped in [Reason::Collision, Reason::UnsafeEntry, Reason::Ignored] {
+    for unmapped in [
+        Obstruction::Collision.into(),
+        Obstruction::UnsafeEntry.into(),
+        Unplaced::from(LexicalReason::Ignored),
+    ] {
         lease
             .record_finding(binding.clone(), name.clone(), generation, unmapped)
             .await
@@ -674,7 +705,12 @@ async fn name_findings_keep_an_export_conflict_of_the_same_incarnation() {
     // and a name finding only reports, so the conflict stays as recorded.
     let newer = publish(&catalog, &data, &bucket, name.as_str()).await;
     lease
-        .record_finding(binding.clone(), name.clone(), newer, Reason::Collision)
+        .record_finding(
+            binding.clone(),
+            name.clone(),
+            newer,
+            Obstruction::Collision.into(),
+        )
         .await
         .unwrap();
     let finding = lease.findings_page(0, 1).await.unwrap().remove(0);
@@ -717,7 +753,7 @@ async fn recording_an_unchanged_finding_takes_no_write_lock() {
             binding.clone(),
             named.clone(),
             named_generation,
-            Reason::Collision,
+            Obstruction::Collision.into(),
         )
         .await
         .unwrap();
@@ -734,7 +770,12 @@ async fn recording_an_unchanged_finding_takes_no_write_lock() {
         (&conflicted, conflicted_generation),
     ] {
         lease
-            .record_finding(binding.clone(), name.clone(), generation, Reason::Collision)
+            .record_finding(
+                binding.clone(),
+                name.clone(),
+                generation,
+                Obstruction::Collision.into(),
+            )
             .await
             .unwrap();
     }
@@ -747,7 +788,7 @@ async fn recording_an_unchanged_finding_takes_no_write_lock() {
             binding.clone(),
             named.clone(),
             named_generation,
-            Reason::UnsafeEntry,
+            Obstruction::UnsafeEntry.into(),
         )
         .await
         .unwrap();
@@ -782,8 +823,10 @@ async fn an_unclassified_collision_gives_way_to_the_finding_that_classifies_it()
         let lease = lease.clone();
         async move { lease.findings_page(0, 1).await.unwrap()[0].reason }
     };
-    let collision =
-        || lease.record_finding(binding.clone(), name.clone(), generation, Reason::Collision);
+    let collision = || {
+        let reason = Obstruction::Collision.into();
+        lease.record_finding(binding.clone(), name.clone(), generation, reason)
+    };
     let conflict = || lease.record_export_conflict(binding.clone(), name.clone(), generation);
     collision().await.unwrap();
     let unclassified = async || {
@@ -798,7 +841,10 @@ async fn an_unclassified_collision_gives_way_to_the_finding_that_classifies_it()
 
     unclassified().await;
     collision().await.unwrap();
-    assert_eq!(reason().await, FindingKind::Unmapped(Reason::Collision));
+    assert_eq!(
+        reason().await,
+        FindingKind::Obstructed(Obstruction::Collision)
+    );
 
     unclassified().await;
     conflict().await.unwrap();
@@ -843,7 +889,7 @@ async fn deleted_objects_lose_their_name_findings_and_keep_export_conflicts() {
             binding.clone(),
             unmapped.clone(),
             unmapped_generation,
-            Reason::HostRestriction,
+            LexicalReason::HostRestriction.into(),
         )
         .await
         .unwrap();
@@ -915,7 +961,7 @@ async fn a_deleted_object_stops_counting_before_its_deletion_is_replayed() {
             binding.clone(),
             unmapped.clone(),
             unmapped_generation,
-            Reason::HostRestriction,
+            LexicalReason::HostRestriction.into(),
         )
         .await
         .unwrap();
@@ -1013,14 +1059,19 @@ async fn an_alias_spelling_moves_the_findings_revision_and_goes_with_its_reason(
     assert_eq!(alias_spellings(&catalog).await, ["test-bucket/CASE"]);
 
     lease
-        .record_finding(binding.clone(), name.clone(), generation, Reason::Collision)
+        .record_finding(
+            binding.clone(),
+            name.clone(),
+            generation,
+            Obstruction::Collision.into(),
+        )
         .await
         .unwrap();
     assert_eq!(revisions(&lease).await.0, respelled.0 + 1);
     assert_eq!(alias_spellings(&catalog).await, Vec::<String>::new());
     assert_eq!(
         lease.findings_page(0, 1).await.unwrap()[0].reason,
-        FindingKind::Unmapped(Reason::Collision)
+        FindingKind::Obstructed(Obstruction::Collision)
     );
     drop(lease);
     catalog.close().await.unwrap();
@@ -1065,7 +1116,12 @@ async fn an_alias_partner_keeps_its_finding_of_another_reason() {
         .await
         .unwrap();
     lease
-        .record_finding(binding.clone(), holder.clone(), held, Reason::Collision)
+        .record_finding(
+            binding.clone(),
+            holder.clone(),
+            held,
+            Obstruction::Collision.into(),
+        )
         .await
         .unwrap();
     let alias = || {
@@ -1096,8 +1152,11 @@ async fn an_alias_partner_keeps_its_finding_of_another_reason() {
         found
     };
     let expected = [
-        ("Case".to_owned(), FindingKind::Unmapped(Reason::Collision)),
-        ("case".to_owned(), FindingKind::Unmapped(Reason::Alias)),
+        (
+            "Case".to_owned(),
+            FindingKind::Obstructed(Obstruction::Collision),
+        ),
+        ("case".to_owned(), FindingKind::Alias),
     ];
     assert_eq!(reasons().await, expected);
     let settled = revisions(&lease).await;
@@ -1185,7 +1244,7 @@ async fn tracking_an_alias_file_again_keeps_its_finding_until_the_partner_goes()
         found.sort_by(|left, right| left.0.cmp(&right.0));
         found
     };
-    let alias = FindingKind::Unmapped(Reason::Alias);
+    let alias = FindingKind::Alias;
     let both = [("Case".to_owned(), alias), ("case".to_owned(), alias)];
     assert_eq!(findings().await, both);
 
@@ -1216,20 +1275,44 @@ fn finding_effects_block_export_conflicts_report_names_and_skip_ignored_names() 
         FindingEffect::Blocks
     );
     assert_eq!(
-        FindingKind::Unmapped(Reason::Ignored).effect(),
+        FindingKind::Unmapped(LexicalReason::Ignored).effect(),
         FindingEffect::Silent
     );
-    for reason in [
-        Reason::InvalidName,
-        Reason::HostRestriction,
-        Reason::Reserved,
-        Reason::Collision,
-        Reason::UnsafeEntry,
+    for kind in [
+        FindingKind::Unmapped(LexicalReason::InvalidName),
+        FindingKind::Unmapped(LexicalReason::HostRestriction),
+        FindingKind::Unmapped(LexicalReason::Reserved),
+        FindingKind::Obstructed(Obstruction::Collision),
+        FindingKind::Obstructed(Obstruction::UnsafeEntry),
     ] {
-        assert_eq!(
-            FindingKind::Unmapped(reason).effect(),
-            FindingEffect::Reports,
+        assert_eq!(kind.effect(), FindingEffect::Reports, "{kind:?}");
+    }
+}
+
+#[test]
+fn whether_an_ingestion_observes_a_finding_again_follows_its_kind() {
+    for reason in [
+        LexicalReason::InvalidName,
+        LexicalReason::HostRestriction,
+        LexicalReason::Reserved,
+        LexicalReason::Ignored,
+    ] {
+        assert!(
+            !FindingKind::Unmapped(reason).observed_again(),
             "{reason:?}"
         );
     }
+    for obstruction in [
+        Obstruction::Collision,
+        Obstruction::UnsafeEntry,
+        Obstruction::DirectoryOccupied,
+    ] {
+        assert!(
+            FindingKind::Obstructed(obstruction).observed_again(),
+            "{obstruction:?}"
+        );
+    }
+    assert!(FindingKind::Alias.observed_again());
+    assert!(FindingKind::UnclassifiedCollision.observed_again());
+    assert!(!FindingKind::ExportConflict.observed_again());
 }

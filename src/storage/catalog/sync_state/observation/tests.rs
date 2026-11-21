@@ -258,7 +258,7 @@ async fn an_export_failure_of_an_object_with_a_finding_stops_its_path_once() {
         binding.clone(),
         held.clone(),
         generation,
-        crate::sync::mapping::Reason::Collision,
+        crate::sync::mapping::Obstruction::Collision.into(),
     )
     .await
     .unwrap();

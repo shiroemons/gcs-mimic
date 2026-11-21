@@ -91,9 +91,14 @@ impl LiveObject<'_> {
                     self.defer();
                     return Ok(plan.skipped());
                 }
-                InstallOutcome::Collision(reason) => {
+                InstallOutcome::Collision(obstruction) => {
                     self.root
-                        .record_finding(plan.binding.clone(), name.clone(), plan.generation, reason)
+                        .record_finding(
+                            plan.binding.clone(),
+                            name.clone(),
+                            plan.generation,
+                            obstruction.into(),
+                        )
                         .await?;
                     // The object is what the tree cannot hold, as for the collision a target
                     // check finds: the directory's own entries are scanned like any other, and

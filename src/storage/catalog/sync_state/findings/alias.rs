@@ -259,7 +259,7 @@ impl RootLease {
                     Some((partner, live)) => {
                         let stored: Option<FindingKind> = sql::optional_scalar(&tx, "SELECT reason FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3", params![root, binding.bucket, partner]).map_err(unavailable)?;
                         let marked = match stored {
-                            Some(kind) if kind != FindingKind::Unmapped(Reason::Alias) => {
+                            Some(kind) if kind != FindingKind::Alias => {
                                 Marked::Other
                             }
                             Some(_) | None => {
@@ -666,8 +666,15 @@ fn write_alias(
     generation: Generation,
     spelling: &str,
 ) -> Result<Marked, AdminError> {
-    let alias = FindingKind::Unmapped(Reason::Alias);
-    let written = write_name_finding(transaction, root, binding, name, generation, Reason::Alias)?;
+    let alias = FindingKind::Alias;
+    let written = write_name_finding(
+        transaction,
+        root,
+        binding,
+        name,
+        generation,
+        NameFinding::Alias,
+    )?;
     if written.after != alias {
         return Ok(Marked::Other);
     }

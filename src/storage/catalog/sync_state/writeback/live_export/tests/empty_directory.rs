@@ -43,7 +43,7 @@ fn names(directory: &std::path::Path) -> Vec<String> {
 async fn assert_kept(fixture: &Fixture, result: InstallOutcome, holds: &[&str]) {
     assert_eq!(
         result,
-        InstallOutcome::Collision(mapping::Reason::DirectoryOccupied)
+        InstallOutcome::Collision(mapping::Obstruction::DirectoryOccupied)
     );
     assert!(fixture.tree.0.join(DIRECTORY).is_dir());
     assert_eq!(names(&fixture.tree.0.join(DIRECTORY)), holds);
@@ -616,7 +616,7 @@ async fn a_folding_root_keeps_a_directory_whose_spelling_it_cannot_list() {
     let result = finish(&fixture, &operation).await.unwrap();
     assert_eq!(
         result,
-        InstallOutcome::Collision(mapping::Reason::Collision)
+        InstallOutcome::Collision(mapping::Obstruction::Collision)
     );
     assert_eq!(names(&bucket), ["photos"]);
     assert!(bucket.join("photos").is_dir());

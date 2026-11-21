@@ -13,29 +13,53 @@ pub(crate) fn is_reserved_root_entry(name: &std::ffi::OsStr) -> bool {
     matches!(name.to_str(), Some(MARKER | MARKER_STAGING | WORKSPACE))
 }
 
+/// Why an object's name has no file in the tree, whatever the tree holds: the name itself or the
+/// root's rules for names decide it, so it stays so until the object or those rules change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Reason {
+pub(crate) enum LexicalReason {
     InvalidName,
     HostRestriction,
     Reserved,
     Ignored,
+}
+
+/// What the tree holds in the way of an object's file, which can go without a change of the
+/// object itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Obstruction {
+    /// Another API object, or a file at a directory level of the path, holds the name.
     Collision,
     UnsafeEntry,
     /// A directory that holds entries has the object's file name, and export left it in place.
     /// Unlike a [`Self::Collision`], only moving those entries out frees the name: no API name
     /// is at fault.
     DirectoryOccupied,
-    /// The directory holds the object's file under another letter case or Unicode
-    /// normalization of its name, which the root's file system takes for the same name. The
-    /// object and the one tracked at that spelling are both reported, and the file is frozen:
-    /// neither is exported over it nor ingested from it until one of them goes.
-    Alias,
+}
+
+/// Why an export leaves an object out of the tree: its name has no file there, or something
+/// stands at its path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Unplaced {
+    Unmapped(LexicalReason),
+    Obstructed(Obstruction),
+}
+
+impl From<LexicalReason> for Unplaced {
+    fn from(reason: LexicalReason) -> Self {
+        Self::Unmapped(reason)
+    }
+}
+
+impl From<Obstruction> for Unplaced {
+    fn from(obstruction: Obstruction) -> Self {
+        Self::Obstructed(obstruction)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PathMapping {
+pub(crate) enum PathMapping {
     File(PathBuf),
-    Unrepresentable(Reason),
+    Unrepresentable(LexicalReason),
 }
 
 /// Maps an object name to its path under the root's naming rules. Callers must still check
@@ -55,25 +79,25 @@ fn candidate(
     bucket: &BucketName,
     object: &ObjectName,
     naming: RootNaming,
-) -> Result<PathBuf, Reason> {
+) -> Result<PathBuf, LexicalReason> {
     let (bucket, object) = (bucket.as_str(), object.as_str());
     let mut path = PathBuf::new();
     for component in std::iter::once(bucket).chain(object.split('/')) {
         if component.is_empty() || matches!(component, "." | "..") || component.contains('\0') {
-            return Err(Reason::InvalidName);
+            return Err(LexicalReason::InvalidName);
         }
         if is_reserved_root_entry(component.as_ref()) {
-            return Err(Reason::Reserved);
+            return Err(LexicalReason::Reserved);
         }
         // The catalog's sync-path validator rejects a backslash on every platform, so a
         // candidate it would refuse must be skipped here instead of stopping the root. What the
         // root's filesystem cannot hold is skipped the same way, before any I/O.
         if component.contains('\\') || !naming.admits(component.as_ref()) {
-            return Err(Reason::HostRestriction);
+            return Err(LexicalReason::HostRestriction);
         }
         #[cfg(windows)]
         if windows_component_is_invalid(component) {
-            return Err(Reason::HostRestriction);
+            return Err(LexicalReason::HostRestriction);
         }
         path.push(component);
     }
@@ -82,7 +106,7 @@ fn candidate(
         .next()
         .is_some_and(crate::source_tree::is_ignored_regular_file)
     {
-        return Err(Reason::Ignored);
+        return Err(LexicalReason::Ignored);
     }
     Ok(path)
 }
@@ -91,18 +115,18 @@ fn candidate(
 pub(crate) fn path_to_name(
     path: &Path,
     naming: RootNaming,
-) -> Result<(BucketName, ObjectName), Reason> {
-    let raw = path.to_str().ok_or(Reason::InvalidName)?;
+) -> Result<(BucketName, ObjectName), LexicalReason> {
+    let raw = path.to_str().ok_or(LexicalReason::InvalidName)?;
     #[cfg(windows)]
     let text = raw.replace('\\', "/");
     #[cfg(not(windows))]
     let text = raw;
-    let (bucket, object) = text.split_once('/').ok_or(Reason::InvalidName)?;
-    let bucket = BucketName::new(bucket).map_err(|_| Reason::InvalidName)?;
-    let object = ObjectName::new(object).map_err(|_| Reason::InvalidName)?;
+    let (bucket, object) = text.split_once('/').ok_or(LexicalReason::InvalidName)?;
+    let bucket = BucketName::new(bucket).map_err(|_| LexicalReason::InvalidName)?;
+    let object = ObjectName::new(object).map_err(|_| LexicalReason::InvalidName)?;
     let candidate = candidate(&bucket, &object, naming)?;
     if candidate.as_os_str() != path.as_os_str() {
-        return Err(Reason::InvalidName);
+        return Err(LexicalReason::InvalidName);
     }
     Ok((bucket, object))
 }
@@ -154,7 +178,7 @@ mod tests {
 
     fn mapping_with(naming: RootNaming, bucket: &str, object: &str) -> PathMapping {
         let (Ok(bucket), Ok(object)) = (BucketName::new(bucket), ObjectName::new(object)) else {
-            return PathMapping::Unrepresentable(Reason::InvalidName);
+            return PathMapping::Unrepresentable(LexicalReason::InvalidName);
         };
         name_to_path(&bucket, &object, naming)
     }
@@ -163,12 +187,12 @@ mod tests {
         mapping_with(RootNaming::posix(), bucket, object)
     }
 
-    fn decode_with(naming: RootNaming, path: &Path) -> Result<(String, String), Reason> {
+    fn decode_with(naming: RootNaming, path: &Path) -> Result<(String, String), LexicalReason> {
         path_to_name(path, naming)
             .map(|(bucket, object)| (bucket.as_str().to_owned(), object.as_str().to_owned()))
     }
 
-    fn decode(path: &Path) -> Result<(String, String), Reason> {
+    fn decode(path: &Path) -> Result<(String, String), LexicalReason> {
         decode_with(RootNaming::posix(), path)
     }
 
@@ -199,7 +223,7 @@ mod tests {
         for object in [r"a\b", r"logs\2026-10-28.log"] {
             assert_eq!(
                 mapping("demo-bucket", object),
-                PathMapping::Unrepresentable(Reason::HostRestriction),
+                PathMapping::Unrepresentable(LexicalReason::HostRestriction),
                 "{object:?}"
             );
         }
@@ -207,7 +231,7 @@ mod tests {
         #[cfg(not(windows))]
         assert_eq!(
             path_to_name(Path::new(r"demo-bucket/a\b"), RootNaming::posix()),
-            Err(Reason::HostRestriction)
+            Err(LexicalReason::HostRestriction)
         );
     }
 
@@ -220,13 +244,16 @@ mod tests {
         for object in ["a:b", "logs/2026-10-28T12:00:00.log", "dir:x/file"] {
             assert_eq!(
                 mapping_with(rejecting, "demo-bucket", object),
-                PathMapping::Unrepresentable(Reason::HostRestriction),
+                PathMapping::Unrepresentable(LexicalReason::HostRestriction),
                 "{object:?}"
             );
             let PathMapping::File(path) = mapping("demo-bucket", object) else {
                 panic!("a colon maps where the root stores one: {object}");
             };
-            assert_eq!(decode_with(rejecting, &path), Err(Reason::HostRestriction));
+            assert_eq!(
+                decode_with(rejecting, &path),
+                Err(LexicalReason::HostRestriction)
+            );
         }
         // A refused colon brings in no other host's restrictions.
         for object in ["CON", "a?b", "a ", "a.", "a|b", "a*b"] {
@@ -267,16 +294,16 @@ mod tests {
         let long = ObjectName::new("é".repeat(128)).unwrap();
         assert_eq!(
             name_to_path(&bucket, &long, RootNaming::posix()),
-            PathMapping::Unrepresentable(Reason::HostRestriction)
+            PathMapping::Unrepresentable(LexicalReason::HostRestriction)
         );
         assert_eq!(
             name_to_path(&bucket, &long, naming(Colon::Accepted, None)),
-            PathMapping::Unrepresentable(Reason::HostRestriction)
+            PathMapping::Unrepresentable(LexicalReason::HostRestriction)
         );
         let short = ObjectName::new("x".repeat(9)).unwrap();
         assert_eq!(
             name_to_path(&bucket, &short, naming(Colon::Accepted, Some(8))),
-            PathMapping::Unrepresentable(Reason::HostRestriction)
+            PathMapping::Unrepresentable(LexicalReason::HostRestriction)
         );
         for object in [
             "é".repeat(513),
@@ -295,7 +322,7 @@ mod tests {
         let path = Path::new(OsStr::from_bytes(b"demo-bucket/\xff"));
         assert_eq!(
             path_to_name(path, RootNaming::posix()),
-            Err(Reason::InvalidName)
+            Err(LexicalReason::InvalidName)
         );
     }
 
@@ -304,21 +331,21 @@ mod tests {
         for object in ["", "/a", "a/", "a//b", "a/./b", "a/../b", "a\0b", ".", ".."] {
             assert_eq!(
                 mapping("demo-bucket", object),
-                PathMapping::Unrepresentable(Reason::InvalidName)
+                PathMapping::Unrepresentable(LexicalReason::InvalidName)
             );
         }
         for component in [MARKER, MARKER_STAGING, WORKSPACE] {
             for object in [component.to_owned(), format!("a/{component}/b")] {
                 assert_eq!(
                     mapping("demo-bucket", &object),
-                    PathMapping::Unrepresentable(Reason::Reserved)
+                    PathMapping::Unrepresentable(LexicalReason::Reserved)
                 );
             }
         }
         for leaf in [".DS_Store", "._resource", "4913", "file.swp", "file~"] {
             assert_eq!(
                 mapping("demo-bucket", &format!("a/{leaf}")),
-                PathMapping::Unrepresentable(Reason::Ignored)
+                PathMapping::Unrepresentable(LexicalReason::Ignored)
             );
         }
         for raw in [
@@ -332,7 +359,7 @@ mod tests {
         }
         assert!(matches!(
             mapping("../bucket", "object"),
-            PathMapping::Unrepresentable(Reason::InvalidName)
+            PathMapping::Unrepresentable(LexicalReason::InvalidName)
         ));
     }
 
@@ -426,11 +453,11 @@ mod tests {
                         .join("/");
                     prop_assert!(crate::storage::sync_state::SyncPath::try_from(text).is_ok());
                 }
-                PathMapping::Unrepresentable(Reason::HostRestriction) => {
+                PathMapping::Unrepresentable(LexicalReason::HostRestriction) => {
                     prop_assert!(components().any(|component| component.contains('\\') || !naming.admits(component.as_ref())));
                 }
                 // An empty component names no file, whatever the root's rules.
-                PathMapping::Unrepresentable(reason) => prop_assert_eq!(reason, Reason::InvalidName),
+                PathMapping::Unrepresentable(reason) => prop_assert_eq!(reason, LexicalReason::InvalidName),
             }
         }
     }

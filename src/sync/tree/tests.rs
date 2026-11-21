@@ -148,7 +148,9 @@ fn existing_parents_never_create_missing_directories_and_reject_aliases_and_syml
                 Path::new("dir"),
                 ParentOpen::Existing
             ),
-            Err(ParentError::Finding(Reason::Collision))
+            Err(ParentError::Finding(Unplaced::Obstructed(
+                Obstruction::Collision
+            )))
         ));
     }
     std::os::unix::fs::symlink(tree.0.join("Dir"), tree.0.join("link")).unwrap();
@@ -160,7 +162,9 @@ fn existing_parents_never_create_missing_directories_and_reject_aliases_and_syml
             Path::new("link"),
             ParentOpen::Existing
         ),
-        Err(ParentError::Finding(Reason::UnsafeEntry))
+        Err(ParentError::Finding(Unplaced::Obstructed(
+            Obstruction::UnsafeEntry
+        )))
     ));
     fs::write(tree.0.join("first"), b"hardlinked").unwrap();
     fs::hard_link(tree.0.join("first"), tree.0.join("second")).unwrap();
@@ -406,7 +410,9 @@ fn parent_walks_past_the_former_128_levels_and_refuses_only_what_no_limit_allows
                 &too_deep,
                 open
             ),
-            Err(ParentError::Finding(Reason::HostRestriction))
+            Err(ParentError::Finding(Unplaced::Unmapped(
+                LexicalReason::HostRestriction
+            )))
         ));
     }
 }
@@ -433,7 +439,9 @@ fn parent_refuses_what_the_root_rules_refuse_before_creating_any_level() {
         for open in [ParentOpen::Existing, ParentOpen::Create] {
             assert!(matches!(
                 parent(&root, naming, &Lookup::unprobed(), Path::new(path), open),
-                Err(ParentError::Finding(Reason::HostRestriction))
+                Err(ParentError::Finding(Unplaced::Unmapped(
+                    LexicalReason::HostRestriction
+                )))
             ));
         }
         assert!(!tree.0.join("bucket").exists(), "{path}");

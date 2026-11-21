@@ -35,7 +35,7 @@ async fn an_api_deletion_settles_the_collision_of_the_object_left() {
     publish_named(&catalog, &bucket, "a", b"file", Origin::Api).await;
     let child = publish_named(&catalog, &bucket, "a/b", b"child", Origin::Api).await;
     assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
-    let collision = FindingKind::Unmapped(Reason::Collision);
+    let collision = FindingKind::Obstructed(Obstruction::Collision);
     assert_eq!(
         findings(&root).await,
         [("a".into(), collision), ("a/b".into(), collision)]
@@ -127,7 +127,7 @@ async fn collide_with_a_tracked_file(
         .await
         .unwrap();
     replay_from(catalog, root, cursor).await;
-    let collision = FindingKind::Unmapped(Reason::Collision);
+    let collision = FindingKind::Obstructed(Obstruction::Collision);
     let mut found = findings(root).await;
     found.sort_by(|left, right| left.0.cmp(&right.0));
     assert_eq!(found, [("a".into(), collision), ("a/b".into(), collision)]);
@@ -217,11 +217,11 @@ async fn removing_the_entry_in_the_way_lets_a_rescan_export_the_object() {
         [
             (
                 "link/object".into(),
-                FindingKind::Unmapped(Reason::UnsafeEntry)
+                FindingKind::Obstructed(Obstruction::UnsafeEntry)
             ),
             (
                 "occupied".into(),
-                FindingKind::Unmapped(Reason::DirectoryOccupied)
+                FindingKind::Obstructed(Obstruction::DirectoryOccupied)
             ),
         ]
     );
@@ -251,7 +251,7 @@ async fn moving_a_root_file_named_like_a_bucket_away_lets_an_ingestion_export_th
         publish_named(&catalog, &bucket, name, name.as_bytes(), Origin::Api).await;
     }
     reconcile(&catalog, &root).await.unwrap();
-    let collision = FindingKind::Unmapped(Reason::Collision);
+    let collision = FindingKind::Obstructed(Obstruction::Collision);
     assert_eq!(
         findings(&root).await,
         [("x".into(), collision), ("y/z".into(), collision)]
@@ -294,7 +294,7 @@ async fn a_finding_that_cannot_be_observed_again_holds_back_only_itself() {
         .await;
     }
     replay_from(&catalog, &root, cursor).await;
-    let unsafe_entry = FindingKind::Unmapped(Reason::UnsafeEntry);
+    let unsafe_entry = FindingKind::Obstructed(Obstruction::UnsafeEntry);
     assert_eq!(
         findings(&root).await,
         [

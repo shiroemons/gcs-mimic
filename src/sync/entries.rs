@@ -98,15 +98,11 @@ fn regular_file(path: &Path, identity: FileIdentity, naming: RootNaming) -> Entr
             identity,
         }),
         // The mapping repeats the check of the file's own name made above.
-        Err(mapping::Reason::Ignored) => EntryClass::Skipped(Skip::IgnoredName),
+        Err(mapping::LexicalReason::Ignored) => EntryClass::Skipped(Skip::IgnoredName),
         Err(
-            mapping::Reason::InvalidName
-            | mapping::Reason::HostRestriction
-            | mapping::Reason::Reserved
-            | mapping::Reason::Collision
-            | mapping::Reason::UnsafeEntry
-            | mapping::Reason::DirectoryOccupied
-            | mapping::Reason::Alias,
+            mapping::LexicalReason::InvalidName
+            | mapping::LexicalReason::HostRestriction
+            | mapping::LexicalReason::Reserved,
         ) => EntryClass::Unrepresentable(EntryProblem::UnmappableName),
     }
 }

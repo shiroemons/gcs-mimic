@@ -140,7 +140,7 @@ async fn schema_57_fixture() -> (TestDir, TestDir) {
             catalog.sync_state().binding(&bucket).await.unwrap(),
             reused.clone(),
             first,
-            Reason::InvalidName,
+            LexicalReason::InvalidName.into(),
         )
         .await
         .unwrap();
@@ -159,14 +159,19 @@ async fn schema_57_fixture() -> (TestDir, TestDir) {
     let binding = catalog.sync_state().binding(&bucket).await.unwrap();
     let second = publish(&catalog, &data, &bucket, reused.as_str()).await;
     lease
-        .record_finding(binding.clone(), reused, second, Reason::InvalidName)
+        .record_finding(
+            binding.clone(),
+            reused,
+            second,
+            LexicalReason::InvalidName.into(),
+        )
         .await
         .unwrap();
     for (name, reason) in [
         ("edited", None),
-        ("collision", Some(Reason::Collision)),
-        ("notes.swp", Some(Reason::Ignored)),
-        ("removed", Some(Reason::Reserved)),
+        ("collision", Some(Obstruction::Collision.into())),
+        ("notes.swp", Some(LexicalReason::Ignored.into())),
+        ("removed", Some(Unplaced::from(LexicalReason::Reserved))),
     ] {
         let generation = publish(&catalog, &data, &bucket, name).await;
         let name = ObjectName::new(name).unwrap();
@@ -306,10 +311,10 @@ async fn schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_
             .findings
             .iter()
             .zip([
-                FindingKind::Unmapped(Reason::InvalidName),
+                FindingKind::Unmapped(LexicalReason::InvalidName),
                 FindingKind::UnclassifiedCollision,
                 FindingKind::UnclassifiedCollision,
-                FindingKind::Unmapped(Reason::Ignored),
+                FindingKind::Unmapped(LexicalReason::Ignored),
             ])
             .map(|(finding, kind)| (finding.0, kind))
             .collect::<Vec<_>>()
@@ -375,8 +380,9 @@ async fn schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_
     let fresh = ObjectName::new("fresh").unwrap();
     let generation = publish(&catalog, &data, &bucket, fresh.as_str()).await;
     let start = revisions(&lease).await;
+    let reserved = LexicalReason::Reserved.into();
     lease
-        .record_finding(binding.clone(), fresh.clone(), generation, Reason::Reserved)
+        .record_finding(binding.clone(), fresh.clone(), generation, reserved)
         .await
         .unwrap();
     let recorded = revisions(&lease).await;

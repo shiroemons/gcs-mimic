@@ -32,7 +32,7 @@ use crate::{
     },
     sync::{
         EntryReportSender,
-        mapping::{self, Reason},
+        mapping::{self, Obstruction},
     },
 };
 use bytes::Bytes;
@@ -3056,7 +3056,7 @@ async fn wait_reports_the_finding_that_holds_back_the_export_over_a_renumbered_f
     let findings = root.findings_page(0, 256).await.unwrap();
     assert!(
         findings.iter().any(|finding| finding.name == "object"
-            && finding.reason == FindingKind::Unmapped(Reason::Collision)),
+            && finding.reason == FindingKind::Obstructed(Obstruction::Collision)),
         "{findings:?}"
     );
     assert_eq!(
@@ -3093,7 +3093,7 @@ async fn reconciliation_classifies_a_carried_over_collision_that_is_a_name_colli
     };
     assert_eq!(
         reason().await,
-        Some(FindingKind::Unmapped(Reason::Collision))
+        Some(FindingKind::Obstructed(Obstruction::Collision))
     );
     assert!(
         root.unclassify_finding("test-bucket", "object")
@@ -3104,7 +3104,7 @@ async fn reconciliation_classifies_a_carried_over_collision_that_is_a_name_colli
     reconcile(&catalog, &root).await.unwrap();
     assert_eq!(
         reason().await,
-        Some(FindingKind::Unmapped(Reason::Collision))
+        Some(FindingKind::Obstructed(Obstruction::Collision))
     );
     drop(root);
     catalog.close().await.unwrap();

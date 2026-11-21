@@ -794,13 +794,13 @@ async fn a_scan_records_the_edit_behind_a_carried_over_collision_as_an_export_co
         catalog.sync_state().binding(&bucket).await.unwrap(),
         ObjectName::new("object").unwrap(),
         Generation::new(object(&catalog, "test-bucket/object").await.generation).unwrap(),
-        mapping::Reason::Collision,
+        mapping::Obstruction::Collision.into(),
     )
     .await
     .unwrap();
     assert_eq!(
         reason().await,
-        FindingKind::Unmapped(mapping::Reason::Collision)
+        FindingKind::Obstructed(mapping::Obstruction::Collision)
     );
     assert_eq!(scan(&catalog, &root, &config).await.conflicting, 1);
     assert_eq!(reason().await, FindingKind::ExportConflict);

@@ -104,7 +104,7 @@ async fn a_directory_replaced_while_an_export_removes_it_pauses_nothing() {
     assert_eq!(findings[0].name.as_str(), "a");
     assert_eq!(
         findings[0].reason,
-        FindingKind::Unmapped(Reason::DirectoryOccupied)
+        FindingKind::Obstructed(Obstruction::DirectoryOccupied)
     );
     assert!(install_faults::workspace_bodies(&tree.0).is_empty());
     assert_eq!(fault::pending(&tree.0), 0);
@@ -144,7 +144,10 @@ async fn a_directory_on_the_path_replaced_by_a_file_after_the_copy_pauses_nothin
     let findings = root.findings_page(0, 256).await.unwrap();
     assert_eq!(findings.len(), 1, "{findings:?}");
     assert_eq!(findings[0].name.as_str(), "sub/b");
-    assert_eq!(findings[0].reason, FindingKind::Unmapped(Reason::Collision));
+    assert_eq!(
+        findings[0].reason,
+        FindingKind::Obstructed(Obstruction::Collision)
+    );
     assert!(
         install_faults::workspace_bodies(&tree.0).is_empty(),
         "the cancelled export left its private copy"
@@ -199,7 +202,10 @@ async fn a_restore_raced_by_a_change_on_its_path_plans_again() {
     );
     let findings = root.findings_page(0, 256).await.unwrap();
     assert_eq!(findings.len(), 1, "{findings:?}");
-    assert_eq!(findings[0].reason, FindingKind::Unmapped(Reason::Collision));
+    assert_eq!(
+        findings[0].reason,
+        FindingKind::Obstructed(Obstruction::Collision)
+    );
     assert_eq!(fault::pending(&tree.0), 0);
     drop(root);
     catalog.close().await.unwrap();

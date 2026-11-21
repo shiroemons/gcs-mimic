@@ -138,9 +138,9 @@ impl Kept {
     /// The finding that keeps the object out of the tree. An entry under another spelling, or
     /// one that is no directory, holds the name as any other collision does; otherwise the
     /// directory is in the way, and what is in it decides when it can go.
-    pub(super) fn finding(self) -> mapping::Reason {
+    pub(super) fn finding(self) -> mapping::Obstruction {
         match self {
-            Self::NotDirectory => mapping::Reason::Collision,
+            Self::NotDirectory => mapping::Obstruction::Collision,
             Self::Replaces
             | Self::Tracked
             | Self::PathStop
@@ -149,7 +149,7 @@ impl Kept {
             | Self::NotAnObject
             | Self::Holds
             | Self::Unlisted { .. }
-            | Self::Refused(_) => mapping::Reason::DirectoryOccupied,
+            | Self::Refused(_) => mapping::Obstruction::DirectoryOccupied,
         }
     }
 

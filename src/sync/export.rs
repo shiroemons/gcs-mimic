@@ -11,7 +11,7 @@ use crate::{
     sync::{
         Reconciliation, SyncError,
         error::{Recorded, unless_superseded},
-        mapping::Reason,
+        mapping::{LexicalReason, Unplaced},
     },
 };
 use std::{fs::File, path::Path};
@@ -129,7 +129,7 @@ impl LiveObject<'_> {
 
     /// Records why this object stays out of the working tree and counts it. A generation that
     /// changed or went since this export read it is the next replay's to record.
-    async fn finding(&mut self, record: &ObjectRecord, reason: Reason) -> Result<(), SyncError> {
+    async fn finding(&mut self, record: &ObjectRecord, reason: Unplaced) -> Result<(), SyncError> {
         let binding = self.catalog.sync_state().binding(self.bucket).await?;
         let recorded = unless_superseded(
             self.root
@@ -144,7 +144,7 @@ impl LiveObject<'_> {
         if recorded == Recorded::Superseded {
             return Ok(());
         }
-        if reason == Reason::Ignored {
+        if reason == Unplaced::Unmapped(LexicalReason::Ignored) {
             self.summary.ignored += 1;
         } else {
             self.summary.count_unmapped_object();

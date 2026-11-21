@@ -20,7 +20,6 @@ use crate::{
         Reconciliation, SyncError,
         error::{superseded, unless_superseded},
         interrupt::{Interrupt, Interrupted},
-        mapping::Reason,
     },
 };
 use std::collections::BTreeSet;
@@ -86,7 +85,7 @@ impl SkippedExports {
                 ) else {
                     continue;
                 };
-                if finding.reason == FindingKind::Unmapped(Reason::Alias) {
+                if finding.reason == FindingKind::Alias {
                     self.observe_alias(&mut observing, &bucket, name).await?;
                 } else {
                     self.observe(&mut observing, bucket, name).await?;

@@ -9,7 +9,7 @@ use crate::{
         },
     },
     sync::{
-        mapping::Reason,
+        mapping::{LexicalReason, Obstruction},
         report::{
             command::AtHand,
             remedy::{self, Correction},
@@ -52,30 +52,32 @@ pub(super) fn value(
         ),
         // A name collision is a name the tree cannot hold, like the other mapping reasons; only
         // an export that met an edited file is a conflict.
-        FindingReason::Mapping(FindingKind::Unmapped(
-            Reason::InvalidName
-            | Reason::HostRestriction
-            | Reason::Reserved
-            | Reason::Ignored
-            | Reason::UnsafeEntry,
-        )) => (
+        FindingReason::Mapping(
+            FindingKind::Unmapped(
+                LexicalReason::InvalidName
+                | LexicalReason::HostRestriction
+                | LexicalReason::Reserved
+                | LexicalReason::Ignored,
+            )
+            | FindingKind::Obstructed(Obstruction::UnsafeEntry),
+        ) => (
             "Unrepresentable",
             Correction::UnrepresentableName.remedy().into(),
         ),
         // A file in the root named like the bucket holds every object of it out as a
         // collision, which only moving that file ends; no API name is at fault then.
-        FindingReason::Mapping(FindingKind::Unmapped(Reason::Collision)) => (
+        FindingReason::Mapping(FindingKind::Obstructed(Obstruction::Collision)) => (
             "Unrepresentable",
             Correction::CollidingName.remedy().into(),
         ),
         // The API name is fine here: only the entries in the directory keep the file out.
-        FindingReason::Mapping(FindingKind::Unmapped(Reason::DirectoryOccupied)) => (
+        FindingReason::Mapping(FindingKind::Obstructed(Obstruction::DirectoryOccupied)) => (
             "Unrepresentable",
             crate::sync::report::remedy::occupied_directory_remedy().into(),
         ),
         // Renaming the entry would only make it the file of the other object, so the remedy
         // asks for the API change that ends the alias.
-        FindingReason::Mapping(FindingKind::Unmapped(Reason::Alias)) => (
+        FindingReason::Mapping(FindingKind::Alias) => (
             "Unrepresentable",
             Correction::AliasedObjects.remedy().into(),
         ),
@@ -257,12 +259,12 @@ mod tests {
         for (kind, rendered, detail) in [
             (FindingKind::ExportConflict, "Conflict", "export-conflict"),
             (
-                FindingKind::Unmapped(Reason::Collision),
+                FindingKind::Obstructed(Obstruction::Collision),
                 "Unrepresentable",
                 "collision",
             ),
             (
-                FindingKind::Unmapped(Reason::InvalidName),
+                FindingKind::Unmapped(LexicalReason::InvalidName),
                 "Unrepresentable",
                 "invalid-name",
             ),
@@ -302,7 +304,7 @@ mod tests {
     #[test]
     fn an_occupied_directory_renders_its_own_detail_and_asks_to_empty_it() {
         let value = value(
-            &mapping_finding(FindingKind::Unmapped(Reason::DirectoryOccupied)),
+            &mapping_finding(FindingKind::Obstructed(Obstruction::DirectoryOccupied)),
             "prefix",
             None,
             AtHand::default(),
@@ -326,7 +328,7 @@ mod tests {
     fn an_alias_renders_the_spelling_of_its_file_and_asks_for_an_api_change() {
         let alias = Item {
             tree_path: Some("bucket/Object".into()),
-            ..mapping_finding(FindingKind::Unmapped(Reason::Alias))
+            ..mapping_finding(FindingKind::Alias)
         };
         let rendered = value(&alias, "prefix", None, AtHand::default()).unwrap();
         assert_eq!(
@@ -363,7 +365,7 @@ mod tests {
         assert!(remedy.contains("was not uploaded"), "{remedy}");
         assert!(remedy.contains("delete the file"), "{remedy}");
         let plain = value(
-            &mapping_finding(FindingKind::Unmapped(Reason::Collision)),
+            &mapping_finding(FindingKind::Obstructed(Obstruction::Collision)),
             "prefix",
             None,
             AtHand::default(),
@@ -377,7 +379,7 @@ mod tests {
     #[test]
     fn a_collision_names_a_root_file_named_like_its_bucket() {
         let rendered = value(
-            &mapping_finding(FindingKind::Unmapped(Reason::Collision)),
+            &mapping_finding(FindingKind::Obstructed(Obstruction::Collision)),
             "prefix",
             None,
             AtHand::default(),

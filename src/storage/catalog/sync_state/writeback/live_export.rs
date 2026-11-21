@@ -137,7 +137,7 @@ pub(crate) enum InstallOutcome {
     /// A directory holds the target's name and stays: it holds an entry, the catalog refers to
     /// it or to a path below it, or the export had a body there to replace. The reason is the
     /// finding that keeps the object out of the tree.
-    Collision(mapping::Reason),
+    Collision(mapping::Obstruction),
 }
 
 /// Whether an installation attempt failed because the tree changed under it. Its checks fail
@@ -1053,7 +1053,7 @@ impl Writeback {
             }
             Ok(Installed::Directory) => {
                 return self
-                    .collide(operation, mapping::Reason::DirectoryOccupied)
+                    .collide(operation, mapping::Obstruction::DirectoryOccupied)
                     .await;
             }
             Ok(Installed::Done) => operation.progress = Progress::Installed(staged),
@@ -1091,7 +1091,7 @@ impl Writeback {
     async fn collide(
         &self,
         operation: &mut LiveOperation,
-        reason: mapping::Reason,
+        reason: mapping::Obstruction,
     ) -> Result<InstallOutcome, Error> {
         let collision = InstallOutcome::Collision(reason);
         operation.progress = operation.progress.cancel(collision);

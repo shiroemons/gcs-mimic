@@ -23,7 +23,7 @@ use crate::{
     },
     sync::{
         MirrorState, Reconciliation,
-        mapping::{self, Reason},
+        mapping::{self, LexicalReason},
         test_support::{probed, unprobed_fixture},
     },
     test_support::TestDir,
@@ -384,7 +384,7 @@ async fn colon_rejecting_roots_record_findings_and_skip_colon_files_without_othe
         findings(&root).await,
         [(
             "logs/2026-10-28T12:00:00.log".to_owned(),
-            FindingKind::Unmapped(Reason::HostRestriction)
+            FindingKind::Unmapped(LexicalReason::HostRestriction)
         )]
     );
     // The host stores the colon, but the root's rules do not map it.

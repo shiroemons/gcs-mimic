@@ -471,6 +471,7 @@ mod tests {
     #[test]
     fn stored_enum_values_keep_the_catalog_format() {
         use crate::bucket::{Location, LocationKind, StorageClass};
+        use crate::storage::catalog::sync_state::findings::FindingKind;
         use crate::storage::catalog::{
             admin::Origin,
             change_journal::ChangeKind,
@@ -480,7 +481,7 @@ mod tests {
                 writeback::{Kind, Phase},
             },
         };
-        use crate::sync::mapping::Reason;
+        use crate::sync::mapping::{LexicalReason, Obstruction};
         text_values(&[
             (StorageClass::Standard, "STANDARD"),
             (StorageClass::Nearline, "NEARLINE"),
@@ -532,14 +533,28 @@ mod tests {
             ]);
         }
         text_values(&[
-            (Reason::InvalidName, "invalid-name"),
-            (Reason::HostRestriction, "host-restriction"),
-            (Reason::Reserved, "reserved"),
-            (Reason::Ignored, "ignored"),
-            (Reason::Collision, "collision"),
-            (Reason::UnsafeEntry, "unsafe-entry"),
-            (Reason::DirectoryOccupied, "directory-occupied"),
-            (Reason::Alias, "alias"),
+            (
+                FindingKind::Unmapped(LexicalReason::InvalidName),
+                "invalid-name",
+            ),
+            (
+                FindingKind::Unmapped(LexicalReason::HostRestriction),
+                "host-restriction",
+            ),
+            (FindingKind::Unmapped(LexicalReason::Reserved), "reserved"),
+            (FindingKind::Unmapped(LexicalReason::Ignored), "ignored"),
+            (FindingKind::Obstructed(Obstruction::Collision), "collision"),
+            (
+                FindingKind::Obstructed(Obstruction::UnsafeEntry),
+                "unsafe-entry",
+            ),
+            (
+                FindingKind::Obstructed(Obstruction::DirectoryOccupied),
+                "directory-occupied",
+            ),
+            (FindingKind::Alias, "alias"),
+            (FindingKind::ExportConflict, "export-conflict"),
+            (FindingKind::UnclassifiedCollision, "unclassified-collision"),
         ]);
         text_values(&[
             (PathStop::ProtectedDeletion, "ProtectedDeletion"),

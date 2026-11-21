@@ -11,7 +11,7 @@ use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     storage::admin::{AdminError, BucketName, Generation, ObjectName},
-    sync::mapping::Reason,
+    sync::mapping::{LexicalReason, Obstruction, Unplaced},
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
@@ -138,10 +138,14 @@ pub struct Finding {
     pub(crate) reason: FindingKind,
 }
 
-sql::text_enum!(pub(crate) Reason, "invalid synchronization finding", {
+sql::text_enum!(pub(crate) LexicalReason, "invalid synchronization finding", {
     InvalidName => "invalid-name", HostRestriction => "host-restriction",
-    Reserved => "reserved", Ignored => "ignored", Collision => "collision",
-    UnsafeEntry => "unsafe-entry", DirectoryOccupied => "directory-occupied", Alias => "alias",
+    Reserved => "reserved", Ignored => "ignored",
+});
+
+sql::text_enum!(pub(crate) Obstruction, "invalid synchronization finding", {
+    Collision => "collision", UnsafeEntry => "unsafe-entry",
+    DirectoryOccupied => "directory-occupied",
 });
 
 /// Why a `sync_findings` row keeps its object out of the working tree. A name the tree cannot
@@ -150,7 +154,14 @@ sql::text_enum!(pub(crate) Reason, "invalid synchronization finding", {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FindingKind {
     /// The object's name has no file in this tree.
-    Unmapped(Reason),
+    Unmapped(LexicalReason),
+    /// Something in the tree stands where the object's file would go.
+    Obstructed(Obstruction),
+    /// The directory holds the object's file under another letter case or Unicode
+    /// normalization of its name, which the root's file system takes for the same name. The
+    /// object and the one tracked at that spelling are both reported, and the file is frozen:
+    /// neither is exported over it nor ingested from it until one of them goes.
+    Alias,
     /// Export stopped because the file at the object's path no longer held the bytes this tree
     /// last tracked while the API object changed or was deleted; the file stays as it was.
     ExportConflict,
@@ -160,10 +171,21 @@ pub(crate) enum FindingKind {
     UnclassifiedCollision,
 }
 
+impl From<Unplaced> for FindingKind {
+    fn from(unplaced: Unplaced) -> Self {
+        match unplaced {
+            Unplaced::Unmapped(reason) => Self::Unmapped(reason),
+            Unplaced::Obstructed(obstruction) => Self::Obstructed(obstruction),
+        }
+    }
+}
+
 impl FindingKind {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Unmapped(reason) => reason.as_str(),
+            Self::Obstructed(obstruction) => obstruction.as_str(),
+            Self::Alias => "alias",
             Self::ExportConflict => "export-conflict",
             Self::UnclassifiedCollision => "unclassified-collision",
         }
@@ -171,9 +193,12 @@ impl FindingKind {
 
     fn parse(value: &str) -> Option<Self> {
         match value {
+            "alias" => Some(Self::Alias),
             "export-conflict" => Some(Self::ExportConflict),
             "unclassified-collision" => Some(Self::UnclassifiedCollision),
-            unmapped => Reason::parse(unmapped).map(Self::Unmapped),
+            other => LexicalReason::parse(other)
+                .map(Self::Unmapped)
+                .or_else(|| Obstruction::parse(other).map(Self::Obstructed)),
         }
     }
 
@@ -182,33 +207,27 @@ impl FindingKind {
     pub(crate) const fn effect(self) -> FindingEffect {
         match self {
             Self::ExportConflict | Self::UnclassifiedCollision => FindingEffect::Blocks,
-            Self::Unmapped(Reason::Ignored) => FindingEffect::Silent,
+            Self::Unmapped(LexicalReason::Ignored) => FindingEffect::Silent,
             Self::Unmapped(
-                Reason::InvalidName
-                | Reason::HostRestriction
-                | Reason::Reserved
-                | Reason::Collision
-                | Reason::UnsafeEntry
-                | Reason::DirectoryOccupied
-                | Reason::Alias,
-            ) => FindingEffect::Reports,
+                LexicalReason::InvalidName
+                | LexicalReason::HostRestriction
+                | LexicalReason::Reserved,
+            )
+            | Self::Obstructed(
+                Obstruction::Collision | Obstruction::UnsafeEntry | Obstruction::DirectoryOccupied,
+            )
+            | Self::Alias => FindingEffect::Reports,
         }
     }
 
-    /// Whether each ingestion observes this finding's object again, because its cause can go
-    /// without a change of the object itself: another API object or an entry in the tree stands
-    /// in its way, or a schema 57 row still waits to be classified. A name the tree cannot hold
-    /// stays so until the object changes, and an export conflict waits for its resolution.
+    /// Whether each ingestion observes this finding's object again, which the kind alone
+    /// decides. What obstructs the path, an alias and a schema 57 row that still waits to be
+    /// classified can each go without a change of the object itself. A name the tree cannot
+    /// hold stays so until the object changes, and an export conflict waits for its resolution.
     pub(crate) const fn observed_again(self) -> bool {
         match self {
-            Self::Unmapped(
-                Reason::Collision | Reason::UnsafeEntry | Reason::DirectoryOccupied | Reason::Alias,
-            )
-            | Self::UnclassifiedCollision => true,
-            Self::Unmapped(
-                Reason::InvalidName | Reason::HostRestriction | Reason::Reserved | Reason::Ignored,
-            )
-            | Self::ExportConflict => false,
+            Self::Obstructed(_) | Self::Alias | Self::UnclassifiedCollision => true,
+            Self::Unmapped(_) | Self::ExportConflict => false,
         }
     }
 }
@@ -298,6 +317,22 @@ impl FindingWrite {
     }
 }
 
+/// The findings [`write_name_finding`] records; an export conflict has its own writer.
+#[derive(Clone, Copy)]
+enum NameFinding {
+    Unplaced(Unplaced),
+    Alias,
+}
+
+impl From<NameFinding> for FindingKind {
+    fn from(kind: NameFinding) -> Self {
+        match kind {
+            NameFinding::Unplaced(unplaced) => unplaced.into(),
+            NameFinding::Alias => Self::Alias,
+        }
+    }
+}
+
 /// What a name finding of one object said before and after [`write_name_finding`].
 #[derive(Clone, Copy)]
 struct WrittenFinding {
@@ -305,16 +340,17 @@ struct WrittenFinding {
     after: FindingKind,
 }
 
-/// Records `reason` for the live generation `generation` of `name` in `transaction`, as
-/// [`RootLease::record_finding`] describes; the caller has authorized the transaction and
-/// matched the binding. A generation that changed or went is [`AdminError::Precondition`].
+/// Records the name finding `kind` for the live generation `generation` of `name` in
+/// `transaction`, as [`RootLease::record_finding`] describes; the caller has authorized the
+/// transaction and matched the binding. A generation that changed or went is
+/// [`AdminError::Precondition`].
 fn write_name_finding(
     transaction: &Transaction<'_>,
     root: RootId,
     binding: &SyncBinding,
     name: &ObjectName,
     generation: Generation,
-    reason: Reason,
+    kind: NameFinding,
 ) -> Result<WrittenFinding, AdminError> {
     let record = objects::lookup(transaction, binding.bucket.as_str(), name.as_str())?
         .ok_or(AdminError::Precondition)?
@@ -325,7 +361,7 @@ fn write_name_finding(
     let observed = FindingRow {
         incarnation: binding.incarnation,
         generation,
-        kind: FindingKind::Unmapped(reason),
+        kind: kind.into(),
         owner: sql::optional_scalar(transaction, "SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1 AND i.incarnation=?2", params![binding.bucket, binding.incarnation]).map_err(unavailable)?,
     };
     let stored = sql::row(
@@ -421,7 +457,7 @@ impl RootLease {
         binding: SyncBinding,
         name: ObjectName,
         generation: Generation,
-        reason: Reason,
+        reason: Unplaced,
     ) -> Result<(), RootError> {
         self.revalidate().await?;
         let lease = self.clone();
@@ -431,7 +467,8 @@ impl RootLease {
                 let tx = c.transaction().map_err(unavailable)?;
                 lease.control_scope().authorize(&tx)?;
                 matching(&tx, &binding, binding.bucket.as_str())?;
-                write_name_finding(&tx, root, &binding, &name, generation, reason)?;
+                let kind = NameFinding::Unplaced(reason);
+                write_name_finding(&tx, root, &binding, &name, generation, kind)?;
                 tx.commit().map_err(unavailable)?;
                 Ok::<_, AdminError>(())
             })
@@ -503,7 +540,7 @@ impl RootLease {
                 let tx = c.transaction()?;
                 lease.control_scope().authorize(&tx)?;
                 tx.prepare_cached("SELECT ordinal,name FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND reason=?3 AND ordinal>?4 ORDER BY ordinal LIMIT 256")?
-                    .query_map(params![root, bucket, FindingKind::Unmapped(Reason::Collision), after], |row| {
+                    .query_map(params![root, bucket, FindingKind::Obstructed(Obstruction::Collision), after], |row| {
                         Ok(NamedFinding { ordinal: row.get(0)?, name: row.get(1)? })
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()

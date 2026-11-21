@@ -1,6 +1,9 @@
 //! Descriptor-relative traversal shared by synchronization and catalog write-back.
 
-use super::{mapping::Reason, naming::RootNaming};
+use super::{
+    mapping::{LexicalReason, Obstruction, Unplaced},
+    naming::RootNaming,
+};
 use crate::fsutil::{self, Child, DirectoryNames, DirectoryOpen, Lookup, NodeId};
 pub(crate) use crate::source_tree::TreeLimits;
 use crate::source_tree::{LARGE_TREE_ENTRIES, warn_large_tree};
@@ -270,7 +273,7 @@ pub(crate) enum ParentOpen {
 
 #[derive(Debug)]
 pub(crate) enum ParentError {
-    Finding(Reason),
+    Finding(Unplaced),
     Missing,
     Io(io::Error),
 }
@@ -308,20 +311,20 @@ pub(crate) fn parent(
                 .split(|byte| *byte == b'/')
                 .any(|part| matches!(part, b"" | b"." | b".."))
     {
-        return Err(ParentError::Finding(Reason::InvalidName));
+        return Err(ParentError::Finding(LexicalReason::InvalidName.into()));
     }
     // Export checks the configured depth with `TreeLimits::admits_file` before a path gets here.
     // This only refuses what no configuration could allow, and does so before creating anything.
     if path.iter().count() > MAX_TREE_DEPTH {
-        return Err(ParentError::Finding(Reason::HostRestriction));
+        return Err(ParentError::Finding(LexicalReason::HostRestriction.into()));
     }
     // What the root's filesystem cannot hold is refused before any level is created.
     if path.iter().any(|component| !naming.admits(component)) {
-        return Err(ParentError::Finding(Reason::HostRestriction));
+        return Err(ParentError::Finding(LexicalReason::HostRestriction.into()));
     }
     for component in path {
         if matches!(component.to_str(), Some("." | "..")) {
-            return Err(ParentError::Finding(Reason::InvalidName));
+            return Err(ParentError::Finding(LexicalReason::InvalidName.into()));
         }
         let mode = match open {
             ParentOpen::Existing => DirectoryOpen::Existing,
@@ -357,13 +360,13 @@ pub(crate) fn parent(
                 }
                 directory = file;
             }
-            Ok(Child::Alias) => return Err(ParentError::Finding(Reason::Collision)),
+            Ok(Child::Alias) => return Err(ParentError::Finding(Obstruction::Collision.into())),
             Ok(Child::Missing) => return Err(ParentError::Missing),
             Err(error) if !structural_entry_error(&error) => return Err(error.into()),
             Err(_) if fsutil::open_regular_at(&directory, component).is_ok() => {
-                return Err(ParentError::Finding(Reason::Collision));
+                return Err(ParentError::Finding(Obstruction::Collision.into()));
             }
-            Err(_) => return Err(ParentError::Finding(Reason::UnsafeEntry)),
+            Err(_) => return Err(ParentError::Finding(Obstruction::UnsafeEntry.into())),
         }
     }
     Ok(directory)

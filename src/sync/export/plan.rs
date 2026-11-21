@@ -19,7 +19,7 @@ use crate::{
     sync::{
         SyncError,
         error::{superseded, unless_superseded},
-        mapping::{self, PathMapping, Reason},
+        mapping::{self, LexicalReason, Obstruction, PathMapping, Unplaced},
         naming::RootNaming,
         report::remedy::Correction,
         tree::{ParentError, ParentOpen, parent, structural_entry_error},
@@ -55,14 +55,14 @@ impl LiveObject<'_> {
             PathMapping::File(path) if self.root.tree_limits().admits_file(&path) => Ok(path),
             // Exporting a level the scans refuse would stop the whole root, so this object alone
             // stays out of the tree.
-            PathMapping::File(_) => Err(Reason::HostRestriction),
+            PathMapping::File(_) => Err(LexicalReason::HostRestriction),
             PathMapping::Unrepresentable(reason) => Err(reason),
         };
         let path = match mapped {
             Ok(path) => path,
             Err(reason) => {
                 match record {
-                    Some(record) => self.finding(&record, reason).await?,
+                    Some(record) => self.finding(&record, reason.into()).await?,
                     None => {
                         unless_superseded(
                             self.root
@@ -234,7 +234,7 @@ impl LiveObject<'_> {
             Err(error) => return Err(error.into()),
         };
         if collision {
-            self.finding(record, Reason::Collision).await?;
+            self.finding(record, Obstruction::Collision.into()).await?;
             return Ok(None);
         }
         // A frozen file is not read at all, whatever it shows: only an API change ends an alias.
@@ -259,8 +259,12 @@ impl LiveObject<'_> {
                 crate::sync::deletion::record_replaced(self.root, self.bucket, self.name).await?;
                 return Ok(None);
             }
-            Target::Finding(reason) | Target::Replaced(reason) => {
+            Target::Finding(reason) => {
                 self.finding(record, reason).await?;
+                return Ok(None);
+            }
+            Target::Replaced(obstruction) => {
+                self.finding(record, obstruction.into()).await?;
                 return Ok(None);
             }
             Target::Identical => TargetContent::Identical,
@@ -355,10 +359,10 @@ enum Target {
     Conflicting,
     /// A directory holds the name; installation removes it if it may and it is empty.
     Directory,
-    Finding(Reason),
+    Finding(Unplaced),
     /// A directory or special file holds the path: a tracked file replaced, or a name the tree
     /// cannot hold for an object it never tracked, for the reason given.
-    Replaced(Reason),
+    Replaced(Obstruction),
     /// The directory holds a regular file under another letter case or normalization of the
     /// name, at this path below the root.
     Alias(String),
@@ -382,10 +386,10 @@ fn inspect(
     record: &ObjectRecord,
 ) -> Result<Target, AdminError> {
     let Some(name) = path.file_name() else {
-        return Ok(Target::Finding(Reason::InvalidName));
+        return Ok(Target::Finding(LexicalReason::InvalidName.into()));
     };
     if !naming.admits(name) {
-        return Ok(Target::Finding(Reason::HostRestriction));
+        return Ok(Target::Finding(LexicalReason::HostRestriction.into()));
     }
     let directory = match parent(
         root,
@@ -414,8 +418,11 @@ fn inspect(
                     .into_os_string()
                     .into_string()
                     // An export path is UTF-8, and so is a spelling the listing returns.
-                    .map_or(Target::Finding(Reason::Collision), Target::Alias)),
-                None => Ok(Target::Finding(Reason::Collision)),
+                    .map_or(
+                        Target::Finding(Obstruction::Collision.into()),
+                        Target::Alias,
+                    )),
+                None => Ok(Target::Finding(Obstruction::Collision.into())),
             };
         }
         Ok(fsutil::RegularChild::Missing) => return Ok(Target::Absent),
@@ -425,7 +432,7 @@ fn inspect(
         {
             return Ok(Target::Directory);
         }
-        Err(_) => return Ok(Target::Replaced(Reason::UnsafeEntry)),
+        Err(_) => return Ok(Target::Replaced(Obstruction::UnsafeEntry)),
     };
     let before = fsutil::stat_identity(&file)?;
     if before.size != record.size {
