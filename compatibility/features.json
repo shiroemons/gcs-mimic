@@ -60432,7 +60432,7 @@
         },
         {
           "id": "sync-name-mapping",
-          "description": "Remaining from the name and path mapping contract: findings for every member of a case or Unicode alias group, classified before any member is exported, and FIFOs and sockets in the tree reported as unsafe entries without opening, reading or replacing them on macOS. Property round trips or explicit Unrepresentable, literal percent, backslash HostRestriction (a lexical rule that does not depend on the host), dot and empty components and reserved or ignored regular files pass in sync-lexical-name-mapping; colon HostRestriction where the probed filesystem refuses or rewrites it and the probed component limits in sync-root-naming-probe; prefix/type collisions, host length and symlink findings in sync-runtime-export-mapping; actual directory spelling, a directory replacing a tracked file and no-follow parents in sync-runtime-path-checks. These run on macOS and Linux; the Windows device and special-component rules have a test that compiles only for Windows, and native Windows is not claimed (known deviations). Owners sync-mirror and sync-ingest; contract docs/en/slices/directory-synchronization.md. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
+          "description": "Remaining from the name and path mapping contract: findings for every member of a case or Unicode alias group, classified before any member is exported. FIFOs and sockets in the tree pass in sync-unsafe-special-entries. Property round trips or explicit Unrepresentable, literal percent, backslash HostRestriction (a lexical rule that does not depend on the host), dot and empty components and reserved or ignored regular files pass in sync-lexical-name-mapping; colon HostRestriction where the probed filesystem refuses or rewrites it and the probed component limits in sync-root-naming-probe; prefix/type collisions, host length and symlink findings in sync-runtime-export-mapping; actual directory spelling, a directory replacing a tracked file and no-follow parents in sync-runtime-path-checks. These run on macOS and Linux; the Windows device and special-component rules have a test that compiles only for Windows, and native Windows is not claimed (known deviations). Owners sync-mirror and sync-ingest; contract docs/en/slices/directory-synchronization.md. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -60441,6 +60441,12 @@
           "description": "PASS: opening a parent that must already exist never creates a missing directory, so a missing bucket directory fails as missing and stays absent. On a root that folds letter case, a parent reached only through another spelling is a collision; a symlinked parent is an unsafe entry, and hard-linked regular files stay ordinary files. A directory where a tracked file was stops that one path as EntryReplaced, in the inventory and in exports alike, while another file's deletion goes ahead and the pass ends without pausing or retrying the root; the directory stays. Scope: docs/en/slices/directory-synchronization.md#name-and-path-reversibility.",
           "result": "PASS",
           "test_ids": ["existing_parents_never_create_missing_directories_and_reject_aliases_and_symlinks", "a_tracked_file_replaced_by_a_directory_stops_only_its_own_path"]
+        },
+        {
+          "id": "sync-unsafe-special-entries",
+          "description": "PASS on macOS: FIFOs and sockets at objects' paths and among the tree's entries are reported as unsafe entries without being opened, read or replaced, and the pass goes on. Opening a socket fails with EOPNOTSUPP on macOS and ENXIO on Linux, and both name what the entry is, so one socket no longer fails a whole pass on macOS.",
+          "result": "PASS",
+          "test_ids": ["runtime_mapping_reports_fifos_and_sockets_without_reading_or_replacing_them"]
         },
         {
           "id": "sync-bidirectional-mutations",
@@ -61184,6 +61190,7 @@
         "sync-one-change-bench:bind-mount-1000-files:linux/arm64",
         "existing_parents_never_create_missing_directories_and_reject_aliases_and_symlinks",
         "a_tracked_file_replaced_by_a_directory_stops_only_its_own_path",
+        "runtime_mapping_reports_fifos_and_sockets_without_reading_or_replacing_them",
         "native_watcher_ingests_external_create_edit_replace_and_rename_without_manual_rescan",
         "protected_external_deletion_restores_bytes_and_versioned_removal_keeps_history",
         "an_object_the_tree_cannot_hold_neither_holds_back_the_baseline_nor_external_deletions",
@@ -61913,6 +61920,13 @@
           "verified_at": "2026-11-20",
           "artifact": "docs/en/slices/directory-synchronization.md",
           "test_ids": ["existing_parents_never_create_missing_directories_and_reject_aliases_and_symlinks", "a_tracked_file_replaced_by_a_directory_stops_only_its_own_path", "native_watcher_ingests_external_create_edit_replace_and_rename_without_manual_rescan", "protected_external_deletion_restores_bytes_and_versioned_removal_keeps_history", "an_object_the_tree_cannot_hold_neither_holds_back_the_baseline_nor_external_deletions", "a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict", "recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes", "threshold_is_root_wide_strictly_above_half_and_has_an_absolute_floor", "frozen_root_inventory_pages_and_one_shot_approval_consume_exact_members", "long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all_members", "deletion_membership_progress_rolls_back_with_object_failure_and_restart_invalidates_revision", "incomplete_scan_recreated_file_and_api_change_never_authorize_an_old_delete", "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval", "an_api_write_keeps_the_revision_only_while_the_members_stay_the_same", "protected_findings_pages_cover_every_target_with_a_final_null_cursor", "unknown_control_routes_answer_authentication_before_not_found", "strict_control_authority_precedes_body_parsing_and_requires_each_explicit_project_admin", "status_rechecks_the_owner_union_after_admission_authorization", "queued_native_authority_and_condition_errors_keep_their_http_status", "strict_http_conflict_resolution_requires_exact_targets_and_preserves_api_conditions", "storage_failures_require_capacity_or_access_repairs", "response_limit_counts_the_exact_rendered_bytes", "large_conflict_pages_fit_rendered_limit_and_resume_after_the_last_returned_item", "findings_pages_reject_in_place_changes_and_foreign_sessions", "recovery_http_refreshes_changed_workspace_identity_and_requires_exact_discard_confirmation", "export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names", "carried_over_collisions_render_as_conflicts_that_ask_to_observe_the_object_again", "commands_past_the_mirror_queue_wait_their_turn_and_all_succeed", "a_cancelled_command_gives_up_its_place_in_the_mirror_queue", "commands_in_line_end_at_their_own_deadlines", "stopping_the_mirror_wakes_every_command_waiting_in_its_queue", "a_wait_stops_for_every_holdup_the_status_shows", "the_first_condition_that_holds_names_the_holdup", "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling", "native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity", "a_watch_follows_the_tree_limit_instead_of_a_fixed_directory_count", "every_lost_history_or_root_change_rebuilds_the_watch", "a_structural_change_among_content_changes_settles_as_structural"]
+        },
+        {
+          "command": "cargo test --locked --offline --test it_sync (51 passed, on macOS, with the socket fix)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["runtime_mapping_reports_fifos_and_sockets_without_reading_or_replacing_them"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --bin gcs-mimic -- --test-threads=4 (88 passed, on macOS, at 719e084f)",
