@@ -2,6 +2,7 @@ use super::*;
 use crate::{storage::Catalog, test_support::TestDir};
 use std::{fs, os::unix::fs::symlink, time::Duration};
 
+mod decide;
 mod switch;
 
 /// A marker written by any release reads back the same, so its bytes keep the field order and
