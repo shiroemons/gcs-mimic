@@ -297,6 +297,17 @@ impl Drop for FailingSync {
     }
 }
 
+/// What disturbs an export before the crash besides the crash itself.
+#[derive(Clone, Copy, Debug)]
+enum Interference<'a> {
+    /// Nothing: the export runs undisturbed until the crash.
+    None,
+    /// The sync of this parent of the rename fails inside the rename's call.
+    FailingSync(&'a str),
+    /// The race reaches the target between installation's check of it and the rename.
+    Race(Race),
+}
+
 /// The tree and catalog left by a crash or power loss during an export, restored from the
 /// snapshot it took.
 struct Crashed {
@@ -313,35 +324,41 @@ impl Crashed {
     /// Crashes or loses power at `step` of `change`'s export and restores the snapshot, checking
     /// that it holds exactly the state the checkpoint promises.
     async fn at(change: Change, step: Step, crash: Crash) -> Self {
-        Self::run(change, step, crash, None, None).await
+        Self::run(change, step, crash, Interference::None).await
     }
 
     /// Like [`Self::at`] at [`Step::SyncCopyFailed`], after the export failed because the sync of
     /// `failing`, a parent of the rename, failed inside the rename's call.
     async fn failing(change: Change, failing: &str, crash: Crash) -> Self {
-        Self::run(change, Step::SyncCopyFailed, crash, Some(failing), None).await
+        Self::run(
+            change,
+            Step::SyncCopyFailed,
+            crash,
+            Interference::FailingSync(failing),
+        )
+        .await
     }
 
     /// Like [`Self::at`] at [`Step::SyncCopyRenamed`], after `race` reached the target between
     /// installation's check of it and the rename.
     async fn raced(change: Change, crash: Crash, race: Race) -> Self {
-        Self::run(change, Step::SyncCopyRenamed, crash, None, Some(race)).await
+        Self::run(
+            change,
+            Step::SyncCopyRenamed,
+            crash,
+            Interference::Race(race),
+        )
+        .await
     }
 
-    async fn run(
-        change: Change,
-        step: Step,
-        crash: Crash,
-        failing: Option<&str>,
-        race: Option<Race>,
-    ) -> Self {
-        let case = format!("{change:?} {step:?} {crash:?} {failing:?} {race:?}");
+    async fn run(change: Change, step: Step, crash: Crash, interference: Interference<'_>) -> Self {
+        let case = format!("{change:?} {step:?} {crash:?} {interference:?}");
         let (data, tree, catalog, bucket, _) = live_fixture().await;
         let before = match change.before() {
             Some(body) => Some(publish_origin(&catalog, &bucket, body, Origin::Api).await),
             None => None,
         };
-        if failing.is_some() {
+        if matches!(interference, Interference::FailingSync(_)) {
             fs::create_dir_all(tree.0.join("test-bucket")).unwrap();
         }
         let mut started = Started::start(catalog, &data.0, &tree.0).await;
@@ -355,8 +372,16 @@ impl Crashed {
         started
             .catalog
             .inject(step, 0, Fault::Snapshot(snapshot_data.clone()));
-        let failing_sync = failing.map(|failing| FailingSync::of(&tree.0.join(failing)));
-        let held = race.map(|race| (race, install_race::Held::arm(&tree.0, Step::SyncCopyRename)));
+        let failing_sync = match interference {
+            Interference::FailingSync(failing) => Some(FailingSync::of(&tree.0.join(failing))),
+            Interference::None | Interference::Race(_) => None,
+        };
+        let held = match interference {
+            Interference::Race(race) => {
+                Some((race, install_race::Held::arm(&tree.0, Step::SyncCopyRename)))
+            }
+            Interference::None | Interference::FailingSync(_) => None,
+        };
         let api = change_api(&started.catalog, &bucket, change, before.as_ref()).await;
         let waited = match held {
             Some((race, held)) => {
@@ -367,14 +392,15 @@ impl Crashed {
             None => started.wait().await,
         };
         drop(failing_sync);
-        match (failing, race) {
-            (Some(_), _) => assert!(waited.is_err(), "{case}"),
-            (None, Some(Race::OtherBytes)) => assert!(
+        match interference {
+            Interference::FailingSync(_) | Interference::Race(Race::OtherBytes) => assert!(
                 waited.is_err(),
                 "{case}: {:?}",
                 waited.as_ref().map(|waited| &waited.reason)
             ),
-            (None, _) => assert_eq!(waited.unwrap().reason, WaitReason::Ready, "{case}"),
+            Interference::None | Interference::Race(Race::Permissions | Race::Renumbered) => {
+                assert_eq!(waited.unwrap().reason, WaitReason::Ready, "{case}");
+            }
         }
         assert_eq!(fault::pending(&tree.0), 0, "{case}");
         assert_eq!(started.catalog.pending_faults(), 0, "{case}");
@@ -382,7 +408,10 @@ impl Crashed {
 
         restore_tree(&snapshot_tree, &tree.0, &[TARGET]);
         let (copy, target) = change.snapshot(step, crash);
-        let copy = race.map_or(copy, |race| Some(race.displaced()));
+        let copy = match interference {
+            Interference::Race(race) => Some(race.displaced()),
+            Interference::None | Interference::FailingSync(_) => copy,
+        };
         assert_eq!(
             workspace_bodies(&tree.0),
             copy.into_iter().map(<[u8]>::to_vec).collect::<Vec<_>>(),
@@ -634,9 +663,13 @@ async fn a_crash_after_a_raced_rename_recovers_by_the_bytes_the_rename_moved() {
 /// overwrite displaced.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart() {
-    for (step, crash, failing) in [
-        (Step::SyncCopyFailed, Crash::PowerLoss, Some("test-bucket")),
-        (Step::SyncCopyRenamed, Crash::Abort, None),
+    for (step, crash, interference) in [
+        (
+            Step::SyncCopyFailed,
+            Crash::PowerLoss,
+            Interference::FailingSync("test-bucket"),
+        ),
+        (Step::SyncCopyRenamed, Crash::Abort, Interference::None),
     ] {
         for again_at in [
             Step::SyncRecoveryUnlink,
@@ -648,7 +681,7 @@ async fn crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart() 
         ] {
             for &again in Crash::ALL {
                 let case = format!("{step:?} {crash:?} then {again_at:?} {again:?}");
-                let crashed = Crashed::run(Change::Overwrite, step, crash, failing, None).await;
+                let crashed = Crashed::run(Change::Overwrite, step, crash, interference).await;
                 let snapshots = TestDir::new();
                 let (snapshot_data, snapshot_tree) =
                     (snapshots.0.join("data"), snapshots.0.join("tree"));
