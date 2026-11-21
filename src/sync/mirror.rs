@@ -1925,12 +1925,22 @@ impl LiveObject<'_> {
         let naming = self.root.naming()?;
         let lookup = self.root.lookup()?;
         match self.occasion {
-            Occasion::Change => Ok(Some(
-                file_job_retry(self.root, move |root| {
-                    inspect(root, naming, &lookup, &path, &observed)
+            Occasion::Change => {
+                let target = file_job_retry(self.root, move |root| {
+                    match inspect(root, naming, &lookup, &path, &observed) {
+                        Ok(target) => Ok(Some(target)),
+                        // The spelling of the entry changed while it was read, as when the
+                        // frozen file of an alias is renamed: the next pass reads it again.
+                        Err(AdminError::Precondition) => Ok(None),
+                        Err(error) => Err(error),
+                    }
                 })
-                .await?,
-            )),
+                .await?;
+                if target.is_none() {
+                    self.defer();
+                }
+                Ok(target)
+            }
             Occasion::Finding => match self
                 .root
                 .file_job(move |root| inspect(root, naming, &lookup, &path, &observed))
