@@ -21,11 +21,14 @@ pub(in crate::storage) const SCHEMA_VERSION: i64 = 62;
 /// A spelling goes with its finding, and with the `alias` reason once the finding gets another
 /// one; a spelling that changes moves the findings revision as the finding itself does.
 /// `released` marks an alias that ended and waits for the export that settles its file, which
-/// is reported once.
+/// is reported once. `edit_base` is the object's live generation when an edit of the file was
+/// first seen, the one generation that edit may replace once the object is the last of the
+/// alias; a generation written after it would otherwise be lost to the edit.
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_finding_aliases (
  ordinal INTEGER PRIMARY KEY REFERENCES sync_findings(ordinal) ON DELETE CASCADE,
  spelling TEXT NOT NULL COLLATE BINARY CHECK(length(spelling) BETWEEN 1 AND 4096),
- released INTEGER NOT NULL DEFAULT 0 CHECK(released IN (0,1))
+ released INTEGER NOT NULL DEFAULT 0 CHECK(released IN (0,1)),
+ edit_base INTEGER CHECK(edit_base IS NULL OR edit_base>=0)
 );
 CREATE INDEX sync_finding_aliases_spelling ON sync_finding_aliases(spelling);
 CREATE TRIGGER sync_finding_alias_reason AFTER UPDATE OF reason ON sync_findings WHEN NEW.reason!='alias' BEGIN
@@ -66,6 +69,48 @@ pub(in crate::storage) fn claimants(
             |row| row.get(0),
         )?
         .collect()
+}
+
+/// Records, as an edit of the file at spelling `?4` that `?5` tracks is first seen, the live
+/// generation of every other object whose alias finding names that spelling, in bucket `?2` of
+/// incarnation `?3` under root `?1`. A later edit of the same file keeps the first base: the
+/// file never showed what the API wrote to those objects since.
+const NOTE_EDIT_BASE: &str = "UPDATE sync_finding_aliases SET edit_base=(SELECT o.generation FROM sync_findings f JOIN objects o ON o.bucket=f.bucket AND o.name=f.name AND o.time_deleted IS NULL WHERE f.ordinal=sync_finding_aliases.ordinal) WHERE spelling=?4 AND ordinal IN (SELECT ordinal FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND incarnation=?3 AND name!=?5)";
+
+/// Notes the generation each other object of the alias at `spelling` has as the edit of its
+/// file, tracked for `holder`, is first seen; see [`NOTE_EDIT_BASE`].
+pub(in crate::storage) fn note_edit_base(
+    transaction: &Transaction<'_>,
+    root: RootId,
+    binding: &SyncBinding,
+    spelling: &str,
+    holder: &ObjectName,
+) -> rusqlite::Result<()> {
+    transaction
+        .prepare_cached(NOTE_EDIT_BASE)?
+        .execute(params![
+            root,
+            binding.bucket,
+            binding.incarnation,
+            spelling,
+            holder
+        ])?;
+    Ok(())
+}
+
+/// The generation of `heir` that an edit of the file it shared may replace: the one noted when
+/// the edit was first seen, or, for an edit first seen once `heir` was the last of the alias,
+/// the generation its alias finding last followed. `None` when `heir` holds no alias finding.
+pub(in crate::storage) fn edit_base(
+    transaction: &Transaction<'_>,
+    root: RootId,
+    binding: &SyncBinding,
+    heir: &ObjectName,
+) -> rusqlite::Result<Option<Generation>> {
+    transaction
+        .prepare_cached("SELECT coalesce(a.edit_base,f.generation) FROM sync_findings f JOIN sync_finding_aliases a ON a.ordinal=f.ordinal WHERE f.root_id=?1 AND f.bucket=?2 AND f.name=?3 AND f.incarnation=?4")?
+        .query_row(params![root, binding.bucket, heir, binding.incarnation], |row| row.get(0))
+        .optional()
 }
 
 /// Each spelling of root `?1` with the number of live objects its file stands for, those that
@@ -438,13 +483,52 @@ impl RootLease {
                 if updated != 1 {
                     return Err(AdminError::Precondition);
                 }
-                sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5", params![root, binding.bucket, holder, binding.incarnation, PathStop::AliasEdited]).map_err(unavailable)?;
+                drop_edit_stop(&tx, root, &binding, &holder)?;
                 tx.commit().map_err(unavailable)?;
                 Ok::<_, AdminError>(())
             })
             .await?;
         Ok(())
     }
+
+    /// Gives up taking the edit in the file of the deleted object `holder` in for the object
+    /// left, which the API wrote since the edit was first seen: the edit no longer stops the
+    /// path, so the deletion goes on to remove the file, which keeps the edit as a conflict, and
+    /// the object left gets its own file with what the API holds.
+    pub(crate) async fn abandon_alias_edit(
+        &self,
+        binding: SyncBinding,
+        holder: ObjectName,
+    ) -> Result<(), RootError> {
+        self.revalidate().await?;
+        let lease = self.clone();
+        let root = self.status().root_id;
+        self.catalog()
+            .run_admin_with_error(move |c| {
+                let tx = c.transaction().map_err(unavailable)?;
+                lease.control_scope().authorize(&tx)?;
+                matching(&tx, &binding, binding.bucket.as_str())?;
+                if objects::lookup(&tx, binding.bucket.as_str(), holder.as_str())?.is_some() {
+                    return Err(AdminError::Precondition);
+                }
+                drop_edit_stop(&tx, root, &binding, &holder)?;
+                tx.commit().map_err(unavailable)?;
+                Ok::<_, AdminError>(())
+            })
+            .await?;
+        Ok(())
+    }
+}
+
+/// Removes the [`PathStop::AliasEdited`] stop of `holder`, whose edit is settled either way.
+fn drop_edit_stop(
+    transaction: &Transaction<'_>,
+    root: RootId,
+    binding: &SyncBinding,
+    holder: &ObjectName,
+) -> Result<(), AdminError> {
+    sql::exec(transaction, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5", params![root, binding.bucket, holder, binding.incarnation, PathStop::AliasEdited]).map_err(unavailable)?;
+    Ok(())
 }
 
 /// [`RootLease::hold_alias`] inside its transaction.

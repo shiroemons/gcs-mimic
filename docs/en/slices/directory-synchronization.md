@@ -644,7 +644,11 @@ more objects share the file, deleting one keeps it frozen for the others. Once
 one object is left, it gets its file back if it went, and a frozen edit is
 uploaded to it: in place when the file was tracked for it, and otherwise before
 the file goes with the deleted object and the object left is exported under its
-own spelling. The end of an alias is recorded in the transaction of the export
+own spelling. An upload of that second kind replaces only the generation the
+object left had when the edit was first seen, which the alias finding keeps: a
+generation the API wrote since, while the file was frozen or after the other
+object went, stays, and the deleted object's file goes as any deletion of an
+edited file does, keeping the edit as a conflict. The end of an alias is recorded in the transaction of the export
 or upload that settles its file, so a failed export, which keeps the finding and
 is reported as `sync_finding_export_failed`, or a restart in between leaves the
 finding to be observed again and deletes nothing. A `sync_alias_frozen` warning

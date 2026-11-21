@@ -1,7 +1,7 @@
 use super::*;
 use crate::storage::catalog::{objects, sql};
 use crate::storage::{
-    admin::{BucketName, ObjectName},
+    admin::{BucketName, Generation, ObjectName},
     sync_state::{SyncBinding, SyncPath, findings::alias},
 };
 
@@ -86,8 +86,9 @@ impl RootLease {
 
     /// Decides what ingestion does with the changed tracked file of `name` at `path`. While
     /// another live object stands for the file as well, the edit stays out and holds a
-    /// [`PathStop::AliasEdited`] stop. Once `name` went through the API and one object is left,
-    /// the edit is that object's to take in. Otherwise a stop left from the freeze goes, since
+    /// [`PathStop::AliasEdited`] stop, and the stop notes the generation each other object has
+    /// then. Once `name` went through the API and one object is left, the edit is that object's
+    /// to take in over the generation noted for it. Otherwise a stop left from the freeze goes, since
     /// the edit is now taken in for `name`. Reads only when the stop already says what holds, so
     /// an unchanged freeze writes nothing.
     pub(crate) async fn observe_alias_edit(
@@ -110,12 +111,16 @@ impl RootLease {
             let stopped: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5)", params![root,binding.bucket,name,binding.incarnation,PathStop::AliasEdited])?;
             let partner = others.pop();
             let edit = match (partner, live || !others.is_empty()) {
-                (Some(heir), false) => return Ok(AliasEdit::HandOver(heir)),
+                (Some(heir), false) => {
+                    let base = alias::edit_base(&tx, root, &binding, &heir)?;
+                    return Ok(AliasEdit::HandOver { heir, base });
+                }
                 (Some(partner), true) => {
                     let transition = if stopped {
                         Transition::Kept
                     } else {
                         sql::exec(&tx, RECORD_STOP, params![root,binding.bucket,name,binding.incarnation,PathStop::AliasEdited])?;
+                        alias::note_edit_base(&tx, root, &binding, path.as_str(), &name)?;
                         Transition::New
                     };
                     AliasEdit::Frozen { transition, partner }
@@ -187,9 +192,13 @@ pub(crate) enum AliasEdit {
         transition: Transition,
         partner: ObjectName,
     },
-    /// The object went through the API, and the file stands for this one object alone, which
-    /// takes the edit in.
-    HandOver(ObjectName),
+    /// The object went through the API, and the file stands for `heir` alone, which takes the
+    /// edit in only over `base`, its generation when the edit was first seen; `None` when no
+    /// generation is known, which takes nothing in.
+    HandOver {
+        heir: ObjectName,
+        base: Option<Generation>,
+    },
     /// The object is not frozen, and ingestion takes the file in.
     Free,
 }

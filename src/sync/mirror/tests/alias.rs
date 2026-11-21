@@ -489,6 +489,110 @@ async fn an_edit_of_a_file_three_objects_share_waits_for_the_last_of_them() {
     }
 }
 
+/// An edit kept out of the frozen file is taken in for the object left only over the generation
+/// that object had when the edit was first seen. One written through the API after that, while
+/// the file was still frozen or once the other object went and before an ingestion, stays: the
+/// edit is kept as a conflict instead, the deleted object's file goes, and the object left gets
+/// its own with what the API holds.
+#[tokio::test]
+async fn an_edit_never_replaces_a_generation_written_after_it() {
+    for (spelling, names) in cases() {
+        for written_frozen in [true, false] {
+            let Some(mut pair) = Pair::frozen(spelling, names).await else {
+                continue;
+            };
+            let context = format!("{spelling:?} {names:?} written while frozen: {written_frozen}");
+            fs::write(pair.directory().join(pair.first), b"edited file").unwrap();
+            assert_eq!(
+                pair.wait().await.reason,
+                WaitReason::FindingsPending,
+                "{context}"
+            );
+            if written_frozen {
+                publish_named(
+                    &pair.catalog,
+                    &pair.bucket,
+                    pair.second,
+                    b"written",
+                    Origin::Api,
+                )
+                .await;
+                assert_eq!(
+                    pair.wait().await.reason,
+                    WaitReason::FindingsPending,
+                    "{context}"
+                );
+                pair.delete(pair.first).await;
+            } else {
+                pair.delete(pair.first).await;
+                pair.replay().await;
+                publish_named(
+                    &pair.catalog,
+                    &pair.bucket,
+                    pair.second,
+                    b"written",
+                    Origin::Api,
+                )
+                .await;
+            }
+            let result = pair.wait().await;
+            assert_eq!(result.reason, WaitReason::FindingsPending, "{context}");
+            assert_eq!(pair.body(pair.second).await, b"written", "{context}");
+            assert!(
+                !exists(&pair.catalog, &pair.bucket, pair.first).await,
+                "{context}"
+            );
+            assert_eq!(
+                pair.retained().await,
+                [b"edited file".to_vec()],
+                "{context}"
+            );
+            assert_eq!(pair.findings().await, [], "{context}");
+            let result = pair.wait().await;
+            assert_eq!(result.reason, WaitReason::FindingsPending, "{context}");
+            assert_eq!(
+                result.findings.map(|counted| counted.unmapped),
+                Some(0),
+                "{context}"
+            );
+            assert_eq!(pair.listed(), [pair.second], "{context}");
+            assert_eq!(
+                fs::read(pair.directory().join(pair.second)).unwrap(),
+                b"written",
+                "{context}"
+            );
+            pair.close().await;
+        }
+    }
+}
+
+impl Pair {
+    /// The bytes of each conflict the root retains, in listing order.
+    async fn retained(&self) -> Vec<Vec<u8>> {
+        let page = self
+            .root
+            .conflict_page(
+                crate::storage::sync_state::conflicts::ConflictPosition::Start,
+                PageLimit::LARGEST,
+                crate::storage::sync_state::authority::ControlAuthority::Permissive,
+            )
+            .await
+            .unwrap();
+        page.items
+            .iter()
+            .map(|conflict| {
+                fs::read(
+                    self._data
+                        .0
+                        .join("sync-conflicts")
+                        .join(conflict.conflict_id.to_string()),
+                )
+                .unwrap()
+            })
+            .collect()
+    }
+}
+
 /// The end of an alias settles the file with the export that writes it back, in one
 /// transaction. When that export fails after the frozen file was deleted and the other object
 /// went through the API, the object left keeps its finding, so neither the failed pass nor a

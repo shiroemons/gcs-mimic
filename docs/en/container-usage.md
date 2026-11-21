@@ -407,7 +407,9 @@ taken in, since it may be meant for either object, and stops
 `sync_alias_edited`), and deleting or renaming it on the host deletes neither
 object. Delete or rename through the API the object an edit is not meant for;
 the next wait uploads the edit to the object left, which then gets its own file,
-without a restart (logged as `sync_alias_released`). To drop the edit instead,
+without a restart (logged as `sync_alias_released`). If the API wrote that
+object after the edit was made, its newer generation stays, and the edit is kept
+as a conflict that `gcs-mimic sync conflicts` lists. To drop the edit instead,
 put the earlier bytes back or delete the file. Object names
 containing `\`, and other names
 that cannot be mapped to host file names, are skipped without stopping

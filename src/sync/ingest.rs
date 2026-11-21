@@ -53,7 +53,14 @@ enum AliasOutcome {
     /// The alias holds it, or a concurrent change defers it: nothing is taken in now.
     Kept,
     /// Its object went, and the one object left of the alias takes the edit in.
-    HandOver(ObjectName),
+    HandOver(Heir),
+}
+
+/// The one object left of an alias whose file holds an edit, and the generation of it that the
+/// edit may replace; see [`AliasEdit::HandOver`].
+struct Heir {
+    name: ObjectName,
+    base: Option<Generation>,
 }
 
 /// What a file's stat observation shows about the body its tracked fingerprint recorded.
@@ -803,7 +810,9 @@ impl Ingest<'_> {
             .await
         {
             Ok(AliasEdit::Free) => Ok(AliasOutcome::Free),
-            Ok(AliasEdit::HandOver(heir)) => Ok(AliasOutcome::HandOver(heir)),
+            Ok(AliasEdit::HandOver { heir, base }) => {
+                Ok(AliasOutcome::HandOver(Heir { name: heir, base }))
+            }
             Ok(AliasEdit::Frozen {
                 transition,
                 partner,
@@ -833,8 +842,11 @@ impl Ingest<'_> {
     /// left of the alias that the file stood for, as the edit's remedy promises: the bytes
     /// become the heir's next generation, and the holder's record takes the file as staged, so
     /// that the holder's deletion removes it unless it changed again and the heir gets its own
-    /// file. A file that changed or could not be read waits for the next pass.
-    async fn hand_over(&mut self, holder: Candidate, heir: ObjectName) -> Result<(), SyncError> {
+    /// file. A file that changed or could not be read waits for the next pass. An heir the API
+    /// wrote since the edit was first seen keeps what it wrote: the edit goes with the holder's
+    /// deletion, which keeps it as a conflict, as an export does with any edit it would replace.
+    async fn hand_over(&mut self, holder: Candidate, heir: Heir) -> Result<(), SyncError> {
+        let Heir { name: heir, base } = heir;
         let live = match self.admin.get_object(&holder.bucket, &heir, None).await {
             Ok(record) => record,
             Err(AdminError::NotFound) => {
@@ -865,10 +877,16 @@ impl Ingest<'_> {
         let hashes = staged.hashes();
         let fingerprint =
             SyncFingerprint::observed(holder.identity, hashes, self.root.observation_time_ns());
+        let generation = Generation::new(live.generation)?;
+        // An heir that already holds the bytes took the edit in before a restart or a failed
+        // record, whatever its generation is now.
         if live.size == staged.size() && live.md5 == hashes.md5 && live.crc32c == hashes.crc32c {
             staged.discard().await?;
+        } else if base != Some(generation) {
+            staged.discard().await?;
+            return self.abandon_hand_over(holder, heir).await;
         } else {
-            let condition = GenerationCondition::Is(Generation::new(live.generation)?);
+            let condition = GenerationCondition::Is(generation);
             self.root.revalidate().await?;
             let result = self
                 .admin
@@ -893,6 +911,31 @@ impl Ingest<'_> {
         match self
             .root
             .hand_over_alias(holder.binding, holder.name, holder.key, fingerprint)
+            .await
+        {
+            Ok(()) => {
+                self.summary.heirs.push((holder.bucket, heir));
+                Ok(())
+            }
+            Err(error) if super::error::superseded(&error) => {
+                self.summary.count_deferred(&holder.path);
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Leaves the edit in the file of the deleted object `holder` out of `heir`, which the API
+    /// wrote since the edit was first seen. Observing `heir` again in this pass removes the
+    /// holder's file first, which keeps the edit as a conflict, and then gives `heir` its own.
+    async fn abandon_hand_over(
+        &mut self,
+        holder: Candidate,
+        heir: ObjectName,
+    ) -> Result<(), SyncError> {
+        match self
+            .root
+            .abandon_alias_edit(holder.binding, holder.name)
             .await
         {
             Ok(()) => {
