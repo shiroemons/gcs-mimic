@@ -85,7 +85,7 @@ impl LiveObject<'_> {
             .await
         {
             Ok(tracked) => tracked,
-            Err(AdminError::Precondition | AdminError::NotFound) => {
+            Err(error) if superseded(&error) => {
                 self.defer();
                 return Ok(None);
             }
@@ -116,7 +116,7 @@ impl LiveObject<'_> {
         let source = match opened {
             Ok(Some(reader)) => Some(reader.into_file()?),
             Ok(None) => None,
-            Err(AdminError::NotFound | AdminError::Precondition) => {
+            Err(error) if superseded(&error) => {
                 self.defer();
                 return Ok(None);
             }
@@ -228,7 +228,7 @@ impl LiveObject<'_> {
     ) -> Result<Option<Content>, SyncError> {
         let collision = match hierarchy_collision(admin, self.bucket, self.name).await {
             Ok(collision) => collision,
-            Err(AdminError::Precondition | AdminError::NotFound) => {
+            Err(error) if superseded(&error) => {
                 self.defer();
                 return Ok(None);
             }

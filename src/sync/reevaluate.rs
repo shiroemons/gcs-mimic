@@ -12,7 +12,7 @@ use crate::{
     diagnostics::{self, LogLevel},
     storage::{
         Catalog,
-        admin::{AdminError, BucketName, ObjectName},
+        admin::{BucketName, ObjectName},
         change_journal::JournalFence,
         sync_state::{root::RootLease, writeback::Writeback},
     },
@@ -200,7 +200,7 @@ impl SkippedExports {
         let binding = match observing.root.sync_binding(bucket).await {
             Ok(binding) => binding,
             // The bucket changed meanwhile; the replay of that change observes its objects.
-            Err(AdminError::NotFound | AdminError::Precondition) => return Ok(()),
+            Err(error) if superseded(&error) => return Ok(()),
             Err(error) => return Err(error.into()),
         };
         match observing
@@ -282,7 +282,7 @@ async fn export_failure(
 ) -> Result<(), SyncError> {
     let binding = match root.sync_binding(bucket).await {
         Ok(binding) => binding,
-        Err(AdminError::NotFound | AdminError::Precondition) => return Ok(()),
+        Err(error) if superseded(&error) => return Ok(()),
         Err(error) => return Err(error.into()),
     };
     let error = match failure {

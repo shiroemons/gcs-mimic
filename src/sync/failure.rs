@@ -115,9 +115,30 @@ impl FailureClass {
         Self::Transient
     }
 
-    /// What a catalog failure says: an unavailable catalog comes back.
+    /// What a catalog failure says: an unavailable catalog comes back. An I/O failure below it is
+    /// its own link.
     pub(in crate::sync) fn of_catalog(error: &CatalogError) -> Option<Self> {
-        matches!(error, CatalogError::Unavailable(_)).then_some(Self::Transient)
+        match error {
+            CatalogError::Unavailable(_) => Some(Self::Transient),
+            CatalogError::AuthenticationAlreadyConfigured
+            | CatalogError::AlreadyExists
+            | CatalogError::NotFound
+            | CatalogError::NotEmpty
+            | CatalogError::RestoreConflict
+            | CatalogError::PreconditionFailed
+            | CatalogError::NotModified
+            | CatalogError::PublicAccessPrevention
+            | CatalogError::Denied(_)
+            | CatalogError::Forbidden
+            | CatalogError::RetentionPolicyLocked(_)
+            | CatalogError::RetentionPolicyNotSet
+            | CatalogError::InvalidMetadata(_)
+            | CatalogError::Metadata(_)
+            | CatalogError::UnsupportedMetadata(_)
+            | CatalogError::Io(_)
+            | CatalogError::Corrupt(_)
+            | CatalogError::NewerSchema { .. } => None,
+        }
     }
 
     /// What a SQLite failure says: a busy or locked database frees up.
@@ -243,12 +264,42 @@ pub(in crate::sync) fn transient_below(error: &AdminError) -> bool {
     )
 }
 
-/// Whether a catalog write about one name failed because an API or bucket change made it moot
-/// after the caller read the state it describes: the object, its generation or its bucket
-/// changed. The journal brings that change to the next replay or pass, which records what then
-/// holds; failing would pause the whole mirror over a race it resolves by itself.
-pub(in crate::sync) fn superseded(error: &RootError) -> bool {
-    FailureClass::of_root(error) == Some(FailureClass::Superseded)
+/// A failure that [`FailureClass`] reads by itself, without the links below it.
+pub(in crate::sync) trait Classified {
+    fn class(&self) -> Option<FailureClass>;
+}
+
+impl Classified for AdminError {
+    fn class(&self) -> Option<FailureClass> {
+        FailureClass::of_admin(self)
+    }
+}
+
+impl Classified for RootError {
+    fn class(&self) -> Option<FailureClass> {
+        FailureClass::of_root(self)
+    }
+}
+
+impl Classified for writeback::Error {
+    fn class(&self) -> Option<FailureClass> {
+        FailureClass::of_writeback(self)
+    }
+}
+
+impl Classified for conflicts::Error {
+    fn class(&self) -> Option<FailureClass> {
+        FailureClass::of_conflict(self)
+    }
+}
+
+/// Whether a step failed because an API, bucket or tree change made it moot after the caller
+/// read the state it acts on: the object, its generation or its bucket changed, or the catalog
+/// no longer holds what it names ([`FailureClass::Superseded`]). The journal brings that change
+/// to the next replay or pass, which records what then holds; failing would pause the whole
+/// mirror over a race it resolves by itself.
+pub(in crate::sync) fn superseded(error: &impl Classified) -> bool {
+    error.class() == Some(FailureClass::Superseded)
 }
 
 /// The result of a catalog write about one name, with a write that a concurrent change made

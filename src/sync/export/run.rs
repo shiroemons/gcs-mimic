@@ -13,7 +13,7 @@ use crate::{
         change_journal::JournalFence,
         sync_state::writeback::{self, InstallOutcome, LiveExport, LiveSource, Writeback},
     },
-    sync::{SyncError, failure::FailureClass, report::remedy::newer_edit_remedy},
+    sync::{SyncError, failure::superseded, report::remedy::newer_edit_remedy},
 };
 use std::fs::File;
 
@@ -171,9 +171,7 @@ impl LiveObject<'_> {
                 Ok(operation) => return Ok(Some(operation)),
                 // A superseded step ends as a race does, a broken invariant among them, as it did
                 // when it was reported as a failed precondition.
-                Err(error)
-                    if FailureClass::of_writeback(&error) == Some(FailureClass::Superseded) =>
-                {
+                Err(error) if superseded(&error) => {
                     return Ok(None);
                 }
                 Err(writeback::Error::Admin(AdminError::Hold))
@@ -209,7 +207,7 @@ impl LiveObject<'_> {
             .await
         {
             Ok(captured) => captured,
-            Err(error) if FailureClass::of_conflict(&error) == Some(FailureClass::Superseded) => {
+            Err(error) if superseded(&error) => {
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -227,7 +225,7 @@ impl LiveObject<'_> {
                 .await
             {
                 Ok((_, reader)) => plan.source = Some(reader.into_file()?),
-                Err(error) if FailureClass::of_admin(&error) == Some(FailureClass::Superseded) => {
+                Err(error) if superseded(&error) => {
                     return Ok(None);
                 }
                 Err(error) => return Err(error.into()),

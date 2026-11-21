@@ -6,13 +6,12 @@ use crate::{
     fsutil::{self, FileIdentity},
     storage::{
         admin::{AdminError, ObjectName},
-        sync_state::{
-            SyncBinding, SyncFingerprint, SyncPath, SyncRecord, SyncUpdate, root::RootError,
-        },
+        sync_state::{SyncBinding, SyncFingerprint, SyncPath, SyncRecord, SyncUpdate},
     },
     sync::{
         SyncError,
         entries::{EntryProblem, MappedFile},
+        failure::superseded,
     },
 };
 use std::{io, path::PathBuf};
@@ -78,7 +77,7 @@ impl Ingest<'_> {
         let state = self.catalog.sync_state();
         let binding = match self.root.sync_binding(&bucket).await {
             Ok(binding) => binding,
-            Err(AdminError::NotFound | AdminError::Precondition) => {
+            Err(error) if superseded(&error) => {
                 self.summary.count_deferred(&path);
                 return Ok(None);
             }
@@ -92,7 +91,7 @@ impl Ingest<'_> {
         let key = SyncPath::try_from(text.clone())?;
         let tracked = match state.get_path(binding.clone(), text).await {
             Ok(tracked) => tracked,
-            Err(AdminError::NotFound | AdminError::Precondition) => {
+            Err(error) if superseded(&error) => {
                 self.summary.count_deferred(&path);
                 return Ok(None);
             }
@@ -197,9 +196,8 @@ impl Ingest<'_> {
             .await;
         let hashes = match observed {
             Ok(fsutil::HashOutcome::Complete(hashes)) => hashes,
-            Ok(_) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
-                return Ok(HashCheck::Differs);
-            }
+            Ok(_) => return Ok(HashCheck::Differs),
+            Err(error) if superseded(&error) => return Ok(HashCheck::Differs),
             Err(error) => return Err(error.into()),
         };
         if hashes.md5 != tracked.fingerprint.md5 || hashes.crc32c != tracked.fingerprint.crc32c {
@@ -218,7 +216,7 @@ impl Ingest<'_> {
             .await
         {
             Ok(()) => Ok(HashCheck::Recorded),
-            Err(AdminError::Precondition | AdminError::NotFound) => Ok(HashCheck::Superseded),
+            Err(error) if superseded(&error) => Ok(HashCheck::Superseded),
             Err(error) => Err(error.into()),
         }
     }

@@ -4,6 +4,7 @@ use super::interrupt::{Interrupt, Interrupted};
 use super::{
     SyncError,
     export::retry::{DirectoryCreation, create_directory},
+    failure::superseded,
     mapping,
     mirror::PassGate,
     report::{
@@ -25,7 +26,7 @@ use crate::{
                 DeletionSet, EmptiedAtStart, Guard, Inventory, Named, PendingRejection, Recheck,
             },
             observation::PathStop,
-            root::{Baseline, RootError, RootLease},
+            root::{Baseline, RootLease},
         },
     },
 };
@@ -509,7 +510,7 @@ pub(super) async fn record_replaced(
 ) -> Result<(), SyncError> {
     let binding = match root.sync_binding(bucket).await {
         Ok(binding) => binding,
-        Err(AdminError::NotFound | AdminError::Precondition) => return Ok(()),
+        Err(error) if superseded(&error) => return Ok(()),
         Err(error) => return Err(error.into()),
     };
     super::failure::unless_superseded(
@@ -557,7 +558,7 @@ pub(super) async fn execute_with(
             .await
         {
             Ok(page) => page,
-            Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
+            Err(error) if superseded(&error) => {
                 root.invalidate_deletions().await?;
                 return Ok(applied);
             }
@@ -800,7 +801,7 @@ async fn delete(
     let candidate = missing.candidate();
     let binding = match root.sync_binding(&candidate.bucket).await {
         Ok(binding) => binding,
-        Err(AdminError::NotFound | AdminError::Precondition) => return Ok(Deleted::Stale),
+        Err(error) if superseded(&error) => return Ok(Deleted::Stale),
         Err(error) => return Err(error.into()),
     };
     let binding = root.deletion_binding(binding, set.revision, candidate.ordinal);
@@ -816,7 +817,7 @@ async fn delete(
     {
         Ok(()) => Ok(Deleted::Yes(binding)),
         Err(AdminError::Hold) => Ok(Deleted::Protected(binding)),
-        Err(AdminError::Precondition | AdminError::NotFound) => Ok(Deleted::Stale),
+        Err(error) if superseded(&error) => Ok(Deleted::Stale),
         Err(error) => Err(error.into()),
     }
 }

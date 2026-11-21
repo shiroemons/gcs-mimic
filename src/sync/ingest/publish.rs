@@ -11,7 +11,7 @@ use crate::{
         },
         sync_state::{SyncFingerprint, SyncUpdate},
     },
-    sync::SyncError,
+    sync::{SyncError, failure::superseded},
 };
 
 impl Ingest<'_> {
@@ -46,7 +46,7 @@ impl Ingest<'_> {
                 self.reached(crate::storage::fault::Step::SyncSourceRecorded)
                     .await?;
             }
-            Err(AdminError::Precondition | AdminError::NotFound) => {
+            Err(error) if superseded(&error) => {
                 self.summary.count_deferred(&candidate.path);
             }
             Err(error) => return Err(error.into()),
@@ -126,7 +126,7 @@ impl Ingest<'_> {
                     self.reached(crate::storage::fault::Step::SyncSourceRecorded)
                         .await?;
                 }
-                Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
+                Err(error) if matches!(error, AdminError::Hold) || superseded(&error) => {
                     self.summary.count_deferred(&path)
                 }
                 Err(error) => return Err(error.into()),

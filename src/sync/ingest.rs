@@ -457,7 +457,7 @@ impl Ingest<'_> {
             for result in result.results {
                 match result {
                     Ok(_) => self.summary.ingested += 1,
-                    Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
+                    Err(error) if matches!(error, AdminError::Hold) || superseded(&error) => {
                         self.summary.count_deferred(&holder.path);
                         return Ok(());
                     }
