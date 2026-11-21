@@ -26,6 +26,7 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::{fs::File, io, sync::Arc};
 
+mod body;
 mod conflict_transfer;
 mod live_export;
 mod recovery;

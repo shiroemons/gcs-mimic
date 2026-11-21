@@ -343,47 +343,12 @@ struct Install {
     faults: faults::Paths,
 }
 
-/// The identity of `file` when it still holds the tracked body. Size and mtime rule out an edit
-/// cheaply; the hashes decide the rest. Installation and restart recovery both decide with this,
-/// so recovery removes no tracked body that installation would have kept.
-fn matches_tracked(
-    file: &File,
-    tracked: &SyncRecord,
-) -> Result<Option<fsutil::FileIdentity>, Error> {
-    let before = fsutil::stat_identity(file)?;
-    let fp = &tracked.fingerprint;
-    if before.size != fp.size || before.modified_ns != fp.mtime_ns {
-        return Ok(None);
-    }
-    // Permission repair changes ctime, and Docker Desktop's shared folders can report a new
-    // inode number for an unchanged file; stable hashes still prove the tracked body.
-    Ok(verified_identity(file, fp.size, fp.md5, fp.crc32c)?.filter(|hashed| *hashed == before))
-}
-
-fn content_matches(file: &File, size: u64, md5: [u8; 16], crc32c: u32) -> Result<bool, Error> {
-    Ok(verified_identity(file, size, md5, crc32c)?.is_some())
-}
-
-/// The identity of `file` when it holds exactly `size` bytes with these hashes and did not change
-/// while they were read; `None` otherwise.
-fn verified_identity(
-    file: &File,
-    size: u64,
-    md5: [u8; 16],
-    crc32c: u32,
-) -> Result<Option<fsutil::FileIdentity>, Error> {
-    let before = fsutil::stat_identity(file)?;
-    if before.size != size {
-        return Ok(None);
-    }
-    let fsutil::HashOutcome::Complete(hashes) =
-        fsutil::hash_exact(file, size, |_| Ok::<_, io::Error>(()))?
-    else {
-        return Ok(None);
-    };
-    let unchanged =
-        before == fsutil::stat_identity(file)? && hashes.md5 == md5 && hashes.crc32c == crc32c;
-    Ok(unchanged.then_some(before))
+/// Whether `file` still holds the tracked body, by [`body::same_content`] with the recorded
+/// modification time. Installation and restart recovery both decide with this, so recovery
+/// removes no tracked body that installation would have kept.
+fn matches_tracked(file: &File, tracked: &SyncRecord) -> Result<body::Match, Error> {
+    let fingerprint = &tracked.fingerprint;
+    body::same_content(file, fingerprint.into(), Some(fingerprint.mtime_ns))
 }
 
 /// The step that checks a private copy against its staged identity.
@@ -402,83 +367,18 @@ impl CopyCheck {
     }
 }
 
-/// How a private copy compares with the identity it was staged under.
-enum CopyMatch {
-    /// It is the staged copy; the identity is the one to compare it with from now on.
-    Staged(fsutil::FileIdentity),
-    /// It is not, or it changed while it was checked.
-    Changed {
-        changes: fsutil::IdentityChanges,
-        content: CopyContent,
-    },
-}
-
-/// Whether a changed private copy's bytes were read.
-#[derive(Clone, Copy)]
-enum CopyContent {
-    /// Fields other than the inode number changed, so the bytes were not read.
-    NotChecked,
-    /// Only the inode number differed, but the bytes, or the identity while they were read,
-    /// did not match.
-    Differs,
-}
-
-impl CopyContent {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::NotChecked => "not_checked",
-            Self::Differs => "differs",
-        }
-    }
-}
-
-/// Compares the private copy `file` with the identity `staged` it was staged under; every check
-/// of a private copy against that identity uses this one rule. Every field must match, except
-/// that the inode number alone may differ ([`fsutil::IdentityChanges::is_inode_only`]): the same
-/// handle then proves the staged bytes by size and hashes, and the identity observed while they
-/// were read must still differ in nothing but the inode number.
-fn compare_copy(
-    file: &File,
-    staged: fsutil::FileIdentity,
-    item: &Pending,
-) -> Result<CopyMatch, Error> {
-    let current = fsutil::stat_identity(file)?;
-    let changes = staged.changed_fields(&current);
-    if changes.is_empty() {
-        return Ok(CopyMatch::Staged(current));
-    }
-    if !changes.is_inode_only() {
-        return Ok(CopyMatch::Changed {
-            changes,
-            content: CopyContent::NotChecked,
-        });
-    }
-    let confirmed =
-        verified_identity(file, item.size, item.md5, item.crc32c)?.filter(|confirmed| {
-            let changes = staged.changed_fields(confirmed);
-            changes.is_empty() || changes.is_inode_only()
-        });
-    Ok(match confirmed {
-        Some(confirmed) => CopyMatch::Staged(confirmed),
-        None => CopyMatch::Changed {
-            changes,
-            content: CopyContent::Differs,
-        },
-    })
-}
-
 /// Confirms that the private copy `file` is still the copy staged as `staged`
-/// ([`compare_copy`]), and returns the identity to compare it with from now on. Anything else is
-/// `Protected`, logged with the changed fields and whether the bytes were checked.
+/// ([`body::own_copy`]), and returns the identity to compare it with from now on. Anything else
+/// is `Protected`, logged with the changed fields and whether the bytes were checked.
 fn confirm_copy(
     file: &File,
     staged: fsutil::FileIdentity,
     item: &Pending,
     check: CopyCheck,
 ) -> Result<fsutil::FileIdentity, Error> {
-    let (changes, content) = match compare_copy(file, staged, item)? {
-        CopyMatch::Staged(identity) => return Ok(identity),
-        CopyMatch::Changed { changes, content } => (changes, content),
+    let (changes, content) = match body::own_copy(file, staged, item.into())? {
+        body::CopyMatch::Same(identity) => return Ok(identity),
+        body::CopyMatch::Differs { changes, content } => (changes, content),
     };
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
@@ -504,7 +404,7 @@ fn matches_source(
     expected: &SyncRecord,
     device: Option<u64>,
     stage: IdentityStage,
-) -> Result<Option<fsutil::FileIdentity>, Error> {
+) -> Result<body::Match, Error> {
     if let Some(device) = device {
         let identity = fsutil::stat_identity(file)?;
         // Rename changes ctime; the pre-exchange capture must still match every original observation.
@@ -512,7 +412,7 @@ fn matches_source(
             || (stage == IdentityStage::BeforeExchange
                 && identity.changed_ns != expected.fingerprint.ctime_ns)
         {
-            return Ok(None);
+            return Ok(body::Match::Differs);
         }
     }
     matches_tracked(file, expected)
@@ -573,7 +473,9 @@ fn observe_target(
     item: &Pending,
 ) -> Result<bool, Error> {
     match target(root, naming, lookup, &item.path)? {
-        Some(file) => content_matches(&file, item.size, item.md5, item.crc32c),
+        Some(file) => Ok(body::same_content(&file, item.into(), None)?
+            .same()
+            .is_some()),
         None => Ok(false),
     }
 }
@@ -745,7 +647,7 @@ fn expected_target(
         (Some(file), Some(expected)) => {
             let device = install.purpose.source_device();
             let Some(identity) =
-                matches_source(file, expected, device, IdentityStage::BeforeExchange)?
+                matches_source(file, expected, device, IdentityStage::BeforeExchange)?.same()
             else {
                 return Ok(ControlFlow::Break(Installed::Changed));
             };
@@ -1002,7 +904,7 @@ impl Writeback {
                     faults.copy_created(&selected);
                 }
                 let file = entry(workspace, selected.token.id)?.ok_or_else(stale)?;
-                if !content_matches(&file, selected.size, selected.md5, selected.crc32c)? {
+                if let body::Match::Differs = body::same_content(&file, (&selected).into(), None)? {
                     return Err(AdminError::Checksum.into());
                 }
                 #[cfg(test)]
@@ -1232,8 +1134,8 @@ impl Writeback {
                 if let Some(retained) = entry(workspace, item.token.id)?
                     && fsutil::stat_identity(&retained)?.node() != staged.node()
                     && matches!(
-                        compare_copy(&retained, staged, &item)?,
-                        CopyMatch::Changed { .. }
+                        body::own_copy(&retained, staged, (&item).into())?,
+                        body::CopyMatch::Differs { .. }
                     )
                 {
                     return Ok(true);

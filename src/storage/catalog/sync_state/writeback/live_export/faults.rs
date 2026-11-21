@@ -214,10 +214,10 @@ pub(crate) async fn retrack_restored(
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                     Err(error) => return Err(error.into()),
                 };
-                if !content_matches(&file, size, md5, crc32c)? {
+                let digest = body::Digest::new(size, crate::hashing::Hashes { md5, crc32c });
+                let body::Match::Same(identity) = body::same_content(&file, digest, None)? else {
                     continue;
-                }
-                let identity = fsutil::stat_identity(&file)?;
+                };
                 connection
                     .prepare_cached(
                         "UPDATE sync_objects SET mtime_ns=?3,ctime_ns=?4,inode=?5 WHERE bucket=?1 AND name=?2",

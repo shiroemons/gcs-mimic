@@ -19,7 +19,9 @@ impl OwnedBody {
         if item.kind != Kind::Publish {
             return Ok(None);
         }
-        Ok(verified_identity(file, item.size, item.md5, item.crc32c)?.map(Self))
+        Ok(body::same_content(file, item.into(), None)?
+            .same()
+            .map(Self))
     }
 
     /// `file` when it still holds the tracked body, by [`matches_tracked`].
@@ -27,7 +29,7 @@ impl OwnedBody {
         file: &File,
         tracked: &SyncRecord,
     ) -> Result<Option<Self>, Error> {
-        Ok(matches_tracked(file, tracked)?.map(Self))
+        Ok(matches_tracked(file, tracked)?.same().map(Self))
     }
 
     /// `file` as the private copy of `item` before it is armed. Only the copy step wrote it and
@@ -50,7 +52,11 @@ impl OwnedBody {
         expected: &SyncRecord,
         device: Option<u64>,
     ) -> Result<Option<Self>, Error> {
-        Ok(matches_source(file, expected, device, IdentityStage::Displaced)?.map(Self))
+        Ok(
+            matches_source(file, expected, device, IdentityStage::Displaced)?
+                .same()
+                .map(Self),
+        )
     }
 
     /// `file` as the copy that `item`, a publication, staged as `staged` and no target took:
