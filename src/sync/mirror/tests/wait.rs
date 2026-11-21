@@ -1,7 +1,7 @@
 //! What ends a `sync wait`, and what a successful one counts.
 
 use super::*;
-use crate::sync::control::{WaitReason, WaitResult};
+use crate::sync::{WaitReason, report::ending::WaitResult};
 
 /// The state of a live run whose baseline is complete and that replays the journal from `cursor`.
 fn live_state(cursor: JournalFence) -> LiveState {
@@ -87,7 +87,7 @@ async fn wait_stops_for_an_unrepresentable_entry_added_after_the_baseline() {
 /// reads the tree side the scan recorded, names the same condition.
 #[tokio::test]
 async fn wait_and_status_stop_at_once_for_a_file_without_read_permission() {
-    use crate::sync::outstanding::{Holdup, Outstanding};
+    use crate::sync::report::verdict::{Holdup, Outstanding};
     use std::os::unix::fs::PermissionsExt;
     let (_data, tree, catalog, bucket, root) = live_fixture().await;
     catalog.enable_change_journal().await.unwrap();
@@ -153,7 +153,7 @@ async fn wait_stops_while_a_skipped_export_waits_for_its_retry() {
     .await;
     assert_eq!(
         reason,
-        super::super::wait::Decided::Holdup(crate::sync::outstanding::Holdup::SourceChanging)
+        super::super::wait::Decided::Holdup(crate::sync::report::verdict::Holdup::SourceChanging)
     );
     drop(root);
     catalog.close().await.unwrap();
@@ -441,8 +441,8 @@ async fn wait_stops_for_files_left_where_the_api_deleted_their_bucket() {
     assert_eq!(result.reason, WaitReason::SourceUnrepresentable);
     let observation = root.observation().await.unwrap();
     assert_eq!(
-        crate::sync::outstanding::Outstanding::of_status(&observation, None).first(),
-        crate::sync::outstanding::Holdup::SourceUnrepresentable
+        crate::sync::report::verdict::Outstanding::of_status(&observation, None).first(),
+        crate::sync::report::verdict::Holdup::SourceUnrepresentable
     );
     drop(root);
     catalog.close().await.unwrap();

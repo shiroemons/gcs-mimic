@@ -14,8 +14,8 @@ use crate::storage::sync_state::conflicts::{
 };
 use crate::storage::sync_state::writeback::Stop;
 use crate::storage::sync_state::{Ordinal, PageLimit};
-use crate::sync::control::{ControlError, WaitReason};
 use crate::sync::test_support::operation_entries;
+use crate::sync::{WaitReason, control::ControlError};
 
 /// One byte past the most the conflict quota can hold.
 const SPARSE: u64 = (1 << 40) + 1;

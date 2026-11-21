@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::storage::fault::{Crash, Fault, Step};
-use crate::sync::control::{WaitReason, WaitResult};
 use crate::sync::test_support::{operation_entries, restore_tree};
+use crate::sync::{WaitReason, report::ending::WaitResult};
 
 const BEFORE: &[u8] = b"before\0api";
 const AFTER: &[u8] = b"after\0\xffapi";

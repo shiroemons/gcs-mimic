@@ -120,7 +120,9 @@ impl Kept {
     /// What frees the name, as the finding [`Self::finding`] records gives it.
     fn remedy(self) -> String {
         match self {
-            Self::NotDirectory => crate::sync::control::Correction::UnrepresentableName.remedy(),
+            Self::NotDirectory => {
+                crate::sync::report::remedy::Correction::UnrepresentableName.remedy()
+            }
             Self::Replaces
             | Self::Tracked
             | Self::PathStop
@@ -129,7 +131,7 @@ impl Kept {
             | Self::NotAnObject
             | Self::Holds
             | Self::Unlisted { .. }
-            | Self::Refused(_) => crate::sync::control::occupied_directory_remedy(),
+            | Self::Refused(_) => crate::sync::report::remedy::occupied_directory_remedy(),
         }
     }
 
@@ -180,7 +182,7 @@ impl Kept {
                 "path": item.path,
                 "reason": self.as_str(),
                 "error": error,
-                "remedy": crate::sync::advice::logged(&self.remedy()),
+                "remedy": crate::sync::report::command::logged(&self.remedy()),
             }),
         );
     }

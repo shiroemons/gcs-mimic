@@ -6,7 +6,7 @@ use super::*;
 use crate::storage::sync_state::authority::ControlAuthority;
 use crate::storage::sync_state::observation::{ObservationCursor, PauseReason};
 use crate::storage::sync_state::{Ordinal, PageLimit};
-use crate::sync::control::WaitReason;
+use crate::sync::WaitReason;
 
 /// What the user does to the file an export installed.
 #[derive(Clone, Copy, Debug)]

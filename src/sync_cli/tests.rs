@@ -1,4 +1,5 @@
 use super::*;
+use gcs_mimic::sync::report::catalog;
 use std::{
     io::{Read, Write},
     net::TcpListener,
@@ -1350,10 +1351,10 @@ fn every_advised_command_parses_as_this_command_line() {
         // A command that found the server in the environment advises commands that find it there.
         String::new(),
     ];
-    let commands = advice::commands();
+    let commands = catalog::commands();
     for command in &commands {
         for connection in &connections {
-            let line = advice::with_connection(command, connection);
+            let line = command::with_connection(command, connection);
             let args = line.strip_prefix("gcs-mimic sync ").unwrap();
             let args: Vec<String> = args.split(' ').map(str::to_owned).collect();
             if let Err(error) = Options::parse(&args, Vec::new()) {
@@ -1363,10 +1364,10 @@ fn every_advised_command_parses_as_this_command_line() {
     }
 
     // Each piece of advice, with the connection that replaced its endpoint.
-    let catalog = advice::catalog();
+    let catalog = catalog::catalog();
     let mut advised: Vec<(String, String)> = catalog
         .iter()
-        .map(|advice| (advice.clone(), advice::ENDPOINT.to_owned()))
+        .map(|advice| (advice.clone(), command::ENDPOINT.to_owned()))
         .collect();
     let starting = br#"{"status":"ok","unix_time":1,"sync":{"state":"starting"}}"#;
     for (url, ca_cert) in [
@@ -1390,10 +1391,10 @@ fn every_advised_command_parses_as_this_command_line() {
     }
     for connection in [&connections[1], &connections[3]] {
         let ready = json!({"reason":"Ready",
-            "findings":{"unmapped":1,"revision":advice::SAMPLE_FINDINGS_REVISION}});
+            "findings":{"unmapped":1,"revision":catalog::SAMPLE_FINDINGS_REVISION}});
         let answers = catalog.iter().map(|remedy| {
             json!({"reason":"FindingsPending","remedy":remedy,
-                "findings":{"unmapped":1,"revision":advice::SAMPLE_FINDINGS_REVISION}})
+                "findings":{"unmapped":1,"revision":catalog::SAMPLE_FINDINGS_REVISION}})
         });
         for answer in answers.chain([ready]) {
             let diagnostics = WaitOutcome::read(&answer).advice(connection);
@@ -1405,7 +1406,7 @@ fn every_advised_command_parses_as_this_command_line() {
     for (advice, connection) in &advised {
         let rendered: Vec<String> = commands
             .iter()
-            .map(|command| advice::with_connection(command, connection))
+            .map(|command| command::with_connection(command, connection))
             .collect();
         let named = named_commands(advice);
         assert!(!named.is_empty(), "{advice}");

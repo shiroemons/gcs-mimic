@@ -1,3 +1,5 @@
+//! The one `state` the status control reports.
+
 use crate::{
     storage::sync_state::{
         deletions::DeletionSet,
@@ -6,7 +8,7 @@ use crate::{
     },
     sync::{
         MirrorState,
-        outstanding::{Holdup, Outstanding},
+        report::verdict::{Holdup, Outstanding},
     },
 };
 
@@ -15,7 +17,7 @@ use crate::{
 /// holds. The server's readiness never decides it: the API stays ready while synchronization
 /// stops.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ControlState {
+pub(crate) enum ControlState {
     /// This process's first pass has not finished. A reason an earlier process recorded shows
     /// only in `observation.paused_reason`, since this process has not reached it yet.
     Starting,
@@ -54,7 +56,7 @@ crate::serde_util::serialize_as_str!(ControlState);
 
 impl ControlState {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    pub(super) const ALL: [Self; 14] = [
+    pub(crate) const ALL: [Self; 14] = [
         Self::Starting,
         Self::Retrying,
         Self::Paused,
@@ -71,7 +73,7 @@ impl ControlState {
         Self::Ready,
     ];
 
-    pub(super) const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Starting => "Starting",
             Self::Retrying => "Retrying",
@@ -90,7 +92,7 @@ impl ControlState {
         }
     }
 
-    pub(super) fn of(
+    pub(crate) fn of(
         mirror: MirrorState,
         observation: &Summary,
         set: Option<&DeletionSet>,
@@ -143,3 +145,6 @@ impl ControlState {
         }
     }
 }
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod tests;

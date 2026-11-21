@@ -2,11 +2,12 @@
 
 use super::interrupt::{Interrupt, Interrupted};
 use super::{
-    SyncError,
-    advice::{AtHand, AwaitingSet},
-    control::{MOUNT_FIRST, deletion_approval_remedy},
-    mapping,
+    SyncError, mapping,
     mirror::PassGate,
+    report::{
+        command::{AtHand, AwaitingSet},
+        remedy::{MOUNT_FIRST, deletion_approval_remedy},
+    },
 };
 use crate::{
     config::Config,
@@ -188,7 +189,7 @@ async fn warn_awaiting_approval(root: &RootLease, set: &DeletionSet) -> Result<(
             "revision":set.revision.to_hex(),"candidates":set.candidate_count,
             "baseline":set.baseline_count,"paths":paths.names,"omitted":paths.omitted,
             "removed_buckets":removed.names,"removed_buckets_omitted":removed.omitted,
-            "remedy":super::advice::logged(&deletion_approval_remedy(at_hand)),
+            "remedy":super::report::command::logged(&deletion_approval_remedy(at_hand)),
         }),
     );
     Ok(())

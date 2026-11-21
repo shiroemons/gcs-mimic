@@ -1,9 +1,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 //! Filesystem synchronization adapters and shared reversible name mapping.
 
-pub mod advice;
 pub(crate) mod control;
-pub use control::{Decision, UnknownDecision, UnknownWaitReason, WaitReason};
+pub use control::{Decision, UnknownDecision};
 mod deletion;
 pub(crate) mod entries;
 mod error;
@@ -13,8 +12,8 @@ mod interrupt;
 pub mod mapping;
 mod mirror;
 pub(crate) mod naming;
-pub(crate) mod outstanding;
-pub use outstanding::UnmappedObjects;
+pub mod report;
+pub use report::{UnknownWaitReason, UnmappedObjects, WaitReason};
 mod status;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) mod test_support;

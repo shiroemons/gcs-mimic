@@ -18,14 +18,15 @@ use crate::{
         root::{RootChange, RootError, RootLease, RootStatus},
     },
     sync::{
-        Cause, Decision, MirrorState, Reconciliation, UnmappedObjects,
-        advice::{AtHand, AwaitingSet},
-        control::{
-            Command, ControlError, Listed, PauseChange, Registration, Unfinished, WaitReason,
-            WaitResult,
-        },
+        Cause, Decision, MirrorState, Reconciliation, UnmappedObjects, WaitReason,
+        control::{Command, ControlError, PauseChange, Registration},
         entries::{EntryListing, EntryReport},
         handshake,
+        report::{
+            command::{AtHand, AwaitingSet},
+            ending::{Unfinished, WaitResult},
+            listing::Listed,
+        },
     },
 };
 use http_body_util::Full;
@@ -62,9 +63,8 @@ async fn authorization_checkpoint() {}
 pub(super) mod conflicts;
 mod cursor;
 mod findings;
-mod state;
+use crate::sync::report::state::ControlState;
 use cursor::SyncCursor;
-use state::ControlState;
 
 struct ControlActivity<'a>(RequestCtx<'a>);
 impl Drop for ControlActivity<'_> {
@@ -879,7 +879,7 @@ async fn status(
             let set = published_set.as_ref();
             let pending = set.map_or(0, |set| set.candidate_count - set.completed_count);
             let remedy = set.and_then(AwaitingSet::of).map(|awaiting| {
-                crate::sync::control::deletion_approval_remedy(AtHand {
+                crate::sync::report::remedy::deletion_approval_remedy(AtHand {
                     deletion: Some(awaiting),
                     ..AtHand::default()
                 })
@@ -1073,7 +1073,7 @@ async fn stale_deletions(
         Ok(refusal) => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
-            crate::sync::control::stale_deletions_view_remedy(revision, refusal),
+            crate::sync::report::remedy::stale_deletions_view_remedy(revision, refusal),
         ),
         Err(error) => root_error(&error),
     }
@@ -1200,11 +1200,11 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
                 match change {
                     // The failure was transient, so the same rescan may now succeed; the
                     // `sync_resume_failed` event says the same.
-                    PauseChange::Kept => crate::sync::control::resume_retry_remedy(),
+                    PauseChange::Kept => crate::sync::report::remedy::resume_retry_remedy(),
                     PauseChange::Began | PauseChange::Recorded => {
-                        crate::sync::control::pause_remedy(
+                        crate::sync::report::remedy::pause_remedy(
                             *reason,
-                            crate::sync::advice::AtHand::default(),
+                            crate::sync::report::command::AtHand::default(),
                         )
                     }
                 },
@@ -1213,7 +1213,7 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
         ControlError::Paused => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
-            crate::sync::control::paused_control_remedy(),
+            crate::sync::report::remedy::paused_control_remedy(),
         ),
         ControlError::Shutdown => busy(),
         // The caller holds sync control authority, so the answer may say what became of the
@@ -1226,7 +1226,7 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
         } => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
-            crate::sync::control::stale_decision_remedy(*decision, *revision, *refusal),
+            crate::sync::report::remedy::stale_decision_remedy(*decision, *revision, *refusal),
         ),
     }
 }

@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::storage::fault::{Fault, Step};
-use crate::sync::control::WaitReason;
+use crate::sync::WaitReason;
 use std::sync::Arc;
 
 const BODY: &[u8] = b"api\0body";
@@ -54,7 +54,7 @@ pub(super) async fn wait_racing(
     task: &Task,
     held: Held,
     change: impl FnOnce(),
-) -> crate::sync::control::WaitResult {
+) -> crate::sync::report::ending::WaitResult {
     let waited = queue_wait(task, HANG_GUARD).await;
     held.change(change).await;
     tokio::time::timeout(HANG_GUARD, waited)

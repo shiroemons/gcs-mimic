@@ -10,7 +10,7 @@ use crate::{
     storage::sync_state::root::Baseline,
     sync::{
         entries::{EntryProblem, EntryReport, Skip},
-        outstanding::TreeSide,
+        report::verdict::TreeSide,
     },
 };
 use std::{

@@ -7,7 +7,7 @@
 use super::baseline::{COMPLETE, ingest};
 use super::*;
 use crate::storage::sync_state::findings::FindingKind;
-use crate::sync::control::WaitReason;
+use crate::sync::WaitReason;
 
 /// The findings of `root` by object name, in the order they were recorded.
 async fn findings(root: &RootLease) -> Vec<(String, FindingKind)> {

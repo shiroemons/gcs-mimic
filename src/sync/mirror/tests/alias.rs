@@ -16,7 +16,7 @@ use crate::storage::sync_state::{
     findings::alias::FrozenFile,
     observation::{FindingCategory, ListedStop, ObservationCursor, PathStop},
 };
-use crate::sync::control::{WaitReason, WaitResult};
+use crate::sync::{WaitReason, report::ending::WaitResult};
 use std::io::ErrorKind;
 
 /// The pairs of names a folding file system takes for one: by letter case, and by Unicode
@@ -115,14 +115,14 @@ impl Pair {
     }
 
     /// Runs a wait over what changed since the last one.
-    async fn wait(&mut self) -> crate::sync::control::WaitResult {
+    async fn wait(&mut self) -> crate::sync::report::ending::WaitResult {
         let result = wait_from(&self.catalog, &self.root, self.cursor).await;
         self.cursor = self.catalog.current_fence().await.unwrap();
         result
     }
 
     /// Like [`Self::wait`], returning the error of a pass that failed.
-    async fn try_wait(&mut self) -> Result<crate::sync::control::WaitResult, SyncError> {
+    async fn try_wait(&mut self) -> Result<crate::sync::report::ending::WaitResult, SyncError> {
         let result = try_wait_from(&self.catalog, &self.root, self.cursor).await;
         self.cursor = self.catalog.current_fence().await.unwrap();
         result
@@ -356,14 +356,14 @@ async fn both_objects_of_an_alias_are_reported_with_the_spelling_of_their_file()
             (found.unmapped, found.frozen, found.stops),
             (
                 2,
-                crate::sync::control::Listed::of(
+                crate::sync::report::listing::Listed::of(
                     vec![FrozenFile {
                         path: format!("test-bucket/{}", pair.first),
                         objects: 2
                     }],
                     1
                 ),
-                crate::sync::control::Listed::default()
+                crate::sync::report::listing::Listed::default()
             ),
             "{context}"
         );
@@ -444,7 +444,7 @@ async fn an_edit_of_the_frozen_file_stops_the_wait_until_the_alias_ends() {
                 assert_eq!(result.reason, WaitReason::FindingsPending, "{context}");
                 assert_eq!(
                     result.findings.unwrap().stops,
-                    crate::sync::control::Listed::of(
+                    crate::sync::report::listing::Listed::of(
                         vec![ListedStop {
                             path: format!("test-bucket/{}", pair.first),
                             reason: PathStop::AliasEdited

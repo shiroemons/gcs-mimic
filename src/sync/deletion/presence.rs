@@ -9,7 +9,7 @@ use crate::{
     },
     sync::{
         SyncError,
-        control::Correction,
+        report::remedy::Correction,
         tree::{self, ParentError, ParentOpen},
     },
 };

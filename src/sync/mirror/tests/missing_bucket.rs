@@ -13,8 +13,8 @@ use super::*;
 use crate::storage::sync_state::deletions::{
     BucketGone, DeletionAuthorization, DeletionSet, Named, Refusal, Seen, WaitCause,
 };
-use crate::sync::control::{WaitReason, WaitResult};
-use crate::sync::outstanding::{Holdup, Outstanding};
+use crate::sync::report::verdict::{Holdup, Outstanding};
+use crate::sync::{WaitReason, report::ending::WaitResult};
 
 pub(super) const BODY: &[u8] = b"tracked bytes";
 pub(super) const BUCKET: &str = "test-bucket";

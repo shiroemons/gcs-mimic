@@ -6,7 +6,7 @@ use gcs_mimic::{
     config_input::{DurationError, RenamedEnvironmentVariable, duration},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     net::is_local_address,
-    sync::{Decision, UnmappedObjects, WaitReason, advice, handshake},
+    sync::{Decision, UnmappedObjects, WaitReason, handshake, report::command},
     tls,
 };
 use http_body_util::{BodyExt, Full};
@@ -335,7 +335,7 @@ impl View {
             )),
             (Self::Deletions | Self::Findings, _) => Err(fail(format!(
                 "Status reported no {field} this command can read; check what it reports: {}",
-                advice::with_connection(&advice::Advised::Status.to_string(), connection)
+                command::with_connection(&command::Advised::Status.to_string(), connection)
             ))),
         }
     }
@@ -988,7 +988,7 @@ fn decided(decision: Decision, answer: &Value, connection: &str) -> Diagnostics 
         Some(count) => format!("{count} {many}"),
         None => unknown.to_owned(),
     };
-    let wait = advice::with_connection(&advice::Advised::Wait.to_string(), connection);
+    let wait = command::with_connection(&command::Advised::Wait.to_string(), connection);
     let line = match decision {
         Decision::Approve => diagnostic(
             "sync-approve",
@@ -1023,7 +1023,7 @@ fn http_failure(status: StatusCode, message: Option<&str>, connection: &str) -> 
     fail(match message {
         Some(message) => format!(
             "Synchronization control returned HTTP {status}: {}",
-            advice::with_connection(message, connection)
+            command::with_connection(message, connection)
         ),
         None => format!(
             "Synchronization control returned HTTP {status}; inspect its JSON response and preserve pending work."
@@ -1109,15 +1109,15 @@ impl<'a> WaitOutcome<'a> {
             self.unmapped
                 .filter(|(count, _)| *count > 0 && ready)
                 .map(|(count, revision)| {
-                    let objects = advice::UnmappedCount::from(count);
+                    let objects = command::UnmappedCount::from(count);
                     diagnostic(
                         "sync-findings",
                         format!(
                             "{objects} and {} reachable only through the API; list {} with {}",
                             objects.stay(),
                             objects.them(),
-                            advice::with_connection(
-                                &advice::Advised::Findings(Some(revision)).to_string(),
+                            command::with_connection(
+                                &command::Advised::Findings(Some(revision)).to_string(),
                                 connection
                             )
                         ),
@@ -1146,7 +1146,7 @@ impl<'a> WaitOutcome<'a> {
                         }))
                         .collect::<String>();
                 let remedy = self.remedy.map_or_else(String::new, |remedy| {
-                    format!(": {}", advice::with_connection(remedy, connection))
+                    format!(": {}", command::with_connection(remedy, connection))
                 });
                 diagnostic(
                     "sync",
@@ -1518,15 +1518,15 @@ impl Options {
             }
             (Decision::Reject, None) => Err(fail(format!(
                 "No deletion set waits for a decision, so there is nothing to reject; the status says what synchronization waits for: {}",
-                advice::with_connection(&advice::Advised::Status.to_string(), &connection)
+                command::with_connection(&command::Advised::Status.to_string(), &connection)
             ))
             .into()),
             (Decision::Approve, Some(set)) => Err(fail(format!(
                 "{required}. Deletion set {} waits for a decision, with {}; list it before you approve it: {}",
                 set.revision,
                 set.files(),
-                advice::with_connection(
-                    &advice::Advised::Deletions(Some(set.revision)).to_string(),
+                command::with_connection(
+                    &command::Advised::Deletions(Some(set.revision)).to_string(),
                     &connection
                 )
             ))

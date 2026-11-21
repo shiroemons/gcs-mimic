@@ -3,7 +3,8 @@
 //! a user searching the tree for what to fix; the list names them, up to a bound, and is rebuilt
 //! by every complete scan.
 
-use super::{control::Correction, mapping, naming::RootNaming, tree::TreeEntry};
+use super::report::remedy::Correction;
+use super::{mapping, naming::RootNaming, tree::TreeEntry};
 use crate::{
     diagnostics::{self, LogLevel},
     fsutil::FileIdentity,
@@ -233,7 +234,7 @@ pub(crate) fn warn_unrepresentable(entry: &UnrepresentableEntry) {
         serde_json::json!({
             "path":path_text(&entry.path),
             "reason":entry.problem.reason(),
-            "remedy":super::advice::logged(&Correction::Entry(entry.problem).remedy()),
+            "remedy":super::report::command::logged(&Correction::Entry(entry.problem).remedy()),
         }),
     );
 }

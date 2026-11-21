@@ -261,8 +261,7 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
     worker.await.unwrap().unwrap();
     assert!(matches!(
         waiting.await.unwrap().unwrap().reason,
-        crate::sync::control::WaitReason::Stopped
-            | crate::sync::control::WaitReason::DeletionApproval
+        crate::sync::WaitReason::Stopped | crate::sync::WaitReason::DeletionApproval
     ));
     drop(root);
     catalog.close().await.unwrap();
@@ -2245,7 +2244,7 @@ async fn queue_wait(
     task: &Task,
     timeout: Duration,
 ) -> tokio::sync::oneshot::Receiver<
-    Result<crate::sync::control::WaitResult, crate::sync::control::ControlError>,
+    Result<crate::sync::report::ending::WaitResult, crate::sync::control::ControlError>,
 > {
     let (reply, response) = tokio::sync::oneshot::channel();
     task.rescan
@@ -2402,7 +2401,7 @@ async fn a_resume_that_fails_transiently_stays_paused_until_a_rescan_succeeds() 
         .unwrap()
         .unwrap()
         .unwrap();
-    assert_eq!(waited.reason, crate::sync::control::WaitReason::Paused);
+    assert_eq!(waited.reason, crate::sync::WaitReason::Paused);
     assert_eq!(task.status().state(), Paused);
     assert_eq!(root.observation().await.unwrap().paused_reason, recorded);
     assert!(
@@ -2655,7 +2654,7 @@ async fn wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(result.reason, crate::sync::control::WaitReason::Timeout);
+    assert_eq!(result.reason, crate::sync::WaitReason::Timeout);
     assert!(result.reconciliation.unwrap().interrupted);
     assert!(matches!(
         catalog
@@ -2876,7 +2875,7 @@ async fn a_wait_sent_while_starting_succeeds_only_after_the_first_reconciliation
         .unwrap()
         .unwrap()
         .unwrap();
-    assert_eq!(waited.reason, crate::sync::control::WaitReason::Ready);
+    assert_eq!(waited.reason, crate::sync::WaitReason::Ready);
     assert_eq!(
         fs::read(&exported).unwrap(),
         b"exported at start",
@@ -2902,7 +2901,7 @@ async fn native_watch_permission_retry_reports_retrying_keeps_the_api_ready_and_
             .unwrap()
             .unwrap()
             .reason,
-        crate::sync::control::WaitReason::Ready
+        crate::sync::WaitReason::Ready
     );
     let bucket = tree.0.join("test-bucket");
     std::fs::set_permissions(&bucket, std::fs::Permissions::from_mode(0o0)).unwrap();
@@ -2930,7 +2929,7 @@ async fn wait_from(
     catalog: &Catalog,
     root: &RootLease,
     cursor: JournalFence,
-) -> crate::sync::control::WaitResult {
+) -> crate::sync::report::ending::WaitResult {
     try_wait_from(catalog, root, cursor).await.unwrap()
 }
 
@@ -2939,7 +2938,7 @@ async fn try_wait_from(
     catalog: &Catalog,
     root: &RootLease,
     cursor: JournalFence,
-) -> Result<crate::sync::control::WaitResult, SyncError> {
+) -> Result<crate::sync::report::ending::WaitResult, SyncError> {
     let config = Config::default();
     let mut state = LiveState {
         cursor,
@@ -2988,7 +2987,7 @@ async fn tracked_export(
 /// replaces it with the newer generation, and the wait is ready without a conflict.
 #[tokio::test]
 async fn wait_exports_over_an_unchanged_file_whatever_its_fingerprint_needs() {
-    use crate::sync::control::WaitReason;
+    use crate::sync::WaitReason;
     for record in [Retrack::Stable, Retrack::Renumbered, Retrack::Racy] {
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         let cursor = tracked_export(&catalog, &bucket, &root, &tree.0, record).await;
@@ -3023,7 +3022,7 @@ async fn wait_exports_over_an_unchanged_file_whatever_its_fingerprint_needs() {
 /// succeeds and reports the finding in its count.
 #[tokio::test]
 async fn wait_reports_the_finding_that_holds_back_the_export_over_a_renumbered_file() {
-    use crate::sync::control::WaitReason;
+    use crate::sync::WaitReason;
     let (_data, tree, catalog, bucket, root) = live_fixture().await;
     let cursor = tracked_export(&catalog, &bucket, &root, &tree.0, Retrack::Renumbered).await;
     publish_origin(&catalog, &bucket, b"newer", Origin::Api).await;
@@ -3095,7 +3094,7 @@ async fn reconciliation_classifies_a_carried_over_collision_that_is_a_name_colli
 /// external edit: against a newer API generation the wait reports a conflict.
 #[tokio::test]
 async fn wait_reports_different_bytes_behind_a_renumbered_fingerprint_as_a_conflict() {
-    use crate::sync::control::WaitReason;
+    use crate::sync::WaitReason;
     let (_data, tree, catalog, bucket, root) = live_fixture().await;
     catalog.enable_change_journal().await.unwrap();
     publish_origin(&catalog, &bucket, b"before", Origin::Api).await;
@@ -3138,7 +3137,7 @@ async fn wait_reports_different_bytes_behind_a_renumbered_fingerprint_as_a_confl
 /// nothing, and the removal export deletes it.
 #[tokio::test]
 async fn wait_removes_an_unchanged_file_deleted_through_the_api_whatever_its_fingerprint_needs() {
-    use crate::sync::control::WaitReason;
+    use crate::sync::WaitReason;
     for record in [Retrack::Stable, Retrack::Renumbered, Retrack::Racy] {
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         let cursor = tracked_export(&catalog, &bucket, &root, &tree.0, record).await;

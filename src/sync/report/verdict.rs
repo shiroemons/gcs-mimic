@@ -6,8 +6,8 @@
 //! pass.
 
 use super::{
-    advice::AtHand,
-    control::{
+    command::AtHand,
+    remedy::{
         Correction, deletion_approval_remedy, findings_remedy, pause_remedy,
         unmapped_objects_remedy, unsettled_remedy,
     },

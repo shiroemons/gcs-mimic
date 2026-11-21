@@ -831,7 +831,7 @@ fn synchronization_started(
     ca_cert: Option<&Path>,
     body: &[u8],
 ) -> Result<(), Diagnostics> {
-    use gcs_mimic::sync::{MirrorState, advice};
+    use gcs_mimic::sync::{MirrorState, report::command};
     let fix = match reported_sync(body) {
         // A mirror past `starting` has ended its first pass. Later trouble is for sync status
         // and the server log to explain: waiting would not end a pause or a stop, and a failing
@@ -847,8 +847,8 @@ fn synchronization_started(
         ) => return Ok(()),
         Ok(Some(MirrorState::Starting)) => format!(
             "Healthcheck {url} found the API ready, but sync.state is starting: directory synchronization has not finished this process's first pass, which exports existing objects into the sync directory. The healthcheck passes once the state leaves starting. Follow it, adding --token-file PATH under strict authentication: {}",
-            advice::with_connection(
-                &advice::Advised::Status.to_string(),
+            command::with_connection(
+                &command::Advised::Status.to_string(),
                 &probe_connection(url, ca_cert)
             ),
         ),

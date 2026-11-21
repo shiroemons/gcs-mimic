@@ -1,9 +1,7 @@
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 use super::MirrorState;
 use super::control::PauseChange;
-use super::control::{
-    Command, ControlError, Decision, Reply, export_retry_remedy, newer_edit_remedy,
-};
+use super::control::{Command, ControlError, Decision, Reply};
 use super::entries::{EntryClass, classify};
 use super::error::{Recorded, StoppedRescan, unless_superseded};
 use super::interrupt::{Interrupt, Interrupted};
@@ -64,8 +62,8 @@ pub(crate) use tests::state::{RescanFault, arm_rescan_fault};
 
 mod descriptor;
 mod findings;
-use super::control::Correction;
 use super::error::superseded;
+use super::report::remedy::{Correction, export_retry_remedy, newer_edit_remedy};
 use crate::storage::sync_state::findings::alias::Holding;
 use findings::Freeze;
 mod gate;
@@ -617,7 +615,7 @@ async fn await_resume(
                     }
                 }
                 Command::Decide {reply,..}=>{let _=reply.send(Err(ControlError::Paused));}
-                Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult::held(super::outstanding::Holdup::Paused(paused_for),None,None)));}
+                Command::Wait {reply,..}=>{let _=reply.send(Ok(super::report::ending::WaitResult::held(super::report::verdict::Holdup::Paused(paused_for),None,None)));}
                 Command::Resolve {request,reply,identity}=> {
                     let authority=crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity);
                     let result=root.resolve_conflict(request,authority,config.max_object_bytes).await;
@@ -2090,7 +2088,7 @@ impl LiveObject<'_> {
                     diagnostics::emit(
                         LogLevel::Warn,
                         "sync_external_conflict",
-                        serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":super::advice::logged(&newer_edit_remedy())}),
+                        serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":super::report::command::logged(&newer_edit_remedy())}),
                     );
                     // Ingestion publishes the newer edit only while the tree tracks the API
                     // generation; otherwise the rescan the remedy names runs this export again.
@@ -2278,7 +2276,7 @@ async fn wait_retry(error: &writeback::Error, retry: &mut Backoff, root: &RootLe
         "sync_export_retry",
         serde_json::json!({
             "reason":crate::error::Report(error).to_string(),"retry_seconds":delay.as_secs(),
-            "remedy":super::advice::logged(&export_retry_remedy())
+            "remedy":super::report::command::logged(&export_retry_remedy())
         }),
     );
     if let Some(mut stopping) = root.stop_signal() {

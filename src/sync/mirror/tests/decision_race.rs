@@ -17,7 +17,7 @@ use crate::storage::sync_state::{
     OpaqueId,
     deletions::{DeletionAuthorization, DeletionSet, Refusal},
 };
-use crate::sync::control::WaitReason;
+use crate::sync::WaitReason;
 
 type Answer = tokio::sync::oneshot::Receiver<Result<DeletionSet, ControlError>>;
 

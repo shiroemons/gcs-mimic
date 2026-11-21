@@ -241,7 +241,7 @@ async fn history_reset_failure_keeps_its_cause_and_answers_wait_and_rescan() {
         .unwrap();
     assert_eq!(
         response.await.unwrap().unwrap().reason,
-        crate::sync::control::WaitReason::Ready
+        crate::sync::WaitReason::Ready
     );
     let (reply, response) = tokio::sync::oneshot::channel();
     control

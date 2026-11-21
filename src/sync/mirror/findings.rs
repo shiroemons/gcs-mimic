@@ -25,10 +25,10 @@ use crate::{
         },
     },
     sync::{
-        control::Correction,
         error::{superseded, unless_superseded},
         interrupt::{Interrupt, Interrupted},
         mapping::Reason,
+        report::remedy::Correction,
     },
 };
 use std::collections::BTreeSet;

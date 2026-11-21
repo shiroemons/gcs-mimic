@@ -9,9 +9,11 @@ use crate::{
         },
     },
     sync::{
-        advice::AtHand,
-        control::{self, Correction},
         mapping::Reason,
+        report::{
+            command::AtHand,
+            remedy::{self, Correction},
+        },
     },
 };
 use serde_json::{Value, json};
@@ -36,7 +38,7 @@ pub(super) fn value(
                 | PauseReason::SourceChanging
                 | PauseReason::SourceUnrepresentable => pause.as_str(),
             },
-            control::pause_remedy(*pause, at_hand).into(),
+            remedy::pause_remedy(*pause, at_hand).into(),
         ),
         FindingReason::Mapping(FindingKind::ExportConflict) => (
             "Conflict",
@@ -46,7 +48,7 @@ pub(super) fn value(
         // observation that tells, not for preserving a file that may not be there.
         FindingReason::Mapping(FindingKind::UnclassifiedCollision) => (
             "Conflict",
-            control::unclassified_collision_remedy().into(),
+            remedy::unclassified_collision_remedy().into(),
         ),
         // A name collision is a name the tree cannot hold, like the other mapping reasons; only
         // an export that met an edited file is a conflict.
@@ -69,7 +71,7 @@ pub(super) fn value(
         // The API name is fine here: only the entries in the directory keep the file out.
         FindingReason::Mapping(FindingKind::Unmapped(Reason::DirectoryOccupied)) => (
             "Unrepresentable",
-            crate::sync::control::occupied_directory_remedy().into(),
+            crate::sync::report::remedy::occupied_directory_remedy().into(),
         ),
         // Renaming the entry would only make it the file of the other object, so the remedy
         // asks for the API change that ends the alias.
@@ -394,7 +396,7 @@ mod tests {
     /// and a path's correction ends by naming the wait whose pass takes it in.
     #[test]
     fn remedies_name_the_page_revision_and_the_wait_that_takes_a_correction_in() {
-        let revision = crate::sync::advice::SAMPLE_FINDINGS_REVISION;
+        let revision = crate::sync::report::catalog::SAMPLE_FINDINGS_REVISION;
         let at_hand = AtHand {
             findings_revision: Some(revision),
             ..AtHand::default()

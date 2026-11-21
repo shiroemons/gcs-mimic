@@ -153,7 +153,7 @@ fn only_a_withheld_guarded_deletion_set_waits_for_approval() {
         // Advice names a decision on exactly the set that waits for one, so a status or a wait
         // that reads the set just after a decision never offers that decision again.
         assert_eq!(
-            crate::sync::advice::AwaitingSet::of(&set).is_some(),
+            crate::sync::report::command::AwaitingSet::of(&set).is_some(),
             expected == Holdup::DeletionApproval,
             "{set:?}"
         );

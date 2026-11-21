@@ -118,7 +118,7 @@ async fn quiet_waits_hold_their_original_deadline_without_blocking_other_control
     controls.expire(&root, &config).await.unwrap();
     assert_eq!(
         result.await.unwrap().unwrap().reason,
-        crate::sync::control::WaitReason::SourceChanging
+        crate::sync::WaitReason::SourceChanging
     );
     assert!(start.elapsed() >= Duration::from_millis(50));
     assert!(controls.0.is_empty());
@@ -472,7 +472,7 @@ async fn stopping_a_quiet_queue_answers_waiters_without_losing_their_replies() {
     controls.stop();
     assert_eq!(
         waited.await.unwrap().unwrap().reason,
-        crate::sync::control::WaitReason::Stopped
+        crate::sync::WaitReason::Stopped
     );
     assert!(matches!(
         scanned.await.unwrap().unwrap_err(),
@@ -513,7 +513,7 @@ async fn stopping_after_dequeue_retains_the_request_until_its_stopped_reply() {
     controls.stop();
     assert_eq!(
         response.await.unwrap().unwrap().reason,
-        crate::sync::control::WaitReason::Stopped
+        crate::sync::WaitReason::Stopped
     );
     let (reply, response) = tokio::sync::oneshot::channel();
     assert!(

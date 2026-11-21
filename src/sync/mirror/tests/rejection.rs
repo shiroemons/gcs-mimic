@@ -14,8 +14,8 @@ use super::missing_bucket::{
 use super::*;
 use crate::storage::fault::{Fault, Step};
 use crate::storage::sync_state::deletions::DeletionSet;
-use crate::sync::control::WaitReason;
-use crate::sync::outstanding::{Holdup, Outstanding};
+use crate::sync::WaitReason;
+use crate::sync::report::verdict::{Holdup, Outstanding};
 use crate::sync::test_support::restore_tree;
 
 /// What a user writes at a member's path behind the write-back.
@@ -165,7 +165,7 @@ async fn a_write_back_that_keeps_failing_shows_in_the_status_and_holds_every_wai
     // A wait's answer reads the files left from the catalog and counts them first, with the log
     // that says why their write-back stopped.
     let counted = waited
-        .remedy(crate::sync::advice::AtHand {
+        .remedy(crate::sync::report::command::AtHand {
             rejected_writeback: observation.rejected_writeback,
             ..Default::default()
         })

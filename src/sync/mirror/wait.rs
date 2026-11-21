@@ -1,8 +1,14 @@
 use super::gate::Hold;
 use super::*;
 use crate::storage::sync_state::observation::ListedStop;
-use crate::sync::control::{Listed, Unfinished, WaitFindings, WaitReason, WaitResult};
-use crate::sync::outstanding::{Holdup, Outstanding, TreeSide};
+use crate::sync::report::verdict::{Holdup, Outstanding, TreeSide};
+use crate::sync::{
+    WaitReason,
+    report::{
+        ending::{Unfinished, WaitResult},
+        listing::{Listed, WaitFindings},
+    },
+};
 
 impl LiveControl<'_> {
     /// Waits until a pass leaves nothing in progress or `deadline` passes. A wait that runs out

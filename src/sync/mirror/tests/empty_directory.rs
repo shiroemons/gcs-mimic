@@ -4,7 +4,7 @@
 use super::install_faults::{Started, conflict_bodies, workspace_bodies};
 use super::*;
 use crate::storage::fault::{self, Crash, Fault, Step};
-use crate::sync::control::WaitReason;
+use crate::sync::WaitReason;
 use crate::sync::test_support::restore_tree;
 
 const BODY: &[u8] = b"api\0body";
