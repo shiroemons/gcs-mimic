@@ -1423,3 +1423,53 @@ async fn live_export_cancelled_install_serializes_other_handles_until_the_owned_
     drop(operation);
     fixture.close().await;
 }
+
+/// An observation whose target fails to open with `ENOENT` for a moment, while the name still
+/// holds the exported body, completes once the open succeeds again rather than taking the
+/// target for changed.
+#[tokio::test]
+async fn an_observation_waits_out_a_target_that_briefly_fails_to_open() {
+    let fixture = Fixture::new().await;
+    let record = fixture.publish("object", b"api").await;
+    let operation = fixture.begin("object").await;
+    for _ in 0..8 {
+        if fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap()
+            == InstallOutcome::Complete
+        {
+            break;
+        }
+    }
+    drop(operation);
+    let operation = observation(
+        &fixture.writeback,
+        &fixture.bucket,
+        &ObjectName::new("object").unwrap(),
+        Generation::new(record.generation).unwrap(),
+        fixture.catalog.current_fence().await.unwrap(),
+    )
+    .await;
+    let vanishing = fsutil::VanishingOpens::of(&fixture.tree.0.join("test-bucket"), "object", 2);
+    let mut outcome = InstallOutcome::Pending;
+    for _ in 0..8 {
+        outcome = fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap();
+        if outcome != InstallOutcome::Pending {
+            break;
+        }
+    }
+    assert_eq!(outcome, InstallOutcome::Complete);
+    assert_eq!(vanishing.left(), 0);
+    assert_eq!(
+        fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
+        b"api"
+    );
+    drop(operation);
+    fixture.close().await;
+}

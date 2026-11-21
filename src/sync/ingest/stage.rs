@@ -46,9 +46,10 @@ pub(super) fn open_source(
         | PathEntry::Special(error)
         | PathEntry::NameRejected(error)
         | PathEntry::Unreadable(error) => return Err(error.into()),
-        PathEntry::Absent { .. } | PathEntry::Unplaced(_) | PathEntry::Respelled(_) => {
-            return Err(AdminError::Precondition);
-        }
+        PathEntry::Absent { .. }
+        | PathEntry::Unplaced(_)
+        | PathEntry::Respelled(_)
+        | PathEntry::Transient(_) => return Err(AdminError::Precondition),
     };
     if fsutil::stat_identity(&file)? != expected {
         return Err(AdminError::Precondition);

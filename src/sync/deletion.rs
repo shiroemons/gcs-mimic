@@ -422,7 +422,7 @@ pub(super) async fn bucket_directory_held(
                     selected.as_str().as_ref(),
                     fsutil::DirectoryOpen::Existing,
                 ),
-                Ok(fsutil::Child::Missing)
+                Ok(fsutil::Child::Missing(_))
             ))
         })
         .await?;

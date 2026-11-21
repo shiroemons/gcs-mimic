@@ -14,6 +14,13 @@ pub(crate) fn child_regular(
 ) -> io::Result<super::RegularChild> {
     Err(io::ErrorKind::Unsupported.into())
 }
+pub(crate) fn existing_regular(
+    _: &File,
+    _: &OsStr,
+    _: &super::Lookup,
+) -> io::Result<super::Opened<File>> {
+    Err(io::ErrorKind::Unsupported.into())
+}
 use std::{
     ffi::{OsStr, OsString},
     fs::File,

@@ -903,6 +903,30 @@ async fn ingest_defers_partial_and_replacement_saves_then_resumes_activation() {
     catalog.close().await.unwrap();
 }
 
+/// A file whose open fails with `ENOENT` for a moment after the scan listed it, while its name
+/// still holds it, is ingested in the same scan rather than deferred as a changing source.
+#[tokio::test]
+async fn ingest_takes_in_a_file_that_briefly_fails_to_open() {
+    let (_data, tree, catalog, root, config) = fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/object"), b"bytes").unwrap();
+    let worker_catalog = catalog.clone();
+    let worker_root = root.clone();
+    let worker_config = config.clone();
+    let (hook, worker) = hooked_worker(&HOOK, "settle", async move {
+        scan(&worker_catalog, &worker_root, &worker_config).await
+    })
+    .await;
+    let vanishing = fsutil::VanishingOpens::of(&tree.0.join("test-bucket"), "object", 2);
+    hook.release.notify_one();
+    let scanned = worker.await.unwrap();
+    assert_eq!((scanned.ingested, scanned.deferred), (1, 0));
+    assert_eq!(vanishing.left(), 0);
+    assert_eq!(object(&catalog, "test-bucket/object").await.size, 5);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn ingest_new_files_use_seed_mime_and_bucket_default_hold() {
     let (_data, tree, catalog, root, mut config) = fixture().await;

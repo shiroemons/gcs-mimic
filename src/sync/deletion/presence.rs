@@ -257,7 +257,9 @@ pub(in crate::sync) async fn presence(
                 PathEntry::NameRejected(_) => {
                     Looked::At(Presence::Unobservable(Unobservable::NameRejected))
                 }
-                PathEntry::Unreadable(error) => {
+                // A name that kept failing to open while it held an entry is no deletion: the
+                // next inventory reads it again.
+                PathEntry::Unreadable(error) | PathEntry::Transient(error) => {
                     Looked::At(Presence::Unobservable(Unobservable::Io(error)))
                 }
             })
@@ -292,9 +294,10 @@ fn missing_above(root: &File, lookup: &fsutil::Lookup, path: &Path) -> Presence 
         return Presence::Unobservable(Unobservable::InvalidPath);
     };
     match lookup.directory(root, bucket, fsutil::DirectoryOpen::Existing) {
-        Ok(fsutil::Child::Missing) => Presence::Absent(Removal::BucketDirectory),
+        Ok(fsutil::Child::Missing(_)) => Presence::Absent(Removal::BucketDirectory),
         Ok(fsutil::Child::Directory { .. }) => Presence::Absent(Removal::Files),
         Ok(fsutil::Child::Alias) => Presence::Unobservable(Unobservable::ParentBlocked),
+        Ok(fsutil::Child::Transient(error)) => Presence::Unobservable(Unobservable::Io(error)),
         Err(error) => lookup_failure(error),
     }
 }

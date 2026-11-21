@@ -289,14 +289,24 @@ fn marker_open_error(error: io::Error) -> RootError {
         RootError::at(Stage::ReadMarker, error)
     }
 }
+/// Opens the marker `name` in `directory`, `None` when nothing is there. A marker that kept
+/// failing to open while its name still held an entry is neither missing nor invalid: reading it
+/// fails, so the caller neither takes the directory for one without a marker nor removes a
+/// staged marker.
+fn open_marker(directory: &File, name: &str) -> Result<Option<File>, RootError> {
+    match fsutil::Lookup::unprobed().existing_regular(directory, name.as_ref()) {
+        Ok(fsutil::Opened::Entry(file)) => Ok(Some(file)),
+        Ok(fsutil::Opened::Missing(_)) => Ok(None),
+        Ok(fsutil::Opened::Transient(error)) => Err(RootError::at(Stage::ReadMarker, error)),
+        Err(error) => Err(marker_open_error(error)),
+    }
+}
 fn read_marker_name(
     directory: &File,
     name: &str,
 ) -> Result<Option<(Marker, FileIdentity)>, RootError> {
-    let file = match fsutil::open_regular_at(directory, name.as_ref()) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(marker_open_error(error)),
+    let Some(file) = open_marker(directory, name)? else {
+        return Ok(None);
     };
     let before = fsutil::stat_identity(&file).at(Stage::ReadMarker)?;
     let mut bytes = Vec::with_capacity(4097);
@@ -311,7 +321,8 @@ fn read_marker_name(
     if marker.version != 1 {
         return Err(RootError::InvalidMarker);
     }
-    let current = fsutil::open_regular_at(directory, name.as_ref()).map_err(marker_open_error)?;
+    // A marker gone while it was read is invalid.
+    let current = open_marker(directory, name)?.ok_or(RootError::InvalidMarker)?;
     if fsutil::stat_identity(&current).at(Stage::ReadMarker)? != before {
         return Err(RootError::InvalidMarker);
     }

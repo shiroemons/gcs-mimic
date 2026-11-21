@@ -306,7 +306,9 @@ impl RemovableDirectory {
                     metadata,
                 }))
             }
-            Ok(fsutil::Child::Alias | fsutil::Child::Missing) => Ok(Err(Kept::NotDirectory)),
+            Ok(fsutil::Child::Alias | fsutil::Child::Missing(_)) => Ok(Err(Kept::NotDirectory)),
+            // A directory that kept failing to open is proved again by the retry.
+            Ok(fsutil::Child::Transient(_)) => Err(stale()),
             Err(error) if crate::sync::tree::structural_entry_error(&error) => {
                 Ok(Err(Kept::NotDirectory))
             }
@@ -347,7 +349,13 @@ fn remove_metadata(
         install.faults.hit_io(Step::SyncDirectoryMetadataUnlink)?;
         let current = match install.lookup.regular(directory, file.name.as_ref()) {
             Ok(fsutil::RegularChild::File(current)) => current,
-            Ok(fsutil::RegularChild::Missing | fsutil::RegularChild::Respelled(_)) => continue,
+            // A file that kept failing to open stays, and the removal finds the directory not
+            // empty.
+            Ok(
+                fsutil::RegularChild::Missing(_)
+                | fsutil::RegularChild::Respelled(_)
+                | fsutil::RegularChild::Transient(_),
+            ) => continue,
             Err(error) if crate::sync::tree::structural_entry_error(&error) => continue,
             Err(error) => return Err(error.into()),
         };
@@ -387,8 +395,10 @@ fn unchanged(
                 return Err(stale());
             }
         }
-        Ok(fsutil::Child::Missing) => return Ok(Ok(())),
+        Ok(fsutil::Child::Missing(_)) => return Ok(Ok(())),
         Ok(fsutil::Child::Alias) => return Ok(Err(Kept::NotDirectory)),
+        // A directory that kept failing to open is proved again by the retry.
+        Ok(fsutil::Child::Transient(_)) => return Err(stale()),
         Err(error) if crate::sync::tree::structural_entry_error(&error) => {
             return Ok(Err(Kept::NotDirectory));
         }

@@ -181,7 +181,8 @@ impl From<crate::sync::tree::ParentError> for Error {
         use crate::sync::tree::ParentError;
         match error {
             ParentError::Io(error) => error.into(),
-            ParentError::Finding(_) | ParentError::Missing => stale(),
+            // A directory that kept failing to open is read again by the retry.
+            ParentError::Finding(_) | ParentError::Missing | ParentError::Transient(_) => stale(),
         }
     }
 }
@@ -656,8 +657,9 @@ fn target(
     let name = path.rsplit('/').next().ok_or_else(stale)?;
     match lookup.regular(&directory, name.as_ref()) {
         Ok(fsutil::RegularChild::File(file)) => Ok(Some(file)),
-        Ok(fsutil::RegularChild::Missing) => Ok(None),
-        Ok(fsutil::RegularChild::Respelled(_)) => Err(stale()),
+        Ok(fsutil::RegularChild::Missing(_)) => Ok(None),
+        // A target that kept failing to open is read again by the retry.
+        Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Transient(_)) => Err(stale()),
         Err(e) => Err(e.into()),
     }
 }
@@ -684,15 +686,18 @@ fn target_entry(
     let name: &std::ffi::OsStr = path.rsplit('/').next().ok_or_else(stale)?.as_ref();
     match lookup.regular(&directory, name) {
         Ok(fsutil::RegularChild::File(file)) => Ok(TargetEntry::File(file)),
-        Ok(fsutil::RegularChild::Missing) => Ok(TargetEntry::Missing),
-        Ok(fsutil::RegularChild::Respelled(_)) => Err(stale()),
+        Ok(fsutil::RegularChild::Missing(_)) => Ok(TargetEntry::Missing),
+        // A target that kept failing to open is read again by the retry.
+        Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Transient(_)) => Err(stale()),
         Err(error) if crate::sync::tree::structural_entry_error(&error) => {
             match lookup.directory(&directory, name, fsutil::DirectoryOpen::Existing) {
                 Ok(fsutil::Child::Directory { .. } | fsutil::Child::Alias) => {
                     Ok(TargetEntry::Directory)
                 }
                 // The entry that failed to open as a file is the one to report.
-                Ok(fsutil::Child::Missing) | Err(_) => Err(error.into()),
+                Ok(fsutil::Child::Missing(_) | fsutil::Child::Transient(_)) | Err(_) => {
+                    Err(error.into())
+                }
             }
         }
         Err(error) => Err(error.into()),

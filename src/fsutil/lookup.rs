@@ -29,7 +29,7 @@
 //! entry before it asks, so a kept listing that still answers was read from the namespace the
 //! entry was opened in.
 
-use super::{Child, DirectoryOpen, FileIdentity, RegularChild, imp};
+use super::{Child, DirectoryOpen, FileIdentity, Opened, RegularChild, imp};
 use crate::clock::{Clock, SystemClock, signed_nanos};
 use std::{
     collections::{HashSet, VecDeque},
@@ -255,6 +255,25 @@ impl Lookup {
         imp::child_regular(parent, name, self)
     }
 
+    /// Opens the regular file `name` in `parent` without following a symlink or confirming its
+    /// spelling, for a file the mirror names itself, under the rule [`Self::regular`] applies to
+    /// a name that fails to open ([`Opened`]).
+    pub(crate) fn existing_regular(&self, parent: &File, name: &OsStr) -> io::Result<Opened<File>> {
+        imp::existing_regular(parent, name, self)
+    }
+
+    /// Waits `duration` on the lookup's clock before a name that failed to open is opened again.
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "descriptor-relative child lookup is unsupported on this platform"
+        )
+    )]
+    pub(super) fn pause(&self, duration: std::time::Duration) {
+        self.clock.pause(duration);
+    }
+
     /// What the root's rules say about the directories below it.
     #[cfg_attr(
         not(any(target_os = "linux", all(test, unix))),
@@ -426,5 +445,117 @@ mod listing_tests {
         assert_eq!(lookup.reads(), 0);
         assert!(listed.opens(&lookup, "Actual"));
         assert_eq!(lookup.reads(), 1);
+    }
+}
+
+/// Opens that fail with `ENOENT` while the name still holds its entry, as a Docker Desktop bind
+/// mount answers for a file it is still bringing over from the host.
+#[cfg(test)]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod open_failure_tests {
+    use super::*;
+    use crate::{clock::ManualClock, fsutil::VanishingOpens, test_support::TestDir};
+    use std::{
+        fs,
+        time::{Duration, SystemTime},
+    };
+
+    /// A directory holding a regular file `file` and a directory `directory`, and lookups whose
+    /// waits go by `clock` rather than by the time that passes.
+    struct Entries {
+        parent: File,
+        clock: Arc<ManualClock>,
+        start: SystemTime,
+        dir: TestDir,
+    }
+
+    impl Entries {
+        fn new() -> Self {
+            let dir = TestDir::new();
+            fs::write(dir.0.join("file"), b"bytes").unwrap();
+            fs::create_dir(dir.0.join("directory")).unwrap();
+            let start = SystemTime::now();
+            Self {
+                parent: File::open(&dir.0).unwrap(),
+                clock: Arc::new(ManualClock::new(start)),
+                start,
+                dir,
+            }
+        }
+
+        fn lookup(&self) -> Lookup {
+            Lookup::probed(Matching::Exact, self.clock.clone())
+        }
+
+        fn waited(&self) -> Duration {
+            self.clock.now().duration_since(self.start).unwrap()
+        }
+    }
+
+    /// An entry whose open fails a few times while the name still holds it is opened once the
+    /// open succeeds again, a regular file and a directory alike.
+    #[test]
+    fn an_entry_that_briefly_fails_to_open_is_opened_again() {
+        let entries = Entries::new();
+        let file = VanishingOpens::of(&entries.dir.0, "file", 3);
+        assert!(matches!(
+            entries
+                .lookup()
+                .regular(&entries.parent, "file".as_ref())
+                .unwrap(),
+            RegularChild::File(_)
+        ));
+        assert_eq!(file.left(), 0);
+        let directory = VanishingOpens::of(&entries.dir.0, "directory", 3);
+        assert!(matches!(
+            entries
+                .lookup()
+                .directory(
+                    &entries.parent,
+                    "directory".as_ref(),
+                    DirectoryOpen::Existing
+                )
+                .unwrap(),
+            Child::Directory { .. }
+        ));
+        assert_eq!(directory.left(), 0);
+    }
+
+    /// An entry whose open keeps failing while the name still holds it is transient, never
+    /// missing, once the retries spent a second on the lookup's clock; a name that holds nothing
+    /// is missing at once, without a wait.
+    #[test]
+    fn an_entry_that_keeps_failing_to_open_is_never_missing() {
+        let entries = Entries::new();
+        let _file = VanishingOpens::of(&entries.dir.0, "file", usize::MAX);
+        let _directory = VanishingOpens::of(&entries.dir.0, "directory", usize::MAX);
+        assert!(matches!(
+            entries.lookup().regular(&entries.parent, "file".as_ref()),
+            Ok(RegularChild::Transient(error)) if error.kind() == io::ErrorKind::NotFound
+        ));
+        assert!(entries.waited() >= Duration::from_secs(1));
+        assert!(matches!(
+            entries.lookup().directory(
+                &entries.parent,
+                "directory".as_ref(),
+                DirectoryOpen::Existing
+            ),
+            Ok(Child::Transient(_))
+        ));
+        assert!(matches!(
+            entries
+                .lookup()
+                .existing_regular(&entries.parent, "file".as_ref()),
+            Ok(Opened::Transient(_))
+        ));
+        let waited = entries.waited();
+        assert!(matches!(
+            entries
+                .lookup()
+                .regular(&entries.parent, "absent".as_ref())
+                .unwrap(),
+            RegularChild::Missing(_)
+        ));
+        assert_eq!(entries.waited(), waited);
     }
 }

@@ -270,8 +270,10 @@ fn passed_over(
     let file = match lookup.regular(directory, name) {
         Ok(fsutil::RegularChild::File(file)) => file,
         // Removed since the listing: it holds nothing any more.
-        Ok(fsutil::RegularChild::Missing) => return true,
-        Ok(fsutil::RegularChild::Respelled(_)) | Err(_) => return false,
+        Ok(fsutil::RegularChild::Missing(_)) => return true,
+        Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Transient(_)) | Err(_) => {
+            return false;
+        }
     };
     let Ok(identity) = fsutil::stat_identity(&file) else {
         return false;

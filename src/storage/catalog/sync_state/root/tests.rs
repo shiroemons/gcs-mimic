@@ -33,6 +33,28 @@ async fn setup() -> (TestDir, TestDir, Catalog) {
     (data, root, catalog)
 }
 
+/// A marker whose open fails with `ENOENT` for a moment, while its name still holds it, is read
+/// once the open succeeds again rather than taken for missing.
+#[tokio::test]
+async fn a_marker_that_briefly_fails_to_open_is_still_read() {
+    let (_data, tree, catalog) = setup().await;
+    drop(
+        catalog
+            .sync_state()
+            .activate_root(&tree.0, Activation::Open)
+            .await
+            .unwrap(),
+    );
+    let vanishing = fsutil::VanishingOpens::of(&tree.0, MARKER, 2);
+    assert!(
+        read_marker(&fsutil::open_directory_nofollow(&tree.0).unwrap())
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(vanishing.left(), 0);
+    catalog.close().await.unwrap();
+}
+
 #[test]
 fn unrelated_would_block_keeps_its_io_cause() {
     let error = RootError::at(

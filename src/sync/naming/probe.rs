@@ -147,12 +147,14 @@ impl Probe {
         let folds = match Lookup::unprobed().regular(&self.directory, folded.as_ref())? {
             // The probe unlinked `folded` and never creates it, so opening that spelling at all
             // proves the filesystem folds it onto `created`.
-            RegularChild::File(_) | RegularChild::Respelled(_) => Folded::Together,
-            RegularChild::Missing => Folded::Apart,
+            RegularChild::File(_) | RegularChild::Respelled(_) => Ok(Folded::Together),
+            RegularChild::Missing(_) => Ok(Folded::Apart),
+            // Whether `folded` reaches `created` is unknown until a later probe.
+            RegularChild::Transient(error) => Err(error),
         };
         drop(file);
         self.remove(created)?;
-        Ok((folds, spelling))
+        Ok((folds?, spelling))
     }
 
     /// A colon the filesystem refuses, or stores under another spelling, is not mapped. That

@@ -110,9 +110,9 @@ impl RootLease {
                     )?;
                     match lookup.regular(&directory, name.as_ref())? {
                         fsutil::RegularChild::File(file) => Ok(file),
-                        fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Missing => {
-                            Err(Error::TargetChanged)
-                        }
+                        fsutil::RegularChild::Respelled(_)
+                        | fsutil::RegularChild::Missing(_)
+                        | fsutil::RegularChild::Transient(_) => Err(Error::TargetChanged),
                     }
                 })
                 .await?;

@@ -608,6 +608,19 @@ a changed file again under its exact spelling before it reads it, so an entry
 renamed between the listing and that open is deferred as a changing source,
 and the next scan takes it in under its new name.
 
+Only `fstatat`, not following a symlink, finding nothing under a name shows
+that the name holds nothing, since an empty tracked path is a deletion. On a
+Docker Desktop bind mount an open fails with `ENOENT` for a moment after the
+host created, overwrote or replaced a file, while `fstatat` still finds it
+([evidence](../evidence/sync-bind-mount-stale-reads.md)). A lookup that meets
+such a failure, for a file, a directory above it or the root marker, opens the
+name again after waits that start at 2 ms and double, on the blocking pool,
+and gives up after a second of waits. A name that still fails then is neither
+present nor absent: ingestion defers the file as a changing source, the
+deletion inventory counts the path as unobservable (`io-failure`) and deletes
+nothing for it, an export or write-back step defers to a later pass, and a
+marker read fails with the read error instead of passing for a missing marker.
+
 A filesystem that stores a created name under another spelling, in letter case
 or Unicode normalization, cannot keep the mapping reversible. The mirror pauses
 with `paused_reason` `observer-failure` before its first scan, so nothing is

@@ -93,6 +93,23 @@ fn another_kind_of_entry_at_the_path_or_above_it_is_told_apart() {
     ));
 }
 
+/// A path whose file, or a directory above it, keeps failing to open while its name still holds
+/// an entry is transient, never absent.
+#[test]
+fn a_path_whose_entries_keep_failing_to_open_is_never_absent() {
+    let tree = Tree::new();
+    fs::write(tree.dir.0.join("bucket/file"), b"bytes").unwrap();
+    let clock = std::sync::Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
+    let lookup = Lookup::probed(fsutil::Matching::Exact, clock);
+    let observe =
+        |path: &str| observe_path(&tree.root, RootNaming::posix(), &lookup, Path::new(path));
+    let file = fsutil::VanishingOpens::of(&tree.dir.0.join("bucket"), "file", usize::MAX);
+    assert!(matches!(observe("bucket/file"), PathEntry::Transient(_)));
+    drop(file);
+    let _bucket = fsutil::VanishingOpens::of(&tree.dir.0, "bucket", usize::MAX);
+    assert!(matches!(observe("bucket/file"), PathEntry::Transient(_)));
+}
+
 /// A listing that the lookups kept from before a change that left the directory's timestamps as
 /// they were does not make a file under its exact spelling a respelled one: the listing read to
 /// name the spelling decides.

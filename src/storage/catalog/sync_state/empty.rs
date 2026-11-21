@@ -68,8 +68,11 @@ pub(super) fn contents(directory: &File, lookup: &fsutil::Lookup) -> io::Result<
                 identity: fsutil::stat_identity(&file)?,
             }),
             // Gone since the listing: nothing of it is left.
-            Ok(fsutil::RegularChild::Missing) => {}
-            Ok(fsutil::RegularChild::Respelled(_)) => return Ok(Contents::Holds),
+            Ok(fsutil::RegularChild::Missing(_)) => {}
+            // An entry that kept failing to open may hold anything.
+            Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Transient(_)) => {
+                return Ok(Contents::Holds);
+            }
             Err(error) if crate::sync::tree::structural_entry_error(&error) => {
                 return Ok(Contents::Holds);
             }

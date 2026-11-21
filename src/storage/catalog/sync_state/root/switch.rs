@@ -206,8 +206,11 @@ fn root_files(directory: &File) -> io::Result<Option<usize>> {
         match fsutil::Lookup::unprobed().regular(directory, &name) {
             Ok(fsutil::RegularChild::File(_)) => files += 1,
             // Gone since the listing.
-            Ok(fsutil::RegularChild::Missing) => {}
-            Ok(fsutil::RegularChild::Respelled(_)) => return Ok(None),
+            Ok(fsutil::RegularChild::Missing(_)) => {}
+            // An entry that kept failing to open may be of any kind.
+            Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Transient(_)) => {
+                return Ok(None);
+            }
             Err(error) if crate::sync::tree::structural_entry_error(&error) => return Ok(None),
             Err(error) => return Err(error),
         }

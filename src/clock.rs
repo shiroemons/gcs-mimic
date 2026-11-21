@@ -2,6 +2,12 @@ use std::time::SystemTime;
 
 pub trait Clock: Send + Sync {
     fn now(&self) -> SystemTime;
+
+    /// Blocks the calling thread for `duration` as this clock tells time, for work on a
+    /// blocking pool that waits before it tries again. A test clock advances instead.
+    fn pause(&self, duration: std::time::Duration) {
+        std::thread::sleep(duration);
+    }
 }
 
 pub struct SystemClock;
@@ -53,6 +59,10 @@ impl ManualClock {
 impl Clock for ManualClock {
     fn now(&self) -> SystemTime {
         *self.0.lock().unwrap()
+    }
+
+    fn pause(&self, duration: std::time::Duration) {
+        self.advance(duration);
     }
 }
 

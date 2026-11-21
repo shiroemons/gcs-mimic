@@ -109,9 +109,14 @@ pub(crate) enum Created {
     )
 )]
 pub(crate) enum Child {
-    Directory { file: File, created: Created },
+    Directory {
+        file: File,
+        created: Created,
+    },
     Alias,
-    Missing,
+    Missing(Vacant),
+    /// The name kept failing to open while an entry stood under it ([`Opened::Transient`]).
+    Transient(io::Error),
 }
 
 #[cfg_attr(
@@ -127,7 +132,53 @@ pub(crate) enum RegularChild {
     /// with the spelling the directory lists it under, or the error the listing failed with. A
     /// caller that only needs to know that the spelling differs is not failed by the listing.
     Respelled(io::Result<Spelling>),
-    Missing,
+    Missing(Vacant),
+    /// The name kept failing to open while an entry stood under it ([`Opened::Transient`]).
+    Transient(io::Error),
+}
+
+/// What opening a name found, under the rule that only `fstatat` finding nothing shows that the
+/// name holds nothing. A name the mirror reads as empty makes a tracked file a deletion
+/// candidate, and a Docker Desktop bind mount fails an open with `ENOENT` for a moment after the
+/// host replaced a file while `fstatat` still finds it
+/// (`docs/en/evidence/sync-bind-mount-stale-reads.md`), so such an open is tried again rather
+/// than taken for an empty name.
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "descriptor-relative lookup is unsupported on this platform"
+    )
+)]
+pub(crate) enum Opened<T> {
+    /// The entry the name holds.
+    Entry(T),
+    /// Nothing: `fstatat`, not following a symlink, found nothing under the name.
+    Missing(Vacant),
+    /// The open kept failing with this error while `fstatat` still found an entry under the
+    /// name, until the retries ran out. Whether the name holds anything is unknown, and a later
+    /// read decides.
+    Transient(io::Error),
+}
+
+/// Proof that `fstatat`, not following a symlink, found nothing under a name. Only a lookup
+/// makes one, so no other answer of a failed open passes for an empty name.
+#[derive(Debug)]
+pub(crate) struct Vacant {
+    _proven: (),
+}
+
+impl Vacant {
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "descriptor-relative lookup is unsupported on this platform"
+        )
+    )]
+    fn proven() -> Self {
+        Self { _proven: () }
+    }
 }
 
 /// The spelling under which a directory lists a regular file that a name reached under another
@@ -1047,6 +1098,93 @@ impl Drop for UncheckedSpelling {
         if let Ok(mut unchecked) = UNCHECKED_SPELLING.lock() {
             unchecked.retain(|directory| *directory != self.0);
         }
+    }
+}
+
+/// Names whose opens fail with `ENOENT` while the entry stays ([`Opened::Transient`]): by the
+/// device and inode number of the directory, the name, and how many opens are left to fail.
+/// Opening an existing regular file or directory by name fails that way; `fstatat` still finds
+/// the entry. Tests run in parallel, so each adds its own name and removes only that one again.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+static VANISHING_OPENS: std::sync::Mutex<Vec<VanishingOpen>> = std::sync::Mutex::new(Vec::new());
+
+/// A name in [`VANISHING_OPENS`].
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+struct VanishingOpen {
+    directory: (u64, u64),
+    name: OsString,
+    left: usize,
+}
+
+/// Fails the next opens of a name with `ENOENT` while it lives ([`VANISHING_OPENS`]).
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) struct VanishingOpens {
+    directory: (u64, u64),
+    name: OsString,
+}
+
+// A separate `cfg(test)` lets Clippy see test code here and allow its unwraps.
+#[cfg(test)]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl VanishingOpens {
+    /// Fails the next `opens` opens of `name` in `directory`.
+    pub(crate) fn of(directory: &std::path::Path, name: &str, opens: usize) -> Self {
+        let identity = stat_identity(&File::open(directory).unwrap()).unwrap();
+        let directory = (identity.device, identity.inode);
+        VANISHING_OPENS.lock().unwrap().push(VanishingOpen {
+            directory,
+            name: name.into(),
+            left: opens,
+        });
+        Self {
+            directory,
+            name: name.into(),
+        }
+    }
+
+    /// How many of the failures are left.
+    pub(crate) fn left(&self) -> usize {
+        VANISHING_OPENS
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|open| self.names(open))
+            .map_or(0, |open| open.left)
+    }
+
+    fn names(&self, open: &VanishingOpen) -> bool {
+        open.directory == self.directory && open.name == self.name
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+impl Drop for VanishingOpens {
+    fn drop(&mut self) {
+        if let Ok(mut vanishing) = VANISHING_OPENS.lock() {
+            vanishing.retain(|open| open.directory != self.directory || open.name != self.name);
+        }
+    }
+}
+
+/// Fails with `ENOENT` when an open of `name` in `directory` is due to fail
+/// ([`VANISHING_OPENS`]), using that failure up.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+fn vanishing_open(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
+    let mut vanishing = VANISHING_OPENS
+        .lock()
+        .map_err(|_| io::Error::other("open failure injection poisoned"))?;
+    if vanishing.is_empty() {
+        return Ok(());
+    }
+    let identity = stat_identity(directory)?;
+    match vanishing.iter_mut().find(|open| {
+        open.directory == (identity.device, identity.inode) && open.name == name && open.left > 0
+    }) {
+        Some(open) => {
+            open.left -= 1;
+            Err(io::ErrorKind::NotFound.into())
+        }
+        None => Ok(()),
     }
 }
 

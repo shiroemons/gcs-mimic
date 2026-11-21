@@ -57,6 +57,36 @@ async fn fixture(count: usize) -> (TestDir, TestDir, Catalog, RootLease, Config)
     (data, tree, catalog, root, config)
 }
 
+/// A tracked file whose open fails with `ENOENT` while its name still holds it is never taken for
+/// deleted: once the open succeeds again the file is present, and while it keeps failing the
+/// path is unobservable, its object neither deleted nor kept from the deletion of others.
+#[tokio::test]
+async fn a_tracked_file_that_fails_to_open_is_never_a_deletion_candidate() {
+    let (_data, tree, _catalog, root, config) = fixture(1).await;
+    let summary = Reconciliation {
+        baseline_complete: true,
+        ..Default::default()
+    };
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    let vanishing = fsutil::VanishingOpens::of(&tree.0.join("test-bucket"), "0000", 2);
+    let set = inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(set.candidate_count, 0);
+    assert_eq!(vanishing.left(), 0);
+    drop(vanishing);
+    let _vanishing = fsutil::VanishingOpens::of(&tree.0.join("test-bucket"), "0000", usize::MAX);
+    let clock = std::sync::Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
+    let lookup = fsutil::Lookup::probed(fsutil::Matching::Exact, clock);
+    assert!(matches!(
+        presence(&root, &lookup, "test-bucket/0000".to_owned())
+            .await
+            .unwrap(),
+        Presence::Unobservable(Unobservable::Io(_))
+    ));
+}
+
 #[tokio::test]
 async fn cumulative_deletions_require_approval_after_split_scans_rescan_and_restart() {
     let (data, tree, catalog, root, config) = fixture(100).await;

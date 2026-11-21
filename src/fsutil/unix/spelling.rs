@@ -1,5 +1,81 @@
 use super::*;
-use crate::fsutil::{Child, Created, Lookup, RegularChild, Spelling};
+use crate::fsutil::{Child, Created, Lookup, Opened, RegularChild, Spelling, Vacant};
+use std::time::Duration;
+
+/// How long a name that `fstatat` still finds may keep failing to open with `ENOENT` before a
+/// lookup gives up on it as transient. A Docker Desktop bind mount answered so for up to 238 ms
+/// after the host replaced a file (`docs/en/evidence/sync-bind-mount-stale-reads.md`).
+const VANISHING_LIMIT: Duration = Duration::from_secs(1);
+/// The first wait before such a name is opened again; each later wait doubles.
+const FIRST_RETRY: Duration = Duration::from_millis(2);
+
+/// Opens `name` in `parent` with `open`. Only `fstatat`, not following a symlink, finding nothing
+/// under the name makes it [`Opened::Missing`]: an open that fails with `ENOENT` while `fstatat`
+/// still finds an entry is tried again after waits that start short and double, and gives up as
+/// [`Opened::Transient`] once they reach [`VANISHING_LIMIT`]. The waits block the calling thread
+/// and pass on the lookup's clock.
+fn open_entry<T>(
+    parent: &File,
+    name: &OsStr,
+    lookup: &Lookup,
+    mut open: impl FnMut() -> io::Result<T>,
+) -> io::Result<Opened<T>> {
+    let mut waited = Duration::ZERO;
+    let mut wait = FIRST_RETRY;
+    loop {
+        let error = match open() {
+            Ok(entry) => return Ok(Opened::Entry(entry)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => error,
+            Err(error) => return Err(error),
+        };
+        if !holds_entry(parent, name)? {
+            return Ok(Opened::Missing(Vacant::proven()));
+        }
+        if waited >= VANISHING_LIMIT {
+            return Ok(Opened::Transient(error));
+        }
+        lookup.pause(wait);
+        waited += wait;
+        wait = wait.saturating_mul(2);
+    }
+}
+
+/// Whether `fstatat`, not following a symlink, finds an entry under `name` in `parent`.
+#[expect(
+    unsafe_code,
+    reason = "fstatat on a pinned descriptor has no safe std equivalent"
+)]
+fn holds_entry(parent: &File, name: &OsStr) -> io::Result<bool> {
+    let component = component(name)?;
+    let mut status = std::mem::MaybeUninit::<libc::stat>::zeroed();
+    // SAFETY: the live descriptor, the terminated component and the writable buffer are valid for
+    // the call, which keeps none of them.
+    let result = unsafe {
+        libc::fstatat(
+            parent.as_raw_fd(),
+            component.as_ptr(),
+            status.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if result == 0 {
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    if error.kind() == io::ErrorKind::NotFound {
+        Ok(false)
+    } else {
+        Err(error)
+    }
+}
+
+pub(crate) fn existing_regular(
+    parent: &File,
+    name: &OsStr,
+    lookup: &Lookup,
+) -> io::Result<Opened<File>> {
+    open_entry(parent, name, lookup, || open_regular_at(parent, name))
+}
 
 pub(crate) fn child_directory(
     parent: &File,
@@ -7,15 +83,18 @@ pub(crate) fn child_directory(
     open: DirectoryOpen,
     lookup: &Lookup,
 ) -> io::Result<Child> {
-    let (file, created) = match directory_at(parent, name, DirectoryOpen::Existing) {
-        Ok(file) => (file, Created::No),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+    let opened = open_entry(parent, name, lookup, || {
+        directory_at(parent, name, DirectoryOpen::Existing)
+    })?;
+    let (file, created) = match opened {
+        Opened::Entry(file) => (file, Created::No),
+        Opened::Missing(vacant) => {
             if open == DirectoryOpen::Existing {
-                return Ok(Child::Missing);
+                return Ok(Child::Missing(vacant));
             }
             create_child(parent, name)?
         }
-        Err(error) => return Err(error),
+        Opened::Transient(error) => return Ok(Child::Transient(error)),
     };
     if spelled_as_opened(parent, name, &file, lookup)? {
         Ok(Child::Directory { file, created })
@@ -51,10 +130,10 @@ pub(crate) fn child_regular(
     name: &OsStr,
     lookup: &Lookup,
 ) -> io::Result<RegularChild> {
-    let file = match open_regular_at(parent, name) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(RegularChild::Missing),
-        Err(error) => return Err(error),
+    let file = match existing_regular(parent, name, lookup)? {
+        Opened::Entry(file) => file,
+        Opened::Missing(vacant) => return Ok(RegularChild::Missing(vacant)),
+        Opened::Transient(error) => return Ok(RegularChild::Transient(error)),
     };
     if spelled_as_opened(parent, name, &file, lookup)? {
         return Ok(RegularChild::File(file));
