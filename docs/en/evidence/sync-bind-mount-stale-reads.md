@@ -23,7 +23,7 @@ container observed it with `stat`, an open and a hash of its bytes.
 | In-place overwrite that restores the old size and modification time (`touch -r` and `dd conv=notrunc`) | The container's hash showed the new bytes every time; 0 reads kept the old bytes, and the new bytes were visible within 0.30 s at most | Same as exFAT |
 | Old bytes seen after a replacement | Only right after a `mv` replacement: 10 times, each within 6.9 ms, and each time the container's size and modification time were the old ones too | 0 times |
 | `stat` succeeds and the following open fails with `ENOENT` | After creation, overwrite and `mv`, for up to 238 ms (while the file was being replaced repeatedly) | Only after `mv`, for up to 132 ms |
-| `stat` (`fstatat`) fails with `ENOENT` | 0 times in more than 40,000 observations | 0 times in more than 40,000 observations |
+| `stat` (`fstatat`) fails with `ENOENT` while the file is replaced repeatedly | 0 times in more than 42,000 observations | 0 times in more than 23,000 observations |
 | A directory transiently missing (`ENOENT`) | 0 times | 0 times |
 
 Whenever the container read old bytes, the size and modification time it read
