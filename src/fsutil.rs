@@ -1123,6 +1123,53 @@ impl Drop for UncheckedSpelling {
     }
 }
 
+/// The directories, by device and inode number, whose listing fails with `EIO`, as a listing of
+/// a network mount can while opening a name there still works. Tests run in parallel, so each
+/// adds its own directory and removes only that one again.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+static UNREADABLE_LISTINGS: std::sync::Mutex<Vec<(u64, u64)>> = std::sync::Mutex::new(Vec::new());
+
+/// Fails each listing of a directory while it lives ([`UNREADABLE_LISTINGS`]).
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) struct UnreadableListing((u64, u64));
+
+// A separate `cfg(test)` lets Clippy see test code here and allow its unwraps.
+#[cfg(test)]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl UnreadableListing {
+    pub(crate) fn of(directory: &std::path::Path) -> Self {
+        let identity = stat_identity(&File::open(directory).unwrap()).unwrap();
+        let unreadable = (identity.device, identity.inode);
+        UNREADABLE_LISTINGS.lock().unwrap().push(unreadable);
+        Self(unreadable)
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+impl Drop for UnreadableListing {
+    fn drop(&mut self) {
+        if let Ok(mut unreadable) = UNREADABLE_LISTINGS.lock() {
+            unreadable.retain(|directory| *directory != self.0);
+        }
+    }
+}
+
+/// Fails with `EIO` when a listing of `directory` is due to fail ([`UNREADABLE_LISTINGS`]).
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+fn unreadable_listing(directory: &File) -> io::Result<()> {
+    let unreadable = UNREADABLE_LISTINGS
+        .lock()
+        .map_err(|_| io::Error::other("listing failure injection poisoned"))?;
+    if unreadable.is_empty() {
+        return Ok(());
+    }
+    let identity = stat_identity(directory)?;
+    if unreadable.contains(&(identity.device, identity.inode)) {
+        return Err(io::Error::from_raw_os_error(libc::EIO));
+    }
+    Ok(())
+}
+
 /// Names whose opens fail with `ENOENT` while the entry stays ([`Opened::Transient`]): by the
 /// device and inode number of the directory, the name, and how many opens are left to fail.
 /// Opening an existing regular file or directory by name fails that way; `fstatat` still finds

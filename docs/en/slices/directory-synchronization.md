@@ -602,7 +602,9 @@ spelling is matched in a new listing of its directory by device and inode
 number, to name the spelling it is listed under; when that listing spells the
 entry exactly as it was opened, the answer that said otherwise, such as a kept
 listing older than the change, is dropped and the entry is the file under its
-own spelling. The scan itself confirms no spelling of the
+own spelling. A new listing that fails to read leaves the entry an alias with no
+spelling to name, as it was before the spelling was read, rather than a failed
+read. The scan itself confirms no spelling of the
 names it lists, since each comes from its directory's listing: ingestion opens
 a changed file again under its exact spelling before it reads it, so an entry
 renamed between the listing and that open is deferred as a changing source,

@@ -167,3 +167,26 @@ fn a_file_reached_under_another_spelling_names_the_listed_one() {
         PathEntry::Respelled(ListedSpelling::Unnamed)
     ));
 }
+
+/// A file reached under another letter case whose directory then fails to list is respelled with
+/// no spelling to name, not a failed read: a pass meets an alias there, as it did before it read
+/// the spelling, and reads the path again rather than failing.
+#[test]
+fn a_file_whose_spelling_cannot_be_listed_is_respelled_without_one() {
+    let tree = Tree::new();
+    let bucket = tree.dir.0.join("bucket");
+    fs::write(bucket.join("Actual"), b"bytes").unwrap();
+    if !bucket.join("actual").exists() {
+        return;
+    }
+    let _unreadable = fsutil::UnreadableListing::of(&bucket);
+    assert!(matches!(
+        tree.observe("bucket/Actual"),
+        PathEntry::File { .. }
+    ));
+    let observed = tree.observe("bucket/actual");
+    assert!(
+        matches!(observed, PathEntry::Respelled(ListedSpelling::Unnamed)),
+        "{observed:?}"
+    );
+}

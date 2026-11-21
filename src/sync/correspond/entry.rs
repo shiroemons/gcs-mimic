@@ -24,7 +24,8 @@ pub(crate) enum PathEntry {
     Unplaced(Unplaced),
     /// The regular file under the path's exact spelling, and the directory that holds it.
     File { parent: File, file: File },
-    /// A regular file that the name reached under another spelling of it.
+    /// A regular file that the name reached under another spelling of it, with the spelling its
+    /// directory lists it under, or none where the listing named none or failed.
     Respelled(ListedSpelling),
     /// A directory holds the name, which failed to open as a regular file with this error.
     Directory(io::Error),
@@ -77,6 +78,9 @@ pub(crate) fn observe_path(
             file,
         },
         Ok(RegularChild::Respelled(Ok(spelling))) => PathEntry::Respelled(spelling),
+        // The name reached the file under another spelling whichever one the listing would have
+        // named, so a failed listing leaves an alias without its spelling, not a failed read.
+        Ok(RegularChild::Respelled(Err(_))) => PathEntry::Respelled(ListedSpelling::Unnamed),
         Ok(RegularChild::Missing(_)) => PathEntry::Absent {
             above: Above::Present,
         },
@@ -88,7 +92,7 @@ pub(crate) fn observe_path(
                 PathEntry::Special(error)
             }
         }
-        Ok(RegularChild::Respelled(Err(error))) | Err(error) => unreadable(error),
+        Err(error) => unreadable(error),
     }
 }
 

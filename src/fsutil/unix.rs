@@ -64,6 +64,8 @@ pub(crate) fn each_name(
     directory: &File,
     mut visit: impl FnMut(&OsStr) -> io::Result<ControlFlow<()>>,
 ) -> io::Result<()> {
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    super::unreadable_listing(directory)?;
     // SAFETY: the descriptor is live and the literal is a terminated relative directory name.
     let fd = unsafe {
         libc::openat(
