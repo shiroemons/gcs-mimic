@@ -456,6 +456,56 @@ async fn a_tracked_body_with_another_modification_time_stays_protected_through_r
     }
 }
 
+/// A size and modification time that match the record do not make a tracked body reclaimable;
+/// only its bytes do. The body an overwrite displaced or a removal moved aside, with its last byte
+/// changed or one byte appended and its modification time then set back to the one the snapshot
+/// restore kept, which is the recorded one, stays protected through the restart: the restart moves
+/// it into the conflict store and reports it, and the target still converges to the API state.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tracked_body_edited_under_its_recorded_mtime_stays_protected_through_restart() {
+    #[derive(Clone, Copy, Debug)]
+    enum Edit {
+        LastByte,
+        AppendedByte,
+    }
+    for change in [Change::Overwrite, Change::Remove] {
+        for edit in [Edit::LastByte, Edit::AppendedByte] {
+            let case = format!("{change:?} {edit:?}");
+            let crashed = Crashed::at(change, Step::SyncCopyRenamed, Crash::Abort).await;
+            let entry = operation_entries(&crashed.tree.0.join(mapping::WORKSPACE))
+                .into_iter()
+                .next()
+                .unwrap();
+            let recorded = fs::metadata(&entry).unwrap().modified().unwrap();
+            let mut edited = fs::read(&entry).unwrap();
+            assert_eq!(edited, BEFORE, "{case}");
+            match edit {
+                Edit::LastByte => *edited.last_mut().unwrap() ^= 1,
+                Edit::AppendedByte => edited.push(0),
+            }
+            fs::write(&entry, &edited).unwrap();
+            fs::File::open(&entry)
+                .unwrap()
+                .set_modified(recorded)
+                .unwrap();
+            assert_eq!(
+                fs::metadata(&entry).unwrap().modified().unwrap(),
+                recorded,
+                "{case}"
+            );
+            let mut started = crashed.start(crashed.open().await).await;
+            assert_eq!(
+                started.wait().await.unwrap().reason,
+                WaitReason::FindingsPending,
+                "{case}"
+            );
+            assert_eq!(conflict_bodies(&crashed.data), [edited], "{case}");
+            assert_converged(&started, &crashed.bucket, crashed.api.as_ref()).await;
+            started.close().await;
+        }
+    }
+}
+
 /// A crash or power loss while recovery reclaims a private entry, at each of its unlink, sync and
 /// completion boundaries, leaves a state the next restart reclaims the same way: no conflict,
 /// `sync wait` succeeds and the target converges. The two cases reclaim the API copy that a power
