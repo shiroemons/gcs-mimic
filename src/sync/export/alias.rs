@@ -1,8 +1,8 @@
 //! The alias of an object whose file stands for another object too.
 
+use super::LiveObject;
 use crate::storage::sync_state::findings::alias::{AliasHold, Marked};
 use crate::storage::sync_state::observation::Transition;
-use crate::sync::export::LiveObject;
 use crate::{
     diagnostics::{self, LogLevel},
     object::ObjectRecord,
@@ -15,7 +15,7 @@ use crate::{
 
 /// What an object's alias does to its export.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(in crate::sync) enum Freeze {
+pub(super) enum Freeze {
     /// No alias names the object or its file.
     NotAliased,
     /// Another live object stands for the same file, so it stays as it is.
@@ -28,7 +28,7 @@ impl LiveObject<'_> {
     /// Records that the tree holds this object's file under `spelling`, an alias of its path,
     /// for this object and the one tracked at `spelling`, and reports each that became frozen
     /// now. A generation that changed or went since this export read it is the next replay's.
-    pub(in crate::sync) async fn alias(
+    pub(super) async fn alias(
         &mut self,
         binding: &SyncBinding,
         record: &ObjectRecord,
@@ -67,7 +67,7 @@ impl LiveObject<'_> {
 
     /// Whether an alias keeps this object out of the tree, decided before its file is read, and
     /// reports an alias that ended now.
-    pub(in crate::sync) async fn hold_alias(
+    pub(super) async fn hold_alias(
         &mut self,
         binding: &SyncBinding,
         record: &ObjectRecord,

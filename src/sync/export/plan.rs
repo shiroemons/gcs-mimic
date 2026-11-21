@@ -1,11 +1,11 @@
 //! Reading the live object, the tracked path and the tree, and deciding what an export does.
 
+use super::alias::Freeze;
 use super::{
     Content, LiveObject, LivePlan, MissingFile, Occasion, reconcile::hierarchy_collision,
     retry::file_job_retry,
 };
 use crate::storage::sync_state::findings::alias::Holding;
-use crate::sync::mirror::Freeze;
 #[cfg(test)]
 use crate::sync::mirror::export_checkpoint;
 use crate::{

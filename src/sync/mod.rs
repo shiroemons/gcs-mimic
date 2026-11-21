@@ -3,6 +3,7 @@
 
 pub(crate) mod control;
 pub use control::{Decision, UnknownDecision};
+mod backoff;
 mod deletion;
 pub(crate) mod entries;
 mod error;
@@ -15,7 +16,10 @@ mod mirror;
 pub(crate) mod naming;
 mod reevaluate;
 pub mod report;
-pub use report::{UnknownWaitReason, UnmappedObjects, WaitReason};
+pub use report::{
+    outcome::{UnknownWaitReason, WaitReason},
+    verdict::UnmappedObjects,
+};
 mod status;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) mod test_support;

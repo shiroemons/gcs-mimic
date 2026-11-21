@@ -26,6 +26,7 @@ use crate::{
             command::{AtHand, AwaitingSet},
             ending::{Unfinished, WaitResult},
             listing::Listed,
+            state::ControlState,
         },
     },
 };
@@ -63,7 +64,6 @@ async fn authorization_checkpoint() {}
 pub(super) mod conflicts;
 mod cursor;
 mod findings;
-use crate::sync::report::state::ControlState;
 use cursor::SyncCursor;
 
 struct ControlActivity<'a>(RequestCtx<'a>);

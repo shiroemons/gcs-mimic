@@ -6,10 +6,7 @@ pub mod catalog;
 pub mod command;
 pub(crate) mod ending;
 pub(crate) mod listing;
-mod outcome;
+pub(super) mod outcome;
 pub(crate) mod remedy;
 pub(crate) mod state;
 pub(crate) mod verdict;
-
-pub use outcome::{UnknownWaitReason, WaitReason};
-pub use verdict::UnmappedObjects;

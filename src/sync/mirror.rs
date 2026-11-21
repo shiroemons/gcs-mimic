@@ -27,12 +27,22 @@ use std::{
     time::Duration,
 };
 
+/// The first retry delay after a transient failure; it doubles after each consecutive one.
+/// Tests shorten it so a retry does not dominate their run time.
+const RETRY_DELAY_MIN: Duration = if cfg!(test) {
+    Duration::from_millis(10)
+} else {
+    Duration::from_secs(1)
+};
+
+/// The mirror's restart and watch-rebuild backoff.
+const MIRROR_BACKOFF: Backoff = Backoff::new(RETRY_DELAY_MIN, RETRY_DELAY_MAX);
 #[cfg(test)]
 use super::Hook;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 use crate::storage::sync_state::writeback::Limits;
 #[cfg(test)]
-tokio::task_local! { pub(super) static EXPORT_HOOK: std::sync::Arc<Hook>; }
+tokio::task_local! { static EXPORT_HOOK: std::sync::Arc<Hook>; }
 #[cfg(test)]
 tokio::task_local! { pub(super) static LIVE_EXPORTS: std::sync::Arc<std::sync::atomic::AtomicUsize>; }
 #[cfg(test)]
@@ -53,23 +63,20 @@ pub(crate) use tests::state::{RescanFault, arm_rescan_fault};
 
 mod controls;
 mod descriptor;
-mod findings;
 mod gate;
 mod lifecycle;
 mod live;
 mod observation;
 mod wait;
 
+use super::backoff::{Backoff, RETRY_DELAY_MAX};
 use super::export::{
-    SkippedExports,
-    reconcile::reconcile_with,
-    reconcile_live_object,
-    retry::{Backoff, MIRROR_BACKOFF, RETRY_DELAY_MAX, create_directory},
+    SkippedExports, reconcile::Step, reconcile::reconcile_with, reconcile_live_object,
+    retry::create_directory,
 };
 use super::reevaluate::{Changed, Observing};
 pub(super) use controls::LiveScope;
 use controls::{LiveControl, LiveState};
-pub(super) use findings::Freeze;
 pub(super) use gate::BaselineGate;
 pub(super) use gate::PassGate;
 use live::{
@@ -792,11 +799,4 @@ async fn replay_page_with(
             .await?;
     }
     Ok(summary)
-}
-
-/// Whether a reconciliation step finished or saw the stop signal.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Step {
-    Continue,
-    Stopped,
 }

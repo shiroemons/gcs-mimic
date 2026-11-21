@@ -1,5 +1,6 @@
 //! Retrying the steps of an export that fail transiently, with backoff.
 
+use crate::sync::backoff::{Backoff, RETRY_DELAY_MAX};
 #[cfg(test)]
 use crate::sync::mirror::export_checkpoint;
 use crate::{
@@ -19,56 +20,6 @@ use crate::{
 };
 use std::{fs::File, future::Future, io, path::PathBuf, time::Duration};
 
-/// The first retry delay after a transient failure; it doubles after each consecutive one.
-/// Tests shorten it so a retry does not dominate their run time.
-const RETRY_DELAY_MIN: Duration = if cfg!(test) {
-    Duration::from_millis(10)
-} else {
-    Duration::from_secs(1)
-};
-/// The retry delay cap, also the run length after which a failure starts the backoff over.
-pub(in crate::sync) const RETRY_DELAY_MAX: Duration = Duration::from_secs(30);
-
-/// A retry delay that doubles after each consecutive failure, up to `max`.
-#[derive(Clone, Copy, Debug)]
-pub(in crate::sync) struct Backoff {
-    first: Duration,
-    max: Duration,
-    next: Duration,
-    retries: u32,
-}
-
-impl Backoff {
-    pub(in crate::sync) const fn new(first: Duration, max: Duration) -> Self {
-        Self {
-            first,
-            max,
-            next: first,
-            retries: 0,
-        }
-    }
-
-    /// The wait before the next retry; the one after it is twice as long, up to `max`.
-    pub(in crate::sync) fn next_delay(&mut self) -> Duration {
-        let delay = self.next;
-        self.next = delay.saturating_mul(2).min(self.max);
-        self.retries = self.retries.saturating_add(1);
-        delay
-    }
-
-    /// How many retries this backoff has scheduled.
-    pub(in crate::sync) fn retries(&self) -> u32 {
-        self.retries
-    }
-
-    /// Starts over, after a run that had recovered.
-    pub(in crate::sync) fn reset(&mut self) {
-        *self = Self::new(self.first, self.max);
-    }
-}
-
-/// The mirror's restart and watch-rebuild backoff.
-pub(in crate::sync) const MIRROR_BACKOFF: Backoff = Backoff::new(RETRY_DELAY_MIN, RETRY_DELAY_MAX);
 /// A failed export step waits 1 s, then 2 s; a third failure pauses synchronization.
 pub(in crate::sync) const EXPORT_BACKOFF: Backoff =
     Backoff::new(Duration::from_secs(1), RETRY_DELAY_MAX);

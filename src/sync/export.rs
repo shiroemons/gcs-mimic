@@ -15,12 +15,13 @@ use crate::{
     },
 };
 use std::{fs::File, path::Path};
-pub(super) mod plan;
+mod alias;
+mod plan;
 pub(super) mod reconcile;
 pub(super) mod restore;
 pub(super) mod retry;
-pub(super) mod run;
-pub(super) mod skipped;
+mod run;
+mod skipped;
 pub(super) use skipped::{SkippedExport, SkippedExports};
 
 /// Exports one object's live state; `Some` is an export skipped for a retry to finish.
@@ -86,7 +87,7 @@ pub(in crate::sync) enum MissingFile {
 
 /// Whether the working-tree file already holds the catalog generation's bytes.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(in crate::sync) enum Content {
+enum Content {
     Identical,
     Changed,
 }

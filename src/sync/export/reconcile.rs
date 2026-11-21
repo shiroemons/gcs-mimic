@@ -1,7 +1,7 @@
 //! One full reconciliation of the tree with the API.
 
 use super::{SkippedExports, reconcile_live_object, retry::create_directory};
-use crate::sync::mirror::{BaselineGate, Step};
+use crate::sync::mirror::BaselineGate;
 use crate::{
     object::ObjectRecord,
     storage::{
@@ -308,4 +308,11 @@ pub(in crate::sync) async fn hierarchy_collision(
         )
         .await?;
     Ok(!page.items.is_empty())
+}
+
+/// Whether a reconciliation step finished or saw the stop signal.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in crate::sync) enum Step {
+    Continue,
+    Stopped,
 }

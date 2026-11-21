@@ -56,7 +56,7 @@ crate::serde_util::serialize_as_str!(ControlState);
 
 impl ControlState {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    pub(crate) const ALL: [Self; 14] = [
+    const ALL: [Self; 14] = [
         Self::Starting,
         Self::Retrying,
         Self::Paused,
@@ -73,7 +73,7 @@ impl ControlState {
         Self::Ready,
     ];
 
-    pub(crate) const fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
             Self::Starting => "Starting",
             Self::Retrying => "Retrying",
