@@ -329,7 +329,7 @@ async fn durable_rehash_never_tracks_a_file_installed_in_place_of_the_copy() {
         .advance_live_export(operation.clone())
         .await;
     assert!(
-        matches!(result, Err(Error::Admin(AdminError::Precondition))),
+        matches!(result, Err(Error::Raced(RaceReason::TargetChanged))),
         "{result:?}"
     );
     assert_eq!(pending(&operation).await.phase, Phase::Armed);
@@ -973,10 +973,10 @@ async fn live_export_rejects_forgotten_handles_and_obsoletes_a_changed_api_gener
         .unwrap()
         .assume_naming(crate::sync::naming::RootNaming::posix());
     let other = other_root.default_writeback().await.unwrap();
-    assert!(matches!(
-        other.advance_live_export(pending.clone()).await,
-        Err(Error::Admin(AdminError::Precondition))
-    ));
+    assert_eq!(
+        other.advance_live_export(pending.clone()).await.err(),
+        Some(Error::Obsolete(StaleReason::Root))
+    );
     assert!(
         fixture
             .writeback
@@ -1033,7 +1033,7 @@ async fn live_export_removal_requires_the_tracked_generation_but_not_a_complete_
         .unwrap();
     let fence = fixture.catalog.current_fence().await.unwrap();
     assert!(!fixture.root.observation().await.unwrap().baseline_complete);
-    assert!(matches!(
+    assert_eq!(
         fixture
             .writeback
             .begin_live_export(
@@ -1044,9 +1044,10 @@ async fn live_export_removal_requires_the_tracked_generation_but_not_a_complete_
                 fence,
                 LiveSource::Observe
             )
-            .await,
-        Err(Error::Admin(AdminError::Precondition))
-    ));
+            .await
+            .err(),
+        Some(Error::Obsolete(StaleReason::Tracked))
+    );
     assert!(fixture.tree.0.join("test-bucket/object").exists());
     let operation = fixture
         .writeback
@@ -1309,7 +1310,7 @@ async fn live_export_rejects_held_and_stale_tracked_inputs() {
         .unwrap();
     tracked.fingerprint.inode ^= 1;
     let fence = fixture.catalog.current_fence().await.unwrap();
-    assert!(matches!(
+    assert_eq!(
         fixture
             .writeback
             .begin_live_export(
@@ -1320,9 +1321,10 @@ async fn live_export_rejects_held_and_stale_tracked_inputs() {
                 fence,
                 LiveSource::Observe
             )
-            .await,
-        Err(Error::Admin(AdminError::Precondition))
-    ));
+            .await
+            .err(),
+        Some(Error::Obsolete(StaleReason::Tracked))
+    );
     assert_eq!(fixture.writeback.status().await.unwrap().entries, 0);
     drop(operation);
     fixture.close().await;

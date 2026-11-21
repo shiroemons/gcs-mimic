@@ -96,7 +96,7 @@ impl Writeback {
                             self.inspect_inner(item.token).await?;
                         }
                     }
-                    Phase::Complete => return Err(stale()),
+                    Phase::Complete => return Err(Error::Obsolete(StaleReason::Completed)),
                 }
             }
         }

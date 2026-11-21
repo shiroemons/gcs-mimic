@@ -295,7 +295,8 @@ impl RemovableDirectory {
         let Some(name) = relative.file_name().map(std::ffi::OsStr::to_owned) else {
             return Ok(Err(Kept::NotAnObject));
         };
-        let parent = parent(root, naming, lookup, &path, ParentSync::Skip)?.ok_or_else(stale)?;
+        let parent = parent(root, naming, lookup, &path, ParentSync::Skip)?
+            .ok_or(Error::Raced(RaceReason::ParentChanged))?;
         match lookup.directory(&parent, &name, fsutil::DirectoryOpen::Existing) {
             Ok(fsutil::Child::Directory { file, .. }) => {
                 Ok(metadata_only(&file, lookup)?.map(|metadata| Self {
@@ -307,8 +308,9 @@ impl RemovableDirectory {
                 }))
             }
             Ok(fsutil::Child::Alias | fsutil::Child::Missing(_)) => Ok(Err(Kept::NotDirectory)),
-            // A directory that kept failing to open is proved again by the retry.
-            Ok(fsutil::Child::Transient(_)) => Err(stale()),
+            // A directory that kept failing to open is proved again by the export the race leads
+            // to.
+            Ok(fsutil::Child::Transient(_)) => Err(Error::Raced(RaceReason::Unsettled)),
             Err(error) if crate::sync::tree::structural_entry_error(&error) => {
                 Ok(Err(Kept::NotDirectory))
             }
@@ -392,13 +394,13 @@ fn unchanged(
     match lookup.directory(parent, name, fsutil::DirectoryOpen::Existing) {
         Ok(fsutil::Child::Directory { file, .. }) => {
             if fsutil::stat_identity(&file)?.node() != fsutil::stat_identity(directory)?.node() {
-                return Err(stale());
+                return Err(Error::Raced(RaceReason::DirectoryChanged));
             }
         }
         Ok(fsutil::Child::Missing(_)) => return Ok(Ok(())),
         Ok(fsutil::Child::Alias) => return Ok(Err(Kept::NotDirectory)),
-        // A directory that kept failing to open is proved again by the retry.
-        Ok(fsutil::Child::Transient(_)) => return Err(stale()),
+        // A directory that kept failing to open is proved again by the export the race leads to.
+        Ok(fsutil::Child::Transient(_)) => return Err(Error::Raced(RaceReason::Unsettled)),
         Err(error) if crate::sync::tree::structural_entry_error(&error) => {
             return Ok(Err(Kept::NotDirectory));
         }
@@ -426,7 +428,7 @@ pub(super) fn remove(
     } = proof;
     // A proof answers for the target it was read at, not for another operation's.
     if path != install.item.path {
-        return Err(stale());
+        return Err(Error::Invariant("a directory's proof is another target's"));
     }
     let unlinked = remove_metadata(&directory, &metadata, install)?;
     if let Err(kept) = unchanged(&parent, &name, &directory, &install.lookup)? {

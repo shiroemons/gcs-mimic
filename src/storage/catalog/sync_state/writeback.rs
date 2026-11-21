@@ -29,7 +29,9 @@ use std::{fs::File, io, sync::Arc};
 mod body;
 mod conflict_transfer;
 mod live_export;
+mod reason;
 mod recovery;
+mod target;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) use live_export::faults::retrack_restored;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
@@ -43,6 +45,8 @@ pub(crate) use live_export::{
     inject_failure_after as inject_live_export_failure_after,
     inject_io_failure as inject_live_export_io_failure,
 };
+pub(crate) use reason::{RaceReason, StaleReason};
+use target::{TargetState, observe_target};
 
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_writeback_roots (
     root_id BLOB PRIMARY KEY REFERENCES sync_roots(root_id),
@@ -101,6 +105,40 @@ pub(crate) enum Error {
     RecoveryRequired,
     Protected,
     WorkspaceChanged,
+    /// The working tree changed from what the step read moments before.
+    Raced(RaceReason),
+    /// The catalog changed from the operation's plan.
+    Obsolete(StaleReason),
+    /// A state that write-back keeps broke: a bug. The step ends as a race does, as it did when
+    /// the invariant was reported as a failed precondition.
+    Invariant(&'static str),
+}
+impl Error {
+    /// Whether the step met the tree or the catalog other than it read or planned them, by its
+    /// own checks or by a catalog call that answered `Precondition`. Every such step ends the
+    /// same way: its operation is cancelled or planned again.
+    fn changed(&self) -> bool {
+        match self {
+            Self::Admin(AdminError::Precondition)
+            | Self::Raced(_)
+            | Self::Obsolete(_)
+            | Self::Invariant(_) => true,
+            Self::Admin(_)
+            | Self::Root(_)
+            | Self::Conflict(_)
+            | Self::Displaced(_)
+            | Self::Capacity
+            | Self::RecoveryRequired
+            | Self::Protected
+            | Self::WorkspaceChanged => false,
+        }
+    }
+
+    /// Whether the step's operation is moot: [`Self::changed`], or the catalog no longer holds
+    /// what it names.
+    fn superseded(&self) -> bool {
+        self.changed() || matches!(self, Self::Admin(AdminError::NotFound))
+    }
 }
 impl From<super::conflicts::Error> for Error {
     fn from(error: super::conflicts::Error) -> Self {
@@ -154,6 +192,9 @@ impl std::fmt::Display for Error {
             Self::RecoveryRequired => f.write_str("RecoveryRequired"),
             Self::Protected => f.write_str("Protected"),
             Self::WorkspaceChanged => f.write_str("WorkspaceChanged"),
+            Self::Raced(reason) => write!(f, "{reason}"),
+            Self::Obsolete(reason) => write!(f, "{reason}"),
+            Self::Invariant(invariant) => write!(f, "broken invariant: {invariant}"),
         }
     }
 }
@@ -169,9 +210,13 @@ impl TypedSource for Error {
             Self::Root(error) => Some(Link::Root(error)),
             Self::Conflict(error) => Some(Link::Conflict(error)),
             Self::Displaced(error) => Some(Link::Writeback(error)),
-            Self::Capacity | Self::RecoveryRequired | Self::Protected | Self::WorkspaceChanged => {
-                None
-            }
+            Self::Capacity
+            | Self::RecoveryRequired
+            | Self::Protected
+            | Self::WorkspaceChanged
+            | Self::Raced(_)
+            | Self::Obsolete(_)
+            | Self::Invariant(_) => None,
         }
     }
 }
@@ -181,13 +226,26 @@ impl From<crate::sync::tree::ParentError> for Error {
         use crate::sync::tree::ParentError;
         match error {
             ParentError::Io(error) => error.into(),
-            // A directory that kept failing to open is read again by the retry.
-            ParentError::Finding(_) | ParentError::Missing | ParentError::Transient(_) => stale(),
+            ParentError::Finding(_) | ParentError::Missing => {
+                Self::Raced(RaceReason::ParentChanged)
+            }
+            // A directory that kept failing to open is read again by the export the race leads
+            // to.
+            ParentError::Transient(_) => Self::Raced(RaceReason::Unsettled),
         }
     }
 }
-fn stale() -> Error {
-    Error::Admin(AdminError::Precondition)
+/// The root's usage held less than an operation accounts for.
+fn unaccounted() -> Error {
+    Error::Invariant("the root's usage does not hold an operation's bytes")
+}
+/// The directories of a write-back path, which always lies in a bucket directory.
+fn parent_path(path: &str) -> Result<&str, Error> {
+    path.rsplit_once('/')
+        .map(|(parents, _)| parents)
+        .ok_or(Error::Invariant(
+            "a write-back target lies outside a bucket directory",
+        ))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -515,7 +573,7 @@ fn status(connection: &Connection, root: RootId) -> Result<Status, Error> {
     let conflicts = super::conflicts::usage(connection, root)?;
     let captured_entries = super::conflicts::captured_entries(connection, root)?;
     if captured_entries > row.entries {
-        return Err(stale());
+        return Err(Error::Obsolete(StaleReason::Usage));
     }
     Ok(Status {
         reserved_bytes: row.reserved_bytes,
@@ -553,9 +611,9 @@ fn save_status(connection: &Connection, root: RootId, value: &Status) -> Result<
     Ok(())
 }
 fn check_fence(connection: &Connection, fence: JournalFence) -> Result<(), Error> {
-    let valid: bool = connection.prepare_cached("SELECT enabled AND epoch=?1 AND ?2 BETWEEN floor AND sequence FROM change_journal_state WHERE singleton=1")?.query_row(params![fence.revision,i64::try_from(fence.sequence.get()).map_err(|_|stale())?], |r|r.get(0))?;
+    let valid: bool = connection.prepare_cached("SELECT enabled AND epoch=?1 AND ?2 BETWEEN floor AND sequence FROM change_journal_state WHERE singleton=1")?.query_row(params![fence.revision,i64::try_from(fence.sequence.get()).map_err(|_|Error::Invariant("a journal sequence exceeds the catalog's integers"))?], |r|r.get(0))?;
     if !valid {
-        return Err(stale());
+        return Err(Error::Obsolete(StaleReason::JournalFence));
     }
     Ok(())
 }
@@ -576,12 +634,12 @@ fn original_with_protection(
 ) -> Result<(), Error> {
     let current: Option<(String,Incarnation)> = connection.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([item.bucket.as_str()], |r|Ok((r.get(0)?,r.get(1)?))).optional()?;
     if current.as_ref() != Some(&(item.owner.clone(), item.incarnation)) {
-        return Err(stale());
+        return Err(Error::Obsolete(StaleReason::Bucket));
     }
     match item.kind {
         Kind::Publish => {
             let record = objects::lookup(connection, item.bucket.as_str(), item.name.as_str())?
-                .ok_or_else(stale)?
+                .ok_or(Error::Obsolete(StaleReason::Object))?
                 .record;
             if record.has_hold() && protection == OriginalProtection::Enforce {
                 return Err(AdminError::Hold.into());
@@ -591,14 +649,15 @@ fn original_with_protection(
                 || record.md5 != item.md5
                 || record.crc32c != item.crc32c
             {
-                return Err(stale());
+                return Err(Error::Obsolete(StaleReason::Object));
             }
         }
         Kind::Remove => {
-            if Baseline::read(connection, item.token.root)? != Baseline::Complete
-                || objects::lookup(connection, item.bucket.as_str(), item.name.as_str())?.is_some()
-            {
-                return Err(stale());
+            if Baseline::read(connection, item.token.root)? != Baseline::Complete {
+                return Err(Error::Obsolete(StaleReason::Baseline));
+            }
+            if objects::lookup(connection, item.bucket.as_str(), item.name.as_str())?.is_some() {
+                return Err(Error::Obsolete(StaleReason::Object));
             }
             let held: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3 AND (event_based_hold=1 OR temporary_hold=1))")?.query_row(params![item.bucket,item.name,item.generation],|r|r.get(0))?;
             if held {
@@ -606,7 +665,7 @@ fn original_with_protection(
             }
             let valid: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4 AND size=?5 AND md5=?6 AND crc32c=?7)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation,item.size,item.md5,item.crc32c],|r|r.get(0))?;
             if !valid {
-                return Err(stale());
+                return Err(Error::Obsolete(StaleReason::Tracked));
             }
         }
     }
@@ -627,7 +686,7 @@ fn parent(
     path: &str,
     sync: ParentSync,
 ) -> Result<Option<File>, Error> {
-    let (parents, _) = path.rsplit_once('/').ok_or_else(stale)?;
+    let parents = parent_path(path)?;
     use crate::sync::tree::{ParentError, ParentOpen};
     let directory = match crate::sync::tree::parent(
         root,
@@ -644,64 +703,6 @@ fn parent(
         directory.sync_all()?;
     }
     Ok(Some(directory))
-}
-fn target(
-    root: &File,
-    naming: RootNaming,
-    lookup: &fsutil::Lookup,
-    path: &str,
-) -> Result<Option<File>, Error> {
-    let Some(directory) = parent(root, naming, lookup, path, ParentSync::Skip)? else {
-        return Ok(None);
-    };
-    let name = path.rsplit('/').next().ok_or_else(stale)?;
-    match lookup.regular(&directory, name.as_ref()) {
-        Ok(fsutil::RegularChild::File(file)) => Ok(Some(file)),
-        Ok(fsutil::RegularChild::Missing(_)) => Ok(None),
-        // A target that kept failing to open is read again by the retry.
-        Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Transient(_)) => Err(stale()),
-        Err(e) => Err(e.into()),
-    }
-}
-/// What holds an export's target name.
-enum TargetEntry {
-    File(File),
-    /// A directory reached without following a symlink, under the target's exact spelling or,
-    /// on a root that folds names, under another one.
-    Directory,
-    Missing,
-}
-
-/// Like [`target`], but tells a directory at the target apart instead of failing on it. Any other
-/// entry that is no regular file, such as a symlink, fails as it does there.
-fn target_entry(
-    root: &File,
-    naming: RootNaming,
-    lookup: &fsutil::Lookup,
-    path: &str,
-) -> Result<TargetEntry, Error> {
-    let Some(directory) = parent(root, naming, lookup, path, ParentSync::Skip)? else {
-        return Ok(TargetEntry::Missing);
-    };
-    let name: &std::ffi::OsStr = path.rsplit('/').next().ok_or_else(stale)?.as_ref();
-    match lookup.regular(&directory, name) {
-        Ok(fsutil::RegularChild::File(file)) => Ok(TargetEntry::File(file)),
-        Ok(fsutil::RegularChild::Missing(_)) => Ok(TargetEntry::Missing),
-        // A target that kept failing to open is read again by the retry.
-        Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Transient(_)) => Err(stale()),
-        Err(error) if crate::sync::tree::structural_entry_error(&error) => {
-            match lookup.directory(&directory, name, fsutil::DirectoryOpen::Existing) {
-                Ok(fsutil::Child::Directory { .. } | fsutil::Child::Alias) => {
-                    Ok(TargetEntry::Directory)
-                }
-                // The entry that failed to open as a file is the one to report.
-                Ok(fsutil::Child::Missing(_) | fsutil::Child::Transient(_)) | Err(_) => {
-                    Err(error.into())
-                }
-            }
-        }
-        Err(error) => Err(error.into()),
-    }
 }
 fn entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
     present(fsutil::open_regular_at(workspace, id.to_hex().as_ref()))
@@ -827,19 +828,20 @@ fn fingerprint(
     if entry(workspace, item.token.id)?.is_some() {
         return Err(Error::Protected);
     }
-    let file = target(root, naming, lookup, &item.path)?;
+    let file = observe_target(root, naming, lookup, &item.path)?.into_file()?;
+    let changed = Error::Raced(RaceReason::TargetChanged);
     let result = match (item.kind, file) {
         (Kind::Remove, None) => None,
         (Kind::Publish, Some(file)) => {
             let body::Match::Same(before) = body::same_content(&file, item.into())? else {
-                return Err(stale());
+                return Err(changed);
             };
             if before.device != fsutil::stat_identity(root)?.device {
-                return Err(stale());
+                return Err(changed);
             }
             file.sync_all()?;
             if before != fsutil::stat_identity(&file)? {
-                return Err(stale());
+                return Err(changed);
             }
             let hashes = crate::hashing::Hashes {
                 md5: item.md5,
@@ -847,7 +849,7 @@ fn fingerprint(
             };
             Some(SyncFingerprint::observed(before, hashes, observed_ns))
         }
-        _ => return Err(stale()),
+        (Kind::Remove, Some(_)) | (Kind::Publish, None) => return Err(changed),
     };
     parent(root, naming, lookup, &item.path, ParentSync::Sync)?;
     workspace.sync_all()?;
@@ -874,7 +876,7 @@ fn verify_fingerprint(
     let durable = match (
         item.kind,
         expected,
-        target(root, naming, lookup, &item.path)?,
+        observe_target(root, naming, lookup, &item.path)?.into_file()?,
     ) {
         (Kind::Remove, None, None) => {
             parent(root, naming, lookup, &item.path, ParentSync::Sync)?;
@@ -885,7 +887,7 @@ fn verify_fingerprint(
             if identity.device != fsutil::stat_identity(root)?.device
                 || !expected.matches_identity(identity)
             {
-                return Err(stale());
+                return Err(Error::Raced(RaceReason::TargetChanged));
             }
             let path = SyncPath::try_from(item.path.clone())?;
             match durable::make_durable(
@@ -896,11 +898,18 @@ fn verify_fingerprint(
                 &mut SyncedDirectories::default(),
             ) {
                 Ok(durable) => Some(durable),
-                Err(NotDurable::Changed) => return Err(stale()),
+                Err(NotDurable::Changed) => return Err(Error::Raced(RaceReason::TargetChanged)),
                 Err(NotDurable::Io(error)) => return Err(error.into()),
             }
         }
-        _ => return Err(stale()),
+        (Kind::Remove, None, Some(_)) | (Kind::Publish, Some(_), None) => {
+            return Err(Error::Raced(RaceReason::TargetChanged));
+        }
+        (Kind::Remove, Some(_), _) | (Kind::Publish, None, _) => {
+            return Err(Error::Invariant(
+                "an operation's fingerprint does not match its kind",
+            ));
+        }
     };
     workspace.sync_all()?;
     root.sync_all()?;
@@ -910,7 +919,7 @@ fn verify_fingerprint(
 impl Writeback {
     pub(crate) fn with_root(&self, root: &RootLease) -> Result<Self, Error> {
         if self.identities() != (root.status().catalog_id, root.status().root_id) {
-            return Err(stale());
+            return Err(Error::Obsolete(StaleReason::Root));
         }
         Ok(Self {
             workspace: self.workspace.clone(),
@@ -974,7 +983,7 @@ impl Writeback {
     fn token(&self, token: &Token) -> Result<(), Error> {
         let (c, r) = self.identities();
         if token.catalog != c || token.root != r {
-            return Err(stale());
+            return Err(Error::Obsolete(StaleReason::Root));
         }
         Ok(())
     }
@@ -1022,7 +1031,7 @@ impl Writeback {
         let selected = token.clone();
         let item = self.db(move |c| checked(c, &selected)).await?;
         if item.phase == Phase::Complete {
-            return Err(stale());
+            return Err(Error::Obsolete(StaleReason::Completed));
         }
         let id = token.id;
         let observed = self
@@ -1060,8 +1069,8 @@ impl Writeback {
             }).await;
         };
         let next=self.db(move|c| {let tx=c.transaction()?;let old=checked(&tx,&token)?;let mut usage=status(&tx,token.root)?;
-            if let Some(previous)=old.retained_bytes {usage.retained_bytes=usage.retained_bytes.checked_sub(u128::from(previous)).ok_or_else(stale)?;}
-            else {usage.reserved_bytes=usage.reserved_bytes.checked_sub(u128::from(old.reserved_bytes)).ok_or_else(stale)?;usage.protected_entries+=1;}
+            if let Some(previous)=old.retained_bytes {usage.retained_bytes=usage.retained_bytes.checked_sub(u128::from(previous)).ok_or_else(unaccounted)?;}
+            else {usage.reserved_bytes=usage.reserved_bytes.checked_sub(u128::from(old.reserved_bytes)).ok_or_else(unaccounted)?;usage.protected_entries+=1;}
             usage.retained_bytes+=u128::from(size);usage.recovery=true;
             save_status(&tx,token.root,&usage)?;tx.prepare_cached("UPDATE sync_writeback_ops SET phase=2,revision=revision+1,retained=?2,io_failure=(io_failure & 2) | ?3 WHERE id=?1")?.execute(params![token.id,size.to_be_bytes(),i64::from(failure.is_some())])?;
             tx.prepare_cached("UPDATE sync_writeback_roots SET io_failure=0 WHERE root_id=?1 AND io_failure=1")?.execute([token.root])?;
@@ -1096,12 +1105,12 @@ fn load(c: &Connection, catalog: CatalogId, root: RootId, id: OpaqueId) -> Resul
     c.prepare_cached(SELECT_PENDING)?
         .query_row(params![root, id], |r| pending(r, catalog, root))
         .optional()?
-        .ok_or_else(stale)
+        .ok_or(Error::Obsolete(StaleReason::Revision))
 }
 fn checked(c: &Connection, token: &Token) -> Result<Pending, Error> {
     let item = load(c, token.catalog, token.root, token.id)?;
     if item.token.revision != token.revision {
-        return Err(stale());
+        return Err(Error::Obsolete(StaleReason::Revision));
     }
     Ok(item)
 }

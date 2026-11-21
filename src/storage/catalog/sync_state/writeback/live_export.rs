@@ -141,13 +141,14 @@ pub(crate) enum InstallOutcome {
 }
 
 /// Whether an installation attempt failed because the tree changed under it. Its checks fail
-/// with [`stale`] where they find the tree other than the attempt read it moments before: the
-/// directory at the target replaced, the path to the target no longer resolving, or an alias in
-/// the place of an entry. That is a user's concurrent change, which a new export plans around,
+/// with [`Error::Raced`] where they find the tree other than the attempt read it moments before:
+/// the directory at the target replaced, the path to the target no longer resolving, or an alias
+/// in the place of an entry. That is a user's concurrent change, which a new export plans around,
 /// not a failure of the root; pausing the whole root over it would leave every other path
-/// unsynchronized until an operator rescans.
+/// unsynchronized until an operator rescans. A catalog changed from the plan
+/// ([`Error::Obsolete`]) ends the attempt the same way ([`Error::changed`]).
 fn raced(error: &Error) -> bool {
-    matches!(error, Error::Admin(AdminError::Precondition))
+    error.changed()
 }
 
 /// The regular file at an export's target, where a failed or cancelled attempt may have left its
@@ -160,9 +161,15 @@ fn target_file(
     lookup: &fsutil::Lookup,
     path: &str,
 ) -> Result<Option<File>, Error> {
-    match target_entry(root, naming, lookup, path) {
-        Ok(TargetEntry::File(file)) => Ok(Some(file)),
-        Ok(TargetEntry::Directory | TargetEntry::Missing) => Ok(None),
+    match observe_target(root, naming, lookup, path) {
+        Ok(TargetState::File(file)) => Ok(Some(file)),
+        Ok(
+            TargetState::Directory(_)
+            | TargetState::Absent
+            | TargetState::ParentMissing
+            | TargetState::Changed(_),
+        ) => Ok(None),
+        Ok(TargetState::Unsafe(error)) => Err(error.into()),
         Err(error) if raced(&error) => Ok(None),
         Err(error) => Err(error),
     }
@@ -230,7 +237,7 @@ impl Body {
             (Some(source), Some(record)) => Ok(Self::Copy { source, record }),
             (None, Some(record)) => Ok(Self::Observe { record }),
             (None, None) => Ok(Self::Remove),
-            (Some(_), None) => Err(stale()),
+            (Some(_), None) => Err(Error::Obsolete(StaleReason::Object)),
         }
     }
 
@@ -391,7 +398,7 @@ fn api_original(c: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> Resul
         };
     }
     if matches!(purpose, Purpose::RestoreAbsent | Purpose::ObserveProtected) {
-        return Err(stale());
+        return Err(Error::Invariant("a removal restores or observes a body"));
     }
     // An API deletion does not wait for a complete baseline. That guard keeps external
     // deletions from reaching the API; this removal follows the API and touches only a file
@@ -400,11 +407,11 @@ fn api_original(c: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> Resul
     let binding = SyncBinding::new(item.token.catalog, item.bucket.clone(), item.incarnation);
     super::super::matching(c, &binding, item.bucket.as_str())?;
     if objects::lookup(c, item.bucket.as_str(), item.name.as_str())?.is_some() {
-        return Err(stale());
+        return Err(Error::Obsolete(StaleReason::Object));
     }
     let valid: bool = c.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation], |r| r.get(0))?;
     if !valid {
-        return Err(stale());
+        return Err(Error::Obsolete(StaleReason::Tracked));
     }
     Ok(())
 }
@@ -428,13 +435,13 @@ fn validate_capture(tx: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> 
 }
 
 /// Whether the target already holds the live body an observation expects.
-fn observe_target(
+fn holds_live_body(
     root: &File,
     naming: RootNaming,
     lookup: &fsutil::Lookup,
     item: &Pending,
 ) -> Result<bool, Error> {
-    match target(root, naming, lookup, &item.path)? {
+    match observe_target(root, naming, lookup, &item.path)?.into_file()? {
         Some(file) => Ok(matches!(
             body::same_content(&file, item.into())?,
             body::Match::Same(_)
@@ -454,7 +461,7 @@ fn target_directory(
 ) -> Result<Option<File>, Error> {
     match item.kind {
         Kind::Publish => {
-            let parents = item.path.rsplit_once('/').ok_or_else(stale)?.0;
+            let parents = parent_path(&item.path)?;
             Ok(Some(crate::sync::tree::parent(
                 root,
                 naming,
@@ -492,29 +499,27 @@ fn current_target(
     removal: Option<directory::Unreferenced>,
 ) -> Result<ControlFlow<Installed, Current>, Error> {
     let selected = &install.item;
-    let file = if selected.kind == Kind::Remove {
-        target(root, install.naming, &install.lookup, &selected.path)?
-    } else {
-        match target_entry(root, install.naming, &install.lookup, &selected.path)? {
-            TargetEntry::File(file) => Some(file),
-            TargetEntry::Missing => None,
-            TargetEntry::Directory => {
-                let Some(removal) = removal else {
-                    return Ok(ControlFlow::Break(Installed::Directory));
-                };
-                return Ok(
-                    match directory::RemovableDirectory::prove(
-                        root,
-                        install.naming,
-                        &install.lookup,
-                        removal,
-                    )? {
-                        Ok(proof) => ControlFlow::Continue(Current::Directory(proof)),
-                        Err(kept) => ControlFlow::Break(Installed::Kept(kept)),
-                    },
-                );
-            }
+    let file = match (
+        selected.kind,
+        observe_target(root, install.naming, &install.lookup, &selected.path)?,
+    ) {
+        (Kind::Publish, TargetState::Directory(_)) => {
+            let Some(removal) = removal else {
+                return Ok(ControlFlow::Break(Installed::Directory));
+            };
+            return Ok(
+                match directory::RemovableDirectory::prove(
+                    root,
+                    install.naming,
+                    &install.lookup,
+                    removal,
+                )? {
+                    Ok(proof) => ControlFlow::Continue(Current::Directory(proof)),
+                    Err(kept) => ControlFlow::Break(Installed::Kept(kept)),
+                },
+            );
         }
+        (Kind::Publish | Kind::Remove, state) => state.into_file()?,
     };
     let directory = target_directory(root, install.naming, &install.lookup, selected)?;
     Ok(ControlFlow::Continue(Current::File { file, directory }))
@@ -636,8 +641,13 @@ fn rename(
     replacement: fsutil::Replacement,
 ) -> Result<ControlFlow<Installed>, Error> {
     let selected = &install.item;
-    let target = directory.ok_or_else(stale)?;
-    let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
+    // A removal's directory gone after the target was read in it.
+    let target = directory.ok_or(Error::Raced(RaceReason::ParentChanged))?;
+    let name = selected
+        .path
+        .rsplit('/')
+        .next()
+        .ok_or(Error::Invariant("a write-back target has no name"))?;
     #[cfg(test)]
     install.faults.hit(Step::SyncCopyRename)?;
     match selected.kind {
@@ -753,7 +763,7 @@ impl Writeback {
                 conflict.verify_owned(&this.lease).await?;
             }
             let bucket = binding.bucket.clone();
-            let path = match mapping::name_to_path(&bucket, &name, this.lease.naming()?) { PathMapping::File(p) => p.to_str().ok_or_else(stale)?.to_owned(), PathMapping::Unrepresentable(_) => return Err(stale()) };
+            let path = match mapping::name_to_path(&bucket, &name, this.lease.naming()?) { PathMapping::File(p) => p.to_str().ok_or(Error::Obsolete(StaleReason::Path))?.to_owned(), PathMapping::Unrepresentable(_) => return Err(Error::Obsolete(StaleReason::Path)) };
             let (catalog, root) = this.identities();
             let selected = tracked.clone();
             let checked_purpose = purpose.clone();
@@ -765,9 +775,9 @@ impl Writeback {
                 super::super::matching(&tx,&binding,bucket.as_str())?;
                 let mut usage = status(&tx, root)?;
                 if usage.stop() != Stop::Ready { return Err(Error::RecoveryRequired); }
-                let (owner, incarnation): (String,Incarnation) = tx.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([&bucket], |r| Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or_else(stale)?;
+                let (owner, incarnation): (String,Incarnation) = tx.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([&bucket], |r| Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or(Error::Obsolete(StaleReason::Bucket))?;
                 let stored = tx.prepare_cached(super::super::SELECT_BY_NAME)?.query_row(params![bucket,name,incarnation],super::super::read_record).optional()?;
-                if stored != selected { return Err(stale()); }
+                if stored != selected { return Err(Error::Obsolete(StaleReason::Tracked)); }
                 let record = objects::lookup(&tx,bucket.as_str(),name.as_str())?.map(|stored| stored.record);
                 let expected_generation=record.as_ref().map(|record|Generation::new(record.generation)).transpose()?;
                 let proof=checked_purpose.conflict().map(|conflict|conflict.validate(&tx,root,&binding,&name,expected_generation)).transpose()?;
@@ -775,7 +785,7 @@ impl Writeback {
                 let (size,md5,crc32c) = match &body {
                     Body::Copy { record, .. } | Body::Observe { record } => (record.size,record.md5,record.crc32c),
                     Body::Remove => {
-                        let record = selected.as_ref().ok_or_else(stale)?;
+                        let record = selected.as_ref().ok_or(Error::Obsolete(StaleReason::Tracked))?;
                         (record.fingerprint.size,record.fingerprint.md5,record.fingerprint.crc32c)
                     }
                 };
@@ -889,7 +899,9 @@ impl Writeback {
                     #[cfg(test)]
                     faults.copy_created(&selected);
                 }
-                let file = entry(workspace, selected.token.id)?.ok_or_else(stale)?;
+                let file = entry(workspace, selected.token.id)?.ok_or(Error::Invariant(
+                    "a private copy is gone after it was written",
+                ))?;
                 if let body::Match::Differs = body::same_content(&file, (&selected).into())? {
                     return Err(AdminError::Checksum.into());
                 }
@@ -1021,7 +1033,7 @@ impl Writeback {
                 operation.item = armed.clone();
                 Ok(Some(armed))
             }
-            Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => {
+            Err(error) if error.superseded() => {
                 operation.progress = operation.progress.cancel(InstallOutcome::Obsolete);
                 self.cancel_live_copy(operation).await?;
                 Ok(None)
@@ -1057,7 +1069,7 @@ impl Writeback {
                 #[cfg(test)]
                 failure(install.item.token.root, "install")?;
                 let installed = if observing {
-                    observe_target(root, install.naming, &install.lookup, &install.item).map(
+                    holds_live_body(root, install.naming, &install.lookup, &install.item).map(
                         |holds| {
                             if holds {
                                 Installed::Done
@@ -1163,9 +1175,7 @@ impl Writeback {
                 operation.item = self.inspect_inner(item.token.clone()).await?;
                 return Err(Error::Protected);
             }
-            Err(Error::Admin(AdminError::Precondition | AdminError::NotFound))
-                if matches!(operation.body, Body::Observe { .. }) =>
-            {
+            Err(error) if error.superseded() && matches!(operation.body, Body::Observe { .. }) => {
                 operation.progress = operation.progress.cancel(InstallOutcome::Conflict);
                 self.cancel_live_copy(operation).await?;
                 return Ok(InstallOutcome::Conflict);
@@ -1230,9 +1240,7 @@ impl Writeback {
                 operation.item = self.inspect_inner(item.token.clone()).await?;
                 return Err(Error::Protected);
             }
-            Err(Error::Admin(AdminError::Precondition | AdminError::NotFound))
-                if matches!(operation.body, Body::Observe { .. }) =>
-            {
+            Err(error) if error.superseded() && matches!(operation.body, Body::Observe { .. }) => {
                 operation.progress = operation.progress.cancel(InstallOutcome::Conflict);
                 self.cancel_live_copy(operation).await?;
                 return Ok(InstallOutcome::Conflict);
@@ -1247,7 +1255,9 @@ impl Writeback {
             }
             (None, None, Body::Remove) => None,
             (_, _, Body::Copy { .. } | Body::Observe { .. } | Body::Remove) => {
-                return Err(stale());
+                return Err(Error::Invariant(
+                    "a fingerprint does not match the body an export wrote",
+                ));
             }
         };
         let selected = item.clone();
@@ -1259,7 +1269,7 @@ impl Writeback {
             let current = checked(&tx,&selected.token)?;
             let valid = match api_original(&tx,&current,&purpose) {
                 Ok(()) => true,
-                Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => false,
+                Err(error) if error.superseded() => false,
                 Err(error) => return Err(error),
             };
             let binding = SyncBinding::new(current.token.catalog, current.bucket.clone(), current.incarnation).with_control(scope);
@@ -1271,7 +1281,7 @@ impl Writeback {
             if same_binding {
                 if let Some((fp, durable, record)) = tracking {
                     if durable.path().as_str() != current.path {
-                        return Err(stale());
+                        return Err(Error::Invariant("a durable path is not its operation's"));
                     }
                     let update = SyncUpdate::new(binding,durable,fp)?;
                     // Track the bytes actually installed even if a newer API generation won meanwhile.
@@ -1346,11 +1356,11 @@ impl Writeback {
 
 pub(super) fn finish_live(tx: &Transaction<'_>, item: &Pending) -> Result<(), Error> {
     let mut usage = status(tx, item.token.root)?;
-    usage.entries = usage.entries.checked_sub(1).ok_or_else(stale)?;
+    usage.entries = usage.entries.checked_sub(1).ok_or_else(unaccounted)?;
     usage.reserved_bytes = usage
         .reserved_bytes
         .checked_sub(u128::from(item.reserved_bytes))
-        .ok_or_else(stale)?;
+        .ok_or_else(unaccounted)?;
     usage.recovery = usage.entries != 0;
     save_status(tx, item.token.root, &usage)?;
     tx.prepare_cached("DELETE FROM sync_writeback_ops WHERE id=?1")?

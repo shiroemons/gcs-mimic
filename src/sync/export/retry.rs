@@ -44,7 +44,10 @@ pub(in crate::sync) fn retryable(error: &writeback::Error) -> bool {
         | writeback::Error::Capacity
         | writeback::Error::RecoveryRequired
         | writeback::Error::Protected
-        | writeback::Error::WorkspaceChanged => return false,
+        | writeback::Error::WorkspaceChanged
+        | writeback::Error::Raced(_)
+        | writeback::Error::Obsolete(_)
+        | writeback::Error::Invariant(_) => return false,
     };
     match error {
         AdminError::DiskFull(_) => true,
@@ -161,7 +164,12 @@ pub(in crate::sync) async fn with_retry<T, F: Future<Output = Result<T, writebac
 
 pub(super) fn concurrent_change(error: &writeback::Error) -> bool {
     match error {
-        writeback::Error::Admin(AdminError::Precondition | AdminError::NotFound) => true,
+        // An invariant broken in write-back ends as a race does, as it did when it was reported
+        // as a failed precondition.
+        writeback::Error::Admin(AdminError::Precondition | AdminError::NotFound)
+        | writeback::Error::Raced(_)
+        | writeback::Error::Obsolete(_)
+        | writeback::Error::Invariant(_) => true,
         writeback::Error::Admin(AdminError::Io(cause)) => {
             cause.kind() == io::ErrorKind::AlreadyExists
         }

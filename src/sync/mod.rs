@@ -4,7 +4,7 @@
 pub(crate) mod control;
 pub use control::{Decision, UnknownDecision};
 mod backoff;
-mod correspond;
+pub(crate) mod correspond;
 mod deletion;
 pub(crate) mod entries;
 mod error;

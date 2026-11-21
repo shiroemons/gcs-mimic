@@ -170,7 +170,10 @@ impl<'a> Cause<'a> {
                 writeback::Error::Admin(_)
                 | writeback::Error::Root(_)
                 | writeback::Error::Conflict(_)
-                | writeback::Error::Displaced(_),
+                | writeback::Error::Displaced(_)
+                | writeback::Error::Raced(_)
+                | writeback::Error::Obsolete(_)
+                | writeback::Error::Invariant(_),
             )
             | Self::Conflict(
                 conflicts::Error::Admin(_)
