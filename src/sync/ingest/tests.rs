@@ -1140,6 +1140,59 @@ async fn only_ignored_regular_files_leave_a_deleted_bucket_directory_empty() {
     catalog.close().await.unwrap();
 }
 
+/// The directory of a bucket deleted through the API that keeps failing to open while the root
+/// still holds it is no missing directory: the root keeps the bucket it observed, so the
+/// directory, once it opens, is still the deleted bucket's and does not make the bucket again.
+#[tokio::test]
+async fn a_deleted_buckets_directory_that_keeps_failing_to_open_does_not_make_it_again() {
+    let (_data, tree, catalog, root, config, _clock) = clocked_fixture().await;
+    let bucket = BucketName::new("deleted-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(
+            crate::storage::admin::BucketDefinition::default_for(
+                &bucket,
+                "original-owner",
+                &crate::clock::SystemClock,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    crate::sync::reconcile(&catalog, &root).await.unwrap();
+    catalog
+        .delete_bucket(bucket.as_str(), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    let buckets = || async {
+        root.sync_buckets_page(None, crate::storage::sync_state::PageLimit::LARGEST)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|bucket| (bucket.name, bucket.incarnation))
+            .collect::<Vec<_>>()
+    };
+    let observed = buckets().await;
+    assert_eq!(observed.len(), 1);
+    let failing = fsutil::FailingOpens::vanishing(&tree.0, "deleted-bucket", usize::MAX);
+    scan(&catalog, &root, &config).await;
+    assert!(failing.left() < usize::MAX);
+    assert_eq!(buckets().await, observed);
+    drop(failing);
+    scan(&catalog, &root, &config).await;
+    assert_eq!(buckets().await, observed);
+    assert!(
+        catalog
+            .admin(Origin::Api)
+            .get_bucket(&bucket)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated() {
     let (data, tree, catalog, root, config) = fixture().await;

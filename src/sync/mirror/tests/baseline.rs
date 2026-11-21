@@ -168,6 +168,42 @@ async fn an_entry_no_object_can_take_stops_deletions_and_is_named_until_it_is_go
     catalog.close().await.unwrap();
 }
 
+/// A file renamed to a name that keeps failing to open while it holds the file is deferred as a
+/// read failure, which holds the deletion inventory back: the object of the old name stays in
+/// that pass, though its file is gone. Once the new name opens, a pass takes it in and the old
+/// name's object goes.
+#[tokio::test]
+async fn a_rename_whose_new_name_keeps_failing_to_open_deletes_nothing_meanwhile() {
+    let bucket = BucketName::new("test-bucket").unwrap();
+    let (_data, tree, catalog, root, _config, clock) =
+        crate::sync::test_support::clocked_fixture(Some(&bucket)).await;
+    publish_named(&catalog, &bucket, "a", b"renamed", Origin::Api).await;
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
+    let directory = tree.0.join("test-bucket");
+    fs::rename(directory.join("a"), directory.join("b")).unwrap();
+    clock.set(std::time::SystemTime::now() + std::time::Duration::from_secs(3));
+    let failing = fsutil::FailingOpens::vanishing(&directory, "b", usize::MAX);
+    let status = Lifecycle::default();
+    let mut baseline = COMPLETE;
+    let summary = ingest(&catalog, &root, &status, &mut baseline).await;
+    assert!(failing.left() < usize::MAX);
+    assert_eq!(
+        summary.gate().hold(),
+        crate::sync::mirror::gate::Hold::Deferred
+    );
+    assert!(root.deletion_set().await.unwrap().is_none());
+    assert!(exists(&catalog, &bucket, "a").await);
+    assert!(!exists(&catalog, &bucket, "b").await);
+    drop(failing);
+    clock.set(std::time::SystemTime::now() + std::time::Duration::from_secs(6));
+    ingest(&catalog, &root, &status, &mut baseline).await;
+    assert!(exists(&catalog, &bucket, "b").await);
+    assert!(!exists(&catalog, &bucket, "a").await);
+    assert_eq!(fs::read(directory.join("b")).unwrap(), b"renamed");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// The log names each entry no object can take once while it stays: a later scan that still
 /// finds it warns about nothing, a new entry is warned about on its own, and one that comes
 /// back after it was gone is warned about again.
