@@ -37,12 +37,23 @@ use std::{
     fs::File,
     io,
     ops::ControlFlow,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
 };
 
 /// The most directories one pass keeps listings of. Passes walk paths in order, so the
 /// directories they look up again are the few they just read.
 const KEPT_LISTINGS: usize = 4;
+/// How long one lookup may wait in all for names that `fstatat` still finds while they keep
+/// failing to open with `ENOENT`, before it gives up on each further such name at once. A Docker
+/// Desktop bind mount answered so for up to 238 ms after the host replaced a file
+/// (`docs/en/evidence/sync-bind-mount-stale-reads.md`). A file job is handed its own lookup, so
+/// a job that meets many such names, such as a scan of a tree the host just rewrote, is held up
+/// for this long at most rather than this long for each name.
+const WAIT_BUDGET: Duration = Duration::from_secs(1);
 /// The most names one kept listing holds, which bounds its memory with the name length limit. A
 /// larger directory is read again for each lookup, up to the name looked up.
 const KEPT_NAMES: usize = 4096;
@@ -70,7 +81,7 @@ pub(super) enum Known {
 }
 
 /// Opens children under the naming rules a probe found for the root they lie below. Clones share
-/// the listings they read.
+/// the listings they read, and each starts with its own [`WAIT_BUDGET`].
 #[derive(Clone)]
 pub(crate) struct Lookup {
     #[cfg_attr(
@@ -84,6 +95,30 @@ pub(crate) struct Lookup {
     listings: Arc<Mutex<Listings>>,
     /// Tells when a listing was read, to keep only listings of a directory that has settled.
     clock: Arc<dyn Clock>,
+    waited: Waited,
+}
+
+/// The time a lookup spent waiting for names to open again. A clone starts with none spent, so
+/// that one handed to a file job is not held up by the waits of another.
+#[derive(Debug, Default)]
+struct Waited(AtomicU64);
+
+impl Clone for Waited {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl Waited {
+    fn spent(&self) -> Duration {
+        Duration::from_nanos(self.0.load(Ordering::Relaxed))
+    }
+
+    fn add(&self, wait: Duration) {
+        // A wait never exceeds the budget of a second, so its nanoseconds fit.
+        let nanos = u64::try_from(wait.as_nanos()).unwrap_or(u64::MAX);
+        self.0.fetch_add(nanos, Ordering::Relaxed);
+    }
 }
 
 /// The listings a pass keeps, oldest first.
@@ -145,6 +180,7 @@ impl Lookup {
             known,
             listings: Arc::default(),
             clock,
+            waited: Waited::default(),
         }
     }
 
@@ -282,7 +318,9 @@ impl Lookup {
         imp::directory_unconfirmed(parent, name, self)
     }
 
-    /// Waits `duration` on the lookup's clock before a name that failed to open is opened again.
+    /// Waits `duration` on the lookup's clock before a name that failed to open is opened again,
+    /// or less where that is all that is left of [`WAIT_BUDGET`]. `false` when nothing is left:
+    /// the caller gives the name up at once.
     #[cfg_attr(
         not(unix),
         expect(
@@ -290,8 +328,15 @@ impl Lookup {
             reason = "descriptor-relative child lookup is unsupported on this platform"
         )
     )]
-    pub(super) fn pause(&self, duration: std::time::Duration) {
-        self.clock.pause(duration);
+    pub(super) fn pause(&self, duration: Duration) -> bool {
+        let left = WAIT_BUDGET.saturating_sub(self.waited.spent());
+        if left.is_zero() {
+            return false;
+        }
+        let wait = duration.min(left);
+        self.clock.pause(wait);
+        self.waited.add(wait);
+        true
     }
 
     /// What the root's rules say about the directories below it.
@@ -575,6 +620,49 @@ mod open_failure_tests {
                 .regular(&entries.parent, "absent".as_ref())
                 .unwrap(),
             RegularChild::Missing(_)
+        ));
+        assert_eq!(entries.waited(), waited);
+    }
+
+    /// The waits of one lookup, which a file job is handed, add up to a second at most: once it
+    /// has waited that long, an entry that fails to open while its name still holds it is
+    /// transient at once, and a name that holds nothing is still missing. A clone, handed to
+    /// another job, waits again.
+    #[test]
+    fn a_lookup_waits_a_second_at_most_for_all_its_names() {
+        let entries = Entries::new();
+        let _file = FailingOpens::vanishing(&entries.dir.0, "file", usize::MAX);
+        let _directory = FailingOpens::vanishing(&entries.dir.0, "directory", usize::MAX);
+        let lookup = entries.lookup();
+        assert!(matches!(
+            lookup.regular(&entries.parent, "file".as_ref()),
+            Ok(RegularChild::Transient)
+        ));
+        let spent = entries.waited();
+        assert!(spent <= Duration::from_secs(1), "{spent:?}");
+        assert!(matches!(
+            lookup.directory(
+                &entries.parent,
+                "directory".as_ref(),
+                DirectoryOpen::Existing
+            ),
+            Ok(Child::Transient)
+        ));
+        assert!(matches!(
+            lookup.regular(&entries.parent, "absent".as_ref()).unwrap(),
+            RegularChild::Missing(_)
+        ));
+        assert_eq!(entries.waited(), spent);
+        let other = lookup.clone();
+        assert!(matches!(
+            other.regular_unconfirmed(&entries.parent, "file".as_ref()),
+            Ok(Opened::Transient)
+        ));
+        let waited = entries.waited();
+        assert!(waited > spent);
+        assert!(matches!(
+            lookup.regular_unconfirmed(&entries.parent, "file".as_ref()),
+            Ok(Opened::Transient)
         ));
         assert_eq!(entries.waited(), waited);
     }

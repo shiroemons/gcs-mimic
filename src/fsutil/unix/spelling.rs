@@ -2,25 +2,20 @@ use super::*;
 use crate::fsutil::{Child, Created, ListedSpelling, Lookup, Opened, RegularChild, Vacant};
 use std::time::Duration;
 
-/// How long a name that `fstatat` still finds may keep failing to open with `ENOENT` before a
-/// lookup gives up on it as transient. A Docker Desktop bind mount answered so for up to 238 ms
-/// after the host replaced a file (`docs/en/evidence/sync-bind-mount-stale-reads.md`).
-const VANISHING_LIMIT: Duration = Duration::from_secs(1);
-/// The first wait before such a name is opened again; each later wait doubles.
+/// The first wait before a name that failed to open is opened again; each later wait doubles.
 const FIRST_RETRY: Duration = Duration::from_millis(2);
 
 /// Opens `name` in `parent` with `open`. Only `fstatat`, not following a symlink, finding nothing
 /// under the name makes it [`Opened::Missing`]: an open that fails with `ENOENT` while `fstatat`
 /// still finds an entry is tried again after waits that start short and double, and gives up as
-/// [`Opened::Transient`] once they reach [`VANISHING_LIMIT`]. The waits block the calling thread
-/// and pass on the lookup's clock.
+/// [`Opened::Transient`] once the lookup has no waiting left (`Lookup::pause`). The waits block
+/// the calling thread and pass on the lookup's clock.
 fn open_entry<T>(
     parent: &File,
     name: &OsStr,
     lookup: &Lookup,
     mut open: impl FnMut() -> io::Result<T>,
 ) -> io::Result<Opened<T>> {
-    let mut waited = Duration::ZERO;
     let mut wait = FIRST_RETRY;
     loop {
         match open() {
@@ -31,11 +26,9 @@ fn open_entry<T>(
         if !holds_entry(parent, name)? {
             return Ok(Opened::Missing(Vacant::proven()));
         }
-        if waited >= VANISHING_LIMIT {
+        if !lookup.pause(wait) {
             return Ok(Opened::Transient);
         }
-        lookup.pause(wait);
-        waited += wait;
         wait = wait.saturating_mul(2);
     }
 }

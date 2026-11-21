@@ -617,7 +617,11 @@ host created, overwrote or replaced a file, while `fstatat` still finds it
 ([evidence](../evidence/sync-bind-mount-stale-reads.md)). A lookup that meets
 such a failure, for a file, a directory above it or the root marker, opens the
 name again after waits that start at 2 ms and double, on the blocking pool,
-and gives up after a second of waits. A name that still fails then is neither
+and gives up after a second of waits. That second is all one step on the
+blocking pool waits, for every name it opens: once it is spent, a name that
+fails so is given up on at once, so a scan of a tree the host just rewrote is
+held up for a second rather than a second for each file. A name that `fstatat`
+finds nothing under is still missing then. A name that still fails is neither
 present nor absent: ingestion defers the file as a changing source, the
 deletion inventory counts the path as unobservable (`io-failure`) and deletes
 nothing for it, an export or write-back step defers to a later pass, and a
