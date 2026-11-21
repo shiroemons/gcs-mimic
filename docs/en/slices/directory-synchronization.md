@@ -102,12 +102,16 @@ exFAT's 10 ms or the microseconds a container's file sharing truncates
 nanoseconds to, would turn an unchanged tracked file into a false conflict, so a
 differing time only leads to the hash. The inode number is
 not compared, because Docker Desktop shared folders can report a new number for
-an unchanged file. The exchange itself compares nothing and retains the
-displaced body in the private entry, which is unlinked only once the same rule
+an unchanged file. The exchange itself compares nothing and retains whatever
+the target held in the private entry, which is unlinked only once the same rule
 confirms it there; a permission change or a new inode number between the check
-and the exchange therefore no longer stops the export, and restart recovery,
-which judges that body by the same rule, gives the same answer. Other bytes, or
-an entry that is not a regular file, stay protected. API deletion first moves the checked
+and the exchange therefore does not stop the export, and for an ordinary export
+restart recovery, which judges that body by the same rule, gives the same
+answer. Otherwise the bytes stay in the private entry and the root stops: other
+bytes as a protected body, an entry that is not a regular file as an entry
+failure. A symlink that takes a removed target before the rename is not moved
+at all: the rename fails when it opens what it moves, the symlink stays at the
+target and the root stops for recovery. API deletion first moves the checked
 file into the reserved workspace, validates it again and only then unlinks it.
 Directory sync precedes the fingerprint/state commit. A divergent target is
 left intact, logged with a preservation remedy and counted as a conflict;
@@ -121,6 +125,13 @@ which runs before the wait decides, replaces it with `export-conflict`.
 If the API advances after installation, state records the generation and
 fingerprint actually installed, allowing the next live generation to replace
 those known bytes without treating the export as an external edit.
+
+File permissions are not synchronized in either direction. Exports create
+files with mode `0600`, except that a macOS clone keeps the mode of the blob it
+clones, and directories with mode `0700`. A permission change on a tracked file
+is not an edit: ingestion finds the same size and hashes and creates no
+generation, and the next API update installs a new file, so the change is
+undone.
 
 Additional storage methods implement API-authoritative deletion without changing
 the existing baseline-complete requirement for other removal callers. No schema,

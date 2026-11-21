@@ -1835,7 +1835,7 @@ mod tests {
     /// changed bytes or a symlink alike, under the staged name for its caller to compare.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn conditional_replace_preserves_displaced_and_conflicting_bytes() {
+    fn exchange_keeps_whatever_the_destination_held() {
         let directory = crate::test_support::TestDir::new();
         let root = File::open(&directory.0).unwrap();
         let replace =
@@ -1971,7 +1971,7 @@ mod tests {
     #[test]
     fn replacement_between_directories_is_durable_when_it_returns() {
         use crate::storage::fault::{self, Fault, Step};
-        for exchange in [false, true] {
+        for replacement in [Replacement::NoReplace, Replacement::Exchange] {
             let directory = crate::test_support::TestDir::new();
             let snapshot = crate::test_support::TestDir::new();
             let snapshot = snapshot.0.join("power-loss");
@@ -1983,7 +1983,7 @@ mod tests {
                     .unwrap();
             let staged = directory.0.join("work/body");
             let destination = directory.0.join("bucket/body");
-            if exchange {
+            if replacement == Replacement::Exchange {
                 std::fs::write(&destination, b"displaced").unwrap();
             }
             fault::arm(
@@ -2000,11 +2000,7 @@ mod tests {
                 "body".as_ref(),
                 &target,
                 "body".as_ref(),
-                if exchange {
-                    Replacement::Exchange
-                } else {
-                    Replacement::NoReplace
-                },
+                replacement,
             )
             .unwrap();
             fault::hit(&directory.0, Step::SyncCopyRenamed).unwrap();
@@ -2012,15 +2008,14 @@ mod tests {
             assert_eq!(
                 std::fs::read(snapshot.join("bucket/body")).unwrap(),
                 b"staged",
-                "exchange={exchange}"
+                "{replacement:?}"
             );
-            if exchange {
-                assert_eq!(
+            match replacement {
+                Replacement::Exchange => assert_eq!(
                     std::fs::read(snapshot.join("work/body")).unwrap(),
                     b"displaced"
-                );
-            } else {
-                assert!(!snapshot.join("work/body").exists());
+                ),
+                Replacement::NoReplace => assert!(!snapshot.join("work/body").exists()),
             }
         }
     }

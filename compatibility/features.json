@@ -62290,6 +62290,12 @@
           "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_ack_sql_failure_rolls_back_tracking_and_can_be_retried","live_export_rejects_forgotten_handles_and_obsoletes_a_changed_api_generation","live_export_rejects_held_and_stale_tracked_inputs","live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_retry","restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries","live_export_installed_copy_is_never_cancelled_after_arming","live_export_workspace_replacement_preserves_owned_bytes_and_requires_recovery","live_export_failed_operation_is_forgotten_by_a_switch","live_export_cancelled_install_serializes_other_handles_until_the_owned_job_drains","live_export_installs_a_staged_copy_whose_inode_number_alone_changed","live_export_cancels_a_renumbered_unchanged_copy_as_obsolete","live_export_protects_a_private_copy_whose_bytes_changed_after_staging","a_retried_copy_refills_the_partial_private_copy_in_place","a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power_loss","copying_after_an_unsupported_clone_keeps_the_new_entry","refilling_an_emptied_file_keeps_its_inode","live_export_retries_a_renumbered_copy_after_a_failure_before_installation_confirmed_it","live_export_still_reports_a_displaced_target_beside_a_renumbered_copy","a_failed_sync_after_a_refill_keeps_the_private_copy_for_the_next_retry","a_retried_copy_of_a_read_only_blob_completes_with_the_mode_a_first_copy_gets","a_retry_never_empties_a_private_copy_that_another_name_links","durable_rehash_never_tracks_a_file_installed_in_place_of_the_copy"]
         },
         {
+          "id": "shared-sync-exchange-displaced-entry",
+          "description": "The exchange that installs a copy over a tracked target changes only names and keeps whatever the target held in the private entry; installation then judges that entry by its size and hashes and unlinks only the tracked body. A permission change or a new inode number before the exchange completes the export; other bytes stay protected, and a directory, FIFO or symlink there stops the root on the entry failure with the entry kept. A symlink that took a removed target before its rename stays at the target and the root stops for recovery. A crash after a raced rename recovers by the bytes the rename moved, and a tracked body edited under its recorded modification time stays protected through restart. PENDING until a dated verification records a run of these tests. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "result": "PENDING",
+          "test_ids": ["a_tracked_target_renumbered_or_chmodded_before_the_exchange_is_replaced","a_tracked_target_edited_before_the_exchange_stays_in_the_private_entry","an_entry_that_took_a_tracked_target_before_the_exchange_stays_in_the_private_entry","a_symlink_that_took_a_removed_target_before_the_rename_stays_at_the_target","a_crash_after_a_raced_rename_recovers_by_the_bytes_the_rename_moved","a_tracked_body_edited_under_its_recorded_mtime_stays_protected_through_restart"]
+        },
+        {
           "id": "shared-sync-observation-cancellation",
           "description": "Effect-free waits retain no catalog permits while asleep, tolerate false/rollback signals without false changes or busy loops, cancel safely and return Closed on shutdown. Scope: docs/en/slices/shared-sync-observation.md.",
           "result": "PASS",
@@ -62337,10 +62343,10 @@
         },
         {
           "id": "publication-io-durability",
-          "description": "Descriptor-relative no-replace/exchange preserves displaced bytes and detects unexpected identities; failed post-commit reclamation retains journals and committed readability, concurrent publication/read and shutdown remain safe, existing media/derived/resumable kill recovery passes. Orphan scanning stays before bind. Contract: docs/en/slices/shared-publication-io.md.",
+          "description": "Descriptor-relative no-replace/exchange changes only names and keeps displaced bytes under the staged name; failed post-commit reclamation retains journals and committed readability, concurrent publication/read and shutdown remain safe, existing media/derived/resumable kill recovery passes. Orphan scanning stays before bind. Contract: docs/en/slices/shared-publication-io.md.",
           "result": "PASS",
           "test_ids": [
-            "conditional_replace_preserves_displaced_and_conflicting_bytes",
+            "exchange_keeps_whatever_the_destination_held",
             "identity_observes_nanosecond_metadata_changes",
             "cancelled_reclamation_retains_directory_ownership_until_sql_settles",
             "shared_reclamation_preserves_cancelled_session_cleanup_markers",
@@ -62563,6 +62569,12 @@
         }
       ],
       "test_ids": [
+        "a_tracked_target_renumbered_or_chmodded_before_the_exchange_is_replaced",
+        "a_tracked_target_edited_before_the_exchange_stays_in_the_private_entry",
+        "an_entry_that_took_a_tracked_target_before_the_exchange_stays_in_the_private_entry",
+        "a_symlink_that_took_a_removed_target_before_the_rename_stays_at_the_target",
+        "a_crash_after_a_raced_rename_recovers_by_the_bytes_the_rename_moved",
+        "a_tracked_body_edited_under_its_recorded_mtime_stays_protected_through_restart",
         "protected_transfer_paired_crash_and_power_loss_reopen_catalog_api_and_finish_quota_transfer",
         "live_cli_inspects_stopped_sparse_recovery_and_requires_exact_confirmed_discard",
         "live_cli_lost_resolution_response_does_not_retry_a_committed_restore",
@@ -62674,7 +62686,7 @@
         "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail",
         "resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object",
         "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot",
-        "conditional_replace_preserves_displaced_and_conflicting_bytes",
+        "exchange_keeps_whatever_the_destination_held",
         "identity_observes_nanosecond_metadata_changes",
         "cancelled_reclamation_retains_directory_ownership_until_sql_settles",
         "shared_reclamation_preserves_cancelled_session_cleanup_markers",
@@ -62949,7 +62961,7 @@
           "verified_at": "2026-10-25",
           "artifact": "docs/en/slices/shared-publication-io.md",
           "test_ids": [
-            "conditional_replace_preserves_displaced_and_conflicting_bytes",
+            "exchange_keeps_whatever_the_destination_held",
             "identity_observes_nanosecond_metadata_changes",
             "cancelled_reclamation_retains_directory_ownership_until_sql_settles",
             "shared_reclamation_preserves_cancelled_session_cleanup_markers",

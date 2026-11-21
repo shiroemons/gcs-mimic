@@ -9,8 +9,9 @@ complete parent-feature acceptance remain separate.
 ## Acceptance contract
 
 - Copy from immutable opened blobs into the tracked workspace, then replace
-  through source and destination directory descriptors. Preserve displaced
-  entries at their workspace names, including identity conflicts. Sync both
+  through source and destination directory descriptors. The replacement only
+  changes names: an exchange leaves whatever the target held at the workspace
+  name, and write-back's `settle` judges it by its size and hashes. Sync both
   parents before returning success; the live export Durable phase precedes
   conditional acknowledgement of synchronization state and intent removal.
 - Create intermediate directories relative to the leased root with no-follow
@@ -51,7 +52,10 @@ after a failed copy step empties that entry and refills it with
 Installation traverses the target parent through `sync::tree::parent`, checking
 actual spelling and no-follow identities, then uses
 `fsutil::durable_replace_between(workspace, pending_name, parent, target_name,
-expected_identity)`. Inspection opens existing parents without creating or
+replacement)` with `Replacement::NoReplace` for a new target or
+`Replacement::Exchange` over an existing one. It compares no identity; the
+displaced entry stays at the workspace name for `settle` to judge by its bytes.
+Inspection opens existing parents without creating or
 syncing them; installation creates missing parents after arming and syncs the
 full ancestor chain so a failed prior creation sync remains retryable.
 Linux uses `RENAME_NOREPLACE`/`RENAME_EXCHANGE`;
