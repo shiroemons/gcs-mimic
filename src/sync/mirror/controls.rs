@@ -197,17 +197,17 @@ impl LiveControl<'_> {
         reply: Reply<crate::storage::sync_state::deletions::DeletionSet>,
         identity: Option<crate::auth::Identity>,
     ) -> Result<(), SyncError> {
-        use crate::sync::deletion::Decided;
-        let decided =
-            crate::sync::deletion::decide(self.scope, decision, revision, reply, identity).await?;
-        match decided {
-            Decided::Refused => Ok(()),
-            Decided::Applied => {
-                let interrupt = Interrupt::new(self.scope.stopping);
-                Box::pin(self.state.skipped.retry(self.scope, interrupt))
-                    .await
-                    .map(drop)
-            }
-        }
+        use crate::sync::deletion::{follow, record};
+        let recorded = record(self.scope, decision, revision, identity).await;
+        let set = recorded.as_ref().ok().cloned();
+        let _ = reply.send(recorded);
+        let Some(set) = set else {
+            return Ok(());
+        };
+        follow(self.scope, decision, set).await?;
+        let interrupt = Interrupt::new(self.scope.stopping);
+        Box::pin(self.state.skipped.retry(self.scope, interrupt))
+            .await
+            .map(drop)
     }
 }

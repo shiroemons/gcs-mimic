@@ -230,18 +230,17 @@ async fn observe_deletions(
     interrupt: Interrupt<'_>,
     inventorying: Inventorying,
 ) -> Result<(), SyncError> {
-    use crate::sync::deletion::InventoryOutcome;
+    use crate::sync::deletion::{InventoryOutcome, Taken};
     let inventory = crate::sync::deletion::inventory_with(root, config, pass, interrupt).await;
     match inventory {
-        Ok(InventoryOutcome::Finished(set) | InventoryOutcome::Confirmed(set)) => {
+        Ok(InventoryOutcome::Taken(Taken::Finished(set) | Taken::Confirmed(set))) => {
             crate::sync::deletion::execute_with(catalog, root, set, interrupt)
                 .await?
                 .report(inventorying.applied_level());
         }
         Ok(
             InventoryOutcome::NotInferred
-            | InventoryOutcome::Interrupted
-            | InventoryOutcome::RejectionPending,
+            | InventoryOutcome::Taken(Taken::Interrupted | Taken::RejectionPending),
         ) => {}
         // An API change moved the journal, or a bucket or the root changed, during the
         // inventory. A change that writes the tree raises native events for those writes, which

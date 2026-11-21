@@ -21,8 +21,10 @@ pub(crate) struct Inventory {
     root: RootId,
     fence: JournalFence,
     draft: Draft,
-    /// The first bucket all of whose tracked files went at once, which takes the set to approval
-    /// whatever the counts and which the advice on a set that waits for that reason names.
+    /// The first bucket all of whose tracked files went at once. The walk of the tracked files
+    /// always records it (`saw_bucket_gone`) before the inventory finishes, and it is the only
+    /// ground on which a vanished bucket takes the set to approval whatever the counts; the
+    /// advice on a set that waits for that reason names it.
     first_gone: Option<(BucketName, BucketGone)>,
     /// Every such bucket, which the log and a wait name.
     removed_buckets: Named<BucketName>,
@@ -385,9 +387,10 @@ impl RootLease {
     }
 
     /// Adds one page of the inventory: `baseline` tracked live files, of which `missing` were seen
-    /// absent, with what was gone above them. A new set records them; a confirming inventory only
-    /// compares them with the earlier set and writes nothing. Only candidates whose own paths
-    /// were seen empty reach here, which is all a [`Missing`] can hold.
+    /// absent. A new set records them; a confirming inventory only compares them with the earlier
+    /// set and writes nothing. Only candidates whose own paths were seen empty reach here, which
+    /// is all a [`Missing`] can hold. What was gone above them is not recorded here: the walk
+    /// reports a bucket gone whole through [`Inventory::saw_bucket_gone`].
     pub(crate) async fn record_deletion_candidates(
         &self,
         inventory: &mut Inventory,
@@ -454,13 +457,20 @@ impl RootLease {
                 Draft::New => (stored_baseline,stored_candidates),
                 Draft::Confirming { baseline, candidates } => (baseline,candidates),
             };
+            let setting=Guard::from(enabled);
+            // A disabled guard reads nothing it does not decide on, so that a failed read of the
+            // held files cannot stop an inventory that never looks at them.
+            let held_files=match setting {
+                Guard::Enabled => HeldFiles::from(held::holds_waiting(&transaction,inventory.root)?),
+                Guard::Disabled => HeldFiles::Absent,
+            };
             let decided=verdict(SetFacts {
-                guard: Guard::from(enabled),
+                guard: setting,
                 baseline,
                 candidates,
                 automatic: history::automatic_count(&transaction,inventory.root)?,
-                gone: inventory.first_gone.clone(),
-                held: HeldFiles::from(held::holds_waiting(&transaction,inventory.root)?),
+                gone: inventory.first_gone,
+                held: held_files,
             });
             let guard=matches!(decided,SetVerdict::Wait(_));
             match inventory.draft {

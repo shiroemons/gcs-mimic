@@ -21,7 +21,6 @@ use crate::{
             deletions::{
                 Begun, BucketGone, Candidate, Completion, Confirmed, DeletionAuthorization,
                 DeletionSet, EmptiedAtStart, Guard, Inventory, Named, PendingRejection, Recheck,
-                Removal,
             },
             observation::PathStop,
             root::{Baseline, RootError, RootLease},
@@ -35,8 +34,9 @@ use std::{
 
 mod decide;
 mod presence;
-pub(super) use decide::{Decided, decide};
+pub(super) use decide::{follow, record};
 pub(crate) use presence::Missing;
+use presence::Removal;
 pub(super) use presence::{Observed, Presence, Unobservable, observe, presence};
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
@@ -60,15 +60,13 @@ pub(super) async fn inventory(
         .into_set())
 }
 
-/// What taking an inventory ended in.
+/// What counting an inventory to its end ended in.
 #[derive(Debug)]
-pub(in crate::sync) enum InventoryOutcome {
+pub(in crate::sync) enum Taken {
     /// A new set was written.
     Finished(DeletionSet),
     /// The root's earlier set was confirmed, under its own revision.
     Confirmed(DeletionSet),
-    /// The pass does not let deletions be inferred, so the root's set was withdrawn instead.
-    NotInferred,
     /// A stop or a deadline ended the inventory before it compared every file.
     Interrupted,
     /// A rejection whose files are not all written back leaves nothing to inventory until the
@@ -76,12 +74,21 @@ pub(in crate::sync) enum InventoryOutcome {
     RejectionPending,
 }
 
+/// What a pass's inventory ended in.
+#[derive(Debug)]
+pub(in crate::sync) enum InventoryOutcome {
+    /// The pass took an inventory, which ended as [`Taken`] says.
+    Taken(Taken),
+    /// The pass does not let deletions be inferred, so the root's set was withdrawn instead.
+    NotInferred,
+}
+
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 impl InventoryOutcome {
     fn into_set(self) -> Option<DeletionSet> {
         match self {
-            Self::Finished(set) | Self::Confirmed(set) => Some(set),
-            Self::NotInferred | Self::Interrupted | Self::RejectionPending => None,
+            Self::Taken(Taken::Finished(set) | Taken::Confirmed(set)) => Some(set),
+            Self::Taken(Taken::Interrupted | Taken::RejectionPending) | Self::NotInferred => None,
         }
     }
 }
@@ -97,17 +104,18 @@ pub(super) async fn inventory_with(
     interrupt: Interrupt<'_>,
 ) -> Result<InventoryOutcome, SyncError> {
     if interrupt.check() != Interrupted::No {
-        return Ok(InventoryOutcome::Interrupted);
+        return Ok(InventoryOutcome::Taken(Taken::Interrupted));
     }
     if !pass.hold().infers_deletions() {
         root.invalidate_deletions().await?;
         return Ok(InventoryOutcome::NotInferred);
     }
     let guard = Guard::from(config.sync_delete_guard);
-    match root.begin_deletion_inventory(guard).await? {
-        Begun::Started(inventory) => take_inventory(root, guard, inventory, interrupt).await,
-        Begun::RejectionPending => Ok(InventoryOutcome::RejectionPending),
-    }
+    let taken = match root.begin_deletion_inventory(guard).await? {
+        Begun::Started(inventory) => take_inventory(root, guard, inventory, interrupt).await?,
+        Begun::RejectionPending => Taken::RejectionPending,
+    };
+    Ok(InventoryOutcome::Taken(taken))
 }
 
 /// Counts `inventory` to its end and returns its set, starting a new one whenever the earlier set
@@ -118,29 +126,28 @@ async fn take_inventory(
     guard: Guard,
     mut inventory: Inventory,
     interrupt: Interrupt<'_>,
-) -> Result<InventoryOutcome, SyncError> {
+) -> Result<Taken, SyncError> {
     loop {
         let mut unobserved = Unobserved::default();
-        let Some(counted) =
-            count_candidates(root, &mut inventory, interrupt, &mut unobserved).await?
-        else {
-            return Ok(InventoryOutcome::Interrupted);
-        };
-        if counted == Confirmed::Same {
-            unobserved.warn();
-            match root.finish_deletion_inventory(inventory).await? {
-                Completion::Finished(set) => {
-                    warn_awaiting_approval(root, &set).await?;
-                    return Ok(InventoryOutcome::Finished(set));
+        match count_candidates(root, &mut inventory, interrupt, &mut unobserved).await? {
+            Counted::Interrupted => return Ok(Taken::Interrupted),
+            Counted::Same => {
+                unobserved.warn();
+                match root.finish_deletion_inventory(inventory).await? {
+                    Completion::Finished(set) => {
+                        warn_awaiting_approval(root, &set).await?;
+                        return Ok(Taken::Finished(set));
+                    }
+                    Completion::Confirmed(set) => return Ok(Taken::Confirmed(set)),
+                    Completion::Diverged => {}
                 }
-                Completion::Confirmed(set) => return Ok(InventoryOutcome::Confirmed(set)),
-                Completion::Diverged => {}
             }
+            Counted::Diverged => {}
         }
         // The root's earlier set differs from what the tree shows now, so a new one replaces it.
         match root.begin_new_deletion_inventory(guard).await? {
             Begun::Started(next) => inventory = next,
-            Begun::RejectionPending => return Ok(InventoryOutcome::RejectionPending),
+            Begun::RejectionPending => return Ok(Taken::RejectionPending),
         }
     }
 }
@@ -208,28 +215,38 @@ impl Applied {
     }
 }
 
-/// Walks every tracked live file and records the absent ones in `inventory`. `None` means the
-/// pass was interrupted; `Diverged` that the earlier set this inventory confirms differs.
+/// How walking the tracked files ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Counted {
+    /// Every file was walked and the inventory still matches the set it confirms, if any.
+    Same,
+    /// The earlier set this inventory confirms differs from what the tree shows.
+    Diverged,
+    /// The pass was interrupted before the walk ended.
+    Interrupted,
+}
+
+/// Walks every tracked live file and records the absent ones in `inventory`.
 async fn count_candidates(
     root: &RootLease,
     inventory: &mut Inventory,
     interrupt: Interrupt<'_>,
     unobserved: &mut Unobserved,
-) -> Result<Option<Confirmed>, SyncError> {
+) -> Result<Counted, SyncError> {
     let naming = root.naming()?;
     let lookup = root.lookup()?;
     let mut after = String::new();
     let mut gone = GoneBuckets::new(root);
     loop {
         if interrupt.check() != Interrupted::No {
-            return Ok(None);
+            return Ok(Counted::Interrupted);
         }
         let page = root
             .deletion_inventory_page(inventory.clone(), after.clone())
             .await?;
         if page.is_empty() {
             gone.take(root, inventory);
-            return Ok(Some(Confirmed::Same));
+            return Ok(Counted::Same);
         }
         let baseline = page.len() as u64;
         let mut missing = Vec::new();
@@ -237,7 +254,7 @@ async fn count_candidates(
             #[cfg(test)]
             super::mirror::export_checkpoint("deletion-candidate").await;
             if interrupt.check() != Interrupted::No {
-                return Ok(None);
+                return Ok(Counted::Interrupted);
             }
             after.clone_from(&candidate.path);
             let observed = match mapping::path_to_name(Path::new(&candidate.path), naming) {
@@ -263,7 +280,7 @@ async fn count_candidates(
             .await?
             == Confirmed::Diverged
         {
-            return Ok(Some(Confirmed::Diverged));
+            return Ok(Counted::Diverged);
         }
     }
 }
@@ -312,8 +329,8 @@ impl GoneBuckets {
         let counts = self.counts(candidate);
         let tally = self.buckets.entry(candidate.bucket.clone()).or_default();
         match removal {
-            Removal::Bucket(BucketGone::Missing) => tally.directory_missing = true,
-            Removal::Bucket(BucketGone::Emptied) | Removal::Files => {}
+            Removal::BucketDirectory => tally.directory_missing = true,
+            Removal::Files => {}
         }
         if counts && !tally.returned {
             tally.absent.insert(candidate.path.clone());

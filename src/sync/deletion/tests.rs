@@ -198,7 +198,7 @@ async fn an_inventory_names_the_first_unobservable_paths_and_counts_the_rest() {
     )
     .await
     .unwrap();
-    assert_eq!(counted, Some(Confirmed::Same));
+    assert_eq!(counted, Counted::Same);
     assert_eq!(unobserved.count, 12);
     assert_eq!(
         unobserved
@@ -244,7 +244,7 @@ async fn expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candida
         inventory_with(&root, &config, summary.gate(), deadline)
             .await
             .unwrap(),
-        InventoryOutcome::Interrupted
+        InventoryOutcome::Taken(Taken::Interrupted)
     ));
     assert_eq!(
         root.deletion_set().await.unwrap().unwrap().revision,

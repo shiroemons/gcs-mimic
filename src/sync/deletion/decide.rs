@@ -2,15 +2,15 @@
 //! itself, and what follows it, which runs the approved set or writes the rejected one back.
 
 use super::{
-    Begun, Config, Guard, InventoryOutcome, OpaqueId, Recheck, RootLease, execute_with,
-    take_inventory, write_back_rejected,
+    Begun, Config, Guard, OpaqueId, Recheck, RootLease, Taken, execute_with, take_inventory,
+    write_back_rejected,
 };
 use crate::{
     diagnostics::LogLevel,
     storage::{admin::AdminError, sync_state::deletions::DeletionSet, sync_state::root::RootError},
     sync::{
         SyncError,
-        control::{ControlError, Decision, Reply},
+        control::{ControlError, Decision},
         interrupt::Interrupt,
         mirror::LiveScope,
     },
@@ -60,47 +60,36 @@ async fn recheck(
         Recheck::NotAwaiting => return Ok(Rechecked::NotAwaiting),
     };
     match take_inventory(root, guard, inventory, interrupt).await {
-        Ok(InventoryOutcome::Confirmed(_)) => Ok(Rechecked::Confirmed),
-        Ok(InventoryOutcome::Finished(_)) => Ok(Rechecked::Replaced),
-        // A recheck waits on no pass, so it never ends in `NotInferred`; a rejection left
-        // between the two inventories is not a decision's to wait for either, and ends it as a
-        // stop does.
-        Ok(
-            InventoryOutcome::Interrupted
-            | InventoryOutcome::RejectionPending
-            | InventoryOutcome::NotInferred,
-        ) => Ok(Rechecked::Interrupted),
+        Ok(Taken::Confirmed(_)) => Ok(Rechecked::Confirmed),
+        Ok(Taken::Finished(_)) => Ok(Rechecked::Replaced),
+        // A rejection left between the two inventories is not a decision's to wait for, and
+        // ends it as a stop does.
+        Ok(Taken::Interrupted | Taken::RejectionPending) => Ok(Rechecked::Interrupted),
         Err(error) if error.is_stale_deletion() => Ok(Rechecked::Superseded(error)),
         Err(error) => Err(error),
     }
 }
 
-/// What became of a decision after it was answered.
-pub(in crate::sync) enum Decided {
-    /// The decision was refused, so nothing ran.
-    Refused,
-    /// The decision was recorded, and the set ran or was written back.
-    Applied,
-}
-
-/// Approves or rejects the deletion set `revision`, as `decision` says, answers on `reply`, and
-/// then runs the approved set or writes the rejected set's files back from their objects.
-pub(in crate::sync) async fn decide(
+/// Records `decision` on the deletion set `revision` for `identity`, after the inventory that
+/// makes sure the set is the one the tree shows. The caller answers with the result before it
+/// follows a recorded decision.
+pub(in crate::sync) async fn record(
     scope: LiveScope<'_>,
     decision: Decision,
     revision: OpaqueId,
-    reply: Reply<DeletionSet>,
     identity: Option<crate::auth::Identity>,
-) -> Result<Decided, SyncError> {
-    let decided = match decidable(scope, decision, revision, identity).await {
-        Ok(()) => apply(scope, decision, revision).await,
-        Err(error) => Err(error),
-    };
-    let set = decided.as_ref().ok().cloned();
-    let _ = reply.send(decided);
-    let Some(set) = set else {
-        return Ok(Decided::Refused);
-    };
+) -> Result<DeletionSet, ControlError> {
+    decidable(scope, decision, revision, identity).await?;
+    apply(scope, decision, revision).await
+}
+
+/// Follows a recorded `decision` on `set`: runs the approved set, or writes the rejected set's
+/// files back from their objects.
+pub(in crate::sync) async fn follow(
+    scope: LiveScope<'_>,
+    decision: Decision,
+    set: DeletionSet,
+) -> Result<(), SyncError> {
     let interrupt = Interrupt::new(scope.stopping);
     match decision {
         Decision::Approve => {
@@ -112,7 +101,7 @@ pub(in crate::sync) async fn decide(
             write_back_rejected(scope.catalog, scope.root, interrupt).await?;
         }
     }
-    Ok(Decided::Applied)
+    Ok(())
 }
 
 /// Authorizes `decision` on the deletion set `revision` for `identity`, then inventories the

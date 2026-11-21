@@ -319,18 +319,6 @@ pub(crate) fn guarded(guard: Guard, baseline: u64, candidates: u64) -> bool {
         && u128::from(candidates) * 100 > u128::from(baseline) * 50
 }
 
-/// What an inventory saw gone above its candidates. Every tracked file of a bucket gone at once
-/// needs approval whatever the counts: a mount missing at startup, one that came up empty, or a
-/// directory moved away looks exactly like the user deleting the files, and putting it back
-/// brings every file back. Deleting files inside a bucket directory needs approval only by the
-/// counts.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Removal {
-    #[default]
-    Files,
-    Bucket(BucketGone),
-}
-
 /// The tracked files, by path, of each bucket that the first complete inventory while this
 /// process owned the root found all gone, as later inventories still find them. Only these files
 /// tell whether such a bucket stays emptied: a file the tree gained since, such as the export of

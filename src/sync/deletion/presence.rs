@@ -3,10 +3,7 @@
 
 use crate::{
     fsutil,
-    storage::sync_state::{
-        deletions::{BucketGone, Candidate, Removal},
-        root::RootLease,
-    },
+    storage::sync_state::{deletions::Candidate, root::RootLease},
     sync::{
         SyncError,
         report::remedy::Correction,
@@ -14,6 +11,18 @@ use crate::{
     },
 };
 use std::{fmt, fs::File, io, path::Path};
+
+/// What was gone above an absent tracked file. Every tracked file of a bucket gone at once needs
+/// approval whatever the counts: a mount missing at startup or a directory moved away looks
+/// exactly like the user deleting the files, and putting it back brings every file back.
+/// Deleting files inside a bucket directory needs approval only by the counts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Removal {
+    /// The file, or a directory inside the bucket's own, is gone.
+    Files,
+    /// The bucket's own directory.
+    BucketDirectory,
+}
 
 /// What a path holds now. Whether it holds anything is one of three answers, never a `bool`: a
 /// path that cannot be observed is neither present nor absent.
@@ -260,7 +269,7 @@ fn missing_above(root: &File, lookup: &fsutil::Lookup, path: &Path) -> Presence 
         return Presence::Unobservable(Unobservable::InvalidPath);
     };
     match lookup.directory(root, bucket, fsutil::DirectoryOpen::Existing) {
-        Ok(fsutil::Child::Missing) => Presence::Absent(Removal::Bucket(BucketGone::Missing)),
+        Ok(fsutil::Child::Missing) => Presence::Absent(Removal::BucketDirectory),
         Ok(fsutil::Child::Directory { .. }) => Presence::Absent(Removal::Files),
         Ok(fsutil::Child::Alias) => Presence::Unobservable(Unobservable::ParentBlocked),
         Err(error) => lookup_failure(error),
