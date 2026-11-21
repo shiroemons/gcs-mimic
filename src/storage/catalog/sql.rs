@@ -15,8 +15,11 @@ pub(super) fn keep_plans_across_bindings(connection: &Connection) -> rusqlite::R
         .map(drop)
 }
 
-macro_rules! text_enum {
-    ($visibility:vis $name:ty, $invalid:literal, { $($variant:ident => $value:literal),+ $(,)? }) => {
+/// Spells an enum's variants as text with `as_str` and `parse`. Alone, it serves an enum that
+/// another type's column spells, such as a finding's reason, which needs no SQL conversion of
+/// its own.
+macro_rules! text_names {
+    ($visibility:vis $name:ty, { $($variant:ident => $value:literal),+ $(,)? }) => {
         impl $name {
             $visibility fn as_str(self) -> &'static str {
                 match self { $(Self::$variant => $value),+ }
@@ -25,7 +28,13 @@ macro_rules! text_enum {
                 match value { $($value => Some(Self::$variant)),+, _ => None }
             }
         }
-        $crate::storage::catalog::sql::text_enum!($name, $invalid, Self::parse);
+    };
+}
+
+macro_rules! text_enum {
+    ($visibility:vis $name:ty, $invalid:literal, { $($variant:ident => $value:literal),+ $(,)? }) => {
+        $crate::storage::catalog::sql::text_names!($visibility $name, { $($variant => $value),+ });
+        $crate::storage::catalog::sql::text_enum!($name, $invalid, <$name>::parse);
     };
     ($name:ty, $invalid:literal, $parse:expr) => {
         impl rusqlite::ToSql for $name {
@@ -58,7 +67,7 @@ macro_rules! integer_enum {
     };
 }
 
-pub(super) use {integer_enum, text_enum};
+pub(super) use {integer_enum, text_enum, text_names};
 
 /// Declares the positions of a `SELECT` list written as a literal macro elsewhere, for a row read
 /// on a hot path where looking columns up by name would cost a scan of the column names per

@@ -138,12 +138,12 @@ pub struct Finding {
     pub(crate) reason: FindingKind,
 }
 
-sql::text_enum!(pub(crate) LexicalReason, "invalid synchronization finding", {
+sql::text_names!(pub(crate) LexicalReason, {
     InvalidName => "invalid-name", HostRestriction => "host-restriction",
     Reserved => "reserved", Ignored => "ignored",
 });
 
-sql::text_enum!(pub(crate) Obstruction, "invalid synchronization finding", {
+sql::text_names!(pub(crate) Obstruction, {
     Collision => "collision", UnsafeEntry => "unsafe-entry",
     DirectoryOccupied => "directory-occupied",
 });
