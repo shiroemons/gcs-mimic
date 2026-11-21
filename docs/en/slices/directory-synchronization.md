@@ -630,15 +630,13 @@ present nor absent: ingestion defers the file as a changing source, the
 deletion inventory counts the path as unobservable (`io-failure`) and deletes
 nothing for it, an export or write-back step defers to a later pass, and a
 marker read fails with the read error instead of passing for a missing marker.
-An export step that meets such a name after it began, while it copies the body
-or records or acknowledges the installed file as durable, is retried as a
-transient failure; an observation of a file already in place is not taken for
-a conflict or for obsolete then. A run that it still fails is run again after
-the retry delay rather than pausing the mirror, and the write-back recovery
-that starts each run settles the operation the step left, so the installed
-bytes stay at the target. An installation attempt that meets such a name is
-cancelled as a race, since its copy is not at the target, and the export the
-race leads to reads the name again.
+An export step that meets such a name after it began, while it copies the body,
+installs it or records or acknowledges the installed file as durable, is retried
+as a transient failure with its private copy kept; an observation of a file
+already in place is not taken for a conflict or for obsolete then. A run that it
+still fails is run again after the retry delay rather than pausing the mirror,
+and the write-back recovery that starts each run settles the operation the step
+left: installed bytes stay at the target, and a copy not installed yet goes.
 The scan follows the same rule for each entry a listing names: it passes over
 only an entry proved gone, and counts one that still fails as a deferred read
 failure. The Linux native watch, which adds a watch for each directory, fails

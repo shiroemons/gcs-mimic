@@ -1495,6 +1495,121 @@ async fn an_observation_waits_out_a_target_that_briefly_fails_to_open() {
     fixture.close().await;
 }
 
+/// Begins the export of `object` in a fixture where it is published, advances it until its
+/// private copy is staged, and puts the bucket directory in place, whose opens then fail with
+/// `ENOENT` while the returned failure lives.
+async fn staged_below_a_failing_directory(
+    fixture: &Fixture,
+) -> (LiveExport, Pending, fsutil::FailingOpens) {
+    fixture.publish("object", b"api").await;
+    let operation = fixture.begin("object").await;
+    for _ in 0..8 {
+        if matches!(operation.0.lock().await.progress, Progress::Staged(Some(_))) {
+            break;
+        }
+        assert_eq!(
+            fixture
+                .writeback
+                .advance_live_export(operation.clone())
+                .await
+                .unwrap(),
+            InstallOutcome::Pending
+        );
+    }
+    assert!(matches!(
+        operation.0.lock().await.progress,
+        Progress::Staged(Some(_))
+    ));
+    let item = pending(&operation).await;
+    fs::create_dir_all(fixture.tree.0.join("test-bucket")).unwrap();
+    let failing = fsutil::FailingOpens::vanishing(&fixture.tree.0, "test-bucket", usize::MAX);
+    (operation, item, failing)
+}
+
+/// The installation of an export whose target's directory keeps failing to open fails as
+/// unsettled each time it is tried, instead of cancelling the export as a race: the operation
+/// stays with its private copy, and once the directory opens the next attempt installs it.
+#[tokio::test]
+async fn an_install_whose_directory_keeps_failing_to_open_is_tried_again_until_it_opens() {
+    let fixture = Fixture::clocked().await;
+    let (operation, item, failing) = staged_below_a_failing_directory(&fixture).await;
+    for _ in 0..2 {
+        let result = fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await;
+        assert!(
+            matches!(result, Err(Error::Raced(RaceReason::Unsettled))),
+            "{result:?}"
+        );
+    }
+    assert!(failing.left() < usize::MAX);
+    assert_eq!(fixture.writeback.status().await.unwrap().entries, 1);
+    let private = fixture
+        .tree
+        .0
+        .join(mapping::WORKSPACE)
+        .join(item.token.id.to_string());
+    assert_eq!(fs::read(&private).unwrap(), b"api");
+    drop(failing);
+    let mut outcome = InstallOutcome::Pending;
+    for _ in 0..8 {
+        outcome = fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap();
+        if outcome != InstallOutcome::Pending {
+            break;
+        }
+    }
+    assert_eq!(outcome, InstallOutcome::Complete);
+    assert_eq!(fs::read(fixture.tree.0.join(&item.path)).unwrap(), b"api");
+    assert!(!private.exists());
+    assert_eq!(fixture.writeback.status().await.unwrap().entries, 0);
+    drop(operation);
+    fixture.close().await;
+}
+
+/// An export whose installation failed as unsettled, because its target's directory kept failing
+/// to open, leaves its operation to the recovery before the next run, which settles it: the
+/// private copy goes, nothing is put at the target, and no entry or reservation is left.
+#[tokio::test]
+async fn an_install_left_by_a_directory_that_kept_failing_to_open_is_settled_by_recovery() {
+    let fixture = Fixture::clocked().await;
+    let (operation, item, failing) = staged_below_a_failing_directory(&fixture).await;
+    let result = fixture
+        .writeback
+        .advance_live_export(operation.clone())
+        .await;
+    assert!(
+        matches!(result, Err(Error::Raced(RaceReason::Unsettled))),
+        "{result:?}"
+    );
+    drop(failing);
+    drop(operation);
+    let usage = fixture.writeback.recover_pending().await.unwrap();
+    assert_eq!(
+        (
+            usage.entries,
+            usage.reserved_bytes,
+            usage.retained_bytes,
+            usage.stop()
+        ),
+        (0, 0, 0, Stop::Ready)
+    );
+    assert!(!fixture.tree.0.join(&item.path).exists());
+    assert!(
+        !fixture
+            .tree
+            .0
+            .join(mapping::WORKSPACE)
+            .join(item.token.id.to_string())
+            .exists()
+    );
+    fixture.close().await;
+}
+
 /// An installed export whose target keeps failing to open when it records durability fails that
 /// step as unsettled and leaves its operation in place, and the recovery that runs before the
 /// next run settles that operation: the target keeps the exported bytes, and no entry or
@@ -1710,7 +1825,26 @@ async fn an_observation_whose_target_keeps_failing_to_open_does_not_finish() {
         }
     }
     drop(failing);
-    assert_eq!(outcome, Ok(InstallOutcome::Raced));
+    // The step fails, to be tried again, rather than cancelling the observation as a race.
+    assert!(
+        matches!(outcome, Err(Error::Raced(RaceReason::Unsettled))),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
+        b"api"
+    );
+    let mut outcome = Ok(InstallOutcome::Pending);
+    for _ in 0..8 {
+        outcome = fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await;
+        if outcome != Ok(InstallOutcome::Pending) {
+            break;
+        }
+    }
+    assert_eq!(outcome, Ok(InstallOutcome::Complete));
     assert_eq!(
         fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
         b"api"

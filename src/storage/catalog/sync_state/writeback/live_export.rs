@@ -993,11 +993,12 @@ impl Writeback {
                     // Recovery owns displaced bytes; an automatic retry must not unlink them.
                     return Err(Error::Displaced(Box::new(error)));
                 }
-                if error.unreachable() {
+                // A target that kept failing to open fails the step instead, which its caller
+                // tries again with the private copy kept, as after any failure that passes by
+                // itself.
+                if error.changed() {
                     error.record_invariant();
-                    // The copy is not at the target, so cancelling unlinks only the private copy,
-                    // and the export the race leads to reads a target that kept failing to open
-                    // again.
+                    // The copy is not at the target, so cancelling unlinks only the private copy.
                     operation.progress = operation.progress.cancel(InstallOutcome::Raced);
                     self.cancel_live_copy(operation).await?;
                     return Ok(InstallOutcome::Raced);
