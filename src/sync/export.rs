@@ -40,8 +40,7 @@ pub(in crate::sync) async fn reconcile_live_object(
         bucket,
         name,
         summary,
-        missing: MissingFile::Inventory,
-        occasion: Occasion::Change,
+        occasion: Occasion::ApiChange,
     };
     let Some(plan) = object.plan().await? else {
         return Ok(None);
@@ -57,32 +56,48 @@ pub(in crate::sync) struct LiveObject<'a> {
     pub(in crate::sync) name: &'a ObjectName,
     /// The counts of the pass this object belongs to.
     pub(in crate::sync) summary: &'a mut Reconciliation,
-    pub(in crate::sync) missing: MissingFile,
     pub(in crate::sync) occasion: Occasion,
 }
 
-/// Why an export observes its object, which decides what a failure to read its target does.
+/// Why an export observes its object, which decides what a failure to read its target does,
+/// what a missing tracked file means, and whether a file that differs is exported over.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::sync) enum Occasion {
-    /// A journal change, a reconciliation, a retry or a restore: a failed read is retried and
-    /// then fails the pass, since the object's change would otherwise be lost.
-    Change,
-    /// A finding observed again by an ingestion: a failed read leaves the finding as it is for
-    /// a later pass. The entry the read failed on is the scan's to report, and the object's own
-    /// changes still come through the journal.
-    Finding,
+    /// A journal change, a reconciliation or the retry of a skipped export. A failed read is
+    /// retried and then fails the pass, since the object's change would otherwise be lost.
+    ApiChange,
+    /// A finding observed again by an ingestion. A failed read leaves the finding as it is for a
+    /// later pass: the entry the read failed on is the scan's to report, and the object's own
+    /// changes still come through the journal. No API change brings this export about, so it
+    /// leaves a file that differs from the generation the tree tracks to ingestion.
+    Reevaluate,
+    /// The restore after a protected or rejected deletion, which writes a missing tracked file
+    /// back. A failed read is retried and then fails the pass.
+    Restore,
 }
 
-/// What an export does when the tracked file of an API generation that has not changed since is
-/// missing from the tree.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(in crate::sync) enum MissingFile {
-    /// Writes it back, as the restore after a protected deletion must.
-    Restore,
-    /// Leaves it to the deletion inventory once the baseline is complete. The file was deleted
-    /// from the tree, whether the mirror ran, was paused or the server was stopped meanwhile;
-    /// writing it back would undo that deletion without asking anyone.
-    Inventory,
+impl Occasion {
+    /// Whether a missing tracked file of an API generation that has not changed since is left to
+    /// the deletion inventory once the baseline is complete, rather than written back. The file
+    /// was deleted from the tree, whether the mirror ran, was paused or the server was stopped
+    /// meanwhile; writing it back would undo that deletion without asking anyone. Only the
+    /// restore that a protected or rejected deletion asks for writes it back.
+    const fn leaves_missing_to_inventory(self) -> bool {
+        match self {
+            Self::ApiChange | Self::Reevaluate => true,
+            Self::Restore => false,
+        }
+    }
+
+    /// Whether this export leaves a file that differs from the generation the tree tracks,
+    /// which then holds an edit, to ingestion rather than planning an export over it: no API
+    /// change brings a reevaluation about.
+    const fn leaves_edits_to_ingestion(self) -> bool {
+        match self {
+            Self::Reevaluate => true,
+            Self::ApiChange | Self::Restore => false,
+        }
+    }
 }
 
 /// Whether the working-tree file already holds the catalog generation's bytes.

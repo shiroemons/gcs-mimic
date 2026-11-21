@@ -1,6 +1,6 @@
 //! The exports a live run skipped for a later pass to finish.
 
-use super::{LiveObject, MissingFile, Occasion};
+use super::{LiveObject, Occasion};
 use crate::sync::mirror::LiveScope;
 use crate::{
     storage::admin::{BucketName, Generation, ObjectName},
@@ -82,8 +82,7 @@ impl SkippedExports {
                 bucket,
                 name,
                 summary: &mut uncounted,
-                missing: MissingFile::Inventory,
-                occasion: Occasion::Change,
+                occasion: Occasion::ApiChange,
             };
             let outcome = match live.plan().await? {
                 Some(plan) if plan.skipped() == Some(skipped) => {

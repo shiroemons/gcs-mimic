@@ -2,8 +2,7 @@
 
 use super::alias::Freeze;
 use super::{
-    Content, LiveObject, LivePlan, MissingFile, Occasion, reconcile::hierarchy_collision,
-    retry::file_job_retry,
+    Content, LiveObject, LivePlan, Occasion, reconcile::hierarchy_collision, retry::file_job_retry,
 };
 use crate::storage::sync_state::findings::alias::Holding;
 #[cfg(test)]
@@ -206,7 +205,7 @@ impl LiveObject<'_> {
         let Some(tracked) = tracked else {
             return Ok(false);
         };
-        Ok(self.missing == MissingFile::Inventory
+        Ok(self.occasion.leaves_missing_to_inventory()
             && self.root.current_baseline().await?
                 == crate::storage::sync_state::root::Baseline::Complete
             && self
@@ -274,7 +273,7 @@ impl LiveObject<'_> {
         // The tree already tracks this generation, so a file that differs holds an edit, which
         // ingestion takes in: neither the end of an alias that kept it out nor another look at
         // a finding exports over it.
-        if (released || self.occasion == Occasion::Finding)
+        if (released || self.occasion.leaves_edits_to_ingestion())
             && content == TargetContent::Changed
             && tracked.is_some_and(|tracked| tracked.generation.get() == record.generation)
         {
@@ -306,7 +305,7 @@ impl LiveObject<'_> {
         let naming = self.root.naming()?;
         let lookup = self.root.lookup()?;
         match self.occasion {
-            Occasion::Change => {
+            Occasion::ApiChange | Occasion::Restore => {
                 let target = file_job_retry(self.root, move |root| {
                     match inspect(root, naming, &lookup, &path, &observed) {
                         Ok(target) => Ok(Some(target)),
@@ -322,7 +321,7 @@ impl LiveObject<'_> {
                 }
                 Ok(target)
             }
-            Occasion::Finding => match self
+            Occasion::Reevaluate => match self
                 .root
                 .file_job(move |root| inspect(root, naming, &lookup, &path, &observed))
                 .await

@@ -6,7 +6,7 @@
 use crate::storage::sync_state::{
     MAX_PAGE, Ordinal, findings::FindingKind, observation::Transition,
 };
-use crate::sync::export::{LiveObject, MissingFile, Occasion, SkippedExports};
+use crate::sync::export::{LiveObject, Occasion, SkippedExports};
 use crate::sync::mirror::LiveScope;
 use crate::{
     diagnostics::{self, LogLevel},
@@ -232,8 +232,7 @@ impl SkippedExports {
             bucket: &bucket,
             name: &name,
             summary: &mut *observing.summary,
-            missing: MissingFile::Inventory,
-            occasion: Occasion::Finding,
+            occasion: Occasion::Reevaluate,
         };
         let outcome = match object.plan().await {
             Ok(Some(plan)) => {

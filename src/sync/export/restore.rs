@@ -1,7 +1,7 @@
 //! Writing an object's file back from the catalog.
 
 use super::{
-    LiveObject, MissingFile, Occasion,
+    LiveObject, Occasion,
     retry::{advance_with_retry, concurrent_change},
 };
 use crate::{
@@ -68,8 +68,7 @@ async fn restore_once(
         bucket,
         name,
         summary: &mut uncounted,
-        missing: MissingFile::Restore,
-        occasion: Occasion::Change,
+        occasion: Occasion::Restore,
     };
     let Some(plan) = object.plan().await? else {
         return Ok(Some(Restored::Skipped));
