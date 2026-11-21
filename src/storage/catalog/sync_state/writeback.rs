@@ -143,6 +143,24 @@ impl Error {
     fn superseded(&self) -> bool {
         self.changed() || matches!(self, Self::Admin(AdminError::NotFound))
     }
+
+    /// Logs a broken invariant, which its caller then handles as a change of what the step read:
+    /// the operation is cancelled or planned again, and this record is all that is left of the
+    /// break. Any other error leaves no record here.
+    pub(crate) fn record_invariant(&self) {
+        if let Self::Invariant(broken) = self {
+            record_invariant(broken);
+        }
+    }
+}
+
+/// Logs the invariant `broken`, which its caller handles as a concurrent change.
+pub(crate) fn record_invariant(broken: &str) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Error,
+        "sync_writeback_invariant",
+        serde_json::json!({"reason":broken}),
+    );
 }
 impl From<super::conflicts::Error> for Error {
     fn from(error: super::conflicts::Error) -> Self {

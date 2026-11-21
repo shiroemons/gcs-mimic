@@ -159,7 +159,10 @@ fn target_file(
             | TargetState::Changed(_),
         ) => Ok(None),
         Ok(TargetState::Unsafe(error)) => Err(error.into()),
-        Err(error) if error.changed() => Ok(None),
+        Err(error) if error.changed() => {
+            error.record_invariant();
+            Ok(None)
+        }
         Err(error) => Err(error),
     }
 }
@@ -970,6 +973,7 @@ impl Writeback {
                     return Err(Error::Displaced(Box::new(error)));
                 }
                 if error.changed() {
+                    error.record_invariant();
                     // The copy is not at the target, so cancelling unlinks only the private copy.
                     operation.progress = operation.progress.cancel(InstallOutcome::Raced);
                     self.cancel_live_copy(operation).await?;
@@ -1029,6 +1033,7 @@ impl Writeback {
                 Ok(Some(armed))
             }
             Err(error) if error.superseded() => {
+                error.record_invariant();
                 operation.progress = operation.progress.cancel(InstallOutcome::Obsolete);
                 self.cancel_live_copy(operation).await?;
                 Ok(None)
@@ -1174,6 +1179,7 @@ impl Writeback {
                 return Err(Error::Protected);
             }
             Err(error) if error.superseded() && matches!(operation.body, Body::Observe { .. }) => {
+                error.record_invariant();
                 operation.progress = operation.progress.cancel(InstallOutcome::Conflict);
                 self.cancel_live_copy(operation).await?;
                 return Ok(InstallOutcome::Conflict);
@@ -1239,6 +1245,7 @@ impl Writeback {
                 return Err(Error::Protected);
             }
             Err(error) if error.superseded() && matches!(operation.body, Body::Observe { .. }) => {
+                error.record_invariant();
                 operation.progress = operation.progress.cancel(InstallOutcome::Conflict);
                 self.cancel_live_copy(operation).await?;
                 return Ok(InstallOutcome::Conflict);
@@ -1267,7 +1274,10 @@ impl Writeback {
             let current = checked(&tx,&selected.token)?;
             let valid = match api_original(&tx,&current,&purpose) {
                 Ok(()) => true,
-                Err(error) if error.superseded() => false,
+                Err(error) if error.superseded() => {
+                    error.record_invariant();
+                    false
+                }
                 Err(error) => return Err(error),
             };
             let binding = SyncBinding::new(current.token.catalog, current.bucket.clone(), current.incarnation).with_control(scope);

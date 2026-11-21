@@ -635,7 +635,10 @@ of entry holds a name that failed to open as a file or as a directory: an
 entry that went or kept failing meanwhile leaves the path to a later read
 rather than being taken for a symlink or special file. Write-back opens its
 private entries in `.gcs-mimic-sync-work` the same way, so a body an exchange
-moved there is never taken for none and left there untracked.
+moved there is never taken for none and left there untracked. A write-back
+step that finds one of its own invariants broken, which is a bug, ends as a
+race does and the export plans again; an error-level
+`sync_writeback_invariant` event names the invariant.
 
 A filesystem that stores a created name under another spelling, in letter case
 or Unicode normalization, cannot keep the mapping reversible. The mirror pauses

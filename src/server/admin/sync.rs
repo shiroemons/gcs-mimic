@@ -1185,7 +1185,12 @@ fn admin_error(error: &AdminError) -> Option<ApiError> {
 fn writeback_error(error: &crate::storage::sync_state::writeback::Error) -> Option<ApiError> {
     use crate::storage::sync_state::writeback::Error;
     match error {
-        Error::Raced(_) | Error::Obsolete(_) | Error::Invariant(_) => Some(stale()),
+        Error::Raced(_) | Error::Obsolete(_) => Some(stale()),
+        // The answer names no invariant, so the break leaves its record here.
+        Error::Invariant(broken) => {
+            crate::storage::sync_state::writeback::record_invariant(broken);
+            Some(stale())
+        }
         Error::Admin(_)
         | Error::Root(_)
         | Error::Conflict(_)

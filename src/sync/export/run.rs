@@ -169,6 +169,12 @@ impl LiveObject<'_> {
                 .await
             {
                 Ok(operation) => return Ok(Some(operation)),
+                // A broken invariant ends as a race does, as it did when it was reported as a
+                // failed precondition, and leaves its record.
+                Err(writeback::Error::Invariant(broken)) => {
+                    writeback::record_invariant(broken);
+                    return Ok(None);
+                }
                 Err(error) if concurrent_change(&error) => return Ok(None),
                 Err(writeback::Error::Admin(AdminError::Hold))
                     if !protected && captured.is_none() =>

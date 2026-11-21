@@ -10,7 +10,7 @@ use crate::{
         admin::{BucketName, ObjectName},
         sync_state::{
             root::RootLease,
-            writeback::{InstallOutcome, LiveSource},
+            writeback::{self, InstallOutcome, LiveSource},
         },
     },
     sync::{Reconciliation, SyncError},
@@ -88,6 +88,11 @@ async fn restore_once(
         .await
     {
         Ok(operation) => operation,
+        // A broken invariant ends as a race does, and leaves its record.
+        Err(writeback::Error::Invariant(broken)) => {
+            writeback::record_invariant(broken);
+            return Ok(Some(Restored::Skipped));
+        }
         Err(error) if concurrent_change(&error) => return Ok(Some(Restored::Skipped)),
         Err(error) => return Err(error.into()),
     };

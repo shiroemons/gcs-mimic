@@ -176,14 +176,13 @@ pub(in crate::sync) async fn with_retry<T, F: Future<Output = Result<T, writebac
     }
 }
 
+/// Whether the tree or the catalog changed from what the step read or planned. A broken
+/// invariant is none, though its caller handles it as one.
 pub(super) fn concurrent_change(error: &writeback::Error) -> bool {
     match error {
-        // An invariant broken in write-back ends as a race does, as it did when it was reported
-        // as a failed precondition.
         writeback::Error::Admin(AdminError::Precondition | AdminError::NotFound)
         | writeback::Error::Raced(_)
-        | writeback::Error::Obsolete(_)
-        | writeback::Error::Invariant(_) => true,
+        | writeback::Error::Obsolete(_) => true,
         writeback::Error::Admin(AdminError::Io(cause)) => {
             cause.kind() == io::ErrorKind::AlreadyExists
         }
@@ -209,6 +208,7 @@ pub(super) fn concurrent_change(error: &writeback::Error) -> bool {
         | writeback::Error::Capacity
         | writeback::Error::RecoveryRequired
         | writeback::Error::Protected
-        | writeback::Error::WorkspaceChanged => false,
+        | writeback::Error::WorkspaceChanged
+        | writeback::Error::Invariant(_) => false,
     }
 }
