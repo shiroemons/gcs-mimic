@@ -305,11 +305,10 @@ impl LiveObject<'_> {
     ) -> Result<Option<Target>, SyncError> {
         let observed = record.clone();
         let naming = self.root.naming()?;
-        let lookup = self.root.lookup()?;
         match self.occasion {
             Occasion::ApiChange | Occasion::Restore => {
-                let target = file_job_retry(self.root, move |root| {
-                    match inspect(root, naming, &lookup, &path, &observed) {
+                let target = file_job_retry(self.root, move |root, lookup| {
+                    match inspect(root, naming, lookup, &path, &observed) {
                         Ok(target) => Ok(Some(target)),
                         // The entry changed while it was read, as when the frozen file of an
                         // alias is renamed: the next pass reads it again.
@@ -323,27 +322,30 @@ impl LiveObject<'_> {
                 }
                 Ok(target)
             }
-            Occasion::Reevaluate => match self
-                .root
-                .file_job(move |root| inspect(root, naming, &lookup, &path, &observed))
-                .await
-            {
-                Ok(target) => Ok(Some(target)),
-                Err(RootError::Admin(AdminError::Precondition)) => Ok(None),
-                Err(RootError::Admin(AdminError::Io(error))) => {
-                    diagnostics::emit(
-                        LogLevel::Warn,
-                        "sync_finding_unreadable",
-                        serde_json::json!({
-                            "bucket":self.bucket.as_str(),"object":self.name.as_str(),
-                            "reason":crate::error::Report(&error).to_string(),
-                            "remedy":Correction::UnreadablePath.remedy()
-                        }),
-                    );
-                    Ok(None)
+            Occasion::Reevaluate => {
+                let lookup = self.root.lookup()?;
+                match self
+                    .root
+                    .file_job(move |root| inspect(root, naming, &lookup, &path, &observed))
+                    .await
+                {
+                    Ok(target) => Ok(Some(target)),
+                    Err(RootError::Admin(AdminError::Precondition)) => Ok(None),
+                    Err(RootError::Admin(AdminError::Io(error))) => {
+                        diagnostics::emit(
+                            LogLevel::Warn,
+                            "sync_finding_unreadable",
+                            serde_json::json!({
+                                "bucket":self.bucket.as_str(),"object":self.name.as_str(),
+                                "reason":crate::error::Report(&error).to_string(),
+                                "remedy":Correction::UnreadablePath.remedy()
+                            }),
+                        );
+                        Ok(None)
+                    }
+                    Err(error) => Err(error.into()),
                 }
-                Err(error) => Err(error.into()),
-            },
+            }
         }
     }
 }

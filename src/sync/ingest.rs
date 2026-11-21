@@ -142,7 +142,7 @@ pub(super) async fn rescan_with(
         synced: SyncedDirectories::default(),
     };
     forget_missing_directories(root, interrupt).await?;
-    let mut scan = Scan::new(root.tree_limits(), ingest.lookup.clone());
+    let mut scan = Scan::new(root.tree_limits(), ingest.lookup.for_job());
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
         let (next, entries) = root.file_job(move |root| scan.page(root)).await?;
         scan = next;

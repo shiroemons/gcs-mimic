@@ -5,6 +5,7 @@ use crate::sync::backoff::{Backoff, RETRY_DELAY_MAX, RetryBudget};
 use crate::sync::mirror::export_checkpoint;
 use crate::{
     diagnostics::{self, LogLevel},
+    fsutil::Lookup,
     storage::{
         admin::AdminError,
         failure::Link,
@@ -88,13 +89,21 @@ pub(super) async fn wait_retry(
     }
 }
 
+/// Runs `job` as a file job, again after a failure [`retryable`] allows, each attempt with
+/// lookups of its own, so that the waits of one attempt do not use up those of the next.
 pub(super) async fn file_job_retry<T: Send + 'static>(
     root: &RootLease,
-    job: impl Fn(&File) -> Result<T, AdminError> + Clone + Send + 'static,
+    job: impl Fn(&File, &Lookup) -> Result<T, AdminError> + Clone + Send + 'static,
 ) -> Result<T, SyncError> {
+    let lookup = root.lookup()?;
     with_retry(root, || {
         let job = job.clone();
-        async move { root.file_job(job).await.map_err(writeback::Error::Root) }
+        let lookup = lookup.for_job();
+        async move {
+            root.file_job(move |root| job(root, &lookup))
+                .await
+                .map_err(writeback::Error::Root)
+        }
     })
     .await
 }
@@ -115,9 +124,8 @@ pub(in crate::sync) async fn create_directory(
     directory: PathBuf,
 ) -> Result<DirectoryCreation, SyncError> {
     let naming = root.naming()?;
-    let lookup = root.lookup()?;
-    file_job_retry(root, move |root| {
-        match parent(root, naming, &lookup, &directory, ParentOpen::Create) {
+    file_job_retry(root, move |root, lookup| {
+        match parent(root, naming, lookup, &directory, ParentOpen::Create) {
             Ok(_) => Ok(DirectoryCreation::Created),
             Err(ParentError::Finding(_) | ParentError::Missing(_)) => {
                 Ok(DirectoryCreation::Finding)

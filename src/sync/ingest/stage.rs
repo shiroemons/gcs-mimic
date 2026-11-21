@@ -127,8 +127,8 @@ impl Ingest<'_> {
     ) -> Result<StagedObject, RootError> {
         let path = selected.clone();
         let naming = self.naming;
-        let lookup = self.lookup.clone();
-        let opening = self.lookup.clone();
+        let lookup = self.lookup.for_job();
+        let opening = self.lookup.for_job();
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
         let data = self.config.data_dir.clone();
         let (file, directory) = self
@@ -243,7 +243,7 @@ impl Ingest<'_> {
             crate::storage::fault::Step::SyncSourceSync,
         )?;
         let selected = path.clone();
-        let lookup = self.lookup.clone();
+        let lookup = self.lookup.for_job();
         let mut synced = std::mem::take(&mut self.synced);
         let (synced, outcome) = self
             .root

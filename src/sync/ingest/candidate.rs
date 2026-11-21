@@ -185,7 +185,7 @@ impl Ingest<'_> {
     ) -> Result<HashCheck, SyncError> {
         let selected = PathBuf::from(path.as_str());
         let naming = self.naming;
-        let lookup = self.lookup.clone();
+        let lookup = self.lookup.for_job();
         let observed = self
             .root
             .file_job(move |root| {

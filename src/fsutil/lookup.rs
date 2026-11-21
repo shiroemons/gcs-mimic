@@ -80,17 +80,10 @@ pub(super) enum Known {
     Folding,
 }
 
-/// Opens children under the naming rules a probe found for the root they lie below. Clones share
-/// the listings they read, and each starts with its own [`WAIT_BUDGET`].
-#[derive(Clone)]
+/// Opens children under the naming rules a probe found for the root they lie below. Every lookup
+/// a job uses shares its [`WAIT_BUDGET`]; [`Self::for_job`] hands another job its own budget and
+/// the listings this one read.
 pub(crate) struct Lookup {
-    #[cfg_attr(
-        not(any(target_os = "linux", all(test, unix))),
-        expect(
-            dead_code,
-            reason = "only a Linux casefold flag answers a spelling that the root's rules can overrule"
-        )
-    )]
     known: Known,
     listings: Arc<Mutex<Listings>>,
     /// Tells when a listing was read, to keep only listings of a directory that has settled.
@@ -98,26 +91,25 @@ pub(crate) struct Lookup {
     waited: Waited,
 }
 
-/// The time a lookup spent waiting for names to open again. A clone starts with none spent, so
-/// that one handed to a file job is not held up by the waits of another.
+/// The nanoseconds of [`WAIT_BUDGET`] a lookup spent waiting for names to open again.
 #[derive(Debug, Default)]
 struct Waited(AtomicU64);
 
-impl Clone for Waited {
-    fn clone(&self) -> Self {
-        Self::default()
-    }
-}
-
 impl Waited {
-    fn spent(&self) -> Duration {
-        Duration::from_nanos(self.0.load(Ordering::Relaxed))
-    }
-
-    fn add(&self, wait: Duration) {
-        // A wait never exceeds the budget of a second, so its nanoseconds fit.
-        let nanos = u64::try_from(wait.as_nanos()).unwrap_or(u64::MAX);
-        self.0.fetch_add(nanos, Ordering::Relaxed);
+    /// Takes up to `wait` from what is left of the budget in one atomic step, so that lookups
+    /// that wait at once on several threads never take more than the budget between them.
+    /// `None` when nothing is left.
+    fn take(&self, wait: Duration) -> Option<Duration> {
+        // The budget of a second and every part of it fit in nanoseconds.
+        let budget = u64::try_from(WAIT_BUDGET.as_nanos()).unwrap_or(u64::MAX);
+        let wanted = u64::try_from(wait.as_nanos()).unwrap_or(u64::MAX);
+        let spent = self
+            .0
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |spent| {
+                (spent < budget).then(|| spent + wanted.min(budget - spent))
+            })
+            .ok()?;
+        Some(Duration::from_nanos(wanted.min(budget - spent)))
     }
 }
 
@@ -184,7 +176,19 @@ impl Lookup {
         }
     }
 
-    /// How many times this lookup and its clones read a directory to confirm a spelling.
+    /// The lookups another job uses: they share the listings this one read and keep, and start
+    /// with a whole [`WAIT_BUDGET`], so that the job is not held up by the waits of this one.
+    pub(crate) fn for_job(&self) -> Self {
+        Self {
+            known: self.known,
+            listings: Arc::clone(&self.listings),
+            clock: Arc::clone(&self.clock),
+            waited: Waited::default(),
+        }
+    }
+
+    /// How many times this lookup and those made for other jobs read a directory to confirm a
+    /// spelling.
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) fn reads(&self) -> usize {
         self.listings().reads
@@ -339,13 +343,10 @@ impl Lookup {
         )
     )]
     pub(super) fn pause(&self, duration: Duration) -> bool {
-        let left = WAIT_BUDGET.saturating_sub(self.waited.spent());
-        if left.is_zero() {
+        let Some(wait) = self.waited.take(duration) else {
             return false;
-        }
-        let wait = duration.min(left);
+        };
         self.clock.pause(wait);
-        self.waited.add(wait);
         true
     }
 
@@ -424,9 +425,9 @@ mod listing_tests {
         }
     }
 
-    /// One pass reads an unchanged directory once for all its lookups, its clones included, and
-    /// still tells another spelling apart from the kept listing; a filesystem that keeps names
-    /// apart does not open that spelling at all.
+    /// One pass reads an unchanged directory once for all its lookups, those made for its other
+    /// jobs included, and still tells another spelling apart from the kept listing; a filesystem
+    /// that keeps names apart does not open that spelling at all.
     #[test]
     fn a_pass_reads_an_unchanged_directory_once() {
         let names = ["File-0", "File-1", "File-2", "File-3"];
@@ -434,7 +435,7 @@ mod listing_tests {
         let lookup = settled();
         for name in names {
             assert!(listed.opens(&lookup, name), "{name}");
-            assert!(listed.opens(&lookup.clone(), name), "{name}");
+            assert!(listed.opens(&lookup.for_job(), name), "{name}");
         }
         assert!(!listed.opens(&lookup, "file-0"));
         assert_eq!(lookup.reads(), 1);
@@ -636,8 +637,8 @@ mod open_failure_tests {
 
     /// The waits of one lookup, which a file job is handed, add up to a second at most: once it
     /// has waited that long, an entry that fails to open while its name still holds it is
-    /// unopenable at once, and a name that holds nothing is still missing. A clone, handed to
-    /// another job, waits again.
+    /// unopenable at once, and a name that holds nothing is still missing. A lookup made for
+    /// another job waits again.
     #[test]
     fn a_lookup_waits_a_second_at_most_for_all_its_names() {
         let entries = Entries::new();
@@ -663,7 +664,7 @@ mod open_failure_tests {
             RegularChild::Missing(_)
         ));
         assert_eq!(entries.waited(), spent);
-        let other = lookup.clone();
+        let other = lookup.for_job();
         assert!(matches!(
             other.regular_unconfirmed(&entries.parent, "file".as_ref()),
             Ok(Opened::Unopenable)
@@ -675,5 +676,25 @@ mod open_failure_tests {
             Ok(Opened::Unopenable)
         ));
         assert_eq!(entries.waited(), waited);
+    }
+
+    /// Threads of one job that wait on its lookup at once wait a second at most between them.
+    #[test]
+    fn waits_on_one_lookup_at_once_share_its_second() {
+        let entries = Entries::new();
+        let lookup = entries.lookup();
+        let granted = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    while lookup.pause(Duration::from_millis(30)) {
+                        granted.fetch_add(1, Ordering::Relaxed);
+                    }
+                });
+            }
+        });
+        assert_eq!(entries.waited(), Duration::from_secs(1));
+        // 1 s in 30 ms waits is 33 whole waits and a last shorter one.
+        assert_eq!(granted.load(Ordering::Relaxed), 34);
     }
 }

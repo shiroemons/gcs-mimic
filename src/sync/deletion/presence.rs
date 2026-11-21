@@ -212,7 +212,7 @@ pub(in crate::sync) async fn presence(
 ) -> Result<Presence, SyncError> {
     let limits = root.tree_limits();
     let naming = root.naming()?;
-    let lookup = lookup.clone();
+    let lookup = lookup.for_job();
     let looked = root
         .file_job(move |root| {
             let path = Path::new(&path);
