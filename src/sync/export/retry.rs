@@ -30,31 +30,43 @@ pub(super) const EXPORT_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), 
 /// Whether a failed export step is tried again within [`RetryBudget::EXPORT`]: a failure that
 /// passes, or one of the whole file system, which an operator may clear before the budget runs
 /// out ([`FailureClass::retries`]). A step that still fails then fails the path as before.
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "a variant not named here retries as its class says, and the classification names every variant"
-)]
 pub(super) fn retryable(error: &writeback::Error) -> bool {
-    let class = match error {
+    match error {
         // A conflict or a displaced target belongs to recovery, so neither is retried
         // automatically, whatever failure it carries.
-        writeback::Error::Conflict(_) | writeback::Error::Displaced(_) => return false,
+        writeback::Error::Conflict(_) | writeback::Error::Displaced(_) => false,
         writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => {
-            match error {
-                // A missing permission has no class, since only an operator restores it. An
-                // export step retries it all the same: the operator repairs a file or parent
-                // permission in place, and the step then goes on without recording a mapping
-                // finding or advancing the journal cursor.
-                AdminError::Io(cause) if cause.kind() == io::ErrorKind::PermissionDenied => {
-                    return true;
-                }
-                // Descriptor or memory pressure shows only in the I/O failure below.
-                AdminError::Io(_) if transient_below(error) => Some(FailureClass::Transient),
-                error => FailureClass::of_admin(error),
-            }
+            admin_retryable(error)
         }
         // An entry that kept failing to open is told by the link below the error that met it.
-        error => Cause::chain(Link::Writeback(error)).find_map(Cause::class),
+        writeback::Error::Root(_)
+        | writeback::Error::Capacity
+        | writeback::Error::RecoveryRequired
+        | writeback::Error::Protected
+        | writeback::Error::WorkspaceChanged
+        | writeback::Error::Raced(_)
+        | writeback::Error::Obsolete(_)
+        | writeback::Error::Invariant(_) => Cause::chain(Link::Writeback(error))
+            .find_map(Cause::class)
+            .is_some_and(FailureClass::retries),
+    }
+}
+
+/// [`retryable`] for an admin failure, under the write-back step or the root.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "an admin failure not named here retries as its class says, and the classification names every variant"
+)]
+fn admin_retryable(error: &AdminError) -> bool {
+    let class = match error {
+        // A missing permission has no class, since only an operator restores it. An export
+        // step retries it all the same: the operator repairs a file or parent permission in
+        // place, and the step then goes on without recording a mapping finding or advancing
+        // the journal cursor.
+        AdminError::Io(cause) if cause.kind() == io::ErrorKind::PermissionDenied => return true,
+        // Descriptor or memory pressure shows only in the I/O failure below.
+        AdminError::Io(_) if transient_below(error) => Some(FailureClass::Transient),
+        error => FailureClass::of_admin(error),
     };
     class.is_some_and(FailureClass::retries)
 }
