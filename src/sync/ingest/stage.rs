@@ -17,8 +17,8 @@ use crate::{
     },
     sync::{
         SyncError,
+        correspond::{PathEntry, observe_path},
         naming::RootNaming,
-        tree::{ParentError, ParentOpen, parent},
     },
 };
 use std::{fs::File, io, path::PathBuf};
@@ -40,23 +40,15 @@ pub(super) fn open_source(
     path: &std::path::Path,
     expected: FileIdentity,
 ) -> Result<(File, FileIdentity), AdminError> {
-    let directory = parent(
-        root,
-        naming,
-        lookup,
-        path.parent().ok_or(AdminError::Precondition)?,
-        ParentOpen::Existing,
-    )
-    .map_err(|error| match error {
-        ParentError::Io(error) => AdminError::from(error),
-        ParentError::Finding(_) | ParentError::Missing => AdminError::Precondition,
-    })?;
-    let fsutil::RegularChild::File(file) = lookup.regular(
-        &directory,
-        path.file_name().ok_or(AdminError::Precondition)?,
-    )?
-    else {
-        return Err(AdminError::Precondition);
+    let (directory, file) = match observe_path(root, naming, lookup, path) {
+        PathEntry::File { parent, file } => (parent, file),
+        PathEntry::Directory(error)
+        | PathEntry::Special(error)
+        | PathEntry::NameRejected(error)
+        | PathEntry::Unreadable(error) => return Err(error.into()),
+        PathEntry::Absent { .. } | PathEntry::Unplaced(_) | PathEntry::Respelled(_) => {
+            return Err(AdminError::Precondition);
+        }
     };
     if fsutil::stat_identity(&file)? != expected {
         return Err(AdminError::Precondition);

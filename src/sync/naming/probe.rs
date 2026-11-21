@@ -147,7 +147,7 @@ impl Probe {
         let folds = match Lookup::unprobed().regular(&self.directory, folded.as_ref())? {
             // The probe unlinked `folded` and never creates it, so opening that spelling at all
             // proves the filesystem folds it onto `created`.
-            RegularChild::File(_) | RegularChild::Alias => Folded::Together,
+            RegularChild::File(_) | RegularChild::Respelled(_) => Folded::Together,
             RegularChild::Missing => Folded::Apart,
         };
         drop(file);

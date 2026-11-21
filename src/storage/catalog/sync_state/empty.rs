@@ -69,7 +69,7 @@ pub(super) fn contents(directory: &File, lookup: &fsutil::Lookup) -> io::Result<
             }),
             // Gone since the listing: nothing of it is left.
             Ok(fsutil::RegularChild::Missing) => {}
-            Ok(fsutil::RegularChild::Alias) => return Ok(Contents::Holds),
+            Ok(fsutil::RegularChild::Respelled(_)) => return Ok(Contents::Holds),
             Err(error) if crate::sync::tree::structural_entry_error(&error) => {
                 return Ok(Contents::Holds);
             }

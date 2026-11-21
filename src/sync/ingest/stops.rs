@@ -50,7 +50,7 @@ pub(super) async fn clear_missing_observations(
             if let mapping::PathMapping::File(path) =
                 mapping::name_to_path(binding.bucket(), &name, naming)
                 && let Some(path) = path.to_str()
-                && let Presence::Absent(_) =
+                && let Presence::Absent(_) | Presence::Respelled { .. } =
                     crate::sync::deletion::presence(root, &lookup, path.to_owned()).await?
             {
                 root.clear_path_stops(binding, name, &TREE_STOPS).await?;

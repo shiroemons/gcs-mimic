@@ -18,8 +18,8 @@ use unsupported as imp;
 use imp::directory_names_within;
 pub(crate) use imp::remove_empty_directory_at;
 pub(crate) use imp::{
-    create_regular_at, directory_at, listed_spelling, name_max, open_regular_writable_at,
-    sole_regular_link, unlink_file_at,
+    create_regular_at, directory_at, name_max, open_regular_writable_at, sole_regular_link,
+    unlink_file_at,
 };
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
@@ -123,8 +123,30 @@ pub(crate) enum Child {
 )]
 pub(crate) enum RegularChild {
     File(File),
-    Alias,
+    /// A regular file that the name reached under another letter case or normalization of it,
+    /// with the spelling the directory lists it under, or the error the listing failed with. A
+    /// caller that only needs to know that the spelling differs is not failed by the listing.
+    Respelled(io::Result<Spelling>),
     Missing,
+}
+
+/// The spelling under which a directory lists a regular file that a name reached under another
+/// one. Only a listing tells it, by matching each entry's device and inode with the opened
+/// file's.
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "descriptor-relative lookup is unsupported on this platform"
+    )
+)]
+pub(crate) enum Spelling {
+    /// The one name the directory lists the file under.
+    Listed(String),
+    /// No one name: other names link the file, the listed name is not UTF-8, or the file left the
+    /// directory before the listing reached it.
+    Unnamed,
 }
 
 /// The names of one directory in sorted pages, so a large directory never holds more than one

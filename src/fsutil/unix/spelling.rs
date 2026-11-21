@@ -1,5 +1,5 @@
 use super::*;
-use crate::fsutil::{Child, Created, Lookup, RegularChild};
+use crate::fsutil::{Child, Created, Lookup, RegularChild, Spelling};
 
 pub(crate) fn child_directory(
     parent: &File,
@@ -57,31 +57,25 @@ pub(crate) fn child_regular(
         Err(error) => return Err(error),
     };
     if spelled_as_opened(parent, name, &file, lookup)? {
-        Ok(RegularChild::File(file))
-    } else {
-        Ok(RegularChild::Alias)
+        return Ok(RegularChild::File(file));
     }
+    Ok(RegularChild::Respelled(listed_spelling(parent, &file)))
 }
 
-/// The spelling under which `parent` lists the regular file that opening `name` reaches, found
-/// by comparing each listed entry's device and inode with the opened file's, since only a
-/// listing tells a Linux casefolded directory's spelling. `None` when the entry went, more than
-/// one name links the file or the name is not UTF-8: none of them names one spelling to report.
-/// A listed entry that cannot be read is skipped: with one link only, it cannot be a second
-/// name of the file, and a spelling found elsewhere is still the file's one.
+/// The spelling under which `parent` lists `file`, a regular file opened there under another
+/// one, found by comparing each listed entry's device and inode with the file's, since only a
+/// listing tells a Linux casefolded directory's spelling. More than one name linking the file, a
+/// name that is not UTF-8 and a file no longer listed name no one spelling to report. A listed
+/// entry that cannot be read is skipped: with one link only, it cannot be a second name of the
+/// file, and a spelling found elsewhere is still the file's one.
 #[expect(
     unsafe_code,
     reason = "fstatat on a pinned descriptor has no safe std equivalent"
 )]
-pub(crate) fn listed_spelling(parent: &File, name: &OsStr) -> io::Result<Option<String>> {
+fn listed_spelling(parent: &File, file: &File) -> io::Result<Spelling> {
     use std::os::unix::fs::MetadataExt;
-    let file = match super::open_regular_at(parent, name) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    if !super::sole_regular_link(&file)? {
-        return Ok(None);
+    if !super::sole_regular_link(file)? {
+        return Ok(Spelling::Unnamed);
     }
     let metadata = file.metadata()?;
     let mut found: Option<OsString> = None;
@@ -115,7 +109,9 @@ pub(crate) fn listed_spelling(parent: &File, name: &OsStr) -> io::Result<Option<
         }
         Ok(ControlFlow::Continue(()))
     })?;
-    Ok(found.and_then(|spelling| spelling.into_string().ok()))
+    Ok(found
+        .and_then(|spelling| spelling.into_string().ok())
+        .map_or(Spelling::Unnamed, Spelling::Listed))
 }
 
 /// A listed entry's device as [`std::os::unix::fs::MetadataExt::dev`] reports it, which widens
@@ -259,7 +255,13 @@ mod tests {
         let dir = crate::test_support::TestDir::new();
         std::fs::write(dir.0.join("Actual"), b"bytes").unwrap();
         let parent = File::open(&dir.0).unwrap();
-        let spelling = |name: &str| listed_spelling(&parent, name.as_ref()).unwrap();
+        let spelling = |name: &str| {
+            let file = super::super::open_regular_at(&parent, name.as_ref()).ok()?;
+            match listed_spelling(&parent, &file).unwrap() {
+                Spelling::Listed(spelling) => Some(spelling),
+                Spelling::Unnamed => None,
+            }
+        };
         assert_eq!(spelling("Actual").as_deref(), Some("Actual"));
         assert_eq!(spelling("missing"), None);
         if dir.0.join("actual").exists() {

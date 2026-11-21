@@ -1,5 +1,6 @@
 //! Opens the child of a directory under its exact spelling, and tells an entry the filesystem
-//! reached under another letter case or Unicode normalization apart as an alias.
+//! reached under another letter case or Unicode normalization apart, with the spelling the
+//! directory lists a regular file under.
 //!
 //! Whether a name that opens has that spelling is something only some directories say. macOS
 //! reports an open file's own name; Linux reports a directory's casefold flag, and a directory
@@ -218,8 +219,9 @@ impl Lookup {
         imp::child_directory(parent, name, open, self)
     }
 
-    /// Opens the regular file `name` in `parent` without following a symlink. An entry reached
-    /// under another spelling is [`RegularChild::Alias`].
+    /// Opens the regular file `name` in `parent` without following a symlink. A file reached
+    /// under another spelling is [`RegularChild::Respelled`], with the spelling `parent` lists it
+    /// under.
     pub(crate) fn regular(&self, parent: &File, name: &OsStr) -> io::Result<RegularChild> {
         imp::child_regular(parent, name, self)
     }

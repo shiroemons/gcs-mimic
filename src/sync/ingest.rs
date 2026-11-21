@@ -271,7 +271,7 @@ fn passed_over(
         Ok(fsutil::RegularChild::File(file)) => file,
         // Removed since the listing: it holds nothing any more.
         Ok(fsutil::RegularChild::Missing) => return true,
-        Ok(fsutil::RegularChild::Alias) | Err(_) => return false,
+        Ok(fsutil::RegularChild::Respelled(_)) | Err(_) => return false,
     };
     let Ok(identity) = fsutil::stat_identity(&file) else {
         return false;

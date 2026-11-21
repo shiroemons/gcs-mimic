@@ -2,12 +2,13 @@
 //! the tree cannot show is no evidence either way, so it keeps its own object and nothing else.
 
 use crate::{
-    fsutil,
+    fsutil::{self, Spelling},
     storage::sync_state::{deletions::Candidate, root::RootLease},
     sync::{
         SyncError,
+        correspond::{Above, PathEntry, name_rejected, observe_path},
         report::remedy::Correction,
-        tree::{self, ParentError, ParentOpen},
+        tree,
     },
 };
 use std::{fmt, fs::File, io, path::Path};
@@ -30,6 +31,10 @@ pub(crate) enum Removal {
 pub(in crate::sync) enum Presence {
     /// Nothing: the file is gone, or a directory above it is, as the removal tells.
     Absent(Removal),
+    /// The directory lists the file under another spelling, `to`, at which another object is
+    /// tracked: the file was renamed to that object's name, and this path holds nothing of its
+    /// own any more.
+    Respelled { to: String },
     /// The regular file is there.
     Present,
     /// The path cannot be observed, or holds another kind of entry.
@@ -37,10 +42,10 @@ pub(in crate::sync) enum Presence {
 }
 
 /// What a deletion candidate's own path holds now, with the candidate. Only [`observe`] makes
-/// an absent one, so its candidate is the one whose path was looked at.
+/// a missing one, so its candidate is the one whose path was looked at.
 #[derive(Debug)]
 pub(in crate::sync) enum Observed {
-    /// The path was seen empty.
+    /// Nothing of the file is at its path.
     Absent(Missing),
     /// The regular file is there.
     Present(Candidate),
@@ -48,23 +53,40 @@ pub(in crate::sync) enum Observed {
     Unobservable(Candidate, Unobservable),
 }
 
-/// A deletion candidate whose own path was seen empty, with what was gone above it. Only
-/// [`observe`] makes one, and recording a candidate and deleting its object each take one, so
-/// neither runs for a path nobody looked at or for another candidate than the one seen.
+/// A deletion candidate whose own path holds nothing of its file. Only [`observe`] makes one,
+/// and recording a candidate and deleting its object each take one, so neither runs for a path
+/// nobody looked at or for another candidate than the one seen.
 #[derive(Debug)]
-pub(crate) struct Missing {
-    candidate: Candidate,
-    removal: Removal,
+pub(crate) enum Missing {
+    /// The path was seen empty, with what was gone above it.
+    Absent {
+        candidate: Candidate,
+        removal: Removal,
+    },
+    /// The file was renamed to the spelling `to` of another tracked object's name.
+    Respelled {
+        candidate: Candidate,
+        #[expect(
+            dead_code,
+            reason = "a renamed file is deleted as an absent one is, and nothing reads where it went yet"
+        )]
+        to: String,
+    },
 }
 
 impl Missing {
     pub(crate) fn candidate(&self) -> &Candidate {
-        &self.candidate
+        match self {
+            Self::Absent { candidate, .. } | Self::Respelled { candidate, .. } => candidate,
+        }
     }
 
-    /// What was gone above the candidate's path.
+    /// What was gone above the candidate's path: a renamed file left the directories above it.
     pub(crate) fn removal(&self) -> Removal {
-        self.removal
+        match self {
+            Self::Absent { removal, .. } => *removal,
+            Self::Respelled { .. } => Removal::Files,
+        }
     }
 }
 
@@ -164,7 +186,8 @@ pub(in crate::sync) async fn observe(
 ) -> Result<Observed, SyncError> {
     Ok(
         match presence(root, lookup, candidate.path.clone()).await? {
-            Presence::Absent(removal) => Observed::Absent(Missing { candidate, removal }),
+            Presence::Absent(removal) => Observed::Absent(Missing::Absent { candidate, removal }),
+            Presence::Respelled { to } => Observed::Absent(Missing::Respelled { candidate, to }),
             Presence::Present => Observed::Present(candidate),
             Presence::Unobservable(reason) => Observed::Unobservable(candidate, reason),
         },
@@ -199,44 +222,50 @@ pub(in crate::sync) async fn presence(
                     Unobservable::InvalidPath,
                 )));
             }
-            let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            if path.file_name().is_none() {
                 return Ok(Looked::At(Presence::Unobservable(
                     Unobservable::InvalidPath,
                 )));
-            };
-            let directory = match tree::parent(root, naming, &lookup, parent, ParentOpen::Existing)
-            {
-                Ok(directory) => directory,
-                Err(ParentError::Missing) => {
-                    return Ok(Looked::At(missing_above(root, &lookup, path)));
+            }
+            Ok(match observe_path(root, naming, &lookup, path) {
+                PathEntry::File { .. } => Looked::At(Presence::Present),
+                PathEntry::Absent {
+                    above: Above::Present,
+                } => Looked::At(Presence::Absent(Removal::Files)),
+                PathEntry::Absent {
+                    above: Above::Missing,
+                } => Looked::At(missing_above(root, &lookup, path)),
+                PathEntry::Unplaced(_) => {
+                    Looked::At(Presence::Unobservable(Unobservable::ParentBlocked))
                 }
-                Err(ParentError::Finding(_)) => {
-                    return Ok(Looked::At(Presence::Unobservable(
-                        Unobservable::ParentBlocked,
-                    )));
+                // The listing the lookup kept is older than this one.
+                PathEntry::Respelled(Spelling::Listed(spelling))
+                    if path.file_name() == Some(spelling.as_ref()) =>
+                {
+                    Looked::At(Presence::Present)
                 }
-                Err(ParentError::Io(error)) => return Ok(Looked::At(lookup_failure(error))),
-            };
-            Ok(match lookup.regular(&directory, name) {
-                Ok(fsutil::RegularChild::File(_)) => Looked::At(Presence::Present),
-                Ok(fsutil::RegularChild::Missing) => Looked::At(Presence::Absent(Removal::Files)),
-                Ok(fsutil::RegularChild::Alias) => {
-                    match fsutil::listed_spelling(&directory, name) {
-                        // The listing the lookup kept is older than this one.
-                        Ok(Some(spelling)) if name == spelling.as_str() => {
-                            Looked::At(Presence::Present)
-                        }
-                        Ok(Some(spelling)) => {
-                            match parent.join(spelling).into_os_string().into_string() {
-                                Ok(spelled) => Looked::Spelled(spelled),
-                                Err(_) => Looked::At(Presence::Unobservable(Unobservable::Alias)),
-                            }
-                        }
-                        Ok(None) => Looked::At(Presence::Unobservable(Unobservable::Alias)),
-                        Err(error) => Looked::At(lookup_failure(error)),
+                PathEntry::Respelled(Spelling::Listed(spelling)) => {
+                    match path.with_file_name(spelling).into_os_string().into_string() {
+                        Ok(spelled) => Looked::Spelled(spelled),
+                        Err(_) => Looked::At(Presence::Unobservable(Unobservable::Alias)),
                     }
                 }
-                Err(error) => Looked::At(lookup_failure(error)),
+                PathEntry::Respelled(Spelling::Unnamed) => {
+                    Looked::At(Presence::Unobservable(Unobservable::Alias))
+                }
+                PathEntry::Directory(error) | PathEntry::Special(error) => {
+                    Looked::At(Presence::Unobservable(if name_rejected(&error) {
+                        Unobservable::NameRejected
+                    } else {
+                        Unobservable::EntryReplaced
+                    }))
+                }
+                PathEntry::NameRejected(_) => {
+                    Looked::At(Presence::Unobservable(Unobservable::NameRejected))
+                }
+                PathEntry::Unreadable(error) => {
+                    Looked::At(Presence::Unobservable(Unobservable::Io(error)))
+                }
             })
         })
         .await?;
@@ -248,8 +277,8 @@ pub(in crate::sync) async fn presence(
     // to that object's name, which ingestion took in as that object, and this path holds
     // nothing of its own any more. The rename's deletion side goes through the deletion guard
     // as any rename's does. Otherwise the file may stand for this object under an alias.
-    Ok(if root.tracked_live_at(spelled).await? {
-        Presence::Absent(Removal::Files)
+    Ok(if root.tracked_live_at(spelled.clone()).await? {
+        Presence::Respelled { to: spelled }
     } else {
         Presence::Unobservable(Unobservable::Alias)
     })
@@ -279,9 +308,7 @@ fn missing_above(root: &File, lookup: &fsutil::Lookup, path: &Path) -> Presence 
 /// Classifies a failed lookup of the path: the file system refused its name, another kind of
 /// entry holds its place, or reading it failed.
 fn lookup_failure(error: io::Error) -> Presence {
-    let name_refused = error.kind() == io::ErrorKind::InvalidFilename
-        || matches!(error.raw_os_error(), Some(libc::EILSEQ | libc::EINVAL));
-    Presence::Unobservable(if name_refused {
+    Presence::Unobservable(if name_rejected(&error) {
         Unobservable::NameRejected
     } else if tree::structural_entry_error(&error) {
         Unobservable::EntryReplaced

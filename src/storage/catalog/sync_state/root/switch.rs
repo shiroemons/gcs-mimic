@@ -207,7 +207,7 @@ fn root_files(directory: &File) -> io::Result<Option<usize>> {
             Ok(fsutil::RegularChild::File(_)) => files += 1,
             // Gone since the listing.
             Ok(fsutil::RegularChild::Missing) => {}
-            Ok(fsutil::RegularChild::Alias) => return Ok(None),
+            Ok(fsutil::RegularChild::Respelled(_)) => return Ok(None),
             Err(error) if crate::sync::tree::structural_entry_error(&error) => return Ok(None),
             Err(error) => return Err(error),
         }

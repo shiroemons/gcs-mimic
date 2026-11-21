@@ -657,7 +657,7 @@ fn target(
     match lookup.regular(&directory, name.as_ref()) {
         Ok(fsutil::RegularChild::File(file)) => Ok(Some(file)),
         Ok(fsutil::RegularChild::Missing) => Ok(None),
-        Ok(fsutil::RegularChild::Alias) => Err(stale()),
+        Ok(fsutil::RegularChild::Respelled(_)) => Err(stale()),
         Err(e) => Err(e.into()),
     }
 }
@@ -685,7 +685,7 @@ fn target_entry(
     match lookup.regular(&directory, name) {
         Ok(fsutil::RegularChild::File(file)) => Ok(TargetEntry::File(file)),
         Ok(fsutil::RegularChild::Missing) => Ok(TargetEntry::Missing),
-        Ok(fsutil::RegularChild::Alias) => Err(stale()),
+        Ok(fsutil::RegularChild::Respelled(_)) => Err(stale()),
         Err(error) if crate::sync::tree::structural_entry_error(&error) => {
             match lookup.directory(&directory, name, fsutil::DirectoryOpen::Existing) {
                 Ok(fsutil::Child::Directory { .. } | fsutil::Child::Alias) => {

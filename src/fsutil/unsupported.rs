@@ -14,9 +14,6 @@ pub(crate) fn child_regular(
 ) -> io::Result<super::RegularChild> {
     Err(io::ErrorKind::Unsupported.into())
 }
-pub(crate) fn listed_spelling(_: &File, _: &OsStr) -> io::Result<Option<String>> {
-    Err(io::ErrorKind::Unsupported.into())
-}
 use std::{
     ffi::{OsStr, OsString},
     fs::File,

@@ -347,7 +347,7 @@ fn remove_metadata(
         install.faults.hit_io(Step::SyncDirectoryMetadataUnlink)?;
         let current = match install.lookup.regular(directory, file.name.as_ref()) {
             Ok(fsutil::RegularChild::File(current)) => current,
-            Ok(fsutil::RegularChild::Missing | fsutil::RegularChild::Alias) => continue,
+            Ok(fsutil::RegularChild::Missing | fsutil::RegularChild::Respelled(_)) => continue,
             Err(error) if crate::sync::tree::structural_entry_error(&error) => continue,
             Err(error) => return Err(error.into()),
         };

@@ -9,7 +9,7 @@ use crate::storage::sync_state::findings::alias::Holding;
 use crate::sync::mirror::export_checkpoint;
 use crate::{
     diagnostics::{self, LogLevel},
-    fsutil,
+    fsutil::{self, Spelling},
     object::ObjectRecord,
     storage::{
         admin::{Admin, AdminError, Generation},
@@ -17,11 +17,12 @@ use crate::{
     },
     sync::{
         SyncError,
+        correspond::{PathEntry, observe_path},
         error::{superseded, unless_superseded},
         mapping::{self, LexicalReason, Obstruction, PathMapping, Unplaced},
         naming::RootNaming,
         report::remedy::Correction,
-        tree::{ParentError, ParentOpen, parent, structural_entry_error},
+        tree::{ParentError, ParentOpen, parent},
     },
 };
 use std::{
@@ -189,6 +190,7 @@ impl LiveObject<'_> {
                 Ok(true)
             }
             crate::sync::deletion::Presence::Absent(_)
+            | crate::sync::deletion::Presence::Respelled { .. }
             | crate::sync::deletion::Presence::Present
             | crate::sync::deletion::Presence::Unobservable(_) => Ok(false),
         }
@@ -390,48 +392,36 @@ fn inspect(
     if !naming.admits(name) {
         return Ok(Target::Finding(LexicalReason::HostRestriction.into()));
     }
-    let directory = match parent(
-        root,
-        naming,
-        lookup,
-        path.parent()
-            .ok_or_else(|| AdminError::Invalid("missing parent".into()))?,
-        ParentOpen::Existing,
-    ) {
-        Ok(directory) => directory,
-        Err(ParentError::Missing) => return Ok(Target::Absent),
-        Err(ParentError::Finding(reason)) => return Ok(Target::Finding(reason)),
-        Err(ParentError::Io(error)) => return Err(error.into()),
-    };
-    let file = match lookup.regular(&directory, name) {
-        Ok(fsutil::RegularChild::File(file)) => file,
+    let (directory, file) = match observe_path(root, naming, lookup, path) {
+        PathEntry::File { parent, file } => (parent, file),
+        PathEntry::Absent { .. } => return Ok(Target::Absent),
+        PathEntry::Unplaced(reason) => return Ok(Target::Finding(reason)),
+        // The listing the lookup kept is older than this one, which holds the exact spelling
+        // now: a later read decides.
+        PathEntry::Respelled(Spelling::Listed(spelling)) if spelling.as_str() == name => {
+            return Err(AdminError::Precondition);
+        }
+        PathEntry::Respelled(Spelling::Listed(spelling)) => {
+            return Ok(path
+                .with_file_name(spelling)
+                .into_os_string()
+                .into_string()
+                // An export path is UTF-8, and so is a spelling the listing returns.
+                .map_or(
+                    Target::Finding(Obstruction::Collision.into()),
+                    Target::Alias,
+                ));
+        }
         // Without one spelling to name, such as for a file other names link to, the entry
         // stays a collision of this object alone.
-        Ok(fsutil::RegularChild::Alias) => {
-            return match fsutil::listed_spelling(&directory, name)? {
-                // The listing the lookup kept is older than this one, which holds the exact
-                // spelling now: a later read decides.
-                Some(spelling) if spelling.as_str() == name => Err(AdminError::Precondition),
-                Some(spelling) => Ok(path
-                    .with_file_name(spelling)
-                    .into_os_string()
-                    .into_string()
-                    // An export path is UTF-8, and so is a spelling the listing returns.
-                    .map_or(
-                        Target::Finding(Obstruction::Collision.into()),
-                        Target::Alias,
-                    )),
-                None => Ok(Target::Finding(Obstruction::Collision.into())),
-            };
+        PathEntry::Respelled(Spelling::Unnamed) => {
+            return Ok(Target::Finding(Obstruction::Collision.into()));
         }
-        Ok(fsutil::RegularChild::Missing) => return Ok(Target::Absent),
-        Err(error) if !structural_entry_error(&error) => return Err(error.into()),
-        Err(_)
-            if fsutil::directory_at(&directory, name, fsutil::DirectoryOpen::Existing).is_ok() =>
-        {
-            return Ok(Target::Directory);
+        PathEntry::Directory(_) => return Ok(Target::Directory),
+        PathEntry::Special(_) => return Ok(Target::Replaced(Obstruction::UnsafeEntry)),
+        PathEntry::NameRejected(error) | PathEntry::Unreadable(error) => {
+            return Err(error.into());
         }
-        Err(_) => return Ok(Target::Replaced(Obstruction::UnsafeEntry)),
     };
     let before = fsutil::stat_identity(&file)?;
     if before.size != record.size {
