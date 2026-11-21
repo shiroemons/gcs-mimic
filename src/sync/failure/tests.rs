@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::sync_state::writeback::StaleReason;
+use crate::sync::SyncError;
 
 /// A busy resource passes on its own wherever it is met, and each kind of a whole file system's
 /// failure is the volume's, whether it comes as a kind or under an admin failure.
@@ -75,4 +76,31 @@ fn a_write_back_failure_is_classified_by_what_it_says_about_the_step() {
     ] {
         assert_eq!(FailureClass::of_writeback(&error), None, "{error:?}");
     }
+}
+
+fn root() -> RootError {
+    RootError::Admin(AdminError::from(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "denied fixture",
+    )))
+}
+
+/// A catalog write about one name that an API or bucket change made moot is done, not a
+/// failure that pauses the mirror: one decision serves a finding, its removal and a path stop,
+/// and a deletion pass that met the same change starts over. Any other failure still fails.
+#[test]
+fn a_write_that_a_concurrent_change_made_moot_is_done() {
+    assert_eq!(unless_superseded(Ok(())).unwrap(), Recorded::Yes);
+    for moot in [AdminError::Precondition, AdminError::NotFound] {
+        let error = RootError::Admin(moot);
+        assert!(superseded(&error), "{error:?}");
+        assert_eq!(unless_superseded(Err(error)).unwrap(), Recorded::Superseded);
+    }
+    for moot in [AdminError::Precondition, AdminError::NotFound] {
+        assert!(SyncError::Root(RootError::Admin(moot)).is_stale_deletion());
+    }
+    assert!(!superseded(&root()));
+    assert!(unless_superseded(Err(root())).is_err());
+    assert!(!SyncError::Root(root()).is_stale_deletion());
+    assert!(unless_superseded(Err(RootError::InUse)).is_err());
 }
