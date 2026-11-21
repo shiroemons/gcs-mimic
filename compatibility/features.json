@@ -62291,9 +62291,15 @@
         },
         {
           "id": "shared-sync-exchange-displaced-entry",
-          "description": "The exchange that installs a copy over a tracked target changes only names and keeps whatever the target held in the private entry; installation then judges that entry by its size and hashes and unlinks only the tracked body. A permission change or a new inode number before the exchange completes the export; other bytes stay protected, and a directory, FIFO or symlink there stops the root on the entry failure with the entry kept. A symlink that took a removed target before its rename stays at the target and the root stops for recovery. A crash after a raced rename recovers by the bytes the rename moved, and a tracked body edited under its recorded modification time stays protected through restart. A tracked body that an overwrite displaced or a removal moved aside, with its bytes unchanged and only its modification time moved, is reclaimed through restart by its size and hashes, the rule installation unlinks a displaced body by, and a file beside the target keeps its bytes. PENDING until a dated verification records a run of these tests. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "description": "The exchange that installs a copy over a tracked target changes only names and keeps whatever the target held in the private entry; installation then judges that entry by its size and hashes and unlinks only the tracked body. A permission change, a new inode number or a moved modification time before the exchange completes the export; other bytes stay protected, and a directory, FIFO or symlink there stops the root on the entry failure with the entry kept. A symlink, directory or FIFO that took a removed target before its rename stays at the target and the root stops for recovery. An export over a preserved conflict completes when the target's permissions changed or its modification time alone moved after the capture, and the conflict store keeps the captured copy. A tracked target whose modification time was rounded to 10 ms or to whole microseconds is replaced without a conflict, while other bytes of the same size under such a time are still a conflict. A crash after a raced rename recovers by the bytes the rename moved, and a tracked body edited under its recorded modification time stays protected through restart. A tracked body that an overwrite displaced or a removal moved aside, with its bytes unchanged and only its modification time moved, is reclaimed through restart by its size and hashes, the rule installation unlinks a displaced body by, and another exported object beside the target keeps its bytes and tracked generation. The modification time is never compared because a container that reads old bytes through a bind mount also reads the old size and modification time: docs/en/evidence/sync-bind-mount-stale-reads.md. PENDING until a dated verification records a run of these tests. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PENDING",
-          "test_ids": ["a_tracked_target_renumbered_or_chmodded_before_the_exchange_is_replaced","a_tracked_target_edited_before_the_exchange_stays_in_the_private_entry","an_entry_that_took_a_tracked_target_before_the_exchange_stays_in_the_private_entry","a_symlink_that_took_a_removed_target_before_the_rename_stays_at_the_target","a_crash_after_a_raced_rename_recovers_by_the_bytes_the_rename_moved","a_tracked_body_edited_under_its_recorded_mtime_stays_protected_through_restart","a_tracked_body_whose_modification_time_alone_moved_is_reclaimed_through_restart"]
+          "test_ids": ["a_tracked_target_with_its_bytes_kept_before_the_exchange_is_replaced","a_tracked_target_edited_before_the_exchange_stays_in_the_private_entry","an_entry_that_took_a_tracked_target_before_the_exchange_stays_in_the_private_entry","a_symlink_that_took_a_removed_target_before_the_rename_stays_at_the_target","a_directory_or_fifo_that_took_a_removed_target_before_the_rename_stays_at_the_target","preserved_native_export_replaces_a_captured_target_whose_permissions_changed","preserved_native_export_replaces_a_captured_target_whose_mtime_alone_moved","a_tracked_target_whose_mtime_lost_precision_is_replaced_without_a_conflict","a_tracked_target_with_other_bytes_and_a_coarser_mtime_is_still_a_conflict","a_crash_after_a_raced_rename_recovers_by_the_bytes_the_rename_moved","a_tracked_body_edited_under_its_recorded_mtime_stays_protected_through_restart","a_tracked_body_whose_modification_time_alone_moved_is_reclaimed_through_restart"]
+        },
+        {
+          "id": "publication-io-exchange",
+          "description": "Descriptor-relative no-replace/exchange changes only names: an exchange keeps whatever the destination held, changed bytes or a symlink alike, under the staged name; a no-replace rename onto a taken name fails with AlreadyExists and an exchange with a missing destination fails with NotFound. PENDING until a dated verification records a run of this test. Contract: docs/en/slices/shared-publication-io.md.",
+          "result": "PENDING",
+          "test_ids": ["exchange_keeps_whatever_the_destination_held"]
         },
         {
           "id": "shared-sync-observation-cancellation",
@@ -62343,10 +62349,9 @@
         },
         {
           "id": "publication-io-durability",
-          "description": "Descriptor-relative no-replace/exchange changes only names and keeps displaced bytes under the staged name; failed post-commit reclamation retains journals and committed readability, concurrent publication/read and shutdown remain safe, existing media/derived/resumable kill recovery passes. Orphan scanning stays before bind. Contract: docs/en/slices/shared-publication-io.md.",
+          "description": "Failed post-commit reclamation retains journals and committed readability, concurrent publication/read and shutdown remain safe, existing media/derived/resumable kill recovery passes. Orphan scanning stays before bind. Contract: docs/en/slices/shared-publication-io.md.",
           "result": "PASS",
           "test_ids": [
-            "exchange_keeps_whatever_the_destination_held",
             "identity_observes_nanosecond_metadata_changes",
             "cancelled_reclamation_retains_directory_ownership_until_sql_settles",
             "shared_reclamation_preserves_cancelled_session_cleanup_markers",
@@ -62569,10 +62574,15 @@
         }
       ],
       "test_ids": [
-        "a_tracked_target_renumbered_or_chmodded_before_the_exchange_is_replaced",
+        "a_tracked_target_with_its_bytes_kept_before_the_exchange_is_replaced",
         "a_tracked_target_edited_before_the_exchange_stays_in_the_private_entry",
         "an_entry_that_took_a_tracked_target_before_the_exchange_stays_in_the_private_entry",
         "a_symlink_that_took_a_removed_target_before_the_rename_stays_at_the_target",
+        "a_directory_or_fifo_that_took_a_removed_target_before_the_rename_stays_at_the_target",
+        "preserved_native_export_replaces_a_captured_target_whose_permissions_changed",
+        "preserved_native_export_replaces_a_captured_target_whose_mtime_alone_moved",
+        "a_tracked_target_whose_mtime_lost_precision_is_replaced_without_a_conflict",
+        "a_tracked_target_with_other_bytes_and_a_coarser_mtime_is_still_a_conflict",
         "a_crash_after_a_raced_rename_recovers_by_the_bytes_the_rename_moved",
         "a_tracked_body_edited_under_its_recorded_mtime_stays_protected_through_restart",
         "protected_transfer_paired_crash_and_power_loss_reopen_catalog_api_and_finish_quota_transfer",
@@ -62961,7 +62971,6 @@
           "verified_at": "2026-10-25",
           "artifact": "docs/en/slices/shared-publication-io.md",
           "test_ids": [
-            "exchange_keeps_whatever_the_destination_held",
             "identity_observes_nanosecond_metadata_changes",
             "cancelled_reclamation_retains_directory_ownership_until_sql_settles",
             "shared_reclamation_preserves_cancelled_session_cleanup_markers",
@@ -63079,7 +63088,7 @@
         "Root marker/activation, runtime startup, continuous API export, I/O retry and live SIGTERM/restart pass the native subset in docs/en/slices/directory-synchronization.md and docs/en/slices/shared-sync-root.md. What stays open in marker, write-back and shutdown recovery is listed in the sync-marker-recovery, sync-writeback-recovery and sync-shutdown-lock rows. Windows checked replacement and power-loss namespace durability are not claimed.",
         "Synchronization's crash and power-loss cases cover the marker, installation, write-back and conflict stages that the fault seam in src/storage/catalog/fault.rs models with Snapshot and Fault::PowerLoss snapshots, and its shutdown cases cover the interruption points their tests name; a process kill or a shutdown at any other instruction is excluded, not pending.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
-        "An export over a preserved conflict judges the body its exchange displaced by the capture, while restart recovery judges it by the record in sync_objects: a captured body displaced just before a crash stays protected and leaves a second copy in the conflict store. No bytes are lost, but the restart reports a conflict that the uninterrupted export would not.",
+        "An export over a preserved conflict judges the body its exchange displaced by the capture, while restart recovery judges it by the record in sync_objects, and the two can disagree either way after a crash right after the exchange: a captured body, which installation would unlink, stays protected and leaves a second copy in the conflict store, so the restart reports a conflict the uninterrupted export would not; and old tracked bytes that a user wrote back just before the exchange, which installation would keep, are unlinked by recovery as the tracked body an API change may replace.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
