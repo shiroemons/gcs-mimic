@@ -625,7 +625,10 @@ marker read fails with the read error instead of passing for a missing marker.
 The scan follows the same rule for each entry a listing names: it passes over
 only an entry proved gone, and counts one that still fails as a deferred read
 failure. A bucket directory that still fails is neither forgotten as a missing
-one nor taken for an empty one.
+one nor taken for an empty one. So does the second open that tells what kind
+of entry holds a name that failed to open as a file or as a directory: an
+entry that went or kept failing meanwhile leaves the path to a later read
+rather than being taken for a symlink or special file.
 
 A filesystem that stores a created name under another spelling, in letter case
 or Unicode normalization, cannot keep the mapping reversible. The mirror pauses

@@ -1,8 +1,9 @@
 //! What the working tree holds at a path below the root, observed in one place for every pass
-//! that asks: the export reading its target, the deletion inventory looking for a tracked file,
-//! and ingestion opening the file it stages. Each walks the parents without following a link,
-//! opens the entry under its exact spelling, and, where the entry was reached under another one,
-//! names the spelling the directory lists it under.
+//! that asks: the export reading its target, write-back checking the target it installs at, the
+//! deletion inventory looking for a tracked file, ingestion opening the file it stages, and the
+//! conflict store capturing the file at a conflicting path. Each walks the parents without
+//! following a link, opens the entry under its exact spelling, and, where the entry was reached
+//! under another one, names the spelling the directory lists it under.
 
 use crate::{
     fsutil::{self, ListedSpelling, Lookup, RegularChild},
@@ -42,7 +43,8 @@ pub(crate) enum PathEntry {
     /// Reading a directory above the entry, or the entry itself, failed.
     Unreadable(io::Error),
     /// The entry, or a directory above it, kept failing to open while its name still held an
-    /// entry ([`fsutil::Opened::Transient`]): what the path holds is unknown until a later read.
+    /// entry ([`fsutil::Opened::Transient`]), or went while the kind of entry was read: what the
+    /// path holds is unknown until a later read.
     Transient,
 }
 
@@ -95,10 +97,12 @@ pub(crate) fn observe_path(
         // `EINVAL` is both a refused name and an error of the kind of entry; the refusal decides,
         // in this one place.
         Err(error) if !name_rejected(&error) && tree::structural_entry_error(&error) => {
-            if fsutil::directory_at(&directory, name, fsutil::DirectoryOpen::Existing).is_ok() {
-                PathEntry::Directory(error)
-            } else {
-                PathEntry::Special(error)
+            match lookup.directory_unconfirmed(&directory, name) {
+                Ok(fsutil::Opened::Entry(_)) => PathEntry::Directory(error),
+                // The entry that failed to open as a file is gone or kept failing to open as a
+                // directory: the path changed while it was read, and a later read decides.
+                Ok(fsutil::Opened::Missing(_) | fsutil::Opened::Transient) => PathEntry::Transient,
+                Err(_) => PathEntry::Special(error),
             }
         }
         Err(error) => unreadable(error),

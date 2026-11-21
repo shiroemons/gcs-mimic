@@ -96,6 +96,37 @@ fn another_kind_of_entry_at_the_path_or_above_it_is_told_apart() {
     ));
 }
 
+/// The second open that tells what kind of entry holds a name, a directory at the path or a file
+/// in the place of a directory above it, follows the rule of the first: one that fails with
+/// `ENOENT` for a moment tells the kind once it opens again, and one that keeps failing leaves
+/// the path transient rather than taken for a symlink or special file.
+#[test]
+fn the_open_that_tells_the_kind_of_entry_is_never_taken_for_a_special_file() {
+    let tree = Tree::new();
+    let bucket = tree.dir.0.join("bucket");
+    fs::create_dir(bucket.join("directory")).unwrap();
+    fs::write(bucket.join("file"), b"bytes").unwrap();
+    let clock = std::sync::Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
+    let lookup = Lookup::probed(fsutil::Matching::Exact, clock);
+    let observe =
+        |path: &str| observe_path(&tree.root, RootNaming::posix(), &lookup, Path::new(path));
+    for (opens, directory, below) in [
+        (2, "Directory", "Unplaced(Obstructed(Collision))"),
+        (usize::MAX, "Transient", "Transient"),
+    ] {
+        let failing = fsutil::FailingOpens::vanishing_after(&bucket, "directory", 1, opens);
+        let observed = observe("bucket/directory");
+        assert!(
+            format!("{observed:?}").starts_with(directory),
+            "{opens}: {observed:?}"
+        );
+        drop(failing);
+        let _failing = fsutil::FailingOpens::vanishing_after(&bucket, "file", 1, opens);
+        let observed = observe("bucket/file/below");
+        assert_eq!(format!("{observed:?}"), below, "{opens}");
+    }
+}
+
 /// A name the file system refuses (`EINVAL` or `EILSEQ`) is rejected, whatever entry it holds:
 /// the refusal is not taken for the kind of entry there.
 #[test]

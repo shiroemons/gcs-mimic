@@ -100,19 +100,18 @@ impl RootLease {
         self.conflict_serial(async move {
             let source = lease
                 .conflict_files(move |root| {
-                    let (parents, name) = path.rsplit_once('/').ok_or(Error::InvalidResolution)?;
-                    let directory = crate::sync::tree::parent(
-                        root,
-                        naming,
-                        &lookup,
-                        std::path::Path::new(parents),
-                        crate::sync::tree::ParentOpen::Existing,
-                    )?;
-                    match lookup.regular(&directory, name.as_ref())? {
-                        fsutil::RegularChild::File(file) => Ok(file),
-                        fsutil::RegularChild::Respelled(_)
-                        | fsutil::RegularChild::Missing(_)
-                        | fsutil::RegularChild::Transient => Err(Error::TargetChanged),
+                    use crate::sync::correspond::{PathEntry, observe_path};
+                    match observe_path(root, naming, &lookup, std::path::Path::new(&path)) {
+                        PathEntry::File { file, .. } => Ok(file),
+                        // A later capture reads the path again.
+                        PathEntry::Absent { .. }
+                        | PathEntry::Unplaced(_)
+                        | PathEntry::Respelled(_)
+                        | PathEntry::Transient => Err(Error::TargetChanged),
+                        PathEntry::Directory(error)
+                        | PathEntry::Special(error)
+                        | PathEntry::NameRejected(error)
+                        | PathEntry::Unreadable(error) => Err(error.into()),
                     }
                 })
                 .await?;
