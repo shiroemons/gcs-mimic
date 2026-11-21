@@ -434,7 +434,9 @@ pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> Result<Nati
         scan = next;
         match page.into_iter().find_map(|entry| entry.error) {
             None => {}
-            Some(EntryError::Io(cause)) => return Err(io::Error::from(cause.kind()).into()),
+            // The OS error number goes with it: exhausted descriptors or memory tell the mirror
+            // to build the watch again, and their kinds do not say so.
+            Some(EntryError::Io(cause)) => return Err(io::Error::from(cause).into()),
             // Passed over, the directory's subtree would go unwatched, so the build fails and
             // the mirror builds the watch again.
             Some(EntryError::Unopenable) => {

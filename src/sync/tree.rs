@@ -121,17 +121,21 @@ pub(crate) enum EntryIo {
 }
 impl EntryIo {
     pub(crate) fn kind(self) -> io::ErrorKind {
-        match self {
-            Self::Os(errno) => io::Error::from_raw_os_error(errno).kind(),
-            Self::Kind(kind) => kind,
-        }
+        io::Error::from(self).kind()
     }
     /// What the one classification says of the failure, as it says of the error it was.
     pub(in crate::sync) fn class(self) -> Option<FailureClass> {
-        FailureClass::of_io(&match self {
-            Self::Os(errno) => io::Error::from_raw_os_error(errno),
-            Self::Kind(kind) => kind.into(),
-        })
+        FailureClass::of_io(&self.into())
+    }
+}
+impl From<EntryIo> for io::Error {
+    /// The error the scan met, with its OS error number where it kept one, so that whoever
+    /// reads it tells descriptor or memory pressure apart as from the error itself.
+    fn from(error: EntryIo) -> Self {
+        match error {
+            EntryIo::Os(errno) => Self::from_raw_os_error(errno),
+            EntryIo::Kind(kind) => kind.into(),
+        }
     }
 }
 impl From<&io::Error> for EntryIo {

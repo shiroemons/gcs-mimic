@@ -327,6 +327,31 @@ fn tree_listing_failures_inside_native_watch_errors_keep_their_retry_decisions()
     assert!(!invalid.is_watch_retryable(), "{invalid:?}");
 }
 
+/// A directory of the tree that fails to open for want of descriptors or memory fails the native
+/// watch build with that OS error, wrapped as the mirror wraps every build failure, so the mirror
+/// builds the watch again as it does after any failure that passes, on macOS as on Linux.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn a_watch_build_that_runs_out_of_descriptors_or_memory_is_built_again() {
+    use crate::{fsutil, source_tree::watch, sync::tree::TreeLimits, test_support::TestDir};
+    for errno in [libc::EMFILE, libc::ENOMEM] {
+        let root = TestDir::new();
+        std::fs::create_dir(root.0.join("bucket")).unwrap();
+        let directory = fsutil::open_directory_nofollow(&root.0).unwrap();
+        let _refusing = fsutil::FailingOpens::refusing(&root.0, "bucket", errno);
+        let error = watch::build(
+            &directory,
+            &root.0.canonicalize().unwrap(),
+            TreeLimits::default(),
+        )
+        .err()
+        .unwrap();
+        let failure = SyncError::Root(RootError::from(AdminError::backend(error)));
+        assert!(failure.is_transient(), "{errno}: {failure:?}");
+        assert!(failure.is_watch_retryable(), "{errno}: {failure:?}");
+    }
+}
+
 /// A native watch that reaches `max_sync_entries` or the kernel's watch budget names the limit to
 /// raise, word for word as the `io::Error::other` wrapper it replaced, with the kernel's error
 /// below it. No rebuild lifts a limit, so the mirror pauses as an observer failure.
