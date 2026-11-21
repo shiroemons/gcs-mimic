@@ -112,7 +112,7 @@ pub(super) async fn file_job_retry<T: Send + 'static>(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::sync) enum DirectoryCreation {
     /// The directory is there, whether this made it or it already was.
-    Created,
+    Present,
     /// A finding keeps the path from holding the directory.
     Finding,
     /// An entry at the path, or above it, kept failing to open: a later pass tries again.
@@ -126,7 +126,7 @@ pub(in crate::sync) async fn create_directory(
     let naming = root.naming()?;
     file_job_retry(root, move |root, lookup| {
         match parent(root, naming, lookup, &directory, ParentOpen::Create) {
-            Ok(_) => Ok(DirectoryCreation::Created),
+            Ok(_) => Ok(DirectoryCreation::Present),
             Err(ParentError::Finding(_) | ParentError::Missing(_)) => {
                 Ok(DirectoryCreation::Finding)
             }

@@ -623,7 +623,7 @@ pub(super) async fn execute_with(
                 {
                     // An entry that fails to open is still there, and a later pass's
                     // reconciliation makes the directory if it is not one.
-                    DirectoryCreation::Created
+                    DirectoryCreation::Present
                     | DirectoryCreation::Finding
                     | DirectoryCreation::Deferred => {}
                 }
@@ -684,7 +684,7 @@ async fn write_back_members(
                 match create_directory(root, std::path::PathBuf::from(candidate.bucket.as_str()))
                     .await?
                 {
-                    DirectoryCreation::Created | DirectoryCreation::Finding => {}
+                    DirectoryCreation::Present | DirectoryCreation::Finding => {}
                     // Every member in a bucket directory that does not open would be left
                     // behind. The write-back fails as a failure that passes instead, which
                     // leaves this member and those after it to the run the mirror retries.

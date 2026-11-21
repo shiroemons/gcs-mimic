@@ -787,7 +787,7 @@ async fn replay_page_with(
             if !super::deletion::bucket_directory_held(root, &bucket).await? {
                 match create_directory(root, PathBuf::from(bucket.as_str())).await? {
                     // The scans count what occupies the directory's place.
-                    DirectoryCreation::Created | DirectoryCreation::Finding => {}
+                    DirectoryCreation::Present | DirectoryCreation::Finding => {}
                     DirectoryCreation::Deferred => {
                         summary.count_deferred(Path::new(bucket.as_str()));
                     }

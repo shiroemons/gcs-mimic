@@ -156,7 +156,7 @@ impl Reconciler<'_> {
                 // the exports into it that `LiveObject::export` holds back.
                 if !crate::sync::deletion::bucket_directory_held(self.root, &bucket).await? {
                     match create_directory(self.root, directory.clone()).await? {
-                        DirectoryCreation::Created => {}
+                        DirectoryCreation::Present => {}
                         DirectoryCreation::Finding => self.summary.count_unmapped_object(),
                         // Each export into it would wait for it in turn: the bucket waits whole.
                         DirectoryCreation::Deferred => {
