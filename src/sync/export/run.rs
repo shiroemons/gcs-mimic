@@ -11,7 +11,7 @@ use crate::{
     storage::{
         admin::AdminError,
         change_journal::JournalFence,
-        sync_state::writeback::{self, LiveExport, LiveResult, LiveSource, Writeback},
+        sync_state::writeback::{self, InstallOutcome, LiveExport, LiveSource, Writeback},
     },
     sync::{SyncError, report::remedy::newer_edit_remedy},
 };
@@ -54,7 +54,7 @@ impl LiveObject<'_> {
         let (mut durable_checkpoint, mut ack_checkpoint) = (false, false);
         loop {
             match advance_with_retry(writeback, operation.clone()).await? {
-                LiveResult::Pending => {
+                InstallOutcome::Pending => {
                     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
                     {
                         let phase = writeback::live_pending(&operation).await.phase;
@@ -67,7 +67,7 @@ impl LiveObject<'_> {
                         }
                     }
                 }
-                LiveResult::Complete => {
+                InstallOutcome::Complete => {
                     if plan.content == Content::Identical {
                         self.summary.identical += 1;
                     } else {
@@ -79,7 +79,7 @@ impl LiveObject<'_> {
                     }
                     break;
                 }
-                LiveResult::Obsolete => {
+                InstallOutcome::Obsolete => {
                     self.defer();
                     break;
                 }
@@ -87,11 +87,11 @@ impl LiveObject<'_> {
                 // change brings this export back, so it is kept as skipped, and the end of the
                 // pass plans it again from what the tree holds then; the rest of the root keeps
                 // synchronizing meanwhile.
-                LiveResult::Raced => {
+                InstallOutcome::Raced => {
                     self.defer();
                     return Ok(plan.skipped());
                 }
-                LiveResult::Collision(reason) => {
+                InstallOutcome::Collision(reason) => {
                     self.root
                         .record_finding(plan.binding.clone(), name.clone(), plan.generation, reason)
                         .await?;
@@ -101,7 +101,7 @@ impl LiveObject<'_> {
                     self.summary.count_unmapped_object();
                     break;
                 }
-                LiveResult::Conflict => {
+                InstallOutcome::Conflict => {
                     self.summary.conflicting += 1;
                     if !preserved {
                         let Some(retry) = self.preserve_export(writeback, fence, &mut plan).await?

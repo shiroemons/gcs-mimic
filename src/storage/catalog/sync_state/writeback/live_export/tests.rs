@@ -224,7 +224,7 @@ async fn live_export_observed_external_change_cancels_the_unpublished_copy_and_r
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Pending
+        InstallOutcome::Pending
     );
     let item = pending(&operation).await;
     fs::create_dir_all(fixture.tree.0.join("test-bucket/nested")).unwrap();
@@ -235,7 +235,7 @@ async fn live_export_observed_external_change_cancels_the_unpublished_copy_and_r
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Conflict
+        InstallOutcome::Conflict
     );
     assert_eq!(
         fs::read(fixture.tree.0.join(&item.path)).unwrap(),
@@ -315,7 +315,7 @@ async fn durable_rehash_never_tracks_a_file_installed_in_place_of_the_copy() {
                 .advance_live_export(operation.clone())
                 .await
                 .unwrap(),
-            LiveResult::Pending
+            InstallOutcome::Pending
         );
     }
     let path = fixture.tree.0.join("test-bucket/object");
@@ -364,7 +364,7 @@ async fn live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finis
                     .advance_live_export(operation.clone())
                     .await
                     .unwrap(),
-                LiveResult::Pending
+                InstallOutcome::Pending
             );
         }
         let item = pending(&operation).await;
@@ -408,7 +408,7 @@ async fn live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finis
                 .advance_live_export(operation.clone())
                 .await
                 .unwrap(),
-            LiveResult::Complete
+            InstallOutcome::Complete
         );
         let tracked = fixture
             .catalog
@@ -522,7 +522,7 @@ async fn live_export_installs_a_staged_copy_whose_inode_number_alone_changed() {
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Pending
+        InstallOutcome::Pending
     );
     let item = pending(&operation).await;
     let staged = operation.0.lock().await.progress.staged().unwrap();
@@ -534,9 +534,9 @@ async fn live_export_installs_a_staged_copy_whose_inode_number_alone_changed() {
     let observed = fsutil::stat_identity(&File::open(&copy).unwrap()).unwrap();
     assert!(staged.changed_fields(&observed).is_inode_only());
     for expected in [
-        LiveResult::Pending,
-        LiveResult::Pending,
-        LiveResult::Complete,
+        InstallOutcome::Pending,
+        InstallOutcome::Pending,
+        InstallOutcome::Complete,
     ] {
         assert_eq!(
             fixture
@@ -598,7 +598,7 @@ async fn live_export_cancels_a_renumbered_unchanged_copy_as_obsolete() {
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Obsolete
+        InstallOutcome::Obsolete
     );
     assert!(
         !fixture
@@ -735,10 +735,10 @@ async fn live_export_replaces_a_tracked_target_whose_inode_number_alone_changed(
         }
         fixture.publish("object", b"later api").await;
         let operation = fixture.begin_over_tracked("object").await;
-        let expected: (LiveResult, &[u8]) = if edited {
-            (LiveResult::Conflict, b"API")
+        let expected: (InstallOutcome, &[u8]) = if edited {
+            (InstallOutcome::Conflict, b"API")
         } else {
-            (LiveResult::Complete, b"later api")
+            (InstallOutcome::Complete, b"later api")
         };
         assert_eq!(
             (
@@ -775,7 +775,7 @@ async fn live_export_retries_a_renumbered_copy_after_a_failure_before_installati
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Pending
+        InstallOutcome::Pending
     );
     inject_failure(root, "install", 1);
     let result = fixture
@@ -821,7 +821,7 @@ async fn live_export_still_reports_a_displaced_target_beside_a_renumbered_copy()
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Pending
+        InstallOutcome::Pending
     );
     let item = pending(&operation).await;
     inject_failure(root, "installed", 1);
@@ -855,13 +855,13 @@ async fn live_export_still_reports_a_displaced_target_beside_a_renumbered_copy()
 }
 
 /// Advances `operation` until it stops being pending, and returns how it finished.
-async fn settle(writeback: &Writeback, operation: LiveExport) -> LiveResult {
+async fn settle(writeback: &Writeback, operation: LiveExport) -> InstallOutcome {
     for _ in 0..8 {
         let result = writeback
             .advance_live_export(operation.clone())
             .await
             .unwrap();
-        if result != LiveResult::Pending {
+        if result != InstallOutcome::Pending {
             return result;
         }
     }
@@ -870,7 +870,7 @@ async fn settle(writeback: &Writeback, operation: LiveExport) -> LiveResult {
 
 /// Advances `operation` to completion.
 pub(super) async fn drain(writeback: &Writeback, operation: LiveExport) {
-    assert_eq!(settle(writeback, operation).await, LiveResult::Complete);
+    assert_eq!(settle(writeback, operation).await, InstallOutcome::Complete);
 }
 
 #[tokio::test]
@@ -945,7 +945,7 @@ async fn live_export_rejects_forgotten_handles_and_obsoletes_a_changed_api_gener
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Obsolete
+        InstallOutcome::Obsolete
     );
     assert!(!fixture.tree.0.join("test-bucket/object").exists());
     assert_eq!(
@@ -1065,7 +1065,7 @@ async fn live_export_removal_requires_the_tracked_generation_but_not_a_complete_
                 .advance_live_export(operation.clone())
                 .await
                 .unwrap(),
-            LiveResult::Pending
+            InstallOutcome::Pending
         );
     }
     assert_eq!(
@@ -1074,7 +1074,7 @@ async fn live_export_removal_requires_the_tracked_generation_but_not_a_complete_
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Complete
+        InstallOutcome::Complete
     );
     assert!(!fixture.tree.0.join("test-bucket/object").exists());
     assert!(
@@ -1140,7 +1140,7 @@ async fn live_export_ack_sql_failure_rolls_back_tracking_and_can_be_retried() {
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Complete
+        InstallOutcome::Complete
     );
     drop(operation);
     fixture.close().await;
@@ -1207,12 +1207,12 @@ async fn live_export_failed_operation_is_forgotten_by_a_switch() {
     for _ in 0..3 {
         assert_eq!(
             other.advance_live_export(next.clone()).await.unwrap(),
-            LiveResult::Pending
+            InstallOutcome::Pending
         );
     }
     assert_eq!(
         other.advance_live_export(next.clone()).await.unwrap(),
-        LiveResult::Complete
+        InstallOutcome::Complete
     );
     assert_eq!(fs::read(tree.0.join("test-bucket/object")).unwrap(), b"api");
     assert_eq!(other.status().await.unwrap().stop(), Stop::Ready);

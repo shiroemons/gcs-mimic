@@ -399,7 +399,7 @@ async fn preserved_export_uses_exact_byte_and_entry_budget_once() {
             .advance_live_export(operation.clone())
             .await
             .unwrap()
-            != LiveResult::Pending
+            != InstallOutcome::Pending
         {
             break;
         }

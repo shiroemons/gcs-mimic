@@ -28,7 +28,7 @@ use crate::{
     storage::{
         admin::Generation,
         change_journal::JournalFence,
-        sync_state::writeback::{self, LiveResult, LiveSource, Stop},
+        sync_state::writeback::{self, InstallOutcome, LiveSource, Stop},
     },
     sync::{
         EntryReportSender,
@@ -1151,7 +1151,7 @@ async fn live_export_identical_observation_preserves_edits_before_durable_and_ac
                 .advance_live_export(operation.clone())
                 .await
                 .unwrap(),
-            LiveResult::Pending
+            InstallOutcome::Pending
         );
         if durable {
             assert_eq!(
@@ -1159,13 +1159,13 @@ async fn live_export_identical_observation_preserves_edits_before_durable_and_ac
                     .advance_live_export(operation.clone())
                     .await
                     .unwrap(),
-                LiveResult::Pending
+                InstallOutcome::Pending
             );
         }
         std::fs::write(&path, b"external").unwrap();
         assert_eq!(
             writeback.advance_live_export(operation).await.unwrap(),
-            LiveResult::Conflict
+            InstallOutcome::Conflict
         );
         assert_eq!(std::fs::read(&path).unwrap(), b"external");
         assert_eq!(writeback.status().await.unwrap().stop(), Stop::Ready);

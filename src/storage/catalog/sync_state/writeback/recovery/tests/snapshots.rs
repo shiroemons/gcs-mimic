@@ -226,7 +226,7 @@ async fn live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack() {
                     .advance_live_export(operation.clone())
                     .await
                     .unwrap()
-                    != LiveResult::Pending
+                    != InstallOutcome::Pending
                 {
                     break;
                 }

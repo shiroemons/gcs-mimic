@@ -6,7 +6,7 @@ use super::*;
 async fn exported(fixture: &Fixture, name: &str) -> crate::object::ObjectRecord {
     let record = fixture.publish(name, b"api").await;
     let operation = fixture.begin(name).await;
-    let mut result = LiveResult::Pending;
+    let mut result = InstallOutcome::Pending;
     for _ in 0..4 {
         result = fixture
             .writeback
@@ -14,7 +14,7 @@ async fn exported(fixture: &Fixture, name: &str) -> crate::object::ObjectRecord 
             .await
             .unwrap();
     }
-    assert_eq!(result, LiveResult::Complete);
+    assert_eq!(result, InstallOutcome::Complete);
     record
 }
 
@@ -68,7 +68,7 @@ async fn a_removal_leaves_a_missing_directory_missing() {
     let nested = fixture.tree.0.join("test-bucket/nested");
     fs::remove_dir_all(&nested).unwrap();
     let operation = begin_removal(&fixture, &record).await;
-    let mut result = LiveResult::Pending;
+    let mut result = InstallOutcome::Pending;
     for _ in 0..4 {
         result = fixture
             .writeback
@@ -76,7 +76,7 @@ async fn a_removal_leaves_a_missing_directory_missing() {
             .await
             .unwrap();
     }
-    assert_eq!(result, LiveResult::Complete);
+    assert_eq!(result, InstallOutcome::Complete);
     assert!(!nested.exists());
     assert!(fixture.tree.0.join("test-bucket").is_dir());
     let binding = fixture

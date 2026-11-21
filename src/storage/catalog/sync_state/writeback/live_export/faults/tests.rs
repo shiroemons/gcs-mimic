@@ -278,7 +278,7 @@ async fn protected_read_copy_rejects_a_new_external_file_and_failed_writes_or_sy
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Pending
+        InstallOutcome::Pending
     );
     fs::write(
         fixture.tree.0.join("test-bucket/object"),
@@ -291,7 +291,7 @@ async fn protected_read_copy_rejects_a_new_external_file_and_failed_writes_or_sy
             .advance_live_export(operation)
             .await
             .unwrap(),
-        LiveResult::Conflict
+        InstallOutcome::Conflict
     );
     assert_eq!(
         fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
@@ -354,7 +354,7 @@ async fn a_retried_copy_refills_the_partial_private_copy_in_place() {
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Pending
+        InstallOutcome::Pending
     );
     assert_eq!(copied(&copy), (inode, BODY.to_vec()));
     drain(&fixture.writeback, operation).await;
@@ -454,7 +454,7 @@ async fn a_retried_copy_of_a_read_only_blob_completes_with_the_mode_a_first_copy
             .advance_live_export(operation.clone())
             .await
             .unwrap(),
-        LiveResult::Pending
+        InstallOutcome::Pending
     );
     let retried = fs::metadata(&copy).unwrap();
     let (mode, copied_again) = if cfg!(target_os = "macos") {

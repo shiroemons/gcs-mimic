@@ -8,13 +8,13 @@ use crate::storage::sync_state::observation::PathStop;
 const DIRECTORY: &str = "test-bucket/a";
 
 /// Advances `operation` until it ends.
-async fn finish(fixture: &Fixture, operation: &LiveExport) -> Result<LiveResult, Error> {
+async fn finish(fixture: &Fixture, operation: &LiveExport) -> Result<InstallOutcome, Error> {
     for _ in 0..8 {
         let result = fixture
             .writeback
             .advance_live_export(operation.clone())
             .await?;
-        if result != LiveResult::Pending {
+        if result != InstallOutcome::Pending {
             return Ok(result);
         }
     }
@@ -40,10 +40,10 @@ fn names(directory: &std::path::Path) -> Vec<String> {
 
 /// Checks that the export of `a` ended as an occupied directory that left the directory holding
 /// `holds`, and that it finished, with no private copy left behind.
-async fn assert_kept(fixture: &Fixture, result: LiveResult, holds: &[&str]) {
+async fn assert_kept(fixture: &Fixture, result: InstallOutcome, holds: &[&str]) {
     assert_eq!(
         result,
-        LiveResult::Collision(mapping::Reason::DirectoryOccupied)
+        InstallOutcome::Collision(mapping::Reason::DirectoryOccupied)
     );
     assert!(fixture.tree.0.join(DIRECTORY).is_dir());
     assert_eq!(names(&fixture.tree.0.join(DIRECTORY)), holds);
@@ -56,8 +56,8 @@ async fn assert_kept(fixture: &Fixture, result: LiveResult, holds: &[&str]) {
 }
 
 /// Checks that the export of `a` completed into the place of the removed directory.
-async fn assert_exported(fixture: &Fixture, result: LiveResult) {
-    assert_eq!(result, LiveResult::Complete);
+async fn assert_exported(fixture: &Fixture, result: InstallOutcome) {
+    assert_eq!(result, InstallOutcome::Complete);
     assert_eq!(fs::read(fixture.tree.0.join(DIRECTORY)).unwrap(), b"api");
     let binding = fixture
         .catalog
@@ -241,7 +241,7 @@ impl Reference {
                 let operation = fixture.begin(name).await;
                 assert_eq!(
                     finish(fixture, &operation).await.unwrap(),
-                    LiveResult::Complete
+                    InstallOutcome::Complete
                 );
                 fs::remove_file(fixture.tree.0.join("test-bucket").join(name)).unwrap();
                 return;
@@ -403,7 +403,7 @@ async fn race_removal(
     operation: &LiveExport,
     step: Step,
     change: impl FnOnce(&std::path::Path),
-) -> Result<LiveResult, Error> {
+) -> Result<InstallOutcome, Error> {
     let (entered, started) = tokio::sync::oneshot::channel();
     let (release, blocked) = std::sync::mpsc::channel();
     fixture.catalog.inject(
@@ -419,7 +419,7 @@ async fn race_removal(
     let work = crate::task::spawn_supervised("empty-directory-race-test", async move {
         for _ in 0..8 {
             let result = writeback.advance_live_export(selected.clone()).await?;
-            if result != LiveResult::Pending {
+            if result != InstallOutcome::Pending {
                 return Ok(result);
             }
         }
@@ -520,7 +520,7 @@ async fn a_directory_replaced_after_the_proof_is_proved_again() {
         },
     )
     .await;
-    assert!(matches!(result, Ok(LiveResult::Raced)), "{result:?}");
+    assert!(matches!(result, Ok(InstallOutcome::Raced)), "{result:?}");
     assert_eq!(names(&directory), ["._a"]);
     assert_eq!(fixture.writeback.status().await.unwrap().entries, 0);
     drop(operation);
@@ -570,7 +570,7 @@ async fn a_directory_removed_before_the_removal_counts_as_gone() {
         },
     )
     .await;
-    assert!(matches!(result, Ok(LiveResult::Conflict)), "{result:?}");
+    assert!(matches!(result, Ok(InstallOutcome::Conflict)), "{result:?}");
     assert_eq!(fs::read(fixture.tree.0.join(DIRECTORY)).unwrap(), b"user");
     drop(operation);
     fixture.close().await;
@@ -614,7 +614,10 @@ async fn a_folding_root_keeps_a_directory_whose_spelling_it_cannot_list() {
     fixture.publish("Photos", b"api").await;
     let operation = fixture.begin("Photos").await;
     let result = finish(&fixture, &operation).await.unwrap();
-    assert_eq!(result, LiveResult::Collision(mapping::Reason::Collision));
+    assert_eq!(
+        result,
+        InstallOutcome::Collision(mapping::Reason::Collision)
+    );
     assert_eq!(names(&bucket), ["photos"]);
     assert!(bucket.join("photos").is_dir());
     drop(operation);

@@ -124,7 +124,7 @@ fn renumbered(root: RootId, identity: fsutil::FileIdentity) -> Result<fsutil::Fi
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum LiveResult {
+pub(crate) enum InstallOutcome {
     Pending,
     Complete,
     Conflict,
@@ -296,7 +296,7 @@ enum Progress {
     /// An abandoned export reports `result` once its cleanup commits; a failed cleanup retries.
     Cancelling {
         staged: Option<fsutil::FileIdentity>,
-        result: LiveResult,
+        result: InstallOutcome,
     },
 }
 
@@ -311,7 +311,7 @@ impl Progress {
         }
     }
 
-    fn cancel(&self, result: LiveResult) -> Self {
+    fn cancel(&self, result: InstallOutcome) -> Self {
         Self::Cancelling {
             staged: self.staged(),
             result,
@@ -919,7 +919,7 @@ impl Writeback {
     pub(crate) async fn advance_live_export(
         &self,
         operation: LiveExport,
-    ) -> Result<LiveResult, Error> {
+    ) -> Result<InstallOutcome, Error> {
         self.serial_with(move |this| async move {
             let mut operation = operation.0.lock().await;
             let operation = &mut *operation;
@@ -949,7 +949,7 @@ impl Writeback {
                 }
                 Progress::Prepared => {
                     this.copy_live(operation).await?;
-                    Ok(LiveResult::Pending)
+                    Ok(InstallOutcome::Pending)
                 }
                 Progress::Staged(_) => this.install_live(operation).await,
                 Progress::Installed(_) => this.record_live_durable(operation).await,
@@ -1026,12 +1026,12 @@ impl Writeback {
     }
 
     /// Arms a prepared operation, then installs (or, when observing, checks) the target file.
-    async fn install_live(&self, operation: &mut LiveOperation) -> Result<LiveResult, Error> {
+    async fn install_live(&self, operation: &mut LiveOperation) -> Result<InstallOutcome, Error> {
         if let Some(conflict) = operation.purpose.conflict() {
             conflict.verify_owned(&self.lease).await?;
         }
         let Some(item) = self.arm_live(operation).await? else {
-            return Ok(LiveResult::Obsolete);
+            return Ok(InstallOutcome::Obsolete);
         };
         let installed = match self.attempt_install(operation, &item, None).await {
             Ok(Installed::Directory) => match self.unreferenced_target(operation, &item).await? {
@@ -1043,9 +1043,9 @@ impl Writeback {
         let staged = operation.progress.staged();
         match installed {
             Ok(Installed::Changed) => {
-                operation.progress = operation.progress.cancel(LiveResult::Conflict);
+                operation.progress = operation.progress.cancel(InstallOutcome::Conflict);
                 self.cancel_live_copy(operation).await?;
-                return Ok(LiveResult::Conflict);
+                return Ok(InstallOutcome::Conflict);
             }
             Ok(Installed::Kept(kept)) => {
                 kept.report(&item);
@@ -1076,14 +1076,14 @@ impl Writeback {
                 }
                 if raced(&error) {
                     // The copy is not at the target, so cancelling unlinks only the private copy.
-                    operation.progress = operation.progress.cancel(LiveResult::Raced);
+                    operation.progress = operation.progress.cancel(InstallOutcome::Raced);
                     self.cancel_live_copy(operation).await?;
-                    return Ok(LiveResult::Raced);
+                    return Ok(InstallOutcome::Raced);
                 }
                 return Err(error);
             }
         }
-        Ok(LiveResult::Pending)
+        Ok(InstallOutcome::Pending)
     }
 
     /// Cancels `operation`, whose target a directory holds, with `reason` as the finding that
@@ -1092,8 +1092,8 @@ impl Writeback {
         &self,
         operation: &mut LiveOperation,
         reason: mapping::Reason,
-    ) -> Result<LiveResult, Error> {
-        let collision = LiveResult::Collision(reason);
+    ) -> Result<InstallOutcome, Error> {
+        let collision = InstallOutcome::Collision(reason);
         operation.progress = operation.progress.cancel(collision);
         self.cancel_live_copy(operation).await?;
         Ok(collision)
@@ -1134,7 +1134,7 @@ impl Writeback {
                 Ok(Some(armed))
             }
             Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => {
-                operation.progress = operation.progress.cancel(LiveResult::Obsolete);
+                operation.progress = operation.progress.cancel(InstallOutcome::Obsolete);
                 self.cancel_live_copy(operation).await?;
                 Ok(None)
             }
@@ -1255,7 +1255,7 @@ impl Writeback {
     async fn record_live_durable(
         &self,
         operation: &mut LiveOperation,
-    ) -> Result<LiveResult, Error> {
+    ) -> Result<InstallOutcome, Error> {
         if let Some(conflict) = operation.purpose.conflict() {
             conflict.verify_owned(&self.lease).await?;
         }
@@ -1280,9 +1280,9 @@ impl Writeback {
             Err(Error::Admin(AdminError::Precondition | AdminError::NotFound))
                 if matches!(operation.body, Body::Observe { .. }) =>
             {
-                operation.progress = operation.progress.cancel(LiveResult::Conflict);
+                operation.progress = operation.progress.cancel(InstallOutcome::Conflict);
                 self.cancel_live_copy(operation).await?;
-                return Ok(LiveResult::Conflict);
+                return Ok(InstallOutcome::Conflict);
             }
             Err(error) => return Err(error),
         };
@@ -1308,7 +1308,7 @@ impl Writeback {
             staged: operation.progress.staged(),
             fingerprint: fp,
         };
-        Ok(LiveResult::Pending)
+        Ok(InstallOutcome::Pending)
     }
 
     /// Verifies the durable fingerprint still holds, then tracks it and finishes the operation.
@@ -1316,7 +1316,7 @@ impl Writeback {
         &self,
         operation: &mut LiveOperation,
         fp: Option<SyncFingerprint>,
-    ) -> Result<LiveResult, Error> {
+    ) -> Result<InstallOutcome, Error> {
         if let Some(conflict) = operation.purpose.conflict() {
             conflict.verify_owned(&self.lease).await?;
         }
@@ -1347,9 +1347,9 @@ impl Writeback {
             Err(Error::Admin(AdminError::Precondition | AdminError::NotFound))
                 if matches!(operation.body, Body::Observe { .. }) =>
             {
-                operation.progress = operation.progress.cancel(LiveResult::Conflict);
+                operation.progress = operation.progress.cancel(InstallOutcome::Conflict);
                 self.cancel_live_copy(operation).await?;
-                return Ok(LiveResult::Conflict);
+                return Ok(InstallOutcome::Conflict);
             }
             Err(error) => return Err(error),
         };
@@ -1399,7 +1399,7 @@ impl Writeback {
             }
             finish_live(&tx,&current)?;
             tx.commit()?;
-            Ok(if valid { LiveResult::Complete } else { LiveResult::Obsolete })
+            Ok(if valid { InstallOutcome::Complete } else { InstallOutcome::Obsolete })
         }).await?;
         #[cfg(test)]
         self.fault_paths().hit(Step::SyncCopyCommit)?;

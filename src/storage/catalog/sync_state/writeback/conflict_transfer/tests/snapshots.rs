@@ -124,7 +124,7 @@ async fn preserved_live_export_crash_and_power_loss_keep_the_external_copy_befor
                     .advance_live_export(operation.clone())
                     .await
                     .unwrap();
-                if step == Step::SyncCopyInstalled || result == LiveResult::Complete {
+                if step == Step::SyncCopyInstalled || result == InstallOutcome::Complete {
                     break;
                 }
             }

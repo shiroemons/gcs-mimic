@@ -10,7 +10,7 @@ use crate::{
         admin::{BucketName, ObjectName},
         sync_state::{
             root::RootLease,
-            writeback::{LiveResult, LiveSource},
+            writeback::{InstallOutcome, LiveSource},
         },
     },
     sync::{Reconciliation, SyncError},
@@ -31,7 +31,7 @@ pub(in crate::sync) enum Restored {
 }
 
 /// How many times a restore plans again from the tree when the tree changed under its
-/// installation ([`LiveResult::Raced`]). Each attempt reads the tree afresh and runs every check
+/// installation ([`InstallOutcome::Raced`]). Each attempt reads the tree afresh and runs every check
 /// of an export, so a retry never writes over what the user put at the path meanwhile.
 const RESTORE_ATTEMPTS: usize = 3;
 
@@ -94,11 +94,13 @@ async fn restore_once(
     };
     loop {
         match advance_with_retry(&writeback, operation.clone()).await? {
-            LiveResult::Pending => {}
-            LiveResult::Complete => return Ok(Some(Restored::Written)),
-            LiveResult::Conflict | LiveResult::Collision(_) => return Ok(Some(Restored::Kept)),
-            LiveResult::Obsolete => return Ok(Some(Restored::Skipped)),
-            LiveResult::Raced => return Ok(None),
+            InstallOutcome::Pending => {}
+            InstallOutcome::Complete => return Ok(Some(Restored::Written)),
+            InstallOutcome::Conflict | InstallOutcome::Collision(_) => {
+                return Ok(Some(Restored::Kept));
+            }
+            InstallOutcome::Obsolete => return Ok(Some(Restored::Skipped)),
+            InstallOutcome::Raced => return Ok(None),
         }
     }
 }

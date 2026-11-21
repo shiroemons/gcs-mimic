@@ -8,7 +8,7 @@ use crate::{
         admin::AdminError,
         sync_state::{
             root::{RootError, RootLease},
-            writeback::{self, LiveExport, LiveResult, Writeback},
+            writeback::{self, InstallOutcome, LiveExport, Writeback},
         },
     },
     sync::{
@@ -182,7 +182,7 @@ pub(in crate::sync) async fn create_directory(
 pub(super) async fn advance_with_retry(
     writeback: &Writeback,
     operation: LiveExport,
-) -> Result<LiveResult, SyncError> {
+) -> Result<InstallOutcome, SyncError> {
     with_retry(writeback.root_lease(), || {
         writeback.advance_live_export(operation.clone())
     })

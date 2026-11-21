@@ -35,7 +35,7 @@ pub(crate) use live_export::faults::retrack_restored;
 pub(crate) use live_export::tests::{
     armed_observation, observation as begin_observation, pending as live_pending,
 };
-pub(crate) use live_export::{LiveExport, LiveResult, LiveSource};
+pub(crate) use live_export::{InstallOutcome, LiveExport, LiveSource};
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) use live_export::{
     inject_failure as inject_live_export_failure,

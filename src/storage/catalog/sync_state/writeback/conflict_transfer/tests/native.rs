@@ -11,7 +11,7 @@ async fn native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_
                 .advance_live_export(operation.clone())
                 .await
                 .unwrap(),
-            LiveResult::Pending
+            InstallOutcome::Pending
         );
         live_export::inject_failure(fixture.lease.status().root_id, phase, 1);
         assert!(
@@ -145,7 +145,7 @@ async fn preserved_native_proof_survives_restart_without_charging_another_retain
             .advance_live_export(operation.clone())
             .await
             .unwrap()
-            != LiveResult::Pending
+            != InstallOutcome::Pending
         {
             break;
         }
@@ -173,7 +173,7 @@ async fn preserved_native_export_never_removes_a_later_external_body_or_an_unpro
                 .advance_live_export(operation.clone())
                 .await
                 .unwrap(),
-            LiveResult::Pending
+            InstallOutcome::Pending
         );
         if missing_copy {
             fs::remove_file(fixture.data.0.join("sync-conflicts").join(id)).unwrap();
@@ -191,7 +191,7 @@ async fn preserved_native_export_never_removes_a_later_external_body_or_an_unpro
         if missing_copy {
             assert!(result.is_err());
         } else {
-            assert_eq!(result.unwrap(), LiveResult::Conflict);
+            assert_eq!(result.unwrap(), InstallOutcome::Conflict);
         }
         assert_eq!(
             fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
