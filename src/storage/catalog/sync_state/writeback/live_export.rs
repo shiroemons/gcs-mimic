@@ -140,21 +140,10 @@ pub(crate) enum InstallOutcome {
     Collision(mapping::Obstruction),
 }
 
-/// Whether an installation attempt failed because the tree changed under it. Its checks fail
-/// with [`Error::Raced`] where they find the tree other than the attempt read it moments before:
-/// the directory at the target replaced, the path to the target no longer resolving, or an alias
-/// in the place of an entry. That is a user's concurrent change, which a new export plans around,
-/// not a failure of the root; pausing the whole root over it would leave every other path
-/// unsynchronized until an operator rescans. A catalog changed from the plan
-/// ([`Error::Obsolete`]) ends the attempt the same way ([`Error::changed`]).
-fn raced(error: &Error) -> bool {
-    error.changed()
-}
-
 /// The regular file at an export's target, where a failed or cancelled attempt may have left its
 /// copy. A directory at the target holds no copy, and a path that no longer resolves
-/// ([`raced`]) holds nothing the export can reach: a copy installed before the user changed the
-/// path went with the directory they moved, as any file of theirs does.
+/// ([`Error::changed`]) holds nothing the export can reach: a copy installed before the user
+/// changed the path went with the directory they moved, as any file of theirs does.
 fn target_file(
     root: &File,
     naming: RootNaming,
@@ -170,7 +159,7 @@ fn target_file(
             | TargetState::Changed(_),
         ) => Ok(None),
         Ok(TargetState::Unsafe(error)) => Err(error.into()),
-        Err(error) if raced(&error) => Ok(None),
+        Err(error) if error.changed() => Ok(None),
         Err(error) => Err(error),
     }
 }
@@ -974,7 +963,7 @@ impl Writeback {
                     // Recovery owns displaced bytes; an automatic retry must not unlink them.
                     return Err(Error::Displaced(Box::new(error)));
                 }
-                if raced(&error) {
+                if error.changed() {
                     // The copy is not at the target, so cancelling unlinks only the private copy.
                     operation.progress = operation.progress.cancel(InstallOutcome::Raced);
                     self.cancel_live_copy(operation).await?;

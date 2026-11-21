@@ -116,7 +116,11 @@ pub(crate) enum Error {
 impl Error {
     /// Whether the step met the tree or the catalog other than it read or planned them, by its
     /// own checks or by a catalog call that answered `Precondition`. Every such step ends the
-    /// same way: its operation is cancelled or planned again.
+    /// same way: its operation is cancelled or planned again. A tree changed under an
+    /// installation attempt ([`Self::Raced`]), such as the directory at the target replaced, the
+    /// path to the target no longer resolving, or an alias in the place of an entry, is a user's
+    /// concurrent change, which a new export plans around, not a failure of the root: pausing the
+    /// whole root over it would leave every other path unsynchronized until an operator rescans.
     fn changed(&self) -> bool {
         match self {
             Self::Admin(AdminError::Precondition)
