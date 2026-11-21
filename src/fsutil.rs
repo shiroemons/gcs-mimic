@@ -395,33 +395,16 @@ impl From<&std::fs::Metadata> for FileIdentity {
     }
 }
 
-#[cfg(unix)]
-impl FileIdentity {
-    fn same_displaced_file(&self, other: &Self) -> bool {
-        // Rename may change ctime, so compare the displaced inode and content observation.
-        self.device == other.device
-            && self.inode == other.inode
-            && self.size == other.size
-            && self.modified_ns == other.modified_ns
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum ReplaceOutcome {
-    Created,
-    #[cfg_attr(
-        not(any(target_os = "linux", target_os = "macos")),
-        expect(
-            dead_code,
-            reason = "only Linux and macOS renames can verify a displaced file"
-        )
-    )]
-    Replaced {
-        displaced: FileIdentity,
-    },
-    Conflict {
-        displaced: Option<FileIdentity>,
-    },
+/// How [`durable_replace_between`] gives the staged entry the destination name. Neither judges
+/// what the destination held: an exchange keeps it under the staged name, for the caller to
+/// compare with what it expected there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Replacement {
+    /// The destination name must be empty; an entry there fails the call with `AlreadyExists`.
+    NoReplace,
+    /// The staged and destination entries exchange names, so what the destination held stays
+    /// under the staged name. A missing destination fails the call with `NotFound`.
+    Exchange,
 }
 
 #[cfg(unix)]
@@ -986,38 +969,20 @@ fn copy_read_write(src: &File, dst: &File) -> io::Result<()> {
     }
 }
 
-#[cfg(unix)]
-fn identity_at(directory: &File, name: &std::ffi::CStr) -> Result<Option<FileIdentity>, FsError> {
-    match open_at(directory, name, FileOpen::Existing) {
-        Ok(file) => Ok(Some(stat_identity(&file)?)),
-        Err(error)
-            if matches!(error.raw_os_error(), Some(libc::ELOOP))
-                || matches!(
-                    error.kind(),
-                    io::ErrorKind::InvalidInput | io::ErrorKind::NotFound
-                ) =>
-        {
-            Ok(None)
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
-/// Leaves the displaced entry at staged_name, including on an identity conflict.
-/// An error after rename may have applied the operation; callers must reconcile both names.
+/// [`durable_replace_between`] within one directory.
 #[cfg(all(test, unix))]
 pub(crate) fn durable_replace(
     directory: &File,
     staged_name: &std::ffi::OsStr,
     destination_name: &std::ffi::OsStr,
-    expected: Option<&FileIdentity>,
-) -> Result<ReplaceOutcome, FsError> {
+    replacement: Replacement,
+) -> Result<(), FsError> {
     durable_replace_between(
         directory,
         staged_name,
         directory,
         destination_name,
-        expected,
+        replacement,
     )
 }
 
@@ -1201,14 +1166,17 @@ fn link_then_unlink(from: &std::path::Path, to: &std::path::Path) -> io::Result<
     std::fs::remove_file(from)
 }
 
-/// Retains displaced bytes under the source name; errors after rename require reconciliation.
+/// Gives the staged entry the destination name as `replacement` says, and makes both names
+/// durable. Only the namespace changes: an exchange retains what the destination held under the
+/// staged name, whatever it is, and the caller decides what that is. An error after the rename
+/// may have applied it; callers must reconcile both names.
 pub(crate) fn durable_replace_between(
     source_directory: &File,
     staged_name: &std::ffi::OsStr,
     destination_directory: &File,
     destination_name: &std::ffi::OsStr,
-    expected: Option<&FileIdentity>,
-) -> Result<ReplaceOutcome, FsError> {
+    replacement: Replacement,
+) -> Result<(), FsError> {
     validate_name(staged_name)?;
     validate_name(destination_name)?;
     let source_identity = stat_identity(source_directory)?;
@@ -1231,11 +1199,6 @@ pub(crate) fn durable_replace_between(
             &crate::storage::fault::descriptor_path(&source)?,
             &source.metadata()?,
         );
-        let before = if expected.is_some() {
-            identity_at(destination_directory, &destination)?
-        } else {
-            None
-        };
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
             rename_at(
@@ -1243,10 +1206,9 @@ pub(crate) fn durable_replace_between(
                 &staged,
                 destination_directory.as_raw_fd(),
                 &destination,
-                if expected.is_some() {
-                    RenameMode::Exchange
-                } else {
-                    RenameMode::NoReplace
+                match replacement {
+                    Replacement::NoReplace => RenameMode::NoReplace,
+                    Replacement::Exchange => RenameMode::Exchange,
                 },
             )?;
             // Recorded before the parent syncs, so the power-loss model keeps the rename volatile
@@ -1257,31 +1219,20 @@ pub(crate) fn durable_replace_between(
                 let staged = fault::descriptor_path(source_directory)?.join(staged_name);
                 let destination =
                     fault::descriptor_path(destination_directory)?.join(destination_name);
-                if expected.is_some() {
-                    fault::exchanged(&staged, &destination);
-                } else {
-                    fault::moved(&staged, &destination);
+                match replacement {
+                    Replacement::NoReplace => fault::moved(&staged, &destination),
+                    Replacement::Exchange => fault::exchanged(&staged, &destination),
                 }
             }
             sync_replace_parent(source_directory)?;
             if !same_directory {
                 sync_replace_parent(destination_directory)?;
             }
-            let Some(expected) = expected else {
-                return Ok(ReplaceOutcome::Created);
-            };
-            let displaced = identity_at(source_directory, &staged)?;
-            if let Some(displaced) = displaced
-                && before.as_ref() == Some(expected)
-                && expected.same_displaced_file(&displaced)
-            {
-                return Ok(ReplaceOutcome::Replaced { displaced });
-            }
-            Ok(ReplaceOutcome::Conflict { displaced })
+            Ok(())
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
-            let _ = (destination, expected);
+            let _ = (destination, replacement);
             Err(FsError::Unsupported)
         }
     }
@@ -1293,16 +1244,14 @@ pub(crate) fn durable_replace_between(
         let source = directory_path(source_directory)?.join(staged_name);
         let target = directory_path(destination_directory)?.join(destination_name);
         File::open(&source)?.sync_all()?;
-        if let Some(expected) = expected {
-            let observed = stat_identity(&File::open(&target)?)?;
-            if expected != &observed {
-                return Ok(ReplaceOutcome::Conflict { displaced: None });
+        match replacement {
+            Replacement::NoReplace => {
+                move_write_through(&source, &target)?;
+                Ok(())
             }
-            // Sync must preserve the old target before selecting its checked-replace fallback.
-            return Err(FsError::Unsupported);
+            // Windows has no rename that keeps the replaced entry under the staged name.
+            Replacement::Exchange => Err(FsError::Unsupported),
         }
-        move_write_through(&source, &target)?;
-        Ok(ReplaceOutcome::Created)
     }
 }
 
@@ -1882,48 +1831,47 @@ mod tests {
         );
     }
 
+    /// A replacement never judges what the destination held: an exchange keeps any entry there,
+    /// changed bytes or a symlink alike, under the staged name for its caller to compare.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn conditional_replace_preserves_displaced_and_conflicting_bytes() {
         let directory = crate::test_support::TestDir::new();
         let root = File::open(&directory.0).unwrap();
+        let replace =
+            |replacement| durable_replace(&root, "stage".as_ref(), "target".as_ref(), replacement);
         std::fs::write(directory.0.join("stage"), b"first").unwrap();
-        assert_eq!(
-            durable_replace(&root, "stage".as_ref(), "target".as_ref(), None).unwrap(),
-            ReplaceOutcome::Created
-        );
+        replace(Replacement::NoReplace).unwrap();
         std::fs::write(directory.0.join("stage"), b"second").unwrap();
         assert!(
-            matches!(durable_replace(&root, "stage".as_ref(), "target".as_ref(), None), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists)
+            matches!(replace(Replacement::NoReplace), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists)
         );
         assert_eq!(std::fs::read(directory.0.join("target")).unwrap(), b"first");
-        let expected = stat_identity(&File::open(directory.0.join("target")).unwrap()).unwrap();
-        assert!(matches!(
-            durable_replace(&root, "stage".as_ref(), "target".as_ref(), Some(&expected)).unwrap(),
-            ReplaceOutcome::Replaced { .. }
-        ));
+        replace(Replacement::Exchange).unwrap();
         assert_eq!(std::fs::read(directory.0.join("stage")).unwrap(), b"first");
         assert_eq!(
             std::fs::read(directory.0.join("target")).unwrap(),
             b"second"
         );
         std::fs::write(directory.0.join("stage"), b"third").unwrap();
-        assert!(matches!(
-            durable_replace(&root, "stage".as_ref(), "target".as_ref(), Some(&expected)).unwrap(),
-            ReplaceOutcome::Conflict { displaced: Some(_) }
-        ));
+        replace(Replacement::Exchange).unwrap();
         assert_eq!(std::fs::read(directory.0.join("stage")).unwrap(), b"second");
         assert_eq!(std::fs::read(directory.0.join("target")).unwrap(), b"third");
         std::fs::remove_file(directory.0.join("target")).unwrap();
-        std::os::unix::fs::symlink("missing", directory.0.join("target")).unwrap();
-        assert_eq!(
-            durable_replace(&root, "stage".as_ref(), "target".as_ref(), Some(&expected)).unwrap(),
-            ReplaceOutcome::Conflict { displaced: None }
+        assert!(
+            matches!(replace(Replacement::Exchange), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::NotFound)
         );
+        assert_eq!(std::fs::read(directory.0.join("stage")).unwrap(), b"second");
+        std::os::unix::fs::symlink("missing", directory.0.join("target")).unwrap();
+        replace(Replacement::Exchange).unwrap();
         assert!(
             std::fs::symlink_metadata(directory.0.join("stage"))
                 .unwrap()
                 .is_symlink()
+        );
+        assert_eq!(
+            std::fs::read(directory.0.join("target")).unwrap(),
+            b"second"
         );
     }
 
@@ -1978,29 +1926,23 @@ mod tests {
             DirectoryOpen::CreateIfMissing,
         )
         .unwrap();
-        std::fs::write(directory.0.join("work/body"), b"first").unwrap();
-        assert_eq!(
-            durable_replace_between(&workspace, "body".as_ref(), &target, "body".as_ref(), None)
-                .unwrap(),
-            ReplaceOutcome::Created
-        );
-        assert!(!directory.0.join("work/body").exists());
-        std::fs::write(directory.0.join("work/body"), b"second").unwrap();
-        assert!(
-            matches!(durable_replace_between(&workspace, "body".as_ref(), &target, "body".as_ref(), None), Err(FsError::Io(e)) if e.kind()==io::ErrorKind::AlreadyExists)
-        );
-        let expected = stat_identity(&open_regular_at(&target, "body".as_ref()).unwrap()).unwrap();
-        assert!(matches!(
+        let replace = |replacement| {
             durable_replace_between(
                 &workspace,
                 "body".as_ref(),
                 &target,
                 "body".as_ref(),
-                Some(&expected)
+                replacement,
             )
-            .unwrap(),
-            ReplaceOutcome::Replaced { .. }
-        ));
+        };
+        std::fs::write(directory.0.join("work/body"), b"first").unwrap();
+        replace(Replacement::NoReplace).unwrap();
+        assert!(!directory.0.join("work/body").exists());
+        std::fs::write(directory.0.join("work/body"), b"second").unwrap();
+        assert!(
+            matches!(replace(Replacement::NoReplace), Err(FsError::Io(e)) if e.kind()==io::ErrorKind::AlreadyExists)
+        );
+        replace(Replacement::Exchange).unwrap();
         assert_eq!(
             std::fs::read(directory.0.join("work/body")).unwrap(),
             b"first"
@@ -2010,17 +1952,7 @@ mod tests {
             b"second"
         );
         std::fs::write(directory.0.join("work/body"), b"third").unwrap();
-        assert!(matches!(
-            durable_replace_between(
-                &workspace,
-                "body".as_ref(),
-                &target,
-                "body".as_ref(),
-                Some(&expected)
-            )
-            .unwrap(),
-            ReplaceOutcome::Conflict { displaced: Some(_) }
-        ));
+        replace(Replacement::Exchange).unwrap();
         assert_eq!(
             std::fs::read(directory.0.join("work/body")).unwrap(),
             b"second"
@@ -2063,23 +1995,18 @@ mod tests {
             // Written after arming, so neither its bytes nor its entry are durable yet.
             std::fs::write(&staged, b"staged").unwrap();
             fault::file_created(&staged);
-            let expected =
-                exchange.then(|| stat_identity(&File::open(&destination).unwrap()).unwrap());
-            let outcome = durable_replace_between(
+            durable_replace_between(
                 &workspace,
                 "body".as_ref(),
                 &target,
                 "body".as_ref(),
-                expected.as_ref(),
+                if exchange {
+                    Replacement::Exchange
+                } else {
+                    Replacement::NoReplace
+                },
             )
             .unwrap();
-            assert!(
-                matches!(
-                    (&outcome, exchange),
-                    (ReplaceOutcome::Created, false) | (ReplaceOutcome::Replaced { .. }, true)
-                ),
-                "{outcome:?}"
-            );
             fault::hit(&directory.0, Step::SyncCopyRenamed).unwrap();
             assert_eq!(fault::pending(&directory.0), 0);
             assert_eq!(

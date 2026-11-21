@@ -98,9 +98,12 @@ directory in place; deleting directories is PENDING.
 Updates compare the tracked size, nanosecond mtime and stable MD5/CRC32C before
 replacement; ctime must remain stable during verification. The inode number is
 not compared, because Docker Desktop shared folders can report a new number for
-an unchanged file. Checked
-exchange retains the displaced body until
-its identity and hashes are confirmed. API deletion first moves the checked
+an unchanged file. The exchange itself compares nothing and retains the
+displaced body in the private entry, which is unlinked only once the same rule
+confirms it there; a permission change or a new inode number between the check
+and the exchange therefore no longer stops the export, and restart recovery,
+which judges that body by the same rule, gives the same answer. Other bytes, or
+an entry that is not a regular file, stay protected. API deletion first moves the checked
 file into the reserved workspace, validates it again and only then unlinks it.
 Directory sync precedes the fingerprint/state commit. A divergent target is
 left intact, logged with a preservation remedy and counted as a conflict;
@@ -1118,8 +1121,9 @@ ordering: the removal, its parent's sync, and only then the rename that installs
 the object.
 
 On Linux with supported `renameat2(RENAME_EXCHANGE)`, exchange existing target
-and prepared output, then validate the actual displaced inode/fingerprint/hash
-through its retained descriptor/name. Changed displaced content is a conflict
+and prepared output, then validate the actual displaced body's size, mtime and
+hashes through its retained name; its inode number and ctime are not compared.
+Changed displaced content is a conflict
 and must be saved before cleanup; API output remains the winner. Recheck the
 installed output too: another external replacement after exchange is fresh input,
 not proof that the API output is still installed. Never blindly exchange back

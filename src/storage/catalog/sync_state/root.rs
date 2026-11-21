@@ -404,13 +404,19 @@ fn publish_marker(
     if !matches!(marker, MarkerState::Published(..)) {
         #[cfg(test)]
         fault::hit_io(&owns.path, Step::SyncMarkerRename).at(stage)?;
-        fsutil::durable_replace_between(root, MARKER_STAGING.as_ref(), root, MARKER.as_ref(), None)
-            .map_err(|error| match error {
-                FsError::Io(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    RootError::ForeignMarker
-                }
-                error @ (FsError::Io(_) | FsError::Unsupported) => RootError::at(stage, error),
-            })?;
+        fsutil::durable_replace_between(
+            root,
+            MARKER_STAGING.as_ref(),
+            root,
+            MARKER.as_ref(),
+            fsutil::Replacement::NoReplace,
+        )
+        .map_err(|error| match error {
+            FsError::Io(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                RootError::ForeignMarker
+            }
+            error @ (FsError::Io(_) | FsError::Unsupported) => RootError::at(stage, error),
+        })?;
         #[cfg(test)]
         {
             #[cfg(unix)]

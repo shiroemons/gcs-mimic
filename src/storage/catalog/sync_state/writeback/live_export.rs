@@ -574,13 +574,14 @@ fn install_target(
     let directory = match current {
         Current::File { file, directory } => {
             if !already_installed(install.staged, file.as_ref(), retained.as_ref())? {
-                let identity = match expected_target(install, file.as_ref(), retained.as_ref())? {
-                    ControlFlow::Continue(identity) => identity,
+                let replacement = match expected_target(install, file.as_ref(), retained.as_ref())?
+                {
+                    ControlFlow::Continue(replacement) => replacement,
                     ControlFlow::Break(ended) => return Ok(ended),
                 };
                 if (file.is_some() || install.item.kind == Kind::Publish)
                     && let ControlFlow::Break(ended) =
-                        rename(workspace, install, directory.as_ref(), identity.as_ref())?
+                        rename(workspace, install, directory.as_ref(), replacement)?
                 {
                     return Ok(ended);
                 }
@@ -597,7 +598,12 @@ fn install_target(
                 Ok(parent) => parent,
                 Err(kept) => return Ok(Installed::Kept(kept)),
             };
-            if let ControlFlow::Break(ended) = rename(workspace, install, Some(&parent), None)? {
+            if let ControlFlow::Break(ended) = rename(
+                workspace,
+                install,
+                Some(&parent),
+                fsutil::Replacement::NoReplace,
+            )? {
                 return Ok(ended);
             }
             Some(parent)
@@ -623,13 +629,14 @@ fn already_installed(
 }
 
 /// Checks that the target, holding `file`, still holds what the export expects and that the
-/// `retained` private copy is still the staged one, before anything moves. Continues with the
-/// identity of the tracked body the copy replaces, if any.
+/// `retained` private copy is still the staged one, before anything moves. Continues with how
+/// the copy takes the target's name: by exchange with the tracked body there, or into an empty
+/// name.
 fn expected_target(
     install: &mut Install,
     file: Option<&File>,
     retained: Option<&File>,
-) -> Result<ControlFlow<Installed, Option<fsutil::FileIdentity>>, Error> {
+) -> Result<ControlFlow<Installed, fsutil::Replacement>, Error> {
     if matches!(install.purpose, Purpose::RestoreAbsent) && file.is_some() {
         return Ok(ControlFlow::Break(Installed::Changed));
     }
@@ -642,47 +649,49 @@ fn expected_target(
             CopyCheck::Install,
         )?);
     }
-    let identity = match (file, install.tracked.as_ref()) {
-        (None, _) => None,
+    let replacement = match (file, install.tracked.as_ref()) {
+        (None, _) => fsutil::Replacement::NoReplace,
         (Some(file), Some(expected)) => {
             let device = install.purpose.source_device();
-            let Some(identity) =
-                matches_source(file, expected, device, IdentityStage::BeforeExchange)?.same()
-            else {
+            if let body::Match::Differs =
+                matches_source(file, expected, device, IdentityStage::BeforeExchange)?
+            {
                 return Ok(ControlFlow::Break(Installed::Changed));
-            };
-            Some(identity)
+            }
+            fsutil::Replacement::Exchange
         }
         (Some(_), None) => return Ok(ControlFlow::Break(Installed::Changed)),
     };
-    Ok(ControlFlow::Continue(identity))
+    Ok(ControlFlow::Continue(replacement))
 }
 
 /// Moves the staged copy into the target in `directory` (or a removed file out of it), exchanging
-/// it with the tracked body of `identity` when there is one. A copy for an empty target ends
-/// as [`Installed::Changed`] when something took the target after every check of it: the
-/// rename does not replace it, and the next attempt would find it changed all the same.
+/// it with what the target holds when `replacement` says so. The exchange judges nothing: what it
+/// moved out is [`settle`]'s to judge, after the fact, by its bytes alone. A copy for an empty
+/// target ends as [`Installed::Changed`] when something took the target after every check of it:
+/// the rename does not replace it, and the next attempt would find it changed all the same.
 fn rename(
     workspace: &File,
     install: &Install,
     directory: Option<&File>,
-    identity: Option<&fsutil::FileIdentity>,
+    replacement: fsutil::Replacement,
 ) -> Result<ControlFlow<Installed>, Error> {
     let selected = &install.item;
     let target = directory.ok_or_else(stale)?;
     let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
     #[cfg(test)]
     install.faults.hit(Step::SyncCopyRename)?;
-    let outcome = match selected.kind {
+    match selected.kind {
         Kind::Publish => match fsutil::durable_replace_between(
             workspace,
             selected.token.id.to_hex().as_ref(),
             target,
             name.as_ref(),
-            identity,
+            replacement,
         ) {
             Err(fsutil::FsError::Io(error))
-                if identity.is_none() && error.kind() == std::io::ErrorKind::AlreadyExists =>
+                if replacement == fsutil::Replacement::NoReplace
+                    && error.kind() == std::io::ErrorKind::AlreadyExists =>
             {
                 return Ok(ControlFlow::Break(Installed::Changed));
             }
@@ -693,19 +702,31 @@ fn rename(
             name.as_ref(),
             workspace,
             selected.token.id.to_hex().as_ref(),
-            None,
+            fsutil::Replacement::NoReplace,
         )?,
-    };
+    }
     #[cfg(test)]
     install.faults.renamed()?;
-    if matches!(outcome, fsutil::ReplaceOutcome::Conflict { .. }) {
-        return Err(Error::Protected);
-    }
     Ok(ControlFlow::Continue(()))
+}
+
+/// The private entry of `id` once installation renamed: what an exchange moved out of the
+/// target, or the body a removal moved in. An entry that is no regular file took the target after
+/// its check, so it is not the tracked body: it stays, `Protected`, as other bytes would.
+fn displaced_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
+    match fsutil::open_regular_at(workspace, id.to_hex().as_ref()) {
+        Ok(file) => Ok(Some(file)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) if crate::sync::tree::structural_entry_error(&error) => Err(Error::Protected),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Unlinks the tracked body that installation moved out of the target, if any, then syncs what
 /// installation changed: the directory that holds the target, the workspace and the tree's root.
+/// Only here is that body judged, by [`OwnedBody::displaced`], whatever happened to it between
+/// the check before the rename and the rename itself: its bytes decide, as they do when restart
+/// recovery finds it ([`OwnedBody::tracked`]).
 fn settle(
     root: &File,
     workspace: &File,
@@ -715,7 +736,7 @@ fn settle(
     let selected = &install.item;
     #[cfg(test)]
     failure(selected.token.root, "installed")?;
-    if let Some(file) = entry(workspace, selected.token.id)? {
+    if let Some(file) = displaced_entry(workspace, selected.token.id)? {
         let device = install.purpose.source_device();
         let displaced = install.tracked.as_ref().map_or(Ok(None), |expected| {
             OwnedBody::displaced(&file, expected, device)

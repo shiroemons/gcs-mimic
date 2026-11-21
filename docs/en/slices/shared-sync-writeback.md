@@ -42,7 +42,14 @@ deletion or recreation.
    rule, so the private copy under a new number stays an ordinary retryable
    failure, and any other body in its entry still stops the root as displaced.
    Re-reading the identity after hashing must again differ only in the inode
-   number. Descriptor-relative
+   number. A tracked body at the target is checked by size, mtime and hashes
+   before the exchange. The exchange compares nothing: what it moved into the
+   private entry is checked again by the same rule, which ignores the inode
+   number and ctime, and unlinked only when it still holds the tracked body. A
+   permission change or a new inode number between the check and the exchange
+   thus completes the export, as restart recovery's rule does after a crash at
+   that point; other bytes, or an entry that is not a regular file, stay
+   protected. Descriptor-relative
    traversal checks actual spelling, rejects aliases and symlinks, and checks the
    selected ancestors again. Installation syncs both affected parents. Reading or
    inspecting an existing parent never creates directories or calls fsync.
@@ -138,7 +145,10 @@ A retry stops as Protected without emptying a copy that another name links. A
 copy of a read-only blob is cloned again on macOS and refilled in place on
 Linux, and the installed file keeps the mode a first copy gets.
 With cloning disabled, the copy uses the entry created for the clone, and no
-unlink runs.
+unlink runs. A test holds installation after its check of a tracked target and
+before the exchange: a permission change or a same-bytes replacement under a new
+inode number there completes the export, while other bytes of the same size and
+mtime, or a symlink, stay in the private entry and stop the root.
 
 Ingest and export tests record a tracked fingerprint under another inode number.
 Unchanged bytes are hashed without staging and are not reported as a conflict

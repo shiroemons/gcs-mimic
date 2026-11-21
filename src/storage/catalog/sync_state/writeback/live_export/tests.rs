@@ -14,6 +14,7 @@ use crate::{
 };
 use std::fs;
 mod empty_directory;
+mod exchange;
 mod migration;
 mod removal;
 
