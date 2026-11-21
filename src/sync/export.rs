@@ -10,7 +10,7 @@ use crate::{
     },
     sync::{
         Reconciliation, SyncError,
-        error::{Recorded, unless_superseded},
+        failure::{Recorded, unless_superseded},
         mapping::{LexicalReason, Unplaced},
     },
 };
@@ -22,6 +22,8 @@ pub(super) mod restore;
 pub(super) mod retry;
 mod run;
 mod skipped;
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod tests;
 pub(super) use skipped::{SkippedExport, SkippedExports};
 
 /// Exports one object's live state; `Some` is an export skipped for a retry to finish.

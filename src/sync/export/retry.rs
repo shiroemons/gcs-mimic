@@ -1,6 +1,6 @@
 //! Retrying the steps of an export that fail transiently, with backoff.
 
-use crate::sync::backoff::{Backoff, RETRY_DELAY_MAX};
+use crate::sync::backoff::{Backoff, RETRY_DELAY_MAX, RetryBudget};
 #[cfg(test)]
 use crate::sync::mirror::export_checkpoint;
 use crate::{
@@ -14,18 +14,17 @@ use crate::{
     },
     sync::{
         SyncError,
+        failure::{Failure, transient_below},
         report::remedy::export_retry_remedy,
         tree::{ParentError, ParentOpen, parent},
     },
 };
-use std::{fs::File, future::Future, io, path::PathBuf, time::Duration};
+use std::{fs::File, future::Future, path::PathBuf, time::Duration};
 
 /// A failed export step waits 1 s, then 2 s; a third failure pauses synchronization.
-pub(in crate::sync) const EXPORT_BACKOFF: Backoff =
-    Backoff::new(Duration::from_secs(1), RETRY_DELAY_MAX);
-pub(in crate::sync) const EXPORT_RETRIES: u32 = 2;
+pub(super) const EXPORT_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), RETRY_DELAY_MAX);
 
-pub(in crate::sync) fn retryable(error: &writeback::Error) -> bool {
+pub(super) fn retryable(error: &writeback::Error) -> bool {
     let error = match error {
         writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => error,
         // An entry that kept failing to open is looked at again; the step is read afresh.
@@ -62,8 +61,8 @@ pub(in crate::sync) fn retryable(error: &writeback::Error) -> bool {
             matches!(
                 cause.kind(),
                 std::io::ErrorKind::StorageFull | std::io::ErrorKind::PermissionDenied
-            ) || crate::sync::error::transient_io(&io::Error::from(cause.kind()))
-                || crate::sync::error::resource_pressure(error)
+            ) || Failure::of_kind(cause.kind()) == Some(Failure::Transient)
+                || transient_below(error)
         }
         AdminError::Busy { .. }
         | AdminError::Closed
@@ -88,7 +87,7 @@ pub(super) async fn wait_retry(
     retry: &mut Backoff,
     root: &RootLease,
 ) -> bool {
-    if retry.retries() >= EXPORT_RETRIES {
+    if !RetryBudget::EXPORT.allows_retry(retry.retries()) {
         return false;
     }
     #[cfg(test)]
@@ -164,7 +163,7 @@ pub(super) async fn advance_with_retry(
     .await
 }
 
-pub(in crate::sync) async fn with_retry<T, F: Future<Output = Result<T, writeback::Error>>>(
+pub(super) async fn with_retry<T, F: Future<Output = Result<T, writeback::Error>>>(
     root: &RootLease,
     mut operation: impl FnMut() -> F,
 ) -> Result<T, SyncError> {
@@ -180,49 +179,5 @@ pub(in crate::sync) async fn with_retry<T, F: Future<Output = Result<T, writebac
             }
             Err(error) => return Err(error.into()),
         }
-    }
-}
-
-/// Whether the tree or the catalog changed from what the step read or planned. A broken
-/// invariant is none, though its caller handles it as one, and neither is an entry that kept
-/// failing to open, which [`retryable`] looks at again.
-pub(super) fn concurrent_change(error: &writeback::Error) -> bool {
-    match error {
-        writeback::Error::Admin(AdminError::Precondition | AdminError::NotFound)
-        | writeback::Error::Raced(
-            RaceReason::ParentChanged
-            | RaceReason::Respelled
-            | RaceReason::TargetChanged
-            | RaceReason::DirectoryChanged,
-        )
-        | writeback::Error::Obsolete(_) => true,
-        writeback::Error::Admin(AdminError::Io(cause)) => {
-            cause.kind() == io::ErrorKind::AlreadyExists
-        }
-        writeback::Error::Admin(
-            AdminError::Busy { .. }
-            | AdminError::DiskFull(_)
-            | AdminError::Closed
-            | AdminError::Hold
-            | AdminError::SeedProjectMismatch
-            | AdminError::SeedMetadataBudget { .. }
-            | AdminError::SourceChanged { .. }
-            | AdminError::Corrupt(_)
-            | AdminError::Invalid(_)
-            | AdminError::Checksum
-            | AdminError::TooLarge
-            | AdminError::Forbidden
-            | AdminError::BodyAborted(_)
-            | AdminError::Backend(_),
-        )
-        | writeback::Error::Root(_)
-        | writeback::Error::Conflict(_)
-        | writeback::Error::Displaced(_)
-        | writeback::Error::Capacity
-        | writeback::Error::RecoveryRequired
-        | writeback::Error::Protected
-        | writeback::Error::WorkspaceChanged
-        | writeback::Error::Raced(RaceReason::Unsettled)
-        | writeback::Error::Invariant(_) => false,
     }
 }

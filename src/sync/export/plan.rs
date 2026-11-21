@@ -18,7 +18,7 @@ use crate::{
     sync::{
         SyncError,
         correspond::{PathEntry, observe_path},
-        error::{superseded, unless_superseded},
+        failure::{superseded, unless_superseded},
         mapping::{self, LexicalReason, Obstruction, PathMapping, Unplaced},
         naming::RootNaming,
         report::remedy::Correction,

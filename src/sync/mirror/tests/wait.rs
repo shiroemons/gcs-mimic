@@ -133,10 +133,10 @@ async fn wait_stops_while_a_skipped_export_waits_for_its_retry() {
     let mut state = live_state(catalog.current_fence().await.unwrap());
     state.skipped.record(
         (bucket.clone(), ObjectName::new("object").unwrap()),
-        Some(SkippedExport {
-            api: Some(Generation::new(api.generation).unwrap()),
-            tracked: None,
-        }),
+        Some(SkippedExport::new(
+            Some(Generation::new(api.generation).unwrap()),
+            None,
+        )),
     );
     let reason = with_control(&catalog, &root, state, async |control| {
         control

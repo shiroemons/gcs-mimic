@@ -797,7 +797,7 @@ async fn an_export_failing_at_the_end_of_an_alias_deletes_nothing_at_restart() {
                 let context = format!("{spelling:?} {names:?} {phase} {kind:?}");
                 fs::remove_file(pair.directory().join(pair.first)).unwrap();
                 assert_eq!(pair.wait().await.reason, WaitReason::Ready, "{context}");
-                let attempts = usize::try_from(EXPORT_RETRIES).unwrap() + 1;
+                let attempts = usize::try_from(RetryBudget::EXPORT.attempts()).unwrap();
                 let root = pair.root.status().root_id;
                 let arm = || {
                     crate::storage::sync_state::writeback::inject_live_export_io_failure(

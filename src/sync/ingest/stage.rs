@@ -18,6 +18,7 @@ use crate::{
     sync::{
         SyncError,
         correspond::{PathEntry, observe_path},
+        failure::{Failure, unless_superseded},
         naming::RootNaming,
     },
 };
@@ -162,7 +163,7 @@ impl Ingest<'_> {
             // An exhausted quota or a read-only file system is the whole file system's failure,
             // not this path's, so it fails the pass as a full disk does.
             Err(RootError::Admin(AdminError::Io(error)))
-                if !crate::sync::error::volume_kind(error.kind()) =>
+                if Failure::of_kind(error.kind()) != Some(Failure::Volume) =>
             {
                 self.defer(&candidate.path, error.kind());
                 self.record_observation(&candidate.binding, &candidate.name, PathStop::IoFailure)
@@ -185,7 +186,7 @@ impl Ingest<'_> {
         name: &ObjectName,
         reason: PathStop,
     ) -> Result<(), SyncError> {
-        crate::sync::error::unless_superseded(
+        unless_superseded(
             self.root
                 .record_path_stop(binding.clone(), name.clone(), reason)
                 .await,

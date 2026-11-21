@@ -18,7 +18,7 @@ use crate::{
     },
     sync::{
         Reconciliation, SyncError,
-        error::{superseded, unless_superseded},
+        failure::{superseded, unless_superseded},
         interrupt::{Interrupt, Interrupted},
     },
 };

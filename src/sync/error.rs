@@ -12,7 +12,7 @@ use crate::{
             writeback::{self, Stop},
         },
     },
-    sync::naming::ProbeError,
+    sync::{failure::Failure, naming::ProbeError},
     task::JobPanicked,
 };
 use std::{error::Error, fmt, io};
@@ -102,52 +102,27 @@ impl<'a> Cause<'a> {
         }
     }
 
-    fn is_transient(self) -> bool {
+    /// The class [`Failure`] gives this link alone. A link that wraps another decides as that
+    /// one does, since the chain reaches it next.
+    fn failure(self) -> Option<Failure> {
         match self {
-            Self::Admin(error) => match error {
-                AdminError::Busy { .. } => true,
-                // The kind alone; a raw OS error below it is its own `Io` cause.
-                AdminError::Io(cause) => transient_kind(cause.kind()),
-                AdminError::DiskFull(_)
-                | AdminError::Closed
-                | AdminError::Precondition
-                | AdminError::Hold
-                | AdminError::SeedProjectMismatch
-                | AdminError::SeedMetadataBudget { .. }
-                | AdminError::SourceChanged { .. }
-                | AdminError::Corrupt(_)
-                | AdminError::NotFound
-                | AdminError::Invalid(_)
-                | AdminError::Checksum
-                | AdminError::TooLarge
-                | AdminError::Forbidden
-                | AdminError::BodyAborted(_)
-                | AdminError::Backend(_) => false,
-            },
-            Self::Catalog(error) => matches!(error, CatalogError::Unavailable(_)),
-            Self::Sqlite(error) => matches!(
-                error.sqlite_error_code(),
-                Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
-            ),
-            Self::Io(error) => transient_io(error),
-            // An entry that kept failing to open, at any write-back step: the run that recovers
-            // write-back first looks at it again, and nothing is taken for gone meanwhile.
-            Self::Writeback(error) => {
-                matches!(
-                    error,
-                    writeback::Error::Raced(writeback::RaceReason::Unsettled)
-                )
-            }
-            Self::Root(_) | Self::Conflict(_) | Self::Stop(_) | Self::Other => false,
+            Self::Admin(error) => Failure::of_admin(error),
+            Self::Root(error) => Failure::of_root(error),
+            Self::Writeback(error) => Failure::of_writeback(error),
+            Self::Catalog(error) => Failure::of_catalog(error),
+            Self::Sqlite(error) => Failure::of_sqlite(error),
+            Self::Io(error) => Failure::of_io(error),
+            Self::Conflict(_) | Self::Stop(_) | Self::Other => None,
         }
     }
 
-    /// Whether this failure is the file system's rather than one path's: a full disk, an
-    /// exhausted quota or a read-only file system fails every later write there as well.
+    fn is_transient(self) -> bool {
+        self.failure() == Some(Failure::Transient)
+    }
+
+    /// Whether this failure is the file system's rather than one path's.
     fn concerns_the_volume(self) -> bool {
-        matches!(self, Self::Admin(AdminError::DiskFull(_)))
-            || matches!(self, Self::Admin(AdminError::Io(cause)) if volume_kind(cause.kind()))
-            || matches!(self, Self::Io(error) if volume_kind(error.kind()))
+        self.failure() == Some(Failure::Volume)
     }
 
     fn pause_reason(self) -> Option<PauseReason> {
@@ -283,71 +258,8 @@ impl SyncError {
 
     /// Whether a deletion pass met a concurrent change and must start over, not fail.
     pub(super) fn is_stale_deletion(&self) -> bool {
-        matches!(self, Self::Root(error) if superseded(error))
+        matches!(self, Self::Root(error) if super::failure::superseded(error))
     }
-}
-
-/// Whether a catalog write about one name failed because an API or bucket change made it moot
-/// after the caller read the state it describes: the object, its generation or its bucket
-/// changed. The journal brings that change to the next replay or pass, which records what then
-/// holds; failing would pause the whole mirror over a race it resolves by itself.
-pub(super) fn superseded(error: &RootError) -> bool {
-    matches!(
-        error,
-        RootError::Admin(AdminError::Precondition | AdminError::NotFound)
-    )
-}
-
-/// The result of a catalog write about one name, with a write that a concurrent change made
-/// moot, as [`superseded`] decides, as done: whether it was recorded or is no longer needed.
-pub(super) fn unless_superseded(result: Result<(), RootError>) -> Result<Recorded, RootError> {
-    match result {
-        Ok(()) => Ok(Recorded::Yes),
-        Err(error) if superseded(&error) => Ok(Recorded::Superseded),
-        Err(error) => Err(error),
-    }
-}
-
-/// Whether a catalog write about one name was recorded or a concurrent change made it moot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Recorded {
-    Yes,
-    Superseded,
-}
-
-/// Retry a write-back step that failed under descriptor or memory pressure.
-pub(super) fn resource_pressure(error: &AdminError) -> bool {
-    chain(Link::Admin(error))
-        .map(Cause::of)
-        .any(|cause| matches!(cause, Cause::Io(error) if transient_io(error)))
-}
-
-/// The I/O failures of a whole file system, which no other path written there escapes.
-pub(super) fn volume_kind(kind: io::ErrorKind) -> bool {
-    matches!(
-        kind,
-        io::ErrorKind::StorageFull
-            | io::ErrorKind::QuotaExceeded
-            | io::ErrorKind::ReadOnlyFilesystem
-    )
-}
-
-fn transient_kind(kind: io::ErrorKind) -> bool {
-    matches!(
-        kind,
-        io::ErrorKind::TimedOut
-            | io::ErrorKind::WouldBlock
-            | io::ErrorKind::Interrupted
-            | io::ErrorKind::ResourceBusy
-    )
-}
-
-pub(super) fn transient_io(error: &io::Error) -> bool {
-    transient_kind(error.kind())
-        || matches!(
-            error.raw_os_error(),
-            Some(libc::EMFILE | libc::ENFILE | libc::EAGAIN | libc::ENOMEM)
-        )
 }
 
 impl fmt::Display for SyncError {

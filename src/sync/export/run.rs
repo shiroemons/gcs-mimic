@@ -2,7 +2,7 @@
 
 use super::{
     Content, LiveObject, LivePlan, SkippedExport,
-    retry::{EXPORT_BACKOFF, advance_with_retry, concurrent_change, retryable, wait_retry},
+    retry::{EXPORT_BACKOFF, advance_with_retry, retryable, wait_retry},
 };
 #[cfg(test)]
 use crate::sync::mirror::{LIVE_EXPORTS, export_checkpoint};
@@ -13,7 +13,7 @@ use crate::{
         change_journal::JournalFence,
         sync_state::writeback::{self, InstallOutcome, LiveExport, LiveSource, Writeback},
     },
-    sync::{SyncError, report::remedy::newer_edit_remedy},
+    sync::{SyncError, failure::Failure, report::remedy::newer_edit_remedy},
 };
 use std::{fs::File, io};
 
@@ -175,7 +175,9 @@ impl LiveObject<'_> {
                     writeback::record_invariant(broken);
                     return Ok(None);
                 }
-                Err(error) if concurrent_change(&error) => return Ok(None),
+                Err(error) if Failure::of_writeback(&error) == Some(Failure::Superseded) => {
+                    return Ok(None);
+                }
                 Err(writeback::Error::Admin(AdminError::Hold))
                     if !protected && captured.is_none() =>
                 {

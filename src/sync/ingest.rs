@@ -3,6 +3,7 @@ use super::tree::TreeScan as Scan;
 use super::{
     Pass, SyncError,
     entries::{EntryClass, EntryProblem, classify, path_text},
+    failure::{Failure, superseded},
     mirror::Reconciliation,
     naming::RootNaming,
     report::{remedy::Correction, verdict::TreeSide},
@@ -387,7 +388,7 @@ impl Ingest<'_> {
                 }
                 Ok(AliasOutcome::Kept)
             }
-            Err(error) if super::error::superseded(&error) => {
+            Err(error) if superseded(&error) => {
                 self.summary.count_deferred(path);
                 Ok(AliasOutcome::Kept)
             }
@@ -418,7 +419,7 @@ impl Ingest<'_> {
             // stage of any other file.
             Err(RootError::Admin(AdminError::Io(error)))
                 if error.kind() != io::ErrorKind::NotFound
-                    && !super::error::volume_kind(error.kind()) =>
+                    && Failure::of_kind(error.kind()) != Some(Failure::Volume) =>
             {
                 self.defer(&holder.path, error.kind());
                 return Ok(());
@@ -494,7 +495,7 @@ impl Ingest<'_> {
                 self.summary.heirs.push((holder.bucket, heir));
                 Ok(())
             }
-            Err(error) if super::error::superseded(&error) => {
+            Err(error) if superseded(&error) => {
                 self.summary.count_deferred(&holder.path);
                 Ok(())
             }
@@ -519,7 +520,7 @@ impl Ingest<'_> {
                 self.summary.heirs.push((holder.bucket, heir));
                 Ok(())
             }
-            Err(error) if super::error::superseded(&error) => {
+            Err(error) if superseded(&error) => {
                 self.summary.count_deferred(&holder.path);
                 Ok(())
             }

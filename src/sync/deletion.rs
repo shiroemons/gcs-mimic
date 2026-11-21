@@ -512,7 +512,7 @@ pub(super) async fn record_replaced(
         Err(AdminError::NotFound | AdminError::Precondition) => return Ok(()),
         Err(error) => return Err(error.into()),
     };
-    super::error::unless_superseded(
+    super::failure::unless_superseded(
         root.record_path_stop(binding, name.clone(), PathStop::EntryReplaced)
             .await,
     )?;

@@ -10,7 +10,7 @@ use crate::{
         admin::{BucketName, Generation},
         sync_state::SyncBinding,
     },
-    sync::{SyncError, error::superseded, report::remedy::Correction},
+    sync::{SyncError, failure::superseded, report::remedy::Correction},
 };
 
 /// What an object's alias does to its export.

@@ -1,6 +1,7 @@
 use super::*;
 use crate::error::Report;
 use crate::storage::failure::{IoCause, Source};
+use crate::sync::failure::{Recorded, superseded, unless_superseded};
 
 fn admin() -> AdminError {
     AdminError::from(io::Error::new(

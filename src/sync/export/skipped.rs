@@ -17,9 +17,17 @@ use crate::{
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::sync) struct SkippedExport {
     /// The API generation the export brings to the tree; `None` removes the tracked file.
-    pub(in crate::sync) api: Option<Generation>,
+    pub(super) api: Option<Generation>,
     /// The generation the tree tracked.
-    pub(in crate::sync) tracked: Option<Generation>,
+    pub(super) tracked: Option<Generation>,
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+impl SkippedExport {
+    /// An export skipped with these generations, as a test of the wait records one.
+    pub(in crate::sync) fn new(api: Option<Generation>, tracked: Option<Generation>) -> Self {
+        Self { api, tracked }
+    }
 }
 
 /// The skipped exports of a live run, by object, which it runs again once the tree settles.

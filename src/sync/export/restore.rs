@@ -1,9 +1,6 @@
 //! Writing an object's file back from the catalog.
 
-use super::{
-    LiveObject, Occasion,
-    retry::{advance_with_retry, concurrent_change},
-};
+use super::{LiveObject, Occasion, retry::advance_with_retry};
 use crate::{
     storage::{
         Catalog,
@@ -13,7 +10,7 @@ use crate::{
             writeback::{self, InstallOutcome, LiveSource},
         },
     },
-    sync::{Reconciliation, SyncError},
+    sync::{Reconciliation, SyncError, backoff::RetryBudget, failure::Failure},
 };
 
 /// What a restore from the catalog left at the object's path.
@@ -30,11 +27,6 @@ pub(in crate::sync) enum Restored {
     Skipped,
 }
 
-/// How many times a restore plans again from the tree when the tree changed under its
-/// installation ([`InstallOutcome::Raced`]). Each attempt reads the tree afresh and runs every check
-/// of an export, so a retry never writes over what the user put at the path meanwhile.
-const RESTORE_ATTEMPTS: usize = 3;
-
 /// Writes the object's file back from the catalog where its path is still empty, as the restore
 /// after a protected or rejected deletion does.
 pub(in crate::sync) async fn restore_from_catalog(
@@ -43,7 +35,10 @@ pub(in crate::sync) async fn restore_from_catalog(
     bucket: &BucketName,
     name: &ObjectName,
 ) -> Result<Restored, SyncError> {
-    for _ in 0..RESTORE_ATTEMPTS {
+    // A restore plans again from the tree when the tree changed under its installation
+    // ([`InstallOutcome::Raced`]). Each attempt reads the tree afresh and runs every check of an
+    // export, so a retry never writes over what the user put at the path meanwhile.
+    for _ in 0..RetryBudget::EXPORT.attempts() {
         if let Some(restored) = restore_once(catalog, root, bucket, name).await? {
             return Ok(restored);
         }
@@ -93,7 +88,9 @@ async fn restore_once(
             writeback::record_invariant(broken);
             return Ok(Some(Restored::Skipped));
         }
-        Err(error) if concurrent_change(&error) => return Ok(Some(Restored::Skipped)),
+        Err(error) if Failure::of_writeback(&error) == Some(Failure::Superseded) => {
+            return Ok(Some(Restored::Skipped));
+        }
         Err(error) => return Err(error.into()),
     };
     loop {

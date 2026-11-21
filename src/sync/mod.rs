@@ -9,6 +9,7 @@ mod deletion;
 pub(crate) mod entries;
 mod error;
 mod export;
+mod failure;
 pub mod handshake;
 mod ingest;
 mod interrupt;
