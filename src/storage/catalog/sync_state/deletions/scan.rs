@@ -61,7 +61,7 @@ pub(crate) enum Begun {
     RejectionPending,
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 impl Begun {
     /// The inventory a test expects to have started.
     pub(crate) fn expect_started(self) -> Inventory {
@@ -83,7 +83,7 @@ pub(crate) enum Completion {
     Diverged,
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 impl Completion {
     /// The set a test expects the inventory to have completed.
     pub(crate) fn expect_set(self) -> DeletionSet {
