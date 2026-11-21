@@ -9,7 +9,7 @@ use crate::{
         admin::AdminError,
         sync_state::{
             root::{RootError, RootLease},
-            writeback::{self, InstallOutcome, LiveExport, Writeback},
+            writeback::{self, InstallOutcome, LiveExport, RaceReason, Writeback},
         },
     },
     sync::{
@@ -28,6 +28,8 @@ pub(in crate::sync) const EXPORT_RETRIES: u32 = 2;
 pub(in crate::sync) fn retryable(error: &writeback::Error) -> bool {
     let error = match error {
         writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => error,
+        // An entry that kept failing to open is looked at again; the step is read afresh.
+        writeback::Error::Raced(RaceReason::Unsettled) => return true,
         writeback::Error::Root(
             RootError::InUse
             | RootError::Unsupported { .. }
@@ -45,7 +47,12 @@ pub(in crate::sync) fn retryable(error: &writeback::Error) -> bool {
         | writeback::Error::RecoveryRequired
         | writeback::Error::Protected
         | writeback::Error::WorkspaceChanged
-        | writeback::Error::Raced(_)
+        | writeback::Error::Raced(
+            RaceReason::ParentChanged
+            | RaceReason::Respelled
+            | RaceReason::TargetChanged
+            | RaceReason::DirectoryChanged,
+        )
         | writeback::Error::Obsolete(_)
         | writeback::Error::Invariant(_) => return false,
     };
@@ -177,11 +184,17 @@ pub(in crate::sync) async fn with_retry<T, F: Future<Output = Result<T, writebac
 }
 
 /// Whether the tree or the catalog changed from what the step read or planned. A broken
-/// invariant is none, though its caller handles it as one.
+/// invariant is none, though its caller handles it as one, and neither is an entry that kept
+/// failing to open, which [`retryable`] looks at again.
 pub(super) fn concurrent_change(error: &writeback::Error) -> bool {
     match error {
         writeback::Error::Admin(AdminError::Precondition | AdminError::NotFound)
-        | writeback::Error::Raced(_)
+        | writeback::Error::Raced(
+            RaceReason::ParentChanged
+            | RaceReason::Respelled
+            | RaceReason::TargetChanged
+            | RaceReason::DirectoryChanged,
+        )
         | writeback::Error::Obsolete(_) => true,
         writeback::Error::Admin(AdminError::Io(cause)) => {
             cause.kind() == io::ErrorKind::AlreadyExists
@@ -209,6 +222,7 @@ pub(super) fn concurrent_change(error: &writeback::Error) -> bool {
         | writeback::Error::RecoveryRequired
         | writeback::Error::Protected
         | writeback::Error::WorkspaceChanged
+        | writeback::Error::Raced(RaceReason::Unsettled)
         | writeback::Error::Invariant(_) => false,
     }
 }

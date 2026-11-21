@@ -1495,6 +1495,57 @@ async fn an_observation_waits_out_a_target_that_briefly_fails_to_open() {
     fixture.close().await;
 }
 
+/// An installed export whose target keeps failing to open when it records durability fails that
+/// step as unsettled and leaves its operation in place, and the recovery that runs before the
+/// next run settles that operation: the target keeps the exported bytes, and no entry or
+/// reservation is left.
+#[tokio::test]
+async fn an_installed_export_whose_target_keeps_failing_to_open_is_left_to_recovery() {
+    let fixture = Fixture::clocked().await;
+    fixture.publish("object", b"api").await;
+    let operation = fixture.begin("object").await;
+    let target = fixture.tree.0.join("test-bucket/object");
+    for _ in 0..8 {
+        if fs::read(&target).is_ok_and(|body| body == b"api") {
+            break;
+        }
+        assert_eq!(
+            fixture
+                .writeback
+                .advance_live_export(operation.clone())
+                .await
+                .unwrap(),
+            InstallOutcome::Pending
+        );
+    }
+    assert_eq!(fs::read(&target).unwrap(), b"api");
+    let failing =
+        fsutil::FailingOpens::vanishing(&fixture.tree.0.join("test-bucket"), "object", usize::MAX);
+    assert!(matches!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await,
+        Err(Error::Raced(RaceReason::Unsettled))
+    ));
+    assert!(failing.left() < usize::MAX);
+    assert_eq!(fixture.writeback.status().await.unwrap().entries, 1);
+    drop(failing);
+    drop(operation);
+    let usage = fixture.writeback.recover_pending().await.unwrap();
+    assert_eq!(
+        (
+            usage.entries,
+            usage.reserved_bytes,
+            usage.retained_bytes,
+            usage.stop()
+        ),
+        (0, 0, 0, Stop::Ready)
+    );
+    assert_eq!(fs::read(&target).unwrap(), b"api");
+    fixture.close().await;
+}
+
 /// A private workspace entry that keeps failing to open while its name still holds it is a race
 /// the operation is read again after, never a name that holds nothing: taken for empty, the
 /// body an exchange displaced into the workspace would stay there with nothing tracking it. One

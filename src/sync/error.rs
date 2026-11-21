@@ -130,11 +130,15 @@ impl<'a> Cause<'a> {
                 Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
             ),
             Self::Io(error) => transient_io(error),
-            Self::Root(_)
-            | Self::Writeback(_)
-            | Self::Conflict(_)
-            | Self::Stop(_)
-            | Self::Other => false,
+            // An entry that kept failing to open, at any write-back step: the run that recovers
+            // write-back first looks at it again, and nothing is taken for gone meanwhile.
+            Self::Writeback(error) => {
+                matches!(
+                    error,
+                    writeback::Error::Raced(writeback::RaceReason::Unsettled)
+                )
+            }
+            Self::Root(_) | Self::Conflict(_) | Self::Stop(_) | Self::Other => false,
         }
     }
 

@@ -2650,6 +2650,29 @@ fn only_typed_transient_io_failures_are_retried() {
     }
 }
 
+/// A write-back step whose target, a directory above it or its private entry kept failing to
+/// open while the name still held an entry is looked at again, at whatever step it failed: the
+/// step is retried, and a run it still fails is run again, with write-back recovery first,
+/// rather than pausing the mirror. A target the user changed is no such failure: the export
+/// plans around it instead.
+#[test]
+fn a_step_whose_entry_kept_failing_to_open_is_retried_and_does_not_pause() {
+    use crate::storage::sync_state::writeback::RaceReason;
+    let unsettled = writeback::Error::Raced(RaceReason::Unsettled);
+    assert!(retryable(&unsettled));
+    assert!(SyncError::from(unsettled).is_transient());
+    for reason in [
+        RaceReason::ParentChanged,
+        RaceReason::Respelled,
+        RaceReason::TargetChanged,
+        RaceReason::DirectoryChanged,
+    ] {
+        let changed = writeback::Error::Raced(reason);
+        assert!(!retryable(&changed), "{reason:?}");
+        assert!(!SyncError::from(changed).is_transient(), "{reason:?}");
+    }
+}
+
 #[tokio::test]
 async fn wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan() {
     let (_data, tree, catalog, bucket, root) = live_fixture().await;
