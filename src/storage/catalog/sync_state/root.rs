@@ -699,7 +699,7 @@ impl RootLease {
     /// root marker, whose spelling no naming rule decides. They need no probe, so recovery can
     /// use them before the root's naming rules are known, and they wait on the catalog's clock
     /// as [`Self::lookup`] does.
-    pub(crate) fn private_lookup(&self) -> crate::fsutil::Lookup {
+    pub(super) fn private_lookup(&self) -> crate::fsutil::Lookup {
         self.state.private_lookup()
     }
     /// Records the probed naming rules. A later probe of the same pinned root that observes other
