@@ -39,9 +39,11 @@ pub(super) fn observe_target(
     Ok(match observe_path(root, naming, lookup, Path::new(path)) {
         PathEntry::Absent {
             above: Above::Missing,
+            ..
         } => TargetState::ParentMissing,
         PathEntry::Absent {
             above: Above::Present,
+            ..
         } => TargetState::Absent,
         PathEntry::File { file, .. } => TargetState::File(file),
         PathEntry::Directory(error) => TargetState::Directory(error),

@@ -29,8 +29,12 @@ pub(crate) enum Removal {
 /// path that cannot be observed is neither present nor absent.
 #[derive(Debug)]
 pub(in crate::sync) enum Presence {
-    /// Nothing: the file is gone, or a directory above it is, as the removal tells.
-    Absent(Removal),
+    /// Nothing: the file is gone, or a directory above it is, as the removal tells, with the
+    /// lookup's proof that the name holds nothing.
+    Absent {
+        removal: Removal,
+        vacant: fsutil::Vacant,
+    },
     /// The directory lists the file under another spelling, at which another object is tracked:
     /// the file was renamed to that object's name, and this path holds nothing of its own any
     /// more.
@@ -58,10 +62,12 @@ pub(in crate::sync) enum Observed {
 /// nobody looked at or for another candidate than the one seen.
 #[derive(Debug)]
 pub(crate) enum Missing {
-    /// The path was seen empty, with what was gone above it.
+    /// The path was seen empty, with what was gone above it and the lookup's proof that the
+    /// name holds nothing, held rather than read: no failed read of the path can make one.
     Absent {
         candidate: Candidate,
         removal: Removal,
+        _vacant: fsutil::Vacant,
     },
     /// The file was renamed to the spelling of another tracked object's name.
     Respelled { candidate: Candidate },
@@ -184,7 +190,11 @@ pub(in crate::sync) async fn observe(
 ) -> Result<Observed, SyncError> {
     Ok(
         match presence(root, lookup, candidate.path.clone()).await? {
-            Presence::Absent(removal) => Observed::Absent(Missing::Absent { candidate, removal }),
+            Presence::Absent { removal, vacant } => Observed::Absent(Missing::Absent {
+                candidate,
+                removal,
+                _vacant: vacant,
+            }),
             Presence::Respelled => Observed::Absent(Missing::Respelled { candidate }),
             Presence::Present => Observed::Present(candidate),
             Presence::Unobservable(reason) => Observed::Unobservable(candidate, reason),
@@ -229,10 +239,15 @@ pub(in crate::sync) async fn presence(
                 PathEntry::File { .. } => Looked::At(Presence::Present),
                 PathEntry::Absent {
                     above: Above::Present,
-                } => Looked::At(Presence::Absent(Removal::Files)),
+                    vacant,
+                } => Looked::At(Presence::Absent {
+                    removal: Removal::Files,
+                    vacant,
+                }),
                 PathEntry::Absent {
                     above: Above::Missing,
-                } => Looked::At(missing_above(root, &lookup, path)),
+                    vacant,
+                } => Looked::At(missing_above(root, &lookup, path, vacant)),
                 PathEntry::Unplaced(_) => {
                     Looked::At(Presence::Unobservable(Unobservable::ParentBlocked))
                 }
@@ -286,15 +301,26 @@ enum Looked {
     Spelled(String),
 }
 
-/// The absence of `path`, a directory above which is missing: whether its bucket's whole
-/// directory is gone, or only directories inside it.
-fn missing_above(root: &File, lookup: &fsutil::Lookup, path: &Path) -> Presence {
+/// The absence of `path`, a directory above which is missing as `vacant` proves: whether its
+/// bucket's whole directory is gone, or only directories inside it.
+fn missing_above(
+    root: &File,
+    lookup: &fsutil::Lookup,
+    path: &Path,
+    vacant: fsutil::Vacant,
+) -> Presence {
     let Some(bucket) = path.iter().next() else {
         return Presence::Unobservable(Unobservable::InvalidPath);
     };
     match lookup.directory(root, bucket, fsutil::DirectoryOpen::Existing) {
-        Ok(fsutil::Child::Missing(_)) => Presence::Absent(Removal::BucketDirectory),
-        Ok(fsutil::Child::Directory { .. }) => Presence::Absent(Removal::Files),
+        Ok(fsutil::Child::Missing(vacant)) => Presence::Absent {
+            removal: Removal::BucketDirectory,
+            vacant,
+        },
+        Ok(fsutil::Child::Directory { .. }) => Presence::Absent {
+            removal: Removal::Files,
+            vacant,
+        },
         Ok(fsutil::Child::Alias) => Presence::Unobservable(Unobservable::ParentBlocked),
         Ok(fsutil::Child::Transient) => Presence::Unobservable(Unobservable::Unsettled),
         Err(error) => lookup_failure(error),

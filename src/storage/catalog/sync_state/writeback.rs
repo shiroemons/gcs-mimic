@@ -230,7 +230,7 @@ impl From<crate::sync::tree::ParentError> for Error {
         use crate::sync::tree::ParentError;
         match error {
             ParentError::Io(error) => error.into(),
-            ParentError::Finding(_) | ParentError::Missing => {
+            ParentError::Finding(_) | ParentError::Missing(_) => {
                 Self::Raced(RaceReason::ParentChanged)
             }
             // A directory that kept failing to open is read again by the export the race leads
@@ -700,7 +700,7 @@ fn parent(
         ParentOpen::Existing,
     ) {
         Ok(directory) => directory,
-        Err(ParentError::Missing) => return Ok(None),
+        Err(ParentError::Missing(_)) => return Ok(None),
         Err(error) => return Err(error.into()),
     };
     if sync == ParentSync::Sync {

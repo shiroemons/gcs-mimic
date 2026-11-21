@@ -135,7 +135,7 @@ impl From<crate::sync::tree::ParentError> for Error {
         match error {
             ParentError::Io(error) => error.into(),
             // A directory that kept failing to open is read again by the retry.
-            ParentError::Finding(_) | ParentError::Missing | ParentError::Transient => {
+            ParentError::Finding(_) | ParentError::Missing(_) | ParentError::Transient => {
                 Self::TargetChanged
             }
         }

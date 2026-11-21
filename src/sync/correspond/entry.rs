@@ -17,8 +17,13 @@ use std::{fs::File, io, path::Path};
 /// What a path below the root holds.
 #[derive(Debug)]
 pub(crate) enum PathEntry {
-    /// Nothing, as far down as [`Above`] tells.
-    Absent { above: Above },
+    /// Nothing, as far down as [`Above`] tells, with the lookup's proof that the first name
+    /// missing on the path holds nothing. Only a lookup makes that proof, so no failed read
+    /// passes for an empty path, which the deletion inventory takes for a deleted file.
+    Absent {
+        above: Above,
+        vacant: fsutil::Vacant,
+    },
     /// The path's own form, or what holds a directory above it, keeps it from holding a file,
     /// for the reason given.
     Unplaced(Unplaced),
@@ -63,9 +68,10 @@ pub(crate) fn observe_path(
     };
     let directory = match tree::parent(root, naming, lookup, parent, ParentOpen::Existing) {
         Ok(directory) => directory,
-        Err(ParentError::Missing) => {
+        Err(ParentError::Missing(vacant)) => {
             return PathEntry::Absent {
                 above: Above::Missing,
+                vacant,
             };
         }
         Err(ParentError::Finding(reason)) => return PathEntry::Unplaced(reason),
@@ -81,8 +87,9 @@ pub(crate) fn observe_path(
         // The name reached the file under another spelling whichever one the listing would have
         // named, so a failed listing leaves an alias without its spelling, not a failed read.
         Ok(RegularChild::Respelled(Err(_))) => PathEntry::Respelled(ListedSpelling::Unnamed),
-        Ok(RegularChild::Missing(_)) => PathEntry::Absent {
+        Ok(RegularChild::Missing(vacant)) => PathEntry::Absent {
             above: Above::Present,
+            vacant,
         },
         Ok(RegularChild::Transient) => PathEntry::Transient,
         Err(error) if tree::structural_entry_error(&error) => {

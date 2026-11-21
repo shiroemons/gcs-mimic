@@ -189,7 +189,7 @@ impl LiveObject<'_> {
                 crate::sync::deletion::record_replaced(self.root, self.bucket, self.name).await?;
                 Ok(true)
             }
-            crate::sync::deletion::Presence::Absent(_)
+            crate::sync::deletion::Presence::Absent { .. }
             | crate::sync::deletion::Presence::Respelled
             | crate::sync::deletion::Presence::Present
             | crate::sync::deletion::Presence::Unobservable(_) => Ok(false),
@@ -439,7 +439,7 @@ fn inspect(
         ParentOpen::Existing,
     )
     .map_err(|error| match error {
-        ParentError::Finding(_) | ParentError::Missing | ParentError::Transient => {
+        ParentError::Finding(_) | ParentError::Missing(_) | ParentError::Transient => {
             AdminError::Precondition
         }
         ParentError::Io(error) => error.into(),

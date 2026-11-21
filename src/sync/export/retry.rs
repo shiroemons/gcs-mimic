@@ -126,7 +126,7 @@ pub(in crate::sync) async fn create_directory(
     file_job_retry(root, move |root| {
         match parent(root, naming, &lookup, &directory, ParentOpen::Create) {
             Ok(_) => Ok(true),
-            Err(ParentError::Finding(_) | ParentError::Missing) => Ok(false),
+            Err(ParentError::Finding(_) | ParentError::Missing(_)) => Ok(false),
             Err(ParentError::Transient) => Err(io::Error::from(crate::fsutil::Unsettled).into()),
             Err(ParentError::Io(error)) => Err(error.into()),
         }

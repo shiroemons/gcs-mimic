@@ -280,7 +280,8 @@ pub(crate) enum ParentOpen {
 #[derive(Debug)]
 pub(crate) enum ParentError {
     Finding(Unplaced),
-    Missing,
+    /// A directory on the path is not there, as the lookup proved.
+    Missing(fsutil::Vacant),
     /// A directory on the path kept failing to open while its name still held an entry
     /// ([`fsutil::Opened::Transient`]): whether it is there is unknown until a later read.
     Transient,
@@ -370,7 +371,7 @@ pub(crate) fn parent(
                 directory = file;
             }
             Ok(Child::Alias) => return Err(ParentError::Finding(Obstruction::Collision.into())),
-            Ok(Child::Missing(_)) => return Err(ParentError::Missing),
+            Ok(Child::Missing(vacant)) => return Err(ParentError::Missing(vacant)),
             Ok(Child::Transient) => return Err(ParentError::Transient),
             Err(error) if !structural_entry_error(&error) => return Err(error.into()),
             Err(_) if fsutil::open_regular_at(&directory, component).is_ok() => {

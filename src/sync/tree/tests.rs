@@ -135,7 +135,7 @@ fn existing_parents_never_create_missing_directories_and_reject_aliases_and_syml
             Path::new("bucket/nested"),
             ParentOpen::Existing
         ),
-        Err(ParentError::Missing)
+        Err(ParentError::Missing(_))
     ));
     assert!(!tree.0.join("bucket").exists());
     fs::create_dir(tree.0.join("Dir")).unwrap();

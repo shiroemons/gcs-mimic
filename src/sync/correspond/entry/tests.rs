@@ -45,19 +45,22 @@ fn a_path_holds_its_file_or_tells_how_far_down_it_is_there() {
     assert!(matches!(
         tree.observe("bucket/missing"),
         PathEntry::Absent {
-            above: Above::Present
+            above: Above::Present,
+            ..
         }
     ));
     assert!(matches!(
         tree.observe("bucket/gone/file"),
         PathEntry::Absent {
-            above: Above::Missing
+            above: Above::Missing,
+            ..
         }
     ));
     assert!(matches!(
         tree.observe("other/file"),
         PathEntry::Absent {
-            above: Above::Missing
+            above: Above::Missing,
+            ..
         }
     ));
 }
@@ -148,7 +151,8 @@ fn a_file_reached_under_another_spelling_names_the_listed_one() {
         assert!(matches!(
             tree.observe("bucket/actual"),
             PathEntry::Absent {
-                above: Above::Present
+                above: Above::Present,
+                ..
             }
         ));
         return;
