@@ -2,13 +2,10 @@ use super::interrupt::{Interrupt, Interrupted};
 use super::tree::TreeScan as Scan;
 use super::{
     Pass, SyncError,
-    deletion::Presence,
-    entries::{EntryClass, EntryProblem, MappedFile, classify, path_text},
-    mapping,
+    entries::{EntryClass, EntryProblem, classify, path_text},
     mirror::Reconciliation,
     naming::RootNaming,
     report::{remedy::Correction, verdict::TreeSide},
-    tree::{ParentError, ParentOpen, parent},
 };
 use crate::{
     config::Config,
@@ -18,17 +15,24 @@ use crate::{
         Catalog,
         admin::{
             Admin, AdminError, BatchPublication, BucketName, Generation, GenerationCondition,
-            ObjectName, Publication, PublishMode, StagedObject,
+            ObjectName,
         },
         sync_state::{
-            Ordinal, SyncBinding, SyncFingerprint, SyncPath, SyncRecord, SyncUpdate,
-            durable::{self, Durable, NotDurable, SyncedDirectories},
-            observation::{AliasEdit, PathStop, TransientStop, Transition},
+            SyncBinding, SyncFingerprint, SyncPath, SyncRecord,
+            durable::SyncedDirectories,
+            observation::{AliasEdit, Transition},
             root::{RootError, RootLease},
         },
     },
 };
 use std::{fs::File, io, path::PathBuf};
+
+mod candidate;
+mod publish;
+mod stage;
+mod stops;
+
+use stops::clear_missing_observations;
 
 /// A changed regular file selected for ingestion, with what `candidate` already parsed from it.
 struct Candidate {
@@ -60,112 +64,6 @@ enum AliasOutcome {
 struct Heir {
     name: ObjectName,
     base: Option<Generation>,
-}
-
-/// What a file's stat observation shows about the body its tracked fingerprint recorded.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TrackedCheck {
-    /// Size, inode, mtime and ctime match a stable fingerprint: the body is unchanged.
-    Unchanged,
-    /// Only hashing the file can tell: the fingerprint is racy, or the inode number alone
-    /// differs. Docker Desktop's shared folders can report a new number for an unchanged
-    /// file, so that difference alone does not show an edit.
-    Hash,
-    /// Size, mtime or ctime differ: the file is an ingestion candidate.
-    Changed,
-}
-
-impl TrackedCheck {
-    fn new(fingerprint: &SyncFingerprint, identity: FileIdentity) -> Self {
-        let changes = fingerprint.changed_fields(identity);
-        if changes.is_empty() && !fingerprint.racy {
-            Self::Unchanged
-        } else if changes.is_empty() || changes.is_inode_only() {
-            Self::Hash
-        } else {
-            Self::Changed
-        }
-    }
-}
-
-/// What hashing a file showed about its tracked body.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum HashCheck {
-    /// The file holds the tracked body, and its observed identity is now recorded.
-    Recorded,
-    /// The file holds the tracked body, but the API generation moved on or the object is gone,
-    /// so the observed identity is not recorded. The file is no external edit, and the pass
-    /// handles it like an unchanged file: the export or removal of the API change replaces it.
-    /// Ingesting it would report that change as a conflict. Counting it as deferred would keep
-    /// a wait reporting the source as changing, because only that export records a new
-    /// fingerprint, and a finding can hold the export back indefinitely.
-    Superseded,
-    /// The bytes differ, or the file changed while it was read.
-    Differs,
-    /// The file holds the tracked body, but it could not be made durable, so nothing is recorded
-    /// and it counts as deferred, as an ingested file would.
-    Deferred,
-}
-
-struct PinnedSource {
-    file: File,
-    _lease: RootLease,
-}
-impl std::borrow::Borrow<File> for PinnedSource {
-    fn borrow(&self) -> &File {
-        &self.file
-    }
-}
-
-fn open_source(
-    root: &File,
-    naming: RootNaming,
-    lookup: &fsutil::Lookup,
-    path: &std::path::Path,
-    expected: FileIdentity,
-) -> Result<(File, FileIdentity), AdminError> {
-    let directory = parent(
-        root,
-        naming,
-        lookup,
-        path.parent().ok_or(AdminError::Precondition)?,
-        ParentOpen::Existing,
-    )
-    .map_err(|error| match error {
-        ParentError::Io(error) => AdminError::from(error),
-        ParentError::Finding(_) | ParentError::Missing => AdminError::Precondition,
-    })?;
-    let fsutil::RegularChild::File(file) = lookup.regular(
-        &directory,
-        path.file_name().ok_or(AdminError::Precondition)?,
-    )?
-    else {
-        return Err(AdminError::Precondition);
-    };
-    if fsutil::stat_identity(&file)? != expected {
-        return Err(AdminError::Precondition);
-    }
-    Ok((file, fsutil::stat_identity(&directory)?))
-}
-
-/// The second half of reading a source: re-resolves `path` below `root` and fails with
-/// `Precondition` unless it still names the unchanged file `expected` in the directory `parent`.
-/// `open_source` took both identities before the read, so a file or any of its ancestors
-/// replaced or renamed while it was read is detected.
-fn recheck_source(
-    root: &File,
-    naming: RootNaming,
-    lookup: &fsutil::Lookup,
-    path: &std::path::Path,
-    expected: FileIdentity,
-    parent: FileIdentity,
-) -> Result<(), AdminError> {
-    let (_, current) = open_source(root, naming, lookup, path, expected)?;
-    if current.node() == parent.node() {
-        Ok(())
-    } else {
-        Err(AdminError::Precondition)
-    }
 }
 
 async fn forget_missing_directories(
@@ -319,48 +217,6 @@ pub(super) async fn rescan_with(
     Ok(summary)
 }
 
-/// The path stops that what the tree holds at a path decides, which a scan clears once the path
-/// holds the regular file again or nothing at all. An alias edit goes once the file is back to
-/// the bytes the tree tracked or gone, since no edit is left to take in.
-const TREE_STOPS: [PathStop; 4] = [
-    PathStop::SourceChanging,
-    PathStop::IoFailure,
-    PathStop::EntryReplaced,
-    PathStop::AliasEdited,
-];
-
-async fn clear_missing_observations(
-    root: &RootLease,
-    interrupt: Interrupt<'_>,
-) -> Result<(), SyncError> {
-    let naming = root.naming()?;
-    let lookup = root.lookup()?;
-    let mut after = Ordinal::START;
-    while interrupt.check() == Interrupted::No {
-        let page = root.transient_stop_page(after).await?;
-        if page.is_empty() {
-            break;
-        }
-        for TransientStop {
-            ordinal,
-            binding,
-            name,
-        } in page
-        {
-            after = ordinal;
-            if let mapping::PathMapping::File(path) =
-                mapping::name_to_path(binding.bucket(), &name, naming)
-                && let Some(path) = path.to_str()
-                && let Presence::Absent(_) =
-                    super::deletion::presence(root, &lookup, path.to_owned()).await?
-            {
-                root.clear_path_stops(binding, name, &TREE_STOPS).await?;
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Whether a top-level directory may be ingested or belongs to a bucket deleted through the
 /// API, whose subtree is not taken in until the user resolves it.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -494,312 +350,6 @@ impl Ingest<'_> {
         self.summary
             .count_unrepresentable_entry(path, EntryProblem::DeletedBucket);
         Ok(BucketDirectory::Blocked)
-    }
-
-    /// Selects a regular file whose observed state differs from its tracked fingerprint;
-    /// `None` means it is unchanged or was counted as unrepresentable or deferred.
-    async fn candidate(
-        &mut self,
-        path: PathBuf,
-        file: MappedFile,
-    ) -> Result<Option<Candidate>, SyncError> {
-        let MappedFile {
-            bucket,
-            name,
-            identity,
-        } = file;
-        let state = self.catalog.sync_state();
-        let binding = match self.root.sync_binding(&bucket).await {
-            Ok(binding) => binding,
-            Err(AdminError::NotFound | AdminError::Precondition) => {
-                self.summary.count_deferred(&path);
-                return Ok(None);
-            }
-            Err(error) => return Err(error.into()),
-        };
-        let text = path
-            .to_str()
-            .ok_or(SyncError::Invariant("invalid sync path"))?
-            .to_owned();
-        // The tracked state's lookup checks the same spelling, so this fails exactly where it would.
-        let key = SyncPath::try_from(text.clone())?;
-        let tracked = match state.get_path(binding.clone(), text).await {
-            Ok(tracked) => tracked,
-            Err(AdminError::NotFound | AdminError::Precondition) => {
-                self.summary.count_deferred(&path);
-                return Ok(None);
-            }
-            Err(error) => return Err(error.into()),
-        };
-        if let Some(tracked) = &tracked {
-            let unchanged = match TrackedCheck::new(&tracked.fingerprint, identity) {
-                TrackedCheck::Unchanged => true,
-                TrackedCheck::Hash => match self
-                    .hash_tracked(&key, identity, tracked, &binding, &name)
-                    .await?
-                {
-                    HashCheck::Recorded => {
-                        self.summary.identical += 1;
-                        true
-                    }
-                    HashCheck::Superseded => true,
-                    HashCheck::Differs => false,
-                    HashCheck::Deferred => return Ok(None),
-                },
-                TrackedCheck::Changed => false,
-            };
-            if unchanged {
-                self.clear_observation(binding, name).await?;
-                return Ok(None);
-            }
-            match self.alias_edit(&binding, &name, &path, &key).await? {
-                AliasOutcome::Free => {}
-                AliasOutcome::Kept => return Ok(None),
-                AliasOutcome::HandOver(heir) => {
-                    let holder = Candidate {
-                        path,
-                        key,
-                        identity,
-                        bucket,
-                        name,
-                        binding,
-                        tracked: Some(tracked.clone()),
-                        live: None,
-                    };
-                    self.hand_over(holder, heir).await?;
-                    return Ok(None);
-                }
-            }
-        } else if self
-            .root
-            .frozen_elsewhere(binding.clone(), name.clone(), key.clone())
-            .await?
-        {
-            // The frozen file of an alias, renamed on the host to another object's spelling:
-            // taking it in for that object would end its alias finding while the file still
-            // stands for the others, so it stays frozen until an API change ends the alias. It
-            // is not deferred, since no later pass decides otherwise and a deferral would hold
-            // every wait; the wait names it among the frozen files instead.
-            return Ok(None);
-        }
-        let live = match self.admin.get_object(&bucket, &name, None).await {
-            Ok(record) => Some(record),
-            Err(AdminError::NotFound) => None,
-            Err(error) => return Err(error.into()),
-        };
-        if super::export::reconcile::hierarchy_collision(&self.admin, &bucket, &name).await? {
-            self.summary
-                .count_unrepresentable_entry(&path, EntryProblem::PathCollision);
-            return Ok(None);
-        }
-        Ok(Some(Candidate {
-            path,
-            key,
-            identity,
-            bucket,
-            name,
-            binding,
-            tracked,
-            live,
-        }))
-    }
-
-    /// Hashes the file at `path`, observed as `expected`, and compares it with the tracked body.
-    /// A match records the observed identity, so a later stable pass skips the hash. The file
-    /// may be a new one with the same bytes, such as an editor's save through a rename, whose
-    /// entry is as volatile as an ingested file's, so it is made durable first like one.
-    async fn hash_tracked(
-        &mut self,
-        path: &SyncPath,
-        expected: FileIdentity,
-        tracked: &SyncRecord,
-        binding: &SyncBinding,
-        name: &ObjectName,
-    ) -> Result<HashCheck, SyncError> {
-        let selected = PathBuf::from(path.as_str());
-        let naming = self.naming;
-        let lookup = self.lookup.clone();
-        let observed = self
-            .root
-            .file_job(move |root| {
-                let (file, parent) = open_source(root, naming, &lookup, &selected, expected)?;
-                let hashes = fsutil::hash_exact(&file, expected.size, |_| Ok::<_, io::Error>(()))?;
-                recheck_source(root, naming, &lookup, &selected, expected, parent)?;
-                Ok(hashes)
-            })
-            .await;
-        let hashes = match observed {
-            Ok(fsutil::HashOutcome::Complete(hashes)) => hashes,
-            Ok(_) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
-                return Ok(HashCheck::Differs);
-            }
-            Err(error) => return Err(error.into()),
-        };
-        if hashes.md5 != tracked.fingerprint.md5 || hashes.crc32c != tracked.fingerprint.crc32c {
-            return Ok(HashCheck::Differs);
-        }
-        let fingerprint =
-            SyncFingerprint::observed(expected, hashes, self.root.observation_time_ns());
-        let Some(durable) = self.make_durable(path, expected, binding, name).await? else {
-            return Ok(HashCheck::Deferred);
-        };
-        let update = SyncUpdate::new(binding.clone(), durable, fingerprint)?;
-        match self
-            .catalog
-            .sync_state()
-            .acknowledge(name, tracked.generation, update)
-            .await
-        {
-            Ok(()) => Ok(HashCheck::Recorded),
-            Err(AdminError::Precondition | AdminError::NotFound) => Ok(HashCheck::Superseded),
-            Err(error) => Err(error.into()),
-        }
-    }
-
-    /// Stages the file's current bytes, verifying that its identity and parent did not change
-    /// while it was read.
-    async fn stage(
-        &self,
-        selected: PathBuf,
-        identity: FileIdentity,
-    ) -> Result<StagedObject, RootError> {
-        let path = selected.clone();
-        let naming = self.naming;
-        let lookup = self.lookup.clone();
-        let opening = self.lookup.clone();
-        let (file, directory) = self
-            .root
-            .file_job(move |root| open_source(root, naming, &opening, &path, identity))
-            .await?;
-        #[cfg(test)]
-        checkpoint("stage").await;
-        let source = PinnedSource {
-            file,
-            _lease: self.root.clone(),
-        };
-        let staged = self
-            .admin
-            .stage_from_file(source, Default::default(), self.config.max_object_bytes)
-            .await?;
-        #[cfg(test)]
-        checkpoint("staged").await;
-        let checked = self
-            .root
-            .file_job(move |root| {
-                recheck_source(root, naming, &lookup, &selected, identity, directory)
-            })
-            .await;
-        if let Err(error) = checked {
-            if let Err(cleanup) = staged.discard().await {
-                diagnostics::emit(
-                    LogLevel::Error,
-                    "sync_staging_cleanup_failed",
-                    serde_json::json!({"reason":crate::error::Report(&cleanup).to_string()}),
-                );
-            }
-            return Err(error);
-        }
-        Ok(staged)
-    }
-
-    /// Stages a candidate's bytes with the fingerprint that tracks them; `None` means the
-    /// file changed or became unreadable and was deferred.
-    async fn stage_update(
-        &mut self,
-        candidate: &Candidate,
-    ) -> Result<Option<(StagedObject, SyncFingerprint)>, SyncError> {
-        let staged = match self.stage(candidate.path.clone(), candidate.identity).await {
-            Ok(staged) => staged,
-            Err(RootError::Admin(error))
-                if matches!(
-                    &error,
-                    AdminError::Precondition
-                        | AdminError::NotFound
-                        | AdminError::SourceChanged { .. }
-                ) || matches!(&error, AdminError::Io(cause) if cause.kind() == io::ErrorKind::NotFound) =>
-            {
-                self.summary.count_deferred(&candidate.path);
-                self.record_observation(
-                    &candidate.binding,
-                    &candidate.name,
-                    PathStop::SourceChanging,
-                )
-                .await?;
-                return Ok(None);
-            }
-            Err(RootError::Admin(AdminError::Io(error))) => {
-                self.defer(&candidate.path, error.kind());
-                self.record_observation(&candidate.binding, &candidate.name, PathStop::IoFailure)
-                    .await?;
-                return Ok(None);
-            }
-            Err(error) => return Err(error.into()),
-        };
-        let hashes = staged.hashes();
-        self.clear_observation(candidate.binding.clone(), candidate.name.clone())
-            .await?;
-        let fingerprint =
-            SyncFingerprint::observed(candidate.identity, hashes, self.root.observation_time_ns());
-        Ok(Some((staged, fingerprint)))
-    }
-
-    async fn record_observation(
-        &self,
-        binding: &SyncBinding,
-        name: &ObjectName,
-        reason: PathStop,
-    ) -> Result<(), SyncError> {
-        super::error::unless_superseded(
-            self.root
-                .record_path_stop(binding.clone(), name.clone(), reason)
-                .await,
-        )?;
-        Ok(())
-    }
-
-    /// Makes the file at `path`, observed as `identity`, durable together with the directory
-    /// entries above it, before the catalog records it. `None` means it could not: the file is
-    /// counted as deferred with the path stop that names why, nothing is recorded for it, and the
-    /// next scan tries again.
-    async fn make_durable(
-        &mut self,
-        path: &SyncPath,
-        identity: FileIdentity,
-        binding: &SyncBinding,
-        name: &ObjectName,
-    ) -> Result<Option<Durable>, SyncError> {
-        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-        crate::storage::fault::hit_io(
-            &self.config.data_dir,
-            crate::storage::fault::Step::SyncSourceSync,
-        )?;
-        let selected = path.clone();
-        let lookup = self.lookup.clone();
-        let mut synced = std::mem::take(&mut self.synced);
-        let (synced, outcome) = self
-            .root
-            .file_job(move |root| {
-                let outcome =
-                    durable::make_durable(root, &lookup, &selected, identity, &mut synced);
-                Ok((synced, outcome))
-            })
-            .await?;
-        self.synced = synced;
-        match outcome {
-            Ok(durable) => Ok(Some(durable)),
-            Err(NotDurable::Changed) => {
-                self.summary.count_deferred(path.as_ref());
-                self.record_observation(binding, name, PathStop::SourceChanging)
-                    .await?;
-                Ok(None)
-            }
-            Err(NotDurable::Io(error)) => {
-                self.defer(path.as_ref(), error.kind());
-                self.record_observation(binding, name, PathStop::IoFailure)
-                    .await?;
-                Ok(None)
-            }
-        }
     }
 
     /// What becomes of the changed tracked file of `name` that an alias may stand for. While it
@@ -974,17 +524,6 @@ impl Ingest<'_> {
         }
     }
 
-    async fn clear_observation(
-        &self,
-        binding: SyncBinding,
-        name: ObjectName,
-    ) -> Result<(), SyncError> {
-        self.root
-            .clear_path_stops(binding, name, &TREE_STOPS)
-            .await?;
-        Ok(())
-    }
-
     async fn ingest(&mut self, candidate: Candidate) -> Result<(), SyncError> {
         let Some((staged, fingerprint)) = self.stage_update(&candidate).await? else {
             return Ok(());
@@ -1029,122 +568,6 @@ impl Ingest<'_> {
             return Ok(());
         }
         self.publish(candidate, staged, fingerprint).await
-    }
-
-    /// Tracks the candidate's file, which holds the bytes of the live generation `generation`.
-    async fn acknowledge_identical(
-        &mut self,
-        candidate: &Candidate,
-        generation: Generation,
-        fingerprint: SyncFingerprint,
-    ) -> Result<(), SyncError> {
-        let Some(durable) = self
-            .make_durable(
-                &candidate.key,
-                candidate.identity,
-                &candidate.binding,
-                &candidate.name,
-            )
-            .await?
-        else {
-            return Ok(());
-        };
-        let update = SyncUpdate::new(candidate.binding.clone(), durable, fingerprint)?;
-        match self
-            .catalog
-            .sync_state()
-            .acknowledge(&candidate.name, generation, update)
-            .await
-        {
-            Ok(()) => {
-                self.summary.identical += 1;
-                #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-                self.reached(crate::storage::fault::Step::SyncSourceRecorded)
-                    .await?;
-            }
-            Err(AdminError::Precondition | AdminError::NotFound) => {
-                self.summary.count_deferred(&candidate.path);
-            }
-            Err(error) => return Err(error.into()),
-        }
-        Ok(())
-    }
-
-    /// The publication of the file at `path` as an object's next generation under `condition`,
-    /// with the content type its name suggests unless the object has one.
-    fn publication(&self, path: &std::path::Path, condition: GenerationCondition) -> Publication {
-        Publication {
-            content_type: self
-                .config
-                .seed_content_type
-                .for_name(
-                    path.file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or_default(),
-                )
-                .into(),
-            metadata: Default::default(),
-            expected: Default::default(),
-            condition: Some(condition),
-            max_bytes: self.config.max_object_bytes,
-            mode: PublishMode::InheritAndSkipIfSameHash,
-        }
-    }
-
-    /// Publishes the candidate's staged bytes as the object's next generation and tracks its file.
-    async fn publish(
-        &mut self,
-        candidate: Candidate,
-        staged: StagedObject,
-        fingerprint: SyncFingerprint,
-    ) -> Result<(), SyncError> {
-        #[cfg(test)]
-        checkpoint("publish").await;
-        let Candidate {
-            path,
-            key,
-            identity,
-            bucket,
-            name,
-            binding,
-            live,
-            ..
-        } = candidate;
-        let condition = live
-            .as_ref()
-            .map_or(Ok(GenerationCondition::Absent), |record| {
-                Generation::new(record.generation).map(GenerationCondition::Is)
-            })?;
-        let Some(durable) = self.make_durable(&key, identity, &binding, &name).await? else {
-            staged.discard().await?;
-            return Ok(());
-        };
-        let update = SyncUpdate::new(binding, durable, fingerprint)?;
-        self.root.revalidate().await?;
-        let result = self
-            .admin
-            .publish_objects(vec![BatchPublication {
-                bucket,
-                name,
-                request: self.publication(&path, condition),
-                staged: staged.with_sync_state(update),
-            }])
-            .await?;
-        for result in result.results {
-            match result {
-                Ok(_) => {
-                    self.summary.ingested += 1;
-                    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-                    self.reached(crate::storage::fault::Step::SyncSourceRecorded)
-                        .await?;
-                }
-                Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
-                    self.summary.count_deferred(&path)
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Ok(())
     }
 
     /// A fault seam of ingestion at `step`, where the tree and the catalog are snapshotted

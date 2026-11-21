@@ -5,12 +5,16 @@
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::sync::{
+    mapping,
     naming::RootNaming,
     test_support::{Retrack, hooked_worker, retrack},
 };
 use crate::{
     object::{MapPatch, ObjectMetadataUpdate, Patch, UploadChunk},
-    storage::admin::Origin,
+    storage::{
+        admin::{Origin, Publication, PublishMode},
+        sync_state::observation::PathStop,
+    },
     test_support::{TestDir, eventually_async, eventually_some_async},
 };
 use std::{collections::BTreeMap, fs, sync::Arc, time::Duration};
