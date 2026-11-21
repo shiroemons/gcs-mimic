@@ -637,7 +637,10 @@ object, whose `tree_path` names the file, which ends a wait as a tree-side
 alias ends or the file holds the tracked bytes again or goes. Only an API
 change ends an alias. Renaming the file on the host does not: the old spelling
 counts as the frozen file's deletion, which deletes no object, and the new name
-is ingested as any new file is. Deleting or renaming one object through the API
+is ingested as any new file is, except the spelling of another object of the
+alias: the file under it is still the frozen file, so it is not taken in for that
+object, both findings stay, and a wait still names it among the frozen files.
+Deleting or renaming one object through the API
 releases the object left in the replay of that change, and every ingestion
 observes alias findings again too, so no restart is needed. While three or
 more objects share the file, deleting one keeps it frozen for the others. Once

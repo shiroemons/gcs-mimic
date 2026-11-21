@@ -571,6 +571,17 @@ impl Ingest<'_> {
                     return Ok(None);
                 }
             }
+        } else if self
+            .root
+            .frozen_elsewhere(binding.clone(), name.clone(), key.clone())
+            .await?
+        {
+            // The frozen file of an alias, renamed on the host to another object's spelling:
+            // taking it in for that object would end its alias finding while the file still
+            // stands for the others, so it stays frozen until an API change ends the alias. It
+            // is not deferred, since no later pass decides otherwise and a deferral would hold
+            // every wait; the wait names it among the frozen files instead.
+            return Ok(None);
         }
         let live = match self.admin.get_object(&bucket, &name, None).await {
             Ok(record) => Some(record),

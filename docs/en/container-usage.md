@@ -405,7 +405,7 @@ and `gcs-mimic sync wait` names it among its frozen files: an edit of it is not
 taken in, since it may be meant for either object, and stops
 `gcs-mimic sync wait` as `AliasEdited` (exit status 2, logged as
 `sync_alias_edited`), and deleting or renaming it on the host deletes neither
-object. Delete or rename through the API the object an edit is not meant for;
+object; renamed to the other object's name, it stays frozen. Delete or rename through the API the object an edit is not meant for;
 the next wait uploads the edit to the object left, which then gets its own file,
 without a restart (logged as `sync_alias_released`). If the API wrote that
 object after the edit was made, its newer generation stays, and the edit is kept

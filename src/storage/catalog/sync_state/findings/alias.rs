@@ -9,7 +9,7 @@ use super::*;
 use crate::storage::{
     admin::BucketName,
     sync_state::{
-        SyncFingerprint,
+        SyncFingerprint, SyncPath,
         durable::Durable,
         observation::{CLEAR_STOP, PathStop, STOPPED, Transition},
     },
@@ -54,6 +54,10 @@ pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), Cat
 /// another live object as well. Two names tell an alias that holds apart from one that ends.
 const CLAIMANTS: &str = "SELECT f.name FROM sync_findings f JOIN sync_finding_aliases a ON a.ordinal=f.ordinal JOIN objects o ON o.bucket=f.bucket AND o.name=f.name AND o.time_deleted IS NULL WHERE f.root_id=?1 AND f.bucket=?2 AND f.incarnation=?3 AND a.spelling=?4 AND f.name!=?5
  UNION SELECT s.name FROM sync_objects s JOIN objects o ON o.bucket=s.bucket AND o.name=s.name AND o.time_deleted IS NULL WHERE s.bucket=?2 AND s.incarnation=?3 AND s.path=?4 AND s.name!=?5 LIMIT 2";
+
+/// The spelling that the alias finding of the object `?3` names, in bucket `?2` of incarnation
+/// `?4` under root `?1`.
+const OWN_SPELLING: &str = "SELECT a.spelling FROM sync_findings f JOIN sync_finding_aliases a ON a.ordinal=f.ordinal WHERE f.root_id=?1 AND f.bucket=?2 AND f.name=?3 AND f.incarnation=?4";
 
 /// The live objects other than `name` that the file at `spelling` stands for, at most two.
 pub(in crate::storage) fn claimants(
@@ -366,6 +370,43 @@ impl RootLease {
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()
                     .map_err(unavailable)
+            })
+            .await
+            .map_err(RootError::from)
+    }
+
+    /// Whether the alias finding of `name` names a spelling other than `path` whose file still
+    /// stands for another live object. An untracked file at `path` is then the frozen file the
+    /// host renamed to `name`'s spelling, not a new file of `name`.
+    pub(crate) async fn frozen_elsewhere(
+        &self,
+        binding: SyncBinding,
+        name: ObjectName,
+        path: SyncPath,
+    ) -> Result<bool, RootError> {
+        if !self.may_hold_aliases().await? {
+            return Ok(false);
+        }
+        let lease = self.clone();
+        let root = self.status().root_id;
+        self.catalog()
+            .run_admin(move |c| {
+                let tx = c.transaction()?;
+                lease.control_scope().authorize(&tx)?;
+                let own: Option<String> = sql::optional_scalar(
+                    &tx,
+                    OWN_SPELLING,
+                    params![root, binding.bucket, name, binding.incarnation],
+                )
+                .map_err(unavailable)?;
+                Ok(match own {
+                    Some(spelling) if spelling != path.as_str() => {
+                        !claimants(&tx, root, &binding, &spelling, &name)
+                            .map_err(unavailable)?
+                            .is_empty()
+                    }
+                    Some(_) | None => false,
+                })
             })
             .await
             .map_err(RootError::from)

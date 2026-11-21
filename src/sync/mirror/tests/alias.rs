@@ -837,6 +837,54 @@ impl Pair {
     }
 }
 
+/// Renaming the frozen file on the host to the other object's spelling keeps it frozen, whether
+/// or not it holds that object's bytes: the file is not taken in for that object, so both alias
+/// findings stay, and neither object changes.
+#[tokio::test]
+async fn renaming_the_frozen_file_to_the_other_spelling_keeps_both_findings() {
+    for (spelling, names) in cases() {
+        for same in [false, true] {
+            let Some(mut pair) = Pair::frozen(spelling, names).await else {
+                continue;
+            };
+            let context = format!("{spelling:?} {names:?} same bytes: {same}");
+            let second: &[u8] = if same { b"first" } else { b"second" };
+            if same {
+                publish_named(
+                    &pair.catalog,
+                    &pair.bucket,
+                    pair.second,
+                    second,
+                    Origin::Api,
+                )
+                .await;
+                pair.wait().await;
+            }
+            let directory = pair.directory();
+            fs::rename(directory.join(pair.first), directory.join(pair.second)).unwrap();
+            if pair.listed() != [pair.second] {
+                // The file system keeps the spelling it has, so nothing was renamed.
+                pair.close().await;
+                continue;
+            }
+            let result = pair.wait().await;
+            let counted = (
+                result.reason,
+                result.findings.map(|counted| counted.unmapped),
+            );
+            assert_eq!(counted, (WaitReason::Ready, Some(2)), "{context}");
+            assert_eq!(pair.findings().await, pair.aliases(), "{context}");
+            assert_eq!(pair.body(pair.first).await, b"first", "{context}");
+            assert_eq!(pair.body(pair.second).await, second, "{context}");
+            // The next pass reads the same: the file stays frozen under the new spelling.
+            assert_eq!(pair.wait().await.reason, WaitReason::Ready, "{context}");
+            assert_eq!(pair.findings().await, pair.aliases(), "{context}");
+            assert_eq!(pair.listed(), [pair.second], "{context}");
+            pair.close().await;
+        }
+    }
+}
+
 /// Deleting the frozen file deletes neither object, since it stood for both, and writes
 /// neither back while both live. Once the API deletes one, the other gets its file back.
 #[tokio::test]
