@@ -687,8 +687,11 @@ fn displaced_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error
 /// and the rename itself, by [`OwnedBody::tracked`]: for an ordinary export, the rule restart
 /// recovery judges it by when it finds it there, so both give the same answer. Over a preserved
 /// conflict this judges by the capture, while recovery judges by the record in `sync_objects`,
-/// so a body this would unlink can stay protected through a restart and leave a second copy in
-/// the conflict store; no bytes are lost either way.
+/// and the two can disagree either way. The captured body, which this unlinks, stays protected
+/// through a restart after a crash right after the exchange and leaves a second copy in the
+/// conflict store. Old tracked bytes that a user wrote back just before the exchange, which this
+/// keeps, are unlinked by recovery after such a crash; they match the tracked record, so they are
+/// a body an API change may replace, as in an ordinary export.
 fn settle(
     root: &File,
     workspace: &File,

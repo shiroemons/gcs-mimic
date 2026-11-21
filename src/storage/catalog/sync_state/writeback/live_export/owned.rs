@@ -27,7 +27,9 @@ impl OwnedBody {
     /// recovery finds there. Installation and recovery both prove it here, against the same record
     /// for an ordinary export, so recovery then removes no tracked body that installation would
     /// have kept. An export over a preserved conflict tracks the capture's record, while recovery
-    /// tracks the one in `sync_objects`: a captured body displaced before a crash stays protected.
+    /// tracks the one in `sync_objects`: after a crash right after the exchange, recovery keeps a
+    /// captured body protected, and unlinks old tracked bytes written back before the exchange,
+    /// which installation would have kept, as the tracked body an API change may replace.
     pub(in crate::storage::catalog::sync_state::writeback) fn tracked(
         file: &File,
         tracked: &SyncRecord,

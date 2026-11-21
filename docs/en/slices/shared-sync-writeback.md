@@ -111,6 +111,15 @@ permission change after the capture does not report the same body as another
 conflict. A later edit cannot be erased with an older proof. Conflict registration and recovery retain
 the original project, incarnation and generation, including after recreation.
 
+Restart recovery judges the body such an exchange displaced by the record in
+`sync_objects`, not by the capture, so the two can disagree either way. A
+captured body displaced just before a crash, which installation would unlink,
+stays protected through the restart and leaves a second copy in the conflict
+store. Old tracked bytes that a user writes back just before the exchange,
+which installation would keep, are unlinked by recovery after a crash right
+after the exchange: they match the tracked record, so they are a body an API
+change may replace, by the same rule as for an ordinary export.
+
 A catalog-owned execution semaphore serializes transitions across independently
 obtained writeback handles. Callers wait for their turn and receive Busy past
 `catalog_wait_timeout_ms`. After admission, owned tasks retain the execution gate,
