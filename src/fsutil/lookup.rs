@@ -149,6 +149,35 @@ impl Lookup {
         self.listings().reads
     }
 
+    /// Keeps `names` as the listing of `parent` while `parent` reports what it does now, as a
+    /// listing read just before a change that left the directory's timestamps as they were.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) fn keep_listing(&self, parent: &File, names: &[&str]) -> io::Result<()> {
+        let state = imp::uncached_identity(parent)?;
+        self.listings().keep(Listing {
+            state,
+            names: names.iter().map(OsString::from).collect(),
+        });
+        Ok(())
+    }
+
+    /// Drops the kept listing of `parent`, which a listing read since showed to be older than
+    /// what the directory holds.
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "descriptor-relative child lookup is unsupported on this platform"
+        )
+    )]
+    pub(super) fn forget(&self, parent: &File) -> io::Result<()> {
+        let node = super::stat_identity(parent)?.node();
+        self.listings()
+            .kept
+            .retain(|kept| kept.state.node() != node);
+        Ok(())
+    }
+
     /// A panic while a listing was read or kept leaves the kept listings unknown, so they are
     /// dropped rather than trusted.
     fn listings(&self) -> MutexGuard<'_, Listings> {
@@ -382,5 +411,20 @@ mod listing_tests {
         assert!(listed.opens(&lookup, "Actual"));
         assert!(listed.opens(&lookup, "Actual"));
         assert_eq!(lookup.reads(), 2);
+    }
+
+    /// A kept listing from before a change that left the directory's timestamps as they were
+    /// gives way to the listing read to name the spelling: an entry that listing spells exactly
+    /// as it was opened is the file, and the next lookup reads the directory again.
+    #[test]
+    fn a_kept_listing_older_than_the_directory_gives_way_to_the_one_read_again() {
+        let listed = Listed::new(&["Actual"]);
+        listed.settle();
+        let lookup = settled();
+        lookup.keep_listing(&listed.parent, &["actual"]).unwrap();
+        assert!(listed.opens(&lookup, "Actual"));
+        assert_eq!(lookup.reads(), 0);
+        assert!(listed.opens(&lookup, "Actual"));
+        assert_eq!(lookup.reads(), 1);
     }
 }

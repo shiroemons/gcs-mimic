@@ -238,12 +238,6 @@ pub(in crate::sync) async fn presence(
                 PathEntry::Unplaced(_) => {
                     Looked::At(Presence::Unobservable(Unobservable::ParentBlocked))
                 }
-                // The listing the lookup kept is older than this one.
-                PathEntry::Respelled(Spelling::Listed(spelling))
-                    if path.file_name() == Some(spelling.as_ref()) =>
-                {
-                    Looked::At(Presence::Present)
-                }
                 PathEntry::Respelled(Spelling::Listed(spelling)) => {
                     match path.with_file_name(spelling).into_os_string().into_string() {
                         Ok(spelled) => Looked::Spelled(spelled),

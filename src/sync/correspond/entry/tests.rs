@@ -93,6 +93,33 @@ fn another_kind_of_entry_at_the_path_or_above_it_is_told_apart() {
     ));
 }
 
+/// A listing that the lookups kept from before a change that left the directory's timestamps as
+/// they were does not make a file under its exact spelling a respelled one: the listing read to
+/// name the spelling decides.
+#[test]
+fn a_kept_listing_older_than_the_directory_leaves_a_file_its_spelling() {
+    let tree = Tree::new();
+    let bucket = tree.dir.0.join("bucket");
+    fs::write(bucket.join("Actual"), b"bytes").unwrap();
+    let _unchecked = fsutil::UncheckedSpelling::of(&bucket);
+    let lookup = Lookup::probed(
+        fsutil::Matching::Folding,
+        std::sync::Arc::new(crate::clock::SystemClock),
+    );
+    lookup
+        .keep_listing(&File::open(&bucket).unwrap(), &["actual"])
+        .unwrap();
+    assert!(matches!(
+        observe_path(
+            &tree.root,
+            RootNaming::posix(),
+            &lookup,
+            Path::new("bucket/Actual")
+        ),
+        PathEntry::File { .. }
+    ));
+}
+
 /// A name the file system reaches under another letter case names the spelling the directory
 /// lists the file under, or no spelling when another name links the file too. A file system
 /// that keeps letter case apart reaches nothing under the other spelling.

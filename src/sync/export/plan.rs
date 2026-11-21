@@ -311,8 +311,8 @@ impl LiveObject<'_> {
                 let target = file_job_retry(self.root, move |root| {
                     match inspect(root, naming, &lookup, &path, &observed) {
                         Ok(target) => Ok(Some(target)),
-                        // The spelling of the entry changed while it was read, as when the
-                        // frozen file of an alias is renamed: the next pass reads it again.
+                        // The entry changed while it was read, as when the frozen file of an
+                        // alias is renamed: the next pass reads it again.
                         Err(AdminError::Precondition) => Ok(None),
                         Err(error) => Err(error),
                     }
@@ -396,11 +396,6 @@ fn inspect(
         PathEntry::File { parent, file } => (parent, file),
         PathEntry::Absent { .. } => return Ok(Target::Absent),
         PathEntry::Unplaced(reason) => return Ok(Target::Finding(reason)),
-        // The listing the lookup kept is older than this one, which holds the exact spelling
-        // now: a later read decides.
-        PathEntry::Respelled(Spelling::Listed(spelling)) if spelling.as_str() == name => {
-            return Err(AdminError::Precondition);
-        }
         PathEntry::Respelled(Spelling::Listed(spelling)) => {
             return Ok(path
                 .with_file_name(spelling)

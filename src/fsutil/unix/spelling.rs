@@ -59,7 +59,16 @@ pub(crate) fn child_regular(
     if spelled_as_opened(parent, name, &file, lookup)? {
         return Ok(RegularChild::File(file));
     }
-    Ok(RegularChild::Respelled(listed_spelling(parent, &file)))
+    match listed_spelling(parent, &file) {
+        // The listing read now spells the file as it was opened. What answered otherwise, such as
+        // a listing kept from before a change the directory's timestamps did not show, is older
+        // than this listing, which is the answer; a kept listing is not trusted again.
+        Ok(Spelling::Listed(spelling)) if OsStr::new(&spelling) == name => {
+            lookup.forget(parent)?;
+            Ok(RegularChild::File(file))
+        }
+        spelling => Ok(RegularChild::Respelled(spelling)),
+    }
 }
 
 /// The spelling under which `parent` lists `file`, a regular file opened there under another

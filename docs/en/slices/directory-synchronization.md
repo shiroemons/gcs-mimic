@@ -597,7 +597,12 @@ cannot leave the timestamps as they were; a directory that just changed, or
 that holds more names, is read for each lookup. That age compares the mirror's
 clock with timestamps the file server wrote: where the mirror's clock runs
 ahead of the host's, as a container VM's clock can, a listing is kept sooner
-after a change by that much. The scan itself confirms no spelling of the
+after a change by that much. An entry that a lookup finds under another
+spelling is matched in a new listing of its directory by device and inode
+number, to name the spelling it is listed under; when that listing spells the
+entry exactly as it was opened, the answer that said otherwise, such as a kept
+listing older than the change, is dropped and the entry is the file under its
+own spelling. The scan itself confirms no spelling of the
 names it lists, since each comes from its directory's listing: ingestion opens
 a changed file again under its exact spelling before it reads it, so an entry
 renamed between the listing and that open is deferred as a changing source,
