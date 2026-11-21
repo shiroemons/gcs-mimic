@@ -203,10 +203,7 @@ impl<'a> Cause<'a> {
 impl SyncError {
     /// The failures below this one, outermost first, ending with failures no decision reads.
     pub(crate) fn causes(&self) -> impl Iterator<Item = Cause<'_>> {
-        self.typed_source()
-            .into_iter()
-            .flat_map(chain)
-            .map(Cause::of)
+        self.typed_source().into_iter().flat_map(Cause::chain)
     }
 
     /// Whether the failure may clear on its own: catalog contention, an admission timeout or an
