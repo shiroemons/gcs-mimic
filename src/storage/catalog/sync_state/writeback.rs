@@ -110,10 +110,24 @@ pub(crate) enum Error {
     /// The catalog changed from the operation's plan.
     Obsolete(StaleReason),
     /// A state that write-back keeps broke: a bug. The step ends as a race does, as it did when
-    /// the invariant was reported as a failed precondition.
+    /// the invariant was reported as a failed precondition. Made by [`Self::invariant`], which
+    /// leaves its record.
     Invariant(&'static str),
 }
 impl Error {
+    /// The failure of the invariant `broken`, logged once, where the break is found, and never
+    /// for a check that holds. Its caller then handles it as a change of what the step read: the
+    /// operation is cancelled or planned again, or an API caller is told its revision is stale,
+    /// and this record is all that is left of the break.
+    pub(crate) fn invariant(broken: &'static str) -> Self {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Error,
+            "sync_writeback_invariant",
+            serde_json::json!({"reason":broken}),
+        );
+        Self::Invariant(broken)
+    }
+
     /// Whether the step met the tree or the catalog other than it read or planned them, by its
     /// own checks or by a catalog call that answered `Precondition`. Every such step ends the
     /// same way: its operation is cancelled or planned again. A tree changed under an
@@ -157,25 +171,8 @@ impl Error {
     fn superseded(&self) -> bool {
         self.changed() || matches!(self, Self::Admin(AdminError::NotFound))
     }
-
-    /// Logs a broken invariant, which its caller then handles as a change of what the step read:
-    /// the operation is cancelled or planned again, and this record is all that is left of the
-    /// break. Any other error leaves no record here.
-    pub(crate) fn record_invariant(&self) {
-        if let Self::Invariant(broken) = self {
-            record_invariant(broken);
-        }
-    }
 }
 
-/// Logs the invariant `broken`, which its caller handles as a concurrent change.
-pub(crate) fn record_invariant(broken: &str) {
-    crate::diagnostics::emit(
-        crate::diagnostics::LogLevel::Error,
-        "sync_writeback_invariant",
-        serde_json::json!({"reason":broken}),
-    );
-}
 impl From<super::conflicts::Error> for Error {
     fn from(error: super::conflicts::Error) -> Self {
         Self::Conflict(error)
@@ -273,15 +270,13 @@ impl From<crate::sync::tree::ParentError> for Error {
 }
 /// The root's usage held less than an operation accounts for.
 fn unaccounted() -> Error {
-    Error::Invariant("the root's usage does not hold an operation's bytes")
+    Error::invariant("the root's usage does not hold an operation's bytes")
 }
 /// The directories of a write-back path, which always lies in a bucket directory.
 fn parent_path(path: &str) -> Result<&str, Error> {
     path.rsplit_once('/')
         .map(|(parents, _)| parents)
-        .ok_or(Error::Invariant(
-            "a write-back target lies outside a bucket directory",
-        ))
+        .ok_or_else(|| Error::invariant("a write-back target lies outside a bucket directory"))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -648,7 +643,7 @@ fn save_status(connection: &Connection, root: RootId, value: &Status) -> Result<
     Ok(())
 }
 fn check_fence(connection: &Connection, fence: JournalFence) -> Result<(), Error> {
-    let valid: bool = connection.prepare_cached("SELECT enabled AND epoch=?1 AND ?2 BETWEEN floor AND sequence FROM change_journal_state WHERE singleton=1")?.query_row(params![fence.revision,i64::try_from(fence.sequence.get()).map_err(|_|Error::Invariant("a journal sequence exceeds the catalog's integers"))?], |r|r.get(0))?;
+    let valid: bool = connection.prepare_cached("SELECT enabled AND epoch=?1 AND ?2 BETWEEN floor AND sequence FROM change_journal_state WHERE singleton=1")?.query_row(params![fence.revision,i64::try_from(fence.sequence.get()).map_err(|_|Error::invariant("a journal sequence exceeds the catalog's integers"))?], |r|r.get(0))?;
     if !valid {
         return Err(Error::Obsolete(StaleReason::JournalFence));
     }
@@ -980,7 +975,7 @@ fn verify_fingerprint(
             return Err(Error::Raced(RaceReason::TargetChanged));
         }
         (Kind::Remove, Some(_), _) | (Kind::Publish, None, _) => {
-            return Err(Error::Invariant(
+            return Err(Error::invariant(
                 "an operation's fingerprint does not match its kind",
             ));
         }

@@ -428,7 +428,7 @@ pub(super) fn remove(
     } = proof;
     // A proof answers for the target it was read at, not for another operation's.
     if path != install.item.path {
-        return Err(Error::Invariant("a directory's proof is another target's"));
+        return Err(Error::invariant("a directory's proof is another target's"));
     }
     let unlinked = remove_metadata(&directory, &metadata, install)?;
     if let Err(kept) = unchanged(&parent, &name, &directory, &install.lookup)? {

@@ -188,8 +188,9 @@ impl Failure {
                 | RaceReason::DirectoryChanged,
             )
             | writeback::Error::Obsolete(_)
-            // A value an earlier step checked broke this step's assumption. Its caller records
-            // the break and plans the step again, as after a concurrent change.
+            // A value an earlier step checked broke this step's assumption. The break was
+            // recorded where it was found, and the step is planned again, as after a concurrent
+            // change.
             | writeback::Error::Invariant(_) => Some(Self::Superseded),
             writeback::Error::Root(_)
             | writeback::Error::Conflict(_)

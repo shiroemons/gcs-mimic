@@ -169,12 +169,8 @@ impl LiveObject<'_> {
                 .await
             {
                 Ok(operation) => return Ok(Some(operation)),
-                // A broken invariant ends as a race does, as it did when it was reported as a
-                // failed precondition, and leaves its record.
-                Err(writeback::Error::Invariant(broken)) => {
-                    writeback::record_invariant(broken);
-                    return Ok(None);
-                }
+                // A superseded step ends as a race does, a broken invariant among them, as it did
+                // when it was reported as a failed precondition.
                 Err(error) if Failure::of_writeback(&error) == Some(Failure::Superseded) => {
                     return Ok(None);
                 }
