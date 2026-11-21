@@ -1205,7 +1205,7 @@ fn writeback_error(error: &crate::storage::sync_state::writeback::Error) -> Opti
         | Error::WorkspaceChanged => match FailureClass::of_writeback(error)? {
             FailureClass::Superseded => Some(stale()),
             FailureClass::Transient => Some(io_failure()),
-            FailureClass::Volume | FailureClass::PathLocal => None,
+            FailureClass::Volume => None,
         },
     }
 }

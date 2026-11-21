@@ -40,7 +40,7 @@ impl ReadFailure {
         match class {
             FailureClass::Transient => Some(Self::Passing),
             FailureClass::Volume => Some(Self::Lasting),
-            FailureClass::Superseded | FailureClass::PathLocal => None,
+            FailureClass::Superseded => None,
         }
     }
 }

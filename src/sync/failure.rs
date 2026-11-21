@@ -36,9 +36,6 @@ pub(crate) enum FailureClass {
     /// The whole file system's: a full disk, an exhausted quota or a read-only file system fails
     /// every later write there as well, so no one path is to blame.
     Volume,
-    /// Only the path one export was writing failed: an I/O failure there, or a file that changed
-    /// under the export. Only a whole chain says this ([`scope`]); no one link does.
-    PathLocal,
     /// It passes on its own: catalog contention, an admission timeout, an interrupted or
     /// timed-out call, descriptor or memory pressure, or an entry that kept failing to open
     /// while its name still held it.
@@ -52,7 +49,7 @@ impl FailureClass {
     pub(in crate::sync) fn retries(self) -> bool {
         match self {
             Self::Transient | Self::Volume => true,
-            Self::Superseded | Self::PathLocal => false,
+            Self::Superseded => false,
         }
     }
 
@@ -224,17 +221,27 @@ impl FailureClass {
     }
 }
 
+/// What a whole chain says about how far a failure reaches, which no one link says by itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::sync) enum Scope {
+    /// The whole file system's ([`FailureClass::Volume`]).
+    Volume,
+    /// Only the path one export was writing failed: an I/O failure there, or a file that changed
+    /// under the export.
+    PathLocal,
+}
+
 /// Whether a failure, given as the causes of its chain, is the whole file system's
-/// ([`FailureClass::Volume`]), concerns only the path one export was writing
-/// ([`FailureClass::PathLocal`]), or neither. A volume failure anywhere in the chain decides first;
-/// then the first cause that names a pause reason, which is the path's only for an I/O failure;
-/// with none, a conflict, a displaced target or a capture target that changed is the path's.
-/// Write-back stops, conflict capacity and catalog failures concern every export.
+/// ([`Scope::Volume`]), concerns only the path one export was writing ([`Scope::PathLocal`]),
+/// or neither. A volume failure anywhere in the chain decides first; then the first cause that
+/// names a pause reason, which is the path's only for an I/O failure; with none, a conflict, a
+/// displaced target or a capture target that changed is the path's. Write-back stops, conflict
+/// capacity and catalog failures concern every export.
 pub(in crate::sync) fn scope<'a, C: Iterator<Item = Cause<'a>>>(
     causes: impl Fn() -> C,
-) -> Option<FailureClass> {
+) -> Option<Scope> {
     if causes().any(|cause| cause.class() == Some(FailureClass::Volume)) {
-        return Some(FailureClass::Volume);
+        return Some(Scope::Volume);
     }
     let path_local = match causes().find_map(Cause::pause_reason) {
         Some(PauseReason::IoFailure) => true,
@@ -253,7 +260,7 @@ pub(in crate::sync) fn scope<'a, C: Iterator<Item = Cause<'a>>>(
             )
         }),
     };
-    path_local.then_some(FailureClass::PathLocal)
+    path_local.then_some(Scope::PathLocal)
 }
 
 /// Whether descriptor or memory pressure, or another transient I/O failure, is in `error`'s

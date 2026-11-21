@@ -13,7 +13,10 @@ use crate::{
             writeback::{self, Stop},
         },
     },
-    sync::{failure::FailureClass, naming::ProbeError},
+    sync::{
+        failure::{FailureClass, Scope},
+        naming::ProbeError,
+    },
     task::JobPanicked,
 };
 use std::{error::Error, fmt, io};
@@ -237,11 +240,11 @@ impl SyncError {
     }
 
     /// Whether the failure concerns only the path one export was writing
-    /// ([`FailureClass::PathLocal`], as [`super::failure::scope`] decides). An export that observes a
+    /// ([`Scope::PathLocal`], as [`super::failure::scope`] decides). An export that observes a
     /// finding again keeps that finding for a later pass on such a failure; any other fails the
     /// pass.
     pub(super) fn concerns_one_object(&self) -> bool {
-        super::failure::scope(|| self.causes()) == Some(FailureClass::PathLocal)
+        super::failure::scope(|| self.causes()) == Some(Scope::PathLocal)
     }
 
     /// Whether a deletion pass met a concurrent change and must start over, not fail.
