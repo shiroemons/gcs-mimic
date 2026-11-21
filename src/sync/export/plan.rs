@@ -190,7 +190,7 @@ impl LiveObject<'_> {
                 Ok(true)
             }
             crate::sync::deletion::Presence::Absent(_)
-            | crate::sync::deletion::Presence::Respelled { .. }
+            | crate::sync::deletion::Presence::Respelled
             | crate::sync::deletion::Presence::Present
             | crate::sync::deletion::Presence::Unobservable(_) => Ok(false),
         }

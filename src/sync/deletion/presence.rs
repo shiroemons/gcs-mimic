@@ -31,10 +31,10 @@ pub(crate) enum Removal {
 pub(in crate::sync) enum Presence {
     /// Nothing: the file is gone, or a directory above it is, as the removal tells.
     Absent(Removal),
-    /// The directory lists the file under another spelling, `to`, at which another object is
-    /// tracked: the file was renamed to that object's name, and this path holds nothing of its
-    /// own any more.
-    Respelled { to: String },
+    /// The directory lists the file under another spelling, at which another object is tracked:
+    /// the file was renamed to that object's name, and this path holds nothing of its own any
+    /// more.
+    Respelled,
     /// The regular file is there.
     Present,
     /// The path cannot be observed, or holds another kind of entry.
@@ -63,15 +63,8 @@ pub(crate) enum Missing {
         candidate: Candidate,
         removal: Removal,
     },
-    /// The file was renamed to the spelling `to` of another tracked object's name.
-    Respelled {
-        candidate: Candidate,
-        #[expect(
-            dead_code,
-            reason = "a renamed file is deleted as an absent one is, and nothing reads where it went yet"
-        )]
-        to: String,
-    },
+    /// The file was renamed to the spelling of another tracked object's name.
+    Respelled { candidate: Candidate },
 }
 
 impl Missing {
@@ -192,7 +185,7 @@ pub(in crate::sync) async fn observe(
     Ok(
         match presence(root, lookup, candidate.path.clone()).await? {
             Presence::Absent(removal) => Observed::Absent(Missing::Absent { candidate, removal }),
-            Presence::Respelled { to } => Observed::Absent(Missing::Respelled { candidate, to }),
+            Presence::Respelled => Observed::Absent(Missing::Respelled { candidate }),
             Presence::Present => Observed::Present(candidate),
             Presence::Unobservable(reason) => Observed::Unobservable(candidate, reason),
         },
@@ -279,8 +272,8 @@ pub(in crate::sync) async fn presence(
     // to that object's name, which ingestion took in as that object, and this path holds
     // nothing of its own any more. The rename's deletion side goes through the deletion guard
     // as any rename's does. Otherwise the file may stand for this object under an alias.
-    Ok(if root.tracked_live_at(spelled.clone()).await? {
-        Presence::Respelled { to: spelled }
+    Ok(if root.tracked_live_at(spelled).await? {
+        Presence::Respelled
     } else {
         Presence::Unobservable(Unobservable::Alias)
     })
