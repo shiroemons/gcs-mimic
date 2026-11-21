@@ -2372,6 +2372,6 @@ fn a_wait_answers_with_a_status_that_tells_how_it_ended() {
         ),
     ] {
         assert_eq!(result.reason, reason);
-        assert_eq!(wait_status(&result), status, "{reason}");
+        assert_eq!(result.reason.http_status(), status, "{reason}");
     }
 }

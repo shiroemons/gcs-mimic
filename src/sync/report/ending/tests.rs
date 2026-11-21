@@ -12,7 +12,7 @@ fn only_work_in_progress_is_waited_for_again_and_the_rest_name_a_remedy() {
     use WaitReason::{JournalChanged, Ready, SourceChanging, Timeout};
     for reason in WaitReason::ALL {
         assert_eq!(
-            reason.is_in_progress(),
+            reason.outcome().asks_again(),
             matches!(reason, Timeout | SourceChanging | JournalChanged),
             "{reason}"
         );

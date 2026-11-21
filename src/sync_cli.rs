@@ -6,7 +6,7 @@ use gcs_mimic::{
     config_input::{DurationError, RenamedEnvironmentVariable, duration},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     net::is_local_address,
-    sync::{Decision, UnmappedObjects, WaitReason, handshake, report::command},
+    sync::{Decision, Outcome, UnmappedObjects, WaitReason, handshake, report::command},
     tls,
 };
 use http_body_util::{BodyExt, Full};
@@ -516,51 +516,6 @@ const WAIT_MARGIN: Duration = Duration::from_secs(1);
 /// How long a wait pauses before it asks again after the journal was rebuilt under it, which
 /// the server answers at once.
 const JOURNAL_PAUSE: Duration = Duration::from_secs(1);
-
-/// How a `sync wait` that did not end ready exits, so that a script tells what ended it without
-/// reading the answer. A ready wait exits 0, and other commands exit 0 on success and 1 on
-/// failure.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum WaitFailure {
-    /// No answer names how the wait ended, as for an unreachable server or a refused request,
-    /// or the server stopped: like any other failed command.
-    Failed,
-    /// Waiting does not change what holds synchronization back, so someone must act.
-    ActionNeeded,
-    /// Work was still in progress when the wait's timeout passed.
-    TimedOut,
-}
-
-impl WaitFailure {
-    /// How a wait whose last answer gave `reason`, if any, fails; nothing for one that ended
-    /// ready, even while objects it only reports remain.
-    const fn of(reason: Option<WaitReason>) -> Option<Self> {
-        match reason {
-            Some(WaitReason::Ready) => None,
-            Some(
-                WaitReason::Paused
-                | WaitReason::SourceUnrepresentable
-                | WaitReason::DeletionApproval
-                | WaitReason::FindingsPending,
-            ) => Some(Self::ActionNeeded),
-            // The command asks again while one of these holds, so a wait that ends with one ran
-            // out of time.
-            Some(WaitReason::Timeout | WaitReason::SourceChanging | WaitReason::JournalChanged) => {
-                Some(Self::TimedOut)
-            }
-            Some(WaitReason::Stopped) | None => Some(Self::Failed),
-        }
-    }
-
-    /// The process exit status.
-    pub(super) const fn code(self) -> u8 {
-        match self {
-            Self::Failed => 1,
-            Self::ActionNeeded => 2,
-            Self::TimedOut => 3,
-        }
-    }
-}
 
 /// The body of one wait request that asks the server to observe for `millis`, with
 /// `require_no_findings` only for a wait that refuses the objects.
@@ -1080,21 +1035,22 @@ impl<'a> WaitOutcome<'a> {
     }
 
     /// Ends the command for a wait whose last answer came with `status`: a ready wait writes its
-    /// advice and succeeds, and any other fails with its advice and the [`WaitFailure`] of its
-    /// reason. An answer that names no reason the command knows fails like any other request.
+    /// advice and succeeds, and any other fails with its advice and the [`Outcome`] of its
+    /// reason, which sets the exit status. An answer that names no reason the command knows
+    /// fails like any other request.
     fn conclude(&self, status: StatusCode, connection: &str) -> Result<(), CliError> {
         let advice = self.advice(connection);
-        match WaitFailure::of(self.reason) {
-            None => {
+        match self.reason.map_or(Outcome::Failed, WaitReason::outcome) {
+            Outcome::Ready => {
                 advice.write(io::stderr().lock())?;
                 Ok(())
             }
-            Some(WaitFailure::Failed) if !advice.is_err() => {
+            Outcome::Failed if !advice.is_err() => {
                 Err(http_failure(status, self.message, connection).into())
             }
-            Some(
-                failure @ (WaitFailure::Failed | WaitFailure::ActionNeeded | WaitFailure::TimedOut),
-            ) => Err(CliError::Wait(advice, failure)),
+            outcome @ (Outcome::Failed | Outcome::ActionNeeded | Outcome::InProgress) => {
+                Err(CliError::Wait(advice, outcome))
+            }
         }
     }
 
@@ -1564,7 +1520,7 @@ impl Options {
             )?;
             let Some(reason) = WaitOutcome::read(&reply.body)
                 .reason
-                .filter(|reason| reason.is_in_progress())
+                .filter(|reason| reason.outcome().asks_again())
             else {
                 return Ok(reply);
             };

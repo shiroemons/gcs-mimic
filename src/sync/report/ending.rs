@@ -4,7 +4,7 @@
 use super::{
     command::AtHand,
     listing::WaitFindings,
-    outcome::WaitReason,
+    outcome::{Outcome, WaitReason},
     remedy::unsettled_remedy,
     verdict::{Holdup, UnmappedObjects},
 };
@@ -88,7 +88,7 @@ impl WaitResult {
             Ending::Unfinished { why, .. } => WaitReason::from(why),
         };
         Self {
-            completed: reason == WaitReason::Ready,
+            completed: reason.outcome() == Outcome::Ready,
             timed_out: reason == WaitReason::Timeout,
             journal_fence,
             reconciliation,
@@ -177,7 +177,7 @@ impl WaitResult {
     pub(crate) fn remedy(&self, at_hand: AtHand<'_>) -> Option<String> {
         let pass = self.reconciliation.as_ref();
         match self.ending {
-            Ending::Held(holdup) if self.reason.is_in_progress() => Some(unsettled_remedy(
+            Ending::Held(holdup) if self.reason.outcome().asks_again() => Some(unsettled_remedy(
                 Some(holdup),
                 pass,
                 at_hand.rejected_writeback,

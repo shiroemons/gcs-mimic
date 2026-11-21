@@ -1,7 +1,10 @@
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
 use crate::common;
-use gcs_mimic::config_input::RenamedEnvironmentVariable;
+use gcs_mimic::{
+    config_input::RenamedEnvironmentVariable,
+    sync::{Outcome, WaitReason},
+};
 use std::fs;
 mod ambiguous;
 mod authority;
@@ -137,12 +140,11 @@ impl Server {
 /// The exit status `sync wait` documents for its `answer`: 0 when ready, 2 when someone must
 /// act, 3 when its timeout passed while work was in progress, and 1 otherwise.
 fn wait_exit(answer: &Value) -> i32 {
-    match answer["reason"].as_str() {
-        Some("Ready") => 0,
-        Some("Paused" | "SourceUnrepresentable" | "DeletionApproval" | "FindingsPending") => 2,
-        Some("Timeout" | "SourceChanging" | "JournalChanged") => 3,
-        _ => 1,
-    }
+    let outcome = answer["reason"]
+        .as_str()
+        .and_then(|reason| reason.parse::<WaitReason>().ok())
+        .map_or(Outcome::Failed, WaitReason::outcome);
+    i32::from(outcome.exit_code())
 }
 
 /// What one `gcs-mimic sync` run reported: whether it succeeded, its exit status, its JSON

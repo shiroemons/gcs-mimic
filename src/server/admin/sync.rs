@@ -500,20 +500,8 @@ async fn wait(
         result: &result,
     };
     let mut response = bounded(&super::encode(&answer)?)?;
-    *response.status_mut() = wait_status(&result);
+    *response.status_mut() = result.reason.http_status();
     Ok(response)
-}
-
-/// The status a wait answers with: 200 for a ready wait, 408 when its time ran out, and 409
-/// for every other end, so a caller that reads only the status still tells success from not.
-fn wait_status(result: &WaitResult) -> StatusCode {
-    if result.timed_out {
-        StatusCode::REQUEST_TIMEOUT
-    } else if !result.completed {
-        StatusCode::CONFLICT
-    } else {
-        StatusCode::OK
-    }
 }
 
 /// The answer to an accepted approval or rejection of a deletion set, which names the decision:

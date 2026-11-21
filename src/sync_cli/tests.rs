@@ -1197,25 +1197,29 @@ fn a_wait_stops_at_once_for_what_waiting_cannot_change() {
 /// or an answer without a reason, like any other failed command.
 #[test]
 fn a_wait_exits_with_the_status_of_how_it_ended() {
-    use WaitFailure::{ActionNeeded, Failed, TimedOut};
+    use Outcome::{ActionNeeded, Failed, InProgress};
     for (name, failure) in [
         ("Ready", None),
-        ("Timeout", Some(TimedOut)),
+        ("Timeout", Some(InProgress)),
         ("Stopped", Some(Failed)),
         ("Paused", Some(ActionNeeded)),
-        ("JournalChanged", Some(TimedOut)),
-        ("SourceChanging", Some(TimedOut)),
+        ("JournalChanged", Some(InProgress)),
+        ("SourceChanging", Some(InProgress)),
         ("SourceUnrepresentable", Some(ActionNeeded)),
         ("DeletionApproval", Some(ActionNeeded)),
         ("FindingsPending", Some(ActionNeeded)),
     ] {
         let reason: WaitReason = name.parse().unwrap();
-        assert_eq!(WaitFailure::of(Some(reason)), failure, "{name}");
-        assert_eq!(reason.is_in_progress(), failure == Some(TimedOut), "{name}");
+        let outcome = reason.outcome();
+        assert_eq!(
+            Some(outcome).filter(|outcome| *outcome != Outcome::Ready),
+            failure,
+            "{name}"
+        );
+        assert_eq!(outcome.asks_again(), failure == Some(InProgress), "{name}");
     }
-    assert_eq!(WaitFailure::of(None), Some(Failed));
     assert_eq!(
-        [Failed, ActionNeeded, TimedOut].map(WaitFailure::code),
+        [Failed, ActionNeeded, InProgress].map(Outcome::exit_code),
         [1, 2, 3]
     );
     let ended = |answer: Value, status| match WaitOutcome::read(&answer)
@@ -1240,7 +1244,7 @@ fn a_wait_exits_with_the_status_of_how_it_ended() {
     );
     assert_eq!(
         ended(json!({"reason":"Timeout"}), StatusCode::REQUEST_TIMEOUT).0,
-        Some(TimedOut)
+        Some(InProgress)
     );
     let (failure, errors) = ended(json!({"reason":"Stopped"}), StatusCode::CONFLICT);
     assert_eq!(
@@ -1254,7 +1258,7 @@ fn a_wait_exits_with_the_status_of_how_it_ended() {
     assert_eq!(failure, Some(Failed));
     assert!(errors[0].fix.contains("HTTP 503"), "{errors:?}");
     assert_eq!(
-        crate::CliError::Wait(Diagnostics::default(), TimedOut).exit_code(),
+        crate::CliError::Wait(Diagnostics::default(), InProgress).exit_code(),
         std::process::ExitCode::from(3)
     );
     assert_eq!(
