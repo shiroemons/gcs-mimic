@@ -48,19 +48,12 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> Result<Native, Error> {
         if depth == 1 && crate::sync::mapping::is_reserved_root_entry(&name) {
             continue;
         }
-        match lookup.directory(&frame.directory, &name, fsutil::DirectoryOpen::Existing) {
-            Ok(fsutil::Child::Directory { file, .. }) => {
-                if depth > limits.deepest_directory() {
-                    return Err(Error::Tree(limits.too_deep()));
-                }
-                native.register(&file)?;
-                stack.push(WatchFrame::new(file));
+        if let Some(file) = child_directory(&lookup, &frame.directory, &name)? {
+            if depth > limits.deepest_directory() {
+                return Err(Error::Tree(limits.too_deep()));
             }
-            Ok(fsutil::Child::Missing(_) | fsutil::Child::Alias | fsutil::Child::Transient) => {}
-            Err(error)
-                if error.kind() == io::ErrorKind::NotFound
-                    || crate::sync::tree::structural_entry_error(&error) => {}
-            Err(error) => return Err(error.into()),
+            native.register(&file)?;
+            stack.push(WatchFrame::new(file));
         }
     }
     Ok(native)

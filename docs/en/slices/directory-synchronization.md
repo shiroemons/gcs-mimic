@@ -624,7 +624,9 @@ nothing for it, an export or write-back step defers to a later pass, and a
 marker read fails with the read error instead of passing for a missing marker.
 The scan follows the same rule for each entry a listing names: it passes over
 only an entry proved gone, and counts one that still fails as a deferred read
-failure. A bucket directory that still fails is neither forgotten as a missing
+failure. The Linux native watch, which adds a watch for each directory, fails
+its build on a directory that still fails, and the mirror builds it again as
+after any transient failure, so that subtree is not left unwatched. A bucket directory that still fails is neither forgotten as a missing
 one nor taken for an empty one: a reconciliation or a bucket's creation defers
 the bucket to a later pass, while the write-back of a rejected deletion set
 fails on it as on any failed open, since the inventory after the write-back

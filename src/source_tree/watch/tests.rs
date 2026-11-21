@@ -213,3 +213,29 @@ fn a_watch_covers_a_tree_past_the_former_depth_without_a_limit() {
     fs::create_dir_all(root.0.join(deep)).unwrap();
     built(&root, TreeLimits::default()).unwrap();
 }
+
+/// A directory that keeps failing to open while its name still holds it fails the watch as a
+/// timed-out step, which the mirror retries by rebuilding the watch, rather than being passed
+/// over with its subtree unwatched. One that fails only for a moment is watched.
+#[test]
+fn a_directory_that_keeps_failing_to_open_fails_the_watch_for_a_rebuild() {
+    let root = TestDir::new();
+    fs::create_dir(root.0.join("bucket")).unwrap();
+    let directory = fsutil::open_directory_nofollow(&root.0).unwrap();
+    let clock = std::sync::Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
+    let lookup = fsutil::Lookup::unprobed_on(clock);
+    let briefly = fsutil::FailingOpens::vanishing(&root.0, "bucket", 2);
+    assert!(
+        child_directory(&lookup, &directory, "bucket".as_ref())
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(briefly.left(), 0);
+    drop(briefly);
+    let _failing = fsutil::FailingOpens::vanishing(&root.0, "bucket", usize::MAX);
+    let failure = child_directory(&lookup, &directory, "bucket".as_ref());
+    assert!(
+        matches!(&failure, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::TimedOut),
+        "{failure:?}"
+    );
+}

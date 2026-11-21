@@ -112,6 +112,35 @@ impl From<io::Error> for Error {
         Self::Io(error)
     }
 }
+
+/// The directory at `name` in `directory` that a watch that adds one watch per directory adds,
+/// `None` for an entry it passes over: one gone, an alias of another name, or no directory. A
+/// directory that kept failing to open while its name still held one fails the build as a step
+/// that timed out, which the mirror retries by building the watch again: passed over, its
+/// subtree would go unwatched.
+#[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
+fn child_directory(
+    lookup: &crate::fsutil::Lookup,
+    directory: &File,
+    name: &std::ffi::OsStr,
+) -> Result<Option<File>, Error> {
+    use crate::fsutil::{Child, DirectoryOpen};
+    match lookup.directory(directory, name, DirectoryOpen::Existing) {
+        Ok(Child::Directory { file, .. }) => Ok(Some(file)),
+        Ok(Child::Missing(_) | Child::Alias) => Ok(None),
+        Ok(Child::Transient) => Err(Error::Io(io::Error::new(
+            io::ErrorKind::TimedOut,
+            crate::fsutil::Unsettled,
+        ))),
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound
+                || crate::sync::tree::structural_entry_error(&error) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
 pub(crate) struct Watch {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     ready: AsyncFd<Native>,
