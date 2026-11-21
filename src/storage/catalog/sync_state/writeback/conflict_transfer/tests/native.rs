@@ -214,14 +214,42 @@ async fn preserved_native_export_never_removes_a_later_external_body_or_an_unpro
 #[tokio::test]
 async fn preserved_native_export_replaces_a_captured_target_whose_permissions_changed() {
     use std::os::unix::fs::PermissionsExt;
+    replaces_a_captured_target_after(|path| {
+        let before = fsutil::FileIdentity::from(&fs::metadata(path).unwrap());
+        let mode = fs::metadata(path).unwrap().permissions().mode() ^ 0o040;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+        let after = fsutil::FileIdentity::from(&fs::metadata(path).unwrap());
+        assert_ne!(before.changed_ns, after.changed_ns);
+    })
+    .await;
+}
+
+/// A preserved target whose modification time alone moves after its capture still holds the
+/// captured bytes: the export over it completes, as over one whose permissions changed, and the
+/// conflict store keeps the captured copy.
+#[tokio::test]
+async fn preserved_native_export_replaces_a_captured_target_whose_mtime_alone_moved() {
+    replaces_a_captured_target_after(|path| {
+        let before = fs::metadata(path).unwrap().modified().unwrap();
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(before + std::time::Duration::from_secs(1))
+            .unwrap();
+        assert_ne!(fs::metadata(path).unwrap().modified().unwrap(), before);
+    })
+    .await;
+}
+
+/// Runs `change`, which keeps the bytes, on a preserved target after its capture, and checks that
+/// the export over it completes and that the conflict store keeps the captured copy.
+async fn replaces_a_captured_target_after(change: impl FnOnce(&std::path::Path)) {
     let fixture = Fixture::new(BODY.len() as u64, 1).await;
     let (operation, id) = fixture.preserved().await;
     let path = fixture.tree.0.join("test-bucket/object");
-    let before = fsutil::FileIdentity::from(&fs::metadata(&path).unwrap());
-    let mode = fs::metadata(&path).unwrap().permissions().mode() ^ 0o040;
-    fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
-    let after = fsutil::FileIdentity::from(&fs::metadata(&path).unwrap());
-    assert_ne!(before.changed_ns, after.changed_ns);
+    change(&path);
+    assert_eq!(fs::read(&path).unwrap(), BODY);
     let mut result = InstallOutcome::Pending;
     for _ in 0..8 {
         result = fixture

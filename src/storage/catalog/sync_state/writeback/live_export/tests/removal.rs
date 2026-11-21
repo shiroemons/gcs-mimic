@@ -134,3 +134,45 @@ async fn a_symlink_that_took_a_removed_target_before_the_rename_stays_at_the_tar
     drop(operation);
     fixture.close().await;
 }
+
+/// A directory with a user's file in it or a FIFO that takes a tracked target after the removal
+/// checked it and before the rename is never moved either: the rename opens what it moves first,
+/// and that is no regular file. The entry stays whole at the target, the private entry stays
+/// empty, and the root stops for recovery.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_directory_or_fifo_that_took_a_removed_target_before_the_rename_stays_at_the_target() {
+    use super::exchange::Taker;
+    for taker in [Taker::Directory, Taker::Fifo] {
+        let fixture = Fixture::new().await;
+        let record = exported(&fixture, "object").await;
+        let operation = begin_removal(&fixture, &record).await;
+        let result =
+            super::exchange::race_exchange(&fixture, &operation, |path| taker.apply(path)).await;
+        assert!(
+            matches!(&result, Err(Error::Admin(AdminError::Io(error)))
+                if error.kind() == io::ErrorKind::InvalidInput),
+            "{taker:?}: {result:?}"
+        );
+        let target = fixture.tree.0.join("test-bucket/object");
+        match taker {
+            Taker::Directory => assert_eq!(fs::read(target.join("inside")).unwrap(), b"user"),
+            Taker::Fifo => assert!(std::os::unix::fs::FileTypeExt::is_fifo(
+                &fs::symlink_metadata(&target).unwrap().file_type()
+            )),
+            Taker::LongerFile => unreachable!("only entries that are no regular file"),
+        }
+        assert!(
+            !super::exchange::private_entry(&fixture, &operation)
+                .await
+                .exists(),
+            "{taker:?}"
+        );
+        assert_eq!(
+            fixture.writeback.status().await.unwrap().stop(),
+            Stop::RecoveryRequired,
+            "{taker:?}"
+        );
+        drop(operation);
+        fixture.close().await;
+    }
+}

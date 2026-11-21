@@ -48,16 +48,18 @@ deletion or recreation.
    nanoseconds, would report an unchanged file as a conflict. The exchange
    compares nothing: what it moved into the private entry is checked again by
    the same rule, which ignores the mtime, inode number and ctime, and is
-   unlinked only when it still holds the tracked body. A
-   permission change or a new inode number between the check and the exchange
-   thus completes the export, as restart recovery's rule does after a crash at
-   that point for an ordinary export. Otherwise the bytes stay in the private
-   entry and the root stops: other bytes as a protected body, an entry that is
-   not a regular file as an entry failure. Over a preserved conflict,
-   installation judges the displaced body by the capture while recovery judges
-   it by the record in `sync_objects`, so a body installation would unlink can
-   stay protected through a restart and leave a second copy in the conflict
-   store; no bytes are lost. Descriptor-relative
+   unlinked only when it still holds the tracked body. A permission change, a
+   new inode number or a moved modification time between the check and the
+   exchange thus completes the export, as restart recovery's rule does after a
+   crash at that point for an ordinary export. Otherwise the bytes stay in the
+   private entry and the root stops: other bytes as a protected body, an entry
+   that is not a regular file as an entry failure. A removal instead opens the
+   target it moves before the rename, without following a symlink, and moves it
+   only when it is a regular file: a symlink, directory or FIFO that took the
+   target after the check stays there and the root stops for recovery. An entry
+   that takes the target between that open and the rename is moved into the
+   private entry and stops the root as an entry failure; nothing is lost.
+   Descriptor-relative
    traversal checks actual spelling, rejects aliases and symlinks, and checks the
    selected ancestors again. Installation syncs both affected parents. Reading or
    inspecting an existing parent never creates directories or calls fsync.
@@ -157,18 +159,19 @@ copy of a read-only blob is cloned again on macOS and refilled in place on
 Linux, and the installed file keeps the mode a first copy gets.
 With cloning disabled, the copy uses the entry created for the clone, and no
 unlink runs. A test holds installation after its check of a tracked target and
-before the exchange: a permission change or a same-bytes replacement under a new
-inode number there completes the export, while other bytes of the same size and
-mtime, or a symlink, stay in the private entry and stop the root. A directory,
-a FIFO or a longer file that took the target there also stays in the private
-entry: the longer file stops the root as a protected body, the directory and
-the FIFO as an entry failure. A symlink that took a removed target before its
-rename stays at the target, and the root stops for recovery. A crash after the
-rename of such a raced export recovers by the bytes the rename moved: a
-permission change or a new inode number recovers to Ready, and other bytes are
-kept in the conflict store. An export
-over a preserved conflict completes when the target's permissions changed after
-the capture, and the conflict store keeps the captured copy. A tracked
+before the exchange: a permission change, a same-bytes replacement under a new
+inode number or a moved modification time there completes the export, while
+other bytes of the same size and mtime, or a symlink, stay in the private entry
+and stop the root. A directory, a FIFO or a longer file that took the target
+there also stays in the private entry: the longer file stops the root as a
+protected body, the directory and the FIFO as an entry failure. A symlink, a
+directory or a FIFO that took a removed target before its rename stays at the
+target, and the root stops for recovery. A crash after the rename of such a
+raced export recovers by the bytes the rename moved: a permission change or a
+new inode number recovers to Ready, and other bytes are kept in the conflict
+store. An export over a preserved conflict completes when the target's
+permissions changed or its modification time alone moved after the capture,
+and the conflict store keeps the captured copy. A tracked
 target that holds its bytes under a modification time rounded to 10 ms or to
 whole microseconds is replaced without a conflict, while other bytes of the
 same size under such a time are still a conflict.

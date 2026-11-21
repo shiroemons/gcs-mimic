@@ -1,7 +1,8 @@
 //! What reaches a tracked target after installation checked it and before the exchange moves it
 //! into the private entry. The body the exchange displaced is judged once, after the exchange, by
-//! its bytes: the tracked body is unlinked whatever its inode number and ctime say, as restart
-//! recovery unlinks it after a crash at the same point, and any other bytes stay protected.
+//! its bytes: the tracked body is unlinked whatever its inode number, modification time and
+//! ctime say, as restart recovery unlinks it after a crash at the same point, and any other bytes
+//! stay protected.
 
 use super::*;
 use crate::storage::catalog::fault::{Fault, Step};
@@ -73,9 +74,13 @@ enum Unchanged {
     /// It comes back under another inode number with the same bytes and modification time, as
     /// Docker Desktop's shared folders can report an unchanged file.
     Renumbered,
+    /// Only its modification time moves, as a `touch` moves it.
+    Touched,
 }
 
 impl Unchanged {
+    const ALL: [Self; 3] = [Self::Permissions, Self::Renumbered, Self::Touched];
+
     fn apply(self, path: &Path) {
         let before = fs::metadata(path).unwrap();
         match self {
@@ -94,6 +99,12 @@ impl Unchanged {
                     .unwrap();
                 fs::rename(&copy, path).unwrap();
             }
+            Self::Touched => File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(before.modified().unwrap() + std::time::Duration::from_secs(1))
+                .unwrap(),
         }
         let after = fs::metadata(path).unwrap();
         let (before, after) = (
@@ -101,24 +112,24 @@ impl Unchanged {
             fsutil::FileIdentity::from(&after),
         );
         let changes = before.changed_fields(&after);
+        let has = |wanted: fsutil::IdentityField| changes.iter().any(|field| field == wanted);
         assert!(
             !changes.is_empty()
-                && !changes.iter().any(|field| matches!(
-                    field,
-                    fsutil::IdentityField::Size | fsutil::IdentityField::Mtime
-                )),
+                && !has(fsutil::IdentityField::Size)
+                && has(fsutil::IdentityField::Mtime) == matches!(self, Self::Touched),
             "{self:?} changed {changes:?}"
         );
     }
 }
 
-/// A tracked target whose permissions change, or that comes back under another inode number,
-/// after installation checked it and before the exchange still holds the tracked body. The
-/// export completes over it rather than stopping the root: the exchange moved the tracked body
-/// into the private entry, its bytes prove it, and it is unlinked.
+/// A tracked target whose permissions change, that comes back under another inode number or
+/// whose modification time alone moves after installation checked it and before the exchange
+/// still holds the tracked body. The export completes over it rather than stopping the root: the
+/// exchange moved the tracked body into the private entry, its bytes prove it, and it is
+/// unlinked.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_tracked_target_renumbered_or_chmodded_before_the_exchange_is_replaced() {
-    for change in [Unchanged::Permissions, Unchanged::Renumbered] {
+async fn a_tracked_target_with_its_bytes_kept_before_the_exchange_is_replaced() {
+    for change in Unchanged::ALL {
         let fixture = Fixture::new().await;
         let operation = begin_over_exported(&fixture).await;
         let result = race_exchange(&fixture, &operation, |path| change.apply(path)).await;
@@ -199,7 +210,7 @@ async fn a_tracked_target_edited_before_the_exchange_stays_in_the_private_entry(
 
 /// What takes the tracked target's name after installation checked it and before the exchange.
 #[derive(Clone, Copy, Debug)]
-enum Taker {
+pub(super) enum Taker {
     /// A directory with a user's file in it.
     Directory,
     /// A FIFO, which no read of a body may open.
@@ -211,7 +222,7 @@ enum Taker {
 impl Taker {
     const ALL: [Self; 3] = [Self::Directory, Self::Fifo, Self::LongerFile];
 
-    fn apply(self, path: &Path) {
+    pub(super) fn apply(self, path: &Path) {
         fs::remove_file(path).unwrap();
         match self {
             Self::Directory => {

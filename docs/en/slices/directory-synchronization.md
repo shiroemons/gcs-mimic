@@ -109,10 +109,13 @@ and the exchange therefore does not stop the export, and for an ordinary export
 restart recovery, which judges that body by the same rule, gives the same
 answer. Otherwise the bytes stay in the private entry and the root stops: other
 bytes as a protected body, an entry that is not a regular file as an entry
-failure. A symlink that takes a removed target before the rename is not moved
-at all: the rename fails when it opens what it moves, the symlink stays at the
-target and the root stops for recovery. API deletion first moves the checked
-file into the reserved workspace, validates it again and only then unlinks it.
+failure. API deletion first moves the checked file into the reserved
+workspace, validates it again and only then unlinks it. Before that rename it
+opens the target it moves, without following a symlink, and moves it only when
+it is a regular file: a symlink, directory or FIFO that took the target after
+the check stays at the target, and the root stops for recovery. An entry that
+takes the target between that open and the rename is moved into the private
+entry and stops the root as an entry failure; nothing is lost.
 Directory sync precedes the fingerprint/state commit. A divergent target is
 left intact, logged with a preservation remedy and counted as a conflict;
 `export-conflict` findings record both overwrite and deleted-object cases.
