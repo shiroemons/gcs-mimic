@@ -671,21 +671,24 @@ fn rename(
 
 /// The private entry of `id` once installation renamed: what an exchange moved out of the
 /// target, or the body a removal moved in. An entry that is no regular file took the target after
-/// its check, so it is not the tracked body: it stays, `Protected`, as other bytes would.
+/// its check, so it is not the tracked body: the attempt fails `Protected` and the entry stays.
+/// Inspecting it then cannot open it either, so the root stops on that entry failure rather
+/// than counting a protected body.
 fn displaced_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
     match fsutil::open_regular_at(workspace, id.to_hex().as_ref()) {
-        Ok(file) => Ok(Some(file)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) if crate::sync::tree::structural_entry_error(&error) => Err(Error::Protected),
-        Err(error) => Err(error.into()),
+        opened => present(opened),
     }
 }
 
 /// Unlinks the tracked body that installation moved out of the target, if any, then syncs what
 /// installation changed: the directory that holds the target, the workspace and the tree's root.
 /// Only here is that body judged, whatever happened to it between the check before the rename
-/// and the rename itself, by [`OwnedBody::tracked`]: the rule restart recovery judges it by when
-/// it finds it there, so both give the same answer.
+/// and the rename itself, by [`OwnedBody::tracked`]: for an ordinary export, the rule restart
+/// recovery judges it by when it finds it there, so both give the same answer. Over a preserved
+/// conflict this judges by the capture, while recovery judges by the record in `sync_objects`,
+/// so a body this would unlink can stay protected through a restart and leave a second copy in
+/// the conflict store; no bytes are lost either way.
 fn settle(
     root: &File,
     workspace: &File,

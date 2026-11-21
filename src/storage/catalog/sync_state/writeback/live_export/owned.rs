@@ -24,9 +24,10 @@ impl OwnedBody {
 
     /// `file` when it still holds the tracked body, by [`body::same_content`]: what
     /// installation's rename moved out of the target into the private entry, or what restart
-    /// recovery finds there. Installation and recovery both prove it here, so recovery removes no
-    /// tracked body that installation would have kept. An export over a preserved conflict tracks
-    /// the capture's record.
+    /// recovery finds there. Installation and recovery both prove it here, against the same record
+    /// for an ordinary export, so recovery then removes no tracked body that installation would
+    /// have kept. An export over a preserved conflict tracks the capture's record, while recovery
+    /// tracks the one in `sync_objects`: a captured body displaced before a crash stays protected.
     pub(in crate::storage::catalog::sync_state::writeback) fn tracked(
         file: &File,
         tracked: &SyncRecord,
