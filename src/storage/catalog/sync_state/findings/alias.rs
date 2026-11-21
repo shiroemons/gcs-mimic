@@ -9,7 +9,8 @@ use super::*;
 use crate::storage::{
     admin::BucketName,
     sync_state::{
-        SyncFingerprint, SyncPath,
+        SyncFingerprint,
+        durable::Durable,
         observation::{PathStop, Transition},
     },
 };
@@ -456,20 +457,21 @@ impl RootLease {
             .map_err(RootError::from)
     }
 
-    /// Records that the edited file at `path`, which the deleted object `holder` tracked, now
-    /// holds what ingestion took in for the one object left of its alias: the record takes the
-    /// file as `fingerprint` observed it, so that the deletion removes it unless it changed
+    /// Records that the edited file `durable` covers, which the deleted object `holder` tracked,
+    /// now holds what ingestion took in for the one object left of its alias: the record takes
+    /// the file as `fingerprint` observed it, so that the deletion removes it unless it changed
     /// again, and the edit no longer stops the path.
     pub(crate) async fn hand_over_alias(
         &self,
         binding: SyncBinding,
         holder: ObjectName,
-        path: SyncPath,
+        durable: Durable,
         fingerprint: SyncFingerprint,
     ) -> Result<(), RootError> {
         self.revalidate().await?;
         let lease = self.clone();
         let root = self.status().root_id;
+        let path = durable.into_path();
         self.catalog()
             .run_admin_with_error(move |c| {
                 let tx = c.transaction().map_err(unavailable)?;

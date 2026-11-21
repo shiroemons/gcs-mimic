@@ -10,6 +10,7 @@
 use super::baseline::exists;
 use super::install_faults::Started;
 use super::*;
+use crate::storage::fault::{self, Crash, Fault, Step};
 use crate::storage::sync_state::{
     PageLimit,
     findings::alias::FrozenFile,
@@ -129,14 +130,26 @@ impl Pair {
     /// Stops the root and closes the catalog as a stopping server does, then starts the mirror
     /// on them again the way the server starts it, with the same spelling answer.
     async fn restart(self) -> Restarted {
-        drop(self.root);
-        self.catalog.close().await.unwrap();
-        let started = Started::open(&self._data.0, &self.tree.0).await;
+        let stopped = self.stop().await;
+        let started = Started::open(&stopped.data.0, &stopped.tree.0).await;
         Restarted {
             started,
-            directory: self.tree.0.join("test-bucket"),
+            directory: stopped.directory(),
+            bucket: stopped.bucket,
+            _dirs: [stopped.data, stopped.tree],
+            _unchecked: stopped._unchecked,
+        }
+    }
+
+    /// Stops the root and closes the catalog as a stopping server does, leaving its
+    /// directories to a start of the caller's.
+    async fn stop(self) -> Stopped {
+        drop(self.root);
+        self.catalog.close().await.unwrap();
+        Stopped {
+            data: self._data,
+            tree: self.tree,
             bucket: self.bucket,
-            _dirs: [self._data, self.tree],
             _unchecked: self._unchecked,
         }
     }
@@ -245,15 +258,7 @@ impl Pair {
     }
 
     async fn body(&self, name: &str) -> Vec<u8> {
-        let (_, reader) = self
-            .catalog
-            .admin(Origin::Api)
-            .open_object(&self.bucket, &ObjectName::new(name).unwrap(), None)
-            .await
-            .unwrap();
-        let mut bytes = Vec::new();
-        std::io::Read::read_to_end(&mut reader.into_file().unwrap(), &mut bytes).unwrap();
-        bytes
+        api_body(&self.catalog, &self.bucket, name).await
     }
 
     async fn delete(&self, name: &str) {
@@ -273,6 +278,32 @@ impl Pair {
     async fn close(self) {
         drop(self.root);
         self.catalog.close().await.unwrap();
+    }
+}
+
+/// The bytes the API holds for `name`.
+async fn api_body(catalog: &Catalog, bucket: &BucketName, name: &str) -> Vec<u8> {
+    let (_, reader) = catalog
+        .admin(Origin::Api)
+        .open_object(bucket, &ObjectName::new(name).unwrap(), None)
+        .await
+        .unwrap();
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut reader.into_file().unwrap(), &mut bytes).unwrap();
+    bytes
+}
+
+/// A [`Pair`] stopped, with the directories and spelling answer of its mirror.
+struct Stopped {
+    data: TestDir,
+    tree: TestDir,
+    bucket: BucketName,
+    _unchecked: Option<fsutil::UncheckedSpelling>,
+}
+
+impl Stopped {
+    fn directory(&self) -> std::path::PathBuf {
+        self.tree.0.join("test-bucket")
     }
 }
 
@@ -563,6 +594,119 @@ async fn an_edit_never_replaces_a_generation_written_after_it() {
             );
             pair.close().await;
         }
+    }
+}
+
+/// A crash or a power loss while the start's ingestion hands an edit over to the object left of
+/// an alias, once it published the edit and once the deleted object's record took the file,
+/// followed by a restart: the object left holds the edit from that one publish, its own file
+/// holds the edit under its own spelling, and nothing is deleted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_crash_while_an_edit_is_handed_over_takes_it_in_once() {
+    for (spelling, names) in cases() {
+        for step in [Step::SyncAliasPublished, Step::SyncAliasHandedOver] {
+            for &crash in Crash::ALL {
+                let Some(mut pair) = Pair::frozen(spelling, names).await else {
+                    continue;
+                };
+                let context = format!("{spelling:?} {names:?} {step:?} {crash:?}");
+                let (first, second) = (pair.first, pair.second);
+                fs::write(pair.directory().join(first), b"edited file").unwrap();
+                assert_eq!(
+                    pair.wait().await.reason,
+                    WaitReason::FindingsPending,
+                    "{context}"
+                );
+                pair.delete(first).await;
+                // The replay leaves the edit to the next ingestion, the one the start runs.
+                pair.replay().await;
+                let stopped = pair.stop().await;
+                let snapshots = TestDir::new();
+                let (snapshot_data, snapshot_tree) =
+                    (snapshots.0.join("data"), snapshots.0.join("tree"));
+                fault::arm(&stopped.tree.0, step, 0, crash.fault(snapshot_tree.clone()));
+                fault::arm(
+                    &stopped.data.0,
+                    step,
+                    0,
+                    Fault::Snapshot(snapshot_data.clone()),
+                );
+                let mut started = Started::open(&stopped.data.0, &stopped.tree.0).await;
+                assert_eq!(fault::pending(&stopped.tree.0), 0, "{context}");
+                assert_eq!(fault::pending(&stopped.data.0), 0, "{context}");
+                assert_eq!(
+                    started.wait().await.unwrap().reason,
+                    WaitReason::Ready,
+                    "{context}"
+                );
+                let published = generation(&started.catalog, &stopped.bucket, second).await;
+                started.close().await;
+
+                restore_bucket(&snapshot_tree, &stopped.tree.0);
+                let catalog = Catalog::open(&snapshot_data).await.unwrap();
+                crate::storage::sync_state::writeback::retrack_restored(&catalog, &stopped.tree.0)
+                    .await
+                    .unwrap();
+                let mut started = Started::start(catalog, &snapshot_data, &stopped.tree.0).await;
+                let result = started.wait().await.unwrap();
+                assert_eq!(
+                    (
+                        result.reason,
+                        result.findings.map(|counted| counted.unmapped)
+                    ),
+                    (WaitReason::Ready, Some(0)),
+                    "{context}"
+                );
+                let catalog = &started.catalog;
+                assert_eq!(
+                    generation(catalog, &stopped.bucket, second).await,
+                    published,
+                    "{context}"
+                );
+                assert_eq!(
+                    api_body(catalog, &stopped.bucket, second).await,
+                    b"edited file",
+                    "{context}"
+                );
+                assert!(!exists(catalog, &stopped.bucket, first).await, "{context}");
+                let listed: Vec<_> = fs::read_dir(stopped.directory())
+                    .unwrap()
+                    .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                    .collect();
+                assert_eq!(listed, [second], "{context}");
+                assert_eq!(
+                    fs::read(stopped.directory().join(second)).unwrap(),
+                    b"edited file",
+                    "{context}"
+                );
+                let set = started.root.deletion_set().await.unwrap();
+                assert_eq!(set.map_or(0, |set| set.candidate_count), 0, "{context}");
+                started.close().await;
+            }
+        }
+    }
+}
+
+/// The live generation of `name`.
+async fn generation(catalog: &Catalog, bucket: &BucketName, name: &str) -> i64 {
+    catalog
+        .admin(Origin::Api)
+        .get_object(bucket, &ObjectName::new(name).unwrap(), None)
+        .await
+        .unwrap()
+        .generation
+}
+
+/// Replaces the files of the bucket directory in `tree` with those `snapshot` kept. The root and
+/// bucket directories stay, because the catalog binds the root's identity.
+fn restore_bucket(snapshot: &std::path::Path, tree: &std::path::Path) {
+    let directory = tree.join("test-bucket");
+    for entry in fs::read_dir(&directory).unwrap() {
+        fs::remove_file(entry.unwrap().path()).unwrap();
+    }
+    for entry in fs::read_dir(snapshot.join("test-bucket")).unwrap() {
+        let entry = entry.unwrap();
+        fs::copy(entry.path(), directory.join(entry.file_name())).unwrap();
     }
 }
 

@@ -908,12 +908,26 @@ impl Ingest<'_> {
                 }
             }
         }
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+        self.reached(crate::storage::fault::Step::SyncAliasPublished)
+            .await?;
+        // The record tells deletion detection that the file was in the tree, as a new one does,
+        // and the edit may have reached it under a new directory entry, as an editor's save does.
+        let Some(durable) = self
+            .make_durable(&holder.key, holder.identity, &holder.binding, &holder.name)
+            .await?
+        else {
+            return Ok(());
+        };
         match self
             .root
-            .hand_over_alias(holder.binding, holder.name, holder.key, fingerprint)
+            .hand_over_alias(holder.binding, holder.name, durable, fingerprint)
             .await
         {
             Ok(()) => {
+                #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+                self.reached(crate::storage::fault::Step::SyncAliasHandedOver)
+                    .await?;
                 self.summary.heirs.push((holder.bucket, heir));
                 Ok(())
             }
@@ -1035,7 +1049,8 @@ impl Ingest<'_> {
             Ok(()) => {
                 self.summary.identical += 1;
                 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-                self.recorded().await?;
+                self.reached(crate::storage::fault::Step::SyncSourceRecorded)
+                    .await?;
             }
             Err(AdminError::Precondition | AdminError::NotFound) => {
                 self.summary.count_deferred(&candidate.path);
@@ -1110,7 +1125,8 @@ impl Ingest<'_> {
                 Ok(_) => {
                     self.summary.ingested += 1;
                     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-                    self.recorded().await?;
+                    self.reached(crate::storage::fault::Step::SyncSourceRecorded)
+                        .await?;
                 }
                 Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
                     self.summary.count_deferred(&path)
@@ -1121,16 +1137,16 @@ impl Ingest<'_> {
         Ok(())
     }
 
-    /// The fault seam after ingestion recorded a file: the tree and the catalog are snapshotted
-    /// together there.
+    /// A fault seam of ingestion at `step`, where the tree and the catalog are snapshotted
+    /// together.
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    async fn recorded(&self) -> Result<(), SyncError> {
-        use crate::storage::fault::{self, Step};
+    async fn reached(&self, step: crate::storage::fault::Step) -> Result<(), SyncError> {
+        use crate::storage::fault;
         let data = self.config.data_dir.clone();
         self.root
             .file_job(move |root| {
-                fault::hit_io(&fault::descriptor_path(root)?, Step::SyncSourceRecorded)?;
-                fault::hit_io(&data, Step::SyncSourceRecorded)?;
+                fault::hit_io(&fault::descriptor_path(root)?, step)?;
+                fault::hit_io(&data, step)?;
                 Ok(())
             })
             .await?;

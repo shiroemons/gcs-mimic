@@ -74,6 +74,15 @@ pub(crate) enum Step {
     /// After ingestion recorded a file, in the tree and in the catalog.
     #[cfg(unix)]
     SyncSourceRecorded,
+    /// After ingestion published an alias edit to the one object left, or found it holds the
+    /// edit already, before the deleted object's record takes the file, in the tree and in the
+    /// catalog.
+    #[cfg(unix)]
+    SyncAliasPublished,
+    /// After the deleted object's record took the file of an alias edit handed over, before the
+    /// file goes with that object, in the tree and in the catalog.
+    #[cfg(unix)]
+    SyncAliasHandedOver,
     SyncMarkerWrite,
     SyncMarkerSync,
     SyncMarkerPrepared,
