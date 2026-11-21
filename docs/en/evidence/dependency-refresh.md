@@ -1442,3 +1442,12 @@ The new genproto revision changes no file under `googleapis/storage`, which hold
 Both freshness checks ran with `GITHUB_TOKEN` set.
 
 Later that day the check began to apply recorded exceptions. The full check at `2026-11-19T05:05:09Z` exited 0 with 142 `CURRENT` lines: both Temurin lines read `DEFERRED` with `review_by=2026-11-26`, and the run ended with the `DEFERRED` summary that dependencies are not all current. See [dependency freshness exceptions](dependency-exceptions.md).
+
+## Image digest refresh: 2026-11-21T11:13:37Z
+
+`cargo xtask dependencies update-images` found these images rebuilt under an unchanged version tag. The checks of the pull request that adopts them are the validation; this record does not establish a result by itself.
+
+| Input | Previous | Proposed | Changed manifests |
+| --- | --- | --- | --- |
+| composer:2.11.2 | `sha256:0c8e663f14c94d07b3c45b175c51f5a14718508f21fe4dd7e54f09488dd0ed71` | `sha256:50ea4d33fdcde1adb0f045547295faa1548b33872e5f789dae5b02ce2fb5de93` | linux/amd64, linux/arm64 |
+| docker/dockerfile:1 | `sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e` | `sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183` | No platforms declared |
