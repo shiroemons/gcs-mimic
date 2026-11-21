@@ -469,7 +469,7 @@ mod listing_tests {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod open_failure_tests {
     use super::*;
-    use crate::{clock::ManualClock, fsutil::VanishingOpens, test_support::TestDir};
+    use crate::{clock::ManualClock, fsutil::FailingOpens, test_support::TestDir};
     use std::{
         fs,
         time::{Duration, SystemTime},
@@ -512,7 +512,7 @@ mod open_failure_tests {
     #[test]
     fn an_entry_that_briefly_fails_to_open_is_opened_again() {
         let entries = Entries::new();
-        let file = VanishingOpens::of(&entries.dir.0, "file", 3);
+        let file = FailingOpens::vanishing(&entries.dir.0, "file", 3);
         assert!(matches!(
             entries
                 .lookup()
@@ -521,7 +521,7 @@ mod open_failure_tests {
             RegularChild::File(_)
         ));
         assert_eq!(file.left(), 0);
-        let directory = VanishingOpens::of(&entries.dir.0, "directory", 3);
+        let directory = FailingOpens::vanishing(&entries.dir.0, "directory", 3);
         assert!(matches!(
             entries
                 .lookup()
@@ -542,8 +542,8 @@ mod open_failure_tests {
     #[test]
     fn an_entry_that_keeps_failing_to_open_is_never_missing() {
         let entries = Entries::new();
-        let _file = VanishingOpens::of(&entries.dir.0, "file", usize::MAX);
-        let _directory = VanishingOpens::of(&entries.dir.0, "directory", usize::MAX);
+        let _file = FailingOpens::vanishing(&entries.dir.0, "file", usize::MAX);
+        let _directory = FailingOpens::vanishing(&entries.dir.0, "directory", usize::MAX);
         assert!(matches!(
             entries.lookup().regular(&entries.parent, "file".as_ref()),
             Ok(RegularChild::Transient)

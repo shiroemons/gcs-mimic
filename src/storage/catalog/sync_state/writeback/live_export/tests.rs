@@ -1454,7 +1454,8 @@ async fn an_observation_waits_out_a_target_that_briefly_fails_to_open() {
         fixture.catalog.current_fence().await.unwrap(),
     )
     .await;
-    let vanishing = fsutil::VanishingOpens::of(&fixture.tree.0.join("test-bucket"), "object", 2);
+    let vanishing =
+        fsutil::FailingOpens::vanishing(&fixture.tree.0.join("test-bucket"), "object", 2);
     let mut outcome = InstallOutcome::Pending;
     for _ in 0..8 {
         outcome = fixture

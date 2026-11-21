@@ -260,12 +260,8 @@ pub(in crate::sync) async fn presence(
                 PathEntry::Respelled(ListedSpelling::Unnamed) => {
                     Looked::At(Presence::Unobservable(Unobservable::Alias))
                 }
-                PathEntry::Directory(error) | PathEntry::Special(error) => {
-                    Looked::At(Presence::Unobservable(if name_rejected(&error) {
-                        Unobservable::NameRejected
-                    } else {
-                        Unobservable::EntryReplaced
-                    }))
+                PathEntry::Directory(_) | PathEntry::Special(_) => {
+                    Looked::At(Presence::Unobservable(Unobservable::EntryReplaced))
                 }
                 PathEntry::NameRejected(_) => {
                     Looked::At(Presence::Unobservable(Unobservable::NameRejected))

@@ -1170,24 +1170,37 @@ fn unreadable_listing(directory: &File) -> io::Result<()> {
     Ok(())
 }
 
-/// Names whose opens fail with `ENOENT` while the entry stays ([`Opened::Transient`]): by the
-/// device and inode number of the directory, the name, and how many opens are left to fail.
-/// Opening an existing regular file or directory by name fails that way; `fstatat` still finds
-/// the entry. Tests run in parallel, so each adds its own name and removes only that one again.
+/// Names whose opens fail while the entry stays: by the device and inode number of the
+/// directory, the name, how many opens succeed first, how many fail after them, and how. Opening
+/// an existing regular file or directory by name fails that way; `fstatat` still finds the
+/// entry. Tests run in parallel, so each adds its own name and removes only that one again.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-static VANISHING_OPENS: std::sync::Mutex<Vec<VanishingOpen>> = std::sync::Mutex::new(Vec::new());
+static FAILING_OPENS: std::sync::Mutex<Vec<FailingOpen>> = std::sync::Mutex::new(Vec::new());
 
-/// A name in [`VANISHING_OPENS`].
+/// A name in [`FAILING_OPENS`].
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-struct VanishingOpen {
+struct FailingOpen {
     directory: (u64, u64),
     name: OsString,
+    skip: usize,
     left: usize,
+    failure: OpenFailure,
 }
 
-/// Fails the next opens of a name with `ENOENT` while it lives ([`VANISHING_OPENS`]).
+/// How an open in [`FAILING_OPENS`] fails.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-pub(crate) struct VanishingOpens {
+#[derive(Clone, Copy)]
+enum OpenFailure {
+    /// With `ENOENT`, as a Docker Desktop bind mount answers for a file it is still bringing
+    /// over from the host ([`Opened::Transient`]).
+    Vanishing,
+    /// With this `errno`, as a file system answers that refuses the name.
+    Refused(i32),
+}
+
+/// Fails opens of a name while it lives ([`FAILING_OPENS`]).
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) struct FailingOpens {
     directory: (u64, u64),
     name: OsString,
 }
@@ -1195,15 +1208,43 @@ pub(crate) struct VanishingOpens {
 // A separate `cfg(test)` lets Clippy see test code here and allow its unwraps.
 #[cfg(test)]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-impl VanishingOpens {
-    /// Fails the next `opens` opens of `name` in `directory`.
-    pub(crate) fn of(directory: &std::path::Path, name: &str, opens: usize) -> Self {
+impl FailingOpens {
+    /// Fails the next `opens` opens of `name` in `directory` with `ENOENT`.
+    pub(crate) fn vanishing(directory: &std::path::Path, name: &str, opens: usize) -> Self {
+        Self::vanishing_after(directory, name, 0, opens)
+    }
+
+    /// Lets the next `skip` opens of `name` in `directory` succeed, and fails the `opens` after
+    /// them with `ENOENT`.
+    pub(crate) fn vanishing_after(
+        directory: &std::path::Path,
+        name: &str,
+        skip: usize,
+        opens: usize,
+    ) -> Self {
+        Self::add(directory, name, skip, opens, OpenFailure::Vanishing)
+    }
+
+    /// Fails every open of `name` in `directory` with `errno`.
+    pub(crate) fn refusing(directory: &std::path::Path, name: &str, errno: i32) -> Self {
+        Self::add(directory, name, 0, usize::MAX, OpenFailure::Refused(errno))
+    }
+
+    fn add(
+        directory: &std::path::Path,
+        name: &str,
+        skip: usize,
+        left: usize,
+        failure: OpenFailure,
+    ) -> Self {
         let identity = stat_identity(&File::open(directory).unwrap()).unwrap();
         let directory = (identity.device, identity.inode);
-        VANISHING_OPENS.lock().unwrap().push(VanishingOpen {
+        FAILING_OPENS.lock().unwrap().push(FailingOpen {
             directory,
             name: name.into(),
-            left: opens,
+            skip,
+            left,
+            failure,
         });
         Self {
             directory,
@@ -1213,7 +1254,7 @@ impl VanishingOpens {
 
     /// How many of the failures are left.
     pub(crate) fn left(&self) -> usize {
-        VANISHING_OPENS
+        FAILING_OPENS
             .lock()
             .unwrap()
             .iter()
@@ -1221,40 +1262,45 @@ impl VanishingOpens {
             .map_or(0, |open| open.left)
     }
 
-    fn names(&self, open: &VanishingOpen) -> bool {
+    fn names(&self, open: &FailingOpen) -> bool {
         open.directory == self.directory && open.name == self.name
     }
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-impl Drop for VanishingOpens {
+impl Drop for FailingOpens {
     fn drop(&mut self) {
-        if let Ok(mut vanishing) = VANISHING_OPENS.lock() {
-            vanishing.retain(|open| open.directory != self.directory || open.name != self.name);
+        if let Ok(mut failing) = FAILING_OPENS.lock() {
+            failing.retain(|open| open.directory != self.directory || open.name != self.name);
         }
     }
 }
 
-/// Fails with `ENOENT` when an open of `name` in `directory` is due to fail
-/// ([`VANISHING_OPENS`]), using that failure up.
+/// Fails when an open of `name` in `directory` is due to fail ([`FAILING_OPENS`]), using that
+/// failure up.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-fn vanishing_open(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
-    let mut vanishing = VANISHING_OPENS
+fn failing_open(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
+    let mut failing = FAILING_OPENS
         .lock()
         .map_err(|_| io::Error::other("open failure injection poisoned"))?;
-    if vanishing.is_empty() {
+    if failing.is_empty() {
         return Ok(());
     }
     let identity = stat_identity(directory)?;
-    match vanishing.iter_mut().find(|open| {
+    let Some(open) = failing.iter_mut().find(|open| {
         open.directory == (identity.device, identity.inode) && open.name == name && open.left > 0
-    }) {
-        Some(open) => {
-            open.left -= 1;
-            Err(io::ErrorKind::NotFound.into())
-        }
-        None => Ok(()),
+    }) else {
+        return Ok(());
+    };
+    if open.skip > 0 {
+        open.skip -= 1;
+        return Ok(());
     }
+    open.left -= 1;
+    Err(match open.failure {
+        OpenFailure::Vanishing => io::ErrorKind::NotFound.into(),
+        OpenFailure::Refused(errno) => io::Error::from_raw_os_error(errno),
+    })
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]

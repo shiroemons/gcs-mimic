@@ -92,7 +92,9 @@ pub(crate) fn observe_path(
             vacant,
         },
         Ok(RegularChild::Transient) => PathEntry::Transient,
-        Err(error) if tree::structural_entry_error(&error) => {
+        // `EINVAL` is both a refused name and an error of the kind of entry; the refusal decides,
+        // in this one place.
+        Err(error) if !name_rejected(&error) && tree::structural_entry_error(&error) => {
             if fsutil::directory_at(&directory, name, fsutil::DirectoryOpen::Existing).is_ok() {
                 PathEntry::Directory(error)
             } else {

@@ -917,7 +917,7 @@ async fn ingest_takes_in_a_file_that_briefly_fails_to_open() {
         scan(&worker_catalog, &worker_root, &worker_config).await
     })
     .await;
-    let vanishing = fsutil::VanishingOpens::of(&tree.0.join("test-bucket"), "object", 2);
+    let vanishing = fsutil::FailingOpens::vanishing(&tree.0.join("test-bucket"), "object", 2);
     hook.release.notify_one();
     let scanned = worker.await.unwrap();
     assert_eq!((scanned.ingested, scanned.deferred), (1, 0));
@@ -940,8 +940,8 @@ async fn a_listed_file_that_fails_to_open_stays_in_the_scan() {
     assert_eq!(scan(&catalog, &root, &config).await.ingested, 1);
     fs::write(bucket.join("object"), b"bytes").unwrap();
     clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
-    let briefly = fsutil::VanishingOpens::of(&bucket, "object", 2);
-    let stuck = fsutil::VanishingOpens::of(&bucket, "tracked", usize::MAX);
+    let briefly = fsutil::FailingOpens::vanishing(&bucket, "object", 2);
+    let stuck = fsutil::FailingOpens::vanishing(&bucket, "tracked", usize::MAX);
     let scanned = scan(&catalog, &root, &config).await;
     assert_eq!((scanned.ingested, scanned.deferred), (1, 1));
     assert_eq!(briefly.left(), 0);
@@ -970,7 +970,7 @@ async fn a_bucket_directory_that_briefly_fails_to_open_is_not_forgotten() {
     };
     let observed = buckets().await;
     assert_eq!(observed.len(), 1);
-    let vanishing = fsutil::VanishingOpens::of(&tree.0, "test-bucket", 2);
+    let vanishing = fsutil::FailingOpens::vanishing(&tree.0, "test-bucket", 2);
     scan(&catalog, &root, &config).await;
     assert_eq!(vanishing.left(), 0);
     assert_eq!(buckets().await, observed);

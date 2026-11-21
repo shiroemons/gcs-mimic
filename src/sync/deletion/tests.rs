@@ -68,7 +68,7 @@ async fn a_tracked_file_that_fails_to_open_is_never_a_deletion_candidate() {
         ..Default::default()
     };
     let (_stop, stopping) = tokio::sync::watch::channel(false);
-    let vanishing = fsutil::VanishingOpens::of(&tree.0.join("test-bucket"), "0000", 2);
+    let vanishing = fsutil::FailingOpens::vanishing(&tree.0.join("test-bucket"), "0000", 2);
     let set = inventory(&root, &config, summary.gate(), &stopping)
         .await
         .unwrap()
@@ -76,7 +76,8 @@ async fn a_tracked_file_that_fails_to_open_is_never_a_deletion_candidate() {
     assert_eq!(set.candidate_count, 0);
     assert_eq!(vanishing.left(), 0);
     drop(vanishing);
-    let _vanishing = fsutil::VanishingOpens::of(&tree.0.join("test-bucket"), "0000", usize::MAX);
+    let _vanishing =
+        fsutil::FailingOpens::vanishing(&tree.0.join("test-bucket"), "0000", usize::MAX);
     let clock = std::sync::Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
     let lookup = fsutil::Lookup::probed(fsutil::Matching::Exact, clock);
     assert!(matches!(
@@ -85,6 +86,27 @@ async fn a_tracked_file_that_fails_to_open_is_never_a_deletion_candidate() {
             .unwrap(),
         Presence::Unobservable(Unobservable::Unsettled)
     ));
+}
+
+/// A tracked file whose name the file system refuses (`EINVAL` or `EILSEQ`) is unobservable as a
+/// rejected name, not as an entry that took the file's place.
+#[tokio::test]
+async fn a_tracked_file_whose_name_is_refused_is_a_rejected_name() {
+    let (_data, tree, _catalog, root, _config) = fixture(1).await;
+    for errno in [libc::EINVAL, libc::EILSEQ] {
+        let _refused = fsutil::FailingOpens::refusing(&tree.0.join("test-bucket"), "0000", errno);
+        let observed = presence(
+            &root,
+            &fsutil::Lookup::unprobed(),
+            "test-bucket/0000".to_owned(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            matches!(observed, Presence::Unobservable(Unobservable::NameRejected)),
+            "{errno}: {observed:?}"
+        );
+    }
 }
 
 #[tokio::test]

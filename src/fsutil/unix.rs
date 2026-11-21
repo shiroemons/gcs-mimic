@@ -269,7 +269,7 @@ pub fn open_directory_nofollow(path: &Path) -> io::Result<File> {
 /// Opens only a regular single-component entry under the pinned directory.
 pub fn open_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    super::vanishing_open(directory, name)?;
+    super::failing_open(directory, name)?;
     open_at(directory, &component(name)?, FileOpen::Existing)
 }
 
@@ -313,7 +313,7 @@ pub(crate) fn directory_at(
     }
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     if open == DirectoryOpen::Existing {
-        super::vanishing_open(directory, OsStr::from_bytes(name.as_bytes()))?;
+        super::failing_open(directory, OsStr::from_bytes(name.as_bytes()))?;
     }
     // SAFETY: name is terminated and the parent descriptor remains live.
     let fd = unsafe {

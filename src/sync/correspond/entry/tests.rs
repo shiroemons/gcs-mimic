@@ -96,6 +96,26 @@ fn another_kind_of_entry_at_the_path_or_above_it_is_told_apart() {
     ));
 }
 
+/// A name the file system refuses (`EINVAL` or `EILSEQ`) is rejected, whatever entry it holds:
+/// the refusal is not taken for the kind of entry there.
+#[test]
+fn a_name_the_file_system_refuses_is_rejected_whatever_it_holds() {
+    let tree = Tree::new();
+    let bucket = tree.dir.0.join("bucket");
+    fs::write(bucket.join("file"), b"bytes").unwrap();
+    fs::create_dir(bucket.join("directory")).unwrap();
+    for errno in [libc::EINVAL, libc::EILSEQ] {
+        for name in ["file", "directory"] {
+            let _refused = fsutil::FailingOpens::refusing(&bucket, name, errno);
+            let observed = tree.observe(&format!("bucket/{name}"));
+            assert!(
+                matches!(&observed, PathEntry::NameRejected(error) if error.raw_os_error() == Some(errno)),
+                "{errno} {name}: {observed:?}"
+            );
+        }
+    }
+}
+
 /// A path whose file, or a directory above it, keeps failing to open while its name still holds
 /// an entry is transient, never absent.
 #[test]
@@ -106,10 +126,10 @@ fn a_path_whose_entries_keep_failing_to_open_is_never_absent() {
     let lookup = Lookup::probed(fsutil::Matching::Exact, clock);
     let observe =
         |path: &str| observe_path(&tree.root, RootNaming::posix(), &lookup, Path::new(path));
-    let file = fsutil::VanishingOpens::of(&tree.dir.0.join("bucket"), "file", usize::MAX);
+    let file = fsutil::FailingOpens::vanishing(&tree.dir.0.join("bucket"), "file", usize::MAX);
     assert!(matches!(observe("bucket/file"), PathEntry::Transient));
     drop(file);
-    let _bucket = fsutil::VanishingOpens::of(&tree.dir.0, "bucket", usize::MAX);
+    let _bucket = fsutil::FailingOpens::vanishing(&tree.dir.0, "bucket", usize::MAX);
     assert!(matches!(observe("bucket/file"), PathEntry::Transient));
 }
 

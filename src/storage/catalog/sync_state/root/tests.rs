@@ -45,7 +45,7 @@ async fn a_marker_that_briefly_fails_to_open_is_still_read() {
             .await
             .unwrap(),
     );
-    let vanishing = fsutil::VanishingOpens::of(&tree.0, MARKER, 2);
+    let vanishing = fsutil::FailingOpens::vanishing(&tree.0, MARKER, 2);
     assert!(
         read_marker(&fsutil::open_directory_nofollow(&tree.0).unwrap())
             .unwrap()

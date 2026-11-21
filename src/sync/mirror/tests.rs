@@ -3082,6 +3082,37 @@ async fn wait_reports_the_finding_that_holds_back_the_export_over_a_renumbered_f
     catalog.close().await.unwrap();
 }
 
+/// A file at an export's target whose name the file system refuses as invalid (`EINVAL`) is an
+/// unsafe entry the export records and leaves, as it was when that refusal was read as the kind
+/// of entry at the name.
+#[tokio::test]
+async fn a_target_whose_name_the_file_system_refuses_is_an_unsafe_entry() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    let directory = tree.0.join("test-bucket");
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join("refused"), b"local").unwrap();
+    let _refused = fsutil::FailingOpens::refusing(&directory, "refused", libc::EINVAL);
+    publish_named(&catalog, &bucket, "refused", b"api", Origin::Api).await;
+    assert_eq!(reconcile(&catalog, &root).await.unwrap().exported, 0);
+    let findings = root
+        .findings_page(0, 256)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|finding| (finding.name, finding.reason))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        findings,
+        [(
+            "refused".to_owned(),
+            FindingKind::Obstructed(Obstruction::UnsafeEntry)
+        )]
+    );
+    assert_eq!(fs::read(directory.join("refused")).unwrap(), b"local");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// A collision carried over from schema 57 does not say whether it was a name collision or an
 /// export conflict. A reconciliation that meets the name collision again records it as one.
 #[tokio::test]

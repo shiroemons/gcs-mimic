@@ -414,6 +414,12 @@ fn inspect(
         }
         PathEntry::Directory(_) => return Ok(Target::Directory),
         PathEntry::Special(_) => return Ok(Target::Replaced(Obstruction::UnsafeEntry)),
+        // The entry's name refused as invalid was read as the kind of entry there before the
+        // refusal was told apart, and the export keeps answering it as an entry it does not
+        // replace. The other refusals fail the step, as they did.
+        PathEntry::NameRejected(error) if error.raw_os_error() == Some(libc::EINVAL) => {
+            return Ok(Target::Replaced(Obstruction::UnsafeEntry));
+        }
         PathEntry::NameRejected(error) | PathEntry::Unreadable(error) => {
             return Err(error.into());
         }
