@@ -896,6 +896,63 @@ async fn atomic_seed_protected_and_importing_namespaces_roll_back_new_buckets_an
     catalog.close().await.unwrap();
 }
 
+/// A seed replay over an object whose own retention period has not ended fails the whole replay
+/// where no versioning keeps the replaced generation, and replaces the object where versioning
+/// keeps that generation as noncurrent: the replay predicts the refusal with the check that
+/// publication makes.
+#[tokio::test]
+async fn a_retained_object_refuses_a_replay_unless_versioning_keeps_it_noncurrent() {
+    use crate::{
+        bucket::Versioning,
+        object::{
+            Patch,
+            retention::{ObjectRetention, RetentionMode},
+        },
+    };
+    for keeps_noncurrent in [false, true] {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let admin = catalog.admin(Origin::Seed);
+        let mut definition = bucket();
+        definition.0.versioning = if keeps_noncurrent {
+            Versioning::Enabled
+        } else {
+            Versioning::Disabled
+        };
+        definition.0.object_retention_enabled = true;
+        admin.ensure_bucket(definition).await.unwrap();
+        let bucket = BucketName::new("test-bucket").unwrap();
+        let name = ObjectName::new("object").unwrap();
+        let mut retained = request(None);
+        retained.metadata.retention = Patch::Set(ObjectRetention {
+            mode: RetentionMode::Unlocked,
+            retain_until: (SystemTime::now() + std::time::Duration::from_secs(86_400)).into(),
+        });
+        let old = admin
+            .publish_object(&bucket, &name, retained, body(b"old"))
+            .await
+            .unwrap();
+        let mut batch = admin.seed_batch().await.unwrap();
+        add(&mut batch, &dir.0, "object", b"new").await;
+        let committed = batch.commit(SeedMode::Merge).await;
+        if keeps_noncurrent {
+            assert_eq!(committed.unwrap().replaced, 1);
+            assert_eq!(bytes(&admin, "object").await, b"new");
+            let generation = Generation::new(old.generation).unwrap();
+            let kept = admin
+                .get_object(&bucket, &name, Some(generation))
+                .await
+                .unwrap();
+            assert_eq!(kept.generation, old.generation);
+            assert!(kept.time_deleted.is_some(), "{kept:?}");
+        } else {
+            assert!(matches!(committed, Err(AdminError::Hold)));
+            assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
+        }
+        catalog.close().await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn atomic_ram_reseed_replaces_a_full_catalog_without_growing_a_deletion_journal() {
     let source = TestDir::new();

@@ -938,7 +938,7 @@ fn commit_batch(
             break;
         }
         transaction.execute_batch("SAVEPOINT publication_element")?;
-        match publish_entry(&transaction, entry, grant, clock) {
+        match publish_entry(&transaction, entry, grant, clock.now()) {
             Ok(record) => {
                 transaction.execute_batch("RELEASE publication_element")?;
                 results.push(Ok(record));
@@ -1021,15 +1021,14 @@ fn publication_record(
     Ok(record)
 }
 
-/// Publishes one element. Its failure says whether only this element fails or the batch stops,
-/// so it is an administrative failure.
+/// Publishes one element at `now`. Its failure says whether only this element fails or the batch
+/// stops, so it is an administrative failure.
 fn publish_entry(
     transaction: &rusqlite::Transaction<'_>,
     entry: &BatchPublication,
     grant: &AdminGrant,
-    clock: &dyn Clock,
+    now: SystemTime,
 ) -> Result<ObjectRecord, AdminError> {
-    let now = clock.now();
     let micros = checked_entry_micros(entry, now)?;
     check_import_requirements(entry)?;
     Ok(publish_checked_entry(

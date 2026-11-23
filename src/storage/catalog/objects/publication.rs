@@ -399,12 +399,11 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
     record.retention_expiration_time = bucket.retention_expiration(&record)?;
     let now = system_time_micros(micros)?;
     // A retained live version may become noncurrent, but it cannot be replaced outright.
-    if bucket.versioning == Versioning::Disabled
-        && let Some(StoredObject {
-            record: previous, ..
-        }) = previous
+    if let Some(StoredObject {
+        record: previous, ..
+    }) = previous
     {
-        previous.check_object_retention(now)?;
+        super::check_replaceable(previous, bucket.versioning, now)?;
     }
     retention::validate_publication(transaction, &record, now)?;
     validate_timestamps(&record)?;
