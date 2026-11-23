@@ -231,8 +231,13 @@ pass:
 - creates the bucket of a new top-level directory, or takes over a bucket of
   `seed_project` with that name. A removed directory deletes the objects seeding
   published below it, never the bucket. A bucket an API request deleted stays
-  deleted while its directory remains; removing the directory and adding it
-  again, a reseed or a restart creates it again.
+  deleted while its directory remains, and one an API request created again
+  under that name keeps the objects it holds. A reseed or a restart replays the
+  directory again, and so does removing the directory for two passes at least a
+  second apart and adding it back. A directory a pass cannot read proves
+  nothing gone: the pass reports it and leaves its bucket as it is. On Windows,
+  where nothing proves a directory gone, only a reseed or a restart replays a
+  directory whose bucket an API request deleted.
 - leaves an entry it cannot replay as it is and reports it: an unusable entry, a
   file past `max_object_bytes`, a directory past `max_buckets_per_batch`, an
   object a hold or retention period protects, and a directory whose name a
@@ -250,14 +255,15 @@ the browser and host checks of `/_internal/reseed`:
   `lastPass`, which is `null` until a pass completes.
 - `POST /_internal/seed/wait`, with an empty body and an optional `timeoutMs`
   from 1 to 600000 (default 60000), starts a pass at once and answers the report
-  of the first pass that started after the request and left no deletion waiting
-  for its second proof. It answers 400 `invalid` when no passes run, and 503
-  with `Retry-After: 1` when the time runs out first or the server closes.
-  `request_timeout_ms` ends a longer wait sooner.
+  of the first pass that started after the request and left no removed file or
+  directory waiting for its second proof. It answers 400 `invalid` when no
+  passes run, and 503 with `Retry-After: 1` when the time runs out first or the
+  server closes. `request_timeout_ms` ends a longer wait sooner.
 
 A pass report has `startedAt`, `completedAt`, `complete` (the walk listed the
 whole tree), `clean` (complete, without problems or error), the counts
 `bucketsCreated`, `published`, `recorded`, `deleted`, `pendingDeletions`,
+`pendingDirectories` (removed directories waiting for their second proof),
 `tombstones` (removed names where seeding owns nothing to delete; each is looked
 up on every pass until a file returns there) and `bucketsKeptDeleted`, the first
 100 `problems` with their `path` and `reason`, `problemsOmitted`, and `error`
