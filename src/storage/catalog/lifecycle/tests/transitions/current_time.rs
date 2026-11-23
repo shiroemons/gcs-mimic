@@ -39,7 +39,11 @@ async fn enabling_or_replacing_rules_evaluates_current_class_candidates() {
         create(&catalog, old_class_delete_rules()).await;
         let original = put(&catalog, "object").await;
         let config = Config {
-            lifecycle_execution: (mode == "disabled").then_some(LifecycleExecution::Disabled),
+            lifecycle_execution: if mode == "disabled" {
+                LifecycleExecution::Disabled
+            } else {
+                LifecycleExecution::Enabled
+            },
             ..Default::default()
         };
         catalog.configure_lifecycle(&config);
@@ -57,7 +61,7 @@ async fn enabling_or_replacing_rules_evaluates_current_class_candidates() {
             ));
             assert_eq!(current(&catalog, "object").await, original);
             catalog.configure_lifecycle(&Config {
-                lifecycle_execution: Some(LifecycleExecution::Enabled),
+                lifecycle_execution: LifecycleExecution::Enabled,
                 ..config
             });
         }

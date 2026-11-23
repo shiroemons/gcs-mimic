@@ -187,7 +187,7 @@ impl ReadyEvent {
             version: gcs_mimic::VERSION,
             healthcheck_path: Config::HEALTHCHECK_PATH,
             admin_enabled: config.admin_enabled,
-            lifecycle_execution: config.effective_lifecycle_execution().as_str(),
+            lifecycle_execution: config.lifecycle_execution.as_str(),
             message,
             listen,
             listeners,

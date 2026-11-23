@@ -685,7 +685,7 @@ async fn multipart_abort_disabled_execution_preserves_uploads_until_enabled() {
     create(&catalog, vec![abort(json!({"age":1}))]).await;
     begin(&catalog, "object").await;
     let mut config = crate::config::Config {
-        lifecycle_execution: Some(crate::config::LifecycleExecution::Disabled),
+        lifecycle_execution: crate::config::LifecycleExecution::Disabled,
         ..Default::default()
     };
     catalog.configure_lifecycle(&config);
@@ -702,7 +702,7 @@ async fn multipart_abort_disabled_execution_preserves_uploads_until_enabled() {
         count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
         1
     );
-    config.lifecycle_execution = Some(crate::config::LifecycleExecution::Enabled);
+    config.lifecycle_execution = crate::config::LifecycleExecution::Enabled;
     catalog.configure_lifecycle(&config);
     let result = catalog.run_lifecycle_now().await.unwrap();
     assert_eq!(serde_json::to_value(result).unwrap()["aborted"], 1);
