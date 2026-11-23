@@ -67,12 +67,7 @@ macro_rules! text_cursor {
     )+};
 }
 
-text_cursor!(
-    crate::storage::BlobId,
-    super::SessionId,
-    String,
-    crate::bucket::name::BucketName
-);
+text_cursor!(crate::storage::BlobId, super::SessionId, String);
 
 /// A page size from 1 to `MAX`, the most the listing that takes it returns at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
