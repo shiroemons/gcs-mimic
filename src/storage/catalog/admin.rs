@@ -42,6 +42,7 @@ mod purge;
 pub(crate) use purge::PurgeError;
 pub(crate) mod replay;
 mod reset;
+pub(super) use reset::validate_reset_epoch;
 
 #[cfg(test)]
 mod tests;
