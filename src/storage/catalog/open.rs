@@ -250,6 +250,40 @@ fn open_memory(max_bytes: u64) -> Result<Connection, CatalogError> {
     Ok(connection)
 }
 
+/// Brings the catalog at `stored_version` to the current schema, creating it when there is none,
+/// and tells the operator what an upgrade changed or left behind.
+fn upgrade_catalog(
+    connection: &mut Connection,
+    stored_version: i64,
+    backend: &BlobBackend,
+) -> Result<(), CatalogError> {
+    let mut version = stored_version;
+    if version == 0 {
+        initialize_catalog(connection)?;
+        version = 5;
+    }
+    // A version marker alone must not make a missing or incompatible schema ready.
+    connection
+        .prepare_cached("SELECT name, project, location, location_type, storage_class, labels, metageneration, time_created, updated FROM buckets LIMIT 0")?;
+    let disk_dir = match backend {
+        BlobBackend::Disk(root) => Some(root.as_path()),
+        BlobBackend::Memory(_) => None,
+    };
+    upgrade(connection, version, disk_dir)?;
+    // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
+    if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Info,
+            "catalog_schema_migrated",
+            serde_json::json!({"message":format!("migrated catalog schema from version {stored_version} to {CATALOG_SCHEMA_VERSION}; releases that support only schema {stored_version} can no longer open this data directory"),"from":stored_version,"to":CATALOG_SCHEMA_VERSION}),
+        );
+    }
+    if let Some(data_dir) = disk_dir {
+        retired_sync::warn_preserved_copies(data_dir)?;
+    }
+    Ok(())
+}
+
 /// Resets volatile state and completes crash recovery before the catalog serves requests.
 fn recover_on_open(
     connection: &mut Connection,
@@ -361,30 +395,7 @@ impl Catalog {
             } else {
                 DataDirState::Opened
             };
-            let mut version = stored_version;
-            if version == 0 {
-                initialize_catalog(&mut connection)?;
-                version = 5;
-            }
-            // A version marker alone must not make a missing or incompatible schema ready.
-            connection
-                .prepare_cached("SELECT name, project, location, location_type, storage_class, labels, metageneration, time_created, updated FROM buckets LIMIT 0")?;
-            let disk_dir = match &backend {
-                BlobBackend::Disk(root) => Some(root.as_path()),
-                BlobBackend::Memory(_) => None,
-            };
-            upgrade(&mut connection, version, disk_dir)?;
-            // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
-            if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Info,
-                    "catalog_schema_migrated",
-                    serde_json::json!({"message":format!("migrated catalog schema from version {stored_version} to {CATALOG_SCHEMA_VERSION}; releases that support only schema {stored_version} can no longer open this data directory"),"from":stored_version,"to":CATALOG_SCHEMA_VERSION}),
-                );
-            }
-            if let Some(data_dir) = disk_dir {
-                retired_sync::warn_preserved_copies(data_dir)?;
-            }
+            upgrade_catalog(&mut connection, stored_version, &backend)?;
             match backend.kind() {
                 crate::config::Backend::Memory => {
                     connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
