@@ -36,6 +36,35 @@ fn unread(tree: &mut Tree, relative: &str, error: io::ErrorKind) -> Fixture {
     .fixture
 }
 
+/// What the walk makes of the top-level entry `name`, which it inspected.
+fn top_level(tree: &mut Tree, name: &str) -> Fixture {
+    let path = tree.root.join(name);
+    let metadata = fs::symlink_metadata(&path).unwrap();
+    tree.see(Ok(WalkEntry {
+        path,
+        metadata,
+        depth: 0,
+    }))
+    .unwrap()
+    .fixture
+}
+
+/// A top-level directory names its bucket only by a valid bucket name; one with any other name
+/// is unusable as the walk finds it.
+#[test]
+fn a_top_level_directory_names_a_bucket_only_by_a_valid_bucket_name() {
+    let (_dir, mut tree) = tree();
+    fs::create_dir(tree.root.join("Not_A_Bucket")).unwrap();
+    assert!(matches!(
+        top_level(&mut tree, "bucket"),
+        Fixture::Bucket(name) if name.as_str() == "bucket"
+    ));
+    assert!(matches!(
+        top_level(&mut tree, "Not_A_Bucket"),
+        Fixture::Unusable(Rejected::BucketName(_))
+    ));
+}
+
 fn unknown_with(fixture: &Fixture, kind: io::ErrorKind) -> bool {
     matches!(fixture, Fixture::Unknown(Unknown::Io(error)) if error.kind() == kind)
 }
