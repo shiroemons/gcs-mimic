@@ -16,7 +16,7 @@ use crate::{
     },
 };
 use serde::Serialize;
-use std::{io, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 use walk::{Fixture, Object, Opened, Seen, Source, Tree, Walked};
 
 mod error;
@@ -162,7 +162,7 @@ impl From<WalkError> for SeedError {
 fn source_failure(error: crate::storage::admin::AdminError) -> SeedError {
     use crate::storage::admin::AdminError;
     match error {
-        AdminError::Io(cause) => SeedError::Io(io::Error::new(cause.kind(), cause)),
+        AdminError::Io(cause) => SeedError::Io(std::io::Error::new(cause.kind(), cause)),
         error => SeedError::Admin(error),
     }
 }

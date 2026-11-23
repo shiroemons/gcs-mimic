@@ -306,7 +306,8 @@ impl Tree {
     #[cfg(not(unix))]
     #[expect(
         clippy::unused_self,
-        reason = "the Unix walk compares the root's path with its pinned descriptor"
+        clippy::unnecessary_wraps,
+        reason = "the Unix walk compares the root's path with its pinned descriptor, which can fail, and both targets share one signature"
     )]
     fn check_root(&self) -> Result<(), Unknown> {
         Ok(())

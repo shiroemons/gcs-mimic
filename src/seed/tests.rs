@@ -204,7 +204,7 @@ async fn an_unreadable_fixture_fails_as_tree_io_with_its_permission_kind() {
         error = source.as_ref();
     }
     assert!(
-        matches!(error, SeedError::Io(cause) if cause.kind() == io::ErrorKind::PermissionDenied),
+        matches!(error, SeedError::Io(cause) if cause.kind() == std::io::ErrorKind::PermissionDenied),
         "{error:?}"
     );
     assert!(!seed_complete(&catalog).await);

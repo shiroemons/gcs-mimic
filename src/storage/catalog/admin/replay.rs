@@ -240,10 +240,10 @@ pub(crate) enum Vanished {
 /// caller only reports it. Seeding deletes only the generation it owns, and only while its body
 /// is still the one the record read: an object that changed since is not the one seeding wrote.
 #[cfg_attr(
-    not(test),
+    any(not(test), not(unix)),
     expect(
         dead_code,
-        reason = "the seed record table that names what a replay owns is not wired yet"
+        reason = "the seed record table that names what a replay owns is not wired yet, and only a Unix lookup makes the proof of absence the tests pass"
     )
 )]
 pub(crate) fn absent(_proof: &Vacant, record: &SeedRecord, live: Option<&LiveObject>) -> Vanished {
