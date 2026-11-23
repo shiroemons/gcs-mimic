@@ -282,6 +282,13 @@ impl Staged {
 async fn open_tree(
     catalog: &Admin,
     config: &Config,
+    #[cfg_attr(
+        not(unix),
+        expect(
+            unused_variables,
+            reason = "only the lookups through the pinned Unix root wait on the clock for a name that fails to open for a moment"
+        )
+    )]
     clock: &Arc<dyn Clock>,
     root: &Path,
     request_deadline: Option<tokio::time::Instant>,

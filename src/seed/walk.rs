@@ -60,13 +60,6 @@ pub(super) struct Unlisted {
 }
 
 /// A marked top-level directory that the walk did not list, and what a lookup found at its name.
-#[cfg_attr(
-    not(unix),
-    expect(
-        dead_code,
-        reason = "only a lookup through the pinned root proves a directory's name empty, and this platform has none"
-    )
-)]
 pub(super) struct UnlistedDirectory {
     pub(super) bucket: String,
     pub(super) found: Presence,
