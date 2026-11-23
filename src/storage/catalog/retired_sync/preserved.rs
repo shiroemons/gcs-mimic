@@ -15,7 +15,7 @@ pub(in crate::storage::catalog) use warning::warn_retired_files;
 #[cfg(test)]
 use super::super::fault::{self, Step};
 use super::super::{CatalogError, objects, sql, unavailable};
-use crate::storage::failure::object_context;
+use crate::storage::failure::catalog_context;
 use rusqlite::{
     Connection, Row,
     types::{FromSql, FromSqlResult, ValueRef},
@@ -164,13 +164,13 @@ pub(super) fn write_manifest(
 /// The error of a manifest step, naming the step and the file it worked on.
 fn failed<'a>(step: &'static str, path: &'a Path) -> impl FnOnce(io::Error) -> CatalogError + 'a {
     move |error| {
-        unavailable(object_context(
+        catalog_context(
             format_args!(
                 "retired synchronization manifest: could not {step} {}",
                 path.display()
             ),
             error,
-        ))
+        )
     }
 }
 
