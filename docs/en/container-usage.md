@@ -209,11 +209,14 @@ Startup and reseed need one proof, and only for a name their walk never listed:
 a file listed and then gone, as while an editor saves by renaming, keeps its
 object until the next replay decides. A file whose object an API request
 overwrote or deleted stays as the API left it until the file changes, and a
-bucket deleted through the API is not recreated while its directory remains.
-Passes skip and report a protected object, an unusable entry, a directory past a
-limit and a bucket of another project under a directory's name. On native
-Windows a removed file never deletes its object, and a bucket deleted through
-the API is replayed only by a reseed or a restart. Renaming a file only by
+bucket deleted through the API, or deleted and created again, is left alone by
+the passes even if its directory goes away and comes back; only a restart or a
+reseed replays it. Passes skip and report a protected object, an unusable entry,
+a directory past a limit and a bucket of another project under a directory's
+name. On native Windows a removed file never deletes its object. A pass that
+cannot run warns with `seed_pass_failed` (fields `pass` and `cause`, the whole
+cause chain), once when passes start failing and again only when the reason
+changes; `seed_pass_recovered` at info level reports the next success. Renaming a file only by
 case on a case-insensitive filesystem keeps the object of the old name. The
 watch polls, so a change takes effect within about the interval.
 
