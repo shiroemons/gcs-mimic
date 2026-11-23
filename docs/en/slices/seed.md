@@ -206,7 +206,15 @@ file, the object stays, and while seeding owns it a startup replay or a reseed
 warns with `seed_skipped` and every pass reports the name as a problem.
 Deleting or overwriting the object through the API, or a reset, ends both: an
 object an API write replaced, edited or deleted is no longer seeding's to
-delete, so its name needs no attention.
+delete, so its name needs no attention. A startup replay or a reseed deletes
+only for a file its walk never listed: one it listed and then found missing, as
+an editor that saves by renaming a new file over the old one leaves the name
+for a moment, keeps its object and is skipped with `seed_skipped`, and the next
+replay decides again. On a case-insensitive filesystem, such as the macOS and
+Windows defaults, renaming a file only by case (`Readme.md` to `README.md`)
+publishes the new name and keeps the object of the old one, because a lookup of
+the old name still finds the file; delete that object through the API, or
+reset.
 Seeding owns only what a replay of a release that keeps seed records published
 or found identical to a version it already owned, so an identical object an
 earlier release seeded stays after its file is removed, until the file changes
@@ -228,10 +236,12 @@ pass:
   seeding recorded, and publishes a changed or new file as a startup replay
   would. A file at a name an API request overwrote or deleted stays as the API
   left it until the file changes again.
-- deletes the object seeding published for a removed file only after a second
-  pass, at least a second after the first, still finds the file gone, with the
-  generation and metageneration seeding published as conditions in the same
-  transaction. A version an API write made at that name stays.
+- deletes the object seeding published for a removed file only once
+  consecutive passes found the file gone, the last at least a second after the
+  first, with the generation and metageneration seeding published as conditions
+  in the same transaction. A pass in between that found the file, could not
+  tell, or failed starts the wait again. A version an API write made at that
+  name stays.
 - creates the bucket of a new top-level directory, or takes over a bucket of
   `seed_project` with that name. A removed directory deletes the objects seeding
   published below it, never the bucket. A bucket an API request deleted stays
