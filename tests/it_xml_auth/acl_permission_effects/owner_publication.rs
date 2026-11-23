@@ -27,8 +27,8 @@ fn acl(value: &Value) -> Vec<(String, String)> {
     entries
 }
 
-fn counters(db: &rusqlite::Connection) -> (i64, i64, i64) {
-    db.query_row("SELECT (SELECT last_generation FROM object_generation),(SELECT COUNT(*) FROM change_journal),(SELECT COUNT(*) FROM notification_outbox)", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap()
+fn counters(db: &rusqlite::Connection) -> (i64, i64) {
+    db.query_row("SELECT (SELECT last_generation FROM object_generation),(SELECT COUNT(*) FROM notification_outbox)", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap()
 }
 
 fn assert_move_inputs(server: &Server, source: &Value, target: &Value) {

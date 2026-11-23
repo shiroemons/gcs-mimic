@@ -81,7 +81,6 @@ pub(super) fn read_all(
 fn touch_bucket(
     transaction: &Connection,
     bucket: &str,
-    access: &BucketAccess,
     now_micros: i64,
 ) -> Result<(), CatalogError> {
     let updated = sql::exec(
@@ -93,13 +92,7 @@ fn touch_bucket(
     if updated != 1 {
         return Err(unavailable("bucket metageneration exhausted"));
     }
-    super::change_journal::append(
-        transaction,
-        super::change_journal::origin(access),
-        super::change_journal::ChangeKind::BucketUpdate,
-        bucket,
-        None,
-    )
+    Ok(())
 }
 
 /// Only canonical positive decimal IDs can name a stored configuration.
@@ -143,12 +136,7 @@ impl Catalog {
                 "INSERT INTO bucket_notifications VALUES (?1, ?2, ?3)",
                 params![bucket, id, config.to_stored()],
             )?;
-            touch_bucket(
-                &transaction,
-                &bucket,
-                &access,
-                super::unix_micros(clock.now())?,
-            )?;
+            touch_bucket(&transaction, &bucket, super::unix_micros(clock.now())?)?;
             transaction.commit()?;
             Ok(NotificationRecord { id, config })
         })
@@ -216,12 +204,7 @@ impl Catalog {
             if deleted == 0 {
                 return Ok(false);
             }
-            touch_bucket(
-                &transaction,
-                &bucket,
-                &access,
-                super::unix_micros(clock.now())?,
-            )?;
+            touch_bucket(&transaction, &bucket, super::unix_micros(clock.now())?)?;
             transaction.commit()?;
             Ok(true)
         })

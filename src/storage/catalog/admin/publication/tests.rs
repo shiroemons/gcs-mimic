@@ -142,6 +142,21 @@ fn blob_count(dir: &std::path::Path) -> usize {
         .sum()
 }
 
+/// The last object generation the catalog allocated, which a rolled-back or skipped
+/// publication leaves as it was.
+async fn last_generation(catalog: &Catalog) -> i64 {
+    catalog
+        .run_admin(|connection| {
+            connection
+                .query_row("SELECT last_generation FROM object_generation", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map_err(unavailable)
+        })
+        .await
+        .unwrap()
+}
+
 #[cfg(unix)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DirectorySync {
@@ -277,16 +292,7 @@ async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
                 .await
                 .unwrap();
         }
-        let last = catalog
-            .run_admin(|connection| {
-                connection
-                    .query_row("SELECT last_generation FROM object_generation", [], |row| {
-                        row.get::<_, i64>(0)
-                    })
-                    .map_err(unavailable)
-            })
-            .await
-            .unwrap();
+        let last = last_generation(&catalog).await;
         let mut replacement = entry(&admin, &dir.0, "object", b"replacement").await;
         replacement.request.metadata.acl =
             crate::acl::AclRequest::Entries(vec![crate::acl::AclEntry {
@@ -312,19 +318,7 @@ async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
                 .objects,
             previous_acl
         );
-        assert_eq!(
-            catalog
-                .run_admin(|connection| {
-                    connection
-                        .query_row("SELECT last_generation FROM object_generation", [], |row| {
-                            row.get::<_, i64>(0)
-                        })
-                        .map_err(unavailable)
-                })
-                .await
-                .unwrap(),
-            last
-        );
+        assert_eq!(last_generation(&catalog).await, last);
         catalog.close().await.unwrap();
     }
 }
@@ -369,10 +363,9 @@ async fn a_panicking_file_job_fails_its_caller_and_keeps_both_workers() {
 }
 
 #[tokio::test]
-async fn publication_disk_full_rolls_back_the_batch_and_journal() {
+async fn publication_disk_full_rolls_back_the_batch_and_its_generations() {
     let (dir, catalog, admin, bucket, _) = setup().await;
-    catalog.enable_change_journal().await.unwrap();
-    let fence = catalog.current_fence().await.unwrap();
+    let generation = last_generation(&catalog).await;
     let a = entry(&admin, &dir.0, "a", b"a").await;
     let mut b = entry(&admin, &dir.0, "b", b"b").await;
     b.request.metadata.metadata =
@@ -397,7 +390,7 @@ async fn publication_disk_full_rolls_back_the_batch_and_journal() {
             .await,
         Err(AdminError::NotFound)
     );
-    assert_eq!(catalog.current_fence().await.unwrap(), fence);
+    assert_eq!(last_generation(&catalog).await, generation);
     assert_eq!(blob_count(&dir.0), 0);
     assert_eq!(catalog.0.staged_handles.available_permits(), 256);
     catalog.close().await.unwrap();
@@ -538,20 +531,19 @@ async fn publication_inherits_metadata_patched_after_staging() {
 }
 
 #[tokio::test]
-async fn publication_equal_hash_keeps_generation_metadata_and_journal() {
+async fn publication_equal_hash_keeps_generation_and_metadata() {
     let (dir, catalog, admin, bucket, name) = setup().await;
-    catalog.enable_change_journal().await.unwrap();
     let first = admin
         .publish_object(&bucket, &name, request(None), body(b"same"))
         .await
         .unwrap();
-    let fence = catalog.current_fence().await.unwrap();
+    let generation = last_generation(&catalog).await;
     let mut input = entry(&admin, &dir.0, "object", b"same").await;
     input.request.mode = PublishMode::SkipIfSameHash;
     input.request.content_type = "application/ignored".into();
     let result = admin.publish_objects(vec![input]).await.unwrap();
     assert_eq!(result.results.into_iter().next().unwrap().unwrap(), first);
-    assert_eq!(catalog.current_fence().await.unwrap(), fence);
+    assert_eq!(last_generation(&catalog).await, generation);
     assert_eq!(blob_count(&dir.0), 1);
     let mut same = request(Some(GenerationCondition::Absent));
     same.mode = PublishMode::SkipIfSameHash;
@@ -578,7 +570,6 @@ async fn publication_equal_hash_keeps_generation_metadata_and_journal() {
 #[tokio::test]
 async fn publication_batch_isolates_failed_elements_and_cleans_unused_blobs() {
     let (dir, catalog, admin, bucket, _) = setup().await;
-    catalog.enable_change_journal().await.unwrap();
     let name = ObjectName::new("exists").unwrap();
     let old = admin
         .publish_object(&bucket, &name, request(None), body(b"old"))

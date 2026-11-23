@@ -145,9 +145,13 @@ impl Inner {
         // The connection is checked after an unwind before anyone reuses it, so
         // observing it mid-operation is harmless.
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            change_journal::notify_on_write(connection, &self.change_wake, |connection| {
-                change_journal::notify_on_write(connection, &self.notification_wake, operation)
-            })
+            let result = operation(connection);
+            // A rollback or an unrelated write wakes the notification worker too; it only
+            // rereads the outbox.
+            if connection.total_changes() != changes_before {
+                self.notification_wake.notify_waiters();
+            }
+            result
         }));
         let rules_written = rule_writes.written();
         // Before the caller can learn the outcome, so a read after this write misses the cache. A

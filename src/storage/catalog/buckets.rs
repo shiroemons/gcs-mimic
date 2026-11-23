@@ -45,7 +45,7 @@ impl Catalog {
         self.run(move |connection| {
             validate_cors(&record.cors)?;
             let transaction = sql::immediate(connection)?;
-            let creation = BucketCreation::default_policy(admin::Origin::Api, default_retention);
+            let creation = BucketCreation::default_policy(default_retention);
             create_bucket_in_transaction(&transaction, &mut record, creation)?;
             transaction.commit()?;
             Ok(record)
@@ -131,7 +131,7 @@ impl Catalog {
             // With a soft delete policy the version and its retained objects move aside first,
             // so the permanent deletions below no longer find them.
             bucket_soft_delete::retire(&transaction, &name, unix_micros(clock.now())?)?;
-            remove_live_bucket(&transaction, &name, change_journal::origin(&access))?;
+            remove_live_bucket(&transaction, &name)?;
             let result = transaction.commit().map_err(unavailable);
             // Commit failures may be ambiguous; cleanup rechecks the current bucket incarnation.
             catalog.schedule_multipart_orphan_scan();
@@ -173,22 +173,13 @@ pub(super) fn remove_objects(connection: &Connection, key: &str) -> Result<u64, 
 }
 
 /// Removes a live bucket with the objects its name still holds, inside a deletion or purge
-/// transaction the caller commits: journals the deletion while the bucket's identity still
-/// exists, then drops its policy, incarnation, sync rows and row. ACL, notification and
+/// transaction the caller commits: drops its policy, incarnation and row. ACL, notification and
 /// initialization rows cascade. Returns how many objects it removed.
 pub(super) fn remove_live_bucket(
     transaction: &Connection,
     name: &str,
-    origin: admin::Origin,
 ) -> Result<u64, CatalogError> {
     let removed = remove_objects(transaction, name)?;
-    change_journal::append(
-        transaction,
-        origin,
-        change_journal::ChangeKind::BucketDelete,
-        name,
-        None,
-    )?;
     for query in [
         "DELETE FROM bucket_policies WHERE bucket = ?1",
         "DELETE FROM bucket_incarnations WHERE bucket = ?1",
@@ -209,8 +200,6 @@ const MAX_GENERATION_SEED: i64 = 9_000_000_000_000_000_000;
 /// How a creation stores a new bucket.
 #[derive(Clone, Copy)]
 pub(super) struct BucketCreation<'a> {
-    /// The origin the creation's journal entry names.
-    pub(super) origin: admin::Origin,
     pub(super) default_retention: Option<NonZeroU64>,
     /// Replaces the owning project's default policy, as a policy write would; `None` keeps the
     /// default.
@@ -219,12 +208,8 @@ pub(super) struct BucketCreation<'a> {
 }
 
 impl BucketCreation<'_> {
-    pub(super) fn default_policy(
-        origin: admin::Origin,
-        default_retention: Option<NonZeroU64>,
-    ) -> Self {
+    pub(super) fn default_policy(default_retention: Option<NonZeroU64>) -> Self {
         Self {
-            origin,
             default_retention,
             policy: None,
             principals: None,
@@ -232,40 +217,31 @@ impl BucketCreation<'_> {
     }
 }
 
-/// Inserts a missing bucket, derives its ACL from a policy other than the default one, and
-/// journals the creation; the caller commits.
+/// Inserts a missing bucket and derives its ACL from a policy other than the default one; the
+/// caller commits.
 pub(super) fn create_bucket_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     record: &mut BucketRecord,
     creation: BucketCreation<'_>,
 ) -> Result<(), CatalogError> {
     let BucketCreation {
-        origin,
         default_retention,
         policy,
         principals,
     } = creation;
-    match policy {
-        None => insert_bucket_in_transaction(transaction, record, default_retention)?,
-        Some(policy) => {
-            insert_bucket_with_policy(transaction, record, default_retention, policy)?;
-            if policy.names_public_principal()
-                && policies::policy_public_access(transaction, &record.name)?
-                    == crate::auth::PublicAccess::Prevented
-            {
-                return Err(CatalogError::PublicAccessPrevention);
-            }
-            // As a policy write does, so the bucket ACL shows the grants the policy makes.
-            acl::replace_from_policy(transaction, &record.name, policy, principals)?;
-        }
+    let Some(policy) = policy else {
+        return insert_bucket_in_transaction(transaction, record, default_retention);
+    };
+    insert_bucket_with_policy(transaction, record, default_retention, policy)?;
+    if policy.names_public_principal()
+        && policies::policy_public_access(transaction, &record.name)?
+            == crate::auth::PublicAccess::Prevented
+    {
+        return Err(CatalogError::PublicAccessPrevention);
     }
-    change_journal::append(
-        transaction,
-        origin,
-        change_journal::ChangeKind::BucketCreate,
-        &record.name,
-        None,
-    )
+    // As a policy write does, so the bucket ACL shows the grants the policy makes.
+    acl::replace_from_policy(transaction, &record.name, policy, principals)?;
+    Ok(())
 }
 
 /// Inserts a bucket with the default policy of its owning project, as an API insert does.

@@ -475,7 +475,6 @@ fn commit(
             Some(_) => {}
             None => {
                 let creation = crate::storage::catalog::BucketCreation::default_policy(
-                    batch.admin.origin(),
                     batch.admin.catalog.default_soft_delete_retention(),
                 );
                 crate::storage::catalog::create_bucket_in_transaction(

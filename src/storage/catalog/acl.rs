@@ -7,7 +7,9 @@
 //! Foreign keys remove ACL rows together with their bucket or object generation.
 
 use super::{
-    Catalog, change_journal,
+    Catalog,
+    admin::Origin,
+    notification_outbox,
     objects::{object_unavailable, selected},
     policies::{check_access, policy_public_access},
     unavailable, unix_micros,
@@ -996,13 +998,6 @@ impl Catalog {
                     sql::exec(&transaction,
                             "UPDATE buckets SET metageneration = ?2, updated = ?3, updated_nanos = 0 WHERE name = ?1", params![bucket, state.metageneration, micros])
                         .map_err(unavailable)?;
-                    change_journal::append(
-                        &transaction,
-                        change_journal::origin(&access),
-                        change_journal::ChangeKind::BucketUpdate,
-                        bucket,
-                        None,
-                    )?;
                 }
                 Loaded::Object(mut record) => {
                     sql::exec(&transaction, UPSERT_OBJECT_ENTRIES, params![bucket, record.name, record.generation, entries])
@@ -1012,10 +1007,9 @@ impl Catalog {
                         .map_err(unavailable)?;
                     record.metageneration = state.metageneration;
                     record.updated = super::system_time_micros(micros).map_err(unavailable)?;
-                    change_journal::object(
+                    notification_outbox::metadata_updated(
                         &transaction,
-                        change_journal::origin(&access),
-                        change_journal::ChangeKind::Metadata,
+                        Origin::from(&access),
                         &record,
                     )?;
                 }

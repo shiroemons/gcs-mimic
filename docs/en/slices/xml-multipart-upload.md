@@ -153,7 +153,7 @@ Completion queries selected part metadata, then reads one file at a time with a
 64 KiB buffer, rechecking its hashes while building a durable staged output.
 No part payload or complete object is collected in memory. A fully hashed
 ephemeral derived transfer hands the output to existing publication, generation,
-ACL/default-hold, retention, notification and change-journal logic. Session
+ACL/default-hold, retention and notification logic. Session
 removal and part-deletion journaling commit in that same transaction. Failures
 preserve the prior destination unless publication already committed; a response
 timeout or an error after commit can have an unknown client outcome.

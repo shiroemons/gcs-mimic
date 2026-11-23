@@ -6,7 +6,7 @@
 //! the transaction and their files after it, through the deletion journals that maintenance and
 //! startup recovery also drain.
 
-use super::{Admin, AdminError, BucketName, Origin};
+use super::{Admin, AdminError, BucketName};
 use crate::storage::catalog::{
     Catalog, SessionId, appendable, bucket_soft_delete, objects, remove_live_bucket,
     remove_objects,
@@ -123,11 +123,11 @@ impl Admin {
         deadline: tokio::time::Instant,
     ) -> Result<PurgeOutcome, PurgeError> {
         let catalog = self.catalog.clone();
-        let (name, origin) = (name.as_str().to_owned(), self.origin());
+        let name = name.as_str().to_owned();
         let purged = self
             .catalog
             .run_admin_until(deadline, move |connection| {
-                purge(connection, &catalog, &name, origin)
+                purge(connection, &catalog, &name)
             })
             .await?;
         let objects = purged.objects;
@@ -215,7 +215,8 @@ const CASCADED: &[&str] = &[
     "xml_multipart_parts",
 ];
 /// The tables whose rows keep the incarnation of a bucket they observed, which no later bucket of
-/// the name shares, so a consumer rescans instead of applying them.
+/// the name shares: the change journal, which nothing writes any more, keeps what an older release
+/// recorded.
 #[cfg(test)]
 const INCARNATION_BOUND: &[&str] = &["change_journal"];
 /// The tables of the whole instance: allocators, journals the purge appends to, derived transfers
@@ -240,12 +241,7 @@ const INSTANCE_WIDE: &[&str] = &[
     "xml_multipart_deletions",
 ];
 
-fn purge(
-    connection: &mut Connection,
-    catalog: &Catalog,
-    name: &str,
-    origin: Origin,
-) -> Result<Purged, PurgeError> {
+fn purge(connection: &mut Connection, catalog: &Catalog, name: &str) -> Result<Purged, PurgeError> {
     let transaction = sql::immediate(connection)?;
     let presence = admit(&transaction, name)?;
     let sessions = Sessions::read(&transaction, name)?;
@@ -258,7 +254,7 @@ fn purge(
         sql::exec(&transaction, query, [name])?;
     }
     if presence == Presence::Live {
-        objects += remove_live_bucket(&transaction, name, origin)?;
+        objects += remove_live_bucket(&transaction, name)?;
     }
     if let Err(error) = objects::commit_publication(transaction) {
         // A commit can succeed before reporting an I/O error; a name left with no version shows

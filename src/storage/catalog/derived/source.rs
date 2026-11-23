@@ -168,12 +168,6 @@ impl Catalog {
             "INSERT INTO derived_deletions SELECT ?1, id FROM derived_transfers WHERE publishing = 1",
             [&id],
         )?;
-        super::super::change_journal::object(
-            connection,
-            super::super::change_journal::origin(access),
-            super::super::change_journal::ChangeKind::Delete,
-            &object,
-        )?;
         Ok(())
     }
 

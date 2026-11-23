@@ -73,13 +73,6 @@ impl Admin {
                             principals.as_ref(),
                         )?;
                     }
-                    super::super::change_journal::append(
-                        &transaction,
-                        origin,
-                        super::super::change_journal::ChangeKind::BucketCreate,
-                        &record.name,
-                        None,
-                    )?;
                     Ok(EnsureBucket::Created(record))
                 };
                 import_journal::record_outcomes(

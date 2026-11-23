@@ -471,9 +471,7 @@ mod tests {
     #[test]
     fn stored_enum_values_keep_the_catalog_format() {
         use crate::bucket::{Location, LocationKind, StorageClass};
-        use crate::storage::catalog::{
-            admin::Origin, change_journal::ChangeKind, hmac_keys::HmacKeyState,
-        };
+        use crate::storage::catalog::hmac_keys::HmacKeyState;
         text_values(&[
             (StorageClass::Standard, "STANDARD"),
             (StorageClass::Nearline, "NEARLINE"),
@@ -495,21 +493,6 @@ mod tests {
             &["US", "ASIA-NORTHEAST1", "NAM4"]
                 .map(|name| (name.parse::<Location>().unwrap(), name)),
         );
-        text_values(&[
-            (Origin::Api, "api"),
-            (Origin::Seed, "seed"),
-            (Origin::BucketInit, "bucket-init"),
-            (Origin::Import, "import"),
-        ]);
-        text_values(&[
-            (ChangeKind::Publish, "publish"),
-            (ChangeKind::Metadata, "metadata"),
-            (ChangeKind::Delete, "delete"),
-            (ChangeKind::BucketCreate, "bucket-create"),
-            (ChangeKind::BucketUpdate, "bucket-update"),
-            (ChangeKind::BucketDelete, "bucket-delete"),
-            (ChangeKind::Iam, "iam"),
-        ]);
         text_values(&[
             (HmacKeyState::Active, "ACTIVE"),
             (HmacKeyState::Inactive, "INACTIVE"),

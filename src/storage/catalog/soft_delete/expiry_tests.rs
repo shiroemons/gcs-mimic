@@ -317,21 +317,16 @@ async fn one_pass_drains_a_soft_deleted_bucket_holding_more_than_a_reclamation_p
 }
 
 #[tokio::test]
-async fn expiry_reports_no_change_or_notification_for_an_already_reported_deletion() {
+async fn expiry_reports_no_notification_for_an_already_reported_deletion() {
     let data = TestDir::new();
     let (catalog, clock) = open_disk(&data.0).await;
     retaining_bucket(&catalog, "bucket", 5).await;
     soft_delete(&catalog, "bucket", "object").await;
-    const CHANGES: &str = "SELECT sequence FROM change_journal_state";
     const OUTBOX: &str = "SELECT count(*) FROM notification_outbox";
-    let (changes, outbox) = (
-        count(&catalog, CHANGES).await,
-        count(&catalog, OUTBOX).await,
-    );
+    let outbox = count(&catalog, OUTBOX).await;
     clock.advance(Duration::from_secs(5));
     catalog.maintain_resumable_sessions().await.unwrap();
     assert_eq!(soft_deleted_rows(&catalog).await, 0);
-    assert_eq!(count(&catalog, CHANGES).await, changes);
     assert_eq!(count(&catalog, OUTBOX).await, outbox);
     catalog.close().await.unwrap();
 }

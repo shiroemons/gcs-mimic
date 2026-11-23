@@ -54,6 +54,16 @@ pub enum Origin {
     Import,
 }
 
+/// An administrative access acts for its grant's origin; every other access is an API request.
+impl From<&BucketAccess> for Origin {
+    fn from(access: &BucketAccess) -> Self {
+        match access {
+            BucketAccess::Admin(grant) => grant.origin(),
+            BucketAccess::Permissive | BucketAccess::Policy { .. } => Self::Api,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AdminGrant {
     origin: Origin,
@@ -604,7 +614,6 @@ impl Admin {
         records: Vec<BucketDefinition>,
     ) -> Result<Vec<EnsureBucket>, AdminError> {
         require_unique_names(records.iter().map(|record| record.0.name.as_str()))?;
-        let origin = self.origin();
         let default_retention = self.catalog.default_soft_delete_retention();
         self.catalog
             .run_admin(move |connection| {
@@ -619,7 +628,7 @@ impl Admin {
                         results.push(EnsureBucket::Existing(existing));
                         continue;
                     }
-                    let creation = super::BucketCreation::default_policy(origin, default_retention);
+                    let creation = super::BucketCreation::default_policy(default_retention);
                     super::create_bucket_in_transaction(&transaction, &mut record, creation)?;
                     results.push(EnsureBucket::Created(record));
                 }

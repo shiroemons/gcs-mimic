@@ -230,7 +230,6 @@ struct Inner {
     file_workers: admin::FileWorkers,
     admin_shutdown: Notify,
     local_admin: Option<admin::AdminGrant>,
-    change_wake: Notify,
     notification_wake: Arc<Notify>,
     notification_started: AtomicBool,
     /// The local Pub/Sub emulator, set once when the publisher starts; also answers topic lookups.

@@ -251,23 +251,9 @@ pub(in super::super) fn reconcile(
     let acl_changed = replace_from_policy(connection, bucket, &policy, Some(principals))?;
     if changed {
         policies::store_policy(connection, bucket, &mut policy)?;
-        crate::storage::catalog::change_journal::append(
-            connection,
-            crate::storage::admin::Origin::Api,
-            crate::storage::catalog::change_journal::ChangeKind::Iam,
-            bucket,
-            None,
-        )?;
     }
     if acl_changed {
         policies::advance_acl_revision(connection, bucket, updated)?;
-        crate::storage::catalog::change_journal::append(
-            connection,
-            crate::storage::admin::Origin::Api,
-            crate::storage::catalog::change_journal::ChangeKind::BucketUpdate,
-            bucket,
-            None,
-        )?;
     }
     Ok(())
 }

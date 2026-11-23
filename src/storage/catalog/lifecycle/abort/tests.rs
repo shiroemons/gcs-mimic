@@ -568,14 +568,6 @@ async fn multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory
             );
         }
         assert!(catalog.next_notification().await.unwrap().is_none());
-        assert_eq!(
-            count(
-                &catalog,
-                "SELECT count(*) FROM change_journal WHERE object IS NOT NULL"
-            )
-            .await,
-            0
-        );
         assert_missing_xml_operations(&catalog, clock, &target).await;
         catalog.close().await.unwrap();
     }
