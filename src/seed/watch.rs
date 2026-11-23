@@ -67,7 +67,7 @@ async fn pass(
             false,
             LiveCounts::default(),
             Problems::default(),
-            Some(error.to_string()),
+            Some(error.reason().to_string()),
         ),
     };
     PassReport::new((started_at, clock.now()), complete, counts, problems, error)
@@ -132,7 +132,7 @@ struct Pass<'a> {
 impl Pass<'_> {
     fn incomplete(&mut self, error: &SeedError) {
         self.walk.complete = false;
-        self.walk.problems.report(None, error);
+        self.walk.problems.report(None, &error.reason());
     }
 
     /// Takes one walked entry. Only a failure of the catalog or of the pass itself is an error;
@@ -159,7 +159,7 @@ impl Pass<'_> {
     }
 
     fn report(&mut self, label: &str, reason: &SeedError) {
-        self.walk.problems.report(Some(label), reason);
+        self.walk.problems.report(Some(label), &reason.reason());
     }
 
     /// Applies a pass's decision at the entry `label`, which the walk could not read or seeding
@@ -193,7 +193,7 @@ impl Pass<'_> {
             Source::File(_) => {}
             Source::Unknown(unknown) => {
                 self.batch
-                    .unproven(&bucket, &name, &SeedError::from(unknown));
+                    .unproven(&bucket, &name, &SeedError::from(unknown).reason());
             }
         }
     }
