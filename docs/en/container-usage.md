@@ -203,13 +203,19 @@ While the container runs, the seed directory is watched: every
 `GCS_MIMIC_SEED_WATCH_INTERVAL_MS` (1000 ms by default; 0 replays it only at
 startup) a pass republishes changed files, creates the buckets of new top-level
 directories and deletes the objects of removed files. A removal needs two
-passes at least a second apart to be sure the file is gone; startup and reseed
-need one. A file whose object an API request overwrote or deleted stays as the
-API left it until the file changes, and a bucket deleted through the API is not
-recreated while its directory remains. Passes skip and report a protected
-object, an unusable entry and a directory past a limit. On native Windows a
-removed file never deletes its object. The watch polls, so a change takes
-effect within about the interval.
+consecutive passes at least a second apart that both find the file gone; a pass
+in between that saw the file, could not decide or failed starts the wait again.
+Startup and reseed need one proof, and only for a name their walk never listed:
+a file listed and then gone, as while an editor saves by renaming, keeps its
+object until the next replay decides. A file whose object an API request
+overwrote or deleted stays as the API left it until the file changes, and a
+bucket deleted through the API is not recreated while its directory remains.
+Passes skip and report a protected object, an unusable entry, a directory past a
+limit and a bucket of another project under a directory's name. On native
+Windows a removed file never deletes its object, and a bucket deleted through
+the API is replayed only by a reseed or a restart. Renaming a file only by
+case on a case-insensitive filesystem keeps the object of the old name. The
+watch polls, so a change takes effect within about the interval.
 
 With local administration (`GCS_MIMIC_ADMIN_ENABLED=true`, on an isolated
 listener), `gcs-mimic seed status` reports the passes and `gcs-mimic seed wait
