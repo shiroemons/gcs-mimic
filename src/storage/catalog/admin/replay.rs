@@ -47,6 +47,11 @@ pub(crate) enum Phase {
 /// What a stat of a fixture file reported, and whether a change made just after the stat could
 /// leave every field it reported as it was. Both are fixed when the stat is taken, so the two
 /// cannot disagree.
+///
+/// A record keeps the fingerprint that a read of the file took just before it hashed the bytes,
+/// once a stat after the read found the file unchanged, so the fingerprint describes exactly
+/// what was hashed. The stat a walk takes when it opens the file only decides, with
+/// [`live_file`], whether to read the file again: the file may change between the two.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Fingerprint {
     identity: FileIdentity,
@@ -88,7 +93,8 @@ pub(crate) struct SeedRecord {
     pub(crate) owned: Option<i64>,
     /// What the file held when a replay last read it.
     pub(crate) body: Body,
-    /// The stat taken when the file was last read, or since found unchanged.
+    /// The fingerprint of the read that last hashed the file, or of a later stat that found it
+    /// unchanged.
     pub(crate) fingerprint: Fingerprint,
     /// When a pass while the server runs first proved the file gone. A pass that finds the file
     /// clears it.

@@ -113,7 +113,7 @@ async fn add(batch: &mut SeedBatch, dir: &Path, name: &str, bytes: &[u8]) {
     let path = dir.join("source");
     fs::write(&path, bytes).unwrap();
     batch
-        .object(
+        .fixture(
             BucketName::new("test-bucket").unwrap(),
             ObjectName::new(name).unwrap(),
             request(None),
@@ -121,6 +121,39 @@ async fn add(batch: &mut SeedBatch, dir: &Path, name: &str, bytes: &[u8]) {
         )
         .await
         .unwrap();
+}
+
+/// A fixture file rewritten in place after the walk opened it is published with what it holds
+/// when staging reads it, as a startup replay always did, and the entry keeps the fingerprint of
+/// that read rather than of the walk's open.
+#[tokio::test]
+async fn a_fixture_rewritten_after_it_was_opened_publishes_what_staging_reads() {
+    let (dir, catalog, admin, _, _) = setup().await;
+    let mut batch = admin.seed_batch().await.unwrap();
+    batch.bucket(bucket()).unwrap();
+    let path = dir.0.join("source");
+    fs::write(&path, b"opened").unwrap();
+    let file = File::open(&path).unwrap();
+    let opened = crate::fsutil::uncached_identity(&file).unwrap();
+    fs::write(&path, b"rewritten in place").unwrap();
+    batch
+        .fixture(
+            BucketName::new("test-bucket").unwrap(),
+            ObjectName::new("object").unwrap(),
+            request(None),
+            file,
+        )
+        .await
+        .unwrap();
+    let kept = batch.entries[0].fingerprint.identity();
+    assert_eq!(
+        kept,
+        crate::fsutil::uncached_identity(&File::open(&path).unwrap()).unwrap()
+    );
+    assert_ne!(kept, opened);
+    batch.commit(SeedMode::Merge).await.unwrap();
+    assert_eq!(bytes(&admin, "object").await, b"rewritten in place");
+    catalog.close().await.unwrap();
 }
 
 fn bucket() -> BucketDefinition {
@@ -292,7 +325,7 @@ async fn atomic_seed_write_flush_sync_and_commit_failures_keep_committed_bytes()
             fs::write(&path, b"new").unwrap();
             assert!(
                 batch
-                    .object(
+                    .fixture(
                         bucket.clone(),
                         name.clone(),
                         request(None),
@@ -421,7 +454,7 @@ async fn atomic_ram_reseed_reserves_old_and_new_and_keeps_open_readers() {
     large.max_bytes = 4096;
     assert_eq!(
         batch
-            .object(
+            .fixture(
                 target.clone(),
                 name.clone(),
                 large,
@@ -454,7 +487,6 @@ fn seed_stage_failed_copy_write_never_changes_the_source() {
         stage_file(
             &source,
             &dir.0.join("staging/value"),
-            None,
             ExpectedHashes::default(),
             1024
         )

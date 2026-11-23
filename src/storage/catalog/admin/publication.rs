@@ -1,6 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::objects::object_unavailable as objects_error;
+use super::replay::Fingerprint;
 use super::*;
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
@@ -125,6 +126,8 @@ pub(crate) struct StagedObject {
     owned: Option<OwnedBlob>,
     size: u64,
     hashes: crate::hashing::Hashes,
+    /// What the source file was when staging read it.
+    source: Fingerprint,
     /// Whether the draft already sits at its blob path (always true in RAM).
     published: bool,
     tracking: Tracking,
@@ -162,6 +165,9 @@ enum Tracking {
 struct Staged {
     size: u64,
     hashes: crate::hashing::Hashes,
+    /// What the source was just before staging read it. Staging fails unless the source still
+    /// is that after the read, so this describes exactly the bytes staged.
+    source: Fingerprint,
 }
 
 impl StagedObject {
@@ -173,6 +179,7 @@ impl StagedObject {
             owned: Some(OwnedBlob { id, _lease: lease }),
             size: staged.size,
             hashes: staged.hashes,
+            source: staged.source,
             published,
             tracking: Tracking::Plain,
         }
@@ -214,6 +221,10 @@ impl StagedObject {
     #[cfg(test)]
     pub(crate) fn hashes(&self) -> crate::hashing::Hashes {
         self.hashes
+    }
+    /// What the source file was when staging read it, which describes exactly the bytes staged.
+    pub(crate) fn fingerprint(&self) -> Fingerprint {
+        self.source
     }
 
     async fn cleanup(mut self) -> Result<(), AdminError> {
@@ -309,8 +320,6 @@ impl From<AdminError> for StageFailure {
 struct StageRequest<'a> {
     source: &'a File,
     stage: &'a Path,
-    /// The identity an earlier stat of the source reported, which it must still have.
-    observed: Option<fsutil::FileIdentity>,
     expected: ExpectedHashes,
     max_bytes: u64,
 }
@@ -327,14 +336,12 @@ enum Fill {
 fn stage_file(
     source: &File,
     stage: &Path,
-    observed: Option<fsutil::FileIdentity>,
     expected: ExpectedHashes,
     max_bytes: u64,
 ) -> Result<Staged, StageFailure> {
     let request = StageRequest {
         source,
         stage,
-        observed,
         expected,
         max_bytes,
     };
@@ -342,36 +349,38 @@ fn stage_file(
     fill_stage(&request, target, fill, before).map_err(StageFailure::Created)
 }
 
-/// The source's identity before staging, once it is known to be a regular file within the limit
-/// that still has the identity the caller observed.
-fn checked_source(request: &StageRequest<'_>) -> Result<fsutil::FileIdentity, AdminError> {
+/// What the source is before staging reads it, once it is known to be a regular file within the
+/// limit.
+fn checked_source(request: &StageRequest<'_>) -> Result<Fingerprint, AdminError> {
     if !request.source.metadata()?.is_file() {
         return Err(AdminError::Invalid("expected a regular source file".into()));
     }
-    let before = source_identity(request.source, request.observed)?;
-    if before.size > request.max_bytes {
+    let before = source_fingerprint(request.source)?;
+    if before.identity().size > request.max_bytes {
         return Err(AdminError::TooLarge);
     }
     Ok(before)
 }
 
-/// The identity of `source` as its filesystem reports it now, past an attribute cache that a
-/// rename made on another host does not invalidate, refused as changed unless it is `observed`.
-fn source_identity(
-    source: &File,
-    observed: Option<fsutil::FileIdentity>,
-) -> Result<fsutil::FileIdentity, AdminError> {
-    let identity = fsutil::uncached_identity(source)?;
-    if let Some(observed) = observed {
-        changed(observed, identity)?;
-    }
-    Ok(identity)
+/// What `source` is as its filesystem reports it now, past an attribute cache that a rename made
+/// on another host does not invalidate. The system wall-clock time is read before the stat, as
+/// [`Fingerprint::new`] requires. Taken just before a read that [`unchanged_since`] then
+/// confirms, it describes exactly the bytes read.
+fn source_fingerprint(source: &File) -> Result<Fingerprint, AdminError> {
+    let observed = SystemTime::now();
+    Ok(Fingerprint::new(
+        fsutil::uncached_identity(source)?,
+        observed,
+    ))
+}
+
+/// Fails with `SourceChanged` unless `source` still is what `before` reported.
+fn unchanged_since(source: &File, before: &Fingerprint) -> Result<(), AdminError> {
+    changed(before.identity(), fsutil::uncached_identity(source)?)
 }
 
 /// Checks the source and creates the staging file; failures before creation leave nothing to clean.
-fn create_stage(
-    request: &StageRequest<'_>,
-) -> Result<(File, Fill, fsutil::FileIdentity), StageFailure> {
+fn create_stage(request: &StageRequest<'_>) -> Result<(File, Fill, Fingerprint), StageFailure> {
     let StageRequest { source, stage, .. } = *request;
     let before = checked_source(request)?;
     let parent = stage
@@ -415,7 +424,7 @@ fn fill_stage(
     request: &StageRequest<'_>,
     mut target: File,
     fill: Fill,
-    before: fsutil::FileIdentity,
+    before: Fingerprint,
 ) -> Result<Staged, AdminError> {
     let StageRequest {
         source,
@@ -482,10 +491,14 @@ fn fill_stage(
     target.sync_all()?;
     #[cfg(test)]
     super::super::fault::file_synced(data_dir, &target.metadata()?);
-    source_identity(source, Some(before))?;
+    unchanged_since(source, &before)?;
     let hashes = hasher.finish();
     expected.verify(&hashes).map_err(|_| AdminError::Checksum)?;
-    Ok(Staged { size, hashes })
+    Ok(Staged {
+        size,
+        hashes,
+        source: before,
+    })
 }
 
 impl super::super::BlobBackend {
@@ -494,14 +507,11 @@ impl super::super::BlobBackend {
         &self,
         source: &File,
         id: BlobId,
-        observed: Option<fsutil::FileIdentity>,
         expected: ExpectedHashes,
         max_bytes: u64,
     ) -> Result<Staged, StageFailure> {
         match self {
-            Self::Memory(memory) => Ok(stage_memory(
-                memory, source, id, observed, expected, max_bytes,
-            )?),
+            Self::Memory(memory) => Ok(stage_memory(memory, source, id, expected, max_bytes)?),
             Self::Disk(root) => {
                 let stage = id.staging_path(root);
                 if id.blob_path(root).try_exists().map_err(AdminError::from)?
@@ -509,7 +519,7 @@ impl super::super::BlobBackend {
                 {
                     return Err(AdminError::Invalid("blob ID collision".into()).into());
                 }
-                stage_file(source, &stage, observed, expected, max_bytes)
+                stage_file(source, &stage, expected, max_bytes)
             }
         }
     }
@@ -551,30 +561,6 @@ impl Admin {
         expected: ExpectedHashes,
         max_bytes: u64,
     ) -> Result<StagedObject, AdminError> {
-        self.stage_source(source, None, expected, max_bytes).await
-    }
-
-    /// Stages `source` as [`Self::stage_from_file`] does, refusing it with `SourceChanged` when
-    /// staging starts unless it still has the identity `observed`, which a stat of it reported
-    /// earlier: what the caller keeps of that stat then describes the bytes staged.
-    pub(crate) async fn stage_observed_file<S: std::borrow::Borrow<File> + Send + 'static>(
-        &self,
-        source: S,
-        observed: fsutil::FileIdentity,
-        expected: ExpectedHashes,
-        max_bytes: u64,
-    ) -> Result<StagedObject, AdminError> {
-        self.stage_source(source, Some(observed), expected, max_bytes)
-            .await
-    }
-
-    async fn stage_source<S: std::borrow::Borrow<File> + Send + 'static>(
-        &self,
-        source: S,
-        observed: Option<fsutil::FileIdentity>,
-        expected: ExpectedHashes,
-        max_bytes: u64,
-    ) -> Result<StagedObject, AdminError> {
         let deadline = self.catalog.admin_deadline();
         // A seed batch or an import stages each file under the leases of the files before it, so
         // lining up behind a reservation here could wait for itself.
@@ -599,9 +585,7 @@ impl Admin {
             let staged = catalog
                 .0
                 .file_workers
-                .run(move || {
-                    backend.stage_admin_file(source.borrow(), id, observed, expected, max_bytes)
-                })
+                .run(move || backend.stage_admin_file(source.borrow(), id, expected, max_bytes))
                 .await;
             // The permit and activity lease stay held until any cleanup below has finished.
             match staged {
@@ -792,14 +776,13 @@ fn stage_memory(
     memory: &Arc<crate::storage::memory::Store>,
     source: &File,
     id: BlobId,
-    observed: Option<fsutil::FileIdentity>,
     expected: ExpectedHashes,
     max_bytes: u64,
 ) -> Result<Staged, AdminError> {
     if !source.metadata()?.is_file() {
         return Err(AdminError::Invalid("expected a regular source file".into()));
     }
-    let before = source_identity(source, observed)?;
+    let before = source_fingerprint(source)?;
     let mut stage = memory.stage()?;
     let mut hasher = Hasher::default();
     let mut size = 0u64;
@@ -822,11 +805,15 @@ fn stage_memory(
         stage.write(bytes)?;
         hasher.update(bytes);
     }
-    source_identity(source, Some(before))?;
+    unchanged_since(source, &before)?;
     let hashes = hasher.finish();
     expected.verify(&hashes).map_err(|_| AdminError::Checksum)?;
     stage.publish(id.to_hex())?;
-    Ok(Staged { size, hashes })
+    Ok(Staged {
+        size,
+        hashes,
+        source: before,
+    })
 }
 
 async fn cleanup_entries(entries: Vec<BatchPublication>) -> Result<(), AdminError> {
