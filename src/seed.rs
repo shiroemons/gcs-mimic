@@ -3,6 +3,7 @@
 use crate::{
     clock::Clock,
     config::Config,
+    diagnostics::{Diagnostic, DiagnosticSource},
     object::ExpectedHashes,
     source_tree::{LARGE_TREE_ENTRIES, TreeLimits, WalkError, warn_large_tree},
     storage::{
@@ -65,6 +66,29 @@ pub async fn import(
         Err(error) => Err(error),
     };
     result.map_err(|error| SeedError::Import(Box::new(error)))
+}
+
+/// Refuses a seed directory that directory synchronization used while the marker or the private
+/// workspace it kept there remains. Seeding never writes to the folder, so it cannot tidy them,
+/// and the workspace may hold the only copy of a file a write-back displaced: the operator
+/// inspects and removes them before the server starts.
+pub fn refuse_retired_sync(config: &Config) -> Result<(), Diagnostic> {
+    let Some(root) = &config.seed_dir else {
+        return Ok(());
+    };
+    let left = crate::storage::retired_sync_left_in_folder(root);
+    if left.is_empty() {
+        return Ok(());
+    }
+    Err(Diagnostic::new(
+        DiagnosticSource::Seed,
+        "seed_dir",
+        format!(
+            "seed_dir {} still holds {}, which directory synchronization kept in every folder it synchronized. gcs-mimic only reads seed_dir and never changes them. Inspect them first: .gcs-mimic-sync-work may hold the only copy of a file a write-back displaced, and sync-retired.json in the data directory of the server that synchronized the folder lists those files. Delete them yourself once nothing in them is needed, then restart.",
+            root.display(),
+            left.join(" and ")
+        ),
+    ))
 }
 
 /// A wait for in-flight catalog work that outlasts its budget, or `request_deadline`, ends with a

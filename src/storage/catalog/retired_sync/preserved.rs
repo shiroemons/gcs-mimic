@@ -41,6 +41,18 @@ const STAGED_SUFFIX: &str = ".tmp";
 const STAGED_ID_BYTES: usize = 16;
 /// The private directory synchronization kept inside each synchronized folder.
 const WORKSPACE: &str = ".gcs-mimic-sync-work";
+/// The marker synchronization kept inside each synchronized folder.
+const MARKER: &str = ".gcs-mimic-sync.json";
+
+/// The marker and the workspace synchronization kept in `folder`, by name, among those it can
+/// see. The workspace may hold the only copy of a file a write-back displaced, so only the
+/// operator decides when they go.
+pub(crate) fn left_in_folder(folder: &Path) -> Vec<&'static str> {
+    [MARKER, WORKSPACE]
+        .into_iter()
+        .filter(|name| fs::symlink_metadata(folder.join(name)).is_ok())
+        .collect()
+}
 
 pub(super) const DESCRIPTION: &str = "gcs-mimic removed directory synchronization at catalog schema 58 and \
 listed here the files its records still named. Folder paths are as the gcs-mimic process that \
