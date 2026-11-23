@@ -33,6 +33,10 @@ fn helper_help_texts_keep_their_exact_bytes() {
             &["buckets", "new", "--help"],
             "72077b230b83ae74854ed79bd4a0bbdf8f25f36ade44029004e5904247ba2d27",
         ),
+        (
+            &["seed", "--help"],
+            "a5e62faac1b2d9ea08e543a9dc8a37e8f723e27a7d89343feedd1489cb529dd4",
+        ),
     ] {
         let output = common::server_command().args(args).output().unwrap();
         assert_eq!(output.status.code(), Some(0), "{args:?}");

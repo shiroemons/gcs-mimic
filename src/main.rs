@@ -15,6 +15,7 @@ use std::{
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 mod buckets_cli;
 mod local_server;
+mod seed_cli;
 mod startup;
 // Binary tests cannot access the library's cfg(test) module.
 #[cfg(test)]
@@ -123,15 +124,17 @@ enum CliError {
     /// A failure without advice of its own, such as a closed standard stream.
     Io(io::Error),
     Import(gcs_mimic::import::ImportError),
+    /// A request to a running server got no answer the command can read: the diagnostics name
+    /// the server and what to check, and the failure remains the error's source.
+    Unanswered(Diagnostics, seed_cli::ExchangeFailure),
 }
 
 impl CliError {
     fn diagnostics(&self) -> Option<&Diagnostics> {
         match self {
             Self::Diagnostics(diagnostics)
-            | Self::Import(gcs_mimic::import::ImportError::Diagnostics(diagnostics)) => {
-                Some(diagnostics)
-            }
+            | Self::Import(gcs_mimic::import::ImportError::Diagnostics(diagnostics))
+            | Self::Unanswered(diagnostics, _) => Some(diagnostics),
             Self::Authentication(failure) => Some(failure.diagnostics()),
             Self::Import(_) | Self::Io(_) => None,
         }
@@ -141,7 +144,7 @@ impl CliError {
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Diagnostics(diagnostics) => diagnostics.fmt(f),
+            Self::Diagnostics(diagnostics) | Self::Unanswered(diagnostics, _) => diagnostics.fmt(f),
             Self::Authentication(failure) => failure.fmt(f),
             Self::Io(error) => error.fmt(f),
             Self::Import(error) => error.fmt(f),
@@ -156,6 +159,7 @@ impl std::error::Error for CliError {
             Self::Authentication(failure) => Some(failure.as_ref()),
             Self::Io(error) => Some(error),
             Self::Import(error) => Some(error),
+            Self::Unanswered(_, failure) => Some(failure),
         }
     }
 }
@@ -234,6 +238,8 @@ fn run() -> Result<(), CliError> {
             )
             .into());
         }
+        // Its switch would read as an option missing a value in the shared check.
+        [command, rest @ ..] if command == "seed" => return seed_cli::run(rest),
         _ => (),
     }
     if gcs_mimic::config_input::requests_version(&args) {
@@ -846,29 +852,9 @@ fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> io::Result<()> {
         .build()?;
     let result = runtime.block_on(async {
         tokio::time::timeout(Duration::from_secs(2), async {
-            let addresses = tokio::net::lookup_host(url.authority.as_str()).await?;
-            let mut connected = Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "the probe host resolved to no address",
-            ));
-            for address in addresses.take(8) {
-                connected = tokio::net::TcpStream::connect(address).await;
-                if connected.is_ok() {
-                    break;
-                }
-            }
-            let stream = connected?;
+            let stream = connect(&url.authority).await?;
             if let Some(client) = client {
-                let name = tokio_rustls::rustls::pki_types::ServerName::try_from(url.host.clone())
-                    .map_err(|_| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "the probe host is not a valid TLS server name",
-                        )
-                    })?;
-                let stream = tokio_rustls::TlsConnector::from(client)
-                    .connect(name, stream)
-                    .await?;
+                let stream = connect_tls(client, &url.host, stream).await?;
                 probe_response(stream, &url.authority, url.path).await
             } else {
                 probe_response(stream, &url.authority, url.path).await
@@ -880,6 +866,41 @@ fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> io::Result<()> {
     // DNS resolution uses blocking workers; a timed-out one-shot probe must not wait for them.
     runtime.shutdown_background();
     result
+}
+
+/// A connection to the first of at most eight addresses of `authority` that accepts one.
+async fn connect(authority: &str) -> io::Result<tokio::net::TcpStream> {
+    let addresses = tokio::net::lookup_host(authority).await?;
+    let mut connected = Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "the host resolved to no address",
+    ));
+    for address in addresses.take(8) {
+        connected = tokio::net::TcpStream::connect(address).await;
+        if connected.is_ok() {
+            break;
+        }
+    }
+    connected
+}
+
+/// `stream` after a TLS handshake in which `client` verifies the certificate for `host`, given
+/// without IPv6 brackets.
+async fn connect_tls(
+    client: std::sync::Arc<tokio_rustls::rustls::ClientConfig>,
+    host: &str,
+    stream: tokio::net::TcpStream,
+) -> io::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
+    let name =
+        tokio_rustls::rustls::pki_types::ServerName::try_from(host.to_owned()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the host is not a valid TLS server name",
+            )
+        })?;
+    tokio_rustls::TlsConnector::from(client)
+        .connect(name, stream)
+        .await
 }
 
 /// Passes when `GET /{path}` answers HTTP 200 with as many body bytes as its Content-Length
