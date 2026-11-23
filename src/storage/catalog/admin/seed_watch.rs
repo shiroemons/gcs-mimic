@@ -158,6 +158,13 @@ impl Problems {
     }
 }
 
+#[cfg_attr(
+    windows,
+    expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's serialize_with passes the field by reference, and only the Windows SystemTime fits in a register"
+    )
+)]
 fn timestamp<S: Serializer>(time: &SystemTime, serializer: S) -> Result<S::Ok, S::Error> {
     let formatted = crate::time_format::timestamp(*time).map_err(serde::ser::Error::custom)?;
     serializer.serialize_str(&formatted)
