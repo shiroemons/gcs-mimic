@@ -250,21 +250,7 @@ impl<'a> Manifest<'a> {
         #[cfg(test)]
         fault::file_synced(data_dir, &metadata);
         drop(file);
-        let (manifest, found) = destination(data_dir, &staged, metadata.len())?;
-        match found {
-            Destination::Identical => {
-                objects::unlink(&staged).map_err(failed("remove the staged file", &staged))?;
-            }
-            Destination::Free => {
-                #[cfg(test)]
-                fault::hit_io(data_dir, Step::RetiredManifestRename)
-                    .map_err(failed("rename the staged file to", &manifest))?;
-                fs::rename(&staged, &manifest)
-                    .map_err(failed("rename the staged file to", &manifest))?;
-                #[cfg(all(test, unix))]
-                fault::renamed(&staged, &manifest);
-            }
-        }
+        let manifest = place(data_dir, &staged, metadata.len())?;
         // Windows has no directory sync; like the blob store there, it relies on the rename.
         #[cfg(unix)]
         {
@@ -294,25 +280,66 @@ enum Destination {
     Identical,
 }
 
-/// The first manifest name in `data_dir` that is free or holds exactly the staged bytes. A
-/// manifest with other content, such as one an upgrade of a restored catalog wrote, is never
-/// replaced.
-fn destination(
-    data_dir: &Path,
-    staged: &Path,
-    len: u64,
-) -> Result<(PathBuf, Destination), CatalogError> {
-    for number in 0..=u32::MAX {
+/// How many manifest names [`place`] tries: `sync-retired.json`, then `sync-retired.1.json`
+/// through `sync-retired.9999.json`.
+const MANIFEST_NAMES: u32 = 10_000;
+
+/// Publishes the `len` staged bytes under the first manifest name in `data_dir` that is free or
+/// holds exactly those bytes, and returns that name. A manifest with other content, such as one
+/// an upgrade of a restored catalog wrote, is never replaced: the rename refuses a name that
+/// something took after it was found free, and the search goes on to the next one.
+fn place(data_dir: &Path, staged: &Path, len: u64) -> Result<PathBuf, CatalogError> {
+    for number in 0..MANIFEST_NAMES {
         let candidate = data_dir.join(manifest_name(number));
-        if let Some(destination) = compare(staged, len, &candidate)
+        let Some(found) = compare(staged, len, &candidate)
             .map_err(failed("compare the staged file with", &candidate))?
-        {
-            return Ok((candidate, destination));
+        else {
+            continue;
+        };
+        match found {
+            Destination::Identical => {
+                objects::unlink(staged).map_err(failed("remove the staged file", staged))?;
+                return Ok(candidate);
+            }
+            Destination::Free => {
+                #[cfg(test)]
+                fault::hit_io(data_dir, Step::RetiredManifestRename)
+                    .map_err(failed("rename the staged file to", &candidate))?;
+                match rename_new(staged, &candidate) {
+                    Ok(()) => {
+                        #[cfg(all(test, unix))]
+                        fault::renamed(staged, &candidate);
+                        return Ok(candidate);
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                    Err(error) => {
+                        return Err(failed("rename the staged file to", &candidate)(error));
+                    }
+                }
+            }
         }
     }
-    Err(unavailable(
-        "every retired synchronization manifest name holds another manifest",
-    ))
+    Err(unavailable(format!(
+        "{} and the numbered names after it up to sync-retired.{}.json in {} all hold other \
+         manifests; move the ones you have checked aside so the retired synchronization records \
+         can be listed",
+        MANIFEST,
+        MANIFEST_NAMES - 1,
+        data_dir.display()
+    )))
+}
+
+/// Renames `staged` to `manifest` unless something already has that name.
+#[cfg(unix)]
+fn rename_new(staged: &Path, manifest: &Path) -> io::Result<()> {
+    crate::fsutil::rename_noreplace(staged, manifest)
+}
+
+/// Renames `staged` to `manifest` unless something already has that name; `MoveFileExW`
+/// without `MOVEFILE_REPLACE_EXISTING` refuses an existing destination.
+#[cfg(windows)]
+fn rename_new(staged: &Path, manifest: &Path) -> io::Result<()> {
+    crate::fsutil::move_write_through(staged, manifest)
 }
 
 /// Whether `candidate` can take the `len` staged bytes, or `None` while it holds anything else.

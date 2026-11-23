@@ -653,6 +653,44 @@ async fn a_manifest_with_other_content_is_kept_and_the_next_free_name_is_used() 
     assert_retired(&Connection::open(data.join("catalog.sqlite3")).unwrap());
 }
 
+/// A name that something takes after the search found it free keeps what was put there: the
+/// rename refuses to replace it, and the manifest goes to the next free name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_manifest_name_taken_before_the_rename_is_kept_and_the_next_name_is_used() {
+    let released = released().await;
+    let data = released.data();
+    let (entered, reached) = tokio::sync::oneshot::channel();
+    let (release, held) = std::sync::mpsc::channel();
+    fault::arm(
+        &data,
+        Step::RetiredManifestRename,
+        0,
+        Fault::Block {
+            entered: std::sync::Arc::new(std::sync::Mutex::new(Some(entered))),
+            release: std::sync::Arc::new(std::sync::Mutex::new(held)),
+        },
+    );
+    let open = tokio::spawn({
+        let data = data.clone();
+        async move { Catalog::open(&data).await }
+    });
+    reached.await.unwrap();
+    fs::write(data.join(MANIFEST), b"written meanwhile\n").unwrap();
+    release.send(()).unwrap();
+    open.await.unwrap().unwrap().close().await.unwrap();
+
+    assert_eq!(
+        fs::read(data.join(MANIFEST)).unwrap(),
+        b"written meanwhile\n"
+    );
+    assert_eq!(
+        read_manifest(&data.join("sync-retired.1.json")),
+        released.manifest()
+    );
+    assert!(!data.join(STAGED).exists());
+    assert_retired(&Connection::open(data.join("catalog.sqlite3")).unwrap());
+}
+
 /// Each kind of row that names a file writes the manifest on its own, listing just that file.
 #[tokio::test]
 async fn each_kind_of_row_that_names_a_file_alone_writes_the_manifest() {
