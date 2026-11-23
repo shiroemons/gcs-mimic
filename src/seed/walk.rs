@@ -74,17 +74,29 @@ pub(super) enum Unknown {
         )
     )]
     Unopenable,
+    /// A path no longer names the directory the walk listed there: the root, or a directory a
+    /// lookup descended through.
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only the descriptor-relative lookup opens fixtures apart from the listing, and this platform has none"
+        )
+    )]
+    Replaced,
 }
 
 /// A startup replay fails on an unknown entry with the I/O error, as it did before lookups
 /// retried. A name that kept failing to open carries [`crate::fsutil::Unopenable`] as a backend
 /// cause of its own, which the reseed route reports as a failure that another attempt may pass,
-/// as it did the `NotFound` such an open failed with before.
+/// as it did the `NotFound` such an open failed with before. A replaced directory fails as a
+/// root that changed before it was pinned does.
 impl From<Unknown> for SeedError {
     fn from(unknown: Unknown) -> Self {
         match unknown {
             Unknown::Io(error) => Self::Io(error),
             Unknown::Unopenable => Self::Admin(AdminError::backend(crate::fsutil::Unopenable)),
+            Unknown::Replaced => Self::Admin(AdminError::Precondition),
         }
     }
 }
@@ -176,7 +188,34 @@ fn fingerprint(file: &File) -> io::Result<Fingerprint> {
     ))
 }
 
+/// A directory's device and inode numbers.
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DirectoryId {
+    device: u64,
+    inode: u64,
+}
+
+#[cfg(unix)]
+impl From<&Metadata> for DirectoryId {
+    fn from(metadata: &Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt;
+        Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        }
+    }
+}
+
 /// The fixture tree below a canonical root, opened through the root's pinned descriptor on Unix.
+///
+/// The walk lists directories by path, and a lookup proves a name absent in the directory its
+/// descriptor holds, so the two agree only while each path still names the directory a
+/// descriptor holds. The root's path is compared with the pinned root before the walk lists it
+/// and after the walk ends, and each directory a lookup descends through with what the walk
+/// inspected at that path just before it listed it. Any difference makes the name, or the
+/// whole walk for the root, unknown. A directory replaced between that inspection and its
+/// listing, then put back before the lookup, still passes.
 pub(super) struct Tree {
     root: PathBuf,
     #[cfg(unix)]
@@ -184,6 +223,10 @@ pub(super) struct Tree {
     /// One lookup for the whole walk, so that all its retries share one bounded wait.
     #[cfg(unix)]
     lookup: crate::fsutil::Lookup,
+    /// The directories above the entry being walked, outermost first, as the walk inspected
+    /// them before listing them.
+    #[cfg(unix)]
+    listed: Vec<DirectoryId>,
 }
 
 impl Tree {
@@ -193,6 +236,7 @@ impl Tree {
             root,
             pinned,
             lookup: crate::fsutil::Lookup::unprobed(),
+            listed: Vec::new(),
         }
     }
 
@@ -204,32 +248,67 @@ impl Tree {
     /// Walks the tree on a thread of its own, sending each entry over a two-slot channel.
     pub(super) fn walk(self, limits: TreeLimits) -> io::Result<mpsc::Receiver<Walked>> {
         let (send, receive) = mpsc::channel(2);
-        crate::task::spawn_thread("seed-walk", move || {
-            let walk = match Walker::new(&self.root, limits) {
-                Ok(walk) => walk,
-                Err(error) => {
-                    let _ = send.blocking_send(Walked::Entry(Box::new(Err(error.into()))));
-                    return;
-                }
-            };
-            #[cfg(test)]
-            let walk = walk.enumerate().map(|(index, entry)| {
-                super::tests::injected_walk_panic(&self.root, index);
-                entry
-            });
-            for entry in walk {
-                let seen = self.see(entry);
-                if send.blocking_send(Walked::Entry(Box::new(seen))).is_err() {
-                    return;
-                }
-            }
-            let _ = send.blocking_send(Walked::Done);
-        })?;
+        crate::task::spawn_thread("seed-walk", move || self.send_entries(limits, &send))?;
         Ok(receive)
     }
 
+    fn send_entries(mut self, limits: TreeLimits, send: &mpsc::Sender<Walked>) {
+        let started = self
+            .check_root()
+            .map_err(SeedError::from)
+            .and_then(|()| Ok(Walker::new(&self.root, limits)?));
+        let walk = match started {
+            Ok(walk) => walk,
+            Err(error) => {
+                let _ = send.blocking_send(Walked::Entry(Box::new(Err(error))));
+                return;
+            }
+        };
+        #[cfg(test)]
+        let walk = {
+            let root = self.root.clone();
+            walk.enumerate().map(move |(index, entry)| {
+                super::tests::injected_walk_panic(&root, index);
+                entry
+            })
+        };
+        for entry in walk {
+            let seen = self.see(entry);
+            if send.blocking_send(Walked::Entry(Box::new(seen))).is_err() {
+                return;
+            }
+        }
+        let end = match self.check_root() {
+            Ok(()) => Walked::Done,
+            Err(unknown) => Walked::Entry(Box::new(Err(unknown.into()))),
+        };
+        let _ = send.blocking_send(end);
+    }
+
+    /// Fails unless the root's path still names the pinned root, which the walk then lists.
+    #[cfg(unix)]
+    fn check_root(&self) -> Result<(), Unknown> {
+        let listed = std::fs::symlink_metadata(&self.root).map_err(Unknown::Io)?;
+        let pinned = self.pinned.metadata().map_err(Unknown::Io)?;
+        if DirectoryId::from(&listed) == DirectoryId::from(&pinned) {
+            Ok(())
+        } else {
+            Err(Unknown::Replaced)
+        }
+    }
+
+    /// The walk opens fixtures by the paths it lists, so the two cannot disagree.
+    #[cfg(not(unix))]
+    #[expect(
+        clippy::unused_self,
+        reason = "the Unix walk compares the root's path with its pinned descriptor"
+    )]
+    fn check_root(&self) -> Result<(), Unknown> {
+        Ok(())
+    }
+
     /// What one walked entry is. Only a failure that ends the walk, such as a limit, is an error.
-    fn see(&self, entry: Result<WalkEntry, WalkError>) -> Result<Seen, SeedError> {
+    fn see(&mut self, entry: Result<WalkEntry, WalkError>) -> Result<Seen, SeedError> {
         let (path, found) = match entry {
             Ok(WalkEntry {
                 path,
@@ -243,10 +322,21 @@ impl Tree {
         let relative = path
             .strip_prefix(&self.root)
             .map_err(SeedError::RelativePath)?;
+        // A depth-first walk lists every directory above an entry before the entry.
+        #[cfg(unix)]
+        self.listed
+            .truncate(relative.iter().count().saturating_sub(1));
         let fixture = match found {
-            Ok((metadata, depth)) => self
-                .fixture(&path, relative, &metadata, depth)
-                .unwrap_or_else(Fixture::Unusable),
+            Ok((metadata, depth)) => {
+                let fixture = self
+                    .fixture(&path, relative, &metadata, depth)
+                    .unwrap_or_else(Fixture::Unusable);
+                #[cfg(unix)]
+                if metadata.is_dir() {
+                    self.listed.push(DirectoryId::from(&metadata));
+                }
+                fixture
+            }
             Err(error) => self.unread(relative, error),
         };
         Ok(Seen {
@@ -324,24 +414,36 @@ impl Tree {
     /// at any level, retrying a name that fails with `ENOENT` while `fstatat` still finds it.
     #[cfg(unix)]
     fn open(&self, relative: &Path) -> Source {
-        self.open_file(relative)
-            .map_or_else(|source| source, inspect)
+        self.open_file(relative).map_or_else(Source::from, inspect)
     }
 
     #[cfg(unix)]
-    fn open_file(&self, relative: &Path) -> Result<File, Source> {
+    fn open_file(&self, relative: &Path) -> Result<File, Unopened> {
         let mut parent = None;
-        let mut names = relative.iter().peekable();
-        while let Some(name) = names.next() {
+        let mut names = relative.iter().enumerate().peekable();
+        while let Some((depth, name)) = names.next() {
             let directory = parent.as_ref().unwrap_or(self.pinned.as_ref());
             if names.peek().is_none() {
                 return opened(self.lookup.regular_unconfirmed(directory, name));
             }
-            parent = Some(opened(self.lookup.directory_unconfirmed(directory, name))?);
+            let child = opened(self.lookup.directory_unconfirmed(directory, name))?;
+            self.check_listed(depth, &child)?;
+            parent = Some(child);
         }
-        Err(Source::Unknown(Unknown::Io(
-            io::ErrorKind::InvalidInput.into(),
-        )))
+        Err(Unknown::Io(io::ErrorKind::InvalidInput.into()).into())
+    }
+
+    /// Fails unless `directory`, opened `depth` levels below the root, is the directory the walk
+    /// inspected at that path before it listed it: a lookup in any other proves nothing about a
+    /// name the walk listed.
+    #[cfg(unix)]
+    fn check_listed(&self, depth: usize, directory: &File) -> Result<(), Unopened> {
+        let opened = directory.metadata().map_err(Unknown::Io)?;
+        if self.listed.get(depth) == Some(&DirectoryId::from(&opened)) {
+            Ok(())
+        } else {
+            Err(Unknown::Replaced.into())
+        }
     }
 
     /// Opens the regular file `relative` by its path below the trusted root.
@@ -352,14 +454,39 @@ impl Tree {
     }
 }
 
+/// What a fixture path that did not open is to the replay.
+#[cfg(unix)]
+enum Unopened {
+    /// A lookup proved a name on the path empty.
+    Absent(Vacant),
+    Unknown(Unknown),
+}
+
+#[cfg(unix)]
+impl From<Unknown> for Unopened {
+    fn from(unknown: Unknown) -> Self {
+        Self::Unknown(unknown)
+    }
+}
+
+#[cfg(unix)]
+impl From<Unopened> for Source {
+    fn from(unopened: Unopened) -> Self {
+        match unopened {
+            Unopened::Absent(vacant) => Self::Absent(vacant),
+            Unopened::Unknown(unknown) => Self::Unknown(unknown),
+        }
+    }
+}
+
 /// The entry a lookup opened, or what a name that did not open is to the replay.
 #[cfg(unix)]
-fn opened(opened: io::Result<crate::fsutil::Opened<File>>) -> Result<File, Source> {
+fn opened(opened: io::Result<crate::fsutil::Opened<File>>) -> Result<File, Unopened> {
     match opened {
         Ok(crate::fsutil::Opened::Entry(file)) => Ok(file),
-        Ok(crate::fsutil::Opened::Missing(vacant)) => Err(Source::Absent(vacant)),
-        Ok(crate::fsutil::Opened::Unopenable) => Err(Source::Unknown(Unknown::Unopenable)),
-        Err(error) => Err(Source::Unknown(Unknown::Io(error))),
+        Ok(crate::fsutil::Opened::Missing(vacant)) => Err(Unopened::Absent(vacant)),
+        Ok(crate::fsutil::Opened::Unopenable) => Err(Unknown::Unopenable.into()),
+        Err(error) => Err(Unknown::Io(error).into()),
     }
 }
 

@@ -3,24 +3,31 @@ use crate::test_support::TestDir;
 use std::fs;
 
 /// A fixture tree holding the bucket directory `bucket` with the file `a`, and the tree that
-/// reads it.
+/// reads it, positioned as a walk is below `bucket` once it listed it.
 fn tree() -> (TestDir, Tree) {
     let dir = TestDir::new();
-    fs::create_dir(dir.0.join("bucket")).unwrap();
-    fs::write(dir.0.join("bucket/a"), b"a").unwrap();
-    let root = fs::canonicalize(&dir.0).unwrap();
+    let root = dir.0.join("root");
+    fs::create_dir_all(root.join("bucket")).unwrap();
+    fs::write(root.join("bucket/a"), b"a").unwrap();
+    let root = fs::canonicalize(root).unwrap();
     #[cfg(unix)]
-    let tree = Tree::new(
-        root.clone(),
-        std::sync::Arc::new(File::open(&root).unwrap()),
-    );
+    let tree = {
+        let mut tree = Tree::new(
+            root.clone(),
+            std::sync::Arc::new(File::open(&root).unwrap()),
+        );
+        tree.listed.push(DirectoryId::from(
+            &fs::symlink_metadata(root.join("bucket")).unwrap(),
+        ));
+        tree
+    };
     #[cfg(not(unix))]
     let tree = Tree::new(root);
     (dir, tree)
 }
 
 /// What the walk makes of the entry `relative`, which it listed but could not inspect.
-fn unread(tree: &Tree, relative: &str, error: io::ErrorKind) -> Fixture {
+fn unread(tree: &mut Tree, relative: &str, error: io::ErrorKind) -> Fixture {
     tree.see(Err(WalkError::Entry {
         path: tree.root.join(relative),
         error: error.into(),
@@ -38,26 +45,63 @@ fn unknown_with(fixture: &Fixture, kind: io::ErrorKind) -> bool {
 /// entry, and one whose inspection failed in another way, are unknown.
 #[test]
 fn a_listed_entry_is_absent_only_when_a_lookup_proves_its_name_empty() {
-    let (_dir, tree) = tree();
+    let (_dir, mut tree) = tree();
     #[cfg(unix)]
     for relative in ["bucket/gone", "gone/a"] {
-        let fixture = unread(&tree, relative, io::ErrorKind::NotFound);
+        let fixture = unread(&mut tree, relative, io::ErrorKind::NotFound);
         assert!(matches!(fixture, Fixture::Absent(_)), "{relative}");
     }
     // Nothing on this platform proves a name absent.
     #[cfg(not(unix))]
     assert!(unknown_with(
-        &unread(&tree, "bucket/gone", io::ErrorKind::NotFound),
+        &unread(&mut tree, "bucket/gone", io::ErrorKind::NotFound),
         io::ErrorKind::NotFound
     ));
     assert!(unknown_with(
-        &unread(&tree, "bucket/a", io::ErrorKind::NotFound),
+        &unread(&mut tree, "bucket/a", io::ErrorKind::NotFound),
         io::ErrorKind::NotFound
     ));
     assert!(unknown_with(
-        &unread(&tree, "bucket/gone", io::ErrorKind::PermissionDenied),
+        &unread(&mut tree, "bucket/gone", io::ErrorKind::PermissionDenied),
         io::ErrorKind::PermissionDenied
     ));
+}
+
+/// A lookup below a directory that another replaced after the walk listed it proves nothing
+/// about the names the walk listed there, so a name it finds empty is unknown, never absent,
+/// and so is a file it opens there.
+#[cfg(unix)]
+#[test]
+fn a_name_below_a_directory_replaced_after_the_listing_is_unknown() {
+    let (dir, mut tree) = tree();
+    fs::rename(tree.root.join("bucket"), dir.0.join("listed")).unwrap();
+    fs::create_dir(tree.root.join("bucket")).unwrap();
+    fs::write(tree.root.join("bucket/a"), b"other").unwrap();
+    for relative in ["bucket/gone", "bucket/a"] {
+        assert!(
+            matches!(
+                tree.open(Path::new(relative)),
+                Source::Unknown(Unknown::Replaced)
+            ),
+            "{relative}"
+        );
+    }
+    assert!(matches!(
+        unread(&mut tree, "bucket/gone", io::ErrorKind::NotFound),
+        Fixture::Unknown(Unknown::Io(_))
+    ));
+}
+
+/// The walk lists the root by its path, so it reads the pinned root only while that path names
+/// it: a root replaced at its path is unknown.
+#[cfg(unix)]
+#[test]
+fn a_root_replaced_at_its_path_is_unknown() {
+    let (dir, tree) = tree();
+    assert!(tree.check_root().is_ok());
+    fs::rename(&tree.root, dir.0.join("pinned")).unwrap();
+    fs::create_dir(&tree.root).unwrap();
+    assert!(matches!(tree.check_root(), Err(Unknown::Replaced)));
 }
 
 /// The file the walk opened, with the fingerprint of the handle it reads through.
