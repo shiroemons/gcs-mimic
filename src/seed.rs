@@ -175,6 +175,13 @@ fn unread(label: &str, reason: impl Into<SeedError>) -> Result<(), SeedError> {
     }
 }
 
+/// Reports the entry `label`, which the walk listed and a lookup then proved absent. No record
+/// is kept yet, so the name owns nothing a replay could delete
+/// ([`replay::absent`] decides once records exist), and the replay leaves it as it is.
+fn vanished(label: &str) {
+    skipped(label, "removed after its directory was listed");
+}
+
 /// Reports the entry `label`, which a replay left as it was for `reason`.
 fn skipped(label: &str, reason: &str) {
     crate::diagnostics::emit(
@@ -292,8 +299,10 @@ impl Seed<'_> {
     async fn entry(&mut self, label: String, fixture: Fixture) -> Result<(), SeedError> {
         let replayed = match fixture {
             Fixture::Unknown(unknown) => return unread(&label, unknown),
-            // No record is kept yet, so a name proven absent owns nothing a replay could delete.
-            Fixture::Absent(_) => return Ok(()),
+            Fixture::Absent(_) => {
+                vanished(&label);
+                return Ok(());
+            }
             Fixture::Unusable(rejected) => unread(&label, rejected),
             Fixture::OsMetadata => {
                 self.skipped_os_metadata += 1;
@@ -343,7 +352,10 @@ impl Seed<'_> {
             fingerprint,
         } = match source {
             Source::File(opened) => *opened,
-            Source::Absent(_) => return Ok(()),
+            Source::Absent(_) => {
+                vanished(label);
+                return Ok(());
+            }
             Source::Unknown(unknown) => return unread(label, unknown),
         };
         let config = self.config;
