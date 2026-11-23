@@ -154,6 +154,41 @@ async fn the_first_start_with_records_claims_no_object_it_did_not_publish() {
     catalog.close().await.unwrap();
 }
 
+/// A file the reseed's walk listed and then found missing, as an editor's rename-save leaves its
+/// name for a moment, keeps its object and its record: one proof taken after the listing never
+/// deletes, and the file back with its body is the object seeding still owns.
+#[tokio::test]
+async fn a_file_missing_only_after_the_listing_keeps_its_object_at_a_reseed() {
+    let (_dir, config) = fixture();
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    import(&catalog, &config, &clock()).await.unwrap();
+    let before = live(&catalog, "b").await.unwrap();
+    let file = std::fs::canonicalize(config.seed_dir.as_ref().unwrap())
+        .unwrap()
+        .join("bucket/b");
+    let target = file.clone();
+    SOURCE_SWAPS.lock().unwrap().push((
+        file.clone(),
+        Box::new(move || std::fs::remove_file(target).unwrap()),
+    ));
+    let admin = catalog.admin(Origin::Seed);
+    let deadline = crate::test_support::hang_deadline();
+    reseed(&admin, &config, &clock(), deadline).await.unwrap();
+    assert_eq!(live(&catalog, "b").await.unwrap(), before);
+    std::fs::write(&file, "b").unwrap();
+    let outcome = reseed(&admin, &config, &clock(), deadline).await.unwrap();
+    assert!(
+        matches!(outcome, SeedOutcome::Imported { unchanged: 3, .. }),
+        "{outcome:?}"
+    );
+    assert_eq!(live(&catalog, "b").await.unwrap(), before);
+    // Still seeding's own, the object goes once the file is removed before a replay.
+    remove(&config, "bucket/b");
+    reseed(&admin, &config, &clock(), deadline).await.unwrap();
+    assert!(live(&catalog, "b").await.is_none());
+    catalog.close().await.unwrap();
+}
+
 /// A reseed on disk aligns with the folder as a restart does.
 #[tokio::test]
 async fn a_reseed_deletes_the_object_of_a_removed_file() {

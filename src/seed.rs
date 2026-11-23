@@ -225,9 +225,11 @@ fn unread(label: &str, reason: impl Into<SeedError>) -> Result<(), SeedError> {
     }
 }
 
-/// Reports the entry `label`, which the walk listed and a lookup then proved absent, at a name
-/// without a record: the name owns nothing a replay could delete, and the replay leaves it as it
-/// is.
+/// Reports the entry `label`, which the walk listed and a lookup then proved absent. A startup
+/// replay or a reseed leaves the name as it is, even where seeding owns its object: an editor
+/// that saves by renaming a new file over the old one empties the name for a moment, and one
+/// proof taken in that moment must not delete. Only the lookup after the walk, of a recorded
+/// name the walk never listed, proves a file removed for these replays.
 fn vanished(label: &str) {
     skipped(label, "removed after its directory was listed");
 }
@@ -374,12 +376,8 @@ impl Seed<'_> {
     async fn entry(&mut self, label: String, fixture: Fixture) -> Result<(), SeedError> {
         let replayed = match fixture {
             Fixture::Unknown(unknown) => return unread(&label, unknown),
-            Fixture::Absent(proof) => {
-                let recorded = split_label(&label)
-                    .is_some_and(|(bucket, name)| self.batch.absent(bucket, name, proof));
-                if !recorded {
-                    vanished(&label);
-                }
+            Fixture::Absent(_) => {
+                vanished(&label);
                 return Ok(());
             }
             Fixture::Unusable(rejected) => unread(&label, rejected),
@@ -447,10 +445,8 @@ impl Seed<'_> {
         } = object;
         let Opened { file, metadata, .. } = match source {
             Source::File(opened) => *opened,
-            Source::Absent(proof) => {
-                if !self.batch.absent(bucket.as_str(), name.as_str(), proof) {
-                    vanished(label);
-                }
+            Source::Absent(_) => {
+                vanished(label);
                 return Ok(());
             }
             Source::Unknown(unknown) => return unread(label, unknown),
