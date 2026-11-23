@@ -484,25 +484,67 @@ async fn a_released_catalog_lists_the_files_its_rows_name_and_drops_every_sync_o
     );
 }
 
+/// Rows that name no file write no manifest, and leave one an earlier upgrade wrote as it is.
 #[tokio::test]
 async fn rows_that_name_no_file_retire_without_a_manifest() {
-    let dir = TestDir::new();
-    bucket_catalog(&dir.0).await.close().await.unwrap();
-    assert!(!dir.0.join(MANIFEST).exists());
-    let connection = at_schema_57(&dir.0);
-    record_folder(&connection, &dir.0.join("folder"));
-    // A prepared publish holds only its own copy of the object, a complete write-back and a
-    // released workspace hold nothing, and a discarded copy's file was removed first.
-    write_back(&connection, 0xa1, "object", 0, 0);
-    write_back(&connection, 0xa4, "object", 0, 4);
-    recovery(&connection, 0xa7, 2);
-    conflict(&connection, 0xc3, "object", (Some(1), 2, 3), None);
-    drop(connection);
+    for earlier in [None, Some(b"an earlier manifest".as_slice())] {
+        let dir = TestDir::new();
+        bucket_catalog(&dir.0).await.close().await.unwrap();
+        assert!(!dir.0.join(MANIFEST).exists());
+        let connection = at_schema_57(&dir.0);
+        record_folder(&connection, &dir.0.join("folder"));
+        // A prepared publish holds only its own copy of the object, a complete write-back and
+        // a released workspace hold nothing, and a discarded copy's file was removed first.
+        write_back(&connection, 0xa1, "object", 0, 0);
+        write_back(&connection, 0xa4, "object", 0, 4);
+        recovery(&connection, 0xa7, 2);
+        conflict(&connection, 0xc3, "object", (Some(1), 2, 3), None);
+        drop(connection);
+        if let Some(earlier) = earlier {
+            fs::write(dir.0.join(MANIFEST), earlier).unwrap();
+        }
 
-    Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
-    assert!(!dir.0.join(MANIFEST).exists());
-    assert!(!dir.0.join(STAGED).exists());
-    assert_retired(&Connection::open(dir.0.join("catalog.sqlite3")).unwrap());
+        Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
+        assert_eq!(fs::read(dir.0.join(MANIFEST)).ok().as_deref(), earlier);
+        assert!(!dir.0.join("sync-retired.1.json").exists());
+        assert!(!dir.0.join(STAGED).exists());
+        assert_retired(&Connection::open(dir.0.join("catalog.sqlite3")).unwrap());
+    }
+}
+
+/// A manifest with other content, such as one the upgrade of a restored catalog wrote, keeps
+/// its bytes: the new manifest takes the first free numbered name, and a retry after a failed
+/// commit finds it there instead of writing another.
+#[tokio::test]
+async fn a_manifest_with_other_content_is_kept_and_the_next_free_name_is_used() {
+    let released = released().await;
+    let data = released.data();
+    fault::arm(&data, Step::RetiredSyncCommit, 0, Fault::RollBack);
+    assert!(Catalog::open(&data).await.is_err());
+    // One taken name holds as many bytes as the manifest, the other a different number.
+    let mut same_length = fs::read(data.join(MANIFEST)).unwrap();
+    *same_length.last_mut().unwrap() = b' ';
+    let taken = [
+        (MANIFEST, same_length),
+        ("sync-retired.1.json", b"edited by hand".to_vec()),
+    ];
+    for (name, bytes) in &taken {
+        fs::write(data.join(name), bytes).unwrap();
+    }
+    let next = data.join("sync-retired.2.json");
+    fault::arm(&data, Step::RetiredSyncCommit, 0, Fault::RollBack);
+    assert!(Catalog::open(&data).await.is_err());
+    let published = fs::read(&next).unwrap();
+
+    Catalog::open(&data).await.unwrap().close().await.unwrap();
+    assert_eq!(fs::read(&next).unwrap(), published);
+    assert_eq!(read_manifest(&next), released.manifest());
+    for (name, bytes) in &taken {
+        assert_eq!(&fs::read(data.join(name)).unwrap(), bytes, "{name}");
+    }
+    assert!(!data.join("sync-retired.3.json").exists());
+    assert!(!data.join(STAGED).exists());
+    assert_retired(&Connection::open(data.join("catalog.sqlite3")).unwrap());
 }
 
 /// Each kind of row that names a file writes the manifest on its own, listing just that file.
