@@ -28,8 +28,7 @@ pub(crate) struct SeedWatch {
 
 #[derive(Clone, Debug, Default)]
 struct Board {
-    /// The interval of the running passes; `None` while no task runs them.
-    interval: Option<Duration>,
+    schedule: Schedule,
     /// How many passes have started.
     started: u64,
     /// The number of the pass a waiting request needs: the task starts it at once while fewer
@@ -38,6 +37,18 @@ struct Board {
     wanted: u64,
     /// The last pass that completed, by the number it started as.
     last: Option<(u64, PassReport)>,
+}
+
+/// Whether a task runs the passes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Schedule {
+    /// None runs: the configuration names no seed directory or no interval.
+    #[default]
+    Off,
+    /// A task runs one pass every interval.
+    Every(Duration),
+    /// The catalog closed, and the task ended or is ending.
+    Closed,
 }
 
 impl Default for SeedWatch {
@@ -193,8 +204,11 @@ pub(crate) struct Status {
 /// Why a wait for a pass ended without one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WaitError {
-    /// No task runs passes: none is configured, or the catalog closed.
-    Disabled,
+    /// No pass runs while the server runs: the configuration names no seed directory or no
+    /// interval, which a request cannot change.
+    NotConfigured,
+    /// The catalog closed, so no further pass runs.
+    Closed,
     /// The deadline passed first.
     TimedOut,
 }
@@ -202,9 +216,13 @@ pub(crate) enum WaitError {
 impl SeedWatch {
     pub(crate) fn status(&self) -> Status {
         let board = self.state.borrow();
+        let interval = match board.schedule {
+            Schedule::Every(interval) => Some(interval),
+            Schedule::Off | Schedule::Closed => None,
+        };
         Status {
-            enabled: board.interval.is_some(),
-            interval_ms: board.interval.map(|interval| interval.as_millis()),
+            enabled: interval.is_some(),
+            interval_ms: interval.map(|interval| interval.as_millis()),
             last_pass: board.last.as_ref().map(|(_, report)| report.clone()),
         }
     }
@@ -233,31 +251,40 @@ impl SeedWatch {
         until: tokio::time::Instant,
         settled: impl Fn(&PassReport) -> bool,
     ) -> Result<PassReport, WaitError> {
-        let mut after = None;
-        self.state.send_if_modified(|board| {
-            let running = board.interval.is_some();
-            if running {
-                after = Some(board.started);
+        let mut after = Err(WaitError::NotConfigured);
+        self.state.send_if_modified(|board| match board.schedule {
+            Schedule::Every(_) => {
+                after = Ok(board.started);
                 board.wanted = board.wanted.max(board.started + 1);
+                true
             }
-            running
+            Schedule::Off => false,
+            Schedule::Closed => {
+                after = Err(WaitError::Closed);
+                false
+            }
         });
-        let after = after.ok_or(WaitError::Disabled)?;
+        let after = after?;
         let mut board = self.state.subscribe();
         let passed = board.wait_for(|board| {
-            board.interval.is_none()
+            board.schedule == Schedule::Closed
                 || board
                     .last
                     .as_ref()
                     .is_some_and(|(number, report)| *number > after && settled(report))
         });
+        // The sender lives in `self`, so the channel stays open while the wait borrows it; a
+        // closed one could only mean that no further pass runs.
         let board = tokio::time::timeout_at(until, passed)
             .await
             .map_err(|_| WaitError::TimedOut)?
-            .map_err(|_| WaitError::Disabled)?;
-        match (&board.interval, &board.last) {
-            (Some(_), Some((_, report))) => Ok(report.clone()),
-            (None, _) | (Some(_), None) => Err(WaitError::Disabled),
+            .map_err(|_| WaitError::Closed)?;
+        match (board.schedule, &board.last) {
+            (Schedule::Every(_), Some((_, report))) => Ok(report.clone()),
+            // A running schedule changes only to closed, and the wait ended on a report.
+            (Schedule::Off | Schedule::Closed, _) | (Schedule::Every(_), None) => {
+                Err(WaitError::Closed)
+            }
         }
     }
 
@@ -291,7 +318,8 @@ impl SeedWatch {
     }
 
     fn stop(&self) {
-        self.state.send_modify(|board| board.interval = None);
+        self.state
+            .send_modify(|board| board.schedule = Schedule::Closed);
     }
 }
 
@@ -313,8 +341,10 @@ impl Catalog {
         let watch = &self.0.seed_watch;
         let mut started = false;
         watch.state.send_if_modified(|board| {
-            started = board.interval.is_none();
-            board.interval = Some(interval);
+            started = board.schedule == Schedule::Off;
+            if started {
+                board.schedule = Schedule::Every(interval);
+            }
             started
         });
         if !started {

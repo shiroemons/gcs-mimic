@@ -685,7 +685,7 @@ async fn the_status_reports_the_last_pass_and_a_closed_catalog_ends_the_passes()
     watched.close().await;
     assert_eq!(
         watch.seed_watch().wait(hang_deadline()).await.unwrap_err(),
-        WaitError::Disabled
+        WaitError::Closed
     );
 }
 
@@ -701,7 +701,7 @@ async fn no_pass_runs_with_a_zero_interval() {
             .wait(hang_deadline())
             .await
             .unwrap_err(),
-        WaitError::Disabled
+        WaitError::NotConfigured
     );
     watched.close().await;
 }
