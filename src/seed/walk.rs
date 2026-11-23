@@ -14,7 +14,10 @@ use crate::{
     source_tree::{TreeLimits, WalkEntry, WalkError, Walker, is_os_metadata},
     storage::admin::{AdminError, BucketName, ObjectName, replay::Fingerprint},
 };
+#[cfg(unix)]
+use std::collections::HashMap;
 use std::{
+    collections::BTreeMap,
     ffi::OsStr,
     fs::{File, Metadata},
     io,
@@ -32,7 +35,18 @@ use crate::fsutil::NodeId;
 /// boxed because Linux `Metadata` carries statx fields that make an unboxed variant over 200 bytes.
 pub(super) enum Walked {
     Entry(Box<Result<Seen, SeedError>>),
+    /// What a lookup found at a recorded name the walk did not list. It comes after every
+    /// entry, and only from a walk that met no failure; a proof of absence counts only once
+    /// [`Walked::Done`] follows, after the final check of the root.
+    Unlisted(Box<Unlisted>),
     Done,
+}
+
+/// A recorded name that the walk did not list, and what a lookup found there.
+pub(super) struct Unlisted {
+    pub(super) bucket: String,
+    pub(super) name: String,
+    pub(super) source: Source,
 }
 
 /// One walked entry.
@@ -221,6 +235,13 @@ pub(super) struct Tree {
     /// them before listing them.
     #[cfg(unix)]
     listed: Vec<NodeId>,
+    /// Every directory the walk listed, by its path below the root, while recorded names remain
+    /// that the walk has not listed: a lookup of such a name after the walk descends only
+    /// through these.
+    #[cfg(unix)]
+    directories: HashMap<PathBuf, NodeId>,
+    /// The recorded names, by their paths below the root, that the walk has yet to list.
+    recorded: BTreeMap<PathBuf, (String, String)>,
 }
 
 impl Tree {
@@ -236,12 +257,30 @@ impl Tree {
             pinned,
             lookup: crate::fsutil::Lookup::unprobed_on(clock),
             listed: Vec::new(),
+            directories: HashMap::new(),
+            recorded: BTreeMap::new(),
         }
     }
 
     #[cfg(not(unix))]
     pub(super) fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            recorded: BTreeMap::new(),
+        }
+    }
+
+    /// Looks up, once the walk has listed every entry, each of the `recorded` names that it did
+    /// not list.
+    pub(super) fn with_recorded(
+        mut self,
+        recorded: impl IntoIterator<Item = (String, String)>,
+    ) -> Self {
+        self.recorded = recorded
+            .into_iter()
+            .map(|(bucket, name)| (Path::new(&bucket).join(&name), (bucket, name)))
+            .collect();
+        self
     }
 
     /// Walks the tree on a thread of its own, sending each entry over a two-slot channel.
@@ -271,10 +310,29 @@ impl Tree {
                 entry
             })
         };
+        let mut failed = false;
         for entry in walk {
             let seen = self.see(entry);
+            failed |= seen.is_err();
             if send.blocking_send(Walked::Entry(Box::new(seen))).is_err() {
                 return;
+            }
+        }
+        // A walk that failed listed only part of the tree, so its proofs would count for nothing.
+        if !failed {
+            for (relative, (bucket, name)) in std::mem::take(&mut self.recorded) {
+                let source = self.look_up(&relative);
+                let unlisted = Unlisted {
+                    bucket,
+                    name,
+                    source,
+                };
+                if send
+                    .blocking_send(Walked::Unlisted(Box::new(unlisted)))
+                    .is_err()
+                {
+                    return;
+                }
             }
         }
         let end = match self.check_root() {
@@ -326,6 +384,8 @@ impl Tree {
         #[cfg(unix)]
         self.listed
             .truncate(relative.iter().count().saturating_sub(1));
+        // A listed name is decided from its entry, whatever the entry turns out to be.
+        self.recorded.remove(relative);
         let fixture = match found {
             Ok((metadata, depth)) => {
                 let fixture = self
@@ -333,7 +393,11 @@ impl Tree {
                     .unwrap_or_else(Fixture::Unusable);
                 #[cfg(unix)]
                 if metadata.is_dir() {
-                    self.listed.push(NodeId::from(&metadata));
+                    let node = NodeId::from(&metadata);
+                    self.listed.push(node);
+                    if !self.recorded.is_empty() {
+                        self.directories.insert(relative.to_owned(), node);
+                    }
                 }
                 fixture
             }
@@ -411,6 +475,29 @@ impl Tree {
             leaf: leaf.to_owned(),
             source: self.open(relative),
         })))
+    }
+
+    /// What a lookup after the walk finds at the recorded name `relative`, which the walk did not
+    /// list. The lookup descends only through directories the walk listed at the same paths: a
+    /// directory it did not list proves the name absent only by being absent itself.
+    #[cfg(unix)]
+    fn look_up(&mut self, relative: &Path) -> Source {
+        self.listed.clear();
+        let mut above = PathBuf::new();
+        for name in relative.parent().into_iter().flat_map(Path::iter) {
+            above.push(name);
+            let Some(node) = self.directories.get(&above) else {
+                break;
+            };
+            self.listed.push(*node);
+        }
+        self.open(relative)
+    }
+
+    /// Nothing proves a name absent on this platform, so a lookup only opens the file again.
+    #[cfg(not(unix))]
+    fn look_up(&self, relative: &Path) -> Source {
+        self.open(relative)
     }
 
     /// Opens the regular file `relative` through the pinned root without following a symlink

@@ -246,6 +246,7 @@ fn a_directory_the_walk_cannot_list_is_unknown_and_the_walk_goes_on() {
                 seen.push((label, kind(&fixture)));
             }
             Some(Walked::Done) => break,
+            Some(Walked::Unlisted(_)) => panic!("the walk had no recorded name to look up"),
             None => panic!("the walk stopped before it finished"),
         }
     }

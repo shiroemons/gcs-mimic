@@ -253,6 +253,13 @@ pub(crate) fn eventually_some<T>(what: &str, mut attempt: impl FnMut() -> Option
     }
 }
 
+/// A deadline [`HANG_GUARD`] from now, for an operation that takes its own deadline and is
+/// expected to finish long before it. Not for paused-time tests, for the same reason as
+/// [`eventually_async`].
+pub(crate) fn hang_deadline() -> tokio::time::Instant {
+    tokio::time::Instant::now() + HANG_GUARD
+}
+
 /// Joins a task that something else has to wake, failing instead of hanging when the wakeup is
 /// lost. Not for paused-time tests, for the same reason as [`eventually_async`].
 pub(crate) async fn joined<T>(task: tokio::task::JoinHandle<T>) -> T {

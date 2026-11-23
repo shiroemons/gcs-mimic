@@ -6,6 +6,10 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
+// Each case removes a file, which deletes an object only where a Unix walk proves it absent.
+#[cfg(unix)]
+mod records;
+
 /// Walk entry index at which the seed walk of a root panics, keyed by the canonical root
 /// because tests seed their own directories in parallel.
 static PANIC_AT: Mutex<Vec<(PathBuf, usize)>> = Mutex::new(Vec::new());

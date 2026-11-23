@@ -1,14 +1,21 @@
 //! A prepared fixture namespace has one catalog publication boundary.
 
 use super::*;
-use crate::storage::catalog::{
-    admin::{
-        initialization::Initialization,
-        replay::{self, Attributes, Body, Fingerprint, LiveObject, Protection, Replay, Version},
+use crate::{
+    fsutil::Vacant,
+    storage::catalog::{
+        admin::{
+            initialization::Initialization,
+            replay::{
+                self, Attributes, Body, Fingerprint, LiveObject, Phase, Protection, Replay,
+                SeedRecord, Vanished, Version,
+            },
+            seed_records::{self, RecordKey},
+        },
+        sql,
     },
-    sql,
 };
-use std::num::NonZeroUsize;
+use std::{collections::HashMap, num::NonZeroUsize};
 
 #[derive(Clone, Copy)]
 pub(crate) enum SeedMode {
@@ -53,13 +60,6 @@ struct SeedEntry {
     publication: BatchPublication,
     /// What the fixture file was when staging read the bytes the entry publishes, which the
     /// record of the replay keeps.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the seed record table that keeps each replayed file's fingerprint is not wired yet"
-        )
-    )]
     fingerprint: Fingerprint,
 }
 
@@ -82,6 +82,12 @@ pub(crate) struct SeedBatch {
     metadata_bytes: usize,
     metadata_budget: Option<usize>,
     request_deadline: Option<tokio::time::Instant>,
+    /// What seeding recorded when the batch read the records, which only a batch that walks a
+    /// fixture tree does; `None` for one that does not, which keeps the records and marks as
+    /// they are.
+    records: Option<HashMap<RecordKey, SeedRecord>>,
+    /// The recorded names whose fixture files a lookup proved absent.
+    absences: Vec<(RecordKey, Vacant)>,
 }
 
 /// A batch holds every object's metadata in memory until it commits. A limit the operator chose
@@ -145,6 +151,8 @@ impl Admin {
             metadata_bytes: 0,
             metadata_budget: metadata_budget(max_entries),
             request_deadline,
+            records: None,
+            absences: Vec::new(),
         })
     }
 }
@@ -199,6 +207,38 @@ impl SeedBatch {
                 Ok((Arc::new(file), node))
             })
             .await
+    }
+
+    /// Reads what seeding recorded, for a batch that walks the fixture tree, and returns the
+    /// recorded names, which the walk looks up where it does not list them.
+    pub(crate) async fn read_records(&mut self) -> Result<Vec<RecordKey>, AdminError> {
+        let records = self
+            .admin
+            .catalog
+            .run::<_, CatalogError>(|connection| seed_records::all(connection))
+            .await?;
+        let keys = records.keys().cloned().collect();
+        self.records = Some(records);
+        Ok(keys)
+    }
+
+    /// What seeding recorded at `bucket`/`name` when the batch read the records.
+    pub(crate) fn record(&self, bucket: &str, name: &str) -> Option<&SeedRecord> {
+        self.records
+            .as_ref()?
+            .get(&(bucket.to_owned(), name.to_owned()))
+    }
+
+    /// Takes `proof` that the fixture file of `bucket`/`name` is gone, and returns whether the
+    /// name has a record to decide from; a name without one owns nothing, so the caller only
+    /// reports it.
+    pub(crate) fn absent(&mut self, bucket: &str, name: &str, proof: Vacant) -> bool {
+        let recorded = self.record(bucket, name).is_some();
+        if recorded {
+            self.absences
+                .push(((bucket.to_owned(), name.to_owned()), proof));
+        }
+        recorded
     }
 
     pub(crate) fn bucket(&mut self, definition: BucketDefinition) -> Result<(), AdminError> {
@@ -450,57 +490,14 @@ fn commit(
         counts.buckets += initialization.apply(&transaction, catalog)?;
     }
     for definition in &batch.buckets {
-        let record = &definition.0;
-        match crate::storage::catalog::select_bucket(&transaction, &record.name)
-            .map_err(objects_error)?
-        {
-            Some(existing) if existing.project != record.project => {
-                return Err(AdminError::SeedProjectMismatch);
-            }
-            Some(_) => {}
-            None => {
-                let creation = crate::storage::catalog::BucketCreation::default_policy(
-                    batch.admin.catalog.default_soft_delete_retention(),
-                );
-                crate::storage::catalog::create_bucket_in_transaction(
-                    &transaction,
-                    &mut record.clone(),
-                    creation,
-                )?;
-                counts.buckets += 1;
-            }
+        if create_bucket(&transaction, catalog, &definition.0)? == Bucket::Created {
+            counts.buckets += 1;
         }
     }
-    let mut published = Vec::new();
-    for SeedEntry {
-        publication: entry, ..
-    } in &batch.entries
-    {
-        validate_staged_entry(entry)?;
-        let previous = objects::lookup(&transaction, entry.bucket.as_str(), entry.name.as_str())?;
-        let live = previous
-            .as_ref()
-            .map(|stored| live_object(&transaction, &stored.record, entry, now))
-            .transpose()?;
-        let file = Body {
-            size: entry.staged.size,
-            hashes: entry.staged.hashes,
-        };
-        // No seed record is kept yet, so the replay decides as it did before records.
-        match replay::startup_file(&file, None, live.as_ref()) {
-            Replay::Publish => {
-                publish_entry(&transaction, entry, &batch.admin.grant, now)?;
-                published.push(entry.staged.blob_id());
-                if previous.is_some() {
-                    counts.replaced += 1;
-                } else {
-                    counts.objects += 1;
-                }
-            }
-            Replay::Record { .. } => counts.unchanged += 1,
-            // The refusal the replacement itself would meet, before anything is written.
-            Replay::Protected => return Err(AdminError::Hold),
-        }
+    let published = replay_files(&transaction, batch, now, &mut counts)?;
+    if batch.records.is_some() {
+        replay_absences(&transaction, batch, now)?;
+        mark_buckets(&transaction, batch)?;
     }
     sql::exec(
         &transaction,
@@ -517,6 +514,265 @@ fn commit(
         counts.cleanup_pending = !clear_replaced(connection, batch);
     }
     Ok(counts)
+}
+
+/// Whether a replay created the bucket of a top-level directory or found it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Bucket {
+    Created,
+    Existing,
+}
+
+/// Creates the bucket `record` names unless it exists, in the caller's transaction. An existing
+/// bucket of another project refuses the replay.
+pub(super) fn create_bucket(
+    transaction: &rusqlite::Transaction<'_>,
+    catalog: &Catalog,
+    record: &BucketRecord,
+) -> Result<Bucket, AdminError> {
+    match crate::storage::catalog::select_bucket(transaction, &record.name)
+        .map_err(objects_error)?
+    {
+        Some(existing) if existing.project != record.project => {
+            Err(AdminError::SeedProjectMismatch)
+        }
+        Some(_) => Ok(Bucket::Existing),
+        None => {
+            let creation = crate::storage::catalog::BucketCreation::default_policy(
+                catalog.default_soft_delete_retention(),
+            );
+            crate::storage::catalog::create_bucket_in_transaction(
+                transaction,
+                &mut record.clone(),
+                creation,
+            )?;
+            Ok(Bucket::Created)
+        }
+    }
+}
+
+/// Replays each staged file as a startup replay does, recording it with the version seeding then
+/// owns, and returns the bodies it published.
+fn replay_files(
+    transaction: &rusqlite::Transaction<'_>,
+    batch: &SeedBatch,
+    now: SystemTime,
+    counts: &mut Counts,
+) -> Result<Vec<BlobId>, AdminError> {
+    let mut published = Vec::new();
+    for SeedEntry {
+        publication: entry,
+        fingerprint,
+    } in &batch.entries
+    {
+        validate_staged_entry(entry)?;
+        let (bucket, name) = (entry.bucket.as_str(), entry.name.as_str());
+        let previous = objects::lookup(transaction, bucket, name)?;
+        let live = previous
+            .as_ref()
+            .map(|stored| live_object(transaction, &stored.record, entry, now))
+            .transpose()?;
+        let file = staged_body(entry);
+        // A clearing commit already dropped the records, so it decides as for a new tree.
+        let record = seed_records::get(transaction, bucket, name)?;
+        let owned = match replay::startup_file(&file, record.as_ref(), live.as_ref()) {
+            Replay::Publish => {
+                let object = publish_entry(transaction, entry, &batch.admin.grant, now)?;
+                published.push(entry.staged.blob_id());
+                if previous.is_some() {
+                    counts.replaced += 1;
+                } else {
+                    counts.objects += 1;
+                }
+                Some(version_of(&object))
+            }
+            Replay::Record { owned } => {
+                counts.unchanged += 1;
+                owned
+            }
+            // The refusal the replacement itself would meet, before anything is written.
+            Replay::Protected => return Err(AdminError::Hold),
+        };
+        seed_records::save(
+            transaction,
+            bucket,
+            name,
+            &SeedRecord::new(owned, file, *fingerprint),
+        )?;
+    }
+    Ok(published)
+}
+
+/// What staging read from a fixture file.
+pub(super) fn staged_body(entry: &BatchPublication) -> Body {
+    Body {
+        size: entry.staged.size,
+        hashes: entry.staged.hashes,
+    }
+}
+
+/// The version of `object`, the generation at its metageneration.
+pub(super) fn version_of(object: &ObjectRecord) -> Version {
+    Version {
+        generation: object.generation,
+        metageneration: object.metageneration,
+    }
+}
+
+/// Applies a startup replay's decision at each recorded name a lookup proved absent: deletes an
+/// object seeding purely owns on that one proof, keeps a protected one, and forgets the rest.
+fn replay_absences(
+    transaction: &rusqlite::Transaction<'_>,
+    batch: &SeedBatch,
+    now: SystemTime,
+) -> Result<(), AdminError> {
+    let access = batch.admin.grant.access();
+    for ((bucket, name), proof) in &batch.absences {
+        let Some(record) = seed_records::get(transaction, bucket, name)? else {
+            continue;
+        };
+        let live = absent_object(transaction, bucket, name, now)?;
+        match replay::absent(Phase::Startup, proof, &record, live.as_ref()) {
+            Vanished::Delete { owned } => {
+                if delete_owned(transaction, (bucket, name), owned, now, &access)? {
+                    seed_records::save(transaction, bucket, name, &record.after_deleting(owned))?;
+                    deleted(bucket, name);
+                } else {
+                    kept(bucket, name);
+                }
+            }
+            Vanished::Forget => seed_records::forget(transaction, bucket, name)?,
+            Vanished::Tombstone => {
+                seed_records::save(transaction, bucket, name, &record.tombstone())?;
+            }
+            Vanished::Protected => kept(bucket, name),
+        }
+    }
+    Ok(())
+}
+
+/// Reports the object a replay deleted at `bucket`/`name` because its fixture file is gone.
+pub(super) fn deleted(bucket: &str, name: &str) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Info,
+        "seed_object_deleted",
+        serde_json::json!({"bucket": bucket, "object": name}),
+    );
+}
+
+/// Reports the object a replay kept at `bucket`/`name` although its fixture file is gone,
+/// because a hold or an unmet retention period refuses the deletion.
+fn kept(bucket: &str, name: &str) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Warn,
+        "seed_object_kept",
+        serde_json::json!({
+            "bucket": bucket,
+            "object": name,
+            "reason": "a hold or retention period protects it",
+        }),
+    );
+}
+
+/// What the catalog holds at `bucket`/`name` for a decision about a name proven absent, which
+/// reads only the version, the body and whether deleting it is refused.
+pub(super) fn absent_object(
+    transaction: &rusqlite::Transaction<'_>,
+    bucket: &str,
+    name: &str,
+    now: SystemTime,
+) -> Result<Option<LiveObject>, AdminError> {
+    let Some(stored) = objects::lookup(transaction, bucket, name)? else {
+        return Ok(None);
+    };
+    let live = &stored.record;
+    let versioning = objects::BucketPublication::load(transaction, bucket)?.versioning;
+    Ok(Some(LiveObject {
+        version: version_of(live),
+        body: stored_body(live),
+        // A deletion never compares attributes.
+        attributes: Attributes::Edited,
+        protection: protection(&objects::check_replaceable(live, versioning, now)),
+    }))
+}
+
+/// Deletes the live object at `name`, a bucket and an object name, only while it still is the
+/// version `owned`: the `ifGenerationMatch` and `ifMetagenerationMatch` conditions are checked
+/// in the transaction that deletes it. Returns whether it deleted; a failed condition, a hold or
+/// an unmet retention period deletes nothing.
+pub(super) fn delete_owned(
+    transaction: &rusqlite::Transaction<'_>,
+    (bucket, name): (&str, &str),
+    owned: Version,
+    now: SystemTime,
+    access: &BucketAccess,
+) -> Result<bool, AdminError> {
+    let target = ObjectTarget {
+        bucket: bucket.to_owned(),
+        name: name.to_owned(),
+        generation: None,
+    };
+    let context = objects::DeleteContext {
+        now,
+        conditions: ObjectConditions {
+            if_generation_match: Some(owned.generation),
+            if_metageneration_match: Some(owned.metageneration),
+            ..Default::default()
+        },
+        access,
+    };
+    transaction
+        .execute_batch("SAVEPOINT seed_delete")
+        .map_err(objects_error)?;
+    let outcome = match objects::delete_in_transaction(transaction, &target, context) {
+        Ok(_) => Ok(true),
+        Err(error) if refused(&error) => {
+            transaction
+                .execute_batch("ROLLBACK TO seed_delete")
+                .map_err(objects_error)?;
+            Ok(false)
+        }
+        Err(error) => Err(error.into()),
+    };
+    transaction
+        .execute_batch("RELEASE seed_delete")
+        .map_err(objects_error)?;
+    outcome
+}
+
+/// Whether a deletion failed only because the object is not the version it named or is
+/// protected, which keeps the object and the record. Every other failure fails the replay that
+/// tried the deletion.
+fn refused(error: &ObjectError) -> bool {
+    matches!(
+        error,
+        ObjectError::PreconditionFailed
+            | ObjectError::ObjectNotFound
+            | ObjectError::ActiveHold(_)
+            | ObjectError::ObjectRetentionNotMet(_)
+    )
+}
+
+/// Marks the bucket of each top-level directory the replay walked, and forgets the marks of
+/// directories the tree no longer holds: a startup replay lists the whole tree or fails.
+fn mark_buckets(
+    transaction: &rusqlite::Transaction<'_>,
+    batch: &SeedBatch,
+) -> Result<(), AdminError> {
+    let walked: std::collections::HashSet<&str> = batch
+        .buckets
+        .iter()
+        .map(|definition| definition.0.name.as_str())
+        .collect();
+    for marked in seed_records::marks(transaction)? {
+        if !walked.contains(marked.as_str()) {
+            seed_records::unmark(transaction, &marked)?;
+        }
+    }
+    for bucket in walked {
+        seed_records::mark(transaction, bucket)?;
+    }
+    Ok(())
 }
 
 /// Removes what a clearing commit replaced while the commit still holds exclusive ownership, and
@@ -590,7 +846,7 @@ fn confirmed(
 
 /// What a replay of `entry` at `now` finds in `live`, the object the catalog holds at its name.
 /// The protection is the refusal publishing the replacement at `now` would meet.
-fn live_object(
+pub(super) fn live_object(
     transaction: &rusqlite::Transaction<'_>,
     live: &ObjectRecord,
     entry: &BatchPublication,
@@ -598,30 +854,36 @@ fn live_object(
 ) -> Result<LiveObject, AdminError> {
     let versioning =
         objects::BucketPublication::load(transaction, entry.bucket.as_str())?.versioning;
-    let protected = objects::check_replaceable(live, versioning, now).is_err();
     Ok(LiveObject {
-        version: Version {
-            generation: live.generation,
-            metageneration: live.metageneration,
-        },
-        body: Body {
-            size: live.size,
-            hashes: crate::hashing::Hashes {
-                md5: live.md5,
-                crc32c: live.crc32c,
-            },
-        },
+        version: version_of(live),
+        body: stored_body(live),
         attributes: if seeded_attributes(live, entry) {
             Attributes::AsSeeded
         } else {
             Attributes::Edited
         },
-        protection: if protected {
-            Protection::Protected
-        } else {
-            Protection::Unprotected
-        },
+        protection: protection(&objects::check_replaceable(live, versioning, now)),
     })
+}
+
+/// The body the catalog holds in `live`.
+fn stored_body(live: &ObjectRecord) -> Body {
+    Body {
+        size: live.size,
+        hashes: crate::hashing::Hashes {
+            md5: live.md5,
+            crc32c: live.crc32c,
+        },
+    }
+}
+
+/// Whether a hold or an unmet retention period refuses the change, as `replaceable`, the check
+/// of the live object, found.
+fn protection(replaceable: &Result<(), ObjectError>) -> Protection {
+    match replaceable {
+        Ok(()) => Protection::Unprotected,
+        Err(_) => Protection::Protected,
+    }
 }
 
 /// Whether `live` carries only what publishing `entry` writes besides the body.

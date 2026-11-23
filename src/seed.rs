@@ -17,7 +17,7 @@ use crate::{
 };
 use serde::Serialize;
 use std::{path::Path, sync::Arc};
-use walk::{Fixture, Object, Opened, Seen, Source, Tree, Walked};
+use walk::{Fixture, Object, Opened, Seen, Source, Tree, Unlisted, Walked};
 
 mod error;
 mod walk;
@@ -198,11 +198,17 @@ fn unread(label: &str, reason: impl Into<SeedError>) -> Result<(), SeedError> {
     }
 }
 
-/// Reports the entry `label`, which the walk listed and a lookup then proved absent. No record
-/// is kept yet, so the name owns nothing a replay could delete
-/// ([`replay::absent`] decides once records exist), and the replay leaves it as it is.
+/// Reports the entry `label`, which the walk listed and a lookup then proved absent, at a name
+/// without a record: the name owns nothing a replay could delete, and the replay leaves it as it
+/// is.
 fn vanished(label: &str) {
     skipped(label, "removed after its directory was listed");
+}
+
+/// The bucket and object name of `label`, a path below the root that names a recorded object.
+/// Only a Unix lookup proves a name absent, so the path separator is `/`.
+fn split_label(label: &str) -> Option<(&str, &str)> {
+    label.split_once('/')
 }
 
 /// Reports the entry `label`, which a replay left as it was for `reason`.
@@ -253,9 +259,10 @@ async fn stage_directory(
     }
     #[cfg(test)]
     tests::injected_source_swap(root);
-    let batch = catalog
+    let mut batch = catalog
         .seed_batch_until(request_deadline, config.max_seed_entries)
         .await?;
+    let recorded = batch.read_records().await?;
     #[cfg(unix)]
     let source_root = pin_root(&batch, root, &inspected).await?;
     let root = tokio::fs::canonicalize(root).await?;
@@ -273,7 +280,7 @@ async fn stage_directory(
     let tree = Tree::new(root, source_root, Arc::clone(clock));
     #[cfg(not(unix))]
     let tree = Tree::new(root);
-    let mut entries = tree.walk(limits)?;
+    let mut entries = tree.with_recorded(recorded).walk(limits)?;
     let mut seed = Seed {
         batch,
         config,
@@ -285,6 +292,10 @@ async fn stage_directory(
     loop {
         let seen = match entries.recv().await {
             Some(Walked::Entry(seen)) => *seen,
+            Some(Walked::Unlisted(unlisted)) => {
+                seed.unlisted(*unlisted);
+                continue;
+            }
             Some(Walked::Done) => break,
             // The thread already reported its panic; failing here keeps the seed incomplete.
             None => {
@@ -321,8 +332,12 @@ impl Seed<'_> {
     async fn entry(&mut self, label: String, fixture: Fixture) -> Result<(), SeedError> {
         let replayed = match fixture {
             Fixture::Unknown(unknown) => return unread(&label, unknown),
-            Fixture::Absent(_) => {
-                vanished(&label);
+            Fixture::Absent(proof) => {
+                let recorded = split_label(&label)
+                    .is_some_and(|(bucket, name)| self.batch.absent(bucket, name, proof));
+                if !recorded {
+                    vanished(&label);
+                }
                 return Ok(());
             }
             Fixture::Unusable(rejected) => unread(&label, rejected),
@@ -344,6 +359,27 @@ impl Seed<'_> {
             label,
             source: Box::new(error),
         })
+    }
+
+    /// Takes what a lookup found at a recorded name the walk did not list. Only a proof of
+    /// absence changes anything; a file that appeared after its directory was listed, or a name
+    /// the lookup could not tell, keeps its record and its object.
+    fn unlisted(&mut self, unlisted: Unlisted) {
+        let Unlisted {
+            bucket,
+            name,
+            source,
+        } = unlisted;
+        let label = format!("{bucket}/{name}");
+        match source {
+            Source::Absent(proof) => {
+                self.batch.absent(&bucket, &name, proof);
+            }
+            Source::File(_) => {}
+            Source::Unknown(unknown) => {
+                skipped(&label, &SeedError::from(unknown).to_string());
+            }
+        }
     }
 
     fn bucket(&mut self, name: &BucketName) -> Result<(), SeedError> {
@@ -369,8 +405,10 @@ impl Seed<'_> {
         } = object;
         let Opened { file, metadata, .. } = match source {
             Source::File(opened) => *opened,
-            Source::Absent(_) => {
-                vanished(label);
+            Source::Absent(proof) => {
+                if !self.batch.absent(bucket.as_str(), name.as_str(), proof) {
+                    vanished(label);
+                }
                 return Ok(());
             }
             Source::Unknown(unknown) => return unread(label, unknown),

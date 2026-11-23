@@ -25,18 +25,19 @@
 //! it can meet: [`startup_file`]; [`live_file`], then [`live_read`] once the file was hashed;
 //! [`absent`], then [`confirm_absence`] while the server runs; and [`unread`].
 //!
-//! No record is kept yet, and no pass runs while the server does. The step that adds them keeps a
-//! [`SeedRecord`] per replayed name in the transaction that publishes it, with the version that
-//! publication assigned; looks up the recorded names a pass did not list, since a walk lists only
-//! what is there; acts on a proof of absence only once the walk ended with its final check that
-//! the root's path still names the root it listed; treats every record a pass did not observe as
-//! unknown, not absent, once the walk failed or stopped at a limit; and deletes for
-//! [`Vanished::Delete`] with both the `ifGenerationMatch` and the `ifMetagenerationMatch`
-//! condition of the owned version, checked atomically with the delete. A failed condition deletes
-//! nothing and keeps the record, and the next pass decides again from what is then live. A reset
-//! drops every record, a reset to the startup state records what it publishes again, and a bucket
-//! deletion or purge drops the records of the bucket's names, so no record claims an object one
-//! of them removed.
+//! A replay keeps a [`SeedRecord`] per replayed name (`seed_records`) in the transaction that
+//! publishes it, with the version that publication assigned. Its walk looks up the recorded names
+//! it did not list, since a walk lists only what is there, and the replay acts on a proof of
+//! absence only once the walk ended with its final check that the root's path still names the
+//! root it listed. It deletes for [`Vanished::Delete`] with both the `ifGenerationMatch` and the
+//! `ifMetagenerationMatch` condition of the owned version, checked in the transaction that
+//! deletes; a failed condition deletes nothing and keeps the record. A reset drops every record,
+//! a reset to the startup state records what it publishes again, and a bucket deletion or purge
+//! drops the records of the bucket's names, so no record claims an object one of them removed.
+//!
+//! No pass runs while the server does yet. Such a pass must treat every record it did not
+//! observe as unknown, not absent, once its walk failed or stopped at a limit, and must decide
+//! again on its next pass where a condition failed.
 
 use crate::{
     fsutil::{FileIdentity, Vacant},
@@ -88,13 +89,6 @@ impl Fingerprint {
     }
 
     /// A fingerprint as a record stored it, with the raciness it had when it was taken.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the replays that read the record table are wired in the next step"
-        )
-    )]
     #[expect(
         clippy::fn_params_excessive_bools,
         reason = "forwards the stored raciness, without selecting an operation mode"
@@ -110,13 +104,6 @@ impl Fingerprint {
 
     /// Whether a change made just after the stat could have left every field it reported as it
     /// was.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the replays that write the record table are wired in the next step"
-        )
-    )]
     pub(crate) fn racy(&self) -> bool {
         self.racy
     }
@@ -163,13 +150,6 @@ pub(crate) struct SeedRecord {
 impl SeedRecord {
     /// The record of a file a replay read holding `body`, with the fingerprint of that read and
     /// `owned` as the version seeding owns.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the seed record table that keeps what a replay read is not wired yet"
-        )
-    )]
     pub(crate) fn new(owned: Option<Version>, body: Body, fingerprint: Fingerprint) -> Self {
         Self {
             owned,
@@ -202,13 +182,6 @@ impl SeedRecord {
     /// The record kept once seeding deleted the version `owned` for [`Vanished::Delete`]: it owns
     /// nothing, and keeps the body and the version it deleted, so that a file that returns with
     /// that body restores the object only while no API write has taken the name since.
-    #[cfg_attr(
-        any(not(test), not(unix)),
-        expect(
-            dead_code,
-            reason = "the seed record table that names what a replay owns is not wired yet, and only a Unix lookup makes the proof of absence the tests pass"
-        )
-    )]
     pub(crate) fn after_deleting(self, owned: Version) -> Self {
         Self {
             owned: None,
@@ -236,13 +209,6 @@ impl SeedRecord {
 
     /// The record kept for [`Vanished::Tombstone`]: it owns nothing, and keeps the body, the
     /// fingerprint, `absent_since` and any version seeding deleted that it had.
-    #[cfg_attr(
-        any(not(test), not(unix)),
-        expect(
-            dead_code,
-            reason = "the pass that watches the seed directory while the server runs is not wired yet, and only a Unix lookup makes the proof of absence the tests pass"
-        )
-    )]
     pub(crate) fn tombstone(self) -> Self {
         Self {
             owned: None,
@@ -422,13 +388,6 @@ pub(crate) enum Vanished {
 /// so a caller only reports it. Seeding deletes only the version it owns, and only while its body
 /// is still the one the record read: an object whose body or metadata changed since is not purely
 /// what seeding wrote, and its name keeps a tombstone while the server runs.
-#[cfg_attr(
-    any(not(test), not(unix)),
-    expect(
-        dead_code,
-        reason = "the seed record table that names what a replay owns is not wired yet, and only a Unix lookup makes the proof of absence the tests pass"
-    )
-)]
 pub(crate) fn absent(
     phase: Phase,
     _proof: &Vacant,
