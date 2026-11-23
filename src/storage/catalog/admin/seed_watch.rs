@@ -21,7 +21,7 @@ const MAX_PROBLEMS: usize = 100;
 /// The board of the seed directory's passes, which the catalog keeps for its lifetime.
 #[derive(Debug)]
 pub(crate) struct SeedWatch {
-    /// Starts the next pass now, for a request that waits for one and for a closing catalog.
+    /// Ends the task's wait for a closing catalog.
     wake: Notify,
     state: watch::Sender<Board>,
 }
@@ -32,6 +32,10 @@ struct Board {
     interval: Option<Duration>,
     /// How many passes have started.
     started: u64,
+    /// The number of the pass a waiting request needs: the task starts it at once while fewer
+    /// passes have started. A count rather than a wakeup, so that a pass the interval started
+    /// meanwhile serves the request and no second pass follows for nothing.
+    wanted: u64,
     /// The last pass that completed, by the number it started as.
     last: Option<(u64, PassReport)>,
 }
@@ -167,13 +171,6 @@ fn timestamp<S: Serializer>(time: &SystemTime, serializer: S) -> Result<S::Ok, S
 }
 
 /// What the status route reports.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the status and wait routes are wired in the next step"
-    )
-)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Status {
@@ -184,13 +181,6 @@ pub(crate) struct Status {
 }
 
 /// Why a wait for a pass ended without one.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the status and wait routes are wired in the next step"
-    )
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WaitError {
     /// No task runs passes: none is configured, or the catalog closed.
@@ -200,13 +190,6 @@ pub(crate) enum WaitError {
 }
 
 impl SeedWatch {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the status and wait routes are wired in the next step"
-        )
-    )]
     pub(crate) fn status(&self) -> Status {
         let board = self.state.borrow();
         Status {
@@ -219,13 +202,6 @@ impl SeedWatch {
     /// Starts a pass now, and returns the report of the first pass that started after this call
     /// and completed without leaving a deletion waiting for its later proof. A file removed
     /// before the call is then deleted, or reported, by the time the wait returns.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the status and wait routes are wired in the next step"
-        )
-    )]
     pub(crate) async fn wait(&self, until: tokio::time::Instant) -> Result<PassReport, WaitError> {
         self.wait_until(until, |report| report.counts.pending_deletions == 0)
             .await
@@ -241,27 +217,22 @@ impl SeedWatch {
 
     /// Starts a pass now, and returns the report of the first pass that started after this call
     /// and that `settled` accepts.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the status and wait routes are wired in the next step"
-        )
-    )]
     async fn wait_until(
         &self,
         until: tokio::time::Instant,
         settled: impl Fn(&PassReport) -> bool,
     ) -> Result<PassReport, WaitError> {
-        let mut board = self.state.subscribe();
-        let after = {
-            let current = board.borrow_and_update();
-            if current.interval.is_none() {
-                return Err(WaitError::Disabled);
+        let mut after = None;
+        self.state.send_if_modified(|board| {
+            let running = board.interval.is_some();
+            if running {
+                after = Some(board.started);
+                board.wanted = board.wanted.max(board.started + 1);
             }
-            current.started
-        };
-        self.wake.notify_one();
+            running
+        });
+        let after = after.ok_or(WaitError::Disabled)?;
+        let mut board = self.state.subscribe();
         let passed = board.wait_for(|board| {
             board.interval.is_none()
                 || board
@@ -282,6 +253,16 @@ impl SeedWatch {
     /// Wakes the task, which then sees a closed catalog and ends.
     pub(in crate::storage::catalog) fn wake(&self) {
         self.wake.notify_one();
+    }
+
+    /// Waits until a request needs a pass that has not started yet.
+    async fn wanted(&self) {
+        let mut board = self.state.subscribe();
+        // The sender lives in `self`, so the wait ends only when a request needs a pass.
+        board
+            .wait_for(|board| board.wanted > board.started)
+            .await
+            .ok();
     }
 
     fn begin(&self) -> u64 {
@@ -305,13 +286,6 @@ impl SeedWatch {
 
 impl Catalog {
     /// The board of the passes over the seed directory.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the status and wait routes are wired in the next step"
-        )
-    )]
     pub(crate) fn seed_watch(&self) -> &SeedWatch {
         &self.0.seed_watch
     }
@@ -361,9 +335,11 @@ where
         let watch = Arc::clone(&inner.seed_watch);
         let clock = Arc::clone(&inner.clock);
         drop(inner);
-        // A wake while the last pass ran left a permit, so the next pass starts at once.
+        // A request that began waiting while the last pass ran is served at once. A closing
+        // catalog's wake leaves a permit, so a close during a pass ends the task at once.
         tokio::select! {
             () = clock.sleep(delay) => {}
+            () = watch.wanted() => {}
             () = watch.wake.notified() => {}
         }
         let Some(inner) = open(&weak) else {
@@ -389,3 +365,6 @@ fn open(weak: &Weak<Inner>) -> Option<Arc<Inner>> {
     }
     Some(inner)
 }
+
+#[cfg(test)]
+mod tests;

@@ -281,7 +281,7 @@ async fn a_removed_file_deletes_its_object_after_a_second_proof_and_restores_it_
     assert!(watched.live("bucket", "b").await.is_none());
     watched.write("bucket/b", b"b");
     let report = watched.pass().await;
-    assert_eq!(report.counts.published, 1);
+    assert_eq!(report.counts.published, 1, "{report:?}");
     assert_eq!(watched.body("bucket", "b").await, b"b");
     watched.close().await;
 }
