@@ -21,7 +21,9 @@ use walk::{Fixture, Object, Opened, Seen, Source, Tree, Unlisted, Walked};
 
 mod error;
 mod walk;
+mod watch;
 pub use error::SeedError;
+pub use watch::watch;
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "outcome", rename_all = "lowercase")]

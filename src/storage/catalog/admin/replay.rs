@@ -35,9 +35,10 @@
 //! a reset to the startup state records what it publishes again, and a bucket deletion or purge
 //! drops the records of the bucket's names, so no record claims an object one of them removed.
 //!
-//! No pass runs while the server does yet. Such a pass must treat every record it did not
-//! observe as unknown, not absent, once its walk failed or stopped at a limit, and must decide
-//! again on its next pass where a condition failed.
+//! A pass while the server runs (`seed_watch`) commits what it found in one transaction beside
+//! the requests the server serves. It treats every record it did not observe as unknown, not
+//! absent, once its walk failed or stopped at a limit, and decides again on its next pass where a
+//! condition failed.
 
 use crate::{
     fsutil::{FileIdentity, Vacant},
@@ -51,13 +52,6 @@ pub(crate) enum Phase {
     /// The replay before the listener binds, and a reseed.
     Startup,
     /// A pass while the server runs.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the pass that watches the seed directory while the server runs is not wired yet"
-        )
-    )]
     Live,
 }
 
@@ -163,13 +157,6 @@ impl SeedRecord {
     /// The record kept for [`Reread::Refresh`]: the fingerprint of the read that found the body
     /// the record knows, with the proof of absence cleared, and with any deletion of seeding's
     /// own forgotten, since the refresh happens only where an API write has taken the name since.
-    #[cfg_attr(
-        any(not(test), not(unix)),
-        expect(
-            dead_code,
-            reason = "the pass that watches the seed directory while the server runs is not wired yet, and only Unix tests refresh a record"
-        )
-    )]
     pub(crate) fn refreshed(self, fingerprint: Fingerprint) -> Self {
         Self {
             fingerprint,
@@ -197,7 +184,7 @@ impl SeedRecord {
         not(test),
         expect(
             dead_code,
-            reason = "the pass that watches the seed directory while the server runs is not wired yet"
+            reason = "a pass clears the stored proof in place (`seed_records::found`), so that it never writes back a record a bucket deletion dropped; the decision tests state the rule with this form"
         )
     )]
     pub(crate) fn found(self) -> Self {
@@ -303,13 +290,6 @@ pub(crate) enum Look {
 /// it, until a reseed replays every file again. A file at a name where seeding deleted its own
 /// object is read whatever its fingerprint: it was proven gone, so it came back, possibly
 /// unchanged, as when its directory was renamed away and back.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pass that watches the seed directory while the server runs is not wired yet"
-    )
-)]
 pub(crate) fn live_file(record: Option<&SeedRecord>, observed: &Fingerprint) -> Look {
     match record {
         Some(record)
@@ -338,13 +318,6 @@ pub(crate) enum Reread {
 /// at a name where seeding recorded `record` and the catalog holds `live`. A file back with the
 /// body of an object seeding itself deleted restores that object where nothing is live, and only
 /// refreshes the record where an API write has taken the name since.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pass that watches the seed directory while the server runs is not wired yet"
-    )
-)]
 pub(crate) fn live_read(
     file: &Body,
     record: Option<&SeedRecord>,
@@ -411,7 +384,7 @@ pub(crate) fn absent(
 }
 
 /// How long a pass while the server runs waits between the two proofs of absence a deletion takes.
-const ABSENCE_CONFIRMED_AFTER: Duration = Duration::from_secs(1);
+pub(crate) const ABSENCE_CONFIRMED_AFTER: Duration = Duration::from_secs(1);
 
 /// Whether a pass while the server runs deletes now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -430,13 +403,6 @@ pub(crate) enum Confirmation {
 /// pass in between that found an entry under the name, or could not tell, cleared the first
 /// ([`SeedRecord::found`]), so the next proof starts the wait again. A startup replay deletes on
 /// one proof: the file went missing while the server was stopped.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pass that watches the seed directory while the server runs is not wired yet"
-    )
-)]
 pub(crate) fn confirm_absence(record: &SeedRecord, now: SystemTime) -> Confirmation {
     // A first proof, or one dated after `now` by a clock that moved back, starts the wait.
     let since = record

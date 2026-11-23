@@ -13,13 +13,6 @@
 //! and created again, or until a reseed or a restart replays the tree. Marks therefore outlive
 //! the buckets they name; only a replay that listed the whole tree drops one, for a directory it
 //! no longer found.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "only the pass while the server runs, wired in the next step, clears a proof of absence or reads a bucket's mark"
-    )
-)]
 
 use super::replay::{Body, Fingerprint, SeedRecord, Version};
 use crate::{
@@ -70,6 +63,7 @@ const MARK: &str = "INSERT OR REPLACE INTO seed_buckets SELECT bucket, incarnati
 const UNMARK: &str = "DELETE FROM seed_buckets WHERE bucket = ?1";
 const MARKS: &str = "SELECT bucket FROM seed_buckets";
 const MARK_STATE: &str = "SELECT seed_buckets.incarnation, bucket_incarnations.incarnation FROM seed_buckets LEFT JOIN bucket_incarnations USING (bucket) WHERE seed_buckets.bucket = ?1";
+const MARK_STATES: &str = "SELECT seed_buckets.bucket, seed_buckets.incarnation IS bucket_incarnations.incarnation FROM seed_buckets LEFT JOIN bucket_incarnations USING (bucket)";
 
 /// The bucket and object name a record belongs to.
 pub(crate) type RecordKey = (String, String);
@@ -244,6 +238,19 @@ pub(crate) fn mark_of(connection: &Connection, bucket: &str) -> Result<Mark, Cat
         Some((marked, Some(live))) if marked == live => Mark::Current,
         Some(_) => Mark::Gone,
     })
+}
+
+/// Each marked directory with whether its bucket is still the one seeding took; a directory
+/// missing here is [`Mark::Unmarked`].
+pub(crate) fn mark_states(connection: &Connection) -> Result<HashMap<String, Mark>, CatalogError> {
+    Ok(connection
+        .prepare_cached(MARK_STATES)?
+        .query_map([], |row| {
+            let current: bool = row.get(1)?;
+            let mark = if current { Mark::Current } else { Mark::Gone };
+            Ok((row.get(0)?, mark))
+        })?
+        .collect::<rusqlite::Result<_>>()?)
 }
 
 #[cfg(test)]

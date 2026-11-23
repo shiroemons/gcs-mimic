@@ -44,6 +44,7 @@ pub(crate) mod replay;
 mod reset;
 pub(super) use reset::validate_reset_epoch;
 pub(crate) mod seed_records;
+pub(crate) mod seed_watch;
 
 #[cfg(test)]
 mod tests;
@@ -210,7 +211,7 @@ pub(super) use publication::FileWorkers;
 pub(in crate::storage) use publication::NestedFileJob;
 pub(super) use publication::apply_acl;
 pub(crate) use publication::{BatchPublication, ImportedPublication};
-pub(crate) use publication::{Removed, SeedBatch, SeedMode};
+pub(crate) use publication::{LiveOutcome, LiveWalk, Removed, SeedBatch, SeedMode};
 
 pub struct Publication {
     pub content_type: String,

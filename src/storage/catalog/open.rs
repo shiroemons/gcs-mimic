@@ -451,6 +451,7 @@ impl Catalog {
                 session_limits: OnceLock::new(),
                 derived_wake: Notify::new(),
                 maintenance_wake: Arc::new(Notify::new()),
+                seed_watch: Arc::default(),
                 lifecycle,
                 multipart_orphan_scan: AtomicBool::new(false),
                 maintenance_error: Mutex::new(None),

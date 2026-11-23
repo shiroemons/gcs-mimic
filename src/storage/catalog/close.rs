@@ -30,6 +30,7 @@ impl Catalog {
         self.0.admin_shutdown.notify_waiters();
         self.0.notification_wake.notify_one();
         self.0.maintenance_wake.notify_one();
+        self.0.seed_watch.wake();
         let _notification_attempt = drain(&self.0.notification_attempts, 1).await?;
         let _publication_requests =
             drain(&self.0.publication_requests, PUBLICATION_REQUESTS).await?;

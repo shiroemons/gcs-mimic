@@ -10,12 +10,15 @@ use crate::{
                 self, Attributes, Body, Fingerprint, LiveObject, Phase, Protection, Replay,
                 SeedRecord, Vanished, Version,
             },
-            seed_records::{self, RecordKey},
+            seed_records::{self, Mark, RecordKey},
         },
         sql,
     },
 };
 use std::{collections::HashMap, num::NonZeroUsize};
+
+mod live;
+pub(crate) use live::{LiveOutcome, LiveWalk};
 
 #[derive(Clone, Copy)]
 pub(crate) enum SeedMode {
@@ -86,6 +89,8 @@ pub(crate) struct SeedBatch {
     /// fixture tree does; `None` for one that does not, which keeps the records and marks as
     /// they are.
     records: Option<HashMap<RecordKey, SeedRecord>>,
+    /// The directories whose buckets seeding took, as the batch read them with the records.
+    marks: HashMap<String, Mark>,
     /// The recorded names whose fixture files a lookup proved absent.
     absences: Vec<(RecordKey, Vacant)>,
 }
@@ -152,6 +157,7 @@ impl Admin {
             metadata_budget: metadata_budget(max_entries),
             request_deadline,
             records: None,
+            marks: HashMap::new(),
             absences: Vec::new(),
         })
     }
@@ -209,16 +215,22 @@ impl SeedBatch {
             .await
     }
 
-    /// Reads what seeding recorded, for a batch that walks the fixture tree, and returns the
-    /// recorded names, which the walk looks up where it does not list them.
+    /// Reads what seeding recorded and the buckets it took, for a batch that walks the fixture
+    /// tree, and returns the recorded names, which the walk looks up where it does not list them.
     pub(crate) async fn read_records(&mut self) -> Result<Vec<RecordKey>, AdminError> {
-        let records = self
+        let (records, marks) = self
             .admin
             .catalog
-            .run::<_, CatalogError>(|connection| seed_records::all(connection))
+            .run::<_, CatalogError>(|connection| {
+                Ok((
+                    seed_records::all(connection)?,
+                    seed_records::mark_states(connection)?,
+                ))
+            })
             .await?;
         let keys = records.keys().cloned().collect();
         self.records = Some(records);
+        self.marks = marks;
         Ok(keys)
     }
 
@@ -227,6 +239,12 @@ impl SeedBatch {
         self.records
             .as_ref()?
             .get(&(bucket.to_owned(), name.to_owned()))
+    }
+
+    /// Whether seeding took the bucket of the directory `bucket`, as the batch read it with the
+    /// records.
+    pub(crate) fn mark(&self, bucket: &str) -> Mark {
+        self.marks.get(bucket).copied().unwrap_or(Mark::Unmarked)
     }
 
     /// Takes `proof` that the fixture file of `bucket`/`name` is gone, and returns whether the
@@ -305,12 +323,7 @@ impl SeedBatch {
         initialization: Option<Initialization>,
     ) -> Result<Counts, AdminError> {
         let catalog = self.admin.catalog.clone();
-        self.entries.reverse();
-        while let Some(entry) = self.entries.pop() {
-            self.prepared
-                .push(prepare_entry(catalog.clone(), entry).await?);
-        }
-        std::mem::swap(&mut self.entries, &mut self.prepared);
+        self.prepare_entries().await?;
         let deadline = wait_deadline(&catalog, self.request_deadline);
         // Taken while the lease still keeps a reset out, so the two together leave it no gap.
         let committing = catalog
@@ -337,12 +350,34 @@ impl SeedBatch {
             })
             .await
             .map_err(AdminError::backend)?;
-        // Reference-aware cleanup also handles a commit whose caller was cancelled or whose result was ambiguous.
-        let entries: Vec<_> = std::mem::take(&mut batch.entries)
+        batch.clean_up_staged().await?;
+        // Any element may have replaced a version in a bucket that retains deletions.
+        catalog.0.maintenance_wake.notify_one();
+        catalog.reclaim_after_commit().await;
+        outcome
+    }
+
+    /// Publishes the staged body of each entry, in staging order, before the commit that may
+    /// reference it.
+    async fn prepare_entries(&mut self) -> Result<(), AdminError> {
+        let catalog = self.admin.catalog.clone();
+        self.entries.reverse();
+        while let Some(entry) = self.entries.pop() {
+            self.prepared
+                .push(prepare_entry(catalog.clone(), entry).await?);
+        }
+        std::mem::swap(&mut self.entries, &mut self.prepared);
+        Ok(())
+    }
+
+    /// Removes each staged body the commit left unreferenced. Reference-aware cleanup also
+    /// handles a commit whose caller was cancelled or whose result was ambiguous.
+    async fn clean_up_staged(&mut self) -> Result<(), AdminError> {
+        let entries: Vec<_> = std::mem::take(&mut self.entries)
             .into_iter()
             .map(BatchPublication::from)
             .collect();
-        let ownership = batch.request.clone();
+        let ownership = self.request.clone();
         let cleanup = crate::task::spawn_supervised("seed-batch-cleanup", async move {
             let _ownership = ownership;
             cleanup_entries(entries).await
@@ -354,10 +389,7 @@ impl SeedBatch {
                 serde_json::json!({"message":error.to_string()}),
             );
         }
-        // Any element may have replaced a version in a bucket that retains deletions.
-        catalog.0.maintenance_wake.notify_one();
-        catalog.reclaim_after_commit().await;
-        outcome
+        Ok(())
     }
 }
 
@@ -764,13 +796,23 @@ fn mark_buckets(
         .iter()
         .map(|definition| definition.0.name.as_str())
         .collect();
-    for marked in seed_records::marks(transaction)? {
-        if !walked.contains(marked.as_str()) {
-            seed_records::unmark(transaction, &marked)?;
-        }
-    }
+    forget_marks(transaction, |bucket| walked.contains(bucket))?;
     for bucket in walked {
         seed_records::mark(transaction, bucket)?;
+    }
+    Ok(())
+}
+
+/// Forgets the mark of each directory a replay that listed the whole tree did not find there:
+/// one whose bucket name `listed` does not accept.
+fn forget_marks(
+    transaction: &rusqlite::Transaction<'_>,
+    listed: impl Fn(&str) -> bool,
+) -> Result<(), AdminError> {
+    for marked in seed_records::marks(transaction)? {
+        if !listed(&marked) {
+            seed_records::unmark(transaction, &marked)?;
+        }
     }
     Ok(())
 }

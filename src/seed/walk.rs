@@ -181,13 +181,6 @@ pub(super) struct Opened {
     /// handle reads even where another replaced the one the walk inspected. It decides only
     /// whether a pass reads the file again; a record keeps the fingerprint of the read that
     /// staged its bytes, since the file may change between the two.
-    #[cfg_attr(
-        any(not(test), not(unix)),
-        expect(
-            dead_code,
-            reason = "the pass while the server runs that decides from it whether to read a file again is not wired yet, and only the Unix walk tests read it"
-        )
-    )]
     pub(super) fingerprint: Fingerprint,
 }
 
