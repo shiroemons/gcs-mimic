@@ -591,12 +591,25 @@ pub(crate) fn object_unavailable(cause: impl StorageCause) -> ObjectError {
 
 /// Adds recovery context while preserving the failure's classification and original source.
 pub(crate) fn object_context(context: impl fmt::Display, cause: impl StorageCause) -> ObjectError {
+    with_context(context, cause).into()
+}
+
+/// Adds context to a catalog failure while preserving its classification and original source.
+pub(crate) fn catalog_context(
+    context: impl fmt::Display,
+    cause: impl StorageCause,
+) -> CatalogError {
+    with_context(context, cause).into()
+}
+
+/// Classifies `cause` and puts `context` before its message, keeping the cause as the source.
+fn with_context(context: impl fmt::Display, cause: impl StorageCause) -> Classified {
     match cause.classify() {
-        Classified::Corrupt(cause) => ObjectError::Corrupt(BackendCause::with_source(
+        Classified::Corrupt(cause) => Classified::Corrupt(BackendCause::with_source(
             format!("{context}: {cause}"),
             cause,
         )),
-        Classified::Unavailable(cause) => ObjectError::Unavailable(BackendCause::with_source(
+        Classified::Unavailable(cause) => Classified::Unavailable(BackendCause::with_source(
             format!("{context}: {cause}"),
             cause,
         )),
@@ -607,7 +620,7 @@ pub(crate) fn object_context(context: impl fmt::Display, cause: impl StorageCaus
                     .source()
                     .map_or_else(|| cause.kind().to_string(), ToString::to_string)
             );
-            ObjectError::Io(IoCause {
+            Classified::Io(IoCause {
                 kind: cause.kind(),
                 source: Some(Arc::new(Source::Context(BackendCause {
                     message: message.into(),

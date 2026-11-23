@@ -48,6 +48,32 @@ fn contextual_recovery_failures_keep_classification_and_sources() {
     );
 }
 
+#[test]
+fn contextual_catalog_failures_keep_classification_and_sources() {
+    let error = catalog_context(
+        "retired synchronization manifest",
+        io::Error::from(io::ErrorKind::StorageFull),
+    );
+    assert!(
+        matches!(error, CatalogError::Io(ref cause) if cause.kind() == io::ErrorKind::StorageFull)
+    );
+    assert!(crate::error::causes(&error).any(|error| error.downcast_ref::<io::Error>().is_some()));
+    assert!(
+        error
+            .to_string()
+            .contains("retired synchronization manifest")
+    );
+    let corrupt = unavailable(sqlite_failure(rusqlite::ffi::SQLITE_CORRUPT));
+    let error = catalog_context("reset epoch", corrupt);
+    assert!(matches!(error, CatalogError::Corrupt(_)));
+    assert!(
+        crate::error::causes(&error).any(|error| error.downcast_ref::<rusqlite::Error>().is_some())
+    );
+    let busy = catalog_context("manifest rows", sqlite_failure(rusqlite::ffi::SQLITE_BUSY));
+    assert!(matches!(busy, CatalogError::Unavailable(_)));
+    assert!(busy.to_string().contains("manifest rows"));
+}
+
 /// SQLite reports a memory catalog's page budget and a full disk alike, so only a job on a
 /// memory catalog's connection marks the failure with that budget, and only while it runs.
 #[test]
