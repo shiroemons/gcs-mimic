@@ -278,6 +278,16 @@ Older catalogs migrate automatically, one way and in order, to the current schem
 the log names the versions. A binary supporting only schema 57 cannot open a directory
 migrated to 58. Versions 0.26.0 and 0.27.0 used schema 57, 0.25.0 schema 54, 0.8.0 schema 48 and 0.7.0 schema 35. Back up the stopped
 data directory before upgrading, and restore it with its matching executable to roll back.
+Schema 58 removes the records of the directory synchronization that releases up to 0.27.0
+had. When they name files that may hold edits, the upgrade first lists them in
+`sync-retired.json` in the data directory (`sync-retired.1.json` and on when one with other
+content exists): the copies in `sync-conflicts/`, the entries that may remain in
+`.gcs-mimic-sync-work/` of each formerly synchronized folder, and the folders, with paths as
+the old process saw them. Nothing is deleted. The upgrade warns once with
+`sync_retired_files_listed`, and each start warns with `sync_retired_files` while a manifest
+remains or `sync-conflicts/` holds entries; delete a manifest after checking it to
+acknowledge it. `--log-level error` hides these warnings; see
+[files left by directory synchronization](container-usage.md#files-left-by-directory-synchronization).
 Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs are rejected
 without changing their data; automatic recovery of deleted v2 generations is unavailable.
 Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid storage entries stop
