@@ -338,6 +338,10 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
         report.diagnostics.warnings.extend(warnings);
     }
+    // Before the catalog opens, so that a refused start changes nothing.
+    if let Err(diagnostic) = gcs_mimic::seed::refuse_retired_sync(&report.config) {
+        report.diagnostics.errors.push(diagnostic);
+    }
     // The fake-gcs-server profile keeps project-owner objects, as fake-gcs-server does.
     if report.config.compat_profile == gcs_mimic::config::CompatProfile::Native
         && let Some(email) = report.config.local_creator_email.as_deref()

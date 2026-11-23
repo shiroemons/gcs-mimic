@@ -62,6 +62,7 @@ Test identifiers below are the exact integration test function names in
 | seed-top-level-file | A regular file directly under the seed root is skipped with a `seed_skipped` warning and startup reaches readiness | `top_level_files_are_skipped_with_a_warning` | PASS |
 | seed-retry | A failed replay emits no ready event, publishes no partial bucket/object and releases ownership; a repaired tree succeeds and project mismatch remains rejected | `interrupted_import_retries_without_overwrite_and_releases_lock` | See [atomic replay](atomic-seed-reseed.md) |
 | seed-invalid | Reject invalid bucket/object names, missing/overlapping configured roots and oversize files; accept zero bytes and the inclusive file-size cap | `invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive` | PASS |
+| seed-retired-sync | A seed root that holds synchronization's marker or workspace stops startup before the catalog opens, names them and leaves them unchanged; once they are removed, the root seeds | `a_seed_directory_that_synchronization_used_stops_startup_until_its_files_are_removed` | PASS |
 | seed-walk | Accept a tree at a named limit; reject a deeper tree or more entries with a message that names the setting | `named_fixture_limits_are_inclusive_and_name_their_settings` | PASS |
 | seed-links | Reject a symlink root, symlink entry and Unix socket without readiness | `symlinks_and_special_files_fail_closed` | PASS on macOS ARM64; Unix-only test |
 | seed-utf8 | Reject non-UTF-8 filesystem names on a filesystem that permits their creation | `non_utf8_fixture_names_fail_closed` | PASS on Linux ARM64 before replay (test unchanged); macOS rejects fixture creation |
@@ -116,6 +117,12 @@ Otherwise it is ignored silently and the ready event reports `disabled`. If the
 path cannot be inspected, startup reports a warning diagnostic with key
 `default_seed_dir` and does not seed from it. A configured `seed_dir` is never
 ignored: a missing or overlapping explicit root fails startup.
+
+A seed root, configured or adopted, that still holds `.gcs-mimic-sync.json` or
+`.gcs-mimic-sync-work`, which directory synchronization kept in every folder it
+synchronized, stops `serve` before the catalog opens with key `seed_dir`. The
+workspace may hold the only copy of a file a write-back displaced, so gcs-mimic
+leaves both as they are: inspect them, delete them yourself and restart.
 
 ### Directory mapping
 

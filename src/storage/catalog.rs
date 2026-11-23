@@ -101,6 +101,7 @@ mod notifications;
 mod policies;
 mod retired_sync;
 use policies::{check_access, insert_policy};
+pub(crate) use retired_sync::left_in_folder as retired_sync_left_in_folder;
 
 pub(crate) mod change_journal;
 

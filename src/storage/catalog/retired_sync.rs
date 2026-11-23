@@ -25,6 +25,7 @@ mod preserved;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use preserved::left_in_folder;
 pub(super) use preserved::warn_retired_files;
 
 /// Schema 17: the catalog's identity and the files synchronization tracked. The identity is not

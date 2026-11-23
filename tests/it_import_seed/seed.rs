@@ -1202,6 +1202,38 @@ fn a_running_server_replays_the_seed_directory_after_each_interval() {
     server.stop();
 }
 
+/// A folder that directory synchronization used may still hold its marker or its private
+/// workspace, which can keep the only copy of a file a write-back displaced. Startup stops before
+/// the catalog opens, names what is left, and leaves every file as it was; once the operator
+/// removed them, the folder seeds like any other.
+#[test]
+fn a_seed_directory_that_synchronization_used_stops_startup_until_its_files_are_removed() {
+    let dir = TestDir::new();
+    for (case, left) in [
+        ("marker", ".gcs-mimic-sync.json"),
+        ("workspace", ".gcs-mimic-sync-work/displaced"),
+    ] {
+        let seed = dir.0.join(case);
+        fixture(&seed, "local-bucket/file", b"fixture");
+        fixture(&seed, left, b"left");
+        let data = dir.0.join(format!("{case}-data"));
+        let error = startup_failure(&mut command(&data, Some(&seed)));
+        let name = left.split('/').next().unwrap();
+        assert!(error.contains(&format!("still holds {name}, ")), "{error}");
+        assert!(error.contains("Delete them yourself"), "{error}");
+        assert!(!data.exists(), "{error}");
+        assert_eq!(fs::read(seed.join(left)).unwrap(), b"left");
+        fs::remove_dir_all(seed.join(".gcs-mimic-sync-work")).ok();
+        fs::remove_file(seed.join(".gcs-mimic-sync.json")).ok();
+        let server = Server::start(&mut command(&data, Some(&seed)), false);
+        assert_eq!(
+            server.media("/storage/v1/b/local-bucket/o/file"),
+            (200, b"fixture".to_vec())
+        );
+        server.stop();
+    }
+}
+
 #[test]
 fn explicit_project_and_empty_seed_directory_are_supported() {
     let dir = TestDir::new();

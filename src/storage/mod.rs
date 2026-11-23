@@ -30,6 +30,7 @@ pub(crate) use catalog::SessionId;
 pub(crate) use catalog::SourceDisposal;
 pub(crate) use catalog::UploadAclSnapshot;
 pub(crate) use catalog::acl::{AclChange, AclError, AclProjection, AclState, ObjectAcl};
+pub(crate) use catalog::retired_sync_left_in_folder;
 pub(crate) use catalog::{AppendError, AppendWriter, Finality, ReadableMetadata};
 pub use catalog::{Catalog, DataDirState};
 pub(crate) use catalog::{
