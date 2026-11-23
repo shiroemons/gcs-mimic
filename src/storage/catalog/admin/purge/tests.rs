@@ -48,6 +48,10 @@ const TARGET_ROWS: &[(&str, &str)] = &[
         "SELECT count(*) FROM bucket_policies WHERE bucket = ?1",
     ),
     (
+        "seed_objects",
+        "SELECT count(*) FROM seed_objects WHERE bucket = ?1",
+    ),
+    (
         "bucket_incarnations",
         "SELECT count(*) FROM bucket_incarnations WHERE bucket = ?1",
     ),
@@ -386,6 +390,7 @@ async fn records(catalog: &Catalog) {
         "INSERT INTO acl_bucket_entries VALUES (?1, 'bucket', '[]')",
         "INSERT INTO bucket_file_entries VALUES (?1, zeroblob(32), 0)",
         "INSERT INTO upload_replays SELECT randomblob(32), randomblob(32), incarnation, 0, 600000000, randomblob(32), '{}' FROM bucket_incarnations WHERE bucket = ?1",
+        "INSERT INTO seed_objects VALUES (?1, 'announced', NULL, NULL, NULL, NULL, 9, zeroblob(16), 0, zeroblob(8), zeroblob(8), zeroblob(8), zeroblob(16), zeroblob(16), 0, NULL)",
     ] {
         exec(catalog, statement).await;
     }
@@ -449,7 +454,7 @@ async fn purge_classifies_every_catalog_table() {
         })
         .await
         .unwrap();
-    let classes = [DELETED, CASCADED, INSTANCE_WIDE];
+    let classes = [DELETED, CASCADED, INCARNATION_BOUND, INSTANCE_WIDE];
     for table in &tables {
         let classified = classes
             .iter()

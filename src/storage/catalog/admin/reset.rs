@@ -196,8 +196,9 @@ pub(super) fn clear_in_transaction(
     })
 }
 
-// High-water allocators, the reset epoch, catalog identity and the blob deletion journal survive
-// reset.
+// High-water allocators, the reset epoch, catalog identity, the blob deletion journal and the
+// seed bucket marks survive reset. The seed records go: none may claim an object the reset
+// removed.
 const CLEAR: &[&str] = &[
     "DELETE FROM notification_outbox",
     "DELETE FROM xml_multipart_parts",
@@ -213,6 +214,7 @@ const CLEAR: &[&str] = &[
     "DELETE FROM import_observations",
     "DELETE FROM import_journal",
     "DELETE FROM hmac_keys",
+    "DELETE FROM seed_objects",
     "DELETE FROM objects",
     "DELETE FROM soft_deleted_buckets",
     "DELETE FROM bucket_policies",
@@ -230,6 +232,9 @@ const RETAINED: &[&str] = &[
     "notification_outbox_state",
     "pending_blob_deletions",
     "reset_epoch",
+    // The marks keep a reset instance empty while the server runs: a pass creates a bucket only
+    // for a directory seeding never took.
+    "seed_buckets",
     "startup_seed",
 ];
 #[cfg(test)]

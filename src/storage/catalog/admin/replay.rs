@@ -87,9 +87,38 @@ impl Fingerprint {
         }
     }
 
+    /// A fingerprint as a record stored it, with the raciness it had when it was taken.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the replays that read the record table are wired in the next step"
+        )
+    )]
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "forwards the stored raciness, without selecting an operation mode"
+    )]
+    pub(crate) fn stored(identity: FileIdentity, racy: bool) -> Self {
+        Self { identity, racy }
+    }
+
     /// What the stat reported.
     pub(crate) fn identity(&self) -> FileIdentity {
         self.identity
+    }
+
+    /// Whether a change made just after the stat could have left every field it reported as it
+    /// was.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the replays that write the record table are wired in the next step"
+        )
+    )]
+    pub(crate) fn racy(&self) -> bool {
+        self.racy
     }
 }
 

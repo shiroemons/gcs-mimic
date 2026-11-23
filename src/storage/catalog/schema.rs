@@ -330,6 +330,11 @@ pub(super) const STEPS: &[Step] = &[
         Some(admin::validate_reset_epoch),
         retired_sync::retire,
     ),
+    Step::statements(
+        admin::seed_records::SCHEMA_VERSION,
+        admin::seed_records::SCHEMA,
+        None,
+    ),
 ];
 
 #[expect(

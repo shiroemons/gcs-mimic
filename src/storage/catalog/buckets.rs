@@ -173,14 +173,16 @@ pub(super) fn remove_objects(connection: &Connection, key: &str) -> Result<u64, 
 }
 
 /// Removes a live bucket with the objects its name still holds, inside a deletion or purge
-/// transaction the caller commits: drops its policy, incarnation and row. ACL, notification and
-/// initialization rows cascade. Returns how many objects it removed.
+/// transaction the caller commits: drops its policy, incarnation, seed records and row, so no
+/// seed record claims an object the removal deleted. ACL, notification and initialization rows
+/// cascade. Returns how many objects it removed.
 pub(super) fn remove_live_bucket(
     transaction: &Connection,
     name: &str,
 ) -> Result<u64, CatalogError> {
     let removed = remove_objects(transaction, name)?;
     for query in [
+        "DELETE FROM seed_objects WHERE bucket = ?1",
         "DELETE FROM bucket_policies WHERE bucket = ?1",
         "DELETE FROM bucket_incarnations WHERE bucket = ?1",
         "DELETE FROM buckets WHERE name = ?1",

@@ -111,10 +111,14 @@ const RETIRED_SYNC_SCHEMAS: [&str; 9] = [
     include_str!("retired_sync/deletion_history.sql"),
 ];
 
-/// Restores schema 57 from 58: creates the change journal and the synchronization tables again,
-/// empty, from the statements releases ran, and moves the reset epoch back into the journal's
-/// state row. Leaves a catalog from before schema 58, which has no `reset_epoch`, as it is.
+/// Restores schema 57 from 58 or 59: drops the seed records and bucket marks, creates the change
+/// journal and the synchronization tables again, empty, from the statements releases ran, and
+/// moves the reset epoch back into the journal's state row. Leaves a catalog from before schema
+/// 58, which has no `reset_epoch`, as it is.
 pub(crate) fn downgrade_retired_sync_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("DROP TABLE IF EXISTS seed_objects; DROP TABLE IF EXISTS seed_buckets;")
+        .unwrap();
     let retired: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = 'reset_epoch')",

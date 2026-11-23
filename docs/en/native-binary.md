@@ -274,9 +274,9 @@ or seed commit wait and then run against the state it left. A client that stays 
 without sending its upload body holds up a reset for up to `catalog_wait_timeout_ms`, and new
 uploads wait behind the reset meanwhile. The reset then answers 503 and changes nothing.
 
-Older catalogs migrate automatically, one way and in order, to the current schema 58;
+Older catalogs migrate automatically, one way and in order, to the current schema 59;
 the log names the versions. A binary supporting only schema 57 cannot open a directory
-migrated to 58. Versions 0.26.0 and 0.27.0 used schema 57, 0.25.0 schema 54, 0.8.0 schema 48 and 0.7.0 schema 35. Back up the stopped
+migrated to 58 or 59. Versions 0.26.0 and 0.27.0 used schema 57, 0.25.0 schema 54, 0.8.0 schema 48 and 0.7.0 schema 35. Back up the stopped
 data directory before upgrading, and restore it with its matching executable to roll back.
 Schema 58 removes the records of the directory synchronization that releases up to 0.27.0
 had. When they name files that may hold edits, the upgrade first lists them in
