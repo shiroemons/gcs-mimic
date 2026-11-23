@@ -45,10 +45,11 @@ pub(crate) enum Phase {
 }
 
 /// What a stat of a fixture file reported, and whether a change made just after the stat could
-/// leave every field it reported as it was.
+/// leave every field it reported as it was. Both are fixed when the stat is taken, so the two
+/// cannot disagree.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Fingerprint {
-    pub(crate) identity: FileIdentity,
+    identity: FileIdentity,
     racy: bool,
 }
 
@@ -63,6 +64,11 @@ impl Fingerprint {
             identity,
             racy: !identity.settled_at(crate::clock::signed_nanos(observed)),
         }
+    }
+
+    /// What the stat reported.
+    pub(crate) fn identity(&self) -> FileIdentity {
+        self.identity
     }
 }
 

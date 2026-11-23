@@ -245,7 +245,7 @@ impl SeedBatch {
             .admin
             .stage_observed_file(
                 source,
-                fingerprint.identity,
+                fingerprint.identity(),
                 request.expected,
                 request.max_bytes,
             )
