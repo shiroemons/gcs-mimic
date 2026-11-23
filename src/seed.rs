@@ -167,6 +167,25 @@ fn source_failure(error: crate::storage::admin::AdminError) -> SeedError {
     }
 }
 
+/// Pins the fixture root `root`, which `inspected` described as a directory. A root replaced
+/// since then fails as [`SeedError::TreeChanged`], as a directory replaced during the walk does.
+#[cfg(unix)]
+async fn pin_root(
+    batch: &SeedBatch,
+    root: &Path,
+    inspected: &std::fs::Metadata,
+) -> Result<Arc<std::fs::File>, SeedError> {
+    let (pinned, node) = batch
+        .open_root(root.to_owned())
+        .await
+        .map_err(source_failure)?;
+    if node == crate::fsutil::NodeId::from(inspected) {
+        Ok(pinned)
+    } else {
+        Err(SeedError::TreeChanged)
+    }
+}
+
 /// Applies a startup replay's decision at the entry `label`, which the walk could not read or
 /// seeding cannot use for `reason`.
 fn unread(label: &str, reason: impl Into<SeedError>) -> Result<(), SeedError> {
@@ -236,10 +255,7 @@ async fn stage_directory(
         .seed_batch_until(request_deadline, config.max_seed_entries)
         .await?;
     #[cfg(unix)]
-    let source_root = batch
-        .open_root(root.to_owned(), inspected)
-        .await
-        .map_err(source_failure)?;
+    let source_root = pin_root(&batch, root, &inspected).await?;
     let root = tokio::fs::canonicalize(root).await?;
     if config.backend == crate::config::Backend::Disk {
         let data = tokio::fs::canonicalize(&config.data_dir).await?;
