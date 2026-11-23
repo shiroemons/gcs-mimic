@@ -246,7 +246,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | 追加のHTTP待受 | `GCS_MIMIC_LISTEN_HTTP` | both専用。既定はprimaryのIPと8000番 |
 | API応答に載せる接続先 | 指定なし。固定するなら`GCS_MIMIC_API_BASE_URL` | リンクは各リクエストのHostと接続のスキームに従う。この設定はAPIのoriginを1つに固定し、公開URLの生成とは別。Hostを書き換えるプロキシでは必要 |
 | 公開origin | `GCS_MIMIC_PUBLIC_BASE_URL` | DNS名のXML仮想ホストと、任意指定のlegacy Host照合に使用 |
-| 初期ファイル | `GCS_MIMIC_SEED_DIR`、`GCS_MIMIC_DEFAULT_SEED_DIR`（イメージでは`/data`）、`GCS_MIMIC_SEED_WATCH_INTERVAL_MS` | 起動のたびに反映し、稼働中も`GCS_MIMIC_SEED_WATCH_INTERVAL_MS`（既定は1000。0で止まる）ごとに反映する。APIでのメタデータ変更を含め、違いがあれば新しい世代にし、完全に同じオブジェクトだけ世代を残す。reseedのルートはない |
+| 初期ファイル | `GCS_MIMIC_SEED_DIR`、`GCS_MIMIC_DEFAULT_SEED_DIR`（イメージでは`/data`）、`GCS_MIMIC_SEED_WATCH_INTERVAL_MS` | 起動のたびに反映し、稼働中も`GCS_MIMIC_SEED_WATCH_INTERVAL_MS`（既定は1000。0で止まる）ごとに反映する。APIでのメタデータ変更を含め、違いがあれば新しい世代にし、完全に同じオブジェクトだけ世代を残す。0.8.0以降は、管理APIを有効にすると使えるPOST/PUTの`/_internal/reseed`で、ディスクは統合、RAMは置き換えで再反映できる |
 | 初期ファイルのContent-Type | `GCS_MIMIC_SEED_CONTENT_TYPE` | 既定は拡張子から決める`extension`。`octet-stream`で以前の既定値に戻す |
 | 初期バケットのproject | `GCS_MIMIC_SEED_PROJECT` | 所有projectを指定 |
 | 起動時に作るバケット | `GCS_MIMIC_BUCKETS`（JSON文書をそのまま書く。Composeの`environment:`向け）または`GCS_MIMIC_BUCKETS_FILE`（パス）、`GCS_MIMIC_BUCKETS_MODE` | 移行元は初期ファイルのディレクトリからだけバケットを作る。文書は各バケットと設定を書き、初期ファイルの前に全体を検証する。両方の設定を書くと起動に失敗する。`GCS_MIMIC_BUCKETS_MODE`の既定はどちらの形でも`reconcile`で、`compose.yaml`やファイルでの変更は次の起動で既存のバケットにも反映される。`create`にすると既存のバケットはそのまま残る。Composeは値の中の`${VAR}`を展開するので、`$`そのものは`$$`と書く。[バケット初期化（英語）](../en/slices/bucket-initialization.md)を参照 |
