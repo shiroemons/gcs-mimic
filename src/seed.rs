@@ -413,22 +413,23 @@ impl Seed<'_> {
     }
 
     /// Takes what a lookup found at a recorded name the walk did not list. Only a proof of
-    /// absence changes anything; a file that appeared after its directory was listed, or a name
-    /// the lookup could not tell, keeps its record and its object.
+    /// absence deletes; a file that appeared after its directory was listed keeps its record and
+    /// its object, and so does a name the lookup could not tell about, which the commit warns
+    /// about while seeding owns its object.
     fn unlisted(&mut self, unlisted: Unlisted) {
         let Unlisted {
             bucket,
             name,
             source,
         } = unlisted;
-        let label = format!("{bucket}/{name}");
         match source {
             Source::Absent(proof) => {
                 self.batch.absent(&bucket, &name, proof);
             }
             Source::File(_) => {}
             Source::Unknown(unknown) => {
-                skipped(&label, &SeedError::from(unknown).to_string());
+                self.batch
+                    .unproven(&bucket, &name, &SeedError::from(unknown));
             }
         }
     }

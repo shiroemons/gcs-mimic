@@ -26,7 +26,7 @@
 //!
 //! Each kind of observation has a function of its own, so that a caller receives only outcomes
 //! it can meet: [`startup_file`]; [`live_file`], then [`live_read`] once the file was hashed;
-//! [`absent`], then [`confirm_absence`] while the server runs; and [`unread`].
+//! [`absent`], then [`confirm_absence`] while the server runs; [`unproven`]; and [`unread`].
 //!
 //! A replay keeps a [`SeedRecord`] per replayed name (`seed_records`) in the transaction that
 //! publishes it, with the version that publication assigned. Its walk looks up the recorded names
@@ -366,11 +366,7 @@ pub(crate) fn absent(
     record: &SeedRecord,
     live: Option<&LiveObject>,
 ) -> Vanished {
-    let owned = record
-        .owned
-        .zip(live)
-        .filter(|(owned, live)| live.version == *owned && live.body == record.body);
-    let Some((owned, live)) = owned else {
+    let Some((owned, live)) = purely_owned(record, live) else {
         return match phase {
             Phase::Startup => Vanished::Forget,
             Phase::Live => Vanished::Tombstone,
@@ -379,6 +375,45 @@ pub(crate) fn absent(
     match live.protection {
         Protection::Unprotected => Vanished::Delete { owned },
         Protection::Protected => Vanished::Protected,
+    }
+}
+
+/// The version seeding owns at a name where it recorded `record`, with `live`, where that version
+/// is the live object and still holds the body the record read.
+fn purely_owned<'a>(
+    record: &SeedRecord,
+    live: Option<&'a LiveObject>,
+) -> Option<(Version, &'a LiveObject)> {
+    record
+        .owned
+        .zip(live)
+        .filter(|(owned, live)| live.version == *owned && live.body == record.body)
+}
+
+/// What a replay does at a recorded name the walk did not list, where the lookup after the walk
+/// could not tell whether the fixture file is there: every such lookup on a platform where
+/// nothing proves a name absent, and a Unix lookup that cannot search a directory above the name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Unproven {
+    /// Seeding purely owns the live object: change nothing, and report the name. Only a proof of
+    /// absence deletes the object, so the report lasts until the file is back, the object is
+    /// deleted or written through the API, or a reset drops the record.
+    Report,
+    /// Seeding owns nothing purely at the name, as after an API write replaced, edited or deleted
+    /// what it published: keep the record as a tombstone ([`SeedRecord::tombstone`]) and report
+    /// nothing. A proof of absence would change nothing there either, and a file found again with
+    /// the body the record knows only refreshes the record, so the name needs no attention.
+    Tombstone,
+}
+
+/// What a replay of either phase does at a recorded name where seeding recorded `record` and the
+/// catalog holds `live`, once the lookup after the walk could not tell whether the fixture file
+/// is there. Dropping ownership needs no proof: the version seeding owned is no longer live, and
+/// a later version never becomes it.
+pub(crate) fn unproven(record: &SeedRecord, live: Option<&LiveObject>) -> Unproven {
+    match purely_owned(record, live) {
+        Some(_) => Unproven::Report,
+        None => Unproven::Tombstone,
     }
 }
 

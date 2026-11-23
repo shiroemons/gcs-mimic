@@ -371,6 +371,43 @@ fn an_absent_file_deletes_only_the_unchanged_version_seeding_owns() {
     }
 }
 
+/// A recorded name the lookup could not tell about keeps reporting only while seeding purely
+/// owns the live object, protected or not. Once an API write replaced or edited it, or nothing is
+/// live, or seeding owns nothing, the record becomes a tombstone without a proof, as a proof would
+/// leave it.
+#[test]
+fn an_unproven_name_is_reported_only_while_seeding_purely_owns_the_live_object() {
+    let owner = record(Some(SEEDED));
+    for protection in [Protection::Unprotected, Protection::Protected] {
+        assert_eq!(
+            unproven(&owner, Some(&live(SEEDED, recorded(), protection))),
+            Unproven::Report
+        );
+    }
+    let edited_metadata = LiveObject {
+        attributes: Attributes::Edited,
+        ..live(METADATA_EDITED, recorded(), Protection::Unprotected)
+    };
+    let not_owned = [
+        (owner, Some(live(API, recorded(), Protection::Unprotected))),
+        (owner, Some(edited_metadata)),
+        (owner, Some(live(SEEDED, edited(), Protection::Unprotected))),
+        (owner, None),
+        (
+            record(None),
+            Some(live(SEEDED, recorded(), Protection::Unprotected)),
+        ),
+        (owner.after_deleting(SEEDED), None),
+    ];
+    for (record, live) in not_owned {
+        assert_eq!(
+            unproven(&record, live.as_ref()),
+            Unproven::Tombstone,
+            "{record:?} {live:?}"
+        );
+    }
+}
+
 /// An editor's rename-save unlinks the fixture file for a moment and renames a new one with the
 /// same content into its place. Where an API write replaced the object seeding published, the
 /// pass that finds the name empty keeps a tombstone, and the next one, finding the content the

@@ -608,6 +608,61 @@ fn restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects() {
     server.stop();
 }
 
+/// A restart that cannot tell whether a removed fixture file is still there, as a Unix walk
+/// cannot below a directory it may list but not search, and as no Windows walk can, keeps the
+/// object and warns about the name only while seeding owns that object. An object an API write
+/// replaced is no longer seeding's to delete, so its name needs no attention.
+#[cfg(unix)]
+#[test]
+fn a_restart_warns_about_an_unproven_removal_only_while_seeding_owns_the_object() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TestDir::new();
+    let seed = dir.0.join("fixtures");
+    let data = dir.0.join("data");
+    fixture(&seed, "local-bucket/sub/owned.txt", b"owned");
+    fixture(&seed, "local-bucket/sub/replaced.txt", b"replaced");
+    let server = Server::start(&mut command(&data, Some(&seed)), false);
+    server.upload("local-bucket", "sub/replaced.txt", b"api");
+    server.stop();
+    let sub = seed.join("local-bucket/sub");
+    for name in ["owned.txt", "replaced.txt"] {
+        fs::remove_file(sub.join(name)).unwrap();
+    }
+    let mode = |bits| fs::set_permissions(&sub, fs::Permissions::from_mode(bits));
+    mode(0o444).unwrap();
+    if fs::metadata(sub.join("owned.txt"))
+        .map(|_| ())
+        .map_err(|error| error.kind())
+        != Err(std::io::ErrorKind::PermissionDenied)
+    {
+        mode(0o755).unwrap();
+        eprintln!(
+            "SKIP: a directory without search permission stays searchable (for example when running as root)"
+        );
+        return;
+    }
+    // The emptied directory holds nothing to clean up, so a failed start leaves it removable.
+    let mut server = Server::start(command(&data, Some(&seed)).stderr(Stdio::piped()), false);
+    mode(0o755).unwrap();
+    assert_eq!(
+        server.media("/storage/v1/b/local-bucket/o/sub%2Fowned.txt"),
+        (200, b"owned".to_vec())
+    );
+    assert_eq!(
+        server.media("/storage/v1/b/local-bucket/o/sub%2Freplaced.txt"),
+        (200, b"api".to_vec())
+    );
+    let stderr = server.child.stderr.take().unwrap();
+    server.stop();
+    let skipped: Vec<Value> = BufReader::new(stderr)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap())
+        .filter(|event| event["event"] == "seed_skipped")
+        .map(|event| event["path"].clone())
+        .collect();
+    assert_eq!(skipped, [json!("local-bucket/sub/owned.txt")]);
+}
+
 #[test]
 fn edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent() {
     let dir = TestDir::new();

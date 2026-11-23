@@ -580,6 +580,72 @@ async fn an_unreadable_directory_keeps_the_bucket_the_api_deleted_or_created_aga
     }
 }
 
+/// A removed file whose name the lookup cannot tell about, as below a directory a walk may list
+/// but not search here and as on every walk on Windows, keeps its object, and every pass reports
+/// the name while seeding owns that object. Once an API write replaced or deleted it, the name is
+/// a tombstone and the passes are clean, before and after the lookup proves the file gone.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_name_the_lookup_cannot_tell_about_is_reported_only_while_seeding_owns_its_object() {
+    use std::os::unix::fs::PermissionsExt;
+    let watched = watched().await;
+    watched.write("bucket/sub/replaced", b"replaced");
+    watched.write("bucket/sub/deleted", b"deleted");
+    watched.pass().await;
+    watched.remove("bucket/sub/replaced");
+    watched.remove("bucket/sub/deleted");
+    let sub = watched.seed.join("bucket/sub");
+    let mode = |bits| std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(bits));
+    mode(0o444).unwrap();
+    if std::fs::metadata(sub.join("deleted"))
+        .map(|_| ())
+        .map_err(|error| error.kind())
+        != Err(std::io::ErrorKind::PermissionDenied)
+    {
+        mode(0o755).unwrap();
+        eprintln!(
+            "SKIP: a directory without search permission stays searchable (for example when running as root)"
+        );
+        return;
+    }
+    let reported = watched.confirm().await;
+    let mut paths: Vec<_> = reported
+        .problems
+        .listed()
+        .iter()
+        .map(|problem| problem.path.clone())
+        .collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        [
+            Some("bucket/sub/deleted".into()),
+            Some("bucket/sub/replaced".into())
+        ],
+        "{reported:?}"
+    );
+    assert_eq!(watched.body("bucket", "sub/deleted").await, b"deleted");
+    assert_eq!(watched.body("bucket", "sub/replaced").await, b"replaced");
+
+    let written = watched.api_write("bucket", "sub/replaced", b"api").await;
+    watched.api_delete("bucket", "sub/deleted").await;
+    for _ in 0..2 {
+        let report = watched.pass().await;
+        assert_clean(&report);
+        assert_eq!(report.counts.tombstones, 2, "{report:?}");
+    }
+    mode(0o755).unwrap();
+    let report = watched.confirm().await;
+    assert_clean(&report);
+    assert_eq!(report.counts.tombstones, 2, "{report:?}");
+    assert_eq!(
+        watched.generation("bucket", "sub/replaced").await,
+        written.generation
+    );
+    assert!(watched.live("bucket", "sub/deleted").await.is_none());
+    watched.close().await;
+}
+
 /// An entry seeding cannot use is reported, and the object of the file it replaced stays.
 #[cfg(unix)]
 #[tokio::test]
