@@ -31,9 +31,14 @@ use std::{
 const CONFLICTS: &str = "sync-conflicts";
 /// The manifest's name in the data directory.
 const MANIFEST: &str = "sync-retired.json";
-/// The manifest before its rename. An attempt that stopped before the rename leaves it, and the
-/// next attempt removes it and writes it again from the start.
-const STAGED: &str = "sync-retired.json.tmp";
+/// The manifest before its rename is `sync-retired.json.<32 lowercase hex digits>.tmp`, a new
+/// name for each attempt. An attempt that stopped before the rename leaves its staged file, and a
+/// later attempt removes it. Windows may delay that removal while an antivirus scanner or the
+/// indexer holds the file, so a fresh name keeps the delay from failing the next attempt.
+const STAGED_PREFIX: &str = "sync-retired.json.";
+const STAGED_SUFFIX: &str = ".tmp";
+/// The random bytes in a staged name.
+const STAGED_ID_BYTES: usize = 16;
 /// The private directory synchronization kept inside each synchronized folder.
 const WORKSPACE: &str = ".gcs-mimic-sync-work";
 
@@ -169,6 +174,42 @@ fn failed<'a>(step: &'static str, path: &'a Path) -> impl FnOnce(io::Error) -> C
     }
 }
 
+/// Whether `name` is a name an attempt gives its staged manifest.
+fn is_staged(name: &str) -> bool {
+    name.strip_prefix(STAGED_PREFIX)
+        .and_then(|rest| rest.strip_suffix(STAGED_SUFFIX))
+        .is_some_and(|id| crate::hex::is_lower(id, STAGED_ID_BYTES * 2))
+}
+
+/// Removes the staged manifests earlier attempts left in `data_dir`, and nothing else. One that
+/// cannot go yet is named in a warning and left for a later attempt, since this attempt stages
+/// under a name of its own.
+fn remove_stale_staged(data_dir: &Path) {
+    let entries = match fs::read_dir(data_dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            warning::unreadable(data_dir, &error);
+            return;
+        }
+    };
+    for entry in entries {
+        let name = match entry {
+            Ok(entry) => entry.file_name(),
+            Err(error) => {
+                warning::unreadable(data_dir, &error);
+                return;
+            }
+        };
+        if !name.to_str().is_some_and(is_staged) {
+            continue;
+        }
+        let path = data_dir.join(name);
+        if let Err(error) = objects::unlink(&path) {
+            warning::staged_kept(&path, &error);
+        }
+    }
+}
+
 /// The staged manifest while it is written. Each record goes through one `put`, which the test
 /// fault seam can fail; the buffer keeps the writes few.
 struct Manifest<'a> {
@@ -178,11 +219,16 @@ struct Manifest<'a> {
 }
 
 impl<'a> Manifest<'a> {
-    /// Creates the staged file where nothing else exists: a file an earlier attempt left there
-    /// is removed first, so a link at that name is removed rather than followed.
+    /// Creates the staged file under a new name, where nothing else exists, once the staged
+    /// files earlier attempts left are gone. A link at an old staged name is removed rather
+    /// than followed.
     fn create(data_dir: &'a Path) -> Result<Self, CatalogError> {
-        let staged = data_dir.join(STAGED);
-        objects::unlink(&staged).map_err(failed("remove the earlier staged file", &staged))?;
+        remove_stale_staged(data_dir);
+        let id = crate::storage::opaque_id::random::<STAGED_ID_BYTES>().map_err(unavailable)?;
+        let staged = data_dir.join(format!(
+            "{STAGED_PREFIX}{}{STAGED_SUFFIX}",
+            crate::hashing::encode_lower(&id)
+        ));
         let file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -298,7 +344,11 @@ fn place(data_dir: &Path, staged: &Path, len: u64) -> Result<PathBuf, CatalogErr
         };
         match found {
             Destination::Identical => {
-                objects::unlink(staged).map_err(failed("remove the staged file", staged))?;
+                // The staged copy is surplus; one the platform cannot remove yet waits for a
+                // later attempt instead of failing this one.
+                if let Err(error) = objects::unlink(staged) {
+                    warning::staged_kept(staged, &error);
+                }
                 return Ok(candidate);
             }
             Destination::Free => {

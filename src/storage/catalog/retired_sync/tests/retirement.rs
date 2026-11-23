@@ -20,7 +20,22 @@ use std::{
 
 const BUCKET: &str = "bucket";
 const MANIFEST: &str = "sync-retired.json";
-const STAGED: &str = "sync-retired.json.tmp";
+/// How each attempt's staged manifest is named, before its random part.
+const STAGED: &str = "sync-retired.json.";
+
+/// The names in `dir` that look like a staged manifest.
+fn staged(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|name| name.starts_with(STAGED) && name.ends_with(".tmp"))
+        .collect()
+}
+
+/// A staged manifest name an earlier attempt could have used.
+fn earlier_staged(number: u32) -> String {
+    format!("{STAGED}{}.tmp", id(number))
+}
 /// The bytes each object holds, chosen per role: a pending write-back publishes `published` to
 /// the folder, `deleted-in-folder` waits in a deletion set, and `kept` is the object a rejected
 /// deletion writes back.
@@ -514,7 +529,7 @@ async fn a_released_catalog_lists_the_files_its_rows_name_and_drops_every_sync_o
     released.assert_objects(&catalog).await;
     catalog.close().await.unwrap();
     assert_eq!(read_manifest(&data.join(MANIFEST)), released.manifest());
-    assert!(!data.join(STAGED).exists());
+    assert_eq!(staged(&data), Vec::<String>::new());
     assert_eq!(files(&data.join("sync-conflicts")), copies);
     assert_eq!(files(&released.folder()), folder);
     let connection = Connection::open(data.join("catalog.sqlite3")).unwrap();
@@ -613,7 +628,7 @@ async fn rows_that_name_no_file_retire_without_a_manifest() {
         Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
         assert_eq!(fs::read(dir.0.join(MANIFEST)).ok().as_deref(), earlier);
         assert!(!dir.0.join("sync-retired.1.json").exists());
-        assert!(!dir.0.join(STAGED).exists());
+        assert_eq!(staged(&dir.0), Vec::<String>::new());
         assert_retired(&Connection::open(dir.0.join("catalog.sqlite3")).unwrap());
     }
 }
@@ -649,7 +664,7 @@ async fn a_manifest_with_other_content_is_kept_and_the_next_free_name_is_used() 
         assert_eq!(&fs::read(data.join(name)).unwrap(), bytes, "{name}");
     }
     assert!(!data.join("sync-retired.3.json").exists());
-    assert!(!data.join(STAGED).exists());
+    assert_eq!(staged(&data), Vec::<String>::new());
     assert_retired(&Connection::open(data.join("catalog.sqlite3")).unwrap());
 }
 
@@ -687,7 +702,7 @@ async fn a_manifest_name_taken_before_the_rename_is_kept_and_the_next_name_is_us
         read_manifest(&data.join("sync-retired.1.json")),
         released.manifest()
     );
-    assert!(!data.join(STAGED).exists());
+    assert_eq!(staged(&data), Vec::<String>::new());
     assert_retired(&Connection::open(data.join("catalog.sqlite3")).unwrap());
 }
 
@@ -893,7 +908,7 @@ fn rows_that_name_files_need_a_data_directory() {
     assert_eq!(count(&connection, "SELECT count(*) FROM sync_conflicts"), 1);
 }
 
-/// A link at the staged manifest's name, to a file or to nothing, is removed rather than
+/// A link at a staged manifest's name, to a file or to nothing, is removed rather than
 /// written through.
 #[cfg(unix)]
 #[tokio::test]
@@ -905,11 +920,11 @@ async fn a_link_at_the_staged_name_is_removed_rather_than_followed() {
         if existing {
             fs::write(&outside, b"not the manifest").unwrap();
         }
-        std::os::unix::fs::symlink(&outside, data.join(STAGED)).unwrap();
+        std::os::unix::fs::symlink(&outside, data.join(earlier_staged(1))).unwrap();
 
         Catalog::open(&data).await.unwrap().close().await.unwrap();
         assert_eq!(read_manifest(&data.join(MANIFEST)), released.manifest());
-        assert!(fs::symlink_metadata(data.join(STAGED)).is_err());
+        assert_eq!(staged(&data), Vec::<String>::new());
         if existing {
             assert_eq!(fs::read(&outside).unwrap(), b"not the manifest");
         } else {
@@ -918,18 +933,54 @@ async fn a_link_at_the_staged_name_is_removed_rather_than_followed() {
     }
 }
 
+/// The staged manifests earlier attempts left are removed whatever they hold, and only names of
+/// exactly that form: a file that merely resembles one stays. One that cannot be removed, here
+/// a directory, stays without failing the start, which stages under a name of its own.
+#[tokio::test]
+async fn staged_manifests_earlier_attempts_left_are_removed_and_nothing_else() {
+    let released = released().await;
+    let data = released.data();
+    let left = [earlier_staged(1), earlier_staged(0xab)];
+    for name in &left {
+        fs::write(data.join(name), b"{\"partial\":").unwrap();
+    }
+    let kept = [
+        "sync-retired.json.tmp".to_owned(),
+        format!("{STAGED}{}.tmp", id(0xcd).to_uppercase()),
+        format!("{STAGED}{}.tmp", &id(4)[1..]),
+        format!("{STAGED}{}.tmp.bak", id(5)),
+        "sync-retired.json.notes.tmp".to_owned(),
+    ];
+    for name in &kept {
+        fs::write(data.join(name), b"mine").unwrap();
+    }
+    let stuck = data.join(earlier_staged(6));
+    fs::create_dir(&stuck).unwrap();
+
+    Catalog::open(&data).await.unwrap().close().await.unwrap();
+    for name in &left {
+        assert!(!data.join(name).exists(), "{name}");
+    }
+    for name in &kept {
+        assert_eq!(fs::read(data.join(name)).unwrap(), b"mine", "{name}");
+    }
+    assert!(stuck.is_dir());
+    assert_eq!(read_manifest(&data.join(MANIFEST)), released.manifest());
+    assert_retired(&Connection::open(data.join("catalog.sqlite3")).unwrap());
+}
+
 /// A failure while the manifest is written, or of the transaction after it, leaves schema 57
 /// and every file; the next open writes the same manifest and retires the rows. A manifest
 /// step's error names the step and the file it worked on.
 #[tokio::test]
 async fn a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_finishes() {
     let full = || Fault::Io(io::ErrorKind::StorageFull);
-    // The step that failed, and the file in the data directory it names; `None` names the
-    // directory itself.
-    let staged = Some(("write", Some(STAGED)));
+    // The step that failed, and the file in the data directory it names, the staged manifest by
+    // the start of its name; `None` names the directory itself.
+    let write = Some(("write", Some(STAGED)));
     let faults = [
-        (Step::RetiredManifestWrite, 0, full(), staged),
-        (Step::RetiredManifestWrite, 4, full(), staged),
+        (Step::RetiredManifestWrite, 0, full(), write),
+        (Step::RetiredManifestWrite, 4, full(), write),
         (
             Step::RetiredManifestFlush,
             0,
@@ -1001,7 +1052,7 @@ async fn a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_fin
                 "{step:?}"
             );
         }
-        assert!(!data.join(STAGED).exists(), "{step:?}");
+        assert_eq!(staged(&data), Vec::<String>::new(), "{step:?}");
         assert_eq!(files(&data.join("sync-conflicts")), copies, "{step:?}");
         assert_eq!(files(&released.folder()), folder, "{step:?}");
         let connection = Connection::open(data.join("catalog.sqlite3")).unwrap();
@@ -1056,7 +1107,11 @@ async fn a_crash_at_each_manifest_step_or_before_the_commit_restarts_with_the_sa
                 released.manifest(),
                 "{crash:?} at {step:?}"
             );
-            assert!(!snapshot.join(STAGED).exists(), "{crash:?} at {step:?}");
+            assert_eq!(
+                staged(&snapshot),
+                Vec::<String>::new(),
+                "{crash:?} at {step:?}"
+            );
             assert_eq!(
                 files(&snapshot.join("sync-conflicts")),
                 copies,
