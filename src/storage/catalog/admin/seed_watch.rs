@@ -331,8 +331,9 @@ impl Catalog {
 
     /// Runs `pass` every `interval` on the catalog's clock until the catalog closes, and at once
     /// when a request waits for a pass, with the number the pass started as. A pass that left a
-    /// deletion waiting for its later proof is followed after the wait that proof needs, if that
-    /// is sooner. A panic restarts the task.
+    /// proof of absence waiting for its later proof is followed after the wait that proof needs,
+    /// if that is sooner. A panic restarts the task, which readiness reports down until a pass of
+    /// the replacement completes.
     pub(crate) fn start_seed_watch<P, F>(&self, interval: Duration, pass: P)
     where
         P: Fn(Catalog, u64) -> F + Send + Sync + 'static,
@@ -351,25 +352,58 @@ impl Catalog {
             return;
         }
         let weak = Arc::downgrade(&self.0);
-        let pass = Arc::new(pass);
-        crate::task::spawn_restarting(
-            "seed-watch",
-            crate::task::TaskHealth::default(),
-            move || {
-                open(&weak)?;
-                Some(watch_loop(weak.clone(), interval, Arc::clone(&pass)))
-            },
-        );
+        let passes = Passes {
+            interval,
+            run: Arc::new(pass),
+            health: crate::task::TaskHealth::default(),
+        };
+        // A panic during a pass leaves the fixture tree only partly applied while the server
+        // keeps serving it, and a request may wait for the pass the panic ended, so readiness
+        // reports the gap as it does for the other background loops.
+        self.watch_background_task(passes.health.clone());
+        let mut restarted = false;
+        crate::task::spawn_restarting("seed-watch", passes.health.clone(), move || {
+            open(&weak)?;
+            // The startup replay just ran, so the first run waits an interval like any later
+            // pass; a replacement passes at once to close the gap.
+            let delay = if std::mem::replace(&mut restarted, true) {
+                Duration::ZERO
+            } else {
+                interval
+            };
+            Some(watch_loop(weak.clone(), passes.clone(), delay))
+        });
     }
 }
 
-async fn watch_loop<P, F>(weak: Weak<Inner>, interval: Duration, pass: Arc<P>)
+/// What a run of the task needs to run the passes.
+struct Passes<P> {
+    interval: Duration,
+    run: Arc<P>,
+    health: crate::task::TaskHealth,
+}
+
+impl<P> Clone for Passes<P> {
+    fn clone(&self) -> Self {
+        Self {
+            interval: self.interval,
+            run: Arc::clone(&self.run),
+            health: self.health.clone(),
+        }
+    }
+}
+
+/// Runs the passes, the first after `delay`.
+async fn watch_loop<P, F>(weak: Weak<Inner>, passes: Passes<P>, mut delay: Duration)
 where
     P: Fn(Catalog, u64) -> F + Send + Sync + 'static,
     F: Future<Output = PassReport> + Send + 'static,
 {
-    // The startup replay just ran, so the first pass waits like any other.
-    let mut delay = interval;
+    let Passes {
+        interval,
+        run: pass,
+        health,
+    } = passes;
     loop {
         let Some(inner) = open(&weak) else {
             return;
@@ -389,6 +423,9 @@ where
         };
         let number = watch.begin();
         let report = pass(Catalog(inner), number).await;
+        // A pass that met an error still ran to its end and reported it: an unreadable tree or a
+        // failing catalog is the report's to tell, while readiness tells whether passes run.
+        health.pass_succeeded();
         delay = if report.counts.waiting() {
             interval.min(ABSENCE_CONFIRMED_AFTER)
         } else {
