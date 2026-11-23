@@ -1,5 +1,7 @@
 use super::*;
-use crate::fsutil::{Child, ListedSpelling, Lookup, Opened, RegularChild, Vacant};
+#[cfg(test)]
+use crate::fsutil::{Child, ListedSpelling, RegularChild};
+use crate::fsutil::{Lookup, Opened, Vacant};
 use std::time::Duration;
 
 /// The first wait before a name that failed to open is opened again; each later wait doubles.
@@ -85,6 +87,7 @@ pub(crate) fn directory_unconfirmed(
     open_entry(parent, name, lookup, || directory_at(parent, name))
 }
 
+#[cfg(test)]
 pub(crate) fn child_directory(parent: &File, name: &OsStr, lookup: &Lookup) -> io::Result<Child> {
     let file = match directory_unconfirmed(parent, name, lookup)? {
         Opened::Entry(file) => file,
@@ -92,12 +95,13 @@ pub(crate) fn child_directory(parent: &File, name: &OsStr, lookup: &Lookup) -> i
         Opened::Unopenable => return Ok(Child::Unopenable),
     };
     if spelled_as_opened(parent, name, &file, lookup)? {
-        Ok(Child::Directory(file))
+        Ok(Child::Directory)
     } else {
         Ok(Child::Alias)
     }
 }
 
+#[cfg(test)]
 pub(crate) fn child_regular(
     parent: &File,
     name: &OsStr,
@@ -109,7 +113,7 @@ pub(crate) fn child_regular(
         Opened::Unopenable => return Ok(RegularChild::Unopenable),
     };
     if spelled_as_opened(parent, name, &file, lookup)? {
-        return Ok(RegularChild::File(file));
+        return Ok(RegularChild::File);
     }
     match listed_spelling(parent, &file) {
         // The listing read now spells the file as it was opened. What answered otherwise, such as
@@ -117,9 +121,11 @@ pub(crate) fn child_regular(
         // than this listing, which is the answer; a kept listing is not trusted again.
         Ok(ListedSpelling::Listed(spelling)) if OsStr::new(&spelling) == name => {
             lookup.forget(parent)?;
-            Ok(RegularChild::File(file))
+            Ok(RegularChild::File)
         }
-        spelling => Ok(RegularChild::Respelled(spelling)),
+        Ok(ListedSpelling::Listed(_) | ListedSpelling::Unnamed) | Err(_) => {
+            Ok(RegularChild::Respelled)
+        }
     }
 }
 
@@ -129,6 +135,7 @@ pub(crate) fn child_regular(
 /// name that is not UTF-8 and a file no longer listed name no one spelling to report. A listed
 /// entry that cannot be read is skipped: with one link only, it cannot be a second name of the
 /// file, and a spelling found elsewhere is still the file's one.
+#[cfg(test)]
 fn listed_spelling(parent: &File, file: &File) -> io::Result<ListedSpelling> {
     use std::os::unix::fs::MetadataExt;
     let metadata = file.metadata()?;
@@ -159,12 +166,12 @@ fn listed_spelling(parent: &File, file: &File) -> io::Result<ListedSpelling> {
 
 /// A listed entry's device as [`std::os::unix::fs::MetadataExt::dev`] reports it, which widens
 /// macOS's signed `dev_t` the way a cast does, so that the two compare equal.
-#[cfg(target_os = "macos")]
+#[cfg(all(test, target_os = "macos"))]
 fn listed_device(status: &libc::stat) -> u64 {
     i64::from(status.st_dev).cast_unsigned()
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(test, not(target_os = "macos")))]
 fn listed_device(status: &libc::stat) -> u64 {
     status.st_dev
 }
@@ -172,13 +179,14 @@ fn listed_device(status: &libc::stat) -> u64 {
 /// Whether `file`, opened as `name` in `parent`, has that exact spelling there. Tests can take
 /// the platform to answer that it does ([`crate::fsutil::UNCHECKED_SPELLING`]), which a lookup
 /// below a root that folds names does not believe.
+#[cfg(test)]
 fn spelled_as_opened(
     parent: &File,
     name: &OsStr,
     file: &File,
     lookup: &Lookup,
 ) -> io::Result<bool> {
-    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         let identity = crate::fsutil::stat_identity(parent)?;
         if crate::fsutil::UNCHECKED_SPELLING
@@ -195,7 +203,7 @@ fn spelled_as_opened(
 /// APFS and HFS+ are case- and normalization-insensitive or sensitive per volume, and the name
 /// they report for an open file is the one its directory lists. A mount below the root can fold
 /// names although the root does not, so each file is asked whatever the root's rules say.
-#[cfg(target_os = "macos")]
+#[cfg(all(test, target_os = "macos"))]
 #[expect(
     unsafe_code,
     reason = "fgetattrlist returns the descriptor's actual name without scanning its parent"
@@ -243,7 +251,7 @@ fn exact_spelling(parent: &File, name: &OsStr, file: &File, lookup: &Lookup) -> 
     Ok(bytes == name.as_bytes())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(test, target_os = "linux"))]
 #[expect(
     unsafe_code,
     reason = "the parent casefold flag is available only through FS_IOC_GETFLAGS"
@@ -261,7 +269,7 @@ fn exact_spelling(parent: &File, name: &OsStr, _: &File, lookup: &Lookup) -> io:
 /// names. A mount that cannot report the flag cannot report that one directory folds names while
 /// another does not either, as a WSL2 `drvfs` mount with `case=dir` does on one device, so the
 /// probe of one directory says nothing about the others there.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(test)]
 fn flags_spelling(
     parent: &File,
     name: &OsStr,
@@ -279,7 +287,7 @@ fn flags_spelling(
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(all(test, not(any(target_os = "linux", target_os = "macos"))))]
 fn exact_spelling(parent: &File, name: &OsStr, _: &File, lookup: &Lookup) -> io::Result<bool> {
     lookup.listed(parent, name)
 }

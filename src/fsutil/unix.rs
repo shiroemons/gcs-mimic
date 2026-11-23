@@ -1,8 +1,8 @@
 use super::{FileOpen, clear_errno, component, open_at};
 mod spelling;
-pub(crate) use spelling::{
-    child_directory, child_regular, directory_unconfirmed, regular_unconfirmed,
-};
+#[cfg(test)]
+pub(crate) use spelling::{child_directory, child_regular};
+pub(crate) use spelling::{directory_unconfirmed, regular_unconfirmed};
 use std::{
     ffi::{CStr, OsStr, OsString},
     fs::File,
@@ -64,8 +64,6 @@ pub(crate) fn each_name(
     directory: &File,
     mut visit: impl FnMut(&OsStr) -> io::Result<ControlFlow<()>>,
 ) -> io::Result<()> {
-    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    super::unreadable_listing(directory)?;
     // SAFETY: the descriptor is live and the literal is a terminated relative directory name.
     let fd = unsafe {
         libc::openat(
@@ -139,30 +137,6 @@ pub fn directory_writable(directory: &File) -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     Ok(())
-}
-
-/// The longest file name, in bytes, that the filesystem holding `directory` accepts, or `None`
-/// when it reports no limit.
-#[expect(
-    unsafe_code,
-    reason = "fpathconf on a pinned descriptor has no safe std equivalent"
-)]
-#[expect(dead_code, reason = "the seed watcher reuses this")]
-pub(crate) fn name_max(directory: &File) -> io::Result<Option<usize>> {
-    // fpathconf reports both "no limit" and a failure as -1 and sets errno only on failure.
-    clear_errno();
-    // SAFETY: the live descriptor is only queried; fpathconf neither keeps nor writes through it.
-    let value = unsafe { libc::fpathconf(directory.as_raw_fd(), libc::_PC_NAME_MAX) };
-    if value < 0 {
-        let error = io::Error::last_os_error();
-        return match error.raw_os_error() {
-            Some(0) | None => Ok(None),
-            Some(_) => Err(error),
-        };
-    }
-    usize::try_from(value)
-        .map(Some)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 /// The identity of `file` as its filesystem reports it now. A Linux FUSE mount, virtiofs and

@@ -218,7 +218,7 @@ impl StagedObject {
     pub(crate) fn size(&self) -> u64 {
         self.size
     }
-    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
+    #[cfg(test)]
     pub(crate) fn hashes(&self) -> crate::hashing::Hashes {
         self.hashes
     }

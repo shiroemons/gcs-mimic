@@ -2,13 +2,7 @@
 //! Descriptor-based filesystem operations; OS-specific unsafe stays in this module.
 
 use std::{collections::VecDeque, ffi::OsString, fs::File, io};
-mod failure;
-mod hash;
 mod lookup;
-#[expect(unused_imports, reason = "the seed watcher reuses this")]
-pub(crate) use failure::IoFailureClass;
-#[expect(unused_imports, reason = "the seed watcher reuses this")]
-pub(crate) use hash::{HashOutcome, hash_exact};
 
 #[cfg(unix)]
 mod unix;
@@ -21,17 +15,12 @@ use unsupported as imp;
 
 pub(crate) use imp::directory_at;
 use imp::directory_names_within;
-#[expect(unused_imports, reason = "the seed watcher reuses this")]
-pub(crate) use imp::name_max;
 pub(crate) use imp::uncached_identity;
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };
 pub(crate) use lookup::Lookup;
-#[cfg_attr(
-    not(all(test, unix)),
-    expect(unused_imports, reason = "the seed watcher reuses this")
-)]
+#[cfg(all(test, unix))]
 pub(crate) use lookup::Matching;
 
 /// `readdir` signals both the end of the stream and a failure with a null entry and sets
@@ -81,37 +70,25 @@ pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
     options.open(path)
 }
 
-#[cfg_attr(
-    not(unix),
-    expect(
-        dead_code,
-        reason = "descriptor-relative child lookup is unsupported on this platform"
-    )
-)]
+/// What a spelling-checked lookup of a directory found. Only tests ask it, and only which answer
+/// it gave, so the opened directory is not handed back.
+#[cfg(all(test, unix))]
 pub(crate) enum Child {
-    #[cfg_attr(unix, expect(dead_code, reason = "the seed watcher reuses this"))]
-    Directory(File),
+    Directory,
     Alias,
     Missing(Vacant),
     /// The name kept failing to open while an entry stood under it ([`Opened::Unopenable`]).
     Unopenable,
 }
 
-#[cfg_attr(
-    not(unix),
-    expect(
-        dead_code,
-        reason = "descriptor-relative regular-file lookup is unsupported on this platform"
-    )
-)]
+/// What a spelling-checked lookup of a regular file found, as [`Child`] says for a directory.
+#[cfg(all(test, unix))]
 pub(crate) enum RegularChild {
-    #[cfg_attr(unix, expect(dead_code, reason = "the seed watcher reuses this"))]
-    File(File),
-    /// A regular file that the name reached under another letter case or normalization of it,
-    /// with the spelling the directory lists it under, or the error the listing failed with. A
-    /// caller that only needs to know that the spelling differs is not failed by the listing.
-    #[cfg_attr(unix, expect(dead_code, reason = "the seed watcher reuses this"))]
-    Respelled(io::Result<ListedSpelling>),
+    File,
+    /// A regular file that the name reached under another letter case or normalization of it. A
+    /// listing that fails to tell the spelling the directory lists it under does not fail the
+    /// lookup: the spelling still differs.
+    Respelled,
     Missing(Vacant),
     /// The name kept failing to open while an entry stood under it ([`Opened::Unopenable`]).
     Unopenable,
@@ -182,13 +159,7 @@ impl Vacant {
 /// one. Only a listing tells it, by matching each entry's device and inode with the opened
 /// file's.
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(unix),
-    expect(
-        dead_code,
-        reason = "descriptor-relative lookup is unsupported on this platform"
-    )
-)]
+#[cfg(all(test, unix))]
 pub(crate) enum ListedSpelling {
     /// The one name the directory lists the file under.
     Listed(String),
@@ -364,14 +335,6 @@ impl IdentityChanges {
         self.0 == 0
     }
 
-    /// Whether the inode number is the only difference. Docker Desktop's shared folders can
-    /// report one number for a file just created and another for it later, so a different
-    /// number with the same size and times does not by itself show that the bytes changed.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
-    pub(crate) fn is_inode_only(self) -> bool {
-        self.0 == IdentityField::Inode.bit()
-    }
-
     /// The changed fields, in declaration order.
     pub(crate) fn iter(self) -> impl Iterator<Item = IdentityField> {
         IdentityField::ALL
@@ -404,27 +367,13 @@ impl std::fmt::Debug for IdentityField {
 /// The file-system object a path or handle resolved to: equal values name the same inode on the
 /// same device, whatever its size or times.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg(unix)]
 pub(crate) struct NodeId {
     pub(crate) device: u64,
     pub(crate) inode: u64,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
-impl NodeId {
-    /// Big-endian bytes, so a stored node compares byte by byte as the numbers do, as the
-    /// catalog's BLOB columns compare.
-    pub(crate) fn to_be_bytes(self) -> ([u8; 8], [u8; 8]) {
-        (self.device.to_be_bytes(), self.inode.to_be_bytes())
-    }
-
-    pub(crate) fn from_be_bytes(device: [u8; 8], inode: [u8; 8]) -> Self {
-        Self {
-            device: u64::from_be_bytes(device),
-            inode: u64::from_be_bytes(inode),
-        }
-    }
-}
-
+#[cfg(unix)]
 impl FileIdentity {
     pub(crate) fn node(&self) -> NodeId {
         NodeId {
@@ -882,58 +831,12 @@ impl Drop for UncheckedSpelling {
     }
 }
 
-/// The directories, by device and inode number, whose listing fails with `EIO`, as a listing of
-/// a network mount can while opening a name there still works. Tests run in parallel, so each
-/// adds its own directory and removes only that one again.
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-static UNREADABLE_LISTINGS: std::sync::Mutex<Vec<(u64, u64)>> = std::sync::Mutex::new(Vec::new());
-
-/// Fails each listing of a directory while it lives ([`UNREADABLE_LISTINGS`]).
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-pub(crate) struct UnreadableListing((u64, u64));
-
-// A separate `cfg(test)` lets Clippy see test code here and allow its unwraps.
-#[cfg(test)]
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-impl UnreadableListing {
-    #[expect(dead_code, reason = "the seed watcher reuses this")]
-    pub(crate) fn of(directory: &std::path::Path) -> Self {
-        let identity = stat_identity(&File::open(directory).unwrap()).unwrap();
-        let unreadable = (identity.device, identity.inode);
-        UNREADABLE_LISTINGS.lock().unwrap().push(unreadable);
-        Self(unreadable)
-    }
-}
-
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-impl Drop for UnreadableListing {
-    fn drop(&mut self) {
-        if let Ok(mut unreadable) = UNREADABLE_LISTINGS.lock() {
-            unreadable.retain(|directory| *directory != self.0);
-        }
-    }
-}
-
-/// Fails with `EIO` when a listing of `directory` is due to fail ([`UNREADABLE_LISTINGS`]).
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-fn unreadable_listing(directory: &File) -> io::Result<()> {
-    let unreadable = UNREADABLE_LISTINGS
-        .lock()
-        .map_err(|_| io::Error::other("listing failure injection poisoned"))?;
-    if unreadable.is_empty() {
-        return Ok(());
-    }
-    let identity = stat_identity(directory)?;
-    if unreadable.contains(&(identity.device, identity.inode)) {
-        return Err(io::Error::from_raw_os_error(libc::EIO));
-    }
-    Ok(())
-}
-
-/// Names whose opens fail while the entry stays: by the device and inode number of the
-/// directory, the name, how many opens succeed first, how many fail after them, and how. Opening
-/// an existing regular file or directory by name fails that way; `fstatat` still finds the
-/// entry. Tests run in parallel, so each adds its own name and removes only that one again.
+/// Names whose opens fail with `ENOENT` while the entry stays, as a Docker Desktop bind mount
+/// answers for a file it is still bringing over from the host ([`Opened::Unopenable`]): by the
+/// device and inode number of the directory, the name, how many opens succeed first and how many
+/// fail after them. Opening an existing regular file or directory by name fails that way;
+/// `fstatat` still finds the entry. Tests run in parallel, so each adds its own name and removes
+/// only that one again.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 static FAILING_OPENS: std::sync::Mutex<Vec<FailingOpen>> = std::sync::Mutex::new(Vec::new());
 
@@ -944,18 +847,6 @@ struct FailingOpen {
     name: OsString,
     skip: usize,
     left: usize,
-    failure: OpenFailure,
-}
-
-/// How an open in [`FAILING_OPENS`] fails.
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-#[derive(Clone, Copy)]
-enum OpenFailure {
-    /// With `ENOENT`, as a Docker Desktop bind mount answers for a file it is still bringing
-    /// over from the host ([`Opened::Unopenable`]).
-    Vanishing,
-    /// With this `errno`, as a file system answers that refuses the name.
-    Refused(i32),
 }
 
 /// Fails opens of a name while it lives ([`FAILING_OPENS`]).
@@ -982,30 +873,13 @@ impl FailingOpens {
         skip: usize,
         opens: usize,
     ) -> Self {
-        Self::add(directory, name, skip, opens, OpenFailure::Vanishing)
-    }
-
-    /// Fails every open of `name` in `directory` with `errno`.
-    #[expect(dead_code, reason = "the seed watcher reuses this")]
-    pub(crate) fn refusing(directory: &std::path::Path, name: &str, errno: i32) -> Self {
-        Self::add(directory, name, 0, usize::MAX, OpenFailure::Refused(errno))
-    }
-
-    fn add(
-        directory: &std::path::Path,
-        name: &str,
-        skip: usize,
-        left: usize,
-        failure: OpenFailure,
-    ) -> Self {
         let identity = stat_identity(&File::open(directory).unwrap()).unwrap();
         let directory = (identity.device, identity.inode);
         FAILING_OPENS.lock().unwrap().push(FailingOpen {
             directory,
             name: name.into(),
             skip,
-            left,
-            failure,
+            left: opens,
         });
         Self {
             directory,
@@ -1058,10 +932,7 @@ fn failing_open(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
         return Ok(());
     }
     open.left -= 1;
-    Err(match open.failure {
-        OpenFailure::Vanishing => io::ErrorKind::NotFound.into(),
-        OpenFailure::Refused(errno) => io::Error::from_raw_os_error(errno),
-    })
+    Err(io::ErrorKind::NotFound.into())
 }
 
 /// Renames `source` to `destination` unless an entry already has that name.
@@ -1329,51 +1200,6 @@ mod tests {
         );
     }
 
-    /// Only a lone inode change counts as a renumbering; any other changed field, alone or
-    /// beside the inode, does not.
-    #[test]
-    fn only_a_lone_inode_change_is_inode_only() {
-        let before = FileIdentity {
-            device: 1,
-            inode: 2,
-            size: 3,
-            modified_ns: 4,
-            changed_ns: 5,
-        };
-        assert!(!before.changed_fields(&before).is_inode_only());
-        assert!(
-            before
-                .changed_fields(&FileIdentity { inode: 7, ..before })
-                .is_inode_only()
-        );
-        for after in [
-            FileIdentity {
-                device: 9,
-                ..before
-            },
-            FileIdentity { size: 9, ..before },
-            FileIdentity {
-                modified_ns: 9,
-                ..before
-            },
-            FileIdentity {
-                changed_ns: 9,
-                ..before
-            },
-            FileIdentity {
-                inode: 7,
-                changed_ns: 9,
-                ..before
-            },
-        ] {
-            let changes = before.changed_fields(&after);
-            assert!(
-                !changes.is_empty() && !changes.is_inode_only(),
-                "{changes:?}"
-            );
-        }
-    }
-
     /// Callers that report `io::Error` see the native failure itself, and an unsupported
     /// operation as the `Unsupported` kind.
     #[test]
@@ -1389,30 +1215,6 @@ mod tests {
         let unsupported = io::Error::from(FsError::Unsupported);
         assert_eq!(unsupported.kind(), io::ErrorKind::Unsupported);
         assert!(unsupported.get_ref().is_none());
-    }
-
-    /// A node survives its two big-endian byte arrays over the full `u64` range.
-    #[test]
-    fn node_ids_round_trip_through_their_stored_bytes() {
-        for node in [
-            NodeId {
-                device: 0,
-                inode: 0,
-            },
-            NodeId {
-                device: u64::MAX,
-                inode: 1,
-            },
-            NodeId {
-                device: 1,
-                inode: u64::MAX,
-            },
-        ] {
-            let (device, inode) = node.to_be_bytes();
-            assert_eq!(device, node.device.to_be_bytes());
-            assert_eq!(inode, node.inode.to_be_bytes());
-            assert_eq!(NodeId::from_be_bytes(device, inode), node);
-        }
     }
 
     /// A paged listing returns every name of a directory that fills one or more pages exactly

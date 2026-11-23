@@ -1,13 +1,3 @@
-pub(crate) fn child_directory(_: &File, _: &OsStr, _: &super::Lookup) -> io::Result<super::Child> {
-    Err(io::ErrorKind::Unsupported.into())
-}
-pub(crate) fn child_regular(
-    _: &File,
-    _: &OsStr,
-    _: &super::Lookup,
-) -> io::Result<super::RegularChild> {
-    Err(io::ErrorKind::Unsupported.into())
-}
 pub(crate) fn regular_unconfirmed(
     _: &File,
     _: &OsStr,
@@ -49,24 +39,12 @@ pub(crate) fn directory_names_within(
     directory_names_after(directory, after, limit)
 }
 
-pub(crate) fn each_name(
-    _: &File,
-    _: impl FnMut(&OsStr) -> io::Result<std::ops::ControlFlow<()>>,
-) -> io::Result<()> {
-    Err(io::ErrorKind::Unsupported.into())
-}
-
 /// The identity of `file` as its handle reports it, which no attribute cache on this side answers.
 pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
     Ok(super::stat_identity(file)?)
 }
 
 pub fn directory_writable(_: &File) -> io::Result<()> {
-    Err(io::ErrorKind::Unsupported.into())
-}
-
-#[expect(dead_code, reason = "the seed watcher reuses this")]
-pub(crate) fn name_max(_: &File) -> io::Result<Option<usize>> {
     Err(io::ErrorKind::Unsupported.into())
 }
 

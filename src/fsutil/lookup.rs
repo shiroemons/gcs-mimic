@@ -1,6 +1,10 @@
-//! Opens the child of a directory under its exact spelling, and tells an entry the filesystem
-//! reached under another letter case or Unicode normalization apart, with the spelling the
-//! directory lists a regular file under.
+//! Opens the child of a directory under the rule that only `fstatat` finding nothing shows that a
+//! name holds nothing ([`Opened`]), and, for tests only, under its exact spelling.
+//!
+//! The seed walk opens only names that a listing of their directory gave, so it never confirms a
+//! spelling. The spelling check below, with the listings it keeps, is compiled for its tests
+//! alone: it tells an entry the filesystem reached under another letter case or Unicode
+//! normalization apart, with the spelling the directory lists a regular file under.
 //!
 //! Whether a name that opens has that spelling is something only some directories say. macOS
 //! reports an open file's own name; Linux reports a directory's casefold flag, and a directory
@@ -29,23 +33,33 @@
 //! entry before it asks, so a kept listing that still answers was read from the namespace the
 //! entry was opened in.
 
-use super::{Child, FileIdentity, Opened, RegularChild, imp};
-use crate::clock::{Clock, SystemClock, signed_nanos};
+use super::{Opened, imp};
+use crate::clock::Clock;
 use std::{
-    collections::{HashSet, VecDeque},
-    ffi::{OsStr, OsString},
+    ffi::OsStr,
     fs::File,
     io,
-    ops::ControlFlow,
     sync::{
-        Arc, Mutex, MutexGuard,
+        Arc,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
+#[cfg(all(test, unix))]
+use {
+    super::{Child, FileIdentity, RegularChild},
+    crate::clock::{SystemClock, signed_nanos},
+    std::{
+        collections::{HashSet, VecDeque},
+        ffi::OsString,
+        ops::ControlFlow,
+        sync::{Mutex, MutexGuard},
+    },
+};
 
 /// The most directories one pass keeps listings of. Passes walk paths in order, so the
 /// directories they look up again are the few they just read.
+#[cfg(all(test, unix))]
 const KEPT_LISTINGS: usize = 4;
 /// How long one lookup may wait in all for names that `fstatat` still finds while they keep
 /// failing to open with `ENOENT`, before it gives up on each further such name at once. A Docker
@@ -56,15 +70,13 @@ const KEPT_LISTINGS: usize = 4;
 const WAIT_BUDGET: Duration = Duration::from_secs(1);
 /// The most names one kept listing holds, which bounds its memory with the name length limit. A
 /// larger directory is read again for each lookup, up to the name looked up.
+#[cfg(all(test, unix))]
 const KEPT_NAMES: usize = 4096;
 
 /// How the filesystem of a probed root matched a name the probe opened against the names its
 /// directory lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(all(test, unix)),
-    expect(dead_code, reason = "the seed watcher reuses this")
-)]
+#[cfg(all(test, unix))]
 pub(crate) enum Matching {
     /// Names that differ in letter case or Unicode normalization named different files.
     Exact,
@@ -76,6 +88,7 @@ pub(crate) enum Matching {
 /// What a lookup knows about the directories it opens names in, beyond each directory's own
 /// answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(all(test, unix))]
 pub(super) enum Known {
     /// Nothing: only the directory's own answer tells, as below a root the probe found to fold
     /// nothing, below a root that was never probed, or for the probe itself.
@@ -85,10 +98,12 @@ pub(super) enum Known {
 }
 
 /// Opens children under the naming rules a probe found for the root they lie below. Every lookup
-/// a job uses shares its [`WAIT_BUDGET`]; [`Self::for_job`] hands another job its own budget and
-/// the listings this one read.
+/// a job uses shares its [`WAIT_BUDGET`]; in tests, `for_job` hands another job its own budget
+/// and the listings this one read.
 pub(crate) struct Lookup {
+    #[cfg(all(test, unix))]
     known: Known,
+    #[cfg(all(test, unix))]
     listings: Arc<Mutex<Listings>>,
     /// Tells when a listing was read, to keep only listings of a directory that has settled.
     clock: Arc<dyn Clock>,
@@ -119,20 +134,22 @@ impl Waited {
 
 /// The listings a pass keeps, oldest first.
 #[derive(Debug, Default)]
+#[cfg(all(test, unix))]
 struct Listings {
     kept: VecDeque<Listing>,
     /// How many times the pass read a directory to confirm a spelling.
-    #[cfg(test)]
     reads: usize,
 }
 
 /// The names of one directory, with what the directory reported before they were read.
 #[derive(Debug)]
+#[cfg(all(test, unix))]
 struct Listing {
     state: FileIdentity,
     names: HashSet<OsString>,
 }
 
+#[cfg(all(test, unix))]
 impl Listings {
     fn find(&self, state: FileIdentity) -> Option<&Listing> {
         self.kept.iter().find(|listing| listing.state == state)
@@ -151,49 +168,49 @@ impl Listings {
 }
 
 impl Lookup {
-    /// Lookups that know nothing about the filesystem: each directory's own answer decides.
+    /// Lookups that know nothing about the filesystem, telling the time and waiting on `clock`:
+    /// each directory's own answer decides.
     #[cfg_attr(
-        not(all(test, unix)),
-        expect(dead_code, reason = "the seed watcher reuses this")
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only the Unix seed walk opens fixtures through a lookup"
+        )
     )]
-    pub(crate) fn unprobed() -> Self {
-        Self::unprobed_on(Arc::new(SystemClock))
-    }
-
-    /// Like [`Self::unprobed`], telling the time and waiting on `clock`.
     pub(crate) fn unprobed_on(clock: Arc<dyn Clock>) -> Self {
-        Self::with(Known::Nothing, clock)
-    }
-
-    /// Lookups below a root whose probe matched names as `matching` says, telling the time of a
-    /// listing by `clock`.
-    #[cfg_attr(
-        not(all(test, unix)),
-        expect(dead_code, reason = "the seed watcher reuses this")
-    )]
-    pub(crate) fn probed(matching: Matching, clock: Arc<dyn Clock>) -> Self {
-        let known = match matching {
-            Matching::Exact => Known::Nothing,
-            Matching::Folding => Known::Folding,
-        };
-        Self::with(known, clock)
-    }
-
-    fn with(known: Known, clock: Arc<dyn Clock>) -> Self {
         Self {
-            known,
+            #[cfg(all(test, unix))]
+            known: Known::Nothing,
+            #[cfg(all(test, unix))]
             listings: Arc::default(),
             clock,
             waited: Waited::default(),
         }
     }
 
+    /// Like [`Self::unprobed_on`], on the system clock.
+    #[cfg(all(test, unix))]
+    pub(crate) fn unprobed() -> Self {
+        Self::unprobed_on(Arc::new(SystemClock))
+    }
+
+    /// Lookups below a root whose probe matched names as `matching` says, telling the time of a
+    /// listing by `clock`.
+    #[cfg(all(test, unix))]
+    pub(crate) fn probed(matching: Matching, clock: Arc<dyn Clock>) -> Self {
+        let known = match matching {
+            Matching::Exact => Known::Nothing,
+            Matching::Folding => Known::Folding,
+        };
+        Self {
+            known,
+            ..Self::unprobed_on(clock)
+        }
+    }
+
     /// The lookups another job uses: they share the listings this one read and keep, and start
     /// with a whole [`WAIT_BUDGET`], so that the job is not held up by the waits of this one.
-    #[cfg_attr(
-        not(all(test, unix)),
-        expect(dead_code, reason = "the seed watcher reuses this")
-    )]
+    #[cfg(all(test, unix))]
     pub(crate) fn for_job(&self) -> Self {
         Self {
             known: self.known,
@@ -224,13 +241,7 @@ impl Lookup {
 
     /// Drops the kept listing of `parent`, which a listing read since showed to be older than
     /// what the directory holds.
-    #[cfg_attr(
-        not(unix),
-        expect(
-            dead_code,
-            reason = "descriptor-relative child lookup is unsupported on this platform"
-        )
-    )]
+    #[cfg(all(test, unix))]
     pub(super) fn forget(&self, parent: &File) -> io::Result<()> {
         let node = super::stat_identity(parent)?.node();
         self.listings()
@@ -241,6 +252,7 @@ impl Lookup {
 
     /// A panic while a listing was read or kept leaves the kept listings unknown, so they are
     /// dropped rather than trusted.
+    #[cfg(all(test, unix))]
     fn listings(&self) -> MutexGuard<'_, Listings> {
         self.listings.lock().unwrap_or_else(|poisoned| {
             self.listings.clear_poison();
@@ -252,23 +264,14 @@ impl Lookup {
 
     /// Whether the listing of `parent` holds `name` exactly, from a kept listing while `parent`
     /// reports what it did when that listing was read.
-    #[cfg_attr(
-        not(unix),
-        expect(
-            dead_code,
-            reason = "descriptor-relative child lookup is unsupported on this platform"
-        )
-    )]
+    #[cfg(all(test, unix))]
     pub(super) fn listed(&self, parent: &File, name: &OsStr) -> io::Result<bool> {
         let read_ns = signed_nanos(self.clock.now());
         let state = imp::uncached_identity(parent)?;
         if let Some(listing) = self.listings().find(state) {
             return Ok(listing.names.contains(name));
         }
-        #[cfg(test)]
-        {
-            self.listings().reads += 1;
-        }
+        self.listings().reads += 1;
         // The lock is not held while the directory is read, so lookups of other directories by
         // clones on other threads do not wait for it.
         let mut names = Some(HashSet::new());
@@ -300,28 +303,21 @@ impl Lookup {
 
     /// Opens the existing directory `name` in `parent` without following a symlink. An entry
     /// reached under another spelling is [`Child::Alias`].
-    #[cfg_attr(
-        not(all(test, unix)),
-        expect(dead_code, reason = "the seed watcher reuses this")
-    )]
+    #[cfg(all(test, unix))]
     pub(crate) fn directory(&self, parent: &File, name: &OsStr) -> io::Result<Child> {
         imp::child_directory(parent, name, self)
     }
 
     /// Opens the regular file `name` in `parent` without following a symlink. A file reached
-    /// under another spelling is [`RegularChild::Respelled`], with the spelling `parent` lists it
-    /// under.
-    #[cfg_attr(
-        not(all(test, unix)),
-        expect(dead_code, reason = "the seed watcher reuses this")
-    )]
+    /// under another spelling is [`RegularChild::Respelled`].
+    #[cfg(all(test, unix))]
     pub(crate) fn regular(&self, parent: &File, name: &OsStr) -> io::Result<RegularChild> {
         imp::child_regular(parent, name, self)
     }
 
     /// Opens the regular file `name` in `parent` without following a symlink or confirming its
-    /// spelling, for a name whose spelling the caller already knows, under the rule
-    /// [`Self::regular`] applies to a name that fails to open ([`Opened`]).
+    /// spelling, for a name whose spelling the caller already knows, under the rule that a name
+    /// which fails to open holds nothing only where `fstatat` finds nothing ([`Opened`]).
     #[cfg_attr(
         not(unix),
         expect(
@@ -374,13 +370,7 @@ impl Lookup {
     }
 
     /// What the root's rules say about the directories below it.
-    #[cfg_attr(
-        not(any(target_os = "linux", all(test, unix))),
-        expect(
-            dead_code,
-            reason = "only a Linux casefold flag answers a spelling that the root's rules can overrule"
-        )
-    )]
+    #[cfg(all(test, unix))]
     pub(super) fn known(&self) -> Known {
         self.known
     }
@@ -443,7 +433,7 @@ mod listing_tests {
         fn opens(&self, lookup: &Lookup, name: &str) -> bool {
             matches!(
                 lookup.regular(&self.parent, name.as_ref()).unwrap(),
-                RegularChild::File(_)
+                RegularChild::File
             )
         }
     }
@@ -602,7 +592,7 @@ mod open_failure_tests {
                 .lookup()
                 .regular(&entries.parent, "file".as_ref())
                 .unwrap(),
-            RegularChild::File(_)
+            RegularChild::File
         ));
         assert_eq!(file.left(), 0);
         let directory = FailingOpens::vanishing(&entries.dir.0, "directory", 3);
@@ -611,7 +601,7 @@ mod open_failure_tests {
                 .lookup()
                 .directory(&entries.parent, "directory".as_ref())
                 .unwrap(),
-            Child::Directory(_)
+            Child::Directory
         ));
         assert_eq!(directory.left(), 0);
     }

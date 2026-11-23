@@ -35,7 +35,6 @@ pub mod object;
 mod page_token;
 mod percent;
 mod project;
-mod retry;
 pub mod seed;
 mod serde_util;
 pub mod server;

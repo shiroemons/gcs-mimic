@@ -759,7 +759,7 @@ pub(crate) async fn begin_catalog_wait(
 
 /// Starts a catalog wait bounded by `deadline` instead of the request deadline, which lasts until
 /// the handler finishes its object request.
-#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
+#[cfg(test)]
 pub(crate) async fn begin_catalog_wait_until(
     activity: &watch::Sender<ObjectActivity>,
     deadline: Option<tokio::time::Instant>,
