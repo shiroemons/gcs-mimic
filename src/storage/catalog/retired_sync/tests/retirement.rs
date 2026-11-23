@@ -969,71 +969,106 @@ async fn staged_manifests_earlier_attempts_left_are_removed_and_nothing_else() {
     assert_retired(&Connection::open(data.join("catalog.sqlite3")).unwrap());
 }
 
+/// One failed open: the step that fails, how many times it passes first, the fault, and the
+/// phrase and file in the data directory its error names. The staged manifest is named by the
+/// start of its name, and `None` names the directory itself.
+type FailedOpen = (
+    Step,
+    usize,
+    Fault,
+    Option<(&'static str, Option<&'static str>)>,
+);
+
 /// A failure while the manifest is written, or of the transaction after it, leaves schema 57
 /// and every file; the next open writes the same manifest and retires the rows. A manifest
-/// step's error names the step and the file it worked on.
+/// step's error names the step and the file it worked on. A case may fail several opens in
+/// turn: each open after the first finds the manifest the first one published, removes its own
+/// identical staged copy, and then fails too.
 #[tokio::test]
 async fn a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_finishes() {
     let full = || Fault::Io(io::ErrorKind::StorageFull);
-    // The step that failed, and the file in the data directory it names, the staged manifest by
-    // the start of its name; `None` names the directory itself.
     let write = Some(("write", Some(STAGED)));
-    let faults = [
-        (Step::RetiredManifestWrite, 0, full(), write),
-        (Step::RetiredManifestWrite, 4, full(), write),
-        (
+    let cases: Vec<Vec<FailedOpen>> = vec![
+        vec![(Step::RetiredManifestWrite, 0, full(), write)],
+        vec![(Step::RetiredManifestWrite, 4, full(), write)],
+        vec![(
             Step::RetiredManifestFlush,
             0,
             full(),
             Some(("flush", Some(STAGED))),
-        ),
-        (
+        )],
+        vec![(
             Step::RetiredManifestSync,
             0,
             Fault::Io(io::ErrorKind::Other),
             Some(("sync", Some(STAGED))),
-        ),
-        (
+        )],
+        vec![(
             Step::RetiredManifestRename,
             0,
             Fault::Io(io::ErrorKind::PermissionDenied),
             Some(("rename the staged file to", Some(MANIFEST))),
-        ),
+        )],
         #[cfg(unix)]
-        (
+        vec![(
             Step::RetiredManifestDirSync,
             0,
             Fault::Io(io::ErrorKind::Other),
             Some(("sync the directory", None)),
-        ),
-        (Step::RetiredSyncCommit, 0, Fault::RollBack, None),
-        (Step::RetiredSyncCommit, 0, full(), None),
+        )],
+        vec![(Step::RetiredSyncCommit, 0, Fault::RollBack, None)],
+        vec![(Step::RetiredSyncCommit, 0, full(), None)],
+        // The second open finds the same bytes the first published, removes its staged copy,
+        // and then fails the directory sync that must precede its commit.
+        #[cfg(unix)]
+        vec![
+            (Step::RetiredSyncCommit, 0, Fault::RollBack, None),
+            (
+                Step::RetiredManifestDirSync,
+                0,
+                Fault::Io(io::ErrorKind::Other),
+                Some(("sync the directory", None)),
+            ),
+        ],
     ];
-    for (step, skip, fault, context) in faults {
+    for failures in cases {
+        let steps: Vec<Step> = failures.iter().map(|(step, ..)| *step).collect();
         let released = released().await;
         let data = released.data();
         let copies = files(&data.join("sync-conflicts"));
         let folder = files(&released.folder());
-        fault::arm(&data, step, skip, fault);
-        let Err(error) = Catalog::open(&data).await else {
-            panic!("{step:?}: the open succeeded");
-        };
-        if let Some((phrase, file)) = context {
-            let path = file.map_or_else(|| data.clone(), |file| data.join(file));
-            let expected = format!("could not {phrase} {}", path.display());
-            assert!(error.to_string().contains(&expected), "{step:?}: {error}");
+        let mut published: Option<Vec<u8>> = None;
+        for (index, (step, skip, fault, context)) in failures.into_iter().enumerate() {
+            fault::arm(&data, step, skip, fault);
+            let Err(error) = Catalog::open(&data).await else {
+                panic!("{steps:?}: the open that fails {step:?} succeeded");
+            };
+            if let Some((phrase, file)) = context {
+                let path = file.map_or_else(|| data.clone(), |file| data.join(file));
+                let expected = format!("could not {phrase} {}", path.display());
+                assert!(error.to_string().contains(&expected), "{steps:?}: {error}");
+            }
+            assert_eq!(fault::pending(&data), 0, "{steps:?}");
+            let connection = Connection::open(data.join("catalog.sqlite3")).unwrap();
+            assert_eq!(
+                user_version(&connection),
+                RETIREMENT_SCHEMA_VERSION - 1,
+                "{steps:?}"
+            );
+            assert_eq!(count(&connection, "SELECT count(*) FROM sync_conflicts"), 3);
+            drop(connection);
+            assert_eq!(files(&data.join("sync-conflicts")), copies, "{steps:?}");
+            let now = fs::read(data.join(MANIFEST)).ok();
+            if index > 0 {
+                assert!(
+                    published.is_some(),
+                    "{steps:?}: the first open published nothing"
+                );
+                assert_eq!(now, published, "{steps:?}");
+                assert_eq!(staged(&data), Vec::<String>::new(), "{steps:?}");
+            }
+            published = now;
         }
-        assert_eq!(fault::pending(&data), 0, "{step:?}");
-        let connection = Connection::open(data.join("catalog.sqlite3")).unwrap();
-        assert_eq!(
-            user_version(&connection),
-            RETIREMENT_SCHEMA_VERSION - 1,
-            "{step:?}"
-        );
-        assert_eq!(count(&connection, "SELECT count(*) FROM sync_conflicts"), 3);
-        drop(connection);
-        assert_eq!(files(&data.join("sync-conflicts")), copies, "{step:?}");
-        let published = fs::read(data.join(MANIFEST)).ok();
 
         let catalog = Catalog::open(&data).await.unwrap();
         released.assert_objects(&catalog).await;
@@ -1041,20 +1076,20 @@ async fn a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_fin
         assert_eq!(
             read_manifest(&data.join(MANIFEST)),
             released.manifest(),
-            "{step:?}"
+            "{steps:?}"
         );
-        // Written again from the same rows, a manifest the failed open published keeps its
+        // Written again from the same rows, a manifest a failed open published keeps its
         // bytes.
         if let Some(published) = published {
             assert_eq!(
                 fs::read(data.join(MANIFEST)).unwrap(),
                 published,
-                "{step:?}"
+                "{steps:?}"
             );
         }
-        assert_eq!(staged(&data), Vec::<String>::new(), "{step:?}");
-        assert_eq!(files(&data.join("sync-conflicts")), copies, "{step:?}");
-        assert_eq!(files(&released.folder()), folder, "{step:?}");
+        assert_eq!(staged(&data), Vec::<String>::new(), "{steps:?}");
+        assert_eq!(files(&data.join("sync-conflicts")), copies, "{steps:?}");
+        assert_eq!(files(&released.folder()), folder, "{steps:?}");
         let connection = Connection::open(data.join("catalog.sqlite3")).unwrap();
         assert_retired(&connection);
         assert_eq!(objects_table(&connection), released.rows);
