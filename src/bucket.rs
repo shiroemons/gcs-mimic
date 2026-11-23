@@ -747,9 +747,9 @@ pub enum CatalogError {
     /// Strict authorization refused a Cloud Storage permission, including when the bucket's
     /// current owning project is not one the caller was authorized for.
     Denied(Box<crate::auth::Denied>),
-    /// Refused for a reason no Cloud Storage permission names: a sync control without an
-    /// explicit `roles/storage.admin` grant in a project it touches, or an access authorized
-    /// for another permission than the operation needs.
+    /// Refused for a reason no Cloud Storage permission names: an access authorized for another
+    /// permission than the operation needs, or an object refusal of that kind, such as an upload
+    /// session whose bucket was recreated.
     Forbidden,
     RetentionPolicyLocked(u64),
     RetentionPolicyNotSet,
