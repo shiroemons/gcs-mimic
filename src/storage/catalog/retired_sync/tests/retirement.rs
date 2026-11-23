@@ -40,26 +40,50 @@ fn read_manifest(path: &Path) -> Json {
     serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
 }
 
-/// The manifest that lists `copies` and `entries`.
-fn manifest(copies: &[Json], entries: &[Json]) -> Json {
+/// The manifest that lists `folder`, `copies` and `entries`.
+fn manifest(folder: &Path, copies: &[Json], entries: &[Json]) -> Json {
     json!({
         "description": preserved::DESCRIPTION,
+        "folders": [{"folder": folder.to_str().unwrap()}],
         "conflict_copies": copies,
         "workspace_entries": entries,
     })
 }
 
-/// How the manifest lists the workspace entry `number` in `folder`: one a write-back of `object`
-/// left, or one a recovery left after its write-back was gone (`None`).
-fn workspace_entry(folder: &Path, number: u32, object: Option<&str>) -> Json {
+/// How the manifest lists the copy `number` of an edit to `object` in `folder`, whose bucket
+/// was `incarnation`: before its generation and digests, which not every copy has.
+fn conflict_copy(
+    folder: &Path,
+    number: u32,
+    incarnation: &str,
+    object: &str,
+    (size, state): (u64, &str),
+) -> Json {
+    json!({
+        "path": format!("sync-conflicts/{}", id(number)),
+        "folder": folder.to_str().unwrap(),
+        "target": format!("{BUCKET}/{object}"),
+        "bucket": BUCKET,
+        "bucket_incarnation": incarnation,
+        "object": object,
+        "size": size,
+        "state": state,
+    })
+}
+
+/// How the manifest lists the workspace entry `number` in `folder`: one a write-back of an
+/// object, given with its bucket's incarnation, left, or one a recovery left after its
+/// write-back was gone (`None`).
+fn workspace_entry(folder: &Path, number: u32, write_back: Option<(&str, &str)>) -> Json {
     let mut entry = json!({
-        "root": folder.to_str().unwrap(),
+        "folder": folder.to_str().unwrap(),
         "path": folder.join(".gcs-mimic-sync-work").join(id(number)).to_str().unwrap(),
     });
-    if let Some(object) = object {
-        entry["bucket"] = json!(BUCKET);
-        entry["object"] = json!(object);
+    if let Some((incarnation, object)) = write_back {
         entry["target"] = json!(format!("{BUCKET}/{object}"));
+        entry["bucket"] = json!(BUCKET);
+        entry["bucket_incarnation"] = json!(incarnation);
+        entry["object"] = json!(object);
     }
     entry
 }
@@ -71,6 +95,8 @@ struct Released {
     objects: Vec<(ObjectRecord, Vec<u8>)>,
     /// The `objects` table as SQLite holds it.
     rows: Vec<Vec<Value>>,
+    /// The incarnation of [`BUCKET`] the rows name.
+    incarnation: String,
 }
 
 impl Released {
@@ -97,30 +123,22 @@ impl Released {
     /// The manifest the rows of [`released`] give.
     fn manifest(&self) -> Json {
         let folder = self.folder();
+        let incarnation = self.incarnation.as_str();
+        let mut published =
+            conflict_copy(&folder, 0xc1, incarnation, "published", (11, "registered"));
+        published["generation"] = json!(self.objects[0].0.generation);
+        published["md5"] = json!("AAECAwQFBgcICQoLDA0ODw==");
+        published["crc32c"] = json!("AQIDBA==");
         manifest(
+            &folder,
             &[
-                json!({
-                    "path": format!("sync-conflicts/{}", id(0xc2)),
-                    "bucket": BUCKET,
-                    "object": "kept",
-                    "size": 4,
-                    "state": "capturing",
-                }),
-                json!({
-                    "path": format!("sync-conflicts/{}", id(0xc1)),
-                    "bucket": BUCKET,
-                    "object": "published",
-                    "generation": self.objects[0].0.generation,
-                    "size": 11,
-                    "md5": "AAECAwQFBgcICQoLDA0ODw==",
-                    "crc32c": "AQIDBA==",
-                    "state": "registered",
-                }),
+                conflict_copy(&folder, 0xc2, incarnation, "kept", (4, "capturing")),
+                published,
             ],
             &[
-                workspace_entry(&folder, 0xa2, Some("published")),
-                workspace_entry(&folder, 0xa3, Some("removed")),
-                workspace_entry(&folder, 0xa5, Some("conflicted")),
+                workspace_entry(&folder, 0xa2, Some((incarnation, "published"))),
+                workspace_entry(&folder, 0xa3, Some((incarnation, "removed"))),
+                workspace_entry(&folder, 0xa5, Some((incarnation, "conflicted"))),
                 workspace_entry(&folder, 0xa6, None),
             ],
         )
@@ -248,8 +266,8 @@ fn at_schema_57(data: &Path) -> Connection {
 }
 
 /// Records `folder` as synchronized with [`BUCKET`], with the per-folder rows that write-backs
-/// and conflict copies need.
-fn record_folder(connection: &Connection, folder: &Path) {
+/// and conflict copies need, and returns the bucket's incarnation.
+fn record_folder(connection: &Connection, folder: &Path) -> String {
     let incarnation: String = connection
         .query_row(
             "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
@@ -276,12 +294,18 @@ fn record_folder(connection: &Connection, folder: &Path) {
             params![ROOT, id(0xe1)],
         )
         .unwrap();
+    incarnation
 }
 
 /// The rows of every kind 0.27.0 wrote for one root, those that name files and those that do
-/// not, with the files they name.
-fn record_synchronization(connection: &Connection, folder: &Path, data: &Path, generation: i64) {
-    record_folder(connection, folder);
+/// not, with the files they name. Returns the bucket's incarnation.
+fn record_synchronization(
+    connection: &Connection,
+    folder: &Path,
+    data: &Path,
+    generation: i64,
+) -> String {
+    let incarnation = record_folder(connection, folder);
     // The write-back of a rejected deletion, prepared: its entry holds only its own copy.
     write_back(connection, 0xa1, "kept", 0, 0);
     write_back(connection, 0xa2, "published", 0, 1);
@@ -339,7 +363,13 @@ fn record_synchronization(connection: &Connection, folder: &Path, data: &Path, g
     for number in [0xa1, 0xa2, 0xa3, 0xa5, 0xa6] {
         fs::write(workspace.join(id(number)), id(number)).unwrap();
     }
-    fs::write(folder.join("published"), b"edited in the folder").unwrap();
+    fs::create_dir(folder.join(BUCKET)).unwrap();
+    fs::write(
+        folder.join(BUCKET).join("published"),
+        b"edited in the folder",
+    )
+    .unwrap();
+    incarnation
 }
 
 /// A schema-57 data directory whose synchronization rows name files in it and in the folder.
@@ -362,9 +392,14 @@ async fn released() -> Released {
     }
     catalog.close().await.unwrap();
     let connection = at_schema_57(&data);
-    record_synchronization(&connection, &folder, &data, objects[0].0.generation);
+    let incarnation = record_synchronization(&connection, &folder, &data, objects[0].0.generation);
     let rows = objects_table(&connection);
-    Released { dir, objects, rows }
+    Released {
+        dir,
+        objects,
+        rows,
+        incarnation,
+    }
 }
 
 /// Schema 58 with no synchronization object left.
@@ -473,34 +508,31 @@ async fn rows_that_name_no_file_retire_without_a_manifest() {
 /// Each kind of row that names a file writes the manifest on its own, listing just that file.
 #[tokio::test]
 async fn each_kind_of_row_that_names_a_file_alone_writes_the_manifest() {
-    /// What a case records, and the manifest it gives for the folder.
-    type Case = (&'static str, fn(&Connection), fn(&Path) -> Json);
+    /// What a case records, and the manifest it gives for the folder and the bucket's
+    /// incarnation.
+    type Case = (&'static str, fn(&Connection), fn(&Path, &str) -> Json);
     let cases: [Case; 3] = [
         (
             "recovery workspace",
             |connection| recovery(connection, 0xa6, 0),
-            |folder| manifest(&[], &[workspace_entry(folder, 0xa6, None)]),
+            |folder, _| manifest(folder, &[], &[workspace_entry(folder, 0xa6, None)]),
         ),
         (
             "write-back",
             |connection| write_back(connection, 0xa3, "removed", 1, 1),
-            |folder| manifest(&[], &[workspace_entry(folder, 0xa3, Some("removed"))]),
+            |folder, incarnation| {
+                let entry = workspace_entry(folder, 0xa3, Some((incarnation, "removed")));
+                manifest(folder, &[], &[entry])
+            },
         ),
         (
             "conflict copy",
             |connection| conflict(connection, 0xc1, "edited", (Some(1), 1, 3), None),
-            |_| {
-                manifest(
-                    &[json!({
-                        "path": format!("sync-conflicts/{}", id(0xc1)),
-                        "bucket": BUCKET,
-                        "object": "edited",
-                        "generation": 1,
-                        "size": 3,
-                        "state": "registered",
-                    })],
-                    &[],
-                )
+            |folder, incarnation| {
+                let mut copy =
+                    conflict_copy(folder, 0xc1, incarnation, "edited", (3, "registered"));
+                copy["generation"] = json!(1);
+                manifest(folder, &[copy], &[])
             },
         ),
     ];
@@ -509,18 +541,52 @@ async fn each_kind_of_row_that_names_a_file_alone_writes_the_manifest() {
         let folder = dir.0.join("folder");
         bucket_catalog(&dir.0).await.close().await.unwrap();
         let connection = at_schema_57(&dir.0);
-        record_folder(&connection, &folder);
+        let incarnation = record_folder(&connection, &folder);
         record(&connection);
         drop(connection);
 
         Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
         assert_eq!(
             read_manifest(&dir.0.join(MANIFEST)),
-            expected(&folder),
+            expected(&folder, &incarnation),
             "{kind}"
         );
         assert_retired(&Connection::open(dir.0.join("catalog.sqlite3")).unwrap());
     }
+}
+
+/// Every former folder is listed, sorted by its path's bytes, whether or not a row names a file
+/// in it; a path that is not UTF-8 keeps its bytes in base64 beside a readable form.
+#[tokio::test]
+async fn every_former_folder_is_listed_with_the_bytes_of_a_path_that_is_not_utf8() {
+    let dir = TestDir::new();
+    bucket_catalog(&dir.0).await.close().await.unwrap();
+    let connection = at_schema_57(&dir.0);
+    record_folder(&connection, &dir.0.join("folder"));
+    let latin1 = b"/srv/caf\xe9".as_slice();
+    connection
+        .execute("UPDATE sync_roots SET location = ?1", [latin1])
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO sync_roots VALUES(?1,?2,?3,?4,1)",
+            params![[2u8; 16], b"/srv/other", [0u8; 8], [2u8; 8]],
+        )
+        .unwrap();
+    recovery(&connection, 0xa6, 0);
+    drop(connection);
+
+    Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
+    let readable = "/srv/caf\u{fffd}";
+    let mut entry = workspace_entry(Path::new(readable), 0xa6, None);
+    entry["folder_base64"] = json!("L3Nydi9jYWbp");
+    let mut expected = manifest(Path::new(readable), &[], &[entry]);
+    expected["folders"] = json!([
+        {"folder": readable, "folder_base64": "L3Nydi9jYWbp"},
+        {"folder": "/srv/other"},
+    ]);
+    assert_eq!(read_manifest(&dir.0.join(MANIFEST)), expected);
+    assert_retired(&Connection::open(dir.0.join("catalog.sqlite3")).unwrap());
 }
 
 /// A copy whose recorded observation no release could have written is still listed, marked as
@@ -528,9 +594,10 @@ async fn each_kind_of_row_that_names_a_file_alone_writes_the_manifest() {
 #[tokio::test]
 async fn a_copy_whose_digests_cannot_be_read_is_listed_and_retires() {
     let dir = TestDir::new();
+    let folder = dir.0.join("folder");
     bucket_catalog(&dir.0).await.close().await.unwrap();
     let connection = at_schema_57(&dir.0);
-    record_folder(&connection, &dir.0.join("folder"));
+    let incarnation = record_folder(&connection, &folder);
     conflict(
         &connection,
         0xc1,
@@ -556,18 +623,14 @@ async fn a_copy_whose_digests_cannot_be_read_is_listed_and_retires() {
 
     Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
     let copy = |number: u32, object: &str| {
-        json!({
-            "path": format!("sync-conflicts/{}", id(number)),
-            "bucket": BUCKET,
-            "object": object,
-            "size": 3,
-            "digests": "unreadable",
-            "state": "registered",
-        })
+        let mut copy = conflict_copy(&folder, number, &incarnation, object, (3, "registered"));
+        copy["digests"] = json!("unreadable");
+        copy
     };
     assert_eq!(
         read_manifest(&dir.0.join(MANIFEST)),
         manifest(
+            &folder,
             &[
                 copy(0xc1, "truncated"),
                 copy(0xc2, "short"),
