@@ -1,8 +1,19 @@
 use super::*;
 
-/// The generation seeding published, and one an API write made after it.
-const SEEDED: i64 = 7;
-const API: i64 = 9;
+/// The version seeding published, one an API write of a body made after it, and the version an
+/// API edit of the metadata alone made of the one seeding published.
+const SEEDED: Version = Version {
+    generation: 7,
+    metageneration: 1,
+};
+const API: Version = Version {
+    generation: 9,
+    metageneration: 1,
+};
+const METADATA_EDITED: Version = Version {
+    metageneration: 2,
+    ..SEEDED
+};
 
 /// When the fixture file last changed.
 fn written() -> SystemTime {
@@ -45,7 +56,7 @@ fn edited() -> Body {
 }
 
 /// A record of the file `recorded()` that owns `owned`, taken from a settled stat.
-fn record(owned: Option<i64>) -> SeedRecord {
+fn record(owned: Option<Version>) -> SeedRecord {
     SeedRecord {
         owned,
         body: recorded(),
@@ -54,9 +65,9 @@ fn record(owned: Option<i64>) -> SeedRecord {
     }
 }
 
-fn live(generation: i64, body: Body, protection: Protection) -> LiveObject {
+fn live(version: Version, body: Body, protection: Protection) -> LiveObject {
     LiveObject {
-        generation,
+        version,
         body,
         attributes: Attributes::AsSeeded,
         protection,
@@ -98,7 +109,7 @@ fn a_startup_replay_publishes_a_file_unless_the_live_object_already_holds_it() {
     for protection in [Protection::Unprotected, Protection::Protected] {
         let metadata_edit = LiveObject {
             attributes: Attributes::Edited,
-            ..live(SEEDED, recorded(), protection)
+            ..live(METADATA_EDITED, recorded(), protection)
         };
         let expected = match protection {
             Protection::Unprotected => Replay::Publish,
@@ -109,16 +120,19 @@ fn a_startup_replay_publishes_a_file_unless_the_live_object_already_holds_it() {
 }
 
 /// Seeding owns the object it records only when its record already owned exactly that live
-/// generation. An identical object that an API write made, or that seeding wrote before it kept
-/// records, is recorded unowned, so that removing the file later never deletes it.
+/// version. An identical object that an API write made, one whose metadata an API write edited
+/// and then restored, or one that seeding wrote before it kept records, is recorded unowned, so
+/// that removing the file later never deletes it.
 #[test]
-fn recording_an_identical_live_object_keeps_ownership_only_of_the_generation_seeding_owned() {
+fn recording_an_identical_live_object_keeps_ownership_only_of_the_version_seeding_owned() {
     let file = recorded();
     let seeded = live(SEEDED, recorded(), Protection::Unprotected);
     let api_written = live(API, recorded(), Protection::Unprotected);
+    let restored_metadata = live(METADATA_EDITED, recorded(), Protection::Unprotected);
     let cases = [
         (record(Some(SEEDED)), seeded, Some(SEEDED)),
         (record(Some(SEEDED)), api_written, None),
+        (record(Some(SEEDED)), restored_metadata, None),
         (record(None), seeded, None),
         (record(Some(API)), seeded, None),
     ];
@@ -300,28 +314,23 @@ fn vacant() -> Vacant {
     }
 }
 
-/// A name proven absent deletes the live object only while it is the generation seeding owns
-/// and still holds the body the record read, conditioned on that generation; protection skips
-/// the deletion. Without ownership, with another generation live, with a changed body or with
-/// nothing live, the record is only dropped.
+/// A name proven absent deletes the live object only while it is the version seeding owns and
+/// still holds the body the record read, conditioned on that generation and metageneration;
+/// protection skips the deletion. Without ownership, with another generation live, after an API
+/// edit of the metadata, with a changed body or with nothing live, the record is only dropped.
 #[cfg(unix)]
 #[test]
-fn an_absent_file_deletes_only_the_unchanged_generation_seeding_owns() {
+fn an_absent_file_deletes_only_the_unchanged_version_seeding_owns() {
     let vacant = vacant();
     let owner = record(Some(SEEDED));
-    let metadata_edit = LiveObject {
-        attributes: Attributes::Edited,
-        ..live(SEEDED, recorded(), Protection::Unprotected)
-    };
-    for live in [
-        live(SEEDED, recorded(), Protection::Unprotected),
-        metadata_edit,
-    ] {
-        assert_eq!(
-            absent(&vacant, &owner, Some(&live)),
-            Vanished::Delete { generation: SEEDED }
-        );
-    }
+    assert_eq!(
+        absent(
+            &vacant,
+            &owner,
+            Some(&live(SEEDED, recorded(), Protection::Unprotected))
+        ),
+        Vanished::Delete { owned: SEEDED }
+    );
     assert_eq!(
         absent(
             &vacant,
@@ -330,8 +339,13 @@ fn an_absent_file_deletes_only_the_unchanged_generation_seeding_owns() {
         ),
         Vanished::Protected
     );
+    let metadata_edit = LiveObject {
+        attributes: Attributes::Edited,
+        ..live(METADATA_EDITED, recorded(), Protection::Unprotected)
+    };
     let forgotten = [
         (owner, Some(live(API, recorded(), Protection::Unprotected))),
+        (owner, Some(metadata_edit)),
         (owner, Some(live(SEEDED, edited(), Protection::Unprotected))),
         (owner, None),
         (
