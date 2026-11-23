@@ -36,29 +36,64 @@ target is where that file was, relative to root. gcs-mimic never deletes, moves 
 of these files: inspect them and remove them yourself once they are no longer needed. md5 and \
 crc32c are base64, as in the JSON API's md5Hash and crc32c.";
 
-/// Whether any retired row names a file: a conflict copy not yet discarded (state 2), or a
-/// workspace entry [`WORKSPACE_ENTRIES`] lists.
-const NAMES_FILES: &str = "SELECT EXISTS(SELECT 1 FROM sync_conflicts WHERE state != 2)
-    OR EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase != 4 AND NOT (phase = 0 AND kind = 0))
-    OR EXISTS(SELECT 1 FROM sync_recovery_workspaces WHERE phase != 2)";
+// The rows that name files, each as the tables and the condition of a query. [`NAMES_FILES`]
+// asks whether any of them exists and the listings select them, so a manifest is written
+// exactly when it lists something.
 
-/// The conflict copies not yet discarded, in the order synchronization captured them.
-const CONFLICT_COPIES: &str = "SELECT id, bucket, name, generation, size, retained, state
-    FROM sync_conflicts WHERE state != 2 ORDER BY ordinal";
+/// A conflict copy not yet discarded (state 2): its file is still under `sync-conflicts/`.
+macro_rules! kept_copies {
+    () => {
+        "FROM sync_conflicts c WHERE c.state != 2"
+    };
+}
 
-/// The workspace entries a write-back may have left, the rule synchronization's own restart
-/// recovery followed: any operation not complete (phase 4), except a publish (kind 0) not yet
-/// armed (phase 0), whose entry can hold only its private copy of the object; and any recovery
-/// workspace not yet released (phase 2).
-const WORKSPACE_ENTRIES: &str = "SELECT r.location, o.id, o.bucket, o.name, o.path
-    FROM sync_writeback_ops o JOIN sync_roots r ON r.root_id = o.root_id
-    WHERE o.phase != 4 AND NOT (o.phase = 0 AND o.kind = 0)
-    UNION
-    SELECT r.location, w.id, o.bucket, o.name, o.path
-    FROM sync_recovery_workspaces w JOIN sync_roots r ON r.root_id = w.root_id
-    LEFT JOIN sync_writeback_ops o ON o.root_id = w.root_id AND o.id = w.id
-    WHERE w.phase != 2
-    ORDER BY 1, 2";
+/// A write-back not complete (phase 4), except a publish (kind 0) not yet armed (phase 0), whose
+/// workspace entry can hold only its private copy of the object. Synchronization's own restart
+/// recovery followed the same rule.
+macro_rules! open_write_backs {
+    () => {
+        "FROM sync_writeback_ops o JOIN sync_roots r ON r.root_id = o.root_id
+        WHERE o.phase != 4 AND NOT (o.phase = 0 AND o.kind = 0)"
+    };
+}
+
+/// A recovery workspace not yet released (phase 2), with the write-back it recovers while that
+/// row remains.
+macro_rules! held_workspaces {
+    () => {
+        "FROM sync_recovery_workspaces w JOIN sync_roots r ON r.root_id = w.root_id
+        LEFT JOIN sync_writeback_ops o ON o.root_id = w.root_id AND o.id = w.id
+        WHERE w.phase != 2"
+    };
+}
+
+/// Whether any retired row names a file.
+const NAMES_FILES: &str = concat!(
+    "SELECT EXISTS(SELECT 1 ",
+    kept_copies!(),
+    ") OR EXISTS(SELECT 1 ",
+    open_write_backs!(),
+    ") OR EXISTS(SELECT 1 ",
+    held_workspaces!(),
+    ")"
+);
+
+/// The conflict copies, in the order synchronization captured them.
+const CONFLICT_COPIES: &str = concat!(
+    "SELECT c.id, c.bucket, c.name, c.generation, c.size, c.retained, c.state ",
+    kept_copies!(),
+    " ORDER BY c.ordinal"
+);
+
+/// The workspace entries a write-back or a recovery may have left. A write-back that a held
+/// recovery workspace recovers is one entry.
+const WORKSPACE_ENTRIES: &str = concat!(
+    "SELECT r.location, o.id, o.bucket, o.name, o.path ",
+    open_write_backs!(),
+    " UNION SELECT r.location, w.id, o.bucket, o.name, o.path ",
+    held_workspaces!(),
+    " ORDER BY 1, 2"
+);
 
 /// Whether the manifest has anything to list.
 pub(super) fn named(connection: &Connection) -> Result<bool, CatalogError> {
@@ -132,11 +167,12 @@ impl<'a> Manifest<'a> {
         self.out.write_all(bytes)
     }
 
-    /// Writes `key` and one compact JSON object per row `query` selects, a line each.
+    /// Writes `key`, which needs no JSON escape, and one compact JSON object per row `query`
+    /// selects, a line each.
     fn list<T: Serialize>(
         &mut self,
         connection: &Connection,
-        key: &str,
+        key: &'static str,
         query: &'static str,
         read: fn(&Row<'_>) -> rusqlite::Result<T>,
     ) -> Result<(), CatalogError> {
