@@ -1093,6 +1093,13 @@ fn check_import_requirements(entry: &BatchPublication) -> Result<(), AdminError>
     Ok(())
 }
 
+/// `time` at the whole microsecond that a publication records. Publication checks protection at
+/// the time it records, so a decision made at this instant is the one publication meets.
+fn recorded_instant(time: SystemTime) -> Result<SystemTime, ObjectError> {
+    let micros = super::super::unix_micros(time)?;
+    Ok(super::super::system_time_micros(micros)?)
+}
+
 /// The publication time in catalog microseconds, once the staged body passed its checks.
 fn checked_entry_micros(entry: &BatchPublication, now: SystemTime) -> Result<i64, ObjectError> {
     now.duration_since(std::time::UNIX_EPOCH)
