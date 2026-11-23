@@ -519,6 +519,45 @@ async fn a_directory_removed_and_added_back_gets_the_bucket_the_api_deleted() {
     watched.close().await;
 }
 
+/// A new directory whose name a bucket of another project has is left out and reported, and that
+/// bucket keeps what it holds.
+#[tokio::test]
+async fn a_directory_named_like_a_bucket_of_another_project_is_left_out() {
+    let watched = watched().await;
+    watched
+        .catalog
+        .admin(Origin::Seed)
+        .ensure_bucket(
+            BucketDefinition::default_for(
+                &BucketName::new("other").unwrap(),
+                "other-project",
+                &crate::clock::SystemClock,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    watched.api_write("other", "kept", b"api").await;
+    watched.write("other/x", b"seed");
+    let report = watched.pass().await;
+    assert_eq!(
+        report.problems.listed(),
+        [crate::storage::admin::seed_watch::Problem {
+            path: Some("other".into()),
+            reason:
+                "a bucket of another project has the directory's name; the directory is left out"
+                    .into(),
+        }]
+    );
+    assert_eq!(
+        (report.counts.buckets_created, report.counts.published),
+        (0, 0)
+    );
+    assert!(watched.live("other", "x").await.is_none());
+    assert_eq!(watched.body("other", "kept").await, b"api");
+    watched.close().await;
+}
+
 /// A directory a pass cannot list proves nothing gone: once it is readable again, a bucket an
 /// API request deleted stays deleted, and one it created again keeps the objects it holds.
 #[cfg(unix)]

@@ -244,14 +244,13 @@ fn take_buckets(
         if seed_records::mark_of(transaction, &record.name)? != Mark::Unmarked {
             continue;
         }
-        let existing = crate::storage::catalog::select_bucket(transaction, &record.name)
-            .map_err(objects_error)?;
-        if existing.is_some_and(|existing| existing.project != record.project) {
-            problems.report(Some(&record.name), &OTHER_PROJECT);
-            continue;
-        }
-        if create_bucket(transaction, &batch.admin.catalog, record)? == Bucket::Created {
-            counts.buckets_created += 1;
+        match create_bucket(transaction, &batch.admin.catalog, record)? {
+            Bucket::Created => counts.buckets_created += 1,
+            Bucket::Existing => {}
+            Bucket::OtherProject => {
+                problems.report(Some(&record.name), &OTHER_PROJECT);
+                continue;
+            }
         }
         seed_records::mark(transaction, &record.name)?;
     }

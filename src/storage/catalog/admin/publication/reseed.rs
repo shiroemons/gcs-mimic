@@ -560,8 +560,10 @@ fn commit(
         counts.buckets += initialization.apply(&transaction, catalog)?;
     }
     for definition in &batch.buckets {
-        if create_bucket(&transaction, catalog, &definition.0)? == Bucket::Created {
-            counts.buckets += 1;
+        match create_bucket(&transaction, catalog, &definition.0)? {
+            Bucket::Created => counts.buckets += 1,
+            Bucket::Existing => {}
+            Bucket::OtherProject => return Err(AdminError::SeedProjectMismatch),
         }
     }
     let published = replay_files(&transaction, batch, now, &mut counts)?;
@@ -588,15 +590,18 @@ fn commit(
     Ok(counts)
 }
 
-/// Whether a replay created the bucket of a top-level directory or found it.
+/// What a replay found under the name of a top-level directory's bucket.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Bucket {
     Created,
+    /// A bucket of the seed project, which the replay uses.
     Existing,
+    /// A bucket of another project, which the replay leaves alone: a startup replay or reseed
+    /// fails, and a pass leaves the directory out.
+    OtherProject,
 }
 
-/// Creates the bucket `record` names unless it exists, in the caller's transaction. An existing
-/// bucket of another project refuses the replay.
+/// Creates the bucket `record` names unless a bucket has the name, in the caller's transaction.
 pub(super) fn create_bucket(
     transaction: &rusqlite::Transaction<'_>,
     catalog: &Catalog,
@@ -605,9 +610,7 @@ pub(super) fn create_bucket(
     match crate::storage::catalog::select_bucket(transaction, &record.name)
         .map_err(objects_error)?
     {
-        Some(existing) if existing.project != record.project => {
-            Err(AdminError::SeedProjectMismatch)
-        }
+        Some(existing) if existing.project != record.project => Ok(Bucket::OtherProject),
         Some(_) => Ok(Bucket::Existing),
         None => {
             let creation = crate::storage::catalog::BucketCreation::default_policy(
