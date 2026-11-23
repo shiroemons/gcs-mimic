@@ -178,6 +178,15 @@ pub(crate) async fn migrated(
     (Catalog::open(&dir.0).await.unwrap(), original)
 }
 
+/// Caps the catalog at the pages it uses plus `spare`, so a write that needs more fails as on a
+/// full disk. SQLite reuses free pages before it grows the file, and a new catalog has some from
+/// the schema steps that drop tables, so the catalog gives them up first.
+pub(crate) fn limit_pages(connection: &Connection, spare: i64) -> rusqlite::Result<()> {
+    connection.execute_batch("VACUUM")?;
+    let pages: i64 = connection.pragma_query_value(None, "page_count", |row| row.get(0))?;
+    connection.pragma_update(None, "max_page_count", pages + spare)
+}
+
 #[track_caller]
 pub(crate) fn assert_current_schema(connection: &Connection) {
     assert_eq!(

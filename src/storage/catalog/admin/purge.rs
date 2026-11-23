@@ -220,7 +220,7 @@ const CASCADED: &[&str] = &[
 const INCARNATION_BOUND: &[&str] = &["change_journal"];
 /// The tables of the whole instance: allocators, journals the purge appends to, derived transfers
 /// owned by requests, and import state, which refuses the purge while it would touch the bucket.
-/// The retired synchronization tables (`retired_sync::TABLES`) keep their rows as well.
+/// The seed tables (`retired_sync::SEED_TABLES`) have no policy until something writes them.
 #[cfg(test)]
 const INSTANCE_WIDE: &[&str] = &[
     "bucket_generation",

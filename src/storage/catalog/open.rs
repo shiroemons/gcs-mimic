@@ -385,7 +385,11 @@ impl Catalog {
             // A version marker alone must not make a missing or incompatible schema ready.
             connection
                 .prepare_cached("SELECT name, project, location, location_type, storage_class, labels, metageneration, time_created, updated FROM buckets LIMIT 0")?;
-            upgrade(&mut connection, version)?;
+            let disk_dir = match &backend {
+                BlobBackend::Disk(root) => Some(root.as_path()),
+                BlobBackend::Memory(_) => None,
+            };
+            upgrade(&mut connection, version, disk_dir)?;
             // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
             if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
                 crate::diagnostics::emit(

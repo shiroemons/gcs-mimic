@@ -97,8 +97,51 @@ pub(crate) fn downgrade_bucket_file_entries_schema(connection: &rusqlite::Connec
         .unwrap();
 }
 
+/// The released statements that created the synchronization tables, in schema order; the
+/// catalog identity that schema 17 also created survives schema 58.
+const RETIRED_SYNC_SCHEMAS: [&str; 9] = [
+    include_str!("retired_sync/objects.sql"),
+    include_str!("retired_sync/roots.sql"),
+    include_str!("retired_sync/writeback.sql"),
+    include_str!("retired_sync/findings.sql"),
+    include_str!("retired_sync/buckets.sql"),
+    include_str!("retired_sync/deletions.sql"),
+    include_str!("retired_sync/observation.sql"),
+    include_str!("retired_sync/conflicts.sql"),
+    include_str!("retired_sync/deletion_history.sql"),
+];
+
+/// Restores schema 57 from 58: drops the seed records and creates the synchronization tables
+/// again, empty, from the statements releases ran. Leaves an older catalog as it is.
+pub(crate) fn downgrade_retired_sync_schema(connection: &rusqlite::Connection) {
+    let retired: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = 'seed_objects')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if !retired {
+        return;
+    }
+    let version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    connection
+        .execute_batch("DROP TABLE seed_objects;")
+        .unwrap();
+    for schema in RETIRED_SYNC_SCHEMAS {
+        connection.execute_batch(schema).unwrap();
+    }
+    // The statements set the version of each step they replay.
+    connection
+        .pragma_update(None, "user_version", version)
+        .unwrap();
+}
+
 /// Restores schema 56, before objects kept the time their event-based hold was released.
 pub(crate) fn downgrade_event_hold_release_schema(connection: &rusqlite::Connection) {
+    downgrade_retired_sync_schema(connection);
     let present: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('objects') WHERE name = 'event_based_hold_release_time')",

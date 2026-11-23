@@ -192,6 +192,34 @@ fn check_release(release: &str) {
         }
         server.stop();
     }
+    assert_synchronization_retired(release, &data);
+}
+
+/// Every release up to 0.27.0 created the directory-synchronization tables; the upgraded
+/// catalog holds none of them, and the fixtures, which never synchronized a folder, leave no
+/// files for a manifest to list.
+fn assert_synchronization_retired(release: &str, data: &Path) {
+    let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
+    let names = |query: &str| -> Vec<String> {
+        connection
+            .prepare(query)
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    };
+    assert_eq!(
+        names("SELECT name FROM sqlite_schema WHERE name GLOB 'sync_*' OR tbl_name GLOB 'sync_*'"),
+        Vec::<String>::new(),
+        "{release}"
+    );
+    assert_eq!(
+        names("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'seed_objects'"),
+        ["seed_objects"],
+        "{release}"
+    );
+    assert!(!data.join("sync-retired.json").exists(), "{release}");
 }
 
 #[test]

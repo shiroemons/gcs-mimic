@@ -69521,13 +69521,19 @@
         },
         {
           "id": "catalog-retired-synchronization-schema",
-          "description": "The schema steps that released directory synchronization added (17, 19, 20, 21, 27, 40, 41, 42 and 50) stay frozen, so a data directory from any release up to 0.27.0 still upgrades and validates. Schema 17 commits whole and a catalog keeps exactly one identity; the schema 50 deletion history step commits whole and clears its automatic count only at a new baseline. A catalog with synchronization rows from before schema 40 upgrades with them: each finding gains the owner of the bucket incarnation it names, or none when that incarnation is gone, and each root gains one observation and one deletion history. Nothing at runtime reads or writes the retired tables, so API writes, bucket deletion and reset leave their rows.",
+          "description": "The schema steps that released directory synchronization added (17, 19, 20, 21, 27, 40, 41, 42 and 50) stay frozen, so a data directory from any release up to 0.27.0 still upgrades and validates. Schema 17 commits whole and a catalog keeps exactly one identity; the schema 50 deletion history step commits whole and clears its automatic count only at a new baseline. A catalog with synchronization rows from before schema 40 upgrades with them through schema 57: each finding gains the owner of the bucket incarnation it names, or none when that incarnation is gone, and each root gains one observation and one deletion history. Schema 58 creates seed_objects, whose checks admit only the values its columns describe, and drops the 16 synchronization tables with their 9 indexes and 32 triggers in one transaction; a failed step leaves schema 57 with its rows, and catalog_identity stays. Pending write-backs and deletion sets go with their rows, while the objects they name keep their rows and bytes. When conflict copies not yet discarded, write-backs past a prepared publish that are not complete, or recovery workspaces not yet released remain, sync-retired.json in the data directory lists them first, in a stable order, through a staged file that is flushed, synced, renamed and made durable by a directory sync. A failed write, flush, sync, rename, directory sync or commit, and an abort or power-loss snapshot at each of those steps, restart into the same manifest with every file under sync-conflicts/ and in the synchronized folder unchanged; at the commit the manifest already survives a power loss. Rows that name no file write no manifest, and a catalog without a data directory refuses rows that do. Every supported release fixture opens with no synchronization object and no manifest. Reset and purge have no policy for seed_objects until the seed watcher writes it.",
           "result": "PASS",
           "test_ids": [
             "the_identity_step_commits_whole_and_a_catalog_keeps_exactly_one_identity",
             "a_synchronized_catalog_from_before_schema_40_upgrades_with_its_rows",
             "the_deletion_history_step_commits_whole_and_clears_the_count_only_at_a_new_baseline",
-            "api_writes_bucket_deletion_and_reset_leave_retired_rows_alone"
+            "the_retirement_step_commits_whole_and_checks_each_seed_column",
+            "a_released_catalog_lists_the_files_its_rows_name_and_drops_every_sync_object",
+            "rows_that_name_no_file_retire_without_a_manifest",
+            "rows_that_name_files_need_a_data_directory",
+            "a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_finishes",
+            "a_crash_at_each_manifest_step_or_before_the_commit_restarts_with_the_same_manifest",
+            "supported_release_data_directories_upgrade_without_changing_resources"
           ]
         }
       ],
@@ -69555,9 +69561,41 @@
         "the_identity_step_commits_whole_and_a_catalog_keeps_exactly_one_identity",
         "a_synchronized_catalog_from_before_schema_40_upgrades_with_its_rows",
         "the_deletion_history_step_commits_whole_and_clears_the_count_only_at_a_new_baseline",
-        "api_writes_bucket_deletion_and_reset_leave_retired_rows_alone"
+        "the_retirement_step_commits_whole_and_checks_each_seed_column",
+        "a_released_catalog_lists_the_files_its_rows_name_and_drops_every_sync_object",
+        "rows_that_name_no_file_retire_without_a_manifest",
+        "rows_that_name_files_need_a_data_directory",
+        "a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_finishes",
+        "a_crash_at_each_manifest_step_or_before_the_commit_restarts_with_the_same_manifest"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=line-tables-only cargo test --locked --offline --lib storage::catalog::retired_sync",
+          "result": "PASS",
+          "verified_at": "2026-11-23",
+          "artifact": "docs/en/native-binary.md",
+          "test_ids": [
+            "the_identity_step_commits_whole_and_a_catalog_keeps_exactly_one_identity",
+            "a_synchronized_catalog_from_before_schema_40_upgrades_with_its_rows",
+            "the_deletion_history_step_commits_whole_and_clears_the_count_only_at_a_new_baseline",
+            "the_retirement_step_commits_whole_and_checks_each_seed_column",
+            "a_released_catalog_lists_the_files_its_rows_name_and_drops_every_sync_object",
+            "rows_that_name_no_file_retire_without_a_manifest",
+            "rows_that_name_files_need_a_data_directory",
+            "a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_finishes",
+            "a_crash_at_each_manifest_step_or_before_the_commit_restarts_with_the_same_manifest"
+          ]
+        },
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=line-tables-only cargo test --locked --offline --test it_import_seed released_data_upgrade",
+          "result": "PASS",
+          "verified_at": "2026-11-23",
+          "artifact": "docs/en/native-binary.md",
+          "test_ids": [
+            "supported_release_data_directories_upgrade_without_changing_resources",
+            "every_supported_release_has_a_fixture"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib storage::catalog::retired_sync",
           "result": "PASS",
@@ -69566,8 +69604,7 @@
           "test_ids": [
             "the_identity_step_commits_whole_and_a_catalog_keeps_exactly_one_identity",
             "a_synchronized_catalog_from_before_schema_40_upgrades_with_its_rows",
-            "the_deletion_history_step_commits_whole_and_clears_the_count_only_at_a_new_baseline",
-            "api_writes_bucket_deletion_and_reset_leave_retired_rows_alone"
+            "the_deletion_history_step_commits_whole_and_clears_the_count_only_at_a_new_baseline"
           ]
         },
         {

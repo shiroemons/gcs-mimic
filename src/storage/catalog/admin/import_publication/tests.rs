@@ -315,11 +315,7 @@ async fn import_publication_disk_full_rolls_back_records_observations_and_cursor
         )]));
     catalog
         .run_upload(|connection| {
-            let pages: i64 = connection
-                .pragma_query_value(None, "page_count", |r| r.get(0))
-                .map_err(objects::object_unavailable)?;
-            connection
-                .pragma_update(None, "max_page_count", pages)
+            crate::storage::catalog::test_fixtures::limit_pages(connection, 0)
                 .map_err(objects::object_unavailable)
         })
         .await
