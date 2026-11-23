@@ -540,27 +540,33 @@ fn a_file_back_with_other_content_after_seeding_deleted_its_object_is_replayed()
 fn a_deletion_while_running_waits_for_a_second_proof_a_second_later() {
     let first = written();
     let owner = record(Some(SEEDED));
-    assert_eq!(
-        confirm_absence(&owner, first),
-        Confirmation::Pending { since: first }
-    );
-    let proven = SeedRecord {
-        absent_since: Some(first),
-        ..owner
+    let proof = Absence {
+        since: first,
+        pass: 4,
     };
+    assert_eq!(
+        confirm_absence(owner.absent, 4, first),
+        Confirmation::Pending(proof)
+    );
     let early = first + Duration::from_millis(999);
     assert_eq!(
-        confirm_absence(&proven, early),
-        Confirmation::Pending { since: first }
+        confirm_absence(Some(proof), 5, early),
+        Confirmation::Pending(Absence {
+            since: first,
+            pass: 5
+        })
     );
     assert_eq!(
-        confirm_absence(&proven, first + Duration::from_secs(1)),
+        confirm_absence(Some(proof), 5, first + Duration::from_secs(1)),
         Confirmation::Confirmed
     );
     let before = first - Duration::from_secs(10);
     assert_eq!(
-        confirm_absence(&proven, before),
-        Confirmation::Pending { since: before }
+        confirm_absence(Some(proof), 5, before),
+        Confirmation::Pending(Absence {
+            since: before,
+            pass: 5
+        })
     );
 }
 
@@ -570,14 +576,12 @@ fn a_deletion_while_running_waits_for_a_second_proof_a_second_later() {
 #[test]
 fn an_entry_found_between_two_proofs_of_absence_starts_the_wait_again() {
     let first = written();
-    let owner = record(Some(SEEDED));
-    assert_eq!(
-        confirm_absence(&owner, first),
-        Confirmation::Pending { since: first }
-    );
     let proven = SeedRecord {
-        absent_since: Some(first),
-        ..owner
+        absent: Some(Absence {
+            since: first,
+            pass: 1,
+        }),
+        ..record(Some(SEEDED))
     };
     assert_eq!(
         unread(Phase::Live, "unopenable"),
@@ -586,10 +590,37 @@ fn an_entry_found_between_two_proofs_of_absence_starts_the_wait_again() {
     let found = proven.found();
     let third = first + Duration::from_secs(2);
     assert_eq!(
-        confirm_absence(&found, third),
-        Confirmation::Pending { since: third }
+        confirm_absence(found.absent, 3, third),
+        Confirmation::Pending(Absence {
+            since: third,
+            pass: 3
+        })
     );
-    assert_eq!(confirm_absence(&proven, third), Confirmation::Confirmed);
+    assert_eq!(
+        confirm_absence(proven.absent, 2, third),
+        Confirmation::Confirmed
+    );
+}
+
+/// A pass that failed before it committed, between two proofs of absence, leaves a run whose
+/// last pass is not the one before: the later proof starts the wait again, however long ago the
+/// first was.
+#[test]
+fn a_failed_pass_between_two_proofs_of_absence_starts_the_wait_again() {
+    let first = written();
+    let proof = Some(Absence {
+        since: first,
+        pass: 1,
+    });
+    let third = first + Duration::from_secs(5);
+    assert_eq!(
+        confirm_absence(proof, 3, third),
+        Confirmation::Pending(Absence {
+            since: third,
+            pass: 3
+        })
+    );
+    assert_eq!(confirm_absence(proof, 2, third), Confirmation::Confirmed);
 }
 
 /// A name that could not be read fails a startup replay with its reason, and is reported with

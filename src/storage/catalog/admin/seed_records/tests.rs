@@ -28,7 +28,10 @@ fn sample(owned: Option<Version>, deleted: Option<Version>) -> SeedRecord {
             },
         },
         fingerprint: Fingerprint::stored(identity, true),
-        absent_since: Some(UNIX_EPOCH + Duration::from_micros(1_700_000_000_000_001)),
+        absent: Some(Absence {
+            since: UNIX_EPOCH + Duration::from_micros(1_700_000_000_000_001),
+            pass: i64::MAX.unsigned_abs(),
+        }),
     }
 }
 
@@ -77,7 +80,8 @@ async fn schema_58_upgrades_to_the_record_and_mark_tables() {
 }
 
 /// Every field a decision reads comes back as it was saved, including values that use the whole
-/// width of their type; clearing a proof of absence and forgetting touch only their name.
+/// width of their type; clearing a proof of absence and forgetting touch only their name, and
+/// clearing every proof touches only the proofs.
 #[tokio::test]
 async fn a_saved_record_reads_back_whole() {
     let dir = TestDir::new();
@@ -94,20 +98,17 @@ async fn a_saved_record_reads_back_whole() {
         let read = get(connection, "bucket", "a")?;
         found(connection, "bucket", "a")?;
         let cleared = get(connection, "bucket", "a")?;
+        clear_absences(connection)?;
+        let cleared_all = get(connection, "bucket", "b/c")?;
         forget(connection, "bucket", "b/c")?;
-        Ok((read, cleared, all(connection)?))
+        Ok((read, cleared, cleared_all, all(connection)?))
     })
     .await;
     assert_eq!(records.0, Some(first));
+    assert_eq!(records.1, Some(first.found()));
+    assert_eq!(records.2, Some(second.found()));
     assert_eq!(
-        records.1,
-        Some(SeedRecord {
-            absent_since: None,
-            ..first
-        })
-    );
-    assert_eq!(
-        records.2.keys().cloned().collect::<Vec<_>>(),
+        records.3.keys().cloned().collect::<Vec<_>>(),
         [("bucket".to_owned(), "a".to_owned())]
     );
     let refused = run(&catalog, |connection| {

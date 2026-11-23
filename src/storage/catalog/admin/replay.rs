@@ -133,10 +133,10 @@ pub(crate) struct SeedRecord {
     /// The fingerprint of the read that last hashed the file, or of a later stat that found it
     /// unchanged.
     pub(crate) fingerprint: Fingerprint,
-    /// When a pass while the server runs first proved the file gone, in a run of consecutive
-    /// passes that each proved it gone. A pass that finds an entry of any kind under the name, or
-    /// cannot tell whether it holds one, clears it ([`SeedRecord::found`]).
-    pub(crate) absent_since: Option<SystemTime>,
+    /// The run of consecutive passes while the server runs that each proved the file gone. A pass
+    /// that finds an entry of any kind under the name, or cannot tell whether it holds one,
+    /// clears it ([`SeedRecord::found`]); a startup replay or a reseed clears every one.
+    pub(crate) absent: Option<Absence>,
     /// The version seeding deleted at the name once a lookup proved the file gone
     /// ([`SeedRecord::after_deleting`]), until a replay records the name again. A file that
     /// returns with [`Self::body`] restores the object while nothing is live at the name, and
@@ -152,7 +152,7 @@ impl SeedRecord {
             owned,
             body,
             fingerprint,
-            absent_since: None,
+            absent: None,
             deleted: None,
         }
     }
@@ -163,7 +163,7 @@ impl SeedRecord {
     pub(crate) fn refreshed(self, fingerprint: Fingerprint) -> Self {
         Self {
             fingerprint,
-            absent_since: None,
+            absent: None,
             deleted: None,
             ..self
         }
@@ -182,23 +182,19 @@ impl SeedRecord {
 
     /// The record a pass keeps at a name under which it found an entry of any kind, such as a
     /// file it read, one that kept failing to open or one seeding cannot use, or where it could
-    /// not tell: an earlier proof of absence no longer counts toward a deletion.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a pass clears the stored proof in place (`seed_records::found`), so that it never writes back a record a bucket deletion dropped; the decision tests state the rule with this form"
-        )
-    )]
+    /// not tell: an earlier proof of absence no longer counts toward a deletion. A pass clears
+    /// the stored proof in place instead (`seed_records::found`), so that it never writes back a
+    /// record a bucket deletion dropped; the decision tests state the rule with this form.
+    #[cfg(test)]
     pub(crate) fn found(self) -> Self {
         Self {
-            absent_since: None,
+            absent: None,
             ..self
         }
     }
 
     /// The record kept for [`Vanished::Tombstone`]: it owns nothing, and keeps the body, the
-    /// fingerprint, `absent_since` and any version seeding deleted that it had.
+    /// fingerprint, the proofs of absence and any version seeding deleted that it had.
     pub(crate) fn tombstone(self) -> Self {
         Self {
             owned: None,
@@ -389,33 +385,46 @@ pub(crate) fn absent(
 /// How long a pass while the server runs waits between the two proofs of absence a deletion takes.
 pub(crate) const ABSENCE_CONFIRMED_AFTER: Duration = Duration::from_secs(1);
 
+/// A run of consecutive passes while the server runs that each proved a name absent: when the
+/// first did, and the number of the last. Passes are numbered from 1 as the server starts them,
+/// and every pass takes a number, even one that fails before it commits anything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Absence {
+    pub(crate) since: SystemTime,
+    pub(crate) pass: u64,
+}
+
 /// Whether a pass while the server runs deletes now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Confirmation {
     /// Consecutive passes, the first and the last at least `ABSENCE_CONFIRMED_AFTER` apart,
     /// proved the file absent.
     Confirmed,
-    /// Record `since` as the time of the first proof and delete nothing yet.
-    Pending { since: SystemTime },
+    /// Keep this run of proofs and delete nothing yet.
+    Pending(Absence),
 }
 
-/// Whether a pass at `now` that [`absent`] told to delete does so. While the server runs, a
-/// file can be missing for a moment, as when an editor or a sync tool replaces it by unlinking
-/// it and renaming another into its place, so a deletion waits for a second proof at least
+/// Whether pass number `pass`, at `now`, which proved a name absent where earlier passes kept
+/// `proven`, deletes what [`absent`] told it to. While the server runs, a file can be missing
+/// for a moment, as when an editor or a sync tool replaces it by unlinking it and renaming
+/// another into its place, so a deletion waits for a second proof at least
 /// `ABSENCE_CONFIRMED_AFTER` after the first. The proofs count only from consecutive passes: a
-/// pass in between that found an entry under the name, or could not tell, cleared the first
-/// ([`SeedRecord::found`]), so the next proof starts the wait again. A startup replay deletes on
-/// one proof: the file went missing while the server was stopped.
-pub(crate) fn confirm_absence(record: &SeedRecord, now: SystemTime) -> Confirmation {
-    // A first proof, or one dated after `now` by a clock that moved back, starts the wait.
-    let since = record
-        .absent_since
-        .filter(|since| *since <= now)
-        .unwrap_or(now);
+/// pass in between that found an entry under the name, or could not tell, cleared the run
+/// ([`SeedRecord::found`]), and one that failed before it committed left a run whose last pass is
+/// not the one before `pass`. Either way the proof starts the wait again. Pass numbers start over
+/// when the server restarts, which only starts the wait over: the startup replay clears every
+/// run. A startup replay deletes on one proof: the file went missing while the server was
+/// stopped.
+pub(crate) fn confirm_absence(proven: Option<Absence>, pass: u64, now: SystemTime) -> Confirmation {
+    // A first proof, a run broken by a failed pass, or one dated after `now` by a clock that
+    // moved back, starts the wait.
+    let since = proven
+        .filter(|proven| proven.pass.checked_add(1) == Some(pass) && proven.since <= now)
+        .map_or(now, |proven| proven.since);
     if now.duration_since(since).unwrap_or_default() >= ABSENCE_CONFIRMED_AFTER {
         Confirmation::Confirmed
     } else {
-        Confirmation::Pending { since }
+        Confirmation::Pending(Absence { since, pass })
     }
 }
 

@@ -390,7 +390,7 @@ async fn records(catalog: &Catalog) {
         "INSERT INTO acl_bucket_entries VALUES (?1, 'bucket', '[]')",
         "INSERT INTO bucket_file_entries VALUES (?1, zeroblob(32), 0)",
         "INSERT INTO upload_replays SELECT randomblob(32), randomblob(32), incarnation, 0, 600000000, randomblob(32), '{}' FROM bucket_incarnations WHERE bucket = ?1",
-        "INSERT INTO seed_objects VALUES (?1, 'announced', NULL, NULL, NULL, NULL, 9, zeroblob(16), 0, zeroblob(8), zeroblob(8), zeroblob(8), zeroblob(16), zeroblob(16), 0, NULL)",
+        "INSERT INTO seed_objects (bucket, name, size, md5, crc32c, device, inode, file_size, modified_ns, changed_ns, racy) VALUES (?1, 'announced', 9, zeroblob(16), 0, zeroblob(8), zeroblob(8), zeroblob(8), zeroblob(16), zeroblob(16), 0)",
     ] {
         exec(catalog, statement).await;
     }

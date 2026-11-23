@@ -330,6 +330,32 @@ async fn an_api_deletion_stays_until_the_file_changes() {
     watched.close().await;
 }
 
+/// A pass that fails between two proofs of absence, here because the seed directory went away
+/// for it, breaks the run: the next proof starts the wait again, however long ago the first was.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_failed_pass_between_two_proofs_starts_the_wait_again() {
+    let watched = watched().await;
+    watched.remove("bucket/b");
+    assert_eq!(watched.pass().await.counts.pending_deletions, 1);
+    let aside = watched.dir.0.join("aside");
+    std::fs::rename(&watched.seed, &aside).unwrap();
+    let failed = watched.pass().await;
+    assert!(failed.error.is_some(), "{failed:?}");
+    std::fs::rename(&aside, &watched.seed).unwrap();
+    watched.clock.advance(Duration::from_secs(2));
+    let report = watched.pass().await;
+    assert_eq!(
+        (report.counts.deleted, report.counts.pending_deletions),
+        (0, 1),
+        "{report:?}"
+    );
+    assert!(watched.live("bucket", "b").await.is_some());
+    watched.confirm().await;
+    assert!(watched.live("bucket", "b").await.is_none());
+    watched.close().await;
+}
+
 /// The name of a removed file whose object an API write replaced keeps a tombstone, which the
 /// status counts, and the object stays.
 #[cfg(unix)]

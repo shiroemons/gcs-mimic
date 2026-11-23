@@ -38,9 +38,13 @@ pub(crate) struct LiveOutcome {
 }
 
 impl SeedBatch {
-    /// Commits a pass while the server runs. A pass that would change nothing opens no
-    /// transaction and wakes nothing.
-    pub(crate) async fn commit_live(mut self, walk: LiveWalk) -> Result<LiveOutcome, AdminError> {
+    /// Commits pass number `pass` while the server runs. A pass that would change nothing opens
+    /// no transaction and wakes nothing.
+    pub(crate) async fn commit_live(
+        mut self,
+        walk: LiveWalk,
+        pass: u64,
+    ) -> Result<LiveOutcome, AdminError> {
         let mut counts = LiveCounts {
             buckets_kept_deleted: walk.buckets_kept_deleted,
             ..LiveCounts::default()
@@ -68,7 +72,7 @@ impl SeedBatch {
                 .map_err(|_| AdminError::Closed)?;
         let (outcome, mut batch) = catalog
             .run_upload_admitted::<_, AdminError>(execution, move |connection| {
-                let outcome = commit(connection, &self, walk, &found, counts);
+                let outcome = commit(connection, &self, walk, &found, (pass, counts));
                 Ok((outcome, self))
             })
             .await?;
@@ -94,7 +98,7 @@ impl SeedBatch {
         self.records
             .iter()
             .flatten()
-            .filter(|(key, record)| record.absent_since.is_some() && !proven.contains(key))
+            .filter(|(key, record)| record.absent.is_some() && !proven.contains(key))
             .map(|(key, _)| key.clone())
             .collect()
     }
@@ -126,12 +130,13 @@ impl SeedBatch {
     }
 }
 
+/// The commit of pass number `pass`, which starts from `counts`.
 fn commit(
     connection: &mut Connection,
     batch: &SeedBatch,
     walk: LiveWalk,
     found: &[RecordKey],
-    mut counts: LiveCounts,
+    (pass, mut counts): (u64, LiveCounts),
 ) -> Result<LiveOutcome, AdminError> {
     let transaction = sql::immediate(connection).map_err(objects_error)?;
     let now = super::super::recorded_instant(batch.admin.catalog.0.clock.now())?;
@@ -144,7 +149,7 @@ fn commit(
     } = walk;
     take_buckets(&transaction, batch, &mut counts, &mut problems)?;
     replay_live_files(&transaction, batch, now, &mut counts, &mut problems)?;
-    replay_live_absences(&transaction, batch, now, &mut counts, &mut problems)?;
+    replay_live_absences(&transaction, batch, (pass, now), &mut counts, &mut problems)?;
     for (bucket, name) in found {
         seed_records::found(&transaction, bucket, name)?;
     }
@@ -258,13 +263,13 @@ fn replay_live_files(
     Ok(())
 }
 
-/// Decides each name a complete walk proved absent where seeding owns a version: deletes it once
-/// a later proof confirms the first, keeps a tombstone where an API write took the name, and
-/// reports a protected object.
+/// Decides each name a complete walk, that of pass number `pass` at `now`, proved absent where
+/// seeding owns a version: deletes it once a later proof confirms the first, keeps a tombstone
+/// where an API write took the name, and reports a protected object.
 fn replay_live_absences(
     transaction: &rusqlite::Transaction<'_>,
     batch: &SeedBatch,
-    now: SystemTime,
+    (pass, now): (u64, SystemTime),
     counts: &mut LiveCounts,
     problems: &mut Problems,
 ) -> Result<(), AdminError> {
@@ -275,7 +280,7 @@ fn replay_live_absences(
         };
         let live = absent_object(transaction, bucket, name, now)?;
         let kept = match replay::absent(Phase::Live, proof, &record, live.as_ref()) {
-            Vanished::Delete { owned } => match replay::confirm_absence(&record, now) {
+            Vanished::Delete { owned } => match replay::confirm_absence(record.absent, pass, now) {
                 // A refused deletion keeps the record, and the next pass decides again.
                 Confirmation::Confirmed
                     if delete_owned(transaction, (bucket, name), owned, now, &access)? =>
@@ -285,10 +290,10 @@ fn replay_live_absences(
                     Some(record.after_deleting(owned))
                 }
                 Confirmation::Confirmed => None,
-                Confirmation::Pending { since } => {
+                Confirmation::Pending(absence) => {
                     counts.pending_deletions += 1;
                     Some(SeedRecord {
-                        absent_since: Some(since),
+                        absent: Some(absence),
                         ..record
                     })
                 }
