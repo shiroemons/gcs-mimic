@@ -60332,6 +60332,11 @@
         "scripts/smoke-containers.sh:linux/arm64",
         "unavailable_casefold_flags_fall_back_to_exact_directory_names",
         "healthcheck_usage_errors_come_before_any_probe",
+        "probes_answer_without_waiting_for_a_held_catalog",
+        "failing_maintenance_turns_readiness_off",
+        "import_publications_report_no_notifications",
+        "publication_disk_full_rolls_back_the_batch_and_its_generations",
+        "publication_equal_hash_keeps_generation_and_metadata",
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "indexed_listing_orders_filters_pages_and_limits",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
@@ -60730,6 +60735,13 @@
           "verified_at": "2026-11-20",
           "artifact": "docs/en/evidence/sync-listing-attribute-cache.txt",
           "test_ids": ["sync-listing-attribute-cache:docker-desktop:linux/arm64"]
+        },
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=line-tables-only cargo test --locked --offline --lib -- probes_answer_without_waiting_for_a_held_catalog failing_maintenance_turns_readiness_off publication_disk_full_rolls_back_the_batch_and_its_generations publication_equal_hash_keeps_generation_and_metadata import_publications_report_no_notifications (5 passed, 0 failed)",
+          "result": "PASS",
+          "verified_at": "2026-11-24",
+          "artifact": "docs/en/slices/shared-publication-modes.md",
+          "test_ids": ["probes_answer_without_waiting_for_a_held_catalog", "failing_maintenance_turns_readiness_off", "publication_disk_full_rolls_back_the_batch_and_its_generations", "publication_equal_hash_keeps_generation_and_metadata", "import_publications_report_no_notifications"]
         }
       ],
       "sdk_evidence": [],
