@@ -427,28 +427,34 @@ fn ready_event_preserves_the_symbolic_link_spelling_of_the_data_directory() {
     assert!(target.join("catalog.sqlite3").is_file());
 }
 
+/// The start-up events of `event` a server on `data` logs.
+fn start_events(data: &std::path::Path, event: &str) -> Vec<serde_json::Value> {
+    let (_, diagnostics) = ready_with_diagnostics(&mut common::process::http_command(data));
+    diagnostics
+        .into_iter()
+        .filter(|logged| logged["event"] == event)
+        .collect()
+}
+
 /// Each start warns once while `sync-conflicts/` in the data directory holds the copies of
-/// edits that directory synchronization kept, names the manifest once one lists them, and
-/// leaves the copies in place.
+/// edits that directory synchronization kept, not counting operating-system metadata, counts
+/// the ones a manifest lists, and leaves every file in place.
 #[test]
 fn start_warns_once_while_the_data_directory_holds_synchronization_copies() {
     let directory = TestDir::new();
     let copies = directory.0.join("sync-conflicts");
     let manifest = directory.0.join("sync-retired.json");
-    let warnings = || {
-        let (_, diagnostics) =
-            ready_with_diagnostics(&mut common::process::http_command(&directory.0));
-        diagnostics
-            .into_iter()
-            .filter(|event| event["event"] == "sync_conflicts_preserved")
-            .collect::<Vec<_>>()
-    };
+    let warnings = || start_events(&directory.0, "sync_retired_files");
     assert_eq!(warnings(), Vec::<serde_json::Value>::new());
     fs::create_dir(&copies).unwrap();
+    for metadata in [".DS_Store", "._listed"] {
+        fs::write(copies.join(metadata), b"finder").unwrap();
+    }
     assert_eq!(warnings(), Vec::<serde_json::Value>::new());
 
+    let listed = "1".repeat(32);
     for (name, bytes) in [
-        ("1".repeat(32), b"edited".as_slice()),
+        (listed.clone(), b"edited".as_slice()),
         ("2".repeat(32), b"edited again"),
     ] {
         fs::write(copies.join(name), bytes).unwrap();
@@ -460,30 +466,116 @@ fn start_warns_once_while_the_data_directory_holds_synchronization_copies() {
     assert_eq!(warning["level"], "warn");
     assert_eq!(warning["directory"], shown.as_ref());
     assert_eq!(warning["entries"], 2);
-    assert!(warning.get("manifest").is_none(), "{warning}");
+    assert_eq!(warning["listed"], 0);
+    assert_eq!(warning["manifests"], serde_json::json!([]));
+    assert_eq!(warning["workspace_entries"], 0);
     let message = warning["message"].as_str().unwrap();
     for part in [
-        shown.as_ref(),
-        "2 entries",
-        "removed directory synchronization",
-        "never deletes them",
+        format!("2 entries in {shown}, none of them listed in a manifest"),
+        "removed directory synchronization".to_owned(),
+        "never deletes these files".to_owned(),
+        "the copies stay until you delete them".to_owned(),
     ] {
-        assert!(message.contains(part), "{message}");
+        assert!(message.contains(&part), "{part}: {message}");
     }
 
-    fs::write(&manifest, b"{}\n").unwrap();
+    let written = serde_json::json!({
+        "conflict_copies": [{"path": format!("sync-conflicts/{listed}")}],
+        "workspace_entries": [],
+    })
+    .to_string();
+    fs::write(&manifest, &written).unwrap();
     let found = warnings();
     assert_eq!(found.len(), 1, "{found:?}");
-    let listed = manifest.to_string_lossy();
-    assert_eq!(found[0]["manifest"], listed.as_ref());
-    assert!(
-        found[0]["message"]
-            .as_str()
-            .unwrap()
-            .contains(listed.as_ref())
+    let named = manifest.to_string_lossy();
+    assert_eq!(found[0]["entries"], 2);
+    assert_eq!(found[0]["listed"], 1);
+    assert_eq!(found[0]["manifests"], serde_json::json!([named.as_ref()]));
+    let message = found[0]["message"].as_str().unwrap();
+    for part in [
+        format!("2 entries in {shown}, 1 of them listed in {named}"),
+        "deleting a manifest after checking it acknowledges it".to_owned(),
+    ] {
+        assert!(message.contains(&part), "{part}: {message}");
+    }
+    assert_eq!(fs::read_dir(&copies).unwrap().count(), 4);
+    assert_eq!(fs::read_to_string(&manifest).unwrap(), written);
+}
+
+/// A manifest that lists only workspace entries in formerly synchronized folders keeps the
+/// start warning until it is deleted, with no copy in the data directory.
+#[test]
+fn start_warns_while_a_manifest_lists_only_workspace_entries() {
+    let directory = TestDir::new();
+    let manifest = directory.0.join("sync-retired.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({
+            "folders": [{"folder": "/srv/folder"}],
+            "conflict_copies": [],
+            "workspace_entries": [
+                {"folder": "/srv/folder", "path": "/srv/folder/.gcs-mimic-sync-work/a"},
+                {"folder": "/srv/folder", "path": "/srv/folder/.gcs-mimic-sync-work/b"},
+            ],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let found = start_events(&directory.0, "sync_retired_files");
+    assert_eq!(found.len(), 1, "{found:?}");
+    let named = manifest.to_string_lossy();
+    assert_eq!(found[0]["entries"], 0);
+    assert_eq!(found[0]["manifests"], serde_json::json!([named.as_ref()]));
+    assert_eq!(found[0]["workspace_entries"], 2);
+    let message = found[0]["message"].as_str().unwrap();
+    let part = format!(
+        "{named} also lists 2 workspace entries that may remain in the private workspace \
+         (.gcs-mimic-sync-work/)"
     );
-    assert_eq!(fs::read_dir(&copies).unwrap().count(), 2);
-    assert_eq!(fs::read(&manifest).unwrap(), b"{}\n");
+    assert!(message.contains(&part), "{message}");
+    assert!(manifest.is_file());
+
+    fs::remove_file(&manifest).unwrap();
+    assert_eq!(
+        start_events(&directory.0, "sync_retired_files"),
+        Vec::<serde_json::Value>::new()
+    );
+}
+
+/// What the start cannot read for the warning gets a warning of its own naming the path and
+/// the error, and the server still becomes ready and warns about what it could read.
+#[test]
+fn start_goes_on_when_it_cannot_check_for_synchronization_copies() {
+    let directory = TestDir::new();
+    let copies = directory.0.join("sync-conflicts");
+    let manifest = directory.0.join("sync-retired.json");
+    fs::write(&copies, b"not a directory").unwrap();
+    fs::write(&manifest, b"not json").unwrap();
+    let (_, diagnostics) = ready_with_diagnostics(&mut common::process::http_command(&directory.0));
+    let unchecked: Vec<_> = diagnostics
+        .iter()
+        .filter(|event| event["event"] == "sync_retired_files_unchecked")
+        .collect();
+    let mut paths: Vec<_> = unchecked
+        .iter()
+        .map(|event| event["path"].as_str().unwrap())
+        .collect();
+    paths.sort_unstable();
+    let (copies, manifest) = (copies.to_string_lossy(), manifest.to_string_lossy());
+    assert_eq!(paths, [copies.as_ref(), manifest.as_ref()]);
+    for event in &unchecked {
+        assert_eq!(event["level"], "warn");
+        assert!(!event["error"].as_str().unwrap().is_empty(), "{event}");
+    }
+    let remaining: Vec<_> = diagnostics
+        .iter()
+        .filter(|event| event["event"] == "sync_retired_files")
+        .collect();
+    assert_eq!(remaining.len(), 1, "{remaining:?}");
+    assert_eq!(
+        remaining[0]["manifests"],
+        serde_json::json!([manifest.as_ref()])
+    );
 }
 
 #[test]

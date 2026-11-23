@@ -484,6 +484,57 @@ async fn a_released_catalog_lists_the_files_its_rows_name_and_drops_every_sync_o
     );
 }
 
+/// The warning the commit gives names the manifest and counts the copies and, per folder in
+/// the order of its path's bytes, the workspace entries.
+#[tokio::test]
+async fn the_warning_at_the_commit_counts_the_copies_and_each_folders_workspace_entries() {
+    let released = released().await;
+    let data = released.data();
+    let folder = released.folder();
+    let connection = Connection::open(data.join("catalog.sqlite3")).unwrap();
+    connection
+        .execute(
+            "INSERT INTO sync_roots VALUES(?1,?2,?3,?4,1)",
+            params![[2u8; 16], b"/srv/other", [0u8; 8], [2u8; 8]],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO sync_recovery_workspaces VALUES(?1,?2,?3,?3,X'7B7D',0)",
+            params![id(0xb1), [2u8; 16], id(0xe2)],
+        )
+        .unwrap();
+
+    let warning = preserved::write_manifest(&connection, &data)
+        .unwrap()
+        .warning()
+        .unwrap();
+    let manifest = data.join(MANIFEST);
+    assert_eq!(warning["manifest"], manifest.to_str().unwrap());
+    assert_eq!(warning["conflict_copies"], 2);
+    assert_eq!(
+        warning["workspace_entries"],
+        json!([
+            {"folder": "/srv/other", "entries": 1},
+            {"folder": folder.to_str().unwrap(), "entries": 4},
+        ])
+    );
+    let message = warning["message"].as_str().unwrap();
+    for part in [
+        format!("{} lists the files", manifest.display()),
+        format!(
+            "2 conflict copies in {}",
+            data.join("sync-conflicts").display()
+        ),
+        "5 workspace entries".to_owned(),
+        format!("1 in /srv/other, 4 in {}", folder.display()),
+        "never deletes".to_owned(),
+        "delete the manifest to acknowledge it".to_owned(),
+    ] {
+        assert!(message.contains(&part), "{part}: {message}");
+    }
+}
+
 /// Rows that name no file write no manifest, and leave one an earlier upgrade wrote as it is.
 #[tokio::test]
 async fn rows_that_name_no_file_retire_without_a_manifest() {

@@ -279,7 +279,7 @@ fn upgrade_catalog(
         );
     }
     if let Some(data_dir) = disk_dir {
-        retired_sync::warn_preserved_copies(data_dir)?;
+        retired_sync::warn_retired_files(data_dir);
     }
     Ok(())
 }

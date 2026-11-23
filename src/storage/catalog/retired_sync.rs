@@ -11,7 +11,8 @@
 //! there may name files a user made: copies of edits under `sync-conflicts/` in the data
 //! directory, and entries left in the private workspace of a formerly synchronized folder.
 //! [`preserved`] lists them in a durable manifest before the transaction that drops the rows, and
-//! warns at every start while copies remain. Nothing deletes, moves or changes those files.
+//! warns when it commits and at every start while a manifest or a copy remains. Nothing deletes,
+//! moves or changes those files.
 
 use super::{CatalogError, sql, unavailable};
 use rusqlite::Connection;
@@ -21,7 +22,7 @@ mod preserved;
 #[cfg(test)]
 mod tests;
 
-pub(super) use preserved::warn_preserved_copies;
+pub(super) use preserved::warn_retired_files;
 
 /// Schema 17: the catalog's identity and the files synchronization tracked. The identity is not
 /// synchronization state: reset, reseed and import keep it, and schema 58 leaves it in place.
@@ -99,26 +100,33 @@ pub(super) fn migrate_identity(connection: &mut Connection) -> Result<(), Catalo
 
 /// Upgrades to schema 58. A manifest of the files the retired rows name is durable in
 /// `data_dir` before the transaction that drops those rows starts, so a crash between the two
-/// leaves schema 57 and the next start writes the same manifest again. A RAM catalog (`None`)
-/// starts empty, so its rows never name a file.
+/// leaves schema 57 and the next start finds the same manifest. Once the rows are gone, a
+/// warning names the manifest. A RAM catalog (`None`) starts empty, so its rows never name a
+/// file.
 pub(super) fn retire(
     connection: &mut Connection,
     data_dir: Option<&Path>,
 ) -> Result<(), CatalogError> {
-    if preserved::named(connection)? {
+    let listing = if preserved::named(connection)? {
         let data_dir = data_dir.ok_or_else(|| {
             unavailable(
                 "retired synchronization rows name files, but the catalog has no data directory",
             )
         })?;
-        preserved::write_manifest(connection, data_dir)?;
-    }
+        Some(preserved::write_manifest(connection, data_dir)?)
+    } else {
+        None
+    };
     let transaction = connection.transaction()?;
     transaction.execute_batch(RETIREMENT_SCHEMA)?;
     #[cfg(test)]
     super::fault::hit_transaction(&transaction, super::fault::Step::RetiredSyncCommit)
         .map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
+    transaction.commit().map_err(unavailable)?;
+    if let Some(listing) = listing {
+        listing.warn();
+    }
+    Ok(())
 }
 
 #[cfg(test)]
