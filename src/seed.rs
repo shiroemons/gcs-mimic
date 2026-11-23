@@ -231,7 +231,9 @@ impl Staged {
             objects: committed.objects,
             replaced: committed.replaced,
             unchanged: committed.unchanged,
-            // Atomic replay never skips fixtures; retain the field for output compatibility.
+            // 0.7.0 and earlier left a changed protected fixture as it was and counted it here.
+            // A protected fixture now rejects the whole replay, so the count stays 0; the field
+            // remains for output compatibility.
             blocked: 0,
             skipped_os_metadata: self.skipped_os_metadata,
         })
