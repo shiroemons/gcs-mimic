@@ -19,7 +19,10 @@
 //! - A startup replay, which reseed shares, lets the fixture tree win over the catalog, as it did
 //!   before any record existed, and fails on what it cannot replay. It also deletes, on a single
 //!   proof, an object seeding purely owns whose file is gone: the file went missing while the
-//!   server was stopped, and that deletion is the one change it makes beyond replaying files.
+//!   server was stopped, and that deletion is the one change it makes beyond replaying files. The
+//!   proof must come from the lookup after the walk of a recorded name the walk never listed; a
+//!   name the walk listed and then found empty, as an editor's rename-save leaves it for a
+//!   moment, is skipped.
 //!
 //! Each kind of observation has a function of its own, so that a caller receives only outcomes
 //! it can meet: [`startup_file`]; [`live_file`], then [`live_read`] once the file was hashed;
