@@ -706,6 +706,31 @@ async fn a_manifest_name_taken_before_the_rename_is_kept_and_the_next_name_is_us
     assert_retired(&Connection::open(data.join("catalog.sqlite3")).unwrap());
 }
 
+/// When every manifest name up to `sync-retired.9999.json` holds something else, the start
+/// fails before the commit with an error that names the last name and the data directory, and
+/// replaces nothing.
+#[tokio::test]
+async fn a_start_that_finds_every_manifest_name_taken_fails_and_names_the_directory() {
+    let released = released().await;
+    let data = released.data();
+    fs::write(data.join(MANIFEST), b"x").unwrap();
+    for number in 1..10_000 {
+        fs::write(data.join(format!("sync-retired.{number}.json")), b"x").unwrap();
+    }
+
+    let Err(error) = Catalog::open(&data).await else {
+        panic!("the open succeeded");
+    };
+    let message = error.to_string();
+    assert!(message.contains("sync-retired.9999.json"), "{message}");
+    assert!(message.contains(&data.display().to_string()), "{message}");
+    assert!(!data.join("sync-retired.10000.json").exists());
+    assert_eq!(fs::read(data.join(MANIFEST)).unwrap(), b"x");
+    assert_eq!(fs::read(data.join("sync-retired.9999.json")).unwrap(), b"x");
+    let connection = Connection::open(data.join("catalog.sqlite3")).unwrap();
+    assert_eq!(user_version(&connection), RETIREMENT_SCHEMA_VERSION - 1);
+}
+
 /// Each kind of row that names a file writes the manifest on its own, listing just that file.
 #[tokio::test]
 async fn each_kind_of_row_that_names_a_file_alone_writes_the_manifest() {
