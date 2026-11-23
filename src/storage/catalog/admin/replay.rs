@@ -12,10 +12,14 @@
 //!   owns whose body is still the one it recorded, and only where a lookup proved the fixture
 //!   file gone. An API write of the body or of the metadata ends that ownership.
 //! - A file that goes missing while the server runs and returns with the body seeding read never
-//!   replays over an API write: unless seeding deleted its own object, the name keeps a record
-//!   that owns nothing but still knows that body.
-//! - A startup replay, which reseed shares, keeps the contract it had before any record existed:
-//!   the fixture tree wins over the catalog, and what cannot be replayed fails it.
+//!   replays over an API write: the name keeps a record that owns nothing but still knows that
+//!   body. Where seeding deleted its own object, the record also keeps the version it deleted,
+//!   and a file that returns with the body restores the object only while no API write has
+//!   taken the name since.
+//! - A startup replay, which reseed shares, lets the fixture tree win over the catalog, as it did
+//!   before any record existed, and fails on what it cannot replay. It also deletes, on a single
+//!   proof, an object seeding purely owns whose file is gone: the file went missing while the
+//!   server was stopped, and that deletion is the one change it makes beyond replaying files.
 //!
 //! Each kind of observation has a function of its own, so that a caller receives only outcomes
 //! it can meet: [`startup_file`]; [`live_file`], then [`live_read`] once the file was hashed;
@@ -24,11 +28,15 @@
 //! No record is kept yet, and no pass runs while the server does. The step that adds them keeps a
 //! [`SeedRecord`] per replayed name in the transaction that publishes it, with the version that
 //! publication assigned; looks up the recorded names a pass did not list, since a walk lists only
-//! what is there; treats every record a pass did not observe as unknown, not absent, once the walk
-//! failed or stopped at a limit; and deletes for [`Vanished::Delete`] with both the
-//! `ifGenerationMatch` and the `ifMetagenerationMatch` condition of the owned version, checked
-//! atomically with the delete. A failed condition deletes nothing and keeps the record, and the
-//! next pass decides again from what is then live.
+//! what is there; acts on a proof of absence only once the walk ended with its final check that
+//! the root's path still names the root it listed; treats every record a pass did not observe as
+//! unknown, not absent, once the walk failed or stopped at a limit; and deletes for
+//! [`Vanished::Delete`] with both the `ifGenerationMatch` and the `ifMetagenerationMatch`
+//! condition of the owned version, checked atomically with the delete. A failed condition deletes
+//! nothing and keeps the record, and the next pass decides again from what is then live. A reset
+//! drops every record, a reset to the startup state records what it publishes again, and a bucket
+//! deletion or purge drops the records of the bucket's names, so no record claims an object one
+//! of them removed.
 
 use crate::{
     fsutil::{FileIdentity, Vacant},
@@ -116,9 +124,70 @@ pub(crate) struct SeedRecord {
     /// passes that each proved it gone. A pass that finds an entry of any kind under the name, or
     /// cannot tell whether it holds one, clears it ([`SeedRecord::found`]).
     pub(crate) absent_since: Option<SystemTime>,
+    /// The version seeding deleted at the name once a lookup proved the file gone
+    /// ([`SeedRecord::after_deleting`]), until a replay records the name again. A file that
+    /// returns with [`Self::body`] restores the object while nothing is live at the name, and
+    /// leaves any object an API write made there since.
+    pub(crate) deleted: Option<Version>,
 }
 
 impl SeedRecord {
+    /// The record of a file a replay read holding `body`, with the fingerprint of that read and
+    /// `owned` as the version seeding owns.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the seed record table that keeps what a replay read is not wired yet"
+        )
+    )]
+    pub(crate) fn new(owned: Option<Version>, body: Body, fingerprint: Fingerprint) -> Self {
+        Self {
+            owned,
+            body,
+            fingerprint,
+            absent_since: None,
+            deleted: None,
+        }
+    }
+
+    /// The record kept for [`Reread::Refresh`]: the fingerprint of the read that found the body
+    /// the record knows, with the proof of absence cleared, and with any deletion of seeding's
+    /// own forgotten, since the refresh happens only where an API write has taken the name since.
+    #[cfg_attr(
+        any(not(test), not(unix)),
+        expect(
+            dead_code,
+            reason = "the pass that watches the seed directory while the server runs is not wired yet, and only Unix tests refresh a record"
+        )
+    )]
+    pub(crate) fn refreshed(self, fingerprint: Fingerprint) -> Self {
+        Self {
+            fingerprint,
+            absent_since: None,
+            deleted: None,
+            ..self
+        }
+    }
+
+    /// The record kept once seeding deleted the version `owned` for [`Vanished::Delete`]: it owns
+    /// nothing, and keeps the body and the version it deleted, so that a file that returns with
+    /// that body restores the object only while no API write has taken the name since.
+    #[cfg_attr(
+        any(not(test), not(unix)),
+        expect(
+            dead_code,
+            reason = "the seed record table that names what a replay owns is not wired yet, and only a Unix lookup makes the proof of absence the tests pass"
+        )
+    )]
+    pub(crate) fn after_deleting(self, owned: Version) -> Self {
+        Self {
+            owned: None,
+            deleted: Some(owned),
+            ..self
+        }
+    }
+
     /// The record a pass keeps at a name under which it found an entry of any kind, such as a
     /// file it read, one that kept failing to open or one seeding cannot use, or where it could
     /// not tell: an earlier proof of absence no longer counts toward a deletion.
@@ -137,7 +206,7 @@ impl SeedRecord {
     }
 
     /// The record kept for [`Vanished::Tombstone`]: it owns nothing, and keeps the body, the
-    /// fingerprint and `absent_since` it had.
+    /// fingerprint, `absent_since` and any version seeding deleted that it had.
     #[cfg_attr(
         any(not(test), not(unix)),
         expect(
@@ -236,7 +305,9 @@ pub(crate) enum Look {
 /// itself: `chmod -R`, `touch`, an extended attribute and an inode number that is not stable
 /// across mounts all change it and leave the content as it was. A same-size edit that restores
 /// the modification time is missed on a filesystem whose status change time does not move with
-/// it, until a reseed replays every file again.
+/// it, until a reseed replays every file again. A file at a name where seeding deleted its own
+/// object is read whatever its fingerprint: it was proven gone, so it came back, possibly
+/// unchanged, as when its directory was renamed away and back.
 #[cfg_attr(
     not(test),
     expect(
@@ -247,7 +318,9 @@ pub(crate) enum Look {
 pub(crate) fn live_file(record: Option<&SeedRecord>, observed: &Fingerprint) -> Look {
     match record {
         Some(record)
-            if !record.fingerprint.racy && record.fingerprint.identity == observed.identity =>
+            if record.deleted.is_none()
+                && !record.fingerprint.racy
+                && record.fingerprint.identity == observed.identity =>
         {
             Look::Unchanged
         }
@@ -258,9 +331,8 @@ pub(crate) fn live_file(record: Option<&SeedRecord>, observed: &Fingerprint) -> 
 /// What a pass while the server runs does with a fixture file it read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Reread {
-    /// The file holds the body the record read: record the new fingerprint, clear the proof of
-    /// absence ([`SeedRecord::found`]) and keep everything else, so that an API delete or
-    /// overwrite stays.
+    /// The file holds the body the record read: keep [`SeedRecord::refreshed`], with the new
+    /// fingerprint and the proof of absence cleared, so that an API delete or overwrite stays.
     Refresh,
     /// The name has no record, or the file's content changed: replay it as a startup replay
     /// would.
@@ -268,7 +340,9 @@ pub(crate) enum Reread {
 }
 
 /// What a pass while the server runs does with a fixture file it read and found holding `file`,
-/// at a name where seeding recorded `record` and the catalog holds `live`.
+/// at a name where seeding recorded `record` and the catalog holds `live`. A file back with the
+/// body of an object seeding itself deleted restores that object where nothing is live, and only
+/// refreshes the record where an API write has taken the name since.
 #[cfg_attr(
     not(test),
     expect(
@@ -281,18 +355,21 @@ pub(crate) fn live_read(
     record: Option<&SeedRecord>,
     live: Option<&LiveObject>,
 ) -> Reread {
-    if record.is_some_and(|record| record.body == *file) {
-        return Reread::Refresh;
+    match record {
+        Some(known) if known.body == *file && (known.deleted.is_none() || live.is_some()) => {
+            Reread::Refresh
+        }
+        Some(_) | None => Reread::Changed(startup_file(file, record, live)),
     }
-    Reread::Changed(startup_file(file, record, live))
 }
 
 /// What a replay does at a recorded name whose fixture file a lookup proved absent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Vanished {
-    /// Delete the live object on the condition that it still is the version `owned`, then drop
-    /// the record, so that a file that returns later is published as a new one. A pass while
-    /// running deletes only once [`confirm_absence`] confirms it.
+    /// Delete the live object on the condition that it still is the version `owned`, then keep
+    /// [`SeedRecord::after_deleting`], so that a file that returns later with the body restores
+    /// the object only while nothing is live at the name. A pass while running deletes only once
+    /// [`confirm_absence`] confirms it.
     Delete { owned: Version },
     /// Change nothing in the catalog, and keep the record as a tombstone
     /// ([`SeedRecord::tombstone`]) where seeding owns nothing purely at the name, as after an API

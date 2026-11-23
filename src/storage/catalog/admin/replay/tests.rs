@@ -57,12 +57,7 @@ fn edited() -> Body {
 
 /// A record of the file `recorded()` that owns `owned`, taken from a settled stat.
 fn record(owned: Option<Version>) -> SeedRecord {
-    SeedRecord {
-        owned,
-        body: recorded(),
-        fingerprint: settled(identity()),
-        absent_since: None,
-    }
+    SeedRecord::new(owned, recorded(), settled(identity()))
 }
 
 fn live(version: Version, body: Body, protection: Protection) -> LiveObject {
@@ -453,21 +448,88 @@ fn a_file_back_with_other_content_is_replayed_over_an_api_write() {
     );
 }
 
-/// Seeding keeps no record once it deleted its own object for a file proven gone, so a file that
-/// returns afterwards is published again.
+/// The record seeding keeps once it deleted its own object for a file proven gone, in either
+/// phase.
 #[cfg(unix)]
-#[test]
-fn a_file_back_after_seeding_deleted_its_object_is_published_again() {
+fn deleted_by_seeding() -> SeedRecord {
     let seeded = live(SEEDED, recorded(), Protection::Unprotected);
+    let owner = record(Some(SEEDED));
     for phase in [Phase::Startup, Phase::Live] {
         assert_eq!(
-            absent(phase, &vacant(), &record(Some(SEEDED)), Some(&seeded)),
+            absent(phase, &vacant(), &owner, Some(&seeded)),
             Vanished::Delete { owned: SEEDED }
         );
     }
-    assert_eq!(live_file(None, &settled(identity())), Look::Read);
+    let deleted = owner.after_deleting(SEEDED);
+    assert_eq!((deleted.owned, deleted.deleted), (None, Some(SEEDED)));
+    // A later pass that still finds the name empty owns nothing there to delete.
     assert_eq!(
-        live_read(&recorded(), None, None),
+        absent(Phase::Live, &vacant(), &deleted, None),
+        Vanished::Tombstone
+    );
+    deleted
+}
+
+/// A file that returns with the body of the object seeding deleted for it is published again
+/// where nothing is live, even with the very fingerprint the record keeps, as when its directory
+/// was renamed away and back.
+#[cfg(unix)]
+#[test]
+fn a_file_back_after_seeding_deleted_its_object_is_published_again() {
+    let deleted = deleted_by_seeding();
+    assert_eq!(live_file(Some(&deleted), &settled(identity())), Look::Read);
+    assert_eq!(
+        live_read(&recorded(), Some(&deleted), None),
+        Reread::Changed(Replay::Publish)
+    );
+}
+
+/// `git checkout other` long enough for seeding to delete its object, an API write of the name,
+/// then `git checkout -`: the file returns with the body seeding deleted, and the API write stays,
+/// protected or not, of a body or of the metadata. The refreshed record forgets the deletion, so
+/// a later `touch` with nothing live, once the API deleted its object too, publishes nothing.
+#[cfg(unix)]
+#[test]
+fn a_file_back_after_seeding_deleted_its_object_keeps_an_api_write_made_since() {
+    let deleted = deleted_by_seeding();
+    for api in [
+        live(API, edited(), Protection::Unprotected),
+        live(API, edited(), Protection::Protected),
+        live(API, recorded(), Protection::Unprotected),
+        metadata_edit(),
+    ] {
+        assert_eq!(
+            live_read(&recorded(), Some(&deleted), Some(&api)),
+            Reread::Refresh,
+            "{api:?}"
+        );
+    }
+    let touched = settled(FileIdentity {
+        modified_ns: identity().modified_ns + 1,
+        ..identity()
+    });
+    let refreshed = deleted.refreshed(touched);
+    assert_eq!(refreshed.deleted, None);
+    assert_eq!(live_file(Some(&refreshed), &touched), Look::Unchanged);
+    assert_eq!(
+        live_read(&recorded(), Some(&refreshed), None),
+        Reread::Refresh
+    );
+}
+
+/// A file that returns with other content after seeding deleted its object is a changed file,
+/// replayed over whatever is live as any changed file is.
+#[cfg(unix)]
+#[test]
+fn a_file_back_with_other_content_after_seeding_deleted_its_object_is_replayed() {
+    let deleted = deleted_by_seeding();
+    assert_eq!(
+        live_read(&edited(), Some(&deleted), None),
+        Reread::Changed(Replay::Publish)
+    );
+    let api = live(API, recorded(), Protection::Unprotected);
+    assert_eq!(
+        live_read(&edited(), Some(&deleted), Some(&api)),
         Reread::Changed(Replay::Publish)
     );
 }
