@@ -91,6 +91,18 @@ pub enum WalkError {
 }
 
 impl WalkError {
+    /// This failure as one met listing the root, which is no entry of the walk: an entry that
+    /// could not be read there is I/O that ends the walk.
+    fn at_root(self) -> Self {
+        match self {
+            Self::Entry { error, .. } => Self::Io(error),
+            error @ (Self::Io(_)
+            | Self::EntryLimit { .. }
+            | Self::DepthLimit { .. }
+            | Self::NotDirectory) => error,
+        }
+    }
+
     /// Whether the walk stops at this failure: it goes on only past an entry it could not read.
     fn ends_walk(&self) -> bool {
         match self {
@@ -161,7 +173,9 @@ impl Walker {
             failed: false,
             started: false,
         };
-        walk.children(root, 0)?;
+        // The root is the tree itself, so failing to list it ends the walk instead of skipping one
+        // entry.
+        walk.children(root, 0).map_err(WalkError::at_root)?;
         Ok(walk)
     }
 
@@ -309,6 +323,8 @@ mod tests {
         let walked: Vec<_> = Walker::new(&directory.0, TreeLimits::default())
             .unwrap()
             .collect();
+        // A root the walk cannot list is no entry it can go on past.
+        let root = Walker::new(&locked, TreeLimits::default());
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
         let [Ok(a), Err(WalkError::Entry { path, error }), Ok(after)] = walked.as_slice() else {
             panic!("{walked:?}");
@@ -317,5 +333,8 @@ mod tests {
         assert_eq!(*path, locked);
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         assert_eq!(after.path, directory.0.join("a/z-after"));
+        assert!(
+            matches!(&root, Err(WalkError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied)
+        );
     }
 }
