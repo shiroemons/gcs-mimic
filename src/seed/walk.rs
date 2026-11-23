@@ -7,19 +7,19 @@
 //! still finds it, within the lookup's bounded wait. Windows keeps the trusted, path-opened
 //! source it had: nothing there proves a name absent.
 
-use super::{SeedError, decision::Unusable};
+use super::SeedError;
 use crate::{
     api_error::ApiError,
     fsutil::Vacant,
-    import::Fingerprint,
     source_tree::{TreeLimits, WalkEntry, WalkError, Walker, is_os_metadata},
-    storage::admin::{AdminError, BucketName, ObjectName},
+    storage::admin::{AdminError, BucketName, ObjectName, replay::Fingerprint},
 };
 use std::{
     ffi::OsStr,
     fs::{File, Metadata},
     io,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 use tokio::sync::mpsc;
 
@@ -89,17 +89,31 @@ impl From<Unknown> for SeedError {
     }
 }
 
-/// An entry seeding cannot use: why, and the failure a startup replay reports for it.
-pub(super) struct Rejected {
-    pub(super) reason: Unusable,
-    pub(super) error: SeedError,
+/// Why seeding cannot use an entry.
+pub(super) enum Rejected {
+    /// A symlink, which seeding never follows.
+    Symlink,
+    /// Neither a regular file nor a directory, such as a socket or a FIFO.
+    Special,
+    /// A name that is not UTF-8.
+    NonUtf8Name,
+    /// A path below a bucket that is no valid object name.
+    ObjectName,
+    /// A bucket directory whose name is no valid bucket name.
+    BucketName(AdminError),
 }
 
-impl Rejected {
-    fn non_utf8() -> Self {
-        Self {
-            reason: Unusable::NonUtf8Name,
-            error: SeedError::NonUtf8Name,
+/// The failure a startup replay reports for an entry it cannot use.
+impl From<Rejected> for SeedError {
+    fn from(rejected: Rejected) -> Self {
+        match rejected {
+            Rejected::Symlink | Rejected::Special => Self::UnsupportedFile,
+            Rejected::NonUtf8Name => Self::NonUtf8Name,
+            // Startup and the reseed route report a fixed message, so the rule it broke is dropped.
+            Rejected::ObjectName => {
+                Self::ObjectName(ApiError::invalid_parameter("Invalid object name"))
+            }
+            Rejected::BucketName(error) => Self::BucketName(error),
         }
     }
 }
@@ -140,9 +154,7 @@ pub(super) struct Opened {
 
 /// What the handle of an opened fixture file reports.
 fn inspect(file: File) -> Source {
-    let reported = file
-        .metadata()
-        .and_then(|metadata| Ok((Fingerprint::of_file(&file)?, metadata)));
+    let reported = fingerprint(&file).and_then(|fingerprint| Ok((fingerprint, file.metadata()?)));
     match reported {
         Ok((fingerprint, metadata)) => Source::File(Box::new(Opened {
             file,
@@ -151,6 +163,17 @@ fn inspect(file: File) -> Source {
         })),
         Err(error) => Source::Unknown(Unknown::Io(error)),
     }
+}
+
+/// The fingerprint of `file`, asked of its filesystem past any attribute cache, which a rename
+/// made on a Docker Desktop host does not invalidate. The time is read from the system wall clock
+/// before the stat, as [`Fingerprint::new`] requires.
+fn fingerprint(file: &File) -> io::Result<Fingerprint> {
+    let observed = SystemTime::now();
+    Ok(Fingerprint::new(
+        crate::fsutil::uncached_identity(file)?,
+        observed,
+    ))
 }
 
 /// The fixture tree below a canonical root, opened through the root's pinned descriptor on Unix.
@@ -255,18 +278,13 @@ impl Tree {
         let leaf = path
             .file_name()
             .and_then(OsStr::to_str)
-            .ok_or_else(Rejected::non_utf8)?;
+            .ok_or(Rejected::NonUtf8Name)?;
         let kind = metadata.file_type();
-        let unsupported = if kind.is_symlink() {
-            Some(Unusable::Symlink)
-        } else {
-            (!kind.is_file() && !kind.is_dir()).then_some(Unusable::Special)
-        };
-        if let Some(reason) = unsupported {
-            return Err(Rejected {
-                reason,
-                error: SeedError::UnsupportedFile,
-            });
+        if kind.is_symlink() {
+            return Err(Rejected::Symlink);
+        }
+        if !kind.is_file() && !kind.is_dir() {
+            return Err(Rejected::Special);
         }
         if kind.is_file() && is_os_metadata(leaf) {
             return Ok(Fixture::OsMetadata);
@@ -275,7 +293,7 @@ impl Tree {
         let bucket = components
             .next()
             .and_then(OsStr::to_str)
-            .ok_or_else(Rejected::non_utf8)?;
+            .ok_or(Rejected::NonUtf8Name)?;
         if depth == 0 {
             return Ok(if kind.is_dir() {
                 Fixture::Bucket(leaf.to_owned())
@@ -284,21 +302,14 @@ impl Tree {
             });
         }
         let name = components
-            .map(|part| part.to_str().ok_or_else(Rejected::non_utf8))
+            .map(|part| part.to_str().ok_or(Rejected::NonUtf8Name))
             .collect::<Result<Vec<_>, _>>()?
             .join("/");
-        // Startup and the reseed route report a fixed message, so the rule it broke is dropped.
-        let name = ObjectName::try_from(name).map_err(|_| Rejected {
-            reason: Unusable::InvalidName,
-            error: SeedError::ObjectName(ApiError::invalid_parameter("Invalid object name")),
-        })?;
+        let name = ObjectName::try_from(name).map_err(|_| Rejected::ObjectName)?;
         if kind.is_dir() {
             return Ok(Fixture::Directory);
         }
-        let bucket = BucketName::new(bucket).map_err(|error| Rejected {
-            reason: Unusable::InvalidName,
-            error: SeedError::BucketName(error),
-        })?;
+        let bucket = BucketName::new(bucket).map_err(Rejected::BucketName)?;
         #[cfg(test)]
         super::tests::injected_source_swap(path);
         Ok(Fixture::Object(Box::new(Object {

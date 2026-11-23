@@ -1,10 +1,13 @@
 //! A prepared fixture namespace has one catalog publication boundary.
 
 use super::*;
-use crate::{
-    import::Fingerprint,
-    seed::decision::{Content, LiveObject, Observation, Outcome, Phase, Protection, decide},
-    storage::catalog::{admin::initialization::Initialization, objects::Versioning, sql},
+use crate::storage::catalog::{
+    admin::{
+        initialization::Initialization,
+        replay::{self, Attributes, Body, Fingerprint, LiveObject, Protection, Replay},
+    },
+    objects::Versioning,
+    sql,
 };
 use std::num::NonZeroUsize;
 
@@ -49,7 +52,12 @@ pub(crate) struct Removed {
 /// One staged fixture file.
 struct SeedEntry {
     publication: BatchPublication,
-    /// What the fixture file's handle reported when the walk opened it.
+    /// What the fixture file's handle reported when the walk opened it, which the record of
+    /// the replay keeps.
+    #[expect(
+        dead_code,
+        reason = "the seed record table that keeps each replayed file's fingerprint is not wired yet"
+    )]
     fingerprint: Fingerprint,
 }
 
@@ -207,7 +215,8 @@ impl SeedBatch {
         request: Publication,
         source: File,
     ) -> Result<(), AdminError> {
-        let fingerprint = Fingerprint::of_file(&source)?;
+        let observed = std::time::SystemTime::now();
+        let fingerprint = Fingerprint::new(fsutil::uncached_identity(&source)?, observed);
         self.fixture(bucket, name, request, source, fingerprint)
             .await
     }
@@ -470,8 +479,7 @@ fn commit(
     }
     let mut published = Vec::new();
     for SeedEntry {
-        publication: entry,
-        fingerprint,
+        publication: entry, ..
     } in &batch.entries
     {
         validate_staged_entry(entry)?;
@@ -480,10 +488,13 @@ fn commit(
             .as_ref()
             .map(|stored| live_object(&transaction, &stored.record, entry, clock))
             .transpose()?;
+        let file = Body {
+            size: entry.staged.size,
+            hashes: entry.staged.hashes,
+        };
         // No seed record is kept yet, so the replay decides as it did before records.
-        let observation = Observation::File(fingerprint.clone());
-        match decide(Phase::Startup, &observation, None, live) {
-            Outcome::Publish => {
+        match replay::startup_file(&file, None, live.as_ref()) {
+            Replay::Publish => {
                 publish_entry(&transaction, entry, &batch.admin.grant, clock)?;
                 published.push(entry.staged.blob_id());
                 if previous.is_some() {
@@ -492,11 +503,9 @@ fn commit(
                     counts.objects += 1;
                 }
             }
-            Outcome::Record => counts.unchanged += 1,
+            Replay::Record { .. } => counts.unchanged += 1,
             // The refusal the replacement itself would meet, before anything is written.
-            Outcome::Fail => return Err(AdminError::Hold),
-            // A file observation never deletes, and a startup replay never keeps or skips one.
-            Outcome::Delete { .. } | Outcome::Keep | Outcome::Forget | Outcome::Skip(_) => {}
+            Replay::Protected => return Err(AdminError::Hold),
         }
     }
     sql::exec(
@@ -601,10 +610,17 @@ fn live_object(
                 == Versioning::Disabled);
     Ok(LiveObject {
         generation: live.generation,
-        content: if matches_seed(live, entry) {
-            Content::AsSeeded
+        body: Body {
+            size: live.size,
+            hashes: crate::hashing::Hashes {
+                md5: live.md5,
+                crc32c: live.crc32c,
+            },
+        },
+        attributes: if seeded_attributes(live, entry) {
+            Attributes::AsSeeded
         } else {
-            Content::Different
+            Attributes::Edited
         },
         protection: if protected {
             Protection::Protected
@@ -614,12 +630,10 @@ fn live_object(
     })
 }
 
-fn matches_seed(live: &ObjectRecord, entry: &BatchPublication) -> bool {
+/// Whether `live` carries only what publishing `entry` writes besides the body.
+fn seeded_attributes(live: &ObjectRecord, entry: &BatchPublication) -> bool {
     // Seed requests carry no metadata; adding sidecars must extend this comparison.
-    live.size == entry.staged.size
-        && live.md5 == entry.staged.hashes.md5
-        && live.crc32c == entry.staged.hashes.crc32c
-        && live.content_type == entry.request.content_type
+    live.content_type == entry.request.content_type
         && live.content_encoding.is_none()
         && live.content_disposition.is_none()
         && live.content_language.is_none()

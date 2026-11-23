@@ -40,6 +40,7 @@ mod import_publication;
 pub(crate) mod initialization;
 mod purge;
 pub(crate) use purge::PurgeError;
+pub(crate) mod replay;
 mod reset;
 
 #[cfg(test)]

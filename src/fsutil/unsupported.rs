@@ -57,8 +57,9 @@ pub(crate) fn each_name(
     Err(io::ErrorKind::Unsupported.into())
 }
 
-pub(crate) fn uncached_identity(_: &File) -> io::Result<super::FileIdentity> {
-    Err(io::ErrorKind::Unsupported.into())
+/// The identity of `file` as its handle reports it, which no attribute cache on this side answers.
+pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
+    Ok(super::stat_identity(file)?)
 }
 
 pub fn directory_writable(_: &File) -> io::Result<()> {
