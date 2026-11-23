@@ -5,6 +5,7 @@ use gcs_mimic::{
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     tls,
 };
+use local_server::{InvalidOrigin, Origin, Scheme, Untrusted};
 use std::{
     collections::{BTreeMap, btree_map},
     io,
@@ -682,7 +683,7 @@ impl TryFrom<&[String]> for HealthcheckArgs {
         if ca_cert.is_some()
             && url
                 .as_ref()
-                .is_some_and(|url| url.scheme == ProbeScheme::Http)
+                .is_some_and(|url| url.origin.scheme == Scheme::Http)
         {
             return Err(HealthcheckUsage::CaCertNeedsHttps);
         }
@@ -719,41 +720,17 @@ impl std::fmt::Display for HealthcheckUsage {
 
 impl std::error::Error for HealthcheckUsage {}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProbeScheme {
-    Http,
-    Https,
-}
-
-impl ProbeScheme {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Http => "http",
-            Self::Https => "https",
-        }
-    }
-}
-
 /// A probe of this server: an HTTP(S) origin with an explicit port and a probe path.
 #[derive(Debug, PartialEq, Eq)]
 struct ProbeUrl {
-    scheme: ProbeScheme,
-    authority: String,
-    /// The host without IPv6 brackets, as TLS names it.
-    host: String,
+    origin: Origin,
     /// The probe path without its leading slash.
     path: &'static str,
 }
 
-impl ProbeUrl {
-    fn origin(&self) -> String {
-        format!("{}://{}", self.scheme.as_str(), self.authority)
-    }
-}
-
 impl std::fmt::Display for ProbeUrl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.origin(), self.path)
+        write!(f, "{}/{}", self.origin, self.path)
     }
 }
 
@@ -773,37 +750,14 @@ impl std::str::FromStr for ProbeUrl {
     type Err = InvalidProbeUrl;
 
     fn from_str(url: &str) -> Result<Self, Self::Err> {
-        let uri: hyper::Uri = url.parse().map_err(|_| InvalidProbeUrl)?;
-        let scheme = match uri.scheme_str() {
-            Some("http") => ProbeScheme::Http,
-            Some("https") => ProbeScheme::Https,
-            _ => return Err(InvalidProbeUrl),
-        };
-        let (Some(authority), Some(host)) = (uri.authority(), uri.host()) else {
-            return Err(InvalidProbeUrl);
-        };
-        let path = match uri.path() {
+        let (origin, path) = Origin::split(url).map_err(|InvalidOrigin| InvalidProbeUrl)?;
+        let path = match path.as_str() {
             "/_internal/health" => "_internal/health",
             "/_internal/ready" => "_internal/ready",
             "/_internal/healthcheck" => "_internal/healthcheck",
             _ => return Err(InvalidProbeUrl),
         };
-        if uri.port_u16().is_none()
-            || uri.query().is_some()
-            || url.contains('#')
-            || authority.as_str().contains(['@', '\r', '\n'])
-        {
-            return Err(InvalidProbeUrl);
-        }
-        Ok(Self {
-            scheme,
-            authority: authority.as_str().to_owned(),
-            host: host
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .to_owned(),
-            path,
-        })
+        Ok(Self { origin, path })
     }
 }
 
@@ -839,29 +793,27 @@ fn probe_url(
 
 /// Passes when `url` answers HTTP 200 with a complete body.
 fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> io::Result<()> {
-    let client = match (url.scheme, ca_cert) {
-        (ProbeScheme::Https, Some(path)) => Some(tls::client_config(path)?),
-        (ProbeScheme::Https, None) => Some(tls::development_client_config()?),
-        // Only a URL from the configuration gets here: an explicit one was refused as usage.
-        (ProbeScheme::Http, Some(_)) => {
-            return Err(io::Error::new(
+    let origin = &url.origin;
+    let client = origin
+        .tls_client(ca_cert)
+        .map_err(|untrusted| match untrusted {
+            Untrusted::Load(error) => error,
+            Untrusted::CaCertOverHttp => io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "--ca-cert requires an HTTPS healthcheck URL",
-            ));
-        }
-        (ProbeScheme::Http, None) => None,
-    };
+            ),
+        })?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     let result = runtime.block_on(async {
         tokio::time::timeout(Duration::from_secs(2), async {
-            let stream = connect(&url.authority).await?;
+            let stream = connect(&origin.authority).await?;
             if let Some(client) = client {
-                let stream = connect_tls(client, &url.host, stream).await?;
-                probe_response(stream, &url.authority, url.path).await
+                let stream = connect_tls(client, &origin.host, stream).await?;
+                probe_response(stream, &origin.authority, url.path).await
             } else {
-                probe_response(stream, &url.authority, url.path).await
+                probe_response(stream, &origin.authority, url.path).await
             }
         })
         .await

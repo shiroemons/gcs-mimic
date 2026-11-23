@@ -1,8 +1,114 @@
 //! How a command on the server's host finds the server when it is given no address, as the
 //! healthcheck does.
 
-use gcs_mimic::{config::Config, diagnostics::Diagnostics};
-use std::{ffi::OsString, path::Path};
+use gcs_mimic::{config::Config, diagnostics::Diagnostics, tls};
+use std::{ffi::OsString, io, path::Path, str::FromStr, sync::Arc};
+use tokio_rustls::rustls::ClientConfig;
+
+/// How a client on this host speaks to the server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Scheme {
+    Http,
+    Https,
+}
+
+impl Scheme {
+    pub(super) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Https => "https",
+        }
+    }
+}
+
+/// A server origin, `http(s)://HOST:PORT`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Origin {
+    pub(super) scheme: Scheme,
+    pub(super) authority: String,
+    /// The host without IPv6 brackets, as TLS names it.
+    pub(super) host: String,
+}
+
+/// Text that names no server origin.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct InvalidOrigin;
+
+/// Why no TLS client can verify a server.
+#[derive(Debug)]
+pub(super) enum Untrusted {
+    /// The CA certificate could not be loaded.
+    Load(io::Error),
+    /// A CA was given for a server reached over plain HTTP.
+    CaCertOverHttp,
+}
+
+impl Origin {
+    /// The origin and the path of `url`, an absolute `http` or `https` URL with an explicit port
+    /// and without user information, a query or a fragment. The commands that reach the server
+    /// read each URL they are given through this, so they accept the same ones.
+    pub(super) fn split(url: &str) -> Result<(Self, String), InvalidOrigin> {
+        let uri: hyper::Uri = url.parse().map_err(|_| InvalidOrigin)?;
+        let scheme = match uri.scheme_str() {
+            Some("http") => Scheme::Http,
+            Some("https") => Scheme::Https,
+            _ => return Err(InvalidOrigin),
+        };
+        let (Some(authority), Some(host)) = (uri.authority(), uri.host()) else {
+            return Err(InvalidOrigin);
+        };
+        if uri.port_u16().is_none()
+            || uri.query().is_some()
+            || url.contains('#')
+            || authority.as_str().contains(['@', '\r', '\n'])
+        {
+            return Err(InvalidOrigin);
+        }
+        let origin = Self {
+            scheme,
+            authority: authority.as_str().to_owned(),
+            host: host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .to_owned(),
+        };
+        Ok((origin, uri.path().to_owned()))
+    }
+
+    /// The TLS client that verifies this server over HTTPS, with the CA certificate at `ca_cert`
+    /// or else the embedded development CA; none for plain HTTP, which takes no CA.
+    pub(super) fn tls_client(
+        &self,
+        ca_cert: Option<&Path>,
+    ) -> Result<Option<Arc<ClientConfig>>, Untrusted> {
+        let loaded = match (self.scheme, ca_cert) {
+            (Scheme::Http, None) => return Ok(None),
+            // Only a server the configuration names gets here: a given one was refused as usage.
+            (Scheme::Http, Some(_)) => return Err(Untrusted::CaCertOverHttp),
+            (Scheme::Https, Some(path)) => tls::client_config(path),
+            (Scheme::Https, None) => tls::development_client_config(),
+        };
+        loaded.map(Some).map_err(Untrusted::Load)
+    }
+}
+
+/// An origin alone: the path is empty or `/`.
+impl FromStr for Origin {
+    type Err = InvalidOrigin;
+
+    fn from_str(origin: &str) -> Result<Self, Self::Err> {
+        match Self::split(origin)? {
+            (origin, path) if matches!(path.as_str(), "" | "/") => Ok(origin),
+            _ => Err(InvalidOrigin),
+        }
+    }
+}
+
+impl std::fmt::Display for Origin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}://{}", self.scheme.as_str(), self.authority)
+    }
+}
 
 /// A configuration whose errors keep the origin it gives from being relied on.
 #[derive(Debug)]

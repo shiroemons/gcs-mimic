@@ -27,7 +27,14 @@ use crate::{
         },
     },
 };
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Duration};
+
+/// How long a wait for a settled pass lasts unless its request names another bound: the
+/// administration route and `gcs-mimic seed wait` both default to it.
+pub const DEFAULT_WAIT: Duration = Duration::from_secs(60);
+/// The longest wait for a settled pass a request may name; `gcs-mimic seed wait` refuses a longer
+/// `--timeout` before it asks. `request_timeout_ms` ends a longer request sooner.
+pub const MAX_WAIT: Duration = Duration::from_secs(600);
 
 /// Starts the passes over the seed directory every [`Config::seed_watch_interval`] on `clock`,
 /// unless no seed directory or no interval is configured. The passes keep a copy of the
