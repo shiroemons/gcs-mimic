@@ -111,12 +111,22 @@ pub(crate) struct LiveCounts {
     pub(crate) deleted: usize,
     /// Objects whose files a pass proved gone, waiting for the later proof that deletes them.
     pub(crate) pending_deletions: usize,
+    /// Marked top-level directories a pass proved gone, waiting for the later proof after which
+    /// the directory, added again, gets its bucket as a new directory does.
+    pub(crate) pending_directories: usize,
     /// Recorded names proven gone where seeding owns nothing to delete. Each is looked up on
     /// every pass until a file returns there, so the count shows that cost.
     pub(crate) tombstones: usize,
     /// Directories whose bucket was deleted after seeding took it, which stay deleted until the
     /// directory is removed and added again, a reseed or a restart.
     pub(crate) buckets_kept_deleted: usize,
+}
+
+impl LiveCounts {
+    /// Whether the pass left a proof of absence waiting for the later proof that confirms it.
+    pub(crate) fn waiting(&self) -> bool {
+        self.pending_deletions > 0 || self.pending_directories > 0
+    }
 }
 
 /// An entry a pass left as it was, or a reason the whole tree was not listed.
@@ -200,10 +210,11 @@ impl SeedWatch {
     }
 
     /// Starts a pass now, and returns the report of the first pass that started after this call
-    /// and completed without leaving a deletion waiting for its later proof. A file removed
-    /// before the call is then deleted, or reported, by the time the wait returns.
+    /// and completed without leaving a proof of absence waiting for its later proof. A file or a
+    /// directory removed before the call is then dealt with, or reported, by the time the wait
+    /// returns.
     pub(crate) async fn wait(&self, until: tokio::time::Instant) -> Result<PassReport, WaitError> {
-        self.wait_until(until, |report| report.counts.pending_deletions == 0)
+        self.wait_until(until, |report| !report.counts.waiting())
             .await
     }
 
@@ -348,7 +359,7 @@ where
         };
         let number = watch.begin();
         let report = pass(Catalog(inner), number).await;
-        delay = if report.counts.pending_deletions > 0 {
+        delay = if report.counts.waiting() {
             interval.min(ABSENCE_CONFIRMED_AFTER)
         } else {
             interval

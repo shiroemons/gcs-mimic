@@ -313,7 +313,9 @@ async fn open_tree(
     let tree = Tree::new(root, source_root, Arc::clone(clock));
     #[cfg(not(unix))]
     let tree = Tree::new(root);
-    let entries = tree.with_recorded(recorded).walk(limits)?;
+    let entries = tree
+        .with_recorded(recorded.names, recorded.directories)
+        .walk(limits)?;
     Ok((batch, entries))
 }
 
@@ -340,6 +342,8 @@ async fn stage_directory(
                 seed.unlisted(*unlisted);
                 continue;
             }
+            // A startup replay or a reseed forgets the mark of every directory it did not list.
+            Some(Walked::UnlistedDirectory(_)) => continue,
             Some(Walked::Done) => break,
             // The thread already reported its panic; failing here keeps the seed incomplete.
             None => {

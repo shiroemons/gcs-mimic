@@ -17,7 +17,7 @@ use crate::{
 #[cfg(unix)]
 use std::collections::HashMap;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fs::{File, Metadata},
     io,
@@ -39,6 +39,16 @@ pub(super) enum Walked {
     /// entry, and only from a walk that met no failure; a proof of absence counts only once
     /// [`Walked::Done`] follows, after the final check of the root.
     Unlisted(Box<Unlisted>),
+    /// What a lookup found at the name of a marked top-level directory the walk did not list, on
+    /// the same terms as [`Walked::Unlisted`].
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only a lookup through the pinned root proves a directory's name empty, and this platform has none"
+        )
+    )]
+    UnlistedDirectory(UnlistedDirectory),
     Done,
 }
 
@@ -47,6 +57,36 @@ pub(super) struct Unlisted {
     pub(super) bucket: String,
     pub(super) name: String,
     pub(super) source: Source,
+}
+
+/// A marked top-level directory that the walk did not list, and what a lookup found at its name.
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "only a lookup through the pinned root proves a directory's name empty, and this platform has none"
+    )
+)]
+pub(super) struct UnlistedDirectory {
+    pub(super) bucket: String,
+    pub(super) found: Presence,
+}
+
+/// What a lookup found at a name.
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "only a lookup through the pinned root looks a directory up, and this platform has none"
+    )
+)]
+pub(super) enum Presence {
+    /// An entry of some kind.
+    Present,
+    /// Nothing: the lookup proved the name empty.
+    Absent(Vacant),
+    /// The lookup could not tell.
+    Unknown(Unknown),
 }
 
 /// One walked entry.
@@ -235,6 +275,9 @@ pub(super) struct Tree {
     directories: HashMap<PathBuf, NodeId>,
     /// The recorded names, by their paths below the root, that the walk has yet to list.
     recorded: BTreeMap<PathBuf, (String, String)>,
+    /// The marked top-level directories that the walk has yet to list under their names, in any
+    /// form: one listed as unreadable or as a file is not looked up again, and keeps its mark.
+    marked: BTreeSet<String>,
 }
 
 impl Tree {
@@ -252,6 +295,7 @@ impl Tree {
             listed: Vec::new(),
             directories: HashMap::new(),
             recorded: BTreeMap::new(),
+            marked: BTreeSet::new(),
         }
     }
 
@@ -260,19 +304,22 @@ impl Tree {
         Self {
             root,
             recorded: BTreeMap::new(),
+            marked: BTreeSet::new(),
         }
     }
 
-    /// Looks up, once the walk has listed every entry, each of the `recorded` names that it did
-    /// not list.
+    /// Looks up, once the walk has listed every entry, each of the `recorded` names and each of
+    /// the `marked` top-level directories that it did not list.
     pub(super) fn with_recorded(
         mut self,
         recorded: impl IntoIterator<Item = (String, String)>,
+        marked: impl IntoIterator<Item = String>,
     ) -> Self {
         self.recorded = recorded
             .into_iter()
             .map(|(bucket, name)| (Path::new(&bucket).join(&name), (bucket, name)))
             .collect();
+        self.marked = marked.into_iter().collect();
         self
     }
 
@@ -322,6 +369,17 @@ impl Tree {
                 };
                 if send
                     .blocking_send(Walked::Unlisted(Box::new(unlisted)))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            #[cfg(unix)]
+            for bucket in std::mem::take(&mut self.marked) {
+                let found = self.look_up_directory(&bucket);
+                let unlisted = UnlistedDirectory { bucket, found };
+                if send
+                    .blocking_send(Walked::UnlistedDirectory(unlisted))
                     .is_err()
                 {
                     return;
@@ -377,8 +435,12 @@ impl Tree {
         #[cfg(unix)]
         self.listed
             .truncate(relative.iter().count().saturating_sub(1));
-        // A listed name is decided from its entry, whatever the entry turns out to be.
+        // A listed name is decided from its entry, whatever the entry turns out to be. No bucket
+        // name holds a separator, so only a top-level entry can match a marked directory.
         self.recorded.remove(relative);
+        if let Some(name) = relative.to_str() {
+            self.marked.remove(name);
+        }
         let fixture = match found {
             Ok((metadata, depth)) => {
                 let fixture = self
@@ -485,6 +547,21 @@ impl Tree {
             self.listed.push(*node);
         }
         self.open(relative)
+    }
+
+    /// What a lookup through the pinned root finds at the name of the top-level directory
+    /// `bucket`, which the walk did not list.
+    #[cfg(unix)]
+    fn look_up_directory(&self, bucket: &str) -> Presence {
+        let opened = opened(
+            self.lookup
+                .directory_unconfirmed(&self.pinned, OsStr::new(bucket)),
+        );
+        match opened {
+            Ok(_) => Presence::Present,
+            Err(Unopened::Absent(vacant)) => Presence::Absent(vacant),
+            Err(Unopened::Unknown(unknown)) => Presence::Unknown(unknown),
+        }
     }
 
     /// Nothing proves a name absent on this platform, so a lookup only opens the file again.
