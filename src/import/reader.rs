@@ -1363,7 +1363,7 @@ fn check_object_sidecar(path: &Path, leaf: &str) -> Result<(), ImportFailure> {
 
 fn walk_failure(error: WalkError) -> ImportFailure {
     match error {
-        WalkError::Io(error) => ImportFailure::Io(error),
+        WalkError::Io(error) | WalkError::Entry { error, .. } => ImportFailure::Io(error),
         WalkError::EntryLimit { .. } => ImportFailure::corrupt(
             CorruptField::Limits,
             "source entry limit exceeded",

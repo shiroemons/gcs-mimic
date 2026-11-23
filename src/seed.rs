@@ -144,7 +144,7 @@ pub(crate) async fn restore(
 impl From<WalkError> for SeedError {
     fn from(error: WalkError) -> Self {
         match error {
-            WalkError::Io(error) => Self::Io(error),
+            WalkError::Io(error) | WalkError::Entry { error, .. } => Self::Io(error),
             WalkError::EntryLimit { limit } => Self::EntryLimit { limit: limit.get() },
             WalkError::DepthLimit { limit } => Self::DepthLimit { limit: limit.get() },
             WalkError::NotDirectory => Self::NotDirectory,
