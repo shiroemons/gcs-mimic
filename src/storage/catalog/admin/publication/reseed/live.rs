@@ -35,8 +35,8 @@ pub(crate) struct LiveOutcome {
 }
 
 impl SeedBatch {
-    /// Commits pass number `pass` while the server runs. A pass that would change nothing opens
-    /// no transaction and wakes nothing.
+    /// Commits pass number `pass` while the server runs. A pass that found nothing to decide
+    /// against the catalog opens no transaction and wakes nothing.
     pub(crate) async fn commit_live(
         mut self,
         walk: LiveWalk,
@@ -55,6 +55,7 @@ impl SeedBatch {
         if self.entries.is_empty()
             && self.buckets.is_empty()
             && self.absences.is_empty()
+            && self.unproven.is_empty()
             && found.is_empty()
             && self.directory_absences.is_empty()
             && found_directories.is_empty()
@@ -109,21 +110,33 @@ impl SeedBatch {
             .collect()
     }
 
-    /// Keeps the proofs of absence that may delete: only those of a complete walk, and only at
-    /// names where seeding owns a version. Every other name proven absent stays a tombstone,
-    /// which changes nothing, and is counted.
+    /// Keeps the proofs of absence that may delete, only those of a complete walk, and the names
+    /// the lookup could not tell about, keeping both only where seeding owns a version. Every
+    /// other such name stays a tombstone, which changes nothing and needs no report, and is
+    /// counted.
     fn keep_owned_absences(&mut self, walk: &LiveWalk, counts: &mut LiveCounts) {
         let absences = std::mem::take(&mut self.absences);
-        if !walk.complete {
-            return;
+        if walk.complete {
+            self.absences = self.owned_only(absences, counts);
         }
+        let unproven = std::mem::take(&mut self.unproven);
+        self.unproven = self.owned_only(unproven, counts);
+    }
+
+    /// The `names` where seeding owned a version when the batch read the records; the others are
+    /// counted as tombstones.
+    fn owned_only<T>(
+        &self,
+        names: Vec<(RecordKey, T)>,
+        counts: &mut LiveCounts,
+    ) -> Vec<(RecordKey, T)> {
         let (owned, tombstones): (Vec<_>, Vec<_>) =
-            absences.into_iter().partition(|((bucket, name), _)| {
+            names.into_iter().partition(|((bucket, name), _)| {
                 self.record(bucket, name)
                     .is_some_and(|record| record.owned.is_some())
             });
         counts.tombstones += tombstones.len();
-        self.absences = owned;
+        owned
     }
 
     /// The marked directories whose proof of absence a pass clears: every one that kept one,
@@ -166,6 +179,9 @@ fn commit(
     take_buckets(&transaction, batch, &mut counts, &mut problems)?;
     replay_live_files(&transaction, batch, now, &mut counts, &mut problems)?;
     replay_live_absences(&transaction, batch, (pass, now), &mut counts, &mut problems)?;
+    counts.tombstones += replay_unproven(&transaction, batch, now, |bucket, name, reason| {
+        problems.report(Some(&format!("{bucket}/{name}")), &reason);
+    })?;
     forget_directories(&transaction, batch, (pass, now), &mut counts)?;
     for (bucket, name) in found.names {
         seed_records::found(&transaction, bucket, name)?;

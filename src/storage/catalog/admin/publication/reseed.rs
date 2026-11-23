@@ -8,7 +8,7 @@ use crate::{
             initialization::Initialization,
             replay::{
                 self, Attributes, Body, Fingerprint, LiveObject, Phase, Protection, Replay,
-                SeedRecord, Vanished, Version,
+                SeedRecord, Unproven, Vanished, Version,
             },
             seed_records::{self, Mark, Marked, RecordKey},
         },
@@ -95,6 +95,9 @@ pub(crate) struct SeedBatch {
     absences: Vec<(RecordKey, Vacant)>,
     /// The marked directories whose names a lookup proved empty.
     directory_absences: Vec<(String, Vacant)>,
+    /// The recorded names the walk did not list where the lookup after it could not tell
+    /// whether the fixture file is there, each with the reason.
+    unproven: Vec<(RecordKey, String)>,
 }
 
 /// What a walk looks up where it does not list it: the names seeding recorded, and the
@@ -169,6 +172,7 @@ impl Admin {
             marks: HashMap::new(),
             absences: Vec::new(),
             directory_absences: Vec::new(),
+            unproven: Vec::new(),
         })
     }
 }
@@ -281,6 +285,16 @@ impl SeedBatch {
                 .push(((bucket.to_owned(), name.to_owned()), proof));
         }
         recorded
+    }
+
+    /// Takes the recorded name `bucket`/`name`, which the walk did not list and where the lookup
+    /// after it could not tell whether the fixture file is there for `reason`. The commit decides
+    /// with [`replay::unproven`] whether the name needs reporting.
+    pub(crate) fn unproven(&mut self, bucket: &str, name: &str, reason: &dyn std::fmt::Display) {
+        if self.record(bucket, name).is_some() {
+            self.unproven
+                .push(((bucket.to_owned(), name.to_owned()), reason.to_string()));
+        }
     }
 
     pub(crate) fn bucket(&mut self, definition: BucketDefinition) -> Result<(), AdminError> {
@@ -553,6 +567,7 @@ fn commit(
     let published = replay_files(&transaction, batch, now, &mut counts)?;
     if batch.records.is_some() {
         replay_absences(&transaction, batch, now)?;
+        replay_unproven(&transaction, batch, now, unproven_kept)?;
         seed_records::clear_absences(&transaction)?;
         mark_buckets(&transaction, batch)?;
     }
@@ -708,6 +723,46 @@ fn replay_absences(
     Ok(())
 }
 
+/// Decides each recorded name the lookup after the walk could not tell about with
+/// [`replay::unproven`]: keeps a tombstone where seeding no longer purely owns the live object,
+/// and hands every other name, with the reason, to `report`. Returns how many tombstones it kept.
+pub(super) fn replay_unproven(
+    transaction: &rusqlite::Transaction<'_>,
+    batch: &SeedBatch,
+    now: SystemTime,
+    mut report: impl FnMut(&str, &str, &str),
+) -> Result<usize, AdminError> {
+    let mut tombstones = 0;
+    for ((bucket, name), reason) in &batch.unproven {
+        let Some(record) = seed_records::get(transaction, bucket, name)? else {
+            continue;
+        };
+        let live = absent_object(transaction, bucket, name, now)?;
+        match replay::unproven(&record, live.as_ref()) {
+            Unproven::Report => report(bucket, name, reason),
+            Unproven::Tombstone => {
+                tombstones += 1;
+                let kept = record.tombstone();
+                if kept != record {
+                    seed_records::save(transaction, bucket, name, &kept)?;
+                }
+            }
+        }
+    }
+    Ok(tombstones)
+}
+
+/// Warns that a startup replay or a reseed kept the object seeding owns at `bucket`/`name`, whose
+/// fixture file the walk did not list, because the lookup after the walk could not tell whether
+/// the file is there, as the walk warns about an entry it skips.
+fn unproven_kept(bucket: &str, name: &str, reason: &str) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Warn,
+        "seed_skipped",
+        serde_json::json!({"path": format!("{bucket}/{name}"), "reason": reason}),
+    );
+}
+
 /// Reports the object a replay deleted at `bucket`/`name` because its fixture file is gone.
 pub(super) fn deleted(bucket: &str, name: &str) {
     crate::diagnostics::emit(
@@ -731,8 +786,8 @@ fn kept(bucket: &str, name: &str) {
     );
 }
 
-/// What the catalog holds at `bucket`/`name` for a decision about a name proven absent, which
-/// reads only the version, the body and whether deleting it is refused.
+/// What the catalog holds at `bucket`/`name` for a decision about a name the walk did not find,
+/// which reads only the version, the body and whether deleting it is refused.
 pub(super) fn absent_object(
     transaction: &rusqlite::Transaction<'_>,
     bucket: &str,

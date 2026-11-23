@@ -156,7 +156,8 @@ impl Pass<'_> {
     }
 
     /// Takes what a lookup found at a recorded name the walk did not list. Only a proof of
-    /// absence counts; a name the lookup could not tell is reported.
+    /// absence counts toward a deletion; a name the lookup could not tell about is reported while
+    /// seeding owns its object, as the commit decides.
     fn unlisted(&mut self, unlisted: Unlisted) {
         let Unlisted {
             bucket,
@@ -172,7 +173,8 @@ impl Pass<'_> {
             }
             Source::File(_) => {}
             Source::Unknown(unknown) => {
-                self.report(&format!("{bucket}/{name}"), &SeedError::from(unknown));
+                self.batch
+                    .unproven(&bucket, &name, &SeedError::from(unknown));
             }
         }
     }

@@ -201,8 +201,12 @@ deletes the object seeding published for it at the next replay, under the
 generation and metageneration seeding recorded; an object an API request wrote
 or edited at that name stays, and so does one a hold or retention period
 protects. Only a Unix walk, which looks names up through the pinned root, proves
-a file absent: on Windows the object stays, a replay warns with `seed_skipped`
-and every pass reports the name as a problem.
+a file absent. Where the walk cannot tell, as on Windows for every removed
+file, the object stays, and while seeding owns it a startup replay or a reseed
+warns with `seed_skipped` and every pass reports the name as a problem.
+Deleting or overwriting the object through the API, or a reset, ends both: an
+object an API write replaced, edited or deleted is no longer seeding's to
+delete, so its name needs no attention.
 Seeding owns only what a replay of a release that keeps seed records published
 or found identical to a version it already owned, so an identical object an
 earlier release seeded stays after its file is removed, until the file changes
@@ -264,10 +268,11 @@ A pass report has `startedAt`, `completedAt`, `complete` (the walk listed the
 whole tree), `clean` (complete, without problems or error), the counts
 `bucketsCreated`, `published`, `recorded`, `deleted`, `pendingDeletions`,
 `pendingDirectories` (removed directories waiting for their second proof),
-`tombstones` (removed names where seeding owns nothing to delete; each is looked
-up on every pass until a file returns there) and `bucketsKeptDeleted`, the first
-100 `problems` with their `path` and `reason`, `problemsOmitted`, and `error`
-when the pass could not run, such as when the seed root went away.
+`tombstones` (names whose file the walk did not find where seeding owns nothing
+to delete; each is looked up on every pass until a file returns there) and
+`bucketsKeptDeleted`, the first 100 `problems` with their `path` and `reason`,
+`problemsOmitted`, and `error` when the pass could not run, such as when the
+seed root went away.
 
 `gcs-mimic seed status` and `gcs-mimic seed wait` call these routes and print
 the answer as one line of JSON, with DEL and the C1 controls escaped as well.

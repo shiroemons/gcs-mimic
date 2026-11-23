@@ -435,7 +435,9 @@ emitting no ready event. An identical protected fixture is unchanged. Holds and
 storage class are not part of same-body comparison. Objects seeding did not
 publish are untouched; removing a seed file deletes the object seeding published
 for it, unless an API request changed it or a hold or retention period protects
-it; on Windows, where nothing proves a file absent, the object stays. While the server runs, a pass applies changed, added and removed seed files
+it; on Windows, where nothing proves a file absent, the object stays, and
+startup warns about it and every pass reports it until the object is deleted
+through the API or a reset clears the catalog. While the server runs, a pass applies changed, added and removed seed files
 every `seed_watch_interval_ms` (1000 by default; 0 stops it), and with
 `--admin-enabled`, `gcs-mimic seed wait` returns once a pass applied them; see
 [passes while the server runs](slices/seed.md#passes-while-the-server-runs).
