@@ -82,7 +82,7 @@ mod tests {
             &["--config".into(), file.to_str().unwrap().into()],
             &BTreeMap::from([("GCS_MIMIC_LIFECYCLE_EXECUTION".into(), "enabled".into())]),
             &["--lifecycle-execution", "disabled"],
-            [None, Some(Disabled), Some(Enabled), Some(Disabled)],
+            [Enabled, Disabled, Enabled, Disabled],
             Config::load,
             |config| config.lifecycle_execution,
         );

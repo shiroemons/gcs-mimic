@@ -935,7 +935,7 @@ async fn disabled_execution_preserves_rules_and_objects_even_on_a_forced_pass() 
     create(&catalog, vec![delete(json!({"age":1}))]).await;
     put(&catalog, "object").await;
     catalog.configure_lifecycle(&crate::config::Config {
-        lifecycle_execution: Some(crate::config::LifecycleExecution::Disabled),
+        lifecycle_execution: crate::config::LifecycleExecution::Disabled,
         ..Default::default()
     });
     clock.advance(DAY);

@@ -155,9 +155,9 @@ string_enum! {
 }
 
 string_enum! {
-    no_default
     /// Whether stored lifecycle Delete rules execute.
     pub enum LifecycleExecution {
+        #[default]
         Enabled => "enabled",
         Disabled => "disabled",
     }
@@ -335,8 +335,7 @@ pub struct Config {
     pub default_location: String,
     /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
     pub default_soft_delete_retention_seconds: Option<NonZeroU64>,
-    /// An explicit choice overrides the default, which executes lifecycle actions.
-    pub lifecycle_execution: Option<LifecycleExecution>,
+    pub lifecycle_execution: LifecycleExecution,
     /// The bucket initialization document, from `buckets_file` or `buckets`.
     pub buckets: Option<DocumentSource>,
     /// What the buckets document does to existing buckets; it governs both document settings.
@@ -437,7 +436,7 @@ impl Default for Config {
             // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,
             // so a local disk or RAM budget is not spent on bytes nobody will restore.
             default_soft_delete_retention_seconds: None,
-            lifecycle_execution: None,
+            lifecycle_execution: LifecycleExecution::default(),
             buckets: None,
             buckets_mode: BucketsMode::default(),
             api_base_url: None,
@@ -488,11 +487,6 @@ impl Default for Config {
 
 impl Config {
     pub const HEALTHCHECK_PATH: &str = "/_internal/healthcheck";
-
-    pub fn effective_lifecycle_execution(&self) -> LifecycleExecution {
-        self.lifecycle_execution
-            .unwrap_or(LifecycleExecution::Enabled)
-    }
 
     /// Whether signed XML requests verify, after the profile's default.
     pub fn effective_signed_urls(&self) -> SignedUrls {
@@ -778,7 +772,7 @@ fn apply_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(
         Setting::DefaultSoftDeleteRetentionSeconds => {
             config.default_soft_delete_retention_seconds = soft_delete_retention(value)?;
         }
-        Setting::LifecycleExecution => config.lifecycle_execution = Some(value.parse()?),
+        Setting::LifecycleExecution => config.lifecycle_execution = value.parse()?,
         Setting::BucketsMode => config.buckets_mode = value.parse()?,
         Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, value)?,
         Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, value)?,
