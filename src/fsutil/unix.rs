@@ -1,4 +1,4 @@
-use super::{DirectoryOpen, FileOpen, clear_errno, component, open_at};
+use super::{FileOpen, clear_errno, component, open_at};
 mod spelling;
 pub(crate) use spelling::{
     child_directory, child_regular, directory_unconfirmed, regular_unconfirmed,
@@ -244,12 +244,7 @@ pub fn open_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
     unsafe_code,
     reason = "openat on a pinned descriptor has no safe std equivalent"
 )]
-pub(crate) fn directory_at(
-    directory: &File,
-    name: &OsStr,
-    open: DirectoryOpen,
-) -> io::Result<File> {
-    let DirectoryOpen::Existing = open;
+pub(crate) fn directory_at(directory: &File, name: &OsStr) -> io::Result<File> {
     let name = component(name)?;
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     super::failing_open(directory, OsStr::from_bytes(name.as_bytes()))?;

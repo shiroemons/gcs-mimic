@@ -81,13 +81,6 @@ pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
     options.open(path)
 }
 
-/// How a directory helper opens a name. Every caller reads a tree that already exists, so a
-/// helper only finds a directory and never creates one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DirectoryOpen {
-    Existing,
-}
-
 #[cfg_attr(
     not(unix),
     expect(

@@ -1,4 +1,3 @@
-use super::DirectoryOpen;
 pub(crate) fn child_directory(_: &File, _: &OsStr, _: &super::Lookup) -> io::Result<super::Child> {
     Err(io::ErrorKind::Unsupported.into())
 }
@@ -79,6 +78,6 @@ pub fn open_regular_at(_: &File, _: &OsStr) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
-pub(crate) fn directory_at(_: &File, _: &OsStr, _: DirectoryOpen) -> io::Result<File> {
+pub(crate) fn directory_at(_: &File, _: &OsStr) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }

@@ -82,9 +82,7 @@ pub(crate) fn directory_unconfirmed(
     name: &OsStr,
     lookup: &Lookup,
 ) -> io::Result<Opened<File>> {
-    open_entry(parent, name, lookup, || {
-        directory_at(parent, name, DirectoryOpen::Existing)
-    })
+    open_entry(parent, name, lookup, || directory_at(parent, name))
 }
 
 pub(crate) fn child_directory(parent: &File, name: &OsStr, lookup: &Lookup) -> io::Result<Child> {
