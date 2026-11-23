@@ -31,7 +31,11 @@ use crate::{
         },
     },
 };
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, PoisonError},
+    time::Duration,
+};
 
 /// How long a wait for a settled pass lasts unless its request names another bound: the
 /// administration route and `gcs-mimic seed wait` both default to it.
@@ -50,35 +54,102 @@ pub fn watch(catalog: &Catalog, config: &Config, clock: Arc<dyn Clock>) {
     let mut copy = config.clone();
     copy.buckets = None;
     let config = Arc::new(copy);
+    let failures = Arc::new(FailedPasses::default());
     catalog.start_seed_watch(interval, move |catalog, number| {
-        let (config, clock) = (Arc::clone(&config), Arc::clone(&clock));
-        async move { pass(&catalog, &config, &clock, number).await }
+        let (config, clock, failures) = (
+            Arc::clone(&config),
+            Arc::clone(&clock),
+            Arc::clone(&failures),
+        );
+        async move { pass(&catalog, &config, &clock, &failures, number).await }
     });
 }
 
-/// Runs pass number `number` and reports it.
+/// Runs pass number `number` and reports it. Every report says whether its pass could run, while
+/// the diagnostics leave out a failure the last warning already gave.
 async fn pass(
     catalog: &Catalog,
     config: &Config,
     clock: &Arc<dyn Clock>,
+    failures: &FailedPasses,
     number: u64,
 ) -> PassReport {
     let started_at = clock.now();
-    let outcome = walk_and_commit(catalog, config, clock, number)
-        .await
-        .inspect_err(|error| warn_failed(number, error))
-        .map_err(|error| error.reason().to_string());
+    let outcome = match walk_and_commit(catalog, config, clock, number).await {
+        Ok(outcome) => {
+            if let Some(failed) = failures.ran() {
+                tell_recovered(number, failed);
+            }
+            Ok(outcome)
+        }
+        Err(error) => {
+            let reason = error.reason().to_string();
+            if failures.failed(&reason) {
+                warn_failed(number, &error);
+            }
+            Err(reason)
+        }
+    };
     PassReport::new((started_at, clock.now()), outcome)
 }
 
+/// The passes in a row that could not run since the last pass that ran or since the server
+/// started. A failure that lasts, such as a missing seed directory or a full disk, would otherwise
+/// warn on every pass, every interval, and bury the other events.
+#[derive(Debug, Default)]
+struct FailedPasses(Mutex<Option<FailedRun>>);
+
+#[derive(Debug)]
+struct FailedRun {
+    /// The reason the last warning gave.
+    warned: String,
+    passes: u64,
+}
+
+impl FailedPasses {
+    /// Counts a pass that could not run for `reason` and tells whether to warn about it: the
+    /// first pass of a run warns, and a later one only for another reason than the last warning
+    /// gave.
+    fn failed(&self, reason: &str) -> bool {
+        let mut current = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(run) = current.as_mut() else {
+            *current = Some(FailedRun {
+                warned: reason.to_owned(),
+                passes: 1,
+            });
+            return true;
+        };
+        run.passes += 1;
+        if run.warned == reason {
+            return false;
+        }
+        reason.clone_into(&mut run.warned);
+        true
+    }
+
+    /// Ends the run with a pass that ran, and tells how many passes it held, if any.
+    fn ran(&self) -> Option<u64> {
+        let mut current = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        current.take().map(|run| run.passes)
+    }
+}
+
 /// Warns that pass number `number` could not run, with the whole chain of causes, which its
-/// report leaves out to state the failure in words. Each pass that fails warns again, so the
-/// warning repeats every interval while the cause lasts.
+/// report leaves out to state the failure in words.
 fn warn_failed(number: u64, error: &SeedError) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
         "seed_pass_failed",
         serde_json::json!({"pass": number, "cause": crate::error::Report(error).to_string()}),
+    );
+}
+
+/// Tells that pass number `number` ran after `failed` passes in a row could not.
+fn tell_recovered(number: u64, failed: u64) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Info,
+        "seed_pass_recovered",
+        serde_json::json!({"pass": number, "failed_passes": failed}),
     );
 }
 

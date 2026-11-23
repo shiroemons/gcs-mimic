@@ -837,3 +837,21 @@ async fn no_pass_runs_with_a_zero_interval() {
     );
     watched.close().await;
 }
+
+/// A run of passes that could not run warns on its first pass and again only when the reason
+/// changes, even back to an earlier one; the pass that ends it tells how many passes the run
+/// held, and the first failure after it warns again.
+#[test]
+fn a_lasting_failure_warns_once_for_each_new_reason_and_once_when_it_ends() {
+    let failures = FailedPasses::default();
+    assert_eq!(failures.ran(), None);
+    let warned: Vec<bool> = ["gone", "gone", "full", "full", "gone"]
+        .into_iter()
+        .map(|reason| failures.failed(reason))
+        .collect();
+    assert_eq!(warned, [true, false, true, false, true]);
+    assert_eq!(failures.ran(), Some(5));
+    assert_eq!(failures.ran(), None);
+    assert!(failures.failed("gone"));
+    assert_eq!(failures.ran(), Some(1));
+}

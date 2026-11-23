@@ -1270,7 +1270,9 @@ fn a_running_server_replays_the_seed_directory_after_each_interval() {
 
 /// A pass that cannot run, as while the seed directory is away, reports why and warns with
 /// `seed_pass_failed` and the whole chain of causes, down to the operating system's error. The
-/// passes go on: once the directory is back, a pass applies it.
+/// passes after it that fail for the same reason report it without warning again. The passes go
+/// on: once the directory is back, the first pass that runs tells with `seed_pass_recovered` how
+/// many passes in a row could not, and a later pass applies a changed file.
 #[test]
 fn a_pass_that_cannot_run_warns_with_its_cause_and_the_passes_go_on() {
     let dir = TestDir::new();
@@ -1283,28 +1285,53 @@ fn a_pass_that_cannot_run_warns_with_its_cause_and_the_passes_go_on() {
     let mut server = Server::start(&mut serve, false);
     let aside = dir.0.join("aside");
     fs::rename(&seed, &aside).unwrap();
-    common::eventually("a pass that could not run", || {
-        server.json("/_internal/seed")["lastPass"]["error"].is_string()
+    // Each report of a pass that could not run starts at another time, so three of them seen
+    // here mean that at least three passes in a row could not run.
+    let mut failed_starts = Vec::new();
+    common::eventually("three passes that could not run", || {
+        let last = server.json("/_internal/seed")["lastPass"].clone();
+        if last["error"].is_string() && !failed_starts.contains(&last["startedAt"]) {
+            failed_starts.push(last["startedAt"].clone());
+        }
+        failed_starts.len() >= 3
     });
     fs::rename(&aside, &seed).unwrap();
-    fixture(&seed, "local-bucket/file", b"after");
     common::eventually("a pass over the directory that came back", || {
+        server.json("/_internal/seed")["lastPass"]["error"].is_null()
+    });
+    fixture(&seed, "local-bucket/file", b"after");
+    common::eventually("a pass that applies the changed file", || {
         server.media("/storage/v1/b/local-bucket/o/file") == (200, b"after".to_vec())
     });
     let stderr = server.child.stderr.take().unwrap();
     server.stop();
-    let failed: Vec<Value> = BufReader::new(stderr)
+    let events: Vec<Value> = BufReader::new(stderr)
         .lines()
         .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap())
-        .filter(|event| event["event"] == "seed_pass_failed")
+        .filter(|event| {
+            ["seed_pass_failed", "seed_pass_recovered"].contains(&event["event"].as_str().unwrap())
+        })
         .collect();
-    assert!(!failed.is_empty());
+    let [failed @ .., recovered] = events.as_slice() else {
+        panic!("no seed pass events");
+    };
+    assert!(!failed.is_empty(), "{events:?}");
+    let pass = |event: &Value| event["pass"].as_u64().unwrap();
+    assert_eq!(recovered["event"], "seed_pass_recovered", "{recovered}");
+    assert_eq!(recovered["level"], "info", "{recovered}");
+    let failed_passes = recovered["failed_passes"].as_u64().unwrap();
+    assert!(failed_passes >= 3, "{recovered}");
+    // The run began with the first warning and ended with the pass that ran again.
+    assert_eq!(pass(&failed[0]), pass(recovered) - failed_passes);
+    // A warning repeats only for another reason, such as that of a pass that found the directory
+    // and then could not open it, so the run warned fewer times than it failed.
+    assert!(failed.len() < usize::try_from(failed_passes).unwrap());
+    for (event, next) in failed.iter().zip(failed.iter().skip(1)) {
+        assert_ne!(event["cause"], next["cause"], "{event} {next}");
+    }
     for event in failed {
+        assert_eq!(event["event"], "seed_pass_failed", "{event}");
         assert_eq!(event["level"], "warn", "{event}");
-        assert!(
-            event["pass"].as_u64().is_some_and(|pass| pass > 0),
-            "{event}"
-        );
         assert!(
             event["cause"]
                 .as_str()
