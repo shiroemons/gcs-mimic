@@ -23,7 +23,7 @@ use crate::{
             PublishMode, SeedBatch,
             replay::{self, Look, Phase, Unread},
             seed_records::Mark,
-            seed_watch::{LiveCounts, PassReport, Problems},
+            seed_watch::{PassReport, Problems},
         },
     },
 };
@@ -60,27 +60,19 @@ async fn pass(
     number: u64,
 ) -> PassReport {
     let started_at = clock.now();
-    let walked = walk_and_commit(catalog, config, clock, number).await;
-    let (complete, counts, problems, error) = match walked {
-        Ok((complete, outcome)) => (complete, outcome.counts, outcome.problems, None),
-        Err(error) => (
-            false,
-            LiveCounts::default(),
-            Problems::default(),
-            Some(error.reason().to_string()),
-        ),
-    };
-    PassReport::new((started_at, clock.now()), complete, counts, problems, error)
+    let outcome = walk_and_commit(catalog, config, clock, number)
+        .await
+        .map_err(|error| error.reason().to_string());
+    PassReport::new((started_at, clock.now()), outcome)
 }
 
 /// Walks the tree, stages each file to read again, and commits what pass number `number` found.
-/// Returns whether the walk was complete.
 async fn walk_and_commit(
     catalog: &Catalog,
     config: &Config,
     clock: &Arc<dyn Clock>,
     number: u64,
-) -> Result<(bool, LiveOutcome), SeedError> {
+) -> Result<LiveOutcome, SeedError> {
     let root = config.seed_dir.as_ref().ok_or(SeedError::MissingRoot)?;
     let admin = catalog.admin(Origin::Seed);
     let (batch, mut entries) = open_tree(&admin, config, clock, root, None).await?;
@@ -113,8 +105,7 @@ async fn walk_and_commit(
         }
     }
     let Pass { batch, walk, .. } = pass;
-    let complete = walk.complete;
-    Ok((complete, batch.commit_live(walk, number).await?))
+    Ok(batch.commit_live(walk, number).await?)
 }
 
 /// One pass while the server runs.

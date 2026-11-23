@@ -5,7 +5,7 @@
 //! when a request waits for a pass. It holds only a weak reference to the catalog between passes,
 //! and ends once the catalog closes.
 
-use super::replay::ABSENCE_CONFIRMED_AFTER;
+use super::{LiveOutcome, replay::ABSENCE_CONFIRMED_AFTER};
 use crate::storage::catalog::{Catalog, Inner};
 use serde::{Serialize, Serializer};
 use std::{
@@ -64,10 +64,8 @@ impl Default for SeedWatch {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PassReport {
-    #[serde(serialize_with = "timestamp")]
-    pub(crate) started_at: SystemTime,
-    #[serde(serialize_with = "timestamp")]
-    pub(crate) completed_at: SystemTime,
+    started_at: Timestamp,
+    completed_at: Timestamp,
     /// Whether the walk listed the whole tree and ended with its final check of the root. Only
     /// such a pass acts on a proof that a file is gone.
     pub(crate) complete: bool,
@@ -83,27 +81,42 @@ pub(crate) struct PassReport {
 }
 
 impl PassReport {
-    #[expect(
-        clippy::fn_params_excessive_bools,
-        reason = "forwards whether the walk was complete, which the walk observed, without selecting a mode"
-    )]
+    /// The report of a pass that ran from `started_at` to `completed_at` and committed `outcome`,
+    /// or could not run for the reason `outcome` gives, which changed nothing.
     pub(crate) fn new(
         (started_at, completed_at): (SystemTime, SystemTime),
-        complete: bool,
-        counts: LiveCounts,
-        problems: Problems,
-        error: Option<String>,
+        outcome: Result<LiveOutcome, String>,
     ) -> Self {
+        let (outcome, error) = match outcome {
+            Ok(outcome) => (outcome, None),
+            Err(error) => (LiveOutcome::default(), Some(error)),
+        };
+        let LiveOutcome {
+            complete,
+            counts,
+            problems,
+        } = outcome;
         let clean = complete && error.is_none() && problems.is_empty();
         Self {
-            started_at,
-            completed_at,
+            started_at: Timestamp(started_at),
+            completed_at: Timestamp(completed_at),
             complete,
             counts,
             problems,
             error,
             clean,
         }
+    }
+}
+
+/// A time in a report, written in RFC 3339 as the JSON API writes its times.
+#[derive(Clone, Copy, Debug)]
+struct Timestamp(SystemTime);
+
+impl Serialize for Timestamp {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let formatted = crate::time_format::timestamp(self.0).map_err(serde::ser::Error::custom)?;
+        serializer.serialize_str(&formatted)
     }
 }
 
@@ -177,18 +190,6 @@ impl Problems {
     pub(crate) fn listed(&self) -> &[Problem] {
         &self.problems
     }
-}
-
-#[cfg_attr(
-    windows,
-    expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "serde's serialize_with passes the field by reference, and only the Windows SystemTime fits in a register"
-    )
-)]
-fn timestamp<S: Serializer>(time: &SystemTime, serializer: S) -> Result<S::Ok, S::Error> {
-    let formatted = crate::time_format::timestamp(*time).map_err(serde::ser::Error::custom)?;
-    serializer.serialize_str(&formatted)
 }
 
 /// What the status route reports.

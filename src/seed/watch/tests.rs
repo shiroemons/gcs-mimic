@@ -10,7 +10,10 @@ use crate::{
     bucket::{BucketAccess, BucketConditions},
     clock::ManualClock,
     object::{ObjectConditions, ObjectMetadataUpdate, ObjectRecord, ObjectTarget},
-    storage::admin::{ObjectName, seed_watch::WaitError},
+    storage::admin::{
+        ObjectName,
+        seed_watch::{LiveCounts, WaitError},
+    },
     test_support::{TestDir, hang_deadline},
 };
 #[cfg(unix)]
