@@ -6,7 +6,7 @@
 
 設定・TLS・IDレジストリを検証した後、カタログのopenと復旧、PAP、バケット初期化、seed、bind、保守処理の開始、readyの順に進みます。ready JSONの既存フィールドに`buckets`の適用結果を加えます。
 
-同期ディレクトリを設定した起動では、同期ワーカーの起動に成功してからreadyを出します。readyの`healthcheck_path`とCLIの既定プローブ先は`/_internal/healthcheck`で統一し、従来の`/_internal/ready`も引き続き使えます。TLSとIDレジストリの起動エラーには、秘密のトークン値を出さずに原因を表示します。
+readyの`healthcheck_path`とCLIの既定プローブ先は`/_internal/healthcheck`で統一し、従来の`/_internal/ready`も引き続き使えます。TLSとIDレジストリの起動エラーには、秘密のトークン値を出さずに原因を表示します。
 
 0.18.0以降、readyの固定値だった`protocol`と`gcs_api`を削除します。これらを読むスクリプトでは参照を削除してください。ディスク方式では、開いた保存先を絶対パスの`data_dir`で表示し、シンボリックリンクは解決せず指定した名前を残します。`data_dir_state`は、その起動でカタログを初期化した場合が`created`、既存のカタログを開いた場合が`opened`です。メモリ方式では両項目を省略します。既定の保存先は引き続き、作業ディレクトリからの相対パス`data`です。
 

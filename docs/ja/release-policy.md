@@ -52,7 +52,8 @@ CLI、環境変数、設定形式・既定値、対応API、実行環境、永�
   `source`の値は対象です。値は`cli`、`environment`、`config`、`tls`、`identity`、`filesystem`、`catalog`、`initializer`、`seed`、`import`、`listener`、`runtime`です。コマンドライン、環境変数、設定ファイルに由来する`key`は、渡された名前そのままです。そのほかの`key`は問題の場所を示すもので、対象外です。
 - **終了ステータス。** どのコマンドも、成功は0、失敗は1です。
 
-利用者向けのエミュレーター専用ルートは`/_internal/health`、`/_internal/healthcheck`、`/_internal/ready`、`/_internal/config`、`/_internal/objects`、`/_internal/reset`、`/_internal/reseed`、`/_internal/lifecycle/run`です。
+利用者向けのエミュレーター専用ルートは`/_internal/health`、`/_internal/healthcheck`、`/_internal/ready`、`/_internal/config`、`/_internal/objects`、`/_internal/reset`、`/_internal/reseed`、`/_internal/seed`、`/_internal/seed/wait`、`/_internal/lifecycle/run`です。
+`gcs-mimic seed status`と`gcs-mimic seed wait`は、2つのseedのルートを呼びます。
 メソッド、成功時のステータス、要求と応答のキーは現在の綴りのまま保ちます。
 本文を受け取るルートは64 KiB以上の本文を受け付けます。それより大きい本文をあるリリースが受け付けても、約束ではありません。
 管理用のルートは、`admin_enabled`が無効の間は404、ブラウザーからの要求には403、承認していないホストには421を返し続けます。エラー本文の`error.code`も保ちます。エラー本文のそのほかのメンバーは対象外です。

@@ -282,7 +282,7 @@ resumableアップロードのURLなど、エミュレーターが返すリン�
 設定の一覧は[Dockerでの使い方](container-usage.md#よく使う設定)を参照してください。
 
 任意の`./data`のマウントは初期ファイルの読み込みに使います。最上位のディレクトリがバケットに、ファイルがオブジェクトになります。
-ファイルは起動のたびに反映され、同じ名前ではAPIでの変更より優先されます。
+ファイルは起動のたびに反映され、同じ名前ではAPIでの変更より優先されます。稼働中も、編集・追加・削除したファイルを毎秒反映します（`GCS_MIMIC_SEED_WATCH_INTERVAL_MS`、0で停止）。
 [初期ファイルの読み込み](container-usage.md#初期ファイルを読み込む)を参照してください。
 
 ## バケットとCORSと公開設定
@@ -372,8 +372,8 @@ gcs-mimic、fake-gcs-server、gcp-storage-emulatorはCloud Storageだけをエ�
 | 複数回の呼び出しで継続するrewrite | ✅ | ❌ | ❌ | ✅ |
 | オブジェクトの世代履歴を保持 | ✅ | ◐ メモリ方式 | ❌ | ✅ |
 | APIで保存した本体を再起動後も保持 | ✅ | ✅ ファイル方式 | ✅ ディスク方式 | ✅ hybridモード |
-| APIの保存内容をバケット・ファイルとして見る | ✅ 書き出し | ✅ ファイル方式 | ✅ ディスク方式 | ❌ |
-| バケット・オブジェクトの初期ファイル読込 | ✅ 起動時または明示的なreseed | ✅ 起動・reseed | ❌ | ◐ 起動時フックのスクリプト |
+| APIの保存内容をバケット・ファイルとして見る | ❌ 不透明な保存 | ✅ ファイル方式 | ✅ ディスク方式 | ❌ |
+| バケット・オブジェクトの初期ファイル読込 | ✅ 起動時、稼働中の監視、または明示的なreseed | ✅ 起動・reseed | ❌ | ◐ 起動時フックのスクリプト |
 | JSON APIの既定CORS | ✅ | ✅ | ❌ | ❌ |
 | バケットごとのXML CORSを強制 | ✅ | ❌ | ❌ | ✅ |
 | 署名URLでのアップロード・ダウンロード | ✅ | ✅ | ✅ | ✅ |
@@ -384,7 +384,7 @@ gcs-mimic、fake-gcs-server、gcp-storage-emulatorはCloud Storageだけをエ�
 | 公開Dockerイメージ | ✅ GHCR・Docker Hub | ✅ | ✅ | ✅ Docker Hub |
 
 比較対象はfake-gcs-server`v1.56.1`、gcp-storage-emulator`v2026.07.19`、floci-gcp`0.13.0`です。
-書き出しの行は任意の[同期ディレクトリ](container-usage.md#オブジェクトをホストのディレクトリへ書き出す)を使い、gRPCの行は一部のRPCが対象です。
+gRPCの行は一部のRPCが対象です。
 [機能比較](feature-comparison.md)、[floci-gcpの確認結果（英語）](../en/evidence/floci-gcp-comparison.md)、[詳細な機能表](feature-matrix.md)を参照してください。
 
 ### SDKスコアカード
