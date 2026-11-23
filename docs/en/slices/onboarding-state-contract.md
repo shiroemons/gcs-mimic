@@ -97,18 +97,16 @@ Imported generation/time/hash publication belongs to shared-imported-identity. A
 
 shared-publication-io owns these descriptor-based operations in `src/fsutil.rs`, extending the module if import-dry-run creates it first. This slice creates no runtime helper or dependency.
 
-The delivered native subset and exact callable signatures are recorded in [shared publication I/O](shared-publication-io.md). `clone_into` also supports mutable-source staging by returning Unsupported without an output entry when cloning is unavailable; the later modes owner must then copy and hash in one pass. Unix exchange preserves displaced entries, Windows exchange returns Unsupported for Sync's checked-replace policy, and orphan scanning remains before bind. Publication and maintenance reclaim retired blobs in bounded pages outside SQLite execution while session-owned cleanup markers remain with their owner.
+The delivered native subset and exact callable signatures are recorded in [shared publication I/O](shared-publication-io.md). `clone_into` also supports mutable-source staging by returning Unsupported without an output entry when cloning is unavailable; the later modes owner must then copy and hash in one pass. Orphan scanning remains before bind. Publication and maintenance reclaim retired blobs in bounded pages outside SQLite execution while session-owned cleanup markers remain with their owner.
 
 ```rust
-clone_or_copy_into(src_fd, dst_dir_fd, name) -> Result<CopyMethod, FsError>
-durable_replace_between(src_dir_fd, staged_name, dst_dir_fd, destination_name, replacement: Replacement)
-    -> Result<(), FsError>
+clone_into(src_fd, dst_dir_fd, name) -> Result<(), CloneFailure>
 stat_identity(file_fd) -> Result<FileIdentity, FsError>
 ```
 
-These are contract shapes, not compilable public declarations. Owned/borrowed descriptor types are platform-appropriate; names must be single validated path components. `CopyMethod` distinguishes Clone, CopyFileRange and ReadWrite for measurement. Only immutable open blobs may use CopyFileRange. Cloning creates a new destination entry, including macOS fclonefileat; no pre-created destination handle is required. Flush the resulting file, perform conditional rename and flush the destination directory. Fsync blobs/ only when creating a shard; reclaim old blobs outside the SQLite execution lane after the reference decision.
+These are contract shapes, not compilable public declarations. Owned/borrowed descriptor types are platform-appropriate; names must be single validated path components. Cloning creates a new destination entry, including macOS fclonefileat; no pre-created destination handle is required. Flush the resulting file, perform conditional rename and flush the destination directory. Fsync blobs/ only when creating a shard; reclaim old blobs outside the SQLite execution lane after the reference decision.
 
-For absent destinations use no-replace rename; for existing destinations use exchange. The exchange only changes names and leaves whatever the destination held under the staged name; it compares no identity and returns no outcome. The caller judges that entry by its bytes: it unlinks the entry only when its size and hashes match the body it expected, and otherwise preserves it and stops, never unlinking it as cleanup. Linux uses renameat2 flags; macOS uses supported exclusive/swap primitives or reports unsupported safely. Windows uses bounded read/write and MoveFileExW WRITE_THROUGH. Windows has a check-to-replace race without Unix exchange semantics; preserve/report detected changes and do not claim adversarial writer safety, directory-fsync equivalence or host-power-loss namespace guarantees. Unsupported primitives fail explicitly instead of silently using an overwriting rename. Nanosecond ctime/file identity lives in this same OS boundary. This contract only requires preservation and typed outcomes.
+Publication renames only to absent destinations, with a no-replace rename: Linux uses the renameat2 flag and macOS the exclusive primitive. Windows uses MoveFileExW WRITE_THROUGH and claims no adversarial writer safety, directory-fsync equivalence or host-power-loss namespace guarantee. Unsupported primitives fail explicitly instead of silently using an overwriting rename. Nanosecond ctime/file identity lives in this same OS boundary. The copy helper `clone_or_copy_into`, `durable_replace_between` and the exchange into existing destinations served only directory synchronization and were removed with it.
 
 ### Synchronization properties
 
