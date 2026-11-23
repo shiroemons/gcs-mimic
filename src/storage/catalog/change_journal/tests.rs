@@ -71,7 +71,6 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
         Origin::Api,
         Origin::Seed,
         Origin::BucketInit,
-        Origin::SyncIngest,
         Origin::Import,
     ] {
         publish(&catalog, origin, "object").await;
@@ -103,16 +102,16 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
         .read_changes(first.next(), Some(fence), 256)
         .await
         .unwrap();
-    assert_eq!(second.items().len(), 5);
+    assert_eq!(second.items().len(), 4);
     assert!(!second.has_more());
     assert_eq!(second.items().last().unwrap().kind, ChangeKind::Delete);
-    assert_eq!(second.items()[3].kind, ChangeKind::Metadata);
+    assert_eq!(second.items()[2].kind, ChangeKind::Metadata);
     let all = catalog
         .read_changes(baseline, Some(fence), 256)
         .await
         .unwrap();
     assert_eq!(
-        all.items()[..5]
+        all.items()[..4]
             .iter()
             .map(|c| c.origin)
             .collect::<Vec<_>>(),
@@ -120,7 +119,6 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
             Origin::Api,
             Origin::Seed,
             Origin::BucketInit,
-            Origin::SyncIngest,
             Origin::Import
         ]
     );

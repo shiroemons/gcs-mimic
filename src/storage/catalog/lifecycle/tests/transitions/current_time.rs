@@ -34,13 +34,11 @@ async fn a_late_first_pass_transitions_before_an_old_class_delete() {
 
 #[tokio::test]
 async fn enabling_or_replacing_rules_evaluates_current_class_candidates() {
-    for mode in ["disabled", "sync-default", "replace"] {
+    for mode in ["disabled", "replace"] {
         let (catalog, clock) = memory().await;
         create(&catalog, old_class_delete_rules()).await;
         let original = put(&catalog, "object").await;
-        let tree = TestDir::new();
         let config = Config {
-            sync_dir: (mode == "sync-default").then(|| tree.0.clone()),
             lifecycle_execution: (mode == "disabled").then_some(LifecycleExecution::Disabled),
             ..Default::default()
         };

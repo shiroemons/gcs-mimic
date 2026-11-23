@@ -328,14 +328,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let retired = self
             .run(move |connection| {
-                delete_selected(
-                    connection,
-                    clock.as_ref(),
-                    &target,
-                    conditions,
-                    &access,
-                    None,
-                )
+                delete_selected(connection, clock.as_ref(), &target, conditions, &access)
             })
             .await?;
         self.schedule_expiry(retired);
@@ -511,7 +504,6 @@ pub(super) fn delete_selected(
     target: &ObjectTarget,
     conditions: ObjectConditions,
     access: &BucketAccess,
-    sync_binding: Option<&super::sync_state::SyncBinding>,
 ) -> Result<Retired, ObjectError> {
     let bucket = &target.bucket;
     authorized_bucket(connection, bucket, access)?;
@@ -524,7 +516,6 @@ pub(super) fn delete_selected(
             now: clock.now(),
             conditions,
             access,
-            sync_binding,
         },
     )?;
     transaction.commit()?;
@@ -541,7 +532,6 @@ pub(super) struct DeleteContext<'a> {
     pub(super) now: std::time::SystemTime,
     pub(super) conditions: ObjectConditions,
     pub(super) access: &'a BucketAccess,
-    pub(super) sync_binding: Option<&'a super::sync_state::SyncBinding>,
 }
 
 /// The caller owns the transaction, including any extra lifecycle protection checks.
@@ -559,7 +549,6 @@ pub(super) fn delete_in_transaction(
         now,
         conditions,
         access,
-        sync_binding,
     } = context;
     let StoredObject { record, blob: id } = selected(
         transaction,
@@ -581,9 +570,6 @@ pub(super) fn delete_in_transaction(
         record.check_policy_and_holds(now)?;
     } else {
         record.check_retention(now)?;
-    }
-    if let Some(binding) = sync_binding {
-        super::sync_state::delete_in_transaction(transaction, binding, &record)?;
     }
     super::change_journal::object(
         transaction,

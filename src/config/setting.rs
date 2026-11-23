@@ -37,11 +37,6 @@ super::string_enum! {
         MaxSeedEntries => "max_seed_entries",
         MaxSeedDepth => "max_seed_depth",
         SeedContentType => "seed_content_type",
-        SyncDir => "sync_dir",
-        SyncDeleteGuard => "sync_delete_guard",
-        SyncReinitialize => "sync_reinitialize",
-        MaxSyncEntries => "max_sync_entries",
-        MaxSyncDepth => "max_sync_depth",
         BucketsFile => "buckets_file",
         Buckets => "buckets",
         BucketsMode => "buckets_mode",
@@ -111,7 +106,10 @@ impl Setting {
             | Self::KeepAliveTimeoutMs
             | Self::ObjectRequestTimeoutMs
             | Self::CatalogWaitTimeoutMs
-            | Self::ShutdownTimeoutMs => Some((0, u64::MAX)),
+            | Self::ShutdownTimeoutMs
+            // 0 means unlimited for these as well; the config holds `Option<NonZeroUsize>`.
+            | Self::MaxSeedEntries
+            | Self::MaxBucketsPerBatch => Some((0, u64::MAX)),
             Self::MemoryMaxBytes => Some((1, 1024_u64.pow(4))),
             Self::MemoryCatalogMaxBytes => Some((1024 * 1024, 1024_u64.pow(4))),
             Self::MaxConnections => Some((1, 1_048_576)),
@@ -121,11 +119,7 @@ impl Setting {
             Self::MaxObjectBytes => Some((1, MAX_OBJECT_BYTES)),
             // 0 means unlimited here only; the config holds `Option<NonZeroU32>`.
             Self::MaxResumableSessions | Self::MaxRewriteSessions => Some((0, u32::MAX as u64)),
-            // 0 means unlimited here too; the config holds `Option<NonZeroUsize>`.
-            Self::MaxSeedEntries | Self::MaxSyncEntries | Self::MaxBucketsPerBatch => {
-                Some((0, u64::MAX))
-            }
-            Self::MaxSeedDepth | Self::MaxSyncDepth => Some((0, MAX_TREE_DEPTH as u64)),
+            Self::MaxSeedDepth => Some((0, MAX_TREE_DEPTH as u64)),
             Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 1024)),
             Self::Config
             | Self::LogLevel
@@ -144,9 +138,6 @@ impl Setting {
             | Self::DefaultSeedDir
             | Self::SeedProject
             | Self::SeedContentType
-            | Self::SyncDir
-            | Self::SyncDeleteGuard
-            | Self::SyncReinitialize
             | Self::DefaultLocation
             | Self::DefaultSoftDeleteRetentionSeconds
             | Self::LifecycleExecution
@@ -187,13 +178,6 @@ impl Setting {
     pub(super) fn time_limit(self, value: &str) -> Result<TimeLimit, SettingFix> {
         self.integer(value).map(TimeLimit::from_millis)
     }
-
-    /// Whether the setting does nothing without `sync_dir`, so that naming it alone is a mistake.
-    /// The prefix keeps a future `sync_*` setting covered without an edit here.
-    pub(super) fn requires_sync_dir(self) -> bool {
-        self.as_str().starts_with("sync_")
-            || matches!(self, Self::MaxSyncEntries | Self::MaxSyncDepth)
-    }
 }
 
 /// A setting name as one source writes it, so that a fix can be copied back into that source:
@@ -231,7 +215,6 @@ impl fmt::Display for Spelled<'_> {
             | DiagnosticSource::Catalog
             | DiagnosticSource::Initializer
             | DiagnosticSource::Seed
-            | DiagnosticSource::Sync
             | DiagnosticSource::Import
             | DiagnosticSource::Listener
             | DiagnosticSource::Runtime => ("", |c| c),

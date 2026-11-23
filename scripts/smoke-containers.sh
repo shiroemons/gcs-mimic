@@ -52,24 +52,6 @@ expect_status() {
   fi
 }
 
-# Waits through the documented command until the mirror reflects every change made before it.
-# The arguments run it where the server is, as `docker exec CONTAINER` or `docker compose exec -T
-# SERVICE` does; without --endpoint it finds the server the container's configuration gives. Its
-# exit status tells why it stopped short: 2 when someone must act, 3 when its timeout passed while
-# work was in progress, 1 for anything else.
-sync_wait() {
-  local status=0
-  "$@" gcs-mimic sync wait >"$work/sync-wait.out" 2>"$work/sync-wait.err" || status=$?
-  case $status in
-    0) return 0 ;;
-    2) echo 'sync wait exited 2: someone must act' >&2 ;;
-    3) echo 'sync wait exited 3: its timeout passed while work was in progress' >&2 ;;
-    *) echo "sync wait exited $status" >&2 ;;
-  esac
-  cat "$work/sync-wait.out" "$work/sync-wait.err" >&2
-  return "$status"
-}
-
 printf '\000gcs-mimic\377\n' >"$work/expected"
 expect_object() {
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
@@ -339,115 +321,38 @@ for platform in "$@"; do
   container=
   echo "PASS: $platform implicit /data seed without seed variables; the image HEALTHCHECK passes with no setting, and one port serves the seed over HTTP and HTTPS"
 
-  # One volume holds sibling data and sync directories so the existing cleanup owns
-  # it. The mount point is absent from the image, so Docker does not copy ownership.
-  volume="gcs-mimic-sync-${arch}-$$"
+  # A volume holds the data directory so the existing cleanup owns it. The mount point is absent
+  # from the image, so Docker does not copy ownership.
+  volume="gcs-mimic-data-${arch}-$$"
   docker volume create "$volume" >/dev/null
   docker run --rm --read-only --network none --user 0 --entrypoint sh \
     --mount "type=volume,src=$volume,dst=/state" "$peer_image" \
-    -c 'mkdir /state/data /state/sync && chown 10001:10001 /state/data /state/sync'
+    -c 'mkdir /state/data && chown 10001:10001 /state/data'
   container=$(docker run --detach --read-only --cap-drop ALL --security-opt no-new-privileges \
     --memory 128m --cpus 1 --pids-limit 64 --publish 127.0.0.1::4443 \
     --mount "type=volume,src=$volume,dst=/state" \
-    -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/state/data -e GCS_MIMIC_SYNC_DIR=/state/sync \
+    -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/state/data \
     "$GCSM_IMAGE")
-  # The healthcheck also fails while synchronization is starting, so this waits for the
-  # mirror's first pass, which ingests external files and exports existing objects.
-  wait_sync_ready() {
-    for ((attempt = 0; attempt < 40; attempt++)); do
-      if docker exec "$container" gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready; then
-        address=$(docker port "$container" 4443/tcp)
-        return 0
-      fi
-      sleep 1
-    done
+  for ((attempt = 0; attempt < 40; attempt++)); do
+    if docker exec "$container" gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready; then
+      break
+    fi
+    sleep 1
+  done
+  docker exec "$container" gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready || {
     docker logs "$container"
-    return 1
+    exit 1
   }
-  # Exported files keep the runtime user's private 0600 mode, so the reader is root.
-  sync_cat() {
-    docker run --rm --read-only --network none --user 0 --entrypoint cat \
-      --mount "type=volume,src=$volume,dst=/state,readonly" "$peer_image" "/state/sync/$1"
-  }
-  # Export runs after the API response and ingestion after the file changes, so the checks below
-  # follow a sync wait; an object whose name the directory cannot hold, such as the backslash
-  # name, is only counted and does not stop it.
-  container_sync_wait() {
-    sync_wait docker exec "$container"
-  }
-  expect_sync_file() {
-    if [[ $2 == absent ]]; then
-      sync_cat "$1" >/dev/null 2>&1 || return 0
-    elif sync_cat "$1" >"$work/sync-actual" 2>/dev/null && cmp -s "$2" "$work/sync-actual"; then
-      return 0
-    fi
-    echo "sync_dir file $1 did not reach the expected state" >&2
-    return 1
-  }
-  # After a restart an external file is already an object once wait_sync_ready returns.
-  expect_ingested_object() {
-    if curl --disable --noproxy '*' --fail --silent --max-time 5 \
-      "http://$address/storage/v1/b/sync-bucket/o/$1?alt=media" >"$work/sync-actual" &&
-      cmp -s "$2" "$work/sync-actual"; then
-      return 0
-    fi
-    echo "external file $1 was not ingested" >&2
-    return 1
-  }
-  wait_sync_ready
+  address=$(docker port "$container" 4443/tcp)
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
-    -H 'Content-Type: application/json' --data '{"name":"sync-bucket"}' \
+    -H 'Content-Type: application/json' --data '{"name":"bulk-bucket"}' \
     "http://$address/storage/v1/b?project=local-project" >/dev/null
-  # The volume's filesystem stores a colon, so the startup probe maps it into the file name. A
-  # backslash name is outside the sync path contract and is skipped without stopping later exports.
-  printf colon >"$work/sync-colon"
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary @"$work/sync-colon" \
-    "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=logs%2F2026-10-28T12%3A00%3A00.log" >/dev/null
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary backslash \
-    "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=dir%5Cfile.bin" >/dev/null
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
-    -H 'Content-Type: application/octet-stream' --data-binary @"$work/expected" \
-    "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=dir%2Ffile.bin" >/dev/null
-  container_sync_wait
-  expect_sync_file sync-bucket/dir/file.bin "$work/expected"
-  expect_sync_file sync-bucket/logs/2026-10-28T12:00:00.log "$work/sync-colon"
-  expect_sync_file 'sync-bucket/dir\file.bin' absent
-  printf 'replaced' >"$work/sync-replaced"
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
-    --data-binary @"$work/sync-replaced" \
-    "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=dir%2Ffile.bin" >/dev/null
-  container_sync_wait
-  expect_sync_file sync-bucket/dir/file.bin "$work/sync-replaced"
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 -X POST \
-    "http://$address/storage/v1/b/sync-bucket/o/dir%2Ffile.bin/copyTo/b/sync-bucket/o/copied.bin" >/dev/null
-  container_sync_wait
-  expect_sync_file sync-bucket/copied.bin "$work/sync-replaced"
-  expect_status DELETE /storage/v1/b/sync-bucket/o/copied.bin 204
-  container_sync_wait
-  expect_sync_file sync-bucket/copied.bin absent
-  # The directory is watched, so files created from outside become objects without a restart; the
-  # restart below then shows that they also survive one.
-  docker run --rm --read-only --network none --user 10001:10001 --entrypoint sh \
-    --mount "type=volume,src=$volume,dst=/state" "$peer_image" \
-    -c 'printf external > /state/sync/sync-bucket/external.txt && printf colon > /state/sync/sync-bucket/a:b.txt'
-  printf external >"$work/sync-external"
-  container_sync_wait
-  expect_ingested_object external.txt "$work/sync-external"
-  expect_ingested_object a%3Ab.txt "$work/sync-colon"
-  docker stop --timeout 15 "$container" >/dev/null
-  [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]] || exit 1
-  docker start "$container" >/dev/null
-  wait_sync_ready
-  expect_ingested_object external.txt "$work/sync-external"
-  expect_ingested_object a%3Ab.txt "$work/sync-colon"
-  expect_sync_file sync-bucket/dir/file.bin "$work/sync-replaced"
   # The data directory has moved off the image's path, on a read-only root that names no SQLite
   # temporary directory. Concurrent uploads share group commits, and once a commit's journal
-  # outgrew memory, its whole batch failed with 503 disk I/O error. The exports these uploads
-  # queue are not awaited: shutdown stops between them.
+  # outgrew memory, its whole batch failed with 503 disk I/O error.
   statuses=$(seq 1 1000 | xargs -P 8 -I{} curl --disable --noproxy '*' --silent --show-error --max-time 30 \
     -o /dev/null -w '%{http_code}\n' --data-binary {} \
-    "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=bulk%2F{}" | sort | uniq -c)
+    "http://$address/upload/storage/v1/b/bulk-bucket/o?uploadType=media&name=bulk%2F{}" | sort | uniq -c)
   [[ $(awk '{ print $1 ":" $2 }' <<<"$statuses") == "1000:200" ]] || {
     echo "Uploads failed with the data directory moved under a read-only root: $statuses" >&2
     docker logs --tail 50 "$container" >&2
@@ -459,103 +364,7 @@ for platform in "$@"; do
   container=
   docker volume rm "$volume" >/dev/null
   volume=
-  echo "PASS: $platform sync_dir export of API create/overwrite/copy/delete, colon names exported and ingested, skipped backslash names, external create ingestion by the watcher and across a restart, 1000 concurrent uploads with the data directory moved under a read-only root and clean shutdown"
-
-  # compose.sync.yaml must work as written after the one step it asks for, creating the host
-  # directory: `up --wait` returns only after the first pass, and no step adds a flag or a wait.
-  project="gcs-mimic-sync-compose-${arch}-$$"
-  export COMPOSE_FILE=compose.yaml:compose.http.yaml:compose.sync.yaml GCSM_PORT=0
-  export GCSM_SYNC_DIR=$work/compose-sync
-  mkdir "$GCSM_SYNC_DIR"
-  # The documented Linux step: run as the host user, with the data in a host directory that user
-  # owns. Docker Desktop maps ownership, so macOS skips it unless GCSM_SMOKE_AS_HOST_USER=1 asks
-  # for the Linux path, which is how that path is tried without a Linux host.
-  if [[ $(uname -s) == Linux || ${GCSM_SMOKE_AS_HOST_USER:-} == 1 ]]; then
-    mkdir "$work/compose-data"
-    export GCSM_UID GCSM_DATA_DIR=$work/compose-data
-    GCSM_UID=$(id -u)
-  fi
-  docker compose -p "$project" config --quiet
-  docker compose -p "$project" up --detach --no-build --wait --wait-timeout 60
-  service=$(docker compose -p "$project" ps --quiet gcs)
-  address=$(docker compose -p "$project" port gcs 4443)
-  [[ $(docker inspect --format '{{.State.Health.Status}}' "$service") == healthy ]] || exit 1
-  [[ -d $GCSM_SYNC_DIR ]] || exit 1
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 "http://$address/_internal/ready" \
-    | jq -e '.sync.state == "running"' >/dev/null || { echo 'ready does not report sync.state running' >&2; exit 1; }
-  compose_wait() {
-    sync_wait docker compose -p "$project" exec -T gcs
-  }
-  compose_object() {
-    curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
-      "http://$address/storage/v1/b/compose-bucket/o/$1?alt=media" >"$work/compose-actual"
-    cmp "$2" "$work/compose-actual"
-  }
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
-    -H 'Content-Type: application/json' --data '{"name":"compose-bucket"}' \
-    "http://$address/storage/v1/b?project=local-project" >/dev/null
-  printf 'from api' >"$work/compose-api"
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary @"$work/compose-api" \
-    "http://$address/upload/storage/v1/b/compose-bucket/o?uploadType=media&name=docs%2Fapi.txt" >/dev/null
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary @"$work/compose-api" \
-    "http://$address/upload/storage/v1/b/compose-bucket/o?uploadType=media&name=logs%2F2026-10-28T12%3A00%3A00.log" >/dev/null
-  # (b) and (d): after the wait, the files an API write made are on the host, colon included.
-  compose_wait
-  cmp "$work/compose-api" "$GCSM_SYNC_DIR/compose-bucket/docs/api.txt"
-  cmp "$work/compose-api" "$GCSM_SYNC_DIR/compose-bucket/logs/2026-10-28T12:00:00.log"
-  # (c) and (d): files made on the host become objects once the wait returns.
-  printf 'from host' >"$work/compose-host"
-  printf 'from host' >"$GCSM_SYNC_DIR/compose-bucket/host.txt"
-  printf 'from host' >"$GCSM_SYNC_DIR/compose-bucket/a:b.txt"
-  compose_wait
-  compose_object host.txt "$work/compose-host"
-  compose_object a%3Ab.txt "$work/compose-host"
-  # Without a restart, a host edit changes the object, a host deletion removes it (one object, far
-  # below the deletion guard's 100), and an API overwrite replaces the host file.
-  printf 'edited on host' >"$work/compose-edited"
-  cp "$work/compose-edited" "$GCSM_SYNC_DIR/compose-bucket/host.txt"
-  rm "$GCSM_SYNC_DIR/compose-bucket/a:b.txt"
-  printf 'overwritten through the api' >"$work/compose-overwritten"
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary @"$work/compose-overwritten" \
-    "http://$address/upload/storage/v1/b/compose-bucket/o?uploadType=media&name=docs%2Fapi.txt" >/dev/null
-  compose_wait
-  compose_object host.txt "$work/compose-edited"
-  expect_status GET /storage/v1/b/compose-bucket/o/a%3Ab.txt 404
-  cmp "$work/compose-overwritten" "$GCSM_SYNC_DIR/compose-bucket/docs/api.txt"
-  # A restart keeps what the mirror tracks. A host edit and a host deletion made while the server is
-  # stopped reach the API as an update and a deletion; a first merge would instead keep the object
-  # with the edit as a conflict, which fails the wait, and export the deleted file again. Startup
-  # switches no directory, so the bind-mounted root keeps its identity across the restart.
-  docker compose -p "$project" stop --timeout 15
-  printf 'edited while stopped' >"$work/compose-stopped"
-  cp "$work/compose-stopped" "$GCSM_SYNC_DIR/compose-bucket/host.txt"
-  rm "$GCSM_SYNC_DIR/compose-bucket/docs/api.txt"
-  docker compose -p "$project" up --detach --no-build --no-recreate --wait --wait-timeout 60
-  [[ $(docker compose -p "$project" ps --quiet gcs) == "$service" ]] || exit 1
-  address=$(docker compose -p "$project" port gcs 4443)
-  compose_wait
-  compose_object host.txt "$work/compose-stopped"
-  expect_status GET /storage/v1/b/compose-bucket/o/docs%2Fapi.txt 404
-  [[ ! -e $GCSM_SYNC_DIR/compose-bucket/docs/api.txt ]] || {
-    echo 'A file deleted while the server was stopped was exported again' >&2
-    exit 1
-  }
-  docker compose -p "$project" exec -T gcs gcs-mimic sync status | jq -e '.root_change == null' >/dev/null || {
-    echo 'sync status reports a change of the synchronized directory after a restart' >&2
-    exit 1
-  }
-  docker compose -p "$project" logs --no-color --no-log-prefix gcs >"$work/compose-log"
-  jq -Rse '[split("\n")[] | fromjson? | .event?]
-    | (map(select(. == "ready")) | length) == 2 and all(. != "sync_root_switched")' \
-    "$work/compose-log" >/dev/null || {
-    echo 'Expected two starts and no sync_root_switched event' >&2
-    exit 1
-  }
-  docker compose -p "$project" down --volumes
-  project=
-  unset GCSM_SYNC_DIR GCSM_UID GCSM_DATA_DIR
-  export COMPOSE_FILE=compose.yaml:compose.http.yaml
-  echo "PASS: $platform compose.sync.yaml as written: up --wait returns healthy with sync.state running, API writes (colon name included) are files after sync wait, host-created files (colon name included) are objects after sync wait; on the bind mount without a restart a host edit updates and a host deletion removes the object and an API overwrite replaces the file; across a restart an edit and a deletion made while stopped are applied, with no first merge and no sync_root_switched"
+  echo "PASS: $platform 1000 concurrent uploads with the data directory moved under a read-only root and clean shutdown"
 
   # The strict local recipe must work as written: application servers on the unpublished trusted
   # listener, the host and browsers on the published main listener, URLs signed by the test signer.

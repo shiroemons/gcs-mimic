@@ -263,14 +263,6 @@ fn recover_on_open(
     let BlobBackend::Disk(data_dir) = backend else {
         return Err(unavailable("disk recovery requires a disk backend"));
     };
-    let pending: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)",
-        [],
-        |row| row.get(0),
-    )?;
-    if pending {
-        connection.execute("UPDATE sync_writeback_roots SET recovery=1 WHERE EXISTS(SELECT 1 FROM sync_writeback_ops p WHERE p.root_id=sync_writeback_roots.root_id AND p.phase!=4)",[])?;
-    }
     let journal_enabled: bool = connection.query_row(
         "SELECT enabled FROM change_journal_state WHERE singleton = 1",
         [],
@@ -286,24 +278,6 @@ fn recover_on_open(
     connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
     notification_outbox::open(connection)?;
     resumable::open(connection)?;
-    // An approval does not outlive the process, but a rejection does: its set is already
-    // invalid, and the write-back of its members resumes after the restart.
-    let has_deletion_revision: bool = sql::scalar(
-        connection,
-        "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets WHERE valid=1 OR authorization=1)",
-        [],
-    )?;
-    if has_deletion_revision {
-        connection.execute_batch("UPDATE sync_deletion_sets SET valid=0,authorization=0 WHERE valid=1 OR authorization=1;")?;
-    }
-    let has_conflict_revision: bool = sql::scalar(
-        connection,
-        "SELECT EXISTS(SELECT 1 FROM sync_conflict_roots UNION ALL SELECT 1 FROM sync_recovery_workspaces)",
-        [],
-    )?;
-    if has_conflict_revision {
-        connection.execute_batch("UPDATE sync_conflict_roots SET revision=lower(hex(randomblob(16))); UPDATE sync_recovery_workspaces SET revision=lower(hex(randomblob(16)));")?;
-    }
     let recovery_now = UnixMillis::try_from(clock.now())?;
     rewrite::recover_due(connection, recovery_now)?;
     resumable_maintenance::recover_due(connection, backend, recovery_now)?;
@@ -458,10 +432,8 @@ impl Catalog {
                 publication_batch: Arc::new(Semaphore::new(1)),
                 seed_commit: Arc::new(Semaphore::new(1)),
                 publication_requests: Arc::new(Semaphore::new(PUBLICATION_REQUESTS as usize)),
-                writeback_execution: Arc::new(Semaphore::new(1)),
                 file_workers: admin::FileWorkers::new()?,
                 admin_shutdown: Notify::new(),
-                sync_control: Mutex::new(None),
                 local_admin: admin::startup_grant(local_admin),
                 change_wake: Notify::new(),
                 notification_wake: Arc::new(Notify::new()),

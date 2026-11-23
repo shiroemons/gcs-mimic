@@ -8,6 +8,7 @@ pub(crate) struct RetryBudget {
     attempts: u32,
 }
 
+#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 impl RetryBudget {
     /// Three attempts: the first one and two retries.
     pub(crate) const STANDARD: Self = Self { attempts: 3 };

@@ -16,20 +16,13 @@ super::string_enum! {
 
 impl ConfigurationReport {
     pub(super) fn check_backend(&mut self, settings: &Settings) {
-        if self.config.backend != Backend::Memory {
-            for setting in [Setting::MemoryMaxBytes, Setting::MemoryCatalogMaxBytes] {
-                if let Some(input) = settings.get(&setting) {
-                    self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
-                        "RAM byte limits require backend=memory; remove them or select the memory backend"));
-                    self.invalid.insert(setting);
-                }
-            }
+        if self.config.backend == Backend::Memory {
             return;
         }
-        for setting in [Setting::SyncDir, Setting::SyncReinitialize] {
+        for setting in [Setting::MemoryMaxBytes, Setting::MemoryCatalogMaxBytes] {
             if let Some(input) = settings.get(&setting) {
                 self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
-                    "backend=memory does not support directory sync; remove this setting or use backend=disk"));
+                    "RAM byte limits require backend=memory; remove them or select the memory backend"));
                 self.invalid.insert(setting);
             }
         }
@@ -152,7 +145,6 @@ mod tests {
             vec!["--backend", "unknown"],
             vec!["--backend", "memory", "--memory-max-bytes", "0"],
             vec!["--backend", "memory", "--memory-catalog-max-bytes", "1024"],
-            vec!["--backend", "memory", "--sync-dir", "missing"],
         ] {
             assert!(
                 Config::load(

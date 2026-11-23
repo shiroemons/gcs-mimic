@@ -1,5 +1,6 @@
 use std::error::Error;
 
+#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 pub(crate) struct Report<'a>(pub(crate) &'a (dyn Error + 'static));
 impl std::fmt::Display for Report<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -22,6 +23,7 @@ impl std::fmt::Display for Report<'_> {
 /// `error` and every error below it through `source()`, outermost first. An `io::Error` hands
 /// over its payload's own source, not the payload: the payload's text is already its own, and
 /// the decisions that need a failure's type read typed chains instead.
+#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 pub(crate) fn causes<'a>(
     error: &'a (dyn Error + 'static),
 ) -> impl Iterator<Item = &'a (dyn Error + 'static)> {

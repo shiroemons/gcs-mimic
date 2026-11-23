@@ -44,13 +44,6 @@ async fn reseed(
             "Configure seed_dir at startup before reseeding",
         ));
     }
-    if ctx.config.sync_dir.is_some() {
-        return Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "conflict",
-            "Stop synchronization and restart without sync_dir before reseeding; external files are never reset",
-        ));
-    }
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     if !bytes.is_empty() {
         return Err(ApiError::invalid_argument(
@@ -178,9 +171,7 @@ pub(super) fn admin_failure(error: &AdminError, operation: Operation) -> ApiErro
         AdminError::Precondition => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
-            format!(
-                "{operation} made no changes because import or synchronization state is active"
-            ),
+            format!("{operation} made no changes because import state is active"),
         ),
         AdminError::Hold => ApiError::new(
             StatusCode::FORBIDDEN,
@@ -239,7 +230,7 @@ mod tests {
                 AdminError::Precondition,
                 StatusCode::CONFLICT,
                 "conflict",
-                "Reseed made no changes because import or synchronization state is active",
+                "Reseed made no changes because import state is active",
             ),
             (
                 AdminError::Hold,

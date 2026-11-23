@@ -483,7 +483,8 @@ impl Identity {
     }
 
     /// Whether the identity document grants `roles/storage.admin` in `project`. A built-in
-    /// identity's implicit role never counts, so only an operator's grant opens sync controls.
+    /// identity's implicit role never counts, so only an operator's grant does.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) fn has_explicit_storage_admin(&self, project: &str) -> bool {
         self.projects
             .get(project)

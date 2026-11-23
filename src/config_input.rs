@@ -898,7 +898,7 @@ pub fn cli_diagnostics(args: &[String]) -> Diagnostics {
 
 /// Adopts `default_seed_dir` as the seed root when no explicit seed is configured. The image
 /// sets it to `/data`, so a fake-gcs-server style mount loads without another variable, while a
-/// `/data` used as the data or sync directory keeps its existing role.
+/// `/data` used as the data directory keeps its existing role.
 pub fn resolve_default_seed(config: &mut crate::config::Config) -> Vec<Diagnostic> {
     let Some(candidate) = config.default_seed_dir.clone() else {
         return Vec::new();
@@ -914,14 +914,13 @@ pub fn resolve_default_seed(config: &mut crate::config::Config) -> Vec<Diagnosti
             Err(error) => return Err(error),
         }
         let seed = migration_path(&candidate)?;
-        for other in std::iter::once(&config.data_dir)
-            .filter(|_| config.backend == crate::config::Backend::Disk)
-            .chain(config.sync_dir.as_ref())
+        if config.backend == crate::config::Backend::Disk
+            && crate::source_tree::paths_overlap_canonical(
+                &seed,
+                &migration_path(&config.data_dir)?,
+            )
         {
-            let other = migration_path(other)?;
-            if crate::source_tree::paths_overlap_canonical(&seed, &other) {
-                return Ok(false);
-            }
+            return Ok(false);
         }
         std::fs::read_dir(&candidate).map(|_| true)
     };
@@ -934,7 +933,7 @@ pub fn resolve_default_seed(config: &mut crate::config::Config) -> Vec<Diagnosti
         Err(_) => vec![Diagnostic::new(
             DiagnosticSource::Filesystem,
             "default_seed_dir",
-            "Cannot inspect default_seed_dir or establish that it is disjoint from data_dir and sync_dir; fix its permissions or set seed_dir explicitly. No implicit import occurs.",
+            "Cannot inspect default_seed_dir or establish that it is disjoint from data_dir; fix its permissions or set seed_dir explicitly. No implicit import occurs.",
         )],
     }
 }
@@ -1782,49 +1781,42 @@ mod tests {
         std::fs::create_dir_all(root.join("legacy")).unwrap();
         std::fs::write(root.join("legacy/object"), "fixture").unwrap();
         let legacy = root.join("legacy");
-        let resolve = |data_dir: std::path::PathBuf,
-                       sync_dir: Option<std::path::PathBuf>,
-                       default: &std::path::Path| {
+        let resolve = |data_dir: std::path::PathBuf, default: &std::path::Path| {
             let mut config = crate::config::Config {
                 data_dir,
-                sync_dir,
                 default_seed_dir: Some(default.to_owned()),
                 ..Default::default()
             };
             let warnings = resolve_default_seed(&mut config);
             (config.seed_dir, warnings)
         };
-        let (seed, warnings) = resolve(root.join("native/new"), None, &legacy);
+        let (seed, warnings) = resolve(root.join("native/new"), &legacy);
         assert_eq!(seed.as_deref(), Some(legacy.as_path()));
         assert!(warnings.is_empty());
         std::fs::create_dir(root.join("empty")).unwrap();
-        let (seed, _) = resolve(root.join("native"), None, &root.join("empty"));
+        let (seed, _) = resolve(root.join("native"), &root.join("empty"));
         assert_eq!(seed.as_deref(), Some(root.join("empty").as_path()));
         for native in [legacy.clone(), root.clone(), legacy.join("missing/new")] {
-            assert_eq!(resolve(native, None, &legacy), (None, Vec::new()));
+            assert_eq!(resolve(native, &legacy), (None, Vec::new()));
         }
         assert_eq!(
-            resolve(root.join("native"), Some(legacy.clone()), &legacy),
-            (None, Vec::new())
-        );
-        assert_eq!(
-            resolve(root.join("native"), None, &root.join("missing")),
+            resolve(root.join("native"), &root.join("missing")),
             (None, Vec::new())
         );
         std::fs::write(root.join("file"), "not a directory").unwrap();
         assert_eq!(
-            resolve(root.join("native"), None, &root.join("file")),
+            resolve(root.join("native"), &root.join("file")),
             (None, Vec::new())
         );
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(&legacy, root.join("alias")).unwrap();
             assert_eq!(
-                resolve(root.join("alias/missing"), None, &legacy),
+                resolve(root.join("alias/missing"), &legacy),
                 (None, Vec::new())
             );
             std::os::unix::fs::symlink(root.join("absent"), root.join("dangling")).unwrap();
-            let (seed, warnings) = resolve(root.join("dangling/native"), None, &legacy);
+            let (seed, warnings) = resolve(root.join("dangling/native"), &legacy);
             assert_eq!(seed, None);
             assert!(warnings[0].fix.contains("Cannot inspect"));
         }

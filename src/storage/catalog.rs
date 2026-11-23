@@ -99,14 +99,12 @@ mod bucket_timestamps;
 mod notification_outbox;
 mod notifications;
 mod policies;
-mod sync_control;
+mod retired_sync;
 use policies::{check_access, insert_policy};
 
 pub(crate) mod change_journal;
 
 pub mod import_journal;
-
-pub mod sync_state;
 
 pub(crate) mod hmac_keys;
 
@@ -151,7 +149,7 @@ use schema::{initialize_catalog, upgrade, validate_schema, validate_schema_versi
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = sync_state::findings::alias::SCHEMA_VERSION;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = object_hold::RELEASE_TIME_SCHEMA_VERSION;
 /// Matches `length(CAST(.. AS BLOB)) <= 65536` on the session, rewrite, notification, appendable,
 /// upload replay and multipart documents (schema versions 7, 11, 28, 34, 35 and 37). Those
 /// schema texts are frozen history: raising this needs a migration such as
@@ -229,10 +227,8 @@ struct Inner {
     /// Held by a publication request until its batch and every staged cleanup it left are done,
     /// which is what `close` waits for. Callers past the permits wait for one like any other slot.
     publication_requests: Arc<Semaphore>,
-    writeback_execution: Arc<Semaphore>,
     file_workers: admin::FileWorkers,
     admin_shutdown: Notify,
-    sync_control: Mutex<Option<crate::sync::control::Registration>>,
     local_admin: Option<admin::AdminGrant>,
     change_wake: Notify,
     notification_wake: Arc<Notify>,

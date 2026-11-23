@@ -573,7 +573,7 @@ fn reset_short_catalog_wait_reports_no_changes() {
 }
 
 #[test]
-fn reset_uses_the_local_manager_and_refuses_active_directory_sync() {
+fn reset_uses_the_local_manager() {
     let dir = TestDir::new();
     let registry = common::process::write_identities(
         &dir.0,
@@ -631,34 +631,4 @@ fn reset_uses_the_local_manager_and_refuses_active_directory_sync() {
             CONFIRM,
         )
         .json_ok();
-    drop(server);
-    // Directory synchronization runs only on Linux and macOS; elsewhere startup rejects it.
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        let sync = TestDir::new();
-        std::fs::write(sync.0.join("external-source.txt"), b"preserve").unwrap();
-        let server = Server::start(
-            &dir,
-            &[
-                "--admin-enabled",
-                "true",
-                "--sync-dir",
-                sync.0.to_str().unwrap(),
-            ],
-        );
-        server.populate();
-        server
-            .request("POST", "/_internal/reset", "", CONFIRM)
-            .expect(409);
-        assert_eq!(
-            std::fs::read(sync.0.join("external-source.txt")).unwrap(),
-            b"preserve"
-        );
-        assert_eq!(
-            server
-                .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
-                .body,
-            b"original"
-        );
-    }
 }

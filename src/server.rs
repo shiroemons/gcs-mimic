@@ -58,9 +58,6 @@ pub struct State {
     pub api_base_url: String,
     pub default_location: String,
     pub auth: Auth,
-    /// The directory mirror's state when `sync_dir` is set, which readiness reports beside
-    /// the API's own and never folds into it.
-    pub sync: Option<crate::sync::MirrorStatus>,
 }
 
 impl State {
@@ -76,7 +73,6 @@ impl State {
             api_base_url: "http://localhost:4443".into(),
             default_location: "US".into(),
             auth,
-            sync: None,
         }
     }
 
@@ -763,6 +759,7 @@ pub(crate) async fn begin_catalog_wait(
 
 /// Starts a catalog wait bounded by `deadline` instead of the request deadline, which lasts until
 /// the handler finishes its object request.
+#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 pub(crate) async fn begin_catalog_wait_until(
     activity: &watch::Sender<ObjectActivity>,
     deadline: Option<tokio::time::Instant>,
@@ -872,8 +869,7 @@ impl TcpListeners {
 pub struct Stop<S, D> {
     /// Resolves when the server should stop accepting; its error becomes the server's result.
     pub signal: S,
-    /// Work outside the server, such as directory synchronization, that ends before the catalog
-    /// closes.
+    /// Work outside the server that ends before the catalog closes.
     pub background: D,
 }
 
@@ -2280,17 +2276,9 @@ fn probe(request: &Request<RequestBody>, state: &State) -> Option<Response<Full<
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        // The mirror's state alone, read from memory: an unauthenticated probe learns no counts,
-        // paths or IDs, and a busy catalog cannot delay it.
-        let sync = match (probe, &state.sync) {
-            (Probe::Readiness, Some(mirror)) => {
-                format!(",\"sync\":{{\"state\":\"{}\"}}", mirror.state())
-            }
-            (Probe::Readiness, None) | (Probe::Liveness, _) => String::new(),
-        };
         (
             StatusCode::OK,
-            format!("{{\"status\":\"ok\",\"unix_time\":{now}{sync}}}"),
+            format!("{{\"status\":\"ok\",\"unix_time\":{now}}}"),
         )
     };
     let content_length = hyper::header::HeaderValue::from(body.len());

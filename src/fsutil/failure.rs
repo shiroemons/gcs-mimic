@@ -37,6 +37,7 @@ impl IoFailureClass {
 
     /// What an I/O failure says, with exhausted descriptors or memory, which its kind does not
     /// name, as transient.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) fn of(error: &io::Error) -> Option<Self> {
         Self::of_kind(error.kind()).or_else(|| {
             matches!(

@@ -64,10 +64,6 @@ const TARGET_ROWS: &[(&str, &str)] = &[
         "SELECT count(*) FROM bucket_file_entries WHERE bucket = ?1",
     ),
     (
-        "sync_objects",
-        "SELECT count(*) FROM sync_objects WHERE bucket = ?1",
-    ),
-    (
         "resumable_sessions",
         "SELECT count(*) FROM resumable_sessions WHERE bucket = ?1",
     ),
@@ -378,7 +374,7 @@ async fn rewrite(catalog: &Catalog) {
 }
 
 /// The target's records that no request path in these tests writes: a notification configuration
-/// and its queued event, a bucket ACL, an initialization record, a sync row and a replay record.
+/// and its queued event, a bucket ACL, an initialization record and a replay record.
 async fn records(catalog: &Catalog) {
     let config = notification("projects/local/topics/purged");
     catalog
@@ -389,7 +385,6 @@ async fn records(catalog: &Catalog) {
     for statement in [
         "INSERT INTO acl_bucket_entries VALUES (?1, 'bucket', '[]')",
         "INSERT INTO bucket_file_entries VALUES (?1, zeroblob(32), 0)",
-        "INSERT INTO sync_objects VALUES (?1, 'announced', 'unused', 'announced', 1, 0, zeroblob(16), zeroblob(16), zeroblob(8), zeroblob(16), 0, 0)",
         "INSERT INTO upload_replays SELECT randomblob(32), randomblob(32), incarnation, 0, 600000000, randomblob(32), '{}' FROM bucket_incarnations WHERE bucket = ?1",
     ] {
         exec(catalog, statement).await;
@@ -454,7 +449,13 @@ async fn purge_classifies_every_catalog_table() {
         })
         .await
         .unwrap();
-    let classes = [DELETED, CASCADED, INCARNATION_BOUND, INSTANCE_WIDE];
+    let classes = [
+        DELETED,
+        CASCADED,
+        INCARNATION_BOUND,
+        INSTANCE_WIDE,
+        crate::storage::catalog::retired_sync::TABLES,
+    ];
     for table in &tables {
         let classified = classes
             .iter()
@@ -580,7 +581,7 @@ async fn purge_does_not_wait_for_an_upload_to_another_bucket() {
 }
 
 #[tokio::test]
-async fn purge_refuses_without_changes_a_missing_name_an_import_synchronization_and_writers() {
+async fn purge_refuses_without_changes_a_missing_name_an_import_and_writers() {
     let dir = TestDir::new();
     let (catalog, admin) = open(&dir.0).await;
     generations(&catalog).await;
@@ -595,15 +596,14 @@ async fn purge_refuses_without_changes_a_missing_name_an_import_synchronization_
     assert_eq!(refusal, PurgeError::Importing);
     let finished = "UPDATE import_journal SET active = 0, cursor = expected";
     exec(&catalog, finished).await;
+    // A data directory that synchronized the bucket before synchronization was removed still
+    // maps it in the retired tables, which no longer refuse the purge and keep their rows.
     for statement in [
         "INSERT INTO sync_roots VALUES (zeroblob(16), X'00', zeroblob(8), zeroblob(8), 1)",
         "INSERT INTO sync_buckets SELECT zeroblob(16), name, incarnation FROM buckets JOIN bucket_incarnations ON bucket = name WHERE name = ?1",
     ] {
         exec(&catalog, statement).await;
     }
-    let refusal = admin.purge_bucket(&target()).await.unwrap_err();
-    assert_eq!(refusal, PurgeError::Synchronized);
-    exec(&catalog, "DELETE FROM sync_buckets WHERE bucket = ?1").await;
     let session = start_session(&catalog, TARGET).await;
     let lease = catalog
         .lock_resumable_session(&session.to_string(), TARGET)
@@ -626,6 +626,17 @@ async fn purge_refuses_without_changes_a_missing_name_an_import_synchronization_
         .unwrap();
     // The claims a refusal took are gone with it, so the next purge gets them.
     assert_eq!(admin.purge_bucket(&target()).await.unwrap().objects, stored);
+    assert_eq!(
+        counts(
+            &catalog,
+            &[(
+                "sync_buckets",
+                "SELECT count(*) FROM sync_buckets WHERE bucket = ?1"
+            )]
+        )
+        .await,
+        [("sync_buckets", 1)]
+    );
     catalog.close().await.unwrap();
 }
 

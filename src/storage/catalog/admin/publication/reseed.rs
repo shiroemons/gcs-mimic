@@ -93,9 +93,6 @@ impl Admin {
         request_deadline: Option<tokio::time::Instant>,
         max_entries: Option<NonZeroUsize>,
     ) -> Result<SeedBatch, AdminError> {
-        if self.catalog.sync_controls()?.is_some() {
-            return Err(AdminError::Precondition);
-        }
         let deadline = wait_deadline(&self.catalog, request_deadline);
         let request = Arc::new(
             self.catalog
@@ -392,11 +389,6 @@ fn check_guards(
     }
     if !mode.clears() {
         return Ok(());
-    }
-    let syncing: bool = sql::scalar(transaction, "SELECT EXISTS(SELECT 1 FROM sync_roots)", [])
-        .map_err(objects_error)?;
-    if syncing {
-        return Err(AdminError::Precondition);
     }
     match mode {
         SeedMode::Replace => {

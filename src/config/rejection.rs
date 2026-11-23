@@ -16,8 +16,6 @@ pub(super) enum Rejection {
     Renamed(RenamedEnvironmentVariable),
     /// A setting that a release withdrew, as named from this source.
     Withdrawn(WithdrawnSetting, DiagnosticSource),
-    /// `sync_reinitialize` names a one-time startup action, so only the command line takes it.
-    StartupOnly,
     Unknown,
 }
 
@@ -30,6 +28,16 @@ pub(super) enum WithdrawnSetting {
     /// The single timeout before 0.12.0 split it, kept as an alias that set all three. It
     /// never covered connection lifetime or `keep_alive_timeout_ms`, which its name suggested.
     ConnectionTimeoutMs,
+    /// The directory synchronization settings. A configuration that still names one expected
+    /// the server to write its objects back to a folder, which no setting does any more.
+    SyncDir,
+    SyncDeleteGuard,
+    SyncReinitialize,
+    MaxSyncEntries,
+    MaxSyncDepth,
+    /// The removed `gcs-mimic sync` command's token, which 0.18.0 had renamed to
+    /// `GCSM_SYNC_TOKEN`; that name now has no reader to point to.
+    SyncToken,
 }
 
 /// What took a withdrawn setting's place.
@@ -37,15 +45,33 @@ enum Replacement {
     Renamed(Setting),
     /// Several settings now each cover part of what it did.
     Split(&'static [Setting]),
+    /// Nothing does: directory synchronization was removed, and `seed_dir` reads a folder
+    /// without ever writing to it.
+    Synchronization,
 }
 
 impl WithdrawnSetting {
-    const ALL: [Self; 2] = [Self::BucketsFileMode, Self::ConnectionTimeoutMs];
+    const ALL: [Self; 8] = [
+        Self::BucketsFileMode,
+        Self::ConnectionTimeoutMs,
+        Self::SyncDir,
+        Self::SyncDeleteGuard,
+        Self::SyncReinitialize,
+        Self::MaxSyncEntries,
+        Self::MaxSyncDepth,
+        Self::SyncToken,
+    ];
 
     const fn name(self) -> &'static str {
         match self {
             Self::BucketsFileMode => "buckets_file_mode",
             Self::ConnectionTimeoutMs => "connection_timeout_ms",
+            Self::SyncDir => "sync_dir",
+            Self::SyncDeleteGuard => "sync_delete_guard",
+            Self::SyncReinitialize => "sync_reinitialize",
+            Self::MaxSyncEntries => "max_sync_entries",
+            Self::MaxSyncDepth => "max_sync_depth",
+            Self::SyncToken => "sync_token",
         }
     }
 
@@ -57,11 +83,23 @@ impl WithdrawnSetting {
                 Setting::BodyInactivityTimeoutMs,
                 Setting::RequestTimeoutMs,
             ]),
+            Self::SyncDir
+            | Self::SyncDeleteGuard
+            | Self::SyncReinitialize
+            | Self::MaxSyncEntries
+            | Self::MaxSyncDepth
+            | Self::SyncToken => Replacement::Synchronization,
         }
     }
 
     fn from_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|setting| setting.name() == name)
+    }
+
+    /// Whether a release withdrew `name`, so that a config file member naming it stops with its
+    /// advice whatever the type of its value, such as `"sync_delete_guard": false`.
+    pub(super) fn is_withdrawn(name: &str) -> bool {
+        Self::from_name(name).is_some()
     }
 }
 
@@ -71,9 +109,6 @@ impl Input {
         match (self.name.parse::<Setting>(), self.source) {
             // A configuration file cannot select another configuration file.
             (Ok(Setting::Config), DiagnosticSource::Config) => Err(Rejection::Unknown),
-            (Ok(Setting::SyncReinitialize), source) if source != DiagnosticSource::Cli => {
-                Err(Rejection::StartupOnly)
-            }
             (Ok(setting), _) => Ok(setting),
             (Err(_), source) => Err(match WithdrawnSetting::from_name(&self.name) {
                 Some(withdrawn) => Rejection::Withdrawn(withdrawn, source),
@@ -113,10 +148,13 @@ impl fmt::Display for Rejection {
                     }
                     f.write_str(" instead.")
                 }
+                Replacement::Synchronization => write!(
+                    f,
+                    "{} was removed with directory synchronization; remove it. {} reads a folder without writing to it.",
+                    withdrawn.name(),
+                    Setting::SeedDir.spelled(*source)
+                ),
             },
-            Self::StartupOnly => f.write_str(
-                "sync_reinitialize is startup-only CLI input; remove it here and use --sync-dir DIRECTORY --sync-reinitialize CATALOG_ID once.",
-            ),
             Self::Unknown => f.write_str(
                 "Unknown setting; remove it and use --help for supported native settings. Reserved future settings are unsupported.",
             ),

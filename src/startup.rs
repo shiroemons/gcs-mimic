@@ -248,7 +248,6 @@ struct BoundStartup {
     buckets: InitOutcome,
     /// The buckets document initialization read, which a reset to the startup state re-applies.
     buckets_document: Option<gcs_mimic::bucket_init::ParsedDocument>,
-    sync_root: Option<gcs_mimic::storage::sync_state::root::RootLease>,
 }
 
 enum PrimaryListener {
@@ -509,10 +508,6 @@ async fn prepare_startup(
                 Diagnostics::error(DiagnosticSource::Seed, "seed_dir", seed_failure(&error))
             })
     })?;
-    // Activation jobs own their catalog/root leases; close drains effects after cancellation.
-    let sync_root = complete!(gcs_mimic::sync::preflight(catalog, config)).map_err(|error| {
-        Diagnostics::error(DiagnosticSource::Sync, "sync_dir", error.to_string())
-    })?;
     // Bind/TIME_WAIT has no catalog effects and owns its socket locally.
     let listeners = complete!(async {
         let primary = bind_primary(config).await?;
@@ -532,7 +527,6 @@ async fn prepare_startup(
         seed,
         buckets: buckets.outcome,
         buckets_document: buckets.document,
-        sync_root,
     }))
 }
 
@@ -592,7 +586,6 @@ pub(crate) async fn serve(
         seed,
         buckets,
         buckets_document,
-        sync_root,
     } = match prepare_startup(
         &catalog,
         &config,
@@ -612,19 +605,7 @@ pub(crate) async fn serve(
     }
     let ready = match ready_event(&config, &auth, &catalog, &listeners, seed, buckets) {
         Ok(ready) => ready,
-        Err(error) => {
-            drop(sync_root);
-            return Ok(close_startup(&catalog, Err(error)).await?);
-        }
-    };
-    let sync_task = match sync_root
-        .map(|root| gcs_mimic::sync::start(catalog.clone(), root, &config))
-        .transpose()
-    {
-        Ok(task) => task,
-        Err(error) => {
-            return Ok(close_startup(&catalog, Err(Diagnostics::startup_failure(&error))).await?);
-        }
+        Err(error) => return Ok(close_startup(&catalog, Err(error)).await?),
     };
     catalog.start_resumable_maintenance();
     let state = Arc::new(State {
@@ -637,16 +618,9 @@ pub(crate) async fn serve(
         api_base_url: ready.api_base_url,
         default_location: config.default_location.clone(),
         auth,
-        sync: sync_task.as_ref().map(gcs_mimic::sync::Task::status),
     });
-    // Readiness must follow every fallible startup step, including sync worker creation.
+    // Readiness must follow every fallible startup step.
     println!("{}", ready.event);
-    let background_drain = async move {
-        if let Some(task) = sync_task {
-            task.finish().await?;
-        }
-        Ok(())
-    };
     let BoundListeners {
         primary,
         http,
@@ -670,11 +644,7 @@ pub(crate) async fn serve(
         #[cfg(unix)]
         PrimaryListener::Unix { listener, .. } => server::Listeners::from(listener),
     };
-    let stop = server::Stop {
-        signal: shutdown,
-        background: background_drain,
-    };
-    server::serve(listeners, config, state, stop).await?;
+    server::serve(listeners, config, state, server::Stop::on(shutdown)).await?;
     report_stopped();
     Ok(())
 }

@@ -1532,100 +1532,11 @@ fn diagnostic_parent(test: &str, events: &[(&str, usize)]) -> bool {
     true
 }
 
-#[tokio::test]
-async fn synchronized_defaults_report_stored_or_new_rules_only_once() {
-    if diagnostic_parent(
-        "synchronized_defaults_report_stored_or_new_rules_only_once",
-        &[("lifecycle_sync_disabled", 2)],
-    ) {
-        return;
-    }
-    for stored in [true, false] {
-        let tree = TestDir::new();
-        let (catalog, _) = memory().await;
-        if stored {
-            create(&catalog, vec![delete(json!({"age":1}))]).await;
-        }
-        catalog.configure_lifecycle(&crate::config::Config {
-            sync_dir: Some(tree.0.clone()),
-            ..Default::default()
-        });
-        if !stored {
-            create(&catalog, vec![delete(json!({"age":1}))]).await;
-        }
-        for age in 2..5 {
-            rules(&catalog, vec![delete(json!({"age":age}))]).await;
-        }
-        assert!(matches!(
-            catalog.run_lifecycle_now().await.unwrap(),
-            LifecycleOutcome::Disabled
-        ));
-        catalog.close().await.unwrap();
-    }
-}
-
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "lifecycle rules must be written inside with_connection")]
 fn marking_rules_outside_a_catalog_write_scope_fails_the_invariant() {
     rules_written();
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-#[tokio::test]
-async fn synchronization_keeps_host_files_by_default_and_explicit_execution_deletes_them() {
-    use crate::config::{Config, LifecycleExecution};
-    for choice in [
-        None,
-        Some(LifecycleExecution::Enabled),
-        Some(LifecycleExecution::Disabled),
-    ] {
-        let data = TestDir::new();
-        let tree = TestDir::new();
-        let (catalog, clock) = disk(&data).await;
-        create(&catalog, vec![delete(json!({"age":1}))]).await;
-        put(&catalog, "object").await;
-        let config = Config {
-            data_dir: data.0.clone(),
-            sync_dir: Some(tree.0.clone()),
-            lifecycle_execution: choice,
-            ..Default::default()
-        };
-        catalog.configure_lifecycle(&config);
-        let root = crate::sync::preflight(&catalog, &config)
-            .await
-            .unwrap()
-            .unwrap();
-        crate::sync::reconcile(&catalog, &root).await.unwrap();
-        let host_file = tree.0.join("bucket/object");
-        assert_eq!(std::fs::read(&host_file).unwrap(), b"data");
-        let task = crate::sync::start(catalog.clone(), root.clone(), &config).unwrap();
-        task.rescan().await.unwrap();
-        clock.advance(DAY);
-        let outcome = catalog.run_lifecycle_now().await.unwrap();
-        let enabled = choice == Some(LifecycleExecution::Enabled);
-        assert_eq!(matches!(outcome, LifecycleOutcome::Executed(_)), enabled);
-        let deleted = match outcome {
-            LifecycleOutcome::Disabled => 0,
-            LifecycleOutcome::Executed(counts) => counts.deleted,
-        };
-        assert_eq!(deleted, u64::from(enabled));
-        if enabled {
-            crate::test_support::eventually_async(
-                "lifecycle deletion to reach the synchronized file",
-                || async { !host_file.exists() },
-            )
-            .await;
-            assert!(!exists(&catalog, live("bucket", "object")).await);
-        } else {
-            task.rescan().await.unwrap();
-            assert!(exists(&catalog, live("bucket", "object")).await);
-            assert_eq!(std::fs::read(&host_file).unwrap(), b"data");
-        }
-        task.finish().await.unwrap();
-        drop(root);
-        catalog.close().await.unwrap();
-    }
 }
 
 #[tokio::test]

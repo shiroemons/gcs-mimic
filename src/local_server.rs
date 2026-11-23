@@ -1,6 +1,5 @@
-//! How a command on the server's host finds the server when it is given no address. The
-//! healthcheck and `gcs-mimic sync` find it the same way, so whatever the healthcheck reaches a
-//! sync command reaches too.
+//! How a command on the server's host finds the server when it is given no address, as the
+//! healthcheck does.
 
 use gcs_mimic::{config::Config, diagnostics::Diagnostics};
 use std::{ffi::OsString, path::Path};

@@ -30,11 +30,12 @@ async fn reset_classifies_every_catalog_table() {
     catalog.run::<_, CatalogError>(|connection| {
         let tables = connection.prepare_cached("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")?.query_map([], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
         let cleared = CLEAR.iter().filter_map(|statement| statement.strip_prefix("DELETE FROM ")).collect::<Vec<_>>();
+        let retired = crate::storage::catalog::retired_sync::TABLES;
         for table in &tables {
-            let classifications = [cleared.contains(&table.as_str()), RETAINED.contains(&table.as_str()), CASCADED.contains(&table.as_str())];
+            let classifications = [cleared.contains(&table.as_str()), RETAINED.contains(&table.as_str()), CASCADED.contains(&table.as_str()), retired.contains(&table.as_str())];
             assert_eq!(classifications.into_iter().filter(|classified| *classified).count(), 1, "ambiguous or missing reset policy: {table}");
         }
-        for table in cleared.iter().chain(RETAINED).chain(CASCADED) {
+        for table in cleared.iter().chain(RETAINED).chain(CASCADED).chain(retired) {
             assert!(tables.iter().any(|existing| existing == table), "obsolete reset policy: {table}");
         }
         Ok(())
@@ -154,7 +155,7 @@ async fn publish(admin: &Admin) -> ObjectRecord {
 async fn reset_preserves_high_water_identity_and_open_readers_and_survives_restart() {
     let (dir, catalog, admin) = setup().await;
     let old = publish(&admin).await;
-    let identity = catalog.sync_state().catalog_id().await.unwrap();
+    let identity = catalog.identity().await.unwrap();
     let (_, mut reader) = admin
         .open_object(
             &BucketName::new("reset-bucket").unwrap(),
@@ -168,7 +169,7 @@ async fn reset_preserves_high_water_identity_and_open_readers_and_survives_resta
     assert!(!outcome.cleanup_pending);
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"original"[..]);
     drop(reader);
-    assert_eq!(catalog.sync_state().catalog_id().await.unwrap(), identity);
+    assert_eq!(catalog.identity().await.unwrap(), identity);
     bucket(&admin).await;
     assert!(publish(&admin).await.generation > old.generation);
     admin.reset().await.unwrap();
@@ -181,7 +182,7 @@ async fn reset_preserves_high_water_identity_and_open_readers_and_survives_resta
             .unwrap()
             .is_none()
     );
-    assert_eq!(reopened.sync_state().catalog_id().await.unwrap(), identity);
+    assert_eq!(reopened.identity().await.unwrap(), identity);
     reopened.close().await.unwrap();
 }
 

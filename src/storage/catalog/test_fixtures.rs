@@ -167,24 +167,6 @@ pub(crate) async fn downgraded<T>(
     downgrade(&connection)
 }
 
-/// Closes the catalog and takes it back to the schema before the files of a set waiting for a
-/// decision were kept apart from it, so that the next open runs that migration. Only the
-/// deletion tests, which run where synchronization does, take it back.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-pub(crate) async fn before_held_files(dir: &TestDir, catalog: &Catalog) {
-    downgraded(dir, catalog, |connection| {
-        super::test_support::downgrade_held_schema(connection);
-        connection
-            .pragma_update(
-                None,
-                "user_version",
-                super::sync_state::deletions::held::SCHEMA_VERSION - 1,
-            )
-            .unwrap();
-    })
-    .await;
-}
-
 pub(crate) async fn migrated(
     dir: &TestDir,
     record: BucketRecord,
@@ -283,14 +265,4 @@ pub(crate) async fn lifecycle_transitioned_object() -> (ObjectRecord, ObjectReco
     assert_eq!(stored, changed);
     catalog.close().await.unwrap();
     (original, stored)
-}
-
-/// The failure an administrative operation reports when an abandoned transaction could not be
-/// rolled back because the database was busy. Sync decisions read the busy code through the
-/// connection and rollback types, which only the catalog can build.
-pub(crate) fn unrecovered_busy_connection() -> super::admin::AdminError {
-    super::ConnectionUnavailable::Unrecovered(super::connection::RollbackError::Rollback(
-        rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY), None),
-    ))
-    .into()
 }

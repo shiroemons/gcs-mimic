@@ -77,6 +77,7 @@ pub fn directory_writable(_: &File) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
+#[expect(dead_code, reason = "the seed watcher reuses this")]
 pub(crate) fn name_max(_: &File) -> io::Result<Option<usize>> {
     Err(io::ErrorKind::Unsupported.into())
 }
@@ -86,6 +87,7 @@ pub(crate) fn unlink_file_at(_: &File, name: &OsStr) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
+#[expect(dead_code, reason = "the seed watcher reuses this")]
 pub(crate) fn remove_empty_directory_at(_: &File, name: &OsStr) -> io::Result<()> {
     validate_name(name)?;
     Err(io::ErrorKind::Unsupported.into())
@@ -99,10 +101,12 @@ pub fn open_regular_at(_: &File, _: &OsStr) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
+#[expect(dead_code, reason = "the seed watcher reuses this")]
 pub(crate) fn create_regular_at(_: &File, _: &OsStr) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
+#[expect(dead_code, reason = "the seed watcher reuses this")]
 pub(crate) fn sole_regular_link(_: &File) -> io::Result<bool> {
     Err(io::ErrorKind::Unsupported.into())
 }

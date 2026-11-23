@@ -59,49 +59,6 @@ mod tests;
 /// A durable step boundary on a blob write path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
-    #[cfg(unix)]
-    SyncDirectorySync,
-    #[cfg(unix)]
-    SyncDirectoryDurable,
-    /// At each boundary of the root naming probe: after it opens its directory, and after each
-    /// entry it creates or removes.
-    #[cfg(unix)]
-    SyncNamingProbe,
-    /// Before each sync that makes an ingested file and the directories above it durable; the
-    /// catalog reaches it once per file, before the file's first sync.
-    #[cfg(unix)]
-    SyncSourceSync,
-    /// Before ingestion stages a file's bytes, for a changed file and for an edit it hands over
-    /// to the object left of an alias alike.
-    #[cfg(unix)]
-    SyncSourceStage,
-    /// After ingestion recorded a file, in the tree and in the catalog.
-    #[cfg(unix)]
-    SyncSourceRecorded,
-    /// After ingestion published an alias edit to the one object left, or found it holds the
-    /// edit already, before the deleted object's record takes the file, in the tree and in the
-    /// catalog.
-    #[cfg(unix)]
-    SyncAliasPublished,
-    /// After the deleted object's record took the file of an alias edit handed over, before the
-    /// file goes with that object, in the tree and in the catalog.
-    #[cfg(unix)]
-    SyncAliasHandedOver,
-    /// After the catalog registered the selected directory's root, before startup stages or
-    /// publishes its marker, in the tree.
-    SyncMarkerReserved,
-    SyncMarkerWrite,
-    SyncMarkerSync,
-    SyncMarkerPrepared,
-    SyncMarkerRename,
-    SyncMarkerParentSync,
-    SyncMarkerPublished,
-    /// After startup staged the marker of an empty directory it switches to, in the tree, and
-    /// before the switch commits, in the catalog.
-    SyncRootSwitchStaged,
-    /// After the switch to an empty directory committed, in the catalog, and before its marker
-    /// is published, in the tree.
-    SyncRootSwitched,
     /// Before probing a failed or rolled-back publication's reference.
     DiscardProbe,
     /// Before committing an expired soft-deleted batch and its deletion journal rows together.
@@ -121,62 +78,10 @@ pub(crate) enum Step {
     RestorePinned,
     /// Before removing an unretained staging entry during startup recovery.
     RecoveryStagingUnlink,
-    TransferAccepted,
-    TransferComplete,
-    TransferCompleted,
-    SyncRecoveryUnlink,
-    SyncRecoveryUnlinked,
-    SyncRecoveryParentSync,
-    SyncRecoveryParentDurable,
-    SyncRecoveryComplete,
-    SyncRecoveryCompleted,
-    SyncRecoveryProtected,
-    ConflictReserved,
-    ConflictWrite,
-    ConflictFlush,
-    ConflictFileSync,
-    ConflictDirectorySync,
-    ConflictRegister,
-    ConflictRegistered,
-    ConflictRestoreCommit,
-    ConflictRestorePublished,
-    ConflictAccept,
-    ConflictAccepted,
-    ConflictUnlink,
-    ConflictUnlinked,
-    ConflictParentSync,
-    ConflictComplete,
-    ConflictCompleted,
-    /// Before copying immutable API bytes into a sync workspace.
-    SyncCopyWrite,
-    /// Before syncing the copied workspace file.
-    SyncCopySync,
-    /// After the copied file and workspace are synced, before installation.
-    SyncCopyDurable,
-    /// Before installation reopens a Finder metadata file in the directory that holds its
-    /// target's name to unlink it. An injected I/O error stands in for the unlink's own failure.
-    SyncDirectoryMetadataUnlink,
-    /// After installation unlinked the Finder metadata files, such as `.DS_Store`, from the
-    /// directory that holds its target's name, and each unlink synced that directory, before the
-    /// directory's removal.
-    SyncDirectoryMetadataRemoved,
-    /// Before installation removes the empty directory that holds its target's name. An injected
-    /// I/O error stands in for the removal's own failure.
-    SyncEmptyDirectoryRemove,
-    /// After that directory is removed, before its parent is synced.
-    SyncEmptyDirectoryRemoved,
-    /// After every check of the target, just before installation renames, exchanges or moves
-    /// it. A test that blocks here can change the target behind those checks.
-    SyncCopyRename,
-    /// After installation renamed, exchanged or moved the target and the parent syncs inside
-    /// that call ran, before installation's own directory syncs.
+    /// After a durable replacement between directories renamed, exchanged or moved the target
+    /// and the parent syncs inside that call ran. Only the `fsutil` test of that call hits it.
+    #[cfg_attr(not(unix), expect(dead_code, reason = "the seed watcher reuses this"))]
     SyncCopyRenamed,
-    /// After an installation attempt failed, before the failure is recorded in the catalog.
-    SyncCopyFailed,
-    /// After checked installation and its directory syncs.
-    SyncCopyInstalled,
-    /// After the sync fingerprint and completion transaction commits.
-    SyncCopyCommit,
     /// Before reclaiming one namespace entry after a committed reset.
     ResetReclaim,
     /// Before syncing a directory after a committed reset's unlink.

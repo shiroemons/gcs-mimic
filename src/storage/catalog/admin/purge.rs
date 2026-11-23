@@ -43,8 +43,6 @@ pub(crate) enum PurgeError {
     NotFound,
     /// An import is incomplete.
     Importing,
-    /// Directory synchronization maps the bucket.
-    Synchronized,
     /// A request writes one of the bucket's upload sessions or appendable objects.
     WriterBusy,
     /// The administrative operation failed as any other does.
@@ -57,7 +55,6 @@ impl fmt::Display for PurgeError {
         match self {
             Self::NotFound => f.write_str("no live or soft-deleted bucket has the name"),
             Self::Importing => f.write_str("an import is incomplete"),
-            Self::Synchronized => f.write_str("directory synchronization maps the bucket"),
             Self::WriterBusy => f.write_str("a request writes one of the bucket's sessions"),
             Self::Admin(error) => error.fmt(f),
         }
@@ -68,7 +65,7 @@ impl std::error::Error for PurgeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Admin(error) => Some(error),
-            Self::NotFound | Self::Importing | Self::Synchronized | Self::WriterBusy => None,
+            Self::NotFound | Self::Importing | Self::WriterBusy => None,
         }
     }
 }
@@ -204,7 +201,6 @@ const DELETED: &[&str] = &[
     "resumable_sessions",
     "rewrite_sessions",
     "soft_deleted_buckets",
-    "sync_objects",
     "upload_replays",
     "xml_multipart_uploads",
 ];
@@ -223,8 +219,8 @@ const CASCADED: &[&str] = &[
 #[cfg(test)]
 const INCARNATION_BOUND: &[&str] = &["change_journal"];
 /// The tables of the whole instance: allocators, journals the purge appends to, derived transfers
-/// owned by requests, and import and synchronization state, which refuse the purge while it would
-/// touch the bucket.
+/// owned by requests, and import state, which refuses the purge while it would touch the bucket.
+/// The retired synchronization tables (`retired_sync::TABLES`) keep their rows as well.
 #[cfg(test)]
 const INSTANCE_WIDE: &[&str] = &[
     "bucket_generation",
@@ -241,23 +237,6 @@ const INSTANCE_WIDE: &[&str] = &[
     "pending_blob_deletions",
     "policy_revision",
     "startup_seed",
-    "sync_buckets",
-    "sync_conflict_operations",
-    "sync_conflict_roots",
-    "sync_conflicts",
-    "sync_deletion_held",
-    "sync_deletion_history",
-    "sync_deletion_members",
-    "sync_deletion_sets",
-    "sync_finding_aliases",
-    "sync_finding_owners",
-    "sync_findings",
-    "sync_observations",
-    "sync_path_stops",
-    "sync_recovery_workspaces",
-    "sync_roots",
-    "sync_writeback_ops",
-    "sync_writeback_roots",
     "xml_multipart_deletions",
 ];
 
@@ -299,8 +278,8 @@ fn purge(
     })
 }
 
-/// Whether the name has a live bucket. Refuses, changing nothing, a name with no version at all, an
-/// incomplete import and a bucket that directory synchronization maps.
+/// Whether the name has a live bucket. Refuses, changing nothing, a name with no version at all and
+/// an incomplete import.
 fn admit(transaction: &Connection, name: &str) -> Result<Presence, PurgeError> {
     let (live, deleted): (bool, bool) = sql::row(transaction, PRESENCE, [name], |row| {
         Ok((row.get(0)?, row.get(1)?))
@@ -317,14 +296,6 @@ fn admit(transaction: &Connection, name: &str) -> Result<Presence, PurgeError> {
     )?;
     if importing {
         return Err(PurgeError::Importing);
-    }
-    let synchronized: bool = sql::scalar(
-        transaction,
-        "SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE bucket = ?1)",
-        [name],
-    )?;
-    if synchronized {
-        return Err(PurgeError::Synchronized);
     }
     Ok(presence)
 }

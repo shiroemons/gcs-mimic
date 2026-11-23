@@ -61,6 +61,10 @@ const KEPT_NAMES: usize = 4096;
 /// How the filesystem of a probed root matched a name the probe opened against the names its
 /// directory lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(all(test, unix)),
+    expect(dead_code, reason = "the seed watcher reuses this")
+)]
 pub(crate) enum Matching {
     /// Names that differ in letter case or Unicode normalization named different files.
     Exact,
@@ -148,6 +152,10 @@ impl Listings {
 
 impl Lookup {
     /// Lookups that know nothing about the filesystem: each directory's own answer decides.
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(dead_code, reason = "the seed watcher reuses this")
+    )]
     pub(crate) fn unprobed() -> Self {
         Self::unprobed_on(Arc::new(SystemClock))
     }
@@ -159,6 +167,10 @@ impl Lookup {
 
     /// Lookups below a root whose probe matched names as `matching` says, telling the time of a
     /// listing by `clock`.
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(dead_code, reason = "the seed watcher reuses this")
+    )]
     pub(crate) fn probed(matching: Matching, clock: Arc<dyn Clock>) -> Self {
         let known = match matching {
             Matching::Exact => Known::Nothing,
@@ -178,6 +190,10 @@ impl Lookup {
 
     /// The lookups another job uses: they share the listings this one read and keep, and start
     /// with a whole [`WAIT_BUDGET`], so that the job is not held up by the waits of this one.
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(dead_code, reason = "the seed watcher reuses this")
+    )]
     pub(crate) fn for_job(&self) -> Self {
         Self {
             known: self.known,
@@ -284,6 +300,10 @@ impl Lookup {
 
     /// Opens the directory `name` in `parent`, creating it when `open` allows, without following
     /// a symlink. An entry reached under another spelling is [`Child::Alias`].
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(dead_code, reason = "the seed watcher reuses this")
+    )]
     pub(crate) fn directory(
         &self,
         parent: &File,
@@ -296,6 +316,10 @@ impl Lookup {
     /// Opens the regular file `name` in `parent` without following a symlink. A file reached
     /// under another spelling is [`RegularChild::Respelled`], with the spelling `parent` lists it
     /// under.
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(dead_code, reason = "the seed watcher reuses this")
+    )]
     pub(crate) fn regular(&self, parent: &File, name: &OsStr) -> io::Result<RegularChild> {
         imp::child_regular(parent, name, self)
     }
@@ -303,6 +327,10 @@ impl Lookup {
     /// Opens the regular file `name` in `parent` without following a symlink or confirming its
     /// spelling, for a file the mirror names itself, under the rule [`Self::regular`] applies to
     /// a name that fails to open ([`Opened`]).
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(dead_code, reason = "the seed watcher reuses this")
+    )]
     pub(crate) fn regular_unconfirmed(
         &self,
         parent: &File,
@@ -313,6 +341,7 @@ impl Lookup {
 
     /// Like [`Self::regular_unconfirmed`], open for writing, for a private file the mirror refills
     /// in place.
+    #[expect(dead_code, reason = "the seed watcher reuses this")]
     pub(crate) fn regular_writable_unconfirmed(
         &self,
         parent: &File,
@@ -324,6 +353,7 @@ impl Lookup {
     /// Opens the existing directory `name` in `parent` without following a symlink or confirming
     /// its spelling, for a name a listing gave or the mirror names itself, under the same rule
     /// ([`Opened`]).
+    #[expect(dead_code, reason = "the seed watcher reuses this")]
     pub(crate) fn directory_unconfirmed(
         &self,
         parent: &File,

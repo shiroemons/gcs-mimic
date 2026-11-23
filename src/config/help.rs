@@ -6,7 +6,6 @@ use std::fmt::Write as _;
 
 const USAGE: &str = "gcs-mimic — local Google Cloud Storage emulator
 Usage: gcs-mimic [serve] [--config PATH] [OPTIONS] (serve is implied when the first argument is an option)
-       gcs-mimic sync status|findings|deletions|conflicts|rescan|approve|reject|resolve|wait --endpoint URL [OPTIONS]
        gcs-mimic healthcheck [--url URL] [--ca-cert PATH]
        gcs-mimic import fake-gcs-server --source DIR --data-dir NEW [OPTIONS] (see import fake-gcs-server --help)
        gcs-mimic buckets new [--name NAME [SETTINGS]]... [--format json|env|compose] (writes a buckets document; see buckets new --help)
@@ -50,8 +49,6 @@ Without --url, healthcheck reads GCS_MIMIC_* and the selected JSON config, uses 
 maps wildcard listeners to loopback and probes over HTTP unless scheme=https. When that
 probe fails, it retries with the options of a gcs-mimic server running as PID 1, as in the
 container image; elsewhere, server CLI options need an explicit --url.
-A ready answer that reports directory synchronization still starting also fails the check,
-until the server's first pass over sync_dir, which exports existing objects, has finished.
 Authentication is permissive by default; strict mode checks local bearer tokens and grants.";
 
 /// The settings most setups need, which the help lists first. The scheme leads because it
@@ -157,10 +154,7 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
             "N",
             "0 (new buckets without a softDeletePolicy; 0 keeps no deleted data, 1..7776000 retains it; 604800 is the Cloud Storage default)",
         ),
-        Setting::LifecycleExecution => (
-            "MODE",
-            "enabled|disabled (default: disabled with sync-dir, enabled otherwise; enabled also deletes synchronized host files)",
-        ),
+        Setting::LifecycleExecution => ("MODE", "enabled|disabled (default: enabled)"),
         Setting::Listen => ("IP:PORT", "127.0.0.1:4443"),
         Setting::ListenHttp => (
             "IP:PORT",
@@ -225,23 +219,6 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
             "MODE",
             "extension (extension|octet-stream; pinned MIME table)",
         ),
-        Setting::SyncDir => (
-            "PATH",
-            "none (existing working tree; initial export after ready)",
-        ),
-        Setting::SyncDeleteGuard => (
-            "BOOL",
-            "true (at least 100 deletions that are over half of the tree, or a bucket directory missing or empty, wait for sync reject or sync approve)",
-        ),
-        Setting::SyncReinitialize => ("ID", "startup only (exact catalog ID; missing marker only)"),
-        Setting::MaxSyncEntries => (
-            "N",
-            "0 (files and directories in sync_dir, also the watches Linux may use; scans take longer, not more memory; 0 is unlimited)",
-        ),
-        Setting::MaxSyncDepth => (
-            "N",
-            "0 (0..1024; directory levels below sync_dir, counting the bucket; 0 is unlimited)",
-        ),
         Setting::BucketsFile => (
             "PATH",
             "none (create missing buckets before seed; JSON v1, at most 1 GiB, or 1 KiB per allowed bucket and at least 32 MiB under a bucket limit)",
@@ -272,7 +249,7 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
         ),
         Setting::AdminPrincipal => (
             "ID",
-            "none (strict instance administrator for local management except sync; required with --admin-enabled in strict mode)",
+            "none (strict instance administrator for local management; required with --admin-enabled in strict mode)",
         ),
         Setting::AdminAllowedHosts => (
             "LIST",
@@ -522,7 +499,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "2330d9df8ab8fa0786c120d9a256d4881167f4122eb9bd2a02eb157d0c1fbe4a"
+            "1a16a8bb90ee3d36e065a77e230a524edbe6f95a584e5b18fcd2a1e721682b06"
         );
     }
 }

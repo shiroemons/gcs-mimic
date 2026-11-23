@@ -688,43 +688,37 @@ async fn multipart_abort_completion_lease_wins_or_missing_id_prevents_completion
 }
 
 #[tokio::test]
-async fn multipart_abort_disabled_and_sync_defaults_preserve_uploads_until_enabled() {
-    for explicit_disabled in [false, true] {
-        let tree = TestDir::new();
-        let (catalog, clock) = memory().await;
-        create(&catalog, vec![abort(json!({"age":1}))]).await;
-        begin(&catalog, "object").await;
-        let mut config = crate::config::Config {
-            sync_dir: Some(tree.0.clone()),
-            ..Default::default()
-        };
-        if explicit_disabled {
-            config.lifecycle_execution = Some(crate::config::LifecycleExecution::Disabled);
-        }
-        catalog.configure_lifecycle(&config);
-        clock.advance(DAY);
-        let outcome = catalog.run_lifecycle_now().await.unwrap();
-        assert!(matches!(outcome, LifecycleOutcome::Disabled));
-        assert_eq!(serde_json::to_value(outcome).unwrap()["aborted"], 0);
-        assert_eq!(
-            count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
-            1
-        );
-        catalog.maintain_resumable_sessions().await.unwrap();
-        assert_eq!(
-            count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
-            1
-        );
-        config.lifecycle_execution = Some(crate::config::LifecycleExecution::Enabled);
-        catalog.configure_lifecycle(&config);
-        let result = catalog.run_lifecycle_now().await.unwrap();
-        assert_eq!(serde_json::to_value(result).unwrap()["aborted"], 1);
-        assert_eq!(
-            count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
-            0
-        );
-        catalog.close().await.unwrap();
-    }
+async fn multipart_abort_disabled_execution_preserves_uploads_until_enabled() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![abort(json!({"age":1}))]).await;
+    begin(&catalog, "object").await;
+    let mut config = crate::config::Config {
+        lifecycle_execution: Some(crate::config::LifecycleExecution::Disabled),
+        ..Default::default()
+    };
+    catalog.configure_lifecycle(&config);
+    clock.advance(DAY);
+    let outcome = catalog.run_lifecycle_now().await.unwrap();
+    assert!(matches!(outcome, LifecycleOutcome::Disabled));
+    assert_eq!(serde_json::to_value(outcome).unwrap()["aborted"], 0);
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
+        1
+    );
+    catalog.maintain_resumable_sessions().await.unwrap();
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
+        1
+    );
+    config.lifecycle_execution = Some(crate::config::LifecycleExecution::Enabled);
+    catalog.configure_lifecycle(&config);
+    let result = catalog.run_lifecycle_now().await.unwrap();
+    assert_eq!(serde_json::to_value(result).unwrap()["aborted"], 1);
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
+        0
+    );
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]

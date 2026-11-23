@@ -27,11 +27,7 @@ async fn fatal_listener_failure_drains_background_work_before_catalog_close() {
                     signal: std::future::pending(),
                     background: async move {
                         assert!(owner.is_healthy());
-                        owner
-                            .sync_state()
-                            .catalog_id()
-                            .await
-                            .map_err(io::Error::other)?;
+                        owner.identity().await.map_err(io::Error::other)?;
                         drained.store(true, Ordering::Release);
                         Ok(())
                     },

@@ -92,6 +92,7 @@ impl std::error::Error for InvalidPageLimit {}
 
 impl<const MAX: usize> PageLimit<MAX> {
     /// The largest page, for internal callers that read as much as one call allows.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) const LARGEST: Self = match NonZeroUsize::new(MAX) {
         Some(max) => Self(max),
         // A listing returns at least one item per page; `MAX` 0 would be a declaration error.
@@ -104,6 +105,7 @@ impl<const MAX: usize> PageLimit<MAX> {
 
     /// This size plus the one item a caller reads past the page to learn whether the listing
     /// continues. The compiler rejects a `WIDER` listing that cannot hold that extra item.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) const fn with_lookahead<const WIDER: usize>(self) -> PageLimit<WIDER> {
         const { assert!(WIDER > MAX, "a look-ahead listing holds one item more") };
         PageLimit(self.0.saturating_add(1))
@@ -146,6 +148,7 @@ impl fmt::Display for InvalidOrdinal {
 
 impl std::error::Error for InvalidOrdinal {}
 
+#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 impl Ordinal {
     pub(crate) const START: Self = Self(0);
 

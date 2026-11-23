@@ -362,31 +362,3 @@ fn virtual_host_purge_lookalike_keeps_object_semantics() {
         b"original"
     );
 }
-
-/// Directory synchronization maps a bucket it finds in the tree, so the purge refuses it.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-#[test]
-fn bucket_purge_refuses_a_bucket_directory_synchronization_maps() {
-    let (dir, sync) = (TestDir::new(), TestDir::new());
-    std::fs::create_dir(sync.0.join("test-bucket")).unwrap();
-    std::fs::write(sync.0.join("test-bucket/value"), b"preserve").unwrap();
-    let server = Server::start(
-        &dir,
-        &[
-            "--admin-enabled",
-            "true",
-            "--sync-dir",
-            sync.0.to_str().unwrap(),
-        ],
-    );
-    common::input_fixtures::eventually_some("the tree's bucket to be ingested", || {
-        (server.request("GET", OBJECT, "", b"").status == 200).then_some(())
-    });
-    let refused = server.purge(PURGE, "");
-    refused.json_reason(409, "conflict");
-    assert_eq!(
-        std::fs::read(sync.0.join("test-bucket/value")).unwrap(),
-        b"preserve"
-    );
-    server.request("GET", OBJECT, "", b"").expect(200);
-}

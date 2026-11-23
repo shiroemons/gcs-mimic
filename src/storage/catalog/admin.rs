@@ -50,7 +50,6 @@ pub enum Origin {
     Api,
     Seed,
     BucketInit,
-    SyncIngest,
     Import,
 }
 
@@ -58,7 +57,6 @@ pub enum Origin {
 pub(crate) struct AdminGrant {
     origin: Origin,
     notification_mode: crate::notification::NotificationMode,
-    control: Option<super::sync_state::authority::ControlScope>,
 }
 
 #[derive(Clone, Copy)]
@@ -71,7 +69,6 @@ pub(super) fn startup_grant(mode: LocalAdmin) -> Option<AdminGrant> {
     matches!(mode, LocalAdmin::Enabled).then_some(AdminGrant {
         origin: Origin::Seed,
         notification_mode: crate::notification::NotificationMode::Emit,
-        control: None,
     })
 }
 
@@ -82,18 +79,11 @@ impl AdminGrant {
         Self {
             origin: Origin::Seed,
             notification_mode: crate::notification::NotificationMode::Emit,
-            control: None,
         }
     }
 }
 
 impl AdminGrant {
-    pub(super) fn authorize(&self, connection: &Connection) -> Result<(), CatalogError> {
-        if let Some(scope) = &self.control {
-            scope.authorize(connection)?;
-        }
-        Ok(())
-    }
     pub(crate) fn origin(&self) -> Origin {
         self.origin
     }
@@ -110,8 +100,8 @@ pub use crate::bucket::name::{BucketName, InvalidBucketName};
 pub use crate::object::generation::{Generation, InvalidGeneration};
 pub use crate::object::name::{InvalidObjectName, ObjectName};
 
-// The administration API's constructors keep its error type: seed, fixtures and the sync engine
-// report `AdminError`'s text. They live beside `AdminError` rather than beside the types.
+// The administration API's constructors keep its error type: seed and fixtures report
+// `AdminError`'s text. They live beside `AdminError` rather than beside the types.
 impl BucketName {
     pub fn new(value: impl Into<String>) -> Result<Self, AdminError> {
         Ok(Self::try_from(value.into())?)
@@ -211,7 +201,7 @@ mod publication;
 pub(super) use publication::FileWorkers;
 pub(in crate::storage) use publication::NestedFileJob;
 pub(super) use publication::apply_acl;
-pub(crate) use publication::{BatchPublication, ImportedPublication, StagedObject};
+pub(crate) use publication::{BatchPublication, ImportedPublication};
 pub(crate) use publication::{Removed, SeedBatch, SeedMode};
 
 pub struct Publication {
@@ -449,6 +439,7 @@ pub struct Admin {
 }
 
 pub(crate) struct BucketEntry {
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub bucket: BucketRecord,
     #[cfg_attr(
         not(test),
@@ -476,7 +467,6 @@ impl Catalog {
         Admin {
             catalog: self.clone(),
             grant: AdminGrant {
-                control: None,
                 origin,
                 notification_mode: if matches!(origin, Origin::Seed | Origin::Import) {
                     crate::notification::NotificationMode::Suppress
@@ -566,13 +556,6 @@ impl Catalog {
 }
 
 impl Admin {
-    pub(crate) fn with_sync_authority(
-        mut self,
-        scope: super::sync_state::authority::ControlScope,
-    ) -> Self {
-        self.grant.control = Some(scope);
-        self
-    }
     pub(crate) fn with_notification_mode(
         mut self,
         mode: crate::notification::NotificationMode,
@@ -631,12 +614,10 @@ impl Admin {
     ) -> Result<Vec<EnsureBucket>, AdminError> {
         require_unique_names(records.iter().map(|record| record.0.name.as_str()))?;
         let origin = self.origin();
-        let grant = self.grant.clone();
         let default_retention = self.catalog.default_soft_delete_retention();
         self.catalog
             .run_admin(move |connection| {
                 let transaction = sql::immediate(connection)?;
-                grant.authorize(&transaction)?;
                 let mut existing = existing_buckets(
                     &transaction,
                     records.iter().map(|record| record.0.name.as_str()),
@@ -684,6 +665,7 @@ impl Admin {
     }
 
     /// Binary keyset across every owner; continue after the last returned bucket name.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) async fn list_all_buckets(
         &self,
         after: Option<&str>,
@@ -900,27 +882,6 @@ impl Admin {
         name: &ObjectName,
         condition: GenerationCondition,
     ) -> Result<(), AdminError> {
-        self.delete_with_sync(bucket, name, condition, None).await
-    }
-
-    pub(crate) async fn delete_synced_object(
-        &self,
-        bucket: &BucketName,
-        name: &ObjectName,
-        condition: GenerationCondition,
-        binding: super::sync_state::SyncBinding,
-    ) -> Result<(), AdminError> {
-        self.delete_with_sync(bucket, name, condition, Some(binding))
-            .await
-    }
-
-    async fn delete_with_sync(
-        &self,
-        bucket: &BucketName,
-        name: &ObjectName,
-        condition: GenerationCondition,
-        binding: Option<super::sync_state::SyncBinding>,
-    ) -> Result<(), AdminError> {
         let target = ObjectTarget::new(bucket.as_str().to_owned(), name.as_str().to_owned(), None);
         let access = self.grant.access();
         let clock = self.catalog.0.clock.clone();
@@ -933,7 +894,6 @@ impl Admin {
                     &target,
                     condition.conditions(),
                     &access,
-                    binding.as_ref(),
                 )
                 .map_err(AdminError::from)
             })

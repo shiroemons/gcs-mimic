@@ -16,7 +16,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 mod buckets_cli;
 mod local_server;
 mod startup;
-mod sync_cli;
 // Binary tests cannot access the library's cfg(test) module.
 #[cfg(test)]
 #[expect(
@@ -83,6 +82,8 @@ Enable that base in --xml-virtual-host-domains; HTTPS requires a matching suppli
 No config file is read unless --config PATH is explicit; its public_base_url supplies the default
 base, overridden by --base-url. No environment, Google IAM call or permission change occurs.";
 
+const REMOVED_SYNC: &str = "gcs-mimic sync was removed with directory synchronization. seed_dir reads a folder without writing to it; start the server with --seed-dir DIRECTORY instead.";
+
 const TEST_SIGNER_HELP: &str = "Usage: gcs-mimic test-signer credentials
 
 Prints a service account key file for the built-in test signer test-signer@gcs-mimic.invalid:
@@ -106,7 +107,7 @@ fn main() -> ExitCode {
             );
             let diagnostics = error.diagnostics().unwrap_or(&fallback);
             let _ = diagnostics.write(io::stderr().lock());
-            error.exit_code()
+            ExitCode::FAILURE
         }
     }
 }
@@ -116,12 +117,6 @@ fn main() -> ExitCode {
 #[derive(Debug)]
 enum CliError {
     Diagnostics(Diagnostics),
-    /// A `sync wait` that did not end ready: its diagnostics, and the exit status that tells
-    /// how it ended.
-    Wait(Diagnostics, gcs_mimic::sync::Unsettled),
-    /// A request to the synchronization server that got no answer the command can read: advice
-    /// that names where the command looked and what to check, and the failure as the cause.
-    Unreachable(Diagnostics, sync_cli::ExchangeFailure),
     /// Authentication setup failed at startup: its diagnostics are reported, and its catalog
     /// causes remain the error's source. Boxed because it holds two catalog errors.
     Authentication(Box<startup::CatalogAuthenticationFailure>),
@@ -134,8 +129,6 @@ impl CliError {
     fn diagnostics(&self) -> Option<&Diagnostics> {
         match self {
             Self::Diagnostics(diagnostics)
-            | Self::Wait(diagnostics, _)
-            | Self::Unreachable(diagnostics, _)
             | Self::Import(gcs_mimic::import::ImportError::Diagnostics(diagnostics)) => {
                 Some(diagnostics)
             }
@@ -143,26 +136,12 @@ impl CliError {
             Self::Import(_) | Self::Io(_) => None,
         }
     }
-
-    /// The status the process exits with: a wait's own, and 1 for any other failure.
-    fn exit_code(&self) -> ExitCode {
-        match self {
-            Self::Wait(_, unsettled) => ExitCode::from(unsettled.exit_code()),
-            Self::Diagnostics(_)
-            | Self::Unreachable(..)
-            | Self::Authentication(_)
-            | Self::Io(_)
-            | Self::Import(_) => ExitCode::FAILURE,
-        }
-    }
 }
 
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Diagnostics(diagnostics)
-            | Self::Wait(diagnostics, _)
-            | Self::Unreachable(diagnostics, _) => diagnostics.fmt(f),
+            Self::Diagnostics(diagnostics) => diagnostics.fmt(f),
             Self::Authentication(failure) => failure.fmt(f),
             Self::Io(error) => error.fmt(f),
             Self::Import(error) => error.fmt(f),
@@ -173,10 +152,9 @@ impl std::fmt::Display for CliError {
 impl std::error::Error for CliError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Diagnostics(diagnostics) | Self::Wait(diagnostics, _) => Some(diagnostics),
+            Self::Diagnostics(diagnostics) => Some(diagnostics),
             Self::Authentication(failure) => Some(failure.as_ref()),
             Self::Io(error) => Some(error),
-            Self::Unreachable(_, failure) => Some(failure),
             Self::Import(error) => Some(error),
         }
     }
@@ -233,8 +211,9 @@ fn cli_args() -> Result<Vec<String>, Diagnostics> {
 fn run() -> Result<(), CliError> {
     let args = cli_args()?;
     match args.as_slice() {
-        [command, rest @ ..] if command == "sync" => {
-            return sync_cli::run(rest);
+        // A script written for an older release fails with what replaced the command.
+        [command, ..] if command == "sync" => {
+            return Err(Diagnostics::error(DiagnosticSource::Cli, "command", REMOVED_SYNC).into());
         }
         [command, kind, rest @ ..] if command == "import" && kind == "fake-gcs-server" => {
             return gcs_mimic::import::cli(rest).map_err(CliError::from);
@@ -646,19 +625,17 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
             ),
         )
     };
-    // A ready API whose synchronization is still starting answered, so the PID 1 fallback never
-    // runs for it.
     if let Some(url) = &options.url {
-        let body = probe(url, ca_cert).map_err(|error| failed(url, error))?;
-        return synchronization_started(url, ca_cert, &body);
+        probe(url, ca_cert).map_err(|error| failed(url, error))?;
+        return Ok(());
     }
-    let (url, body) = local_server::with_container_fallback(
+    local_server::with_container_fallback(
         probe_url(&[], &repair)?,
         |url| probe(url, ca_cert).map_err(|error| failed(url, error)),
         |_| true,
         |server_args| probe_url(server_args, &repair),
     )?;
-    synchronization_started(&url, ca_cert, &body)
+    Ok(())
 }
 
 /// The options of `gcs-mimic healthcheck`.
@@ -823,104 +800,6 @@ impl std::str::FromStr for ProbeUrl {
     }
 }
 
-/// Passes unless the ready answer `body` reports directory synchronization still `starting`.
-/// `starting` lasts until this process's first pass over the tree, which exports existing
-/// objects, has finished, so a dependent container started on this healthcheck sees the tree.
-fn synchronization_started(
-    url: &ProbeUrl,
-    ca_cert: Option<&Path>,
-    body: &[u8],
-) -> Result<(), Diagnostics> {
-    use gcs_mimic::sync::{MirrorState, report::command};
-    let fix = match reported_sync(body) {
-        // A mirror past `starting` has ended its first pass. Later trouble is for sync status
-        // and the server log to explain: waiting would not end a pause or a stop, and a failing
-        // healthcheck would hold back or restart a container whose Storage API serves.
-        Ok(
-            None
-            | Some(
-                MirrorState::Running
-                | MirrorState::Retrying
-                | MirrorState::Paused
-                | MirrorState::Stopped,
-            ),
-        ) => return Ok(()),
-        Ok(Some(MirrorState::Starting)) => format!(
-            "Healthcheck {url} found the API ready, but sync.state is starting: directory synchronization has not finished this process's first pass, which exports existing objects into the sync directory. The healthcheck passes once the state leaves starting. Follow it, adding --token-file PATH under strict authentication: {}",
-            command::with_connection(
-                &command::Advised::Status.to_string(),
-                &probe_connection(url, ca_cert)
-            ),
-        ),
-        Err(error) => {
-            let causes =
-                std::iter::successors(std::error::Error::source(&error), |cause| cause.source());
-            let reason = causes.fold(error.to_string(), |reason, cause| {
-                format!("{reason}: {cause}")
-            });
-            format!(
-                "Healthcheck {url} found the API ready, but {reason}. The server runs another gcs-mimic version; probe it with the gcs-mimic of the server's version."
-            )
-        }
-    };
-    Err(Diagnostics::error(
-        DiagnosticSource::Cli,
-        "healthcheck",
-        fix,
-    ))
-}
-
-/// The options that reach the server a healthcheck probed, as `gcs-mimic sync` spells them.
-fn probe_connection(url: &ProbeUrl, ca_cert: Option<&Path>) -> String {
-    match ca_cert {
-        Some(path) => format!("--endpoint {} --ca-cert {}", url.origin(), path.display()),
-        None => format!("--endpoint {}", url.origin()),
-    }
-}
-
-/// The mirror state a ready answer reports. The server adds `sync` only while directory
-/// synchronization is enabled; an answer without it, or one that is not a JSON object at all,
-/// leaves the API alone to decide, as before the field existed.
-fn reported_sync(body: &[u8]) -> Result<Option<gcs_mimic::sync::MirrorState>, UnreadableSync> {
-    #[derive(serde::Deserialize)]
-    struct ReadySync {
-        state: String,
-    }
-    let Ok(serde_json::Value::Object(mut fields)) = serde_json::from_slice(body) else {
-        return Ok(None);
-    };
-    let Some(sync) = fields.remove("sync") else {
-        return Ok(None);
-    };
-    let ReadySync { state } = serde_json::from_value(sync).map_err(UnreadableSync::Shape)?;
-    state.parse().map(Some).map_err(UnreadableSync::State)
-}
-
-/// A `sync` object this healthcheck cannot read, as from a server of another version.
-#[derive(Debug)]
-enum UnreadableSync {
-    Shape(serde_json::Error),
-    State(gcs_mimic::sync::UnknownMirrorState),
-}
-
-impl std::fmt::Display for UnreadableSync {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Shape(_) => "its sync object is not one this healthcheck reads",
-            Self::State(_) => "its sync.state is not one this healthcheck knows",
-        })
-    }
-}
-
-impl std::error::Error for UnreadableSync {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Shape(error) => Some(error),
-            Self::State(error) => Some(error),
-        }
-    }
-}
-
 /// The probe URL of the server the environment, the config file it selects and the given server
 /// options configure, found as [`local_server::origin`] finds it.
 fn probe_url(
@@ -1078,85 +957,6 @@ async fn probe_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Only a ready answer whose mirror is still starting fails, and its diagnostic gives the
-    /// command that follows the mirror. An answer without `sync`, as from a server without a sync
-    /// directory or from the liveness probe, passes as before; a `sync` this command cannot read
-    /// names a version mismatch instead.
-    #[test]
-    fn the_healthcheck_fails_only_while_synchronization_starts() {
-        use gcs_mimic::sync::MirrorState;
-        let fix = |url: &str, ca_cert: Option<&str>, body: &str| {
-            let url = url.parse().unwrap();
-            let Err(diagnostics) =
-                synchronization_started(&url, ca_cert.map(Path::new), body.as_bytes())
-            else {
-                return None;
-            };
-            let [error] = diagnostics.errors.as_slice() else {
-                panic!("{diagnostics:?}");
-            };
-            Some(error.fix.clone())
-        };
-        let ready = "http://127.0.0.1:4443/_internal/ready";
-        let answer = |sync: &str| format!(r#"{{"status":"ok","unix_time":1,"sync":{sync}}}"#);
-        let state = |state: &str| answer(&format!(r#"{{"state":"{state}"}}"#));
-        for body in ["", "ok", "[]", r#"{"status":"ok","unix_time":1}"#] {
-            assert_eq!(fix(ready, None, body), None, "{body}");
-        }
-        for mirror in [
-            MirrorState::Running,
-            MirrorState::Retrying,
-            MirrorState::Paused,
-            MirrorState::Stopped,
-        ] {
-            assert_eq!(fix(ready, None, &state(mirror.as_str())), None, "{mirror}");
-        }
-        let starting = fix(ready, None, &state("starting")).unwrap();
-        assert!(
-            starting.starts_with(&format!(
-                "Healthcheck {ready} found the API ready, but sync.state is starting: "
-            )),
-            "{starting}"
-        );
-        assert!(
-            starting.ends_with(
-                "under strict authentication: gcs-mimic sync status --endpoint http://127.0.0.1:4443"
-            ),
-            "{starting}"
-        );
-        let trusted = fix(
-            "https://[::1]:4443/_internal/healthcheck",
-            Some("tls/ca.pem"),
-            &state("starting"),
-        )
-        .unwrap();
-        assert!(
-            trusted.ends_with(
-                ": gcs-mimic sync status --endpoint https://[::1]:4443 --ca-cert tls/ca.pem"
-            ),
-            "{trusted}"
-        );
-        for (body, reason) in [
-            (
-                state("Running"),
-                r#"its sync.state is not one this healthcheck knows: unknown synchronization state "Running""#,
-            ),
-            (
-                answer(r#"{"state":1}"#),
-                "its sync object is not one this healthcheck reads: ",
-            ),
-            (
-                answer(r#""running""#),
-                "its sync object is not one this healthcheck reads: ",
-            ),
-        ] {
-            let mismatch = fix(ready, None, &body).unwrap();
-            assert!(mismatch.contains(reason), "{mismatch}");
-            assert!(mismatch.contains("another gcs-mimic version"), "{mismatch}");
-            assert!(!mismatch.contains("sync status"), "{mismatch}");
-        }
-    }
 
     /// Options that cannot run are reported as usage before anything is probed or PID 1 is read,
     /// without the advice for an unreachable server, which only a failed probe gets.

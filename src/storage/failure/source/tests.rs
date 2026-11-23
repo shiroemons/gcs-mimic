@@ -40,9 +40,6 @@ fn every_source_shows_the_held_error() {
     assert_delegates(|| CatalogError::Unavailable(closed()));
     assert_delegates(|| ObjectError::Io(io::Error::other("disk failed").into()));
     assert_delegates(|| AdminError::Corrupt(closed()));
-    assert_delegates(|| RootError::Admin(AdminError::Backend(closed())));
-    assert_delegates(|| writeback::Error::Admin(AdminError::Backend(closed())));
-    assert_delegates(|| conflicts::Error::Admin(AdminError::Backend(closed())));
     assert_delegates(|| ConnectionUnavailable::Closed);
     assert_delegates(|| ExecutorError::Closed);
     assert_delegates(|| ResumeError::Catalog(CatalogError::Unavailable(closed())));
@@ -125,13 +122,7 @@ fn typed_chains_visit_every_source_node() {
         AdminError::BodyAborted(closed()).into(),
         AdminError::Io(io_cause()).into(),
         AdminError::DiskFull(io::Error::from(io::ErrorKind::StorageFull).into()).into(),
-        RootError::Admin(admin_backend()).into(),
-        writeback::Error::Admin(admin_backend()).into(),
-        writeback::Error::Root(RootError::Admin(admin_backend())).into(),
-        writeback::Error::Conflict(conflicts::Error::Admin(admin_backend())).into(),
-        writeback::Error::Displaced(Box::new(writeback::Error::Admin(admin_backend()))).into(),
-        conflicts::Error::Admin(admin_backend()).into(),
-        conflicts::Error::Root(RootError::Admin(admin_backend())).into(),
+        crate::fsutil::Unopenable.into(),
         ConnectionUnavailable::Closed.into(),
         ConnectionUnavailable::Unrecovered(RollbackError::Rollback(sqlite_busy())).into(),
         ExecutorError::Closed.into(),
@@ -150,9 +141,8 @@ fn typed_chains_visit_every_source_node() {
 fn fixed_failures_are_found_below_typed_layers() {
     let causes = [
         BackendCause::from_error(admin_backend()),
-        BackendCause::from_error(RootError::Admin(admin_backend())),
-        BackendCause::from_error(writeback::Error::Displaced(Box::new(
-            writeback::Error::Conflict(conflicts::Error::Admin(admin_backend())),
+        BackendCause::from_error(ResumeError::Catalog(CatalogError::Unavailable(
+            BackendCause::from_error(admin_backend()),
         ))),
         BackendCause::from_error(ConnectionUnavailable::Closed),
         BackendCause::from_error(ExecutorError::Closed),

@@ -53,7 +53,7 @@ async fn finish(
 #[tokio::test]
 async fn sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors() {
     let (_dir, catalog) = setup().await;
-    let admin = catalog.admin(Origin::SyncIngest);
+    let admin = catalog.admin(Origin::Seed);
     let mut definitions = Vec::new();
     for index in 0..300 {
         definitions.push(
@@ -125,7 +125,7 @@ async fn sync_observation_all_owner_pages_include_empty_buckets_and_legacy_curso
 #[tokio::test]
 async fn sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation() {
     let (_dir, catalog) = setup().await;
-    let admin = catalog.admin(Origin::SyncIngest);
+    let admin = catalog.admin(Origin::Seed);
     for name in ["page-a", "page-m", "page-z"] {
         admin.ensure_bucket(bucket(name)).await.unwrap();
     }
@@ -168,7 +168,7 @@ async fn sync_observation_owner_inventory_recreation_preserves_keyset_and_incarn
 #[tokio::test]
 async fn sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahead() {
     let (_dir, catalog) = setup().await;
-    let admin = catalog.admin(Origin::SyncIngest);
+    let admin = catalog.admin(Origin::Seed);
     let template = admin
         .get_bucket(&BucketName::new("test-bucket").unwrap())
         .await
@@ -238,7 +238,7 @@ async fn sync_observation_commits_before_during_and_after_registration_are_not_l
         let (_dir, catalog) = setup().await;
         let baseline = catalog.enable_change_journal().await.unwrap();
         let (hook, wait) = paused_wait(&catalog, baseline, phase).await;
-        publish(&catalog, Origin::SyncIngest, "object").await;
+        publish(&catalog, Origin::Seed, "object").await;
         let observed = finish(hook, wait).await;
         assert!(!observed.rescan_required);
         assert!(observed.fence.sequence > baseline.sequence);
@@ -275,7 +275,7 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
             waits.push(paused_wait(&catalog, cursor, "checked").await);
         }
         match kind {
-            ChangeKind::Publish => publish(&catalog, Origin::SyncIngest, "object").await,
+            ChangeKind::Publish => publish(&catalog, Origin::Seed, "object").await,
             ChangeKind::Metadata => {
                 catalog
                     .update_object_metadata(
@@ -290,7 +290,7 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
             }
             ChangeKind::Delete => {
                 catalog
-                    .admin(Origin::SyncIngest)
+                    .admin(Origin::Seed)
                     .delete_object(
                         &BucketName::new("test-bucket").unwrap(),
                         &ObjectName::new("object").unwrap(),
@@ -511,7 +511,7 @@ async fn sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permit
     wait.abort();
     assert!(wait.await.unwrap_err().is_cancelled());
     let (hook, wait) = paused_wait(&catalog, baseline, "checked").await;
-    publish(&catalog, Origin::SyncIngest, "independent").await;
+    publish(&catalog, Origin::Seed, "independent").await;
     assert!(!finish(hook, wait).await.rescan_required);
     drop(api);
     drop(uploads);

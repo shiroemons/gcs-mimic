@@ -434,9 +434,7 @@ impl Catalog {
     }
 
     /// Reports `health` through readiness for as long as the catalog lives, for a background
-    /// worker the catalog does not start at open, such as the notification publisher. The
-    /// directory mirror reports its own state instead: a stopped mirror stops synchronization,
-    /// not the Storage API.
+    /// worker the catalog does not start at open, such as the notification publisher.
     pub(crate) fn watch_background_task(&self, health: crate::task::TaskHealth) {
         self.0
             .background_health

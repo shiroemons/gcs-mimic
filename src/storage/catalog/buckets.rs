@@ -192,7 +192,6 @@ pub(super) fn remove_live_bucket(
     for query in [
         "DELETE FROM bucket_policies WHERE bucket = ?1",
         "DELETE FROM bucket_incarnations WHERE bucket = ?1",
-        "DELETE FROM sync_objects WHERE bucket = ?1",
         "DELETE FROM buckets WHERE name = ?1",
     ] {
         sql::exec(transaction, query, [name])?;

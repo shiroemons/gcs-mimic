@@ -287,7 +287,7 @@ fn initialize_in<T, E: From<AdminError>>(
     plan: impl FnOnce(Vec<Observed>) -> Result<(Vec<Planned>, T), E>,
 ) -> Result<T, E> {
     let failed = |error: CatalogError| E::from(AdminError::from(error));
-    let observed = observe(transaction, &context.grant, targets).map_err(failed)?;
+    let observed = observe(transaction, targets).map_err(failed)?;
     let (planned, outcome) = plan(observed)?;
     if planned.len() != targets.len() {
         return Err(AdminError::Invalid("incomplete initialization plan".into()).into());
@@ -307,10 +307,8 @@ fn initialize_in<T, E: From<AdminError>>(
 
 fn observe(
     transaction: &Transaction<'_>,
-    grant: &AdminGrant,
     targets: &[InitTarget],
 ) -> Result<Vec<Observed>, CatalogError> {
-    grant.authorize(transaction)?;
     let mut existing = super::existing_buckets(
         transaction,
         targets.iter().map(|target| target.name.as_str()),

@@ -148,6 +148,7 @@ pub fn directory_writable(directory: &File) -> io::Result<()> {
     unsafe_code,
     reason = "fpathconf on a pinned descriptor has no safe std equivalent"
 )]
+#[expect(dead_code, reason = "the seed watcher reuses this")]
 pub(crate) fn name_max(directory: &File) -> io::Result<Option<usize>> {
     // fpathconf reports both "no limit" and a failure as -1 and sets errno only on failure.
     clear_errno();
@@ -248,6 +249,7 @@ pub(crate) fn unlink_file_at(directory: &File, name: &OsStr) -> io::Result<()> {
     unsafe_code,
     reason = "unlinkat on a pinned descriptor has no safe std equivalent"
 )]
+#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 pub(crate) fn remove_empty_directory_at(directory: &File, name: &OsStr) -> io::Result<()> {
     let name = component(name)?;
     // SAFETY: a validated single component is relative to the live directory descriptor.
@@ -281,6 +283,7 @@ pub(crate) fn open_regular_writable_at(directory: &File, name: &OsStr) -> io::Re
     open_at(directory, &component(name)?, FileOpen::ExistingWritable)
 }
 
+#[expect(dead_code, reason = "the seed watcher reuses this")]
 pub(crate) fn create_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
     open_at(directory, &component(name)?, FileOpen::CreateNew)
 }

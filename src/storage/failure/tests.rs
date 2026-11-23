@@ -436,8 +436,12 @@ fn catalog_from_conversion_preserves_backend_classification_and_cause_chain() {
 /// while the failure it holds keeps its own type.
 #[test]
 fn an_other_io_cause_reports_like_an_io_error_wrapper() {
-    use crate::storage::{admin::AdminError, sync_state::writeback};
-    let failure = || writeback::Error::Admin(AdminError::busy());
+    use crate::storage::{admin::AdminError, import_journal::ResumeError};
+    let failure = || {
+        ResumeError::Catalog(CatalogError::Unavailable(BackendCause::from_error(
+            AdminError::busy(),
+        )))
+    };
     let wrapped = unavailable(io::Error::other(failure()));
     let typed = CatalogError::Io(IoCause::other(failure()));
     assert_eq!(typed, wrapped);
@@ -447,5 +451,5 @@ fn an_other_io_cause_reports_like_an_io_error_wrapper() {
         crate::error::Report(&typed).to_string(),
         crate::error::Report(&wrapped).to_string()
     );
-    assert!(typed.source().unwrap().is::<writeback::Error>());
+    assert!(typed.source().unwrap().is::<ResumeError>());
 }

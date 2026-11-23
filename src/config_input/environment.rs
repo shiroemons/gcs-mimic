@@ -16,7 +16,6 @@ impl Input {
 pub enum RenamedEnvironmentVariable {
     Endpoint,
     GrpcEndpoint,
-    SyncToken,
     Binary,
     Port,
     Image,
@@ -24,10 +23,9 @@ pub enum RenamedEnvironmentVariable {
 }
 
 impl RenamedEnvironmentVariable {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 6] = [
         Self::Endpoint,
         Self::GrpcEndpoint,
-        Self::SyncToken,
         Self::Binary,
         Self::Port,
         Self::Image,
@@ -45,11 +43,6 @@ impl RenamedEnvironmentVariable {
                 "GRPC_ENDPOINT",
                 "client examples",
                 "use GCS_MIMIC_GRPC_LISTEN for server binding",
-            ),
-            Self::SyncToken => (
-                "SYNC_TOKEN",
-                "the sync CLI",
-                "the server does not read client tokens",
             ),
             Self::Binary => (
                 "BINARY",

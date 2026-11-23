@@ -85,11 +85,6 @@ fn failure(error: &PurgeError) -> ApiError {
             "conflict",
             "Purge made no changes because an import is incomplete; complete or repair the import first",
         ),
-        PurgeError::Synchronized => ApiError::new(
-            StatusCode::CONFLICT,
-            "conflict",
-            "Purge made no changes because directory synchronization maps this bucket; external files are never purged",
-        ),
         PurgeError::WriterBusy => ApiError::service_unavailable(
             "Purge made no changes because a request is writing to an upload session or appendable object of this bucket; retry after it completes",
         ),
@@ -177,14 +172,6 @@ mod tests {
                     StatusCode::CONFLICT,
                     "conflict",
                     "Purge made no changes because an import is incomplete; complete or repair the import first",
-                ),
-            ),
-            (
-                PurgeError::Synchronized,
-                (
-                    StatusCode::CONFLICT,
-                    "conflict",
-                    "Purge made no changes because directory synchronization maps this bucket; external files are never purged",
                 ),
             ),
             (

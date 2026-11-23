@@ -1,22 +1,20 @@
 //! The errors a backend failure keeps as its `source()`, by type.
 //!
-//! A failure type that a storage, synchronization or adapter decision reads (backend guidance,
-//! a memory budget, a retry or pause decision) has its own variant. Every other failure is a
-//! leaf, and the one list of leaves below is the only way to build one, so a new error type
-//! cannot travel inside a cause without the decision whether anything reads it.
+//! A failure type that a storage or adapter decision reads (backend guidance, a memory budget, a
+//! retry or pause decision) has its own variant. Every other failure is a leaf, and the one list
+//! of leaves below is the only way to build one, so a new error type cannot travel inside a cause
+//! without the decision whether anything reads it.
 
 use super::{BackendCause, BackendFailure, MemoryBudget, MemoryExhausted};
 use crate::{
     bucket::CatalogError,
     fsutil::Unopenable,
     object::ObjectError,
-    source_tree::watch,
     storage::{
         admin::AdminError,
         catalog::{ConnectionUnavailable, ExecutorError, RollbackError},
         import_journal::ResumeError,
         memory::BlobError,
-        sync_state::{conflicts, root::RootError, writeback},
     },
 };
 use std::{error::Error, fmt, io};
@@ -31,9 +29,6 @@ pub(crate) enum Source {
     Catalog(CatalogError),
     Object(ObjectError),
     Admin(AdminError),
-    Root(RootError),
-    Writeback(writeback::Error),
-    Conflict(conflicts::Error),
     Connection(ConnectionUnavailable),
     Executor(ExecutorError),
     /// A journal refusal that an import resume names to the operator.
@@ -41,7 +36,7 @@ pub(crate) enum Source {
     /// An entry that kept failing to open while its name still held one, which the retry
     /// decisions take for a failure that passes.
     Unopenable(Unopenable),
-    /// A failure no storage, sync or adapter decision reads.
+    /// A failure no storage or adapter decision reads.
     Leaf(Leaf),
 }
 
@@ -60,9 +55,6 @@ impl Source {
             Self::Catalog(error) => Link::Catalog(error),
             Self::Object(error) => Link::Object(error),
             Self::Admin(error) => Link::Admin(error),
-            Self::Root(error) => Link::Root(error),
-            Self::Writeback(error) => Link::Writeback(error),
-            Self::Conflict(error) => Link::Conflict(error),
             Self::Connection(error) => Link::Connection(error),
             Self::Executor(error) => Link::Executor(error),
             Self::Resume(error) => Link::Resume(error),
@@ -88,11 +80,6 @@ pub(crate) enum Link<'a> {
     Catalog(&'a CatalogError),
     Object(&'a ObjectError),
     Admin(&'a AdminError),
-    Root(&'a RootError),
-    Writeback(&'a writeback::Error),
-    Conflict(&'a conflicts::Error),
-    /// The write-back stop that recovery left in place; only a synchronization failure holds it.
-    Stop(&'a writeback::Stop),
     Connection(&'a ConnectionUnavailable),
     Executor(&'a ExecutorError),
     Rollback(&'a RollbackError),
@@ -113,10 +100,6 @@ impl<'a> Link<'a> {
             Self::Catalog(error) => error,
             Self::Object(error) => error,
             Self::Admin(error) => error,
-            Self::Root(error) => error,
-            Self::Writeback(error) => error,
-            Self::Conflict(error) => error,
-            Self::Stop(stop) => stop,
             Self::Connection(error) => error,
             Self::Executor(error) => error,
             Self::Rollback(error) => error,
@@ -129,15 +112,12 @@ impl<'a> Link<'a> {
     /// The next link: the error `as_error().source()` returns, by type.
     pub(crate) fn source(self) -> Option<Link<'a>> {
         match self {
-            Self::Failure(_) | Self::Stop(_) | Self::Unopenable(_) => None,
+            Self::Failure(_) | Self::Unopenable(_) => None,
             Self::Exhausted(error) => error.typed_source(),
             Self::Context(error) => error.typed_source(),
             Self::Catalog(error) => error.typed_source(),
             Self::Object(error) => error.typed_source(),
             Self::Admin(error) => error.typed_source(),
-            Self::Root(error) => error.typed_source(),
-            Self::Writeback(error) => error.typed_source(),
-            Self::Conflict(error) => error.typed_source(),
             Self::Connection(error) => error.typed_source(),
             Self::Executor(error) => error.typed_source(),
             Self::Rollback(error) => error.typed_source(),
@@ -228,9 +208,6 @@ typed_sources!(
     Catalog(CatalogError),
     Object(ObjectError),
     Admin(AdminError),
-    Root(RootError),
-    Writeback(writeback::Error),
-    Conflict(conflicts::Error),
     Connection(ConnectionUnavailable),
     Executor(ExecutorError),
     Resume(ResumeError),
@@ -243,20 +220,6 @@ impl From<BlobError> for Source {
         match error {
             BlobError::Exhausted => Self::Exhausted(MemoryExhausted::new(MemoryBudget::Blobs)),
             BlobError::Io(error) => Self::Io(error),
-        }
-    }
-}
-
-/// A native watch that could not be built keeps the I/O error, the tree listing failure or the
-/// directory that kept failing to open it met, so the mirror's retry decision still reads them;
-/// a watch limit is a leaf.
-impl From<watch::Error> for Source {
-    fn from(error: watch::Error) -> Self {
-        match error {
-            watch::Error::Io(error) => Self::Io(error),
-            watch::Error::Tree(error) => Self::Admin(error),
-            watch::Error::Unopenable(error) => Self::Unopenable(error),
-            watch::Error::Limit(limit) => limit.into(),
         }
     }
 }
@@ -296,7 +259,6 @@ leaf_sources!(
     crate::api_error::ApiError,
     crate::notification::NotificationDecodeError,
     crate::object::HashMismatch,
-    crate::source_tree::watch::WatchLimit,
     crate::storage::opaque_id::InvalidOpaqueId,
     crate::storage::admin::NestedFileJob,
     crate::storage::catalog::resumable::InvalidOptions,

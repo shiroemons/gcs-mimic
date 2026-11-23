@@ -13,6 +13,7 @@ fn identity(file: &File) -> io::Result<FileIdentity> {
     stat_identity(file).map_err(io::Error::from)
 }
 
+#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 pub(crate) fn hash_exact<E: From<io::Error>>(
     file: &File,
     size: u64,

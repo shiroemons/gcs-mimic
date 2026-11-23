@@ -1,4 +1,4 @@
-//! Opt-in local management never confers Google API permissions; sync retains its ownership authority.
+//! Opt-in local management never confers Google API permissions.
 
 use super::{RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, ResponseBody, boxed, empty_response};
 use crate::json::JsonErrorResponse;
@@ -12,9 +12,8 @@ mod guard;
 mod purge;
 mod reseed;
 mod reset;
-mod sync;
 
-/// Every management route shares the same browser and host checks, including sync controls.
+/// Every management route shares the same browser and host checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AdminRoute {
     Config,
@@ -25,7 +24,6 @@ pub(super) enum AdminRoute {
     Lifecycle,
     /// `/_internal/buckets/{bucket}`; the handler reads the name from the path.
     Bucket,
-    Sync,
 }
 
 impl AdminRoute {
@@ -38,8 +36,6 @@ impl AdminRoute {
             "/_internal/reseed" => Self::Reseed,
             "/_internal/lifecycle/run" => Self::Lifecycle,
             path if path.starts_with(purge::PREFIX) => Self::Bucket,
-            "/_internal/sync" => Self::Sync,
-            path if path.starts_with("/_internal/sync/") => Self::Sync,
             _ => return None,
         })
     }
@@ -73,12 +69,9 @@ enum LocalRoute {
     Bucket,
 }
 
-struct SyncRoute;
-
-impl TryFrom<AdminRoute> for LocalRoute {
-    type Error = SyncRoute;
-    fn try_from(route: AdminRoute) -> Result<Self, SyncRoute> {
-        Ok(match route {
+impl From<AdminRoute> for LocalRoute {
+    fn from(route: AdminRoute) -> Self {
+        match route {
             AdminRoute::Config => Self::Config,
             AdminRoute::Objects => Self::Objects,
             AdminRoute::Reset => Self::Reset(reset::Form::Confirmed),
@@ -86,8 +79,7 @@ impl TryFrom<AdminRoute> for LocalRoute {
             AdminRoute::Reseed => Self::Reseed,
             AdminRoute::Lifecycle => Self::Lifecycle,
             AdminRoute::Bucket => Self::Bucket,
-            AdminRoute::Sync => return Err(SyncRoute),
-        })
+        }
     }
 }
 
@@ -129,10 +121,7 @@ pub(super) async fn respond(
     if let Err(error) = guard::browser_or_misdirected(&request, ctx) {
         return boxed(error.into_response());
     }
-    let route = match LocalRoute::try_from(route) {
-        Ok(route) => route,
-        Err(SyncRoute) => return boxed(sync::respond(request, ctx).await),
-    };
+    let route = LocalRoute::from(route);
     let authorized = match authority(&request, ctx).await {
         Ok(authorized) => authorized,
         Err(error) => return boxed(error.into_response()),
@@ -244,12 +233,7 @@ impl From<EndpointError> for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{
-        admin::AdminError,
-        failure::BackendCause,
-        sync_state::{conflicts, root::RootError},
-    };
-    use crate::sync::{SyncError, control::ControlError};
+    use crate::storage::{admin::AdminError, failure::BackendCause};
     use std::{io, time::Duration};
 
     #[tokio::test]
@@ -334,32 +318,16 @@ mod tests {
         Fixtures,
         Reset,
         Reseed,
-        SyncRoot,
-        SyncControl,
-        Resolve,
     }
 
     impl Route {
-        const ALL: [Self; 6] = [
-            Self::Fixtures,
-            Self::Reset,
-            Self::Reseed,
-            Self::SyncRoot,
-            Self::SyncControl,
-            Self::Resolve,
-        ];
+        const ALL: [Self; 3] = [Self::Fixtures, Self::Reset, Self::Reseed];
 
         fn answer(self, error: AdminError) -> ApiError {
             match self {
                 Self::Fixtures => fixtures::failure(error),
                 Self::Reset => reset::failure(&error),
                 Self::Reseed => reseed::admin_failure(&error, reseed::Operation::Reseed),
-                Self::SyncRoot => sync::root_error(&RootError::Admin(error)),
-                // A queued control reports the failure as its failed run.
-                Self::SyncControl => {
-                    sync::control_error(&ControlError::Failed(SyncError::Admin(error)))
-                }
-                Self::Resolve => sync::conflicts::error(conflicts::Error::Admin(error)),
             }
         }
     }
@@ -385,41 +353,6 @@ mod tests {
         StatusCode::BAD_REQUEST,
         "invalid",
         "Invalid fixture state; reseed made no changes",
-    );
-    const SYNC_BUSY: Answer = (
-        StatusCode::SERVICE_UNAVAILABLE,
-        "backendError",
-        "Synchronization control is busy or closed; retry after the active operation finishes",
-    );
-    const SYNC_STALE: Answer = (
-        StatusCode::CONFLICT,
-        "conflict",
-        "Synchronization revision changed; rescan, fetch status and inspect the new revision before approving or rejecting it",
-    );
-    const SYNC_DISK_FULL: Answer = (
-        StatusCode::SERVICE_UNAVAILABLE,
-        "disk_full",
-        "Free disk space without deleting synchronization data, then retry",
-    );
-    const SYNC_IO_FAILURE: Answer = (
-        StatusCode::SERVICE_UNAVAILABLE,
-        "io_failure",
-        "Restore storage access, then retry",
-    );
-    const SYNC_CORRUPT: Answer = (
-        StatusCode::SERVICE_UNAVAILABLE,
-        "backendError",
-        "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
-    );
-    const RESOLVE_IO_FAILURE: Answer = (
-        StatusCode::SERVICE_UNAVAILABLE,
-        "io_failure",
-        "Preserve retained bytes, restore storage access and retry the same operation ID",
-    );
-    const RESOLVE_BUSY: Answer = (
-        StatusCode::SERVICE_UNAVAILABLE,
-        "backendError",
-        "Synchronization control is busy or closed; retry the same operation ID after the active operation finishes",
     );
     const FORBIDDEN: Answer = (StatusCode::FORBIDDEN, "forbidden", "Forbidden");
 
@@ -452,7 +385,7 @@ mod tests {
 
     /// Each route's answer in `Route::ALL` order. The match has no wildcard arm, so a new variant
     /// does not compile until every route's answer to it is decided here.
-    fn answers(error: &AdminError) -> [Answer; 6] {
+    fn answers(error: &AdminError) -> [Answer; 3] {
         match error {
             AdminError::Busy { .. } => [
                 (
@@ -470,21 +403,6 @@ mod tests {
                     "backendError",
                     "Reseed made no changes because catalog work, an unpublished body or another publication is active; retry after it completes",
                 ),
-                SYNC_BUSY,
-                SYNC_BUSY,
-                RESOLVE_BUSY,
-            ],
-            AdminError::DiskFull(_) => [
-                FIXTURE_FAILED,
-                RESET_UNCONFIRMED,
-                RESEED_RETRY,
-                SYNC_DISK_FULL,
-                SYNC_DISK_FULL,
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "disk_full",
-                    "Free disk space without deleting pending synchronization data, then retry the same operation ID",
-                ),
             ],
             AdminError::Precondition => [
                 (
@@ -500,11 +418,8 @@ mod tests {
                 (
                     StatusCode::CONFLICT,
                     "conflict",
-                    "Reseed made no changes because import or synchronization state is active",
+                    "Reseed made no changes because import state is active",
                 ),
-                SYNC_STALE,
-                SYNC_STALE,
-                SYNC_STALE,
             ],
             AdminError::Hold => [
                 (
@@ -518,18 +433,8 @@ mod tests {
                     "forbidden",
                     "Reseed made no changes because an object is protected by a hold or retention",
                 ),
-                SYNC_STALE,
-                SYNC_STALE,
-                SYNC_STALE,
             ],
-            AdminError::SeedProjectMismatch => [
-                FIXTURE_FAILED,
-                RESET_UNCONFIRMED,
-                RESEED_INVALID,
-                SYNC_BUSY,
-                SYNC_BUSY,
-                RESOLVE_IO_FAILURE,
-            ],
+            AdminError::SeedProjectMismatch => [FIXTURE_FAILED, RESET_UNCONFIRMED, RESEED_INVALID],
             AdminError::SeedMetadataBudget { .. } => [
                 FIXTURE_FAILED,
                 RESET_UNCONFIRMED,
@@ -538,26 +443,10 @@ mod tests {
                     "invalid",
                     "Reseed made no changes because fixture metadata exceeds 64 MiB; raise max_seed_entries or reduce the tree",
                 ),
-                SYNC_BUSY,
-                SYNC_BUSY,
-                RESOLVE_IO_FAILURE,
             ],
-            AdminError::Corrupt(_) => [
-                FIXTURE_FAILED,
-                RESET_UNCONFIRMED,
-                RESEED_RETRY,
-                SYNC_CORRUPT,
-                SYNC_CORRUPT,
-                SYNC_CORRUPT,
-            ],
-            AdminError::Io(_) => [
-                FIXTURE_FAILED,
-                RESET_UNCONFIRMED,
-                RESEED_RETRY,
-                SYNC_IO_FAILURE,
-                SYNC_IO_FAILURE,
-                RESOLVE_IO_FAILURE,
-            ],
+            AdminError::Corrupt(_) | AdminError::Io(_) => {
+                [FIXTURE_FAILED, RESET_UNCONFIRMED, RESEED_RETRY]
+            }
             AdminError::NotFound => [
                 (
                     StatusCode::NOT_FOUND,
@@ -566,17 +455,11 @@ mod tests {
                 ),
                 RESET_UNCONFIRMED,
                 RESEED_RETRY,
-                SYNC_STALE,
-                SYNC_STALE,
-                SYNC_STALE,
             ],
             AdminError::Invalid(_) => [
                 (StatusCode::BAD_REQUEST, "invalidArgument", "bad fixture"),
                 RESET_UNCONFIRMED,
                 RESEED_INVALID,
-                SYNC_BUSY,
-                SYNC_BUSY,
-                RESOLVE_IO_FAILURE,
             ],
             AdminError::Checksum => [
                 (
@@ -586,9 +469,6 @@ mod tests {
                 ),
                 RESET_UNCONFIRMED,
                 RESEED_RETRY,
-                SYNC_BUSY,
-                SYNC_BUSY,
-                RESOLVE_IO_FAILURE,
             ],
             AdminError::TooLarge => [
                 (
@@ -602,9 +482,6 @@ mod tests {
                     "invalid",
                     "Reseed made no changes because a fixture file exceeds max_object_bytes",
                 ),
-                SYNC_BUSY,
-                SYNC_BUSY,
-                RESOLVE_IO_FAILURE,
             ],
             AdminError::Forbidden => [
                 FORBIDDEN,
@@ -614,28 +491,12 @@ mod tests {
                     "forbidden",
                     "Reseed made no changes because a fixture write was not authorized",
                 ),
-                FORBIDDEN,
-                FORBIDDEN,
-                FORBIDDEN,
             ],
-            AdminError::Closed => [
-                FIXTURE_FAILED,
-                RESET_UNCONFIRMED,
-                RESEED_RETRY,
-                SYNC_BUSY,
-                SYNC_BUSY,
-                RESOLVE_BUSY,
-            ],
-            AdminError::SourceChanged { .. }
+            AdminError::DiskFull(_)
+            | AdminError::Closed
+            | AdminError::SourceChanged { .. }
             | AdminError::BodyAborted(_)
-            | AdminError::Backend(_) => [
-                FIXTURE_FAILED,
-                RESET_UNCONFIRMED,
-                RESEED_RETRY,
-                SYNC_BUSY,
-                SYNC_BUSY,
-                RESOLVE_IO_FAILURE,
-            ],
+            | AdminError::Backend(_) => [FIXTURE_FAILED, RESET_UNCONFIRMED, RESEED_RETRY],
         }
     }
 

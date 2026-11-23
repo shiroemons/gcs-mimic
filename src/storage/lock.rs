@@ -22,6 +22,7 @@ impl DirectoryLock {
         Ok(())
     }
 
+    #[expect(dead_code, reason = "the seed watcher reuses this")]
     pub(super) fn file(&self) -> &File {
         &self.file
     }
@@ -45,6 +46,7 @@ impl Drop for DirectoryLock {
     }
 }
 
+#[expect(dead_code, reason = "the seed watcher reuses this")]
 pub(super) fn acquire_directory(path: &Path) -> io::Result<DirectoryLock> {
     Ok(DirectoryLock {
         directory: None,

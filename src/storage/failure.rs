@@ -156,6 +156,7 @@ pub struct IoCause {
 impl IoCause {
     /// A failure of kind `Other` that keeps `error` as its typed source, as `io::Error::other`
     /// would without hiding the error's type from the decisions that read it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) fn other(error: impl Into<Source>) -> Self {
         Self {
             kind: io::ErrorKind::Other,

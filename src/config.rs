@@ -156,7 +156,7 @@ string_enum! {
 
 string_enum! {
     no_default
-    /// Whether stored lifecycle Delete rules execute; synchronization defaults to disabled.
+    /// Whether stored lifecycle Delete rules execute.
     pub enum LifecycleExecution {
         Enabled => "enabled",
         Disabled => "disabled",
@@ -318,11 +318,8 @@ pub struct Config {
     pub memory_max_bytes: u64,
     pub memory_catalog_max_bytes: u64,
     pub seed_dir: Option<PathBuf>,
-    /// Fallback seed root used only when it exists and is disjoint from data/sync directories.
+    /// Fallback seed root used only when it exists and is disjoint from the data directory.
     pub default_seed_dir: Option<PathBuf>,
-    pub sync_dir: Option<PathBuf>,
-    pub sync_delete_guard: bool,
-    pub sync_reinitialize: Option<crate::storage::sync_state::CatalogId>,
     pub seed_project: String,
     pub seed_content_type: crate::mime::SeedContentType,
     /// Files and directories a seed tree may hold; `None` stops at none. A seed is one atomic
@@ -335,16 +332,10 @@ pub struct Config {
     /// not count, and `None` stops at none. Either is one atomic publication, so its memory grows
     /// with the batch.
     pub max_buckets_per_batch: Option<NonZeroUsize>,
-    /// Files and directories a synchronized tree may hold; `None` stops at none. A scan keeps one
-    /// page per directory level, so a larger tree takes longer but holds no more memory.
-    pub max_sync_entries: Option<NonZeroUsize>,
-    /// Directory levels a synchronized tree may nest below `sync_dir`, counting the bucket;
-    /// `None` leaves that to the object name's 1024 bytes.
-    pub max_sync_depth: Option<NonZeroUsize>,
     pub default_location: String,
     /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
     pub default_soft_delete_retention_seconds: Option<NonZeroU64>,
-    /// An explicit choice overrides the synchronization-dependent execution default.
+    /// An explicit choice overrides the default, which executes lifecycle actions.
     pub lifecycle_execution: Option<LifecycleExecution>,
     /// The bucket initialization document, from `buckets_file` or `buckets`.
     pub buckets: Option<DocumentSource>,
@@ -437,16 +428,11 @@ impl Default for Config {
             memory_catalog_max_bytes: 16 * 1024 * 1024,
             seed_dir: None,
             default_seed_dir: None,
-            sync_dir: None,
-            sync_delete_guard: true,
-            sync_reinitialize: None,
             seed_project: "local-project".into(),
             seed_content_type: crate::mime::SeedContentType::Extension,
             max_seed_entries: None,
             max_seed_depth: None,
             max_buckets_per_batch: None,
-            max_sync_entries: None,
-            max_sync_depth: None,
             default_location: "US".into(),
             // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,
             // so a local disk or RAM budget is not spent on bytes nobody will restore.
@@ -504,13 +490,8 @@ impl Config {
     pub const HEALTHCHECK_PATH: &str = "/_internal/healthcheck";
 
     pub fn effective_lifecycle_execution(&self) -> LifecycleExecution {
-        self.lifecycle_execution.unwrap_or({
-            if self.sync_dir.is_some() {
-                LifecycleExecution::Disabled
-            } else {
-                LifecycleExecution::Enabled
-            }
-        })
+        self.lifecycle_execution
+            .unwrap_or(LifecycleExecution::Enabled)
     }
 
     /// Whether signed XML requests verify, after the profile's default.
@@ -529,8 +510,8 @@ impl Config {
         format!("{}{}", self.local_origin(), Self::HEALTHCHECK_PATH)
     }
 
-    /// The origin through which a client on this host reaches the server: the healthcheck
-    /// probes it, and `gcs-mimic sync` controls the server there when no endpoint is given.
+    /// The origin through which a client on this host reaches the server, which the healthcheck
+    /// probes.
     pub fn local_origin(&self) -> String {
         let listen = loopback_if_unspecified(self.effective_listen_http().unwrap_or(self.listen));
         // Plain HTTP wherever a listener accepts it, so the client needs no CA.
@@ -623,7 +604,7 @@ impl Config {
             RuntimeEndpoints::new(report.config.xml_virtual_host_domains.clone());
         report.check_document_sources(&settings);
         report.check_buckets_mode(&settings);
-        report.check_sync(&settings);
+        report.check_profile_settings(&settings);
         report.check_backend(&settings);
         report.check_tls(&settings);
         report.check_listeners(&settings);
@@ -664,8 +645,11 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<Setting> {
         Ok(values) => {
             for (key, value) in values {
                 let setting = key.parse::<Setting>().ok();
+                let text = member_text(setting, &value).or_else(|| {
+                    rejection::WithdrawnSetting::is_withdrawn(&key).then(|| value.get().to_owned())
+                });
                 // A member of an unsupported type still counts against the input limits.
-                let Some(text) = member_text(setting, &value) else {
+                let Some(text) = text else {
                     if !inputs.admit(DiagnosticSource::Config, &key) {
                         break;
                     }
@@ -788,13 +772,6 @@ fn apply_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(
         Setting::DefaultSeedDir => {
             config.default_seed_dir = Some(PathBuf::from(non_empty(key, value)?));
         }
-        Setting::SyncDir => config.sync_dir = Some(sync_dir(value)?),
-        Setting::SyncDeleteGuard => {
-            config.sync_delete_guard = value
-                .parse()
-                .map_err(|_| "sync_delete_guard must be true or false")?;
-        }
-        Setting::SyncReinitialize => config.sync_reinitialize = Some(catalog_id(value)?),
         Setting::SeedProject => config.seed_project = seed_project(value)?,
         Setting::SeedContentType => config.seed_content_type = value.parse()?,
         Setting::DefaultLocation => config.default_location = default_location(value)?,
@@ -846,8 +823,6 @@ fn apply_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(
         Setting::MaxSeedEntries => config.max_seed_entries = tree_limit(setting, value)?,
         Setting::MaxSeedDepth => config.max_seed_depth = tree_limit(setting, value)?,
         Setting::MaxBucketsPerBatch => config.max_buckets_per_batch = tree_limit(setting, value)?,
-        Setting::MaxSyncEntries => config.max_sync_entries = tree_limit(setting, value)?,
-        Setting::MaxSyncDepth => config.max_sync_depth = tree_limit(setting, value)?,
         Setting::WorkerThreads => config.worker_threads = count(setting, value)?,
         Setting::MaxBlockingThreads => config.max_blocking_threads = count(setting, value)?,
         // Timeouts.
@@ -912,17 +887,6 @@ fn virtual_host_domains(value: &str) -> Result<VirtualHostDomains, SettingFix> {
         }
     }
     Ok(domains)
-}
-
-fn sync_dir(value: &str) -> Result<PathBuf, SettingFix> {
-    if value.is_empty() {
-        return Err("sync_dir must not be empty; supply an existing writable directory".into());
-    }
-    Ok(PathBuf::from(value))
-}
-
-fn catalog_id(value: &str) -> Result<crate::storage::sync_state::CatalogId, SettingFix> {
-    crate::sync::parse_catalog_id(value).map_err(|error| error.to_string().into())
 }
 
 fn seed_project(value: &str) -> Result<String, SettingFix> {
@@ -1071,12 +1035,7 @@ impl ConfigurationReport {
 
     /// Whether the directories that adopting `default_seed_dir` compares are valid.
     pub fn default_seed_settings_valid(&self) -> bool {
-        self.valid(&[
-            Setting::DataDir,
-            Setting::SeedDir,
-            Setting::DefaultSeedDir,
-            Setting::SyncDir,
-        ])
+        self.valid(&[Setting::DataDir, Setting::SeedDir, Setting::DefaultSeedDir])
     }
 
     fn apply_settings(&mut self, settings: &Settings) {
@@ -1150,37 +1109,9 @@ impl ConfigurationReport {
         }
     }
 
-    fn check_sync(&mut self, settings: &Settings) {
+    /// Settings that the compatibility profile or the authentication mode leaves without effect.
+    fn check_profile_settings(&mut self, settings: &Settings) {
         let config = &self.config;
-        if config.sync_dir.is_none() && !self.invalid.contains(&Setting::SyncDir) {
-            for (&setting, input) in settings
-                .iter()
-                .filter(|(setting, _)| setting.requires_sync_dir())
-            {
-                if self.invalid.insert(setting) {
-                    self.diagnostics.errors.push(Diagnostic::new(
-                        input.source,
-                        &input.key,
-                        "This setting requires sync_dir; supply --sync-dir DIRECTORY or remove this setting.",
-                    ));
-                }
-            }
-        }
-        if config.backend == Backend::Disk
-            && !self.any_invalid(&[Setting::SyncDir, Setting::DataDir, Setting::SeedDir])
-            && let Some(root) = &config.sync_dir
-            && let Err(error) =
-                crate::sync::validate_directory(root, &config.data_dir, config.seed_dir.as_deref())
-        {
-            let (source, key) = settings.get(&Setting::SyncDir).map_or(
-                (DiagnosticSource::Config, Setting::SyncDir.as_str()),
-                |input| (input.source, input.key.as_str()),
-            );
-            self.invalid.insert(Setting::SyncDir);
-            self.diagnostics
-                .errors
-                .push(Diagnostic::new(source, key, error.to_string()));
-        }
         if config.compat_profile == CompatProfile::FakeGcsServer
             && let Some(input) = settings.get(&Setting::DefaultLocation)
             && !self.invalid.contains(&Setting::DefaultLocation)
@@ -1592,9 +1523,7 @@ fn member_text(setting: Option<Setting>, raw: &RawValue) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(raw.get()).ok()?;
     match setting {
         Some(Setting::DefaultLocation) if value.is_null() => Some(String::new()),
-        Some(Setting::SyncDeleteGuard | Setting::AdminEnabled) if value.is_boolean() => {
-            Some(value.to_string())
-        }
+        Some(Setting::AdminEnabled) if value.is_boolean() => Some(value.to_string()),
         Some(Setting::BucketsFile) => value.as_str().map(str::to_owned),
         Some(_) | None => setting_text(&value),
     }
@@ -3715,97 +3644,57 @@ mod tests {
         );
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    /// A configuration written for directory synchronization stops startup from every source,
+    /// whatever its value, and the fix names the seed directory as that source spells it.
     #[test]
-    fn sync_tree_limits_default_to_unlimited_and_mean_nothing_without_a_sync_dir() {
-        let default = Config::default();
-        assert_eq!(
-            (default.max_sync_entries, default.max_sync_depth),
-            (None, None)
-        );
-        let tree = TestDir::new();
-        let data = TestDir::new();
-        let args = [
-            "--sync-dir",
-            tree.0.to_str().unwrap(),
-            "--data-dir",
-            data.0.to_str().unwrap(),
-            "--max-sync-entries",
-            "100000000",
-            "--max-sync-depth",
-            "1024",
-        ]
-        .map(str::to_owned);
-        let config = Config::load(&args, &BTreeMap::new()).unwrap();
-        assert_eq!(
-            (config.max_sync_entries, config.max_sync_depth),
-            (NonZeroUsize::new(100_000_000), NonZeroUsize::new(1024))
-        );
-        let args = [
-            "--sync-dir",
-            tree.0.to_str().unwrap(),
-            "--data-dir",
-            data.0.to_str().unwrap(),
-            "--max-sync-entries",
-            "0",
-            "--max-sync-depth",
-            "0",
-        ]
-        .map(str::to_owned);
-        let config = Config::load(&args, &BTreeMap::new()).unwrap();
-        assert_eq!(
-            (config.max_sync_entries, config.max_sync_depth),
-            (None, None)
-        );
-        for (flag, env) in [
-            ("--max-sync-entries", "GCS_MIMIC_MAX_SYNC_ENTRIES"),
-            ("--max-sync-depth", "GCS_MIMIC_MAX_SYNC_DEPTH"),
+    fn directory_synchronization_settings_were_removed_from_every_source() {
+        let dir = TestDir::new();
+        for (name, value, json) in [
+            ("sync_dir", "tree", r#""tree""#),
+            ("sync_delete_guard", "false", "false"),
+            (
+                "sync_reinitialize",
+                "00112233445566778899aabbccddeeff",
+                r#""id""#,
+            ),
+            ("max_sync_entries", "100", "100"),
+            ("max_sync_depth", "0", "0"),
+            ("sync_token", "secret", r#""secret""#),
         ] {
-            for (key, args, env) in [
-                (flag, vec![flag.to_owned(), "5".to_owned()], BTreeMap::new()),
+            let file = dir.0.join(format!("{name}.json"));
+            std::fs::write(&file, format!(r#"{{"{name}":{json}}}"#)).unwrap();
+            let flag = format!("--{}", name.replace('_', "-"));
+            let variable = format!("GCS_MIMIC_{}", name.to_ascii_uppercase());
+            for (key, seed_dir, args, env) in [
                 (
-                    env,
+                    flag.clone(),
+                    "--seed-dir",
+                    vec![flag, value.to_owned()],
+                    BTreeMap::new(),
+                ),
+                (
+                    variable.clone(),
+                    "GCS_MIMIC_SEED_DIR",
                     Vec::new(),
-                    BTreeMap::from([(env.to_owned(), "5".to_owned())]),
+                    BTreeMap::from([(variable, value.to_owned())]),
+                ),
+                (
+                    name.to_owned(),
+                    "seed_dir",
+                    vec!["--config".to_owned(), file.to_str().unwrap().to_owned()],
+                    BTreeMap::new(),
                 ),
             ] {
-                let errors = Config::load(&args, &env).unwrap_err();
-                assert!(
-                    errors
-                        .errors
-                        .iter()
-                        .any(|error| error.key == key && error.fix.contains("requires sync_dir")),
-                    "{errors}"
+                let errors = Config::load(&args, &env).unwrap_err().errors;
+                assert_eq!(errors.len(), 1, "{errors:?}");
+                assert_eq!(errors[0].key, key);
+                assert_eq!(
+                    errors[0].fix,
+                    format!(
+                        "{name} was removed with directory synchronization; remove it. {seed_dir} reads a folder without writing to it."
+                    )
                 );
-            }
-        }
-        for (setting, values, fix) in [
-            (
-                "--max-sync-entries",
-                ["-1", "18446744073709551616"],
-                "max_sync_entries must be an integer in 0..=18446744073709551615",
-            ),
-            (
-                "--max-sync-depth",
-                ["-1", "1025"],
-                "max_sync_depth must be an integer in 0..=1024",
-            ),
-        ] {
-            for value in values {
-                let args = [
-                    "--sync-dir",
-                    tree.0.to_str().unwrap(),
-                    "--data-dir",
-                    data.0.to_str().unwrap(),
-                    setting,
-                    value,
-                ]
-                .map(str::to_owned);
-                let errors = Config::load(&args, &BTreeMap::new()).unwrap_err();
-                assert!(
-                    errors.errors.iter().any(|error| error.fix.contains(fix)),
-                    "{errors}"
-                );
+                assert!(!errors[0].fix.contains(value), "{key}");
             }
         }
     }

@@ -133,8 +133,7 @@ sql::text_enum!(pub(crate) ChangeKind, "invalid change kind", {
 });
 
 sql::text_enum!(pub(crate) Origin, "invalid journal origin", {
-    Api => "api", Seed => "seed", BucketInit => "bucket-init",
-    SyncIngest => "sync-ingest", Import => "import",
+    Api => "api", Seed => "seed", BucketInit => "bucket-init", Import => "import",
 });
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -150,6 +149,7 @@ pub(crate) struct Change {
     pub metageneration: Option<i64>,
 }
 
+#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 pub(crate) struct ChangePage {
     pub items: Vec<Change>,
     pub next: JournalFence,
@@ -162,6 +162,7 @@ pub(crate) struct ChangePage {
 }
 
 /// One read of the change journal after a cursor.
+#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 pub(crate) enum ChangeRead {
     /// The cursor no longer continues this journal: rescan from `fence`.
     Rescan {
@@ -358,6 +359,7 @@ fn state(connection: &Connection) -> Result<JournalState, CatalogError> {
 
 impl Catalog {
     /// Effect-free and cancellable; no catalog permits are retained while asleep.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) async fn wait_for_changes(
         &self,
         after: JournalFence,
@@ -426,12 +428,14 @@ impl Catalog {
 
     /// The journal's current fence, the baseline a reader scans catalog state at and then
     /// resumes from.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) async fn current_fence(&self) -> Result<JournalFence, AdminError> {
         self.run_admin(|connection| Ok(state(connection)?.current))
             .await
     }
 
     /// One read after `after`, up to `until` (the current fence when `None`).
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) async fn read_changes(
         &self,
         after: JournalFence,

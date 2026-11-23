@@ -5,7 +5,9 @@ use std::{collections::VecDeque, ffi::OsString, fs::File, io};
 mod failure;
 mod hash;
 mod lookup;
+#[expect(unused_imports, reason = "the seed watcher reuses this")]
 pub(crate) use failure::IoFailureClass;
+#[expect(unused_imports, reason = "the seed watcher reuses this")]
 pub(crate) use hash::{HashOutcome, hash_exact};
 
 #[cfg(unix)]
@@ -18,14 +20,23 @@ mod unsupported;
 use unsupported as imp;
 
 use imp::directory_names_within;
+#[cfg_attr(
+    not(all(test, unix)),
+    expect(unused_imports, reason = "the seed watcher reuses this")
+)]
 pub(crate) use imp::remove_empty_directory_at;
-pub(crate) use imp::{
-    create_regular_at, directory_at, name_max, sole_regular_link, unlink_file_at,
-};
+#[expect(unused_imports, reason = "the seed watcher reuses this")]
+pub(crate) use imp::{create_regular_at, name_max, sole_regular_link};
+pub(crate) use imp::{directory_at, unlink_file_at};
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };
-pub(crate) use lookup::{Lookup, Matching};
+pub(crate) use lookup::Lookup;
+#[cfg_attr(
+    not(all(test, unix)),
+    expect(unused_imports, reason = "the seed watcher reuses this")
+)]
+pub(crate) use lookup::Matching;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CopyMethod {
@@ -86,6 +97,7 @@ pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DirectoryOpen {
     Existing,
+    #[cfg_attr(not(unix), expect(dead_code, reason = "the seed watcher reuses this"))]
     CreateIfMissing,
 }
 
@@ -110,6 +122,7 @@ pub(crate) enum Created {
     )
 )]
 pub(crate) enum Child {
+    #[cfg_attr(unix, expect(dead_code, reason = "the seed watcher reuses this"))]
     Directory {
         file: File,
         created: Created,
@@ -128,10 +141,12 @@ pub(crate) enum Child {
     )
 )]
 pub(crate) enum RegularChild {
+    #[cfg_attr(unix, expect(dead_code, reason = "the seed watcher reuses this"))]
     File(File),
     /// A regular file that the name reached under another letter case or normalization of it,
     /// with the spelling the directory lists it under, or the error the listing failed with. A
     /// caller that only needs to know that the spelling differs is not failed by the listing.
+    #[cfg_attr(unix, expect(dead_code, reason = "the seed watcher reuses this"))]
     Respelled(io::Result<ListedSpelling>),
     Missing(Vacant),
     /// The name kept failing to open while an entry stood under it ([`Opened::Unopenable`]).
@@ -406,6 +421,7 @@ impl IdentityChanges {
     /// Whether the inode number is the only difference. Docker Desktop's shared folders can
     /// report one number for a file just created and another for it later, so a different
     /// number with the same size and times does not by itself show that the bytes changed.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) fn is_inode_only(self) -> bool {
         self.0 == IdentityField::Inode.bit()
     }
@@ -447,6 +463,7 @@ pub(crate) struct NodeId {
     pub(crate) inode: u64,
 }
 
+#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 impl NodeId {
     /// Big-endian bytes, the order the catalog's `device` and `inode` BLOB columns store.
     pub(crate) fn to_be_bytes(self) -> ([u8; 8], [u8; 8]) {
@@ -490,6 +507,10 @@ impl From<&std::fs::Metadata> for FileIdentity {
 /// what the destination held: an exchange keeps it under the staged name, for the caller to
 /// compare with what it expected there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(all(test, unix)),
+    expect(dead_code, reason = "the seed watcher reuses this")
+)]
 pub(crate) enum Replacement {
     /// The destination name must be empty; an entry there fails the call with `AlreadyExists`.
     NoReplace,
@@ -844,6 +865,10 @@ pub(crate) fn clone_into(
 /// Copies an immutable open blob into the new entry `name`. Mutable-source staging must hash its
 /// own read/write pass. The source offset is unchanged; a failed clone removes its new entry, and
 /// a failed copy leaves it for caller cleanup.
+#[cfg_attr(
+    not(all(test, unix)),
+    expect(dead_code, reason = "the seed watcher reuses this")
+)]
 pub(crate) fn clone_or_copy_into(
     src: &File,
     directory: &File,
@@ -888,6 +913,10 @@ pub(crate) fn clone_or_copy_into(
 /// Fills `dst`, an empty regular file open for writing, with the immutable open blob `src` and
 /// syncs it, as `clone_or_copy_into` fills a new entry. Write-back refills its own private copy
 /// this way after a failed attempt instead of removing it and creating the name again.
+#[cfg_attr(
+    not(all(test, unix)),
+    expect(dead_code, reason = "the seed watcher reuses this")
+)]
 pub(crate) fn clone_or_copy_onto(src: &File, dst: &File) -> Result<CopyMethod, FsError> {
     regular_source(src)?;
     if dst.metadata()?.len() != 0 {
@@ -1133,6 +1162,7 @@ pub(crate) struct UnreadableListing((u64, u64));
 #[cfg(test)]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 impl UnreadableListing {
+    #[expect(dead_code, reason = "the seed watcher reuses this")]
     pub(crate) fn of(directory: &std::path::Path) -> Self {
         let identity = stat_identity(&File::open(directory).unwrap()).unwrap();
         let unreadable = (identity.device, identity.inode);
@@ -1222,6 +1252,7 @@ impl FailingOpens {
     }
 
     /// Fails every open of `name` in `directory` with `errno`.
+    #[expect(dead_code, reason = "the seed watcher reuses this")]
     pub(crate) fn refusing(directory: &std::path::Path, name: &str, errno: i32) -> Self {
         Self::add(directory, name, 0, usize::MAX, OpenFailure::Refused(errno))
     }
@@ -1441,6 +1472,10 @@ fn link_then_unlink(from: &std::path::Path, to: &std::path::Path) -> io::Result<
 /// durable. Only the namespace changes: an exchange retains what the destination held under the
 /// staged name, whatever it is, and the caller decides what that is. An error after the rename
 /// may have applied it; callers must reconcile both names.
+#[cfg_attr(
+    not(all(test, unix)),
+    expect(dead_code, reason = "the seed watcher reuses this")
+)]
 pub(crate) fn durable_replace_between(
     source_directory: &File,
     staged_name: &std::ffi::OsStr,
