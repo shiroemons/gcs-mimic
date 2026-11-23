@@ -8,7 +8,7 @@ Reviewed source: version `0.17.1`, commit `a53a1f8c`, on 2026-11-10. The decisio
 
 Lifecycle Delete execution uses the `lifecycle_execution` option below. It defaults to enabled; an explicit choice overrides that default.
 
-Directory synchronization was removed after this review: `seed_dir` reads a folder at startup and never writes to it. The inventory tables below no longer list the `sync_*` settings, the `gcs-mimic sync` command, the `/_internal/sync` routes or the sync directory layout. The dated candidates, decisions and verification records further down keep describing the surface as it was reviewed.
+Directory synchronization was removed after this review: `seed_dir` reads a folder at startup and every `seed_watch_interval_ms` while the server runs, and never writes to it. The inventory tables below list the setting, routes and commands of those passes, and no longer list the `sync_*` settings, the `gcs-mimic sync` command, the `/_internal/sync` routes or the sync directory layout. The dated candidates, decisions and verification records further down keep describing the surface as it was reviewed.
 
 ## How to read this document
 
@@ -53,6 +53,7 @@ The inventory and the "Reason" and "Cost" entries of each candidate describe the
 | `gcs-mimic test-signer credentials`, `gcs-mimic test-signer --help` | `src/main.rs` `run`, `src/auth/test_signer.rs` | H, L, C | Yes |
 | `gcs-mimic import fake-gcs-server`, `--help` | `src/import/mod.rs` `cli`, `HELP` | H, S `import-filesystem.md`, `docs/en/migrate-from-fake-gcs-server.md` | Yes |
 | `gcs-mimic buckets new`, `--help` | `src/buckets_cli.rs` `run`, `HELP`; `src/bucket_init/generate.rs` | H, S `bucket-initialization.md` | Yes |
+| `gcs-mimic seed status`, `gcs-mimic seed wait`, `--help` (added after `0.27.0`) | `src/seed_cli.rs` `run`, `HELP` | H, N, C, S `seed.md` | Yes |
 
 A bare `gcs-mimic` exits 1 and names `serve`. `gcs-mimic serve --version`, `healthcheck --help`, `tls --help`, `tls ca --help`, `url --help` and `test-signer credentials --help` all exit 1 (observed).
 
@@ -98,6 +99,7 @@ Every name below is declared in `src/config/setting.rs`, and its default is in `
 | `seed_content_type` | `extension` | `extension`, `octet-stream` | `src/mime.rs` | H, L, N, C, F | Yes |
 | `max_seed_entries` | 0 (unlimited) | 0 to 2^64-1 | `src/config.rs` | H, L, N, F | Yes |
 | `max_seed_depth` | 0 (unlimited) | 0 to 1024 | `src/config.rs` | H, L, N, F | Yes |
+| `seed_watch_interval_ms` (added after `0.27.0`) | 1000 | 0 to 86400000; 0 replays `seed_dir` only at startup | `src/config.rs` | H, N, S `seed.md` | Yes |
 | `default_location` | `US` | Names in `src/bucket.rs`, case-insensitive; native profile only | `src/config.rs`, `src/bucket.rs` | H, L, C, F | 3 |
 | `default_soft_delete_retention_seconds` | 0 (off) | 0 to 7776000; a positive value needs the native profile | `src/config.rs`, `src/bucket.rs` | H, L, N, C, F | Yes |
 | `lifecycle_execution` | `enabled` | `enabled` or `disabled`. CLI `--lifecycle-execution`, environment `GCS_MIMIC_LIFECYCLE_EXECUTION`, JSON `lifecycle_execution` | `src/config.rs`, `src/storage/catalog/lifecycle.rs` | H, N, F, S `lifecycle-execution.md` | Yes |
@@ -175,6 +177,7 @@ The native-equivalent block is one `info` diagnostic with key `native_equivalent
 | `url sign` | The `url public` options, `--method`, `--expires`, `--signer`, `--private-key`, `--header` (repeats), `--query` (repeats), `--timestamp` | Two hyphens, space-separated | `src/main.rs`, `src/auth/signature.rs` | H, `docs/en/signed-urls.md` | 12 |
 | `import fake-gcs-server` | `--source`, `--data-dir`, `--metadata-mode`, `--source-platform`, `--source-format`, `--max-object-bytes`, `--max-entries`, `--max-depth`, `--dry-run`, `--verify-bodies` | Two hyphens, space-separated; a value cannot start with `--` | `src/import/mod.rs` | H, S `import-filesystem.md` | Yes |
 | `buckets new` | `--name` (repeats, one per bucket), `--format`, `--auth-mode`, `--output`, and bucket settings after a `--name`: `--project`, `--location`, `--storage-class`, `--public-access-prevention`, `--soft-delete-retention-seconds`, `--cors-max-age-seconds`, valueless `--versioning`, `--default-event-based-hold`, `--public-read`, `--browser-uploads`, `--browser-downloads`, and repeating `--label`, `--cors-origin`, `--cors-method`, `--cors-response-header`, `--iam-binding` | Two hyphens, space-separated. The first helper grammar in which a setting belongs to the preceding `--name`; a setting before any `--name` fails, and so does a bucket whose CORS settings lack a `--cors-origin` or a method. The contract is the command and option names, exit code 1 with diagnostics on stderr, and a `json` output that startup validation accepts; the exact layout of `env` and `compose`, the questions, and the advice written to stderr only when it is a terminal are not | `src/buckets_cli.rs` | H, S `bucket-initialization.md` | Yes |
+| `seed status`, `seed wait` (added after `0.27.0`) | `--endpoint`, `--ca-cert`; `seed wait` also `--timeout` and valueless `--require-clean` | Two hyphens, space-separated, each at most once. `--timeout` takes `Nms`, `Ns` or `Nm` from 1 ms to 10 min, 60 s by default. Without `--endpoint`, the server is found as `healthcheck` finds it | `src/seed_cli.rs` | H, N, C, S `seed.md` | Yes |
 
 ### Healthcheck URL selection
 
@@ -236,6 +239,8 @@ All are under `/_internal`, which is outside the Google namespaces. Defined in `
 | `/_internal/reset` | POST, body `{"confirm":"gcs-mimic"}` | `admin_enabled` | S `local-instance-reset.md` | 16 |
 | `/_internal/delete_all` | POST, empty body | `admin_enabled` | S `local-instance-reset.md` | Yes |
 | `/_internal/reseed` | POST or PUT, empty body | `admin_enabled` and `seed_dir` | C, S `atomic-seed-reseed.md` | Yes |
+| `/_internal/seed` (added after `0.27.0`) | GET, no query; whether passes run, their interval and the last pass | `admin_enabled` | S `seed.md` | Yes |
+| `/_internal/seed/wait` (added after `0.27.0`) | POST, empty body, optional `timeoutMs` (1 to 600000, 60000 by default); the report of the first pass that started after the request and left no removed file waiting | `admin_enabled`; 400 `invalid` without passes | S `seed.md` | Yes |
 | `/_internal/lifecycle/run` | POST, empty body; counts and effective `enabled` | `admin_enabled`; obeys `lifecycle_execution` | S `lifecycle-execution.md` | Yes |
 | `/_internal/buckets/{bucket}` | DELETE, empty body; `objects`, `cleanupPending` | `admin_enabled` | S `bucket-purge.md` | Yes |
 

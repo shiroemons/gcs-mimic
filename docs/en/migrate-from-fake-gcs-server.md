@@ -19,7 +19,7 @@ Roughly in order of how many setups it affects.
 | Keep objects in a `/storage` volume | The format differs, so the volume cannot be reused. Since 0.18.0, `-filesystem-root` stops startup. | Remove the flag; [copy the object bytes](#bring-existing-objects) or reseed from your fixtures. |
 | Set `FAKE_GCS_*` variables | Since 0.15.0 they are not read, and nothing warns. With `FAKE_GCS_PORT=9000` left in place the server still listens on 4443, so clients sent to port 9000 fail to connect. | Use the matching flag or `GCS_MIMIC_*` variable from [the table below](#setting-equivalents). |
 | Rely on the generations, custom metadata or content types of existing objects | They cannot be carried over today. `gcs-mimic import fake-gcs-server` exists, but in 0.14.0 it stops on every object uploaded through fake-gcs-server's API, because those objects carry a generated `projectOwner-test-project` ACL it does not accept. | Re-create the objects your tests depend on through the API, or keep that data on fake-gcs-server. |
-| Browse or edit objects as files in the storage directory | Objects are stored as opaque files. `/data` is read-only input, and API writes never appear there. Directory synchronization was removed; `seed_dir` reads a folder at startup and never writes to it. | Read objects through the API, or keep that workflow on fake-gcs-server. |
+| Browse or edit objects as files in the storage directory | Objects are stored as opaque files. `/data` is read-only input, and API writes never appear there. Directory synchronization was removed; `seed_dir` is read-only input that gcs-mimic replays at startup and while it runs, and never writes to it. | Read objects through the API, or keep that workflow on fake-gcs-server. |
 | Use `docker exec … sh`, shell healthchecks or shell entrypoints | The image has no shell and no package manager. | Remove your `healthcheck:` override, since the image has its own (`gcs-mimic healthcheck`), which needs no shell. Run scripts from another container. |
 | Mount directories only root can read or write | The server runs as UID/GID 10001, not root. | Use a named volume for `/var/lib/gcs-mimic`, and keep files under `/data` readable by every user. |
 | Embed `fakestorage` in a Go test process | There is no in-process server. The [`fakestorage` package](../../go/README.md#fakestorage) starts the Rust binary as a subprocess and covers a subset of the API; `Backend()` is not supported. | Change the import path to `github.com/shiroemons/gcs-mimic/go/fakestorage` where its subset is enough. Write new tests with [`gcsmimic`](../../go/README.md#gcsmimic), which adds per-test buckets, fixture loading and a reset to the startup state. |
@@ -82,8 +82,11 @@ Mount `./data:/data:ro` and start gcs-mimic. Buckets, including empty ones,
 object names and bytes come across. Content types are derived again from file
 extensions. Generations, custom metadata and ACLs do not come across.
 
-Seeding runs on every startup and replaces API changes to the same names. Once
-the objects are in the data volume, remove the mount if you do not want that.
+Seeding runs on every startup and replaces API changes to the same names, and
+while the server runs it applies changed, new and removed files every
+`seed_watch_interval_ms`; a removed file deletes the object seeding published
+for it. Once the objects are in the data volume, remove the mount if you do not
+want that.
 
 ## Setting equivalents
 

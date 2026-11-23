@@ -21,7 +21,9 @@ to existing buckets. Seed files replay on every startup with extension-derived M
 0.8.0 the replay prepares the complete tree and publishes it atomically; a
 changed protected fixture fails the replay instead of skipping that file.
 Identical objects keep their generation. Directory synchronization was removed:
-`seed_dir` reads a folder at startup and never writes to it.
+`seed_dir` never has files written to it, and while the server runs, passes every
+`seed_watch_interval_ms` replay changed, new and removed files
+([seed contract](slices/seed.md#passes-while-the-server-runs)).
 The importer converts scoped filesystem snapshots, while a separate Go capture
 and snapshot reader preserve declared memory history and original names.
 See [container usage](container-usage.md) and the
@@ -147,8 +149,8 @@ its existing bucket at startup, except its location and owner, because an edit
 to the document is meant to apply at the next start; reconcile never resets a field that
 an entry stops writing.
 
-Directory synchronization was removed: `seed_dir` reads a folder at startup and
-never writes to it. SQLite remains the catalog. See the
+Directory synchronization was removed: `seed_dir` is read-only input, replayed at
+startup and while the server runs, and never written to. SQLite remains the catalog. See the
 [filesystem requirements](fake-gcs-server-storage.md#required-gcs-mimic-follow-up).
 
 ## Releases

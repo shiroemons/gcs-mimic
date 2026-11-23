@@ -325,7 +325,8 @@ server. Every setting is in the [Docker guide](docs/en/container-usage.md#common
 
 The optional `./data` mount preloads files: top-level directories become buckets
 and files become objects. The files are applied on every startup and replace API
-changes to the same names. See [loading local files](docs/en/container-usage.md#load-local-files).
+changes to the same names; while the server runs, edited, new and removed files
+are applied again every second (`GCS_MIMIC_SEED_WATCH_INTERVAL_MS`, 0 to stop). See [loading local files](docs/en/container-usage.md#load-local-files).
 
 ## Buckets, CORS and public access
 
@@ -441,7 +442,7 @@ full Google API compatibility.
 | Retain object version history | ✅ | ◐ Memory backend | ❌ | ✅ |
 | Keep API-created bytes across restart | ✅ | ✅ Filesystem | ✅ Disk | ✅ Hybrid mode |
 | API writes visible as bucket/object files | ❌ Opaque storage | ✅ Filesystem | ✅ Disk | ❌ |
-| Load bucket/object seed bytes | ✅ Startup or opt-in reseed | ✅ Startup or reseed | ❌ | ◐ Startup hook script |
+| Load bucket/object seed bytes | ✅ Startup, a watch while running, or opt-in reseed | ✅ Startup or reseed | ❌ | ◐ Startup hook script |
 | Default CORS for JSON API requests | ✅ | ✅ | ❌ | ❌ |
 | Enforce bucket-specific XML CORS rules | ✅ | ❌ | ❌ | ✅ |
 | Upload/download with signed URLs | ✅ | ✅ | ✅ | ✅ |

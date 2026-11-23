@@ -73,7 +73,9 @@ exit codes, and the response fields of the user-facing emulator routes. Messages
 
 The user-facing emulator routes are `/_internal/health`, `/_internal/healthcheck`,
 `/_internal/ready`, `/_internal/config`, `/_internal/objects`, `/_internal/reset`,
-`/_internal/reseed` and `/_internal/lifecycle/run`. Their methods, success status
+`/_internal/reseed`, `/_internal/seed`, `/_internal/seed/wait` and
+`/_internal/lifecycle/run`. `gcs-mimic seed status` and `gcs-mimic seed wait`
+call the two seed routes. Their methods, success status
 and request and response keys are kept as currently spelled, and a route that
 takes a request body accepts one of at least 64 KiB; a larger body that a release
 happens to accept is not promised. Management routes keep answering 404 while

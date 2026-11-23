@@ -188,7 +188,7 @@ The table lists the common options. Run `gcs-mimic serve --help` for every optio
 including the Pub/Sub event, Unix socket, public URL and XML virtual-host
 settings.
 
-Directory synchronization was removed: `seed_dir` reads a folder at startup and never writes to it. Supplying a removed `sync_*` setting stops startup with a message that points at `seed_dir`.
+Directory synchronization was removed: `seed_dir` is read-only input, replayed at startup and every `seed_watch_interval_ms` while the server runs, and never written to. Supplying a removed `sync_*` setting stops startup with a message that points at `seed_dir`.
 A seed directory that still holds synchronization's `.gcs-mimic-sync.json` or
 `.gcs-mimic-sync-work` also stops startup, and gcs-mimic leaves both as they are:
 inspect them, delete them yourself and restart.

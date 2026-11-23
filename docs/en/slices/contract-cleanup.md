@@ -38,7 +38,7 @@ None has an alias. Every withdrawn name or value stops startup from the command 
 
 ### Synchronization controls
 
-Directory synchronization was removed, with the `gcs-mimic sync` command and the `/_internal/sync` routes, so the version check between them and the `sync approve --revision` refusal no longer exist. `seed_dir` reads a folder at startup and never writes to it.
+Directory synchronization was removed, with the `gcs-mimic sync` command and the `/_internal/sync` routes, so the version check between them and the `sync approve --revision` refusal no longer exist. `seed_dir` is read-only input and is never written to.
 
 ### Go package
 

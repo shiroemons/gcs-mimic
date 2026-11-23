@@ -193,15 +193,34 @@ Holds and storage class are not compared, so an identical held object counts as
 protected object and counted it as `blocked`. Release the hold or retention, or
 align the fixture, before restarting.
 
-Objects without a seed file are untouched, and removing a seed file never
-deletes an object. An object deleted through the API is recreated on the next
-restart, and edits to seed files apply on the next restart. Seed input is not
-watched. Restart the container, or enable local administration
-(`GCS_MIMIC_ADMIN_ENABLED=true`, on an isolated listener) and use the opt-in
-[reseed endpoint](slices/atomic-seed-reseed.md). A reseed of a tree that breaks a
-configured limit, holds names it cannot import, or holds files the container user
-(uid 10001) cannot read answers 400 and names the problem; only work a later
-attempt can finish answers 503 with `Retry-After: 1`.
+Objects seeding did not publish are untouched. Removing a seed file deletes the
+object seeding published for it, unless an API request changed the object (its
+body or its metadata) or a hold or retention period protects it; an object an
+earlier release seeded is left until its file changes. An object deleted through
+the API is recreated on the next restart.
+
+While the container runs, the seed directory is watched: every
+`GCS_MIMIC_SEED_WATCH_INTERVAL_MS` (1000 ms by default; 0 replays it only at
+startup) a pass republishes changed files, creates the buckets of new top-level
+directories and deletes the objects of removed files. A removal needs two
+passes at least a second apart to be sure the file is gone; startup and reseed
+need one. A file whose object an API request overwrote or deleted stays as the
+API left it until the file changes, and a bucket deleted through the API is not
+recreated while its directory remains. Passes skip and report a protected
+object, an unusable entry and a directory past a limit. On native Windows a
+removed file never deletes its object. The watch polls, so a change takes
+effect within about the interval.
+
+With local administration (`GCS_MIMIC_ADMIN_ENABLED=true`, on an isolated
+listener), `gcs-mimic seed status` reports the passes and `gcs-mimic seed wait
+[--timeout 30s] [--require-clean]` returns after a pass has applied the current
+folder, which is how a test setup waits for its fixtures; see
+[passes while the server runs](slices/seed.md#passes-while-the-server-runs). The
+opt-in [reseed endpoint](slices/atomic-seed-reseed.md) replays the folder at
+once. A reseed of a tree that breaks a configured limit, holds names it cannot
+import, or holds files the container user (uid 10001) cannot read answers 400
+and names the problem; only work a later attempt can finish answers 503 with
+`Retry-After: 1`.
 
 Content-Type comes from the filename extension through a pinned table, for
 example `.png` becomes `image/png`. Set `GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`
@@ -222,8 +241,8 @@ gcs-mimic's `/_internal/reseed` route is off until local administration is
 enabled. Seeding does not import fake-gcs-server's
 runtime xattrs/sidecars or preserve their metadata. The seed directory stays
 read-only input: API writes do not appear under `/data`. Directory
-synchronization was removed; `seed_dir` reads a folder at startup and never
-writes to it. To create buckets with CORS or versioning settings, use a
+synchronization was removed; `seed_dir` is read-only input, replayed at startup
+and while the container runs, and never written to. To create buckets with CORS or versioning settings, use a
 [buckets file](#initialize-bucket-settings); it runs before seed. See the
 [storage comparison](fake-gcs-server-storage.md) before reusing a persistent
 source directory.
