@@ -6,7 +6,6 @@ use crate::storage::catalog::{
         initialization::Initialization,
         replay::{self, Attributes, Body, Fingerprint, LiveObject, Protection, Replay},
     },
-    objects::Versioning,
     sql,
 };
 use std::num::NonZeroUsize;
@@ -483,10 +482,12 @@ fn commit(
     } in &batch.entries
     {
         validate_staged_entry(entry)?;
+        // The replay decides protection at the instant it publishes, so the two cannot disagree.
+        let now = clock.now();
         let previous = objects::lookup(&transaction, entry.bucket.as_str(), entry.name.as_str())?;
         let live = previous
             .as_ref()
-            .map(|stored| live_object(&transaction, &stored.record, entry, clock))
+            .map(|stored| live_object(&transaction, &stored.record, entry, now))
             .transpose()?;
         let file = Body {
             size: entry.staged.size,
@@ -495,7 +496,7 @@ fn commit(
         // No seed record is kept yet, so the replay decides as it did before records.
         match replay::startup_file(&file, None, live.as_ref()) {
             Replay::Publish => {
-                publish_entry(&transaction, entry, &batch.admin.grant, clock)?;
+                publish_entry(&transaction, entry, &batch.admin.grant, now)?;
                 published.push(entry.staged.blob_id());
                 if previous.is_some() {
                     counts.replaced += 1;
@@ -594,20 +595,17 @@ fn confirmed(
     Ok(true)
 }
 
-/// What a replay of `entry` finds in `live`, the object the catalog holds at its name. The
-/// protection is the refusal a replacement would meet: a hold or the bucket's retention policy,
-/// and an object's own retention period where no versioning keeps the replaced generation.
+/// What a replay of `entry` at `now` finds in `live`, the object the catalog holds at its name.
+/// The protection is the refusal publishing the replacement at `now` would meet.
 fn live_object(
     transaction: &rusqlite::Transaction<'_>,
     live: &ObjectRecord,
     entry: &BatchPublication,
-    clock: &dyn Clock,
+    now: SystemTime,
 ) -> Result<LiveObject, AdminError> {
-    let now = clock.now();
-    let protected = live.check_policy_and_holds(now).is_err()
-        || (live.check_object_retention(now).is_err()
-            && objects::BucketPublication::load(transaction, entry.bucket.as_str())?.versioning
-                == Versioning::Disabled);
+    let versioning =
+        objects::BucketPublication::load(transaction, entry.bucket.as_str())?.versioning;
+    let protected = objects::check_replaceable(live, versioning, now).is_err();
     Ok(LiveObject {
         generation: live.generation,
         body: Body {

@@ -745,11 +745,29 @@ pub(super) fn check_publication(
     {
         return Err(refusal);
     }
-    // Object retention depends on versioning; publish_in_transaction checks it.
+    // Object retention depends on versioning; publish_in_transaction checks it with
+    // check_replaceable.
     if let Some(stored) = previous {
         stored.record.check_policy_and_holds(now)?;
     }
     Ok(())
+}
+
+/// Whether a new live generation may replace `previous` at `now`: no hold or bucket retention
+/// policy protects it, and where no versioning keeps the replaced generation as noncurrent, its
+/// own retention period has passed. Publication refuses a replacement with this, and a seed
+/// replay decides with it before publishing, so that what the replay predicts is the refusal
+/// publication meets.
+pub(super) fn check_replaceable(
+    previous: &ObjectRecord,
+    versioning: Versioning,
+    now: std::time::SystemTime,
+) -> Result<(), ObjectError> {
+    previous.check_policy_and_holds(now)?;
+    match versioning {
+        Versioning::Disabled => previous.check_object_retention(now),
+        Versioning::Enabled => Ok(()),
+    }
 }
 
 pub(super) fn skip_same(
