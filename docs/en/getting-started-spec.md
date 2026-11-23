@@ -6,7 +6,7 @@
 
 This English document is canonical. Japanese user guides live in `docs/ja` and retain the same feature status and supported scope. Historical Japanese planning notes are separate. Implementation prompts are Japanese; source code, identifiers, commits and canonical documentation remain English.
 
-The 0.8.0 migration additions and their verification gates are mapped in [migration integration](evidence/migration-integration.md). Published examples use 0.27.0. This specification's historical milestone text does not override the feature ledger or the current seed, synchronization, storage and authentication slice contracts.
+The 0.8.0 migration additions and their verification gates are mapped in [migration integration](evidence/migration-integration.md). Published examples use 0.27.0. This specification's historical milestone text does not override the feature ledger or the current seed, storage and authentication slice contracts.
 
 The current object walkthrough selects `name,size` from metadata and
 `items(name),nextPageToken` from listing, captures the HTTP ETag header, requires
@@ -144,7 +144,7 @@ These are emulator extensions, not Google API methods:
 | Command | Required behavior |
 | --- | --- |
 | `gcs-mimic serve --config PATH` | Validate configuration, recover persistence, seed if appropriate, start listeners. |
-| `gcs-mimic healthcheck --url URL` | Exit zero only when the health/readiness request succeeds and, with directory synchronization, the ready answer no longer reports it starting. |
+| `gcs-mimic healthcheck --url URL` | Exit zero only when the health/readiness request succeeds. |
 | `gcs-mimic url public --base-url URL --bucket B --object O` | Print an encoded object address without changing permissions. |
 | `gcs-mimic url sign --base-url URL --bucket B --object O --method GET --expires 15m --signer ID --private-key PATH` | Print a locally generated V4 URL for the supplied final endpoint. Never call real Google IAM. |
 | `gcs-mimic admin reset --endpoint URL --confirm gcs-mimic` | Reset only this local emulator instance when admin operations are explicitly enabled. Keep this command out of ordinary startup. |

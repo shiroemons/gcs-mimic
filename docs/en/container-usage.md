@@ -164,7 +164,7 @@ No environment variable is needed.
 
 The image sets `GCS_MIMIC_DEFAULT_SEED_DIR=/data` (`--default-seed-dir`, JSON
 `default_seed_dir`; native default none). It applies only when `seed_dir` is
-unset, the directory exists, and it does not overlap the data or sync directory;
+unset, the directory exists, and it does not overlap the data directory;
 otherwise it is silently ignored. An explicit `GCS_MIMIC_SEED_DIR`
 (`--seed-dir`, JSON `seed_dir`) always wins, for example to read another path.
 
@@ -205,10 +205,8 @@ attempt can finish answers 503 with `Retry-After: 1`.
 
 Content-Type comes from the filename extension through a pinned table, for
 example `.png` becomes `image/png`. Set `GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`
-to store every file as `application/octet-stream`, the previous default. The
-same setting applies to files ingested from a
-[sync directory](#mirror-objects-to-a-host-directory). macOS metadata files such
-as `.DS_Store` and `._*` are skipped.
+to store every file as `application/octet-stream`, the previous default. macOS
+metadata files such as `.DS_Store` and `._*` are skipped.
 
 The ready event reports the result in its `seed` field, for example
 `{"outcome":"imported","buckets":1,"objects":2,"replaced":0,"unchanged":3,"blocked":0,"skipped_os_metadata":0}`,
@@ -223,302 +221,12 @@ generation even for an exactly identical object, which gcs-mimic keeps, and
 gcs-mimic's `/_internal/reseed` route is off until local administration is
 enabled. Seeding does not import fake-gcs-server's
 runtime xattrs/sidecars or preserve their metadata. The seed directory stays
-read-only input: API writes do not appear under `/data`. To browse API-written
-objects as files, use a separate [sync directory](#mirror-objects-to-a-host-directory).
-To create buckets with CORS or versioning settings, use a
+read-only input: API writes do not appear under `/data`. Directory
+synchronization was removed; `seed_dir` reads a folder at startup and never
+writes to it. To create buckets with CORS or versioning settings, use a
 [buckets file](#initialize-bucket-settings); it runs before seed. See the
 [storage comparison](fake-gcs-server-storage.md) before reusing a persistent
 source directory.
-
-## Mirror objects to a host directory
-
-`GCS_MIMIC_SYNC_DIR` (`--sync-dir`, JSON `sync_dir`) keeps every bucket and live
-object in step with `BUCKET/OBJECT` files under an existing writable directory,
-in both directions: API writes become files, files you add or edit become
-objects, and deleting a file deletes the object. The repository's
-[`compose.sync.yaml`](../../compose.sync.yaml) turns it on and mounts `./sync`;
-[Keep objects as files](migrate-from-fake-gcs-server.md#keep-objects-as-files)
-shows the entries for your own service, the Linux ownership step, and what
-differs from fake-gcs-server. Create the directory before the first start. With
-a checkout and a published image:
-
-```sh
-mkdir -p sync
-export GCSM_IMAGE=ghcr.io/shiroemons/gcs-mimic:0.27.0
-export COMPOSE_FILE=compose.yaml:compose.sync.yaml
-docker compose up --wait --no-build
-curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
-  'http://localhost:4443/storage/v1/b?project=demo-project'
-curl --fail --data-binary 'hello' \
-  'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=docs%2Fhello.txt'
-docker compose exec gcs gcs-mimic sync wait --endpoint http://127.0.0.1:4443
-cat sync/demo-bucket/docs/hello.txt
-```
-
-In CI, the exit status of `gcs-mimic sync wait` tells its outcomes apart
-without reading the JSON answer it prints; the error on standard error names
-what to run next. It waits two minutes by default, which suits a wait after
-`docker compose up --wait`: that already waited for the first pass, which the
-healthcheck allows a 5-minute start period.
-
-| Exit status | Outcome |
-| --- | --- |
-| 0 | Every change is reflected, even while objects whose names the directory cannot hold remain, unless `--require-no-findings` is given |
-| 1 | Anything else, such as an unreachable server, a refused option or a server that stopped |
-| 2 | Someone must act: a pause, entries no object can take, deletions awaiting approval, or findings |
-| 3 | The directory was still changing when `--timeout` passed |
-
-After readiness, the server exports existing buckets and objects, including empty
-buckets. API create, overwrite, copy, compose and delete then update the files
-shortly after each response, so wait with `gcs-mimic sync wait` before reading
-a file instead of expecting it at response time.
-The SQLite catalog and internal blobs remain the stored state, and a file can be
-rewritten from it when the API's version wins a conflict. Data persistence still
-requires the `/var/lib/gcs-mimic` volume.
-
-Since 0.8.0 the server also watches the directory
-([continuous observation](slices/continuous-directory-observation.md)), applies
-file deletions behind a guard, and offers live status, findings, wait and
-approval controls through `gcs-mimic sync`; 0.7.0 imported files only at
-startup and never deleted objects. Use the
-[synchronization contract](slices/directory-synchronization.md) for the exact
-supported platform/auth/recovery subset. Ready precedes initial reconciliation
-and is not a synchronization-complete signal; `sync.state`, below, reports that
-pass, and `gcs-mimic sync wait` waits for later changes.
-
-Files created or edited outside the server are imported as new object
-generations, with hashes, shortly after the change; no restart is needed.
-Deleting a file deletes its live object, subject to holds and retention. When at
-least 100 objects would go and they are more than half of the tree, the deletion
-guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until someone
-decides on the exact set: `gcs-mimic sync reject` keeps the objects and writes
-the files back from them, and `gcs-mimic sync approve` deletes the objects. The
-log names such a set once, as `sync_deletion_approval_required`, with its
-revision, how many of the tracked files are missing, the first ten of their
-paths, the buckets that went whole, and the commands that inspect, reject and
-approve it; a wait that ends on the set names the same paths and buckets in
-its `deletions` field. Deletions that run are logged as
-`sync_deletions_applied` with their count and first ten paths, as a warning
-when the first pass after a start or a retry runs them and at the info level
-otherwise. Recent automatic deletions also
-count toward this threshold across split scans. Deleting a whole bucket
-directory waits for that approval however few files it held, because a mount
-that did not come up looks the same; the server does not recreate the
-directory meanwhile, not even for an object written into the bucket through the
-API, which waits with it, and the bucket stays after the approved deletion; a
-rejection recreates the directory and writes the files back into it. A
-bucket directory that the server finds at startup holding none of its tracked
-files, as a bind mount of the bucket that came up empty does, waits for the
-approval too, logged as `sync_bucket_directory_emptied`, also after an object
-written through the API meanwhile is exported into it; emptying a bucket while
-the server runs is left to the counts. Deleting
-a bucket through the API keeps its directory.
-
-When a deletion set waits for a decision, inspect it with
-`gcs-mimic sync status --view deletions`, then choose:
-
-- If a mount failed, fix the mount and restart the server before anything else.
-  The files come back and the set stops waiting; a rejection before the mount
-  returns writes the files under the mount point, where the mount then hides
-  them.
-- If the files went by mistake, reject the set with
-  `gcs-mimic sync reject --deletion-set REVISION`. The objects stay, and the
-  files are written back from them; `gcs-mimic sync wait` answers once they are
-  back. Until then its advice counts the files left, and the
-  `sync_deletions_rejected` log says why a write-back stopped; if one file keeps
-  failing and you no longer need it, delete its object through the API, and the
-  write-back skips it.
-- If you put the files back yourself, wait again with `gcs-mimic sync wait`.
-- If you deleted the files on purpose, approve the set with
-  `gcs-mimic sync approve --deletion-set REVISION` to delete their objects.
-
-The advice in the log, the status and the wait opens with why the set waits:
-a bucket directory that is missing or shows none of its files, named; at least
-100 files missing; or files of an earlier set that nobody decided. Files
-deleted while a set waits join it: the next pass takes them into the set under
-a new revision, which a decision on the old revision is refused with. A
-rejection then writes all of them back, and an approval deletes all of their
-objects. If the set mixes files that went by mistake with files you deleted on
-purpose, reject it first, then delete the intended files again once they are
-back.
-
-In CI, `gcs-mimic sync wait` exits 2 with `DeletionApproval` while a set waits,
-and its error names these commands with the set's revision, so a run stops there
-instead of going on with files missing. What the job does about it depends on
-why the files went:
-
-- If a step removed files by mistake, `gcs-mimic sync reject && gcs-mimic sync
-  wait` writes them back. Without `--deletion-set`, `reject` takes the set that
-  waits and names it on standard error; it fails when none waits.
-- If a step clears files on purpose, delete their objects through the API
-  instead, which deletes the files without a decision, or delete the files
-  inside the bucket directory rather than the directory itself, which waits
-  only when at least 100 files go and they are more than half of those tracked.
-- If the tree is a throwaway copy, such as one the job checks out, start the
-  server with `GCS_MIMIC_SYNC_DELETE_GUARD=false`. Deleting files then deletes
-  their objects without waiting, a whole bucket directory or a mount that came
-  up empty included, so do not set it for a tree that a mount provides or that
-  holds the only copy of the files. The marker, complete-scan and generation
-  checks stay.
-
-A file deleted while the server was stopped, or before it crashed, deletes its
-object at the next startup instead of being written back; only the guard above
-stops such deletions. Restoring the directory from an older backup likewise
-makes the files imported since then count as deleted. An object whose name
-cannot become a file, described below, never holds back these deletions. An
-entry in the directory that cannot become an object, such as a symlink or a file
-left in the directory of a bucket deleted through the API, holds back every
-deletion until it is moved away, because the missing file may be there; the
-rescan result counts it as `unrepresentable_entries`, apart from the objects the
-directory cannot hold (`unmapped_objects`; `unrepresentable` is their sum), and
-the log names it with a remedy once, when a scan first finds it, as
-`sync_unsafe_entry`, `sync_unmappable_entry`, `sync_path_collision` or
-`sync_bucket_missing`. A scan names its first 256 such entries and only counts
-the rest. A regular file directly in the
-directory, such as a `README.md` or `.gitkeep`, belongs to no bucket: it is
-skipped with one `sync_skipped` warning and holds nothing back, and files named
-like `.DS_Store` are skipped silently. An empty directory put where a
-synchronized file was stops only that path, and `gcs-mimic sync findings` lists
-it as `EntryReplaced`. A file inside such a directory is an entry no object can
-take, logged as `sync_path_collision`, so it holds back every deletion. Moving
-the directory away without putting a regular file back deletes the object, as
-deleting the file does.
-When both the API and a file changed the same object, the API's version wins:
-the file is replaced with the API's bytes and the edit is retained as a
-conflict, listed by `gcs-mimic sync conflicts` for explicit resolution;
-restoring it publishes the edit. An empty directory where an object's file
-belongs, such as `a/` after `a/x` was deleted through the API and `a` was
-created, is removed and replaced by the file. A directory that holds only
-Finder's `.DS_Store`, and the `._.DS_Store` that macOS writes beside it on some
-volumes, counts as empty: those files go with the directory, and nothing else is
-ever removed from one. A directory that holds anything else, even only a hidden
-file such as `._x` or an editor's swap file, stays as it is, and that object is
-reported as a `directory-occupied` finding. Once its entries, or a symlink or
-file that kept an object out, are moved away, the next `gcs-mimic sync wait` (or
-`rescan`) exports that object without a restart. On a directory that ignores
-letter case or Unicode normalization, as a macOS bind mount usually does, two
-objects such as `Photo.jpg` and `photo.jpg`, or two names that differ only in
-how they encode an accent, as a name in NFC and the same name in NFD do, share
-one file. Both are reported as `alias` findings whose `tree_path` names the
-file, and the log reports them as `sync_alias_frozen`. The file stays as it is
-and `gcs-mimic sync wait` names it among its frozen files: an edit of it is not
-taken in, since it may be meant for either object, and stops
-`gcs-mimic sync wait` as `AliasEdited` (exit status 2, logged as
-`sync_alias_edited`), and deleting or renaming it on the host deletes neither
-object; renamed to the other object's name, it stays frozen. Delete or rename through the API the object an edit is not meant for;
-the next wait uploads the edit to the object left, which then gets its own file,
-without a restart (logged as `sync_alias_released`). If the API wrote that
-object after the edit was made, its newer generation stays, and the edit is kept
-as a conflict that `gcs-mimic sync conflicts` lists. To drop the edit instead,
-put the earlier bytes back or delete the file. Object names
-containing `\`, and other names
-that cannot be mapped to host file names, are skipped without stopping
-synchronization; they stay available through the API. `gcs-mimic sync wait` succeeds
-past them: it counts them and prints one line with the command that lists them,
-and `--require-no-findings` makes them fail it instead. A wait asks the
-server again while the directory is still changing, for up to two minutes by
-default (`--timeout`, at most `60m`). A name containing `:`, such as
-`logs/2026-10-28T12:00:00.log`, becomes a file of the same name wherever the
-directory's filesystem stores colons, which the server checks at startup with no
-setting. Linux local filesystems and APFS store them; the `sync_root_naming` log
-event reports what the check found for the mounted directory. A file with `:` created outside
-the server is imported under that name. macOS Finder shows that `:` as `/`; the
-name on disk keeps the colon.
-
-The directory holds `.gcs-mimic-sync.json` and `.gcs-mimic-sync-work`, which tie
-it to one data directory; add both and `.gcs-mimic-sync.json.staging` to
-`.gitignore`. Marker creation writes and syncs the staging file before atomic
-publication. The staging marker component is reserved at every object depth;
-existing API objects using it remain stored but cannot be mapped to the tree.
-Restart can recover a complete staged marker belonging to the same
-catalog/root; foreign or malformed published markers still fail closed. After
-`docker compose down --volumes` or another new data volume, startup rejects the
-old directory with a `ForeignMarker` diagnostic. Move it aside and create a fresh
-empty directory instead. The directory must not overlap the data or seed
-directory.
-
-A data directory synchronizes one directory at a time. To keep the data volume
-and switch to another directory, mount an empty directory at the same container
-path, or select one at another path with a native binary. Empty means no
-subdirectory and no symlink: files directly in it that a scan never makes
-objects of, such as `.DS_Store`, `.gitkeep` or `README.md`, may stay. Startup
-takes it in place of the previous one, logs a `sync_root_switched` warning with
-both paths, and writes every object into it as on a first start; no object is
-deleted. The catalog forgets what it tracked for the previous directory, its
-findings and the deletions waiting for approval there. It also forgets the
-conflicts and recovery workspaces retained there, which `sync conflicts` no
-longer lists: the warning lists the first ones with the paths of their bytes,
-which stay where they were. Resolve them before you switch on purpose. The
-previous directory is never opened, and its files stay as they were.
-
-A directory that holds this data directory's `.gcs-mimic-sync.json`, such as
-the previous directory mounted back or a synchronized directory moved with
-`mv`, is merged in place of the current one: a file whose content differs from
-its object is kept as a conflict, an object without a file is written into the
-directory, and nothing is deleted. An object deleted while the server
-synchronized another directory comes back from the merged directory's file, and
-a file edited in the merged directory meanwhile becomes a conflict rather than a
-new version. A
-directory without that marker that holds a subdirectory is refused with a
-`ReplacementOccupied` diagnostic that names the directory the data directory
-synchronizes. `sync status` reports the synchronized path, and after a switch or
-merge in this process, why and which path it replaced.
-
-In strict mode, sync controls require project-owner authority through
-the local identity registry. Sync runs on Linux and macOS; on other platforms the
-directory cannot be watched, so the server reports the failure and does not
-become ready.
-
-Directory metadata, ownership and extended-attribute changes revalidate read and
-search access. An inaccessible subtree pauses synchronization until access is
-repaired and an explicit rescan succeeds. The Storage API stays ready meanwhile;
-`/_internal/ready` reports synchronization separately as `sync.state`
-(`starting`, `running`, `retrying`, `paused` or `stopped`), a field outside the
-public contract until the directory synchronization feature is complete.
-`running` means the first pass has reconciled the directory and the server is
-watching it; it does not mean that a later change is already applied, which
-`gcs-mimic sync wait` waits for. In Compose, run the sync commands in the
-server's container, as in this rescan after repairing access:
-
-```sh
-docker compose exec gcs gcs-mimic sync rescan --endpoint http://127.0.0.1:4443
-```
-
-Use `https://` when the server serves HTTPS, and add `--token-file` under strict
-authentication.
-
-`gcs-mimic healthcheck`, which the image runs as its healthcheck, also fails
-while `sync.state` is `starting`: from startup until the first pass has ingested
-the directory and exported every existing object. `docker compose up --wait`
-therefore returns, and a service that `depends_on` the server with
-`condition: service_healthy` starts, only after that pass. The condition orders
-startup only: Compose does
-not stop or restart that service when synchronization later pauses. The image
-allows the first pass a 5-minute start period, so a Compose `healthcheck:`
-override with a shorter `start_period` can mark the server unhealthy while a
-large tree is still exporting. The other states pass: waiting would not end a
-pause or a stop, and `gcs-mimic sync status` reports why synchronization paused
-or stopped.
-
-Exported files and directories are private to the server user (modes `0600` and
-`0700`). Docker Desktop maps ownership on bind mounts, so the files are readable
-on macOS hosts. On a Linux host, the image's UID `10001` would own them; run the
-container as your user and keep the data directory on a bind mount owned by the
-same user. With `compose.sync.yaml`, `export GCSM_UID=$(id -u) GCSM_DATA_DIR=./data`
-does that ([steps](migrate-from-fake-gcs-server.md#keep-objects-as-files)). With
-`docker run`, use this recipe:
-
-```sh
-mkdir -p data sync
-docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
-  -p 127.0.0.1:4443:4443 \
-  -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
-  -e GCS_MIMIC_DATA_DIR=/data -e GCS_MIMIC_SYNC_DIR=/sync \
-  ghcr.io/shiroemons/gcs-mimic:0.27.0
-```
-
-See the [synchronization contract](slices/directory-synchronization.md) for the
-verified subset, recovery behavior and pending work.
 
 ## Common settings
 
@@ -769,9 +477,6 @@ It holds `roles/storage.admin` on the project of every bucket the bucket documen
 (`GCS_MIMIC_BUCKETS` or `GCS_MIMIC_BUCKETS_FILE`) creates and on the effective
 `seed_project`, so the application's servers can do what a project owner's
 service account does, and strict mode then starts without an identity document.
-These roles are implicit, so they are not the explicit `roles/storage.admin`
-grant that directory synchronization controls require: those answer 403 on the
-trusted listener until the identity document grants it.
 An entry for `trusted-app@gcs-mimic.invalid` in the identity document
 (`GCS_MIMIC_IDENTITIES` or `GCS_MIMIC_IDENTITY_FILE`) replaces those roles. Set
 `GCS_MIMIC_TRUSTED_PRINCIPAL` to act as another identity of the identity document,

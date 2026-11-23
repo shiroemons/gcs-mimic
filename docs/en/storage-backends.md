@@ -23,14 +23,11 @@ and quiesced capture now have [separate contracts](slices/source-storage-contrac
 Do not introduce a generic backend framework before a concrete second runtime
 backend needs one.
 
-Replacement also requires bidirectional synchronization with an inspectable
-bucket/object directory. One-time import alone is insufficient. SQLite can
-remain the index/catalog while a visible working tree feeds safe ingestion and
-reflects API mutations. The [implemented subset](slices/directory-synchronization.md)
-does this through bounded observation and shared publication, with revision-bound
-deletion and unfinished recovery/control cases kept explicit. The
-[filesystem investigation](fake-gcs-server-storage.md) records source behavior,
-executed macOS edit/reseed cases and the required follow-up.
+Directory synchronization was removed: `seed_dir` reads a folder at startup and
+never writes to it ([seed contract](slices/seed.md)), and the catalog stays the
+only index. The
+[filesystem investigation](fake-gcs-server-storage.md) records source behavior
+and executed macOS edit/reseed cases.
 
 The [RAM backend](slices/memory-backend.md) (`--backend memory`, since 0.8.0)
 uses process-local SQLite and leased bounded chunks. It never touches
@@ -39,7 +36,7 @@ authorization/conditions/checksums with disk. Its
 default body budget (about half of the available memory, from 64 MiB to 1 GiB) and
 separate main/TEMP 16 MiB page limits are storage
 admission limits, not a process RSS ceiling. Disk remains the default and the
-only directory-sync/import destination; no comparative performance is claimed.
+only import destination; no comparative performance is claimed.
 
 Since 0.18.0, disk startup reports the absolute `data_dir` and
 `data_dir_state` (`created` or `opened`) in its ready event, preserving symlink
@@ -72,7 +69,7 @@ does not establish lower total complexity once these guarantees are included.
 synchronous FULL, a 2 MiB configured cache, mmap disabled and bounded admission
 with one execution permit. Indexed queries and recovery pages avoid loading the
 whole catalog. Versioned migrations include seed initialization, bucket IAM and
-the later session, import and synchronization state.
+the later session and import state.
 
 `src/storage/catalog/objects/upload.rs` streams into opaque files;
 `objects/durability.rs` publishes immutable blobs and `objects/publication.rs`

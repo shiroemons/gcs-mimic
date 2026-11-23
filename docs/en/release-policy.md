@@ -46,7 +46,7 @@ Four defaults follow the authentication settings, and that derivation is covered
 otherwise; and `signed_host_port` is `lenient` where the test signer is enabled
 and `exact` otherwise. The ready event reports each effective value. A new
 setting that turns something on or off takes `enabled` or `disabled`;
-`admin_enabled` and `sync_delete_guard` keep `true` and `false`.
+`admin_enabled` keeps `true` and `false`.
 
 Machine-readable output is covered by name, not by wording: the field names of
 the ready event, the member names of a diagnostics line, the listed event names,
@@ -65,7 +65,7 @@ exit codes, and the response fields of the user-facing emulator routes. Messages
   `diagnostics`, and each of its entries has `source`, `key` and `fix`, plus
   `native_args` where it reports native options. The values of `source` are
   covered: `cli`, `environment`, `config`, `tls`, `identity`, `filesystem`,
-  `catalog`, `initializer`, `seed`, `sync`, `import`, `listener` and `runtime`.
+  `catalog`, `initializer`, `seed`, `import`, `listener` and `runtime`.
   A `key` from the command
   line, the environment or the configuration file is the name as supplied; other
   keys locate the problem and are not covered.
@@ -80,16 +80,9 @@ happens to accept is not promised. Management routes keep answering 404 while
 `admin_enabled` is off, 403 to a browser-initiated request and 421 to a host that
 is not approved, and their error bodies keep `error.code`; other members of an
 error body are not covered. `/_internal/delete_all` is fake-gcs-server's reset
-form, a migration aid outside the contract like the flags below. The
-`/_internal/sync` routes are the internal protocol between a server and
-`gcs-mimic sync` of the same version and are not covered; use the `gcs-mimic
-sync` command instead. Since 0.20.0 each side sends its version in the
-`x-gcs-mimic-version` header and refuses a peer of another release, naming both
-versions. Directory synchronization is not complete, so the options
-and the output of `gcs-mimic sync` are not covered either; only its exit status
-is. For the same reason, the `sync` object that a ready answer carries while
-synchronization is enabled is not covered, nor is the healthcheck failing while
-that object reports synchronization `starting`.
+form, a migration aid outside the contract like the flags below. Directory
+synchronization was removed, together with the `gcs-mimic sync` command, the
+`/_internal/sync` routes and the `sync` object of the ready answer.
 
 `--host`, `--port`, `--port-http`, `--scheme` and `--log-level` are native
 options and are covered like every other documented option. The other flags in
@@ -120,10 +113,9 @@ backup steps and downgrade restrictions; downgrade compatibility is not assumed.
 Release useful increments while compatibility work continues. Do not keep adding
 released functionality under `0.1.0` until the whole roadmap is complete.
 For example, after the first `0.1.0` release, a bucket initializer can ship as
-`0.2.0`, a compatible correction as `0.2.1`, and directory synchronization as
+`0.2.0`, a compatible correction as `0.2.1`, and data import as
 `0.3.0`. These are examples, not reserved feature versions or dates. Seed
-extensions and data import can each ship in another minor release; neither must
-wait for synchronization. Parallel work is assigned versions at integration.
+extensions and data import can each ship in another minor release. Parallel work is assigned versions at integration.
 
 Choose the next version from the last published release and its actual changes.
 Use the highest required increment when combining changes. Documentation-only

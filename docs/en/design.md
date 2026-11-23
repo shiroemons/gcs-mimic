@@ -18,15 +18,11 @@ legacy Storage v1 gRPC, TLS/defaults, helpers/events and both backend modes.
 Google strict behavior and permissive source behavior need separate profiles
 and evidence. The existing permissive auth mode is not a complete fake-gcs-server profile.
 
-Replacement also requires an inspectable bucket/object directory with
-bidirectional synchronization. The scoped implementation retains SQLite and
-opaque blobs, exports API changes into a visible working tree and ingests
-external creates/edits through shared publication. Continuous observation and
-revision-bound deletion/recovery controls extend that path; auth/platform and
-unfinished-recovery limits remain explicit in the
-[sync contract](slices/directory-synchronization.md). The
+Directory synchronization was removed: SQLite and opaque blobs are the only
+persistent state, and `seed_dir` reads a folder at startup and never writes to
+it ([seed contract](slices/seed.md)). The
 [filesystem investigation](fake-gcs-server-storage.md) records the original
-requirement, rather than a second implementation-status source.
+source behavior, rather than a second implementation-status source.
 
 The 0.8.0 migration additions use the same authorization, conditions,
 generation allocation, bounded workers and durable publication paths. RAM uses
@@ -313,7 +309,7 @@ because a sweep over more objects than fit defeats a recency policy entirely.
 
 A response body is pulled by the connection instead of pushed by a task, so a slow client holds at
 most one frame of 256 KiB, or 1 MiB while more than that remains. gRPC keeps its 64 KiB chunks.
-File content I/O, publication/removal, directory sync and gzip decoding stay on the
+File content I/O, publication/removal and gzip decoding stay on the
 runtime's bounded blocking pool, so a saturated pool cannot hold the execution permit
 while catalog work waits for a pool thread. A serialized metadata job may pin an
 immutable inode while selecting its source, so a concurrent purge cannot remove that

@@ -440,7 +440,7 @@ full Google API compatibility.
 | Rewrite with multi-call continuation | ✅ | ❌ | ❌ | ✅ |
 | Retain object version history | ✅ | ◐ Memory backend | ❌ | ✅ |
 | Keep API-created bytes across restart | ✅ | ✅ Filesystem | ✅ Disk | ✅ Hybrid mode |
-| API writes visible as bucket/object files | ✅ Mirror | ✅ Filesystem | ✅ Disk | ❌ |
+| API writes visible as bucket/object files | ❌ Opaque storage | ✅ Filesystem | ✅ Disk | ❌ |
 | Load bucket/object seed bytes | ✅ Startup or opt-in reseed | ✅ Startup or reseed | ❌ | ◐ Startup hook script |
 | Default CORS for JSON API requests | ✅ | ✅ | ❌ | ❌ |
 | Enforce bucket-specific XML CORS rules | ✅ | ❌ | ❌ | ✅ |
@@ -452,9 +452,7 @@ full Google API compatibility.
 | Published Docker image | ✅ GHCR and Docker Hub | ✅ | ✅ | ✅ Docker Hub |
 
 Compared with fake-gcs-server `v1.56.1`, gcp-storage-emulator `v2026.07.19` and
-floci-gcp `0.13.0`. The mirror row uses an optional
-[sync directory](docs/en/container-usage.md#mirror-objects-to-a-host-directory),
-and the gRPC rows cover a subset of RPCs. See the
+floci-gcp `0.13.0`. The gRPC rows cover a subset of RPCs. See the
 [detailed comparison](docs/en/feature-comparison.md), the
 [floci-gcp checks](docs/en/evidence/floci-gcp-comparison.md) and the
 [feature matrix](docs/en/feature-matrix.md).
@@ -492,7 +490,7 @@ mount keep working. Since 0.15.0, `FAKE_GCS_*` variables are not read, so
 set the matching flag or `GCS_MIMIC_*` variable instead.
 
 The server reads `GCS_MIMIC_*`; every other program in this project reads `GCSM_*`.
-For 0.18.0, rename client, sync, Go subprocess and Compose variables to `GCSM_*`;
+For 0.18.0, rename client, Go subprocess and Compose variables to `GCSM_*`;
 see the [migration table](docs/en/releases/0.18.0.md#environment-variable-names).
 Unknown `GCS_MIMIC_*` names still stop startup; `GCSM_*` names can share the server environment.
 

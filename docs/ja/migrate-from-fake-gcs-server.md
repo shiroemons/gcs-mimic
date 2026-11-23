@@ -18,8 +18,8 @@ gcs-mimicは、すべての構成でそのまま置き換えられるもので�
 | `/storage`ボリュームにオブジェクトを保存している | 形式が異なり再利用できません。0.18.0以降は`-filesystem-root`で起動が止まります。 | フラグを外し、[中身をコピー](#既存のオブジェクトを持ってくる)するか初期データから入れ直します。 |
 | `FAKE_GCS_*`環境変数を設定している | 0.15.0以降は読みません。警告も出ません。`FAKE_GCS_PORT=9000`を残しても4443番で待ち受けるため、9000番に送るクライアントは接続に失敗します。 | [下の表](#設定の対応表)の対応するフラグか`GCS_MIMIC_*`環境変数を使います。 |
 | 既存オブジェクトの世代・カスタムメタデータ・Content-Typeに依存している | 現時点では引き継げません。`gcs-mimic import fake-gcs-server`はありますが、0.14.0ではfake-gcs-serverのAPIでアップロードしたオブジェクトすべてで止まります。これらに自動で付く`projectOwner-test-project`というACLを受け付けないためです。 | テストが依存するオブジェクトをAPIで作り直すか、そのデータはfake-gcs-serverに残します。 |
-| 保存先のディレクトリでオブジェクトをファイルとして見る・編集する | オブジェクトは中身の分からないファイルとして保存します。`/data`は読み取り専用の入力で、APIの書き込みは反映されません。 | [同期ディレクトリ](#オブジェクトをファイルとして使い続ける)を追加します。オブジェクトとファイルが双方向で揃います。競合と復旧のケースはまだ一部のみの対応です。 |
-| `docker exec … sh`、シェルのヘルスチェック、シェルのentrypointを使っている | イメージにはシェルもパッケージマネージャーもありません。 | `healthcheck:`の上書きを外します。イメージに専用のもの（`gcs-mimic healthcheck`）があり、その開始猶予は[同期ディレクトリ](container-usage.md#オブジェクトをホストのディレクトリへ書き出す)の最初の照合にも足ります。スクリプトは別のコンテナから実行します。 |
+| 保存先のディレクトリでオブジェクトをファイルとして見る・編集する | オブジェクトは中身の分からないファイルとして保存します。`/data`は読み取り専用の入力で、APIの書き込みは反映されません。ディレクトリ同期は削除されました。`seed_dir`は起動時にフォルダを読み込み、フォルダへは書き込みません。 | オブジェクトはAPIで読むか、この使い方はfake-gcs-serverのまま続けます。 |
+| `docker exec … sh`、シェルのヘルスチェック、シェルのentrypointを使っている | イメージにはシェルもパッケージマネージャーもありません。 | `healthcheck:`の上書きを外します。イメージに専用のもの（`gcs-mimic healthcheck`）があり、シェルは要りません。スクリプトは別のコンテナから実行します。 |
 | rootだけが読み書きできるディレクトリをマウントしている | サーバーはrootではなくUID/GID 10001で動きます。 | `/var/lib/gcs-mimic`には名前付きボリュームを使い、`/data`のファイルは全ユーザーが読めるようにします。 |
 | Goのテストプロセスに`fakestorage`を組み込んでいる | プロセス内で動くサーバーはありません。[`fakestorage`パッケージ（英語）](../../go/README.md#fakestorage)はRustのバイナリを子プロセスとして起動し、APIの一部に対応します。`Backend()`は使えません。 | この範囲で足りる場合は、importパスを`github.com/shiroemons/gcs-mimic/go/fakestorage`に変えます。新しく書くテストには、テストごとのバケット、初期データの登録、起動直後の状態に戻す機能を備えた[`gcsmimic`（英語）](../../go/README.md#gcsmimic)を使います。 |
 | `fake-gcs-server`を決め打ちしたTestcontainersのモジュールやラッパーを使っている | ラッパーが旧実行ファイルと起動ログを前提にしているため、イメージの変更だけでは動きません。 | [汎用コンテナのアダプター（英語）](../en/slices/sdk-client-adapters.md)を使います。 |
@@ -38,7 +38,7 @@ gcs-mimicは、すべての構成でそのまま置き換えられるもので�
 
 - Goのテストに`fakestorage`を組み込み、`Backend()`やプロセス内での実行に依存している。
 - `/storage`ボリュームにある既存オブジェクトの世代やカスタムメタデータが必要。
-- APIが応答した瞬間にオブジェクトのファイルを読み、待てないテストがある。[同期ディレクトリ](#オブジェクトをファイルとして使い続ける)はファイルを応答の少し後に書くので、先に`gcs-mimic sync wait`が要ります。
+- テストが保存先ディレクトリのオブジェクトのファイルを読む。gcs-mimicはオブジェクトを中身の分からないファイルとして保存し、APIの変更をフォルダへ書き出しません。
 
 ## コンテナを入れ替える
 
@@ -78,125 +78,6 @@ Content-Typeはファイルの拡張子から決め直します。世代、カ�
 
 初期ファイルは起動のたびに反映され、同じ名前のオブジェクトへのAPIでの変更を置き換えます。
 オブジェクトがデータボリュームに入ったあと、この動きが不要ならマウントを外します。
-
-## オブジェクトをファイルとして使い続ける
-
-fake-gcs-serverのfilesystemバックエンドは、オブジェクトを`<root>/<bucket>/<object>`のファイルとして保存します。
-同期ディレクトリを使うと、gcs-mimicでも同じ見え方になり、しかも双方向です。
-すべてのバケットと現行オブジェクトがホストのディレクトリに`BUCKET/OBJECT`のファイルとして現れ、
-そこへ置いたり編集したりしたファイルはオブジェクトになり、ファイルを消すとオブジェクトも消えます。
-
-最初に起動する前に、3つを済ませます。
-
-- **ディレクトリを先に作ります。** 無いとサーバーは起動しません。Dockerは、無いbind元をホストに作りません。
-- **Linuxのホストでは、サーバーを自分のユーザーで動かします。** サーバーは自分のユーザーだけが読めるモード（ファイルは`0600`、ディレクトリは`0700`）で書き出し、
-  自分のユーザーが所有するディレクトリにしか書けません。UID 10001のままだと、書き出されたファイルは`sudo`なしでは読めません。
-  そこで自分のUIDを渡し、データも自分が所有するホストのディレクトリに置きます（既定の名前付きボリュームはUID 10001の所有です）。
-  macOSのDocker Desktopは所有者を対応付けるので、macOSでは不要です。
-- **gitの対象から外します。** ディレクトリにはオブジェクトのほかにサーバーのマーカーファイルも入ります。
-  `/sync/`（選んだディレクトリ）を`.gitignore`に追加してください。
-
-自分のサービスに、次の項目を足します。既存の項目は残してください。
-変数の既定値はmacOSの場合なので、同じ書き方が両方のホストで使えます。
-
-```yaml
-services:
-  gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.27.0
-    user: "${GCSM_UID:-10001}"
-    environment:
-      GCS_MIMIC_SYNC_DIR: /sync
-    volumes:
-      - ${GCSM_DATA_DIR:-gcs-data}:/var/lib/gcs-mimic
-      - ./sync:/sync
-```
-
-起動して、オブジェクトを書き、ファイルを読みます。Linuxでは`export`の行を実行し、macOSでは省きます。
-
-```sh
-mkdir -p sync data
-export GCSM_UID=$(id -u) GCSM_DATA_DIR=./data
-docker compose up --wait
-curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
-  'http://localhost:4443/storage/v1/b?project=local-project'
-curl --fail --data-binary 'hello' \
-  'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=docs%2Fhello.txt'
-docker compose exec gcs gcs-mimic sync wait --endpoint http://127.0.0.1:4443
-cat sync/demo-bucket/docs/hello.txt
-```
-
-このリポジトリをcloneしてある場合は、[`compose.sync.yaml`](../../compose.sync.yaml)に`compose.yaml`向けの同じ項目があります。
-ほかの文書と同じく、公開イメージを使います。
-
-```sh
-export GCSM_IMAGE=ghcr.io/shiroemons/gcs-mimic:0.27.0
-export COMPOSE_FILE=compose.yaml:compose.sync.yaml
-docker compose up --wait --no-build
-```
-
-`docker compose up --wait`は、最初の照合でディレクトリにあるファイルを取り込み、既存のオブジェクトをすべて書き出した後に戻ります。
-フラグやヘルスチェックの上書きは要りません。`depends_on`の`condition: service_healthy`でこのサーバーを待つサービスも、その後に始まります。
-Linuxで`sync_dir must be an existing writable directory`と出て止まるときは、`./sync`を所有しないユーザーで動いています。先に`GCSM_UID`を設定してください。
-
-fake-gcs-serverとの違いは次のとおりです。
-
-- **ファイルは応答の後に書かれます。** fake-gcs-serverは応答の前にファイルを書きますが、
-  gcs-mimicは先に応答するので、少しの間ファイルが無いことがあります。
-  読む前に`gcs-mimic sync wait --endpoint …`で待ってください。反映できる変更を反映し終えると戻ります。
-  手でファイルを置いたり編集したりした後も、同じコマンドでサーバーが取り込むまで待てます。
-- **置いたり編集したりしたファイルはオブジェクトになります。** 再起動は要りません。
-  fake-gcs-serverのmacOSでの調査では、メタデータを持たない普通のファイルは404でした
-  （[比較（英語）](../en/fake-gcs-server-storage.md#external-edits-do-not-reconcile-metadata)）。
-- **`:`を含む名前はそのまま使えます。** `logs/2026-10-28T12:00:00.log`は、ファイルシステムが`:`を保存できれば同じ名前のファイルになります。
-  保存できるかは起動時にサーバーが確かめます。macOSのFinderは`:`を`/`と表示しますが、ディスク上の名前は`:`のままです。
-  `\`を含む名前はファイルに書き出しません。APIからは使えます。
-- **resetとreseedとpurgeは拒否されます。** `sync_dir`を設定している間、同期の対象のバケットでは、外部のファイルをリセットや消去しないためです。
-  やり直すときは、データとディレクトリを、ドットファイルも含めて一緒に消します。マーカーも消えます。
-
-  ```sh
-  docker compose down --volumes
-  rm -r sync data
-  mkdir sync data
-  ```
-
-  データだけを消してディレクトリを残す、または`sync/*`で空にする（ドットファイルには一致しません）と、古いマーカーが残り、
-  古いデータのものなのでサーバーはそのディレクトリを拒否します（`ForeignMarker`）。
-- **初期ファイル（seed）は起動のたびに勝ちます。** `/data`も初期ファイルのディレクトリとしてマウントしている場合、
-  その名前のオブジェクトは起動のたびに置き換わります。同期ディレクトリやAPIで変更しても、再起動を越えて残りません。
-- **ライフサイクルのルールは既定では動きません。** ホストのファイルを消してしまうためです。
-  動かすには`GCS_MIMIC_LIFECYCLE_EXECUTION=enabled`を設定します。
-- **削除は、ガードに達するまで確認なしで反映されます。** ファイルを消すとオブジェクトも消えます。
-  サーバーを止めている間に消したファイルも、次の起動で削除として扱われます。
-  ただし、追跡中のファイルのうち100件以上で、かつ全体の半数を超える数が一度に消えるときは、サーバーは削除せずに決定を待ちます。
-  バケットのディレクトリが丸ごと無いときや、起動後に追跡中のファイルが1つも見えないとき（マウントに失敗した、または空のまま上がった場合と同じ状態）は、件数にかかわらず待ちます。
-  いったん待ち始めると、その間に消したファイルも加えて、決めるかすべてのファイルが戻るまで待ち続けます。その間もAPIは使えます。
-  `pending_deletion_revision`のrevisionを取り出し、一覧を確認します。
-  誤って消えた場合は却下します。オブジェクトは残り、ファイルを書き戻します。意図して消した場合は承認し、オブジェクトを削除します（`DELETION_REVISION`は自分の値に置き換えます）。
-
-  ```sh
-  docker compose exec gcs gcs-mimic sync status --endpoint http://127.0.0.1:4443
-  docker compose exec gcs gcs-mimic sync status --view deletions \
-    --endpoint http://127.0.0.1:4443 --revision DELETION_REVISION
-  # 誤って消えた場合: オブジェクトを残してファイルを書き戻す
-  docker compose exec gcs gcs-mimic sync reject \
-    --endpoint http://127.0.0.1:4443 --deletion-set DELETION_REVISION
-  # 意図して消した場合: オブジェクトを削除する
-  docker compose exec gcs gcs-mimic sync approve \
-    --endpoint http://127.0.0.1:4443 --deletion-set DELETION_REVISION
-  ```
-
-  ほかのオプションは[同期CLIの使い方](sync-cli.md)にあります。
-- **ディレクトリはデータと対にします。** 別のデータに属していたディレクトリは、`docker compose down --volumes`の後などに`ForeignMarker`で拒否します。
-  上のやり直しの手順に従ってください。
-- **1つのデータディレクトリが同期するディレクトリは1つです。** データはそのままで別のホストのディレクトリを同期するには、
-  空のディレクトリを同じパスにマウントするか、ネイティブのバイナリで別のパスのディレクトリを指定します。
-  直下の`.DS_Store`、`.gitkeep`、`README.md`のようなファイルはあってかまいませんが、サブディレクトリがあってはいけません。
-  サーバーはすべてのオブジェクトをそこへ書き出し、オブジェクトは1つも削除しません。
-  元のディレクトリに保持していた競合と復旧待ちは`sync conflicts`に出なくなるので、先に解決してください。
-  このデータディレクトリが以前同期していたディレクトリ（`.gcs-mimic-sync.json`があるもの）はマージして受け入れ、
-  違うファイルは競合になり、何も削除しません。それ以外でサブディレクトリがあるディレクトリは拒否します（`ReplacementOccupied`）。
-
-競合・復旧・残る制限は[リファレンス](container-usage.md#オブジェクトをホストのディレクトリへ書き出す)にあります。
 
 ## 設定の対応表
 

@@ -135,8 +135,8 @@ names the hyphenated option.
 | `--memory-max-bytes` | `GCS_MIMIC_MEMORY_MAX_BYTES` | Half of what remains of the machine's memory, or of the container's memory limit when lower, after 32 MiB for the catalog, kept within 64 MiB–1 GiB; 1 GiB where neither can be read, which is every system but Linux | 1–1099511627776; `backend=memory`: object bytes in RAM plus chunk overhead |
 | `--memory-catalog-max-bytes` | `GCS_MIMIC_MEMORY_CATALOG_MAX_BYTES` | 16777216 (16 MiB) | 1048576–1099511627776; `backend=memory`: SQLite catalog pages in RAM, counted apart from the object bytes. Tuning setting: the name and range are kept, what a value does is not promised |
 | `--seed-dir` | `GCS_MIMIC_SEED_DIR` | none | JSON key `seed_dir`; stable read-only bucket-directory input applied before readiness on every startup. Wins over `default_seed_dir` |
-| `--default-seed-dir` | `GCS_MIMIC_DEFAULT_SEED_DIR` | none; the image sets `/data` | JSON key `default_seed_dir`. Used only when `seed_dir` is unset, the directory exists and it does not overlap the data or sync directory; otherwise silently ignored |
-| `--seed-content-type` | `GCS_MIMIC_SEED_CONTENT_TYPE` | `extension` | JSON key `seed_content_type`; `extension` uses the pinned filename-extension table, `octet-stream` stores `application/octet-stream`. Also applies to files ingested from `--sync-dir` |
+| `--default-seed-dir` | `GCS_MIMIC_DEFAULT_SEED_DIR` | none; the image sets `/data` | JSON key `default_seed_dir`. Used only when `seed_dir` is unset, the directory exists and it does not overlap the data directory; otherwise silently ignored |
+| `--seed-content-type` | `GCS_MIMIC_SEED_CONTENT_TYPE` | `extension` | JSON key `seed_content_type`; `extension` uses the pinned filename-extension table, `octet-stream` stores `application/octet-stream` |
 | `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
 | `--max-seed-entries` | `GCS_MIMIC_MAX_SEED_ENTRIES` | 0 (unlimited) | 0–2^64−1; files and directories in `seed_dir`. A seed is one atomic publication, so its memory and time grow with the tree. A positive value stops there and names the setting. Without one, a tree past 10,000 entries logs `seed_tree_large` once per start |
 | `--max-seed-depth` | `GCS_MIMIC_MAX_SEED_DEPTH` | 0 (unlimited) | 0–1024; directory levels below a seed bucket |
@@ -172,9 +172,9 @@ names the hyphenated option.
 | `--default-soft-delete-retention-seconds` | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` | 0 (off) | 0, or 1–7776000 (90 days); applies to new native buckets created without `softDeletePolicy`, whichever backend. Deleted and replaced objects keep their bytes for this long; 0 frees them at once. Cloud Storage defaults to 604800 and accepts 7 to 90 days, so the default and the range below seven days are local; the 90-day ceiling is Cloud Storage's. Buckets that store a policy keep it |
 | `--default-location` | `GCS_MIMIC_DEFAULT_LOCATION` | `US` | Location of native buckets created without one: case-insensitive official regions, predefined dual-regions and `US`, `EU` or `ASIA`; an explicit location wins, and an empty value means `US` |
 | `--local-creator-email` | `GCS_MIMIC_LOCAL_CREATOR_EMAIL` | `local-user@gcs-mimic.invalid` | Native permissive profile only: new objects record `user-EMAIL` as `owner` and an OWNER ACL entry. Empty keeps `project-owners-N` alone. It labels the writer and grants nothing |
-| `--lifecycle-execution` | `GCS_MIMIC_LIFECYCLE_EXECUTION` | `disabled` with `sync_dir`, `enabled` otherwise | JSON `lifecycle_execution`; `enabled` or `disabled`. Explicit enabled also deletes synchronized host files. Disabled preserves stored rules without execution, including forced runs. Ready reports the effective value; see [upgrade behavior](slices/lifecycle-execution.md) |
+| `--lifecycle-execution` | `GCS_MIMIC_LIFECYCLE_EXECUTION` | `enabled` | JSON `lifecycle_execution`; `enabled` or `disabled`. Disabled preserves stored rules without execution, including forced runs. Ready reports the effective value; see [upgrade behavior](slices/lifecycle-execution.md) |
 | `--admin-enabled` | `GCS_MIMIC_ADMIN_ENABLED` | `false` | Enables the local `/_internal` administration routes, such as reset and reseed; isolate the listener when enabled |
-| `--admin-principal` | `GCS_MIMIC_ADMIN_PRINCIPAL` | none | Strict mode: the registered identity that may use the local management routes other than sync; required with `admin_enabled` in strict mode |
+| `--admin-principal` | `GCS_MIMIC_ADMIN_PRINCIPAL` | none | Strict mode: the registered identity that may use the local management routes; required with `admin_enabled` in strict mode |
 | `--admin-allowed-hosts` | `GCS_MIMIC_ADMIN_ALLOWED_HOSTS` | none | Up to 32 comma-separated DNS names without ports that management routes also accept as Host; local service, IP and reserved names and configured endpoint hosts are already accepted; empty lists none |
 | `--pubsub-emulator-host` | `GCS_MIMIC_PUBSUB_EMULATOR_HOST` | none; `PUBSUB_EMULATOR_HOST` is also read | `HOST:PORT` of an explicit local HTTP Pub/Sub emulator; production Pub/Sub is never used |
 | `--event-pubsub-project-id` | `GCS_MIMIC_EVENT_PUBSUB_PROJECT_ID` | none | Project of the global notification topic; with `event_pubsub_topic` and a Pub/Sub emulator, matching object events of every bucket are published there |
@@ -184,10 +184,10 @@ names the hyphenated option.
 | `--event-list` | `GCS_MIMIC_EVENT_LIST` | `finalize` | Comma-separated `finalize`, `delete`, `metadataUpdate` and `archive`, or `none`, which turns the configured global rule off; a value other than `finalize` requires the topic settings |
 
 The table lists the common options. Run `gcs-mimic serve --help` for every option,
-including the sync, Pub/Sub event, Unix socket, public URL and XML virtual-host
+including the Pub/Sub event, Unix socket, public URL and XML virtual-host
 settings.
 
-Starting a previously synchronized data directory without `sync_dir` enables lifecycle execution by default. Catalog deletions made during that run can remove previously tracked host files when synchronization is enabled again; use `lifecycle_execution=disabled` to keep stored rules inactive during that run.
+Directory synchronization was removed: `seed_dir` reads a folder at startup and never writes to it. Supplying a removed `sync_*` setting stops startup with a message that points at `seed_dir`.
 
 To accept HTTP and HTTPS together, run:
 

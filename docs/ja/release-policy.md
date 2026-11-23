@@ -21,8 +21,8 @@
 | 機能追加・非推奨化 | minorを上げ、patchは0 | `0.1.1`→`0.2.0` |
 | 互換性を壊す変更 | minorを上げ、patchは0 | `0.2.1`→`0.3.0` |
 
-たとえば初回公開後、初期化を`0.2.0`、互換修正を`0.2.1`、同期を`0.3.0`にできます。
-番号の予約ではありません。seed拡張やデータ移行も、同期を待たず別のminorで公開できます。
+たとえば初回公開後、初期化を`0.2.0`、互換修正を`0.2.1`、データ移行を`0.3.0`にできます。
+番号の予約ではありません。seed拡張やデータ移行も、別のminorで公開できます。
 並列開発した機能は、統合時に実際の公開範囲に合わせて番号を決めます。
 
 最後の公開版との差分から、必要な最大の更新幅を選びます。
@@ -39,7 +39,7 @@ CLI、環境変数、設定形式・既定値、対応API、実行環境、永�
 `cors_fallback`はpermissiveで`allow-all`、strictで`none`です。`signed_urls`はそれぞれ`ignore`と`verify`です。
 `test_signer`は、permissiveで`signed_urls=verify`のとき、またはstrictのidentitiesが宣言するときに有効で、それ以外は無効です。
 `signed_host_port`はテスト署名者が有効なら`lenient`、それ以外は`exact`です。readyはそれぞれの実際の値を伝えます。
-何かを有効・無効にする新しい設定は`enabled`か`disabled`を取ります。`admin_enabled`と`sync_delete_guard`は`true`と`false`のままです。
+何かを有効・無効にする新しい設定は`enabled`か`disabled`を取ります。`admin_enabled`は`true`と`false`のままです。
 
 機械が読む出力は、文言ではなく名前を互換性の対象とします。
 対象は起動完了イベント（ready）の項目名、診断行のメンバー名、下に挙げるイベント名、終了コード、利用者向けエミュレーター専用ルートの応答項目です。
@@ -49,7 +49,7 @@ CLI、環境変数、設定形式・既定値、対応API、実行環境、永�
   stderrに出るそのほかのイベントは実装の動きを伝えるもので、名前も項目もどのリリースでも変わることがあります。importの`summary`と`page`の中の項目も同じです。
 - **readyの値。** 設定を伝えるreadyの項目は、その設定の文書化した値を使います。`transport`は`tcp`か`unix`です。これらの値は対象です。`message`は対象外です。
 - **診断。** 診断行のメンバーは`event`、`level`、`diagnostics`で、各要素は`source`、`key`、`fix`と、ネイティブのオプションを伝えるときの`native_args`です。
-  `source`の値は対象です。値は`cli`、`environment`、`config`、`tls`、`identity`、`filesystem`、`catalog`、`initializer`、`seed`、`sync`、`import`、`listener`、`runtime`です。コマンドライン、環境変数、設定ファイルに由来する`key`は、渡された名前そのままです。そのほかの`key`は問題の場所を示すもので、対象外です。
+  `source`の値は対象です。値は`cli`、`environment`、`config`、`tls`、`identity`、`filesystem`、`catalog`、`initializer`、`seed`、`import`、`listener`、`runtime`です。コマンドライン、環境変数、設定ファイルに由来する`key`は、渡された名前そのままです。そのほかの`key`は問題の場所を示すもので、対象外です。
 - **終了ステータス。** どのコマンドも、成功は0、失敗は1です。
 
 利用者向けのエミュレーター専用ルートは`/_internal/health`、`/_internal/healthcheck`、`/_internal/ready`、`/_internal/config`、`/_internal/objects`、`/_internal/reset`、`/_internal/reseed`、`/_internal/lifecycle/run`です。
@@ -57,11 +57,7 @@ CLI、環境変数、設定形式・既定値、対応API、実行環境、永�
 本文を受け取るルートは64 KiB以上の本文を受け付けます。それより大きい本文をあるリリースが受け付けても、約束ではありません。
 管理用のルートは、`admin_enabled`が無効の間は404、ブラウザーからの要求には403、承認していないホストには421を返し続けます。エラー本文の`error.code`も保ちます。エラー本文のそのほかのメンバーは対象外です。
 `/_internal/delete_all`はfake-gcs-serverのリセットの書き方で、下のフラグと同じく契約の対象外の移行補助です。
-`/_internal/sync`のルートは、サーバーと同じバージョンの`gcs-mimic sync`の間の内部プロトコルで、互換性の対象外です。
-0.20.0からは、どちらも`x-gcs-mimic-version`ヘッダーで自分のバージョンを送り、別のリリースの相手を両方のバージョンを示して拒否します。
-`gcs-mimic sync`コマンドを使ってください。
-ディレクトリ同期は未完成なので、`gcs-mimic sync`のオプションと出力も対象外です。対象は終了ステータスだけです。
-同じ理由で、同期を有効にしている間にreadyの応答へ加わる`sync`オブジェクトも対象外です。そのオブジェクトが同期の`starting`を示す間にhealthcheckが失敗する動作も対象外です。
+ディレクトリ同期は削除され、`gcs-mimic sync`コマンド、`/_internal/sync`のルート、readyの応答の`sync`オブジェクトもなくなりました。
 
 `--host`、`--port`、`--port-http`、`--scheme`、`--log-level`はネイティブのオプションで、ほかの文書化したオプションと同じく互換性の対象です。
 [オプションの別名](../en/slices/option-aliases.md)にあるそのほかのフラグはfake-gcs-server由来の移行補助で、安定契約の対象外です。
