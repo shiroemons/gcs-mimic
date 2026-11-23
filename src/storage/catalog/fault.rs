@@ -121,6 +121,8 @@ pub(crate) enum Step {
     AfterPublish,
     /// While one upload of a group commit publishes under its own savepoint.
     PublishUpload,
+    /// While a replay deletes, under its own savepoint, an object whose fixture file is gone.
+    SeedDelete,
     /// Before the publication transaction commits.
     BeforeCommit,
     /// After the publication transaction committed.

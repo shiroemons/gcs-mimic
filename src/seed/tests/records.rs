@@ -81,6 +81,40 @@ async fn a_restart_deletes_the_object_of_a_file_removed_while_stopped() {
     catalog.close().await.unwrap();
 }
 
+/// A deletion that fails as a full disk fails it, which rolls back the whole transaction in
+/// SQLite, fails the restart with that failure as its cause, not with the savepoint the rollback
+/// removed, and changes nothing: the next restart deletes the object.
+#[tokio::test]
+async fn a_deletion_that_fails_reports_its_own_cause_and_changes_nothing() {
+    use crate::storage::fault;
+    let (_dir, config) = fixture();
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    import(&catalog, &config, &clock()).await.unwrap();
+    remove(&config, "bucket/b");
+    fault::arm(
+        &config.data_dir,
+        fault::Step::SeedDelete,
+        0,
+        fault::Fault::RollBack,
+    );
+    let error = import(&catalog, &config, &clock()).await.unwrap_err();
+    let causes: Vec<String> = crate::error::causes(&error)
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        causes.iter().any(|cause| cause.contains("disk I/O error")),
+        "{causes:?}"
+    );
+    assert!(
+        !causes.iter().any(|cause| cause.contains("savepoint")),
+        "{causes:?}"
+    );
+    assert!(live(&catalog, "b").await.is_some());
+    import(&catalog, &config, &clock()).await.unwrap();
+    assert!(live(&catalog, "b").await.is_none());
+    catalog.close().await.unwrap();
+}
+
 /// A removed bucket directory deletes the objects seeding owns there but never the bucket.
 #[tokio::test]
 async fn a_removed_bucket_directory_keeps_its_bucket() {

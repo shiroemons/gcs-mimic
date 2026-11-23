@@ -833,23 +833,33 @@ pub(super) fn delete_owned(
         },
         access,
     };
-    transaction
-        .execute_batch("SAVEPOINT seed_delete")
+    sql::exec(transaction, "SAVEPOINT seed_delete", []).map_err(objects_error)?;
+    let outcome = objects::delete_in_transaction(transaction, &target, context);
+    // A test fails the deletion here, after it wrote, as a full disk would.
+    #[cfg(test)]
+    let outcome = outcome.and_then(|deleted| {
+        crate::storage::catalog::fault::hit_transaction(
+            transaction,
+            crate::storage::catalog::fault::Step::SeedDelete,
+        )
         .map_err(objects_error)?;
-    let outcome = match objects::delete_in_transaction(transaction, &target, context) {
-        Ok(_) => Ok(true),
+        Ok(deleted)
+    });
+    match outcome {
+        Ok(_) => {
+            sql::exec(transaction, "RELEASE seed_delete", []).map_err(objects_error)?;
+            Ok(true)
+        }
         Err(error) if refused(&error) => {
-            transaction
-                .execute_batch("ROLLBACK TO seed_delete")
-                .map_err(objects_error)?;
+            sql::exec(transaction, "ROLLBACK TO seed_delete", []).map_err(objects_error)?;
+            sql::exec(transaction, "RELEASE seed_delete", []).map_err(objects_error)?;
             Ok(false)
         }
+        // The replay fails and its transaction ends uncommitted, which drops the savepoint.
+        // SQLite may already have rolled the whole transaction back, as after a full disk, so
+        // releasing the savepoint here would fail too and hide the cause the caller needs.
         Err(error) => Err(error.into()),
-    };
-    transaction
-        .execute_batch("RELEASE seed_delete")
-        .map_err(objects_error)?;
-    outcome
+    }
 }
 
 /// Whether a deletion failed only because the object is not the version it named or is
