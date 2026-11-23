@@ -30,12 +30,11 @@ async fn reset_classifies_every_catalog_table() {
     catalog.run::<_, CatalogError>(|connection| {
         let tables = connection.prepare_cached("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")?.query_map([], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
         let cleared = CLEAR.iter().filter_map(|statement| statement.strip_prefix("DELETE FROM ")).collect::<Vec<_>>();
-        let unwired = crate::storage::catalog::retired_sync::SEED_TABLES;
         for table in &tables {
-            let classifications = [cleared.contains(&table.as_str()), RETAINED.contains(&table.as_str()), CASCADED.contains(&table.as_str()), unwired.contains(&table.as_str())];
+            let classifications = [cleared.contains(&table.as_str()), RETAINED.contains(&table.as_str()), CASCADED.contains(&table.as_str())];
             assert_eq!(classifications.into_iter().filter(|classified| *classified).count(), 1, "ambiguous or missing reset policy: {table}");
         }
-        for table in cleared.iter().chain(RETAINED).chain(CASCADED).chain(unwired) {
+        for table in cleared.iter().chain(RETAINED).chain(CASCADED) {
             assert!(tables.iter().any(|existing| existing == table), "obsolete reset policy: {table}");
         }
         Ok(())
