@@ -8,17 +8,14 @@
 //! it is. A pass that cannot run at all, such as one whose seed directory went away, changes
 //! nothing and reports why. No pass writes to the seed directory.
 
-#[cfg(unix)]
-use super::pin_root;
 use super::{
-    SeedError, split_label,
-    walk::{Fixture, Object, Opened, Seen, Source, Tree, Unlisted, Walked},
+    SeedError, open_tree, split_label,
+    walk::{Fixture, Object, Opened, Seen, Source, Unlisted, Walked},
 };
 use crate::{
     clock::Clock,
     config::Config,
     object::ExpectedHashes,
-    source_tree::TreeLimits,
     storage::{
         Catalog,
         admin::{
@@ -71,33 +68,8 @@ async fn walk_and_commit(
     clock: &Arc<dyn Clock>,
 ) -> Result<(bool, LiveOutcome), SeedError> {
     let root = config.seed_dir.as_ref().ok_or(SeedError::MissingRoot)?;
-    let inspected = tokio::fs::symlink_metadata(root).await?;
-    if !inspected.file_type().is_dir() {
-        return Err(SeedError::NotDirectory);
-    }
     let admin = catalog.admin(Origin::Seed);
-    let mut batch = admin
-        .seed_batch_until(None, config.max_seed_entries)
-        .await?;
-    let recorded = batch.read_records().await?;
-    #[cfg(unix)]
-    let source_root = pin_root(&batch, root, &inspected).await?;
-    let root = tokio::fs::canonicalize(root).await?;
-    if config.backend == crate::config::Backend::Disk {
-        let data = tokio::fs::canonicalize(&config.data_dir).await?;
-        if crate::source_tree::paths_overlap_canonical(&root, &data) {
-            return Err(SeedError::Overlap);
-        }
-    }
-    let limits = TreeLimits {
-        entries: config.max_seed_entries,
-        depth: config.max_seed_depth,
-    };
-    #[cfg(unix)]
-    let tree = Tree::new(root, source_root, Arc::clone(clock));
-    #[cfg(not(unix))]
-    let tree = Tree::new(root);
-    let mut entries = tree.with_recorded(recorded).walk(limits)?;
+    let (batch, mut entries) = open_tree(&admin, config, clock, root, None).await?;
     let mut pass = Pass {
         batch,
         config,

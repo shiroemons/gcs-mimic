@@ -18,6 +18,7 @@ use crate::{
 };
 use serde::Serialize;
 use std::{path::Path, sync::Arc};
+use tokio::sync::mpsc;
 use walk::{Fixture, Object, Opened, Seen, Source, Tree, Unlisted, Walked};
 
 mod error;
@@ -272,13 +273,24 @@ impl Staged {
     }
 }
 
-async fn stage_directory(
+/// Opens a batch on `catalog`, reads what seeding recorded in it, and starts the walk of the
+/// fixture tree at `root`, a directory that is not the data directory or below or above it. On
+/// Unix the walk reads the tree through the root pinned in the batch. Startup, a reseed and a
+/// pass while the server runs all open the tree this way, so they check and walk it alike.
+async fn open_tree(
     catalog: &Admin,
     config: &Config,
+    #[cfg_attr(
+        not(unix),
+        expect(
+            unused_variables,
+            reason = "only the lookups through the pinned Unix root wait on the clock for a name that fails to open for a moment"
+        )
+    )]
     clock: &Arc<dyn Clock>,
     root: &Path,
     request_deadline: Option<tokio::time::Instant>,
-) -> Result<Staged, SeedError> {
+) -> Result<(SeedBatch, mpsc::Receiver<Walked>), SeedError> {
     let inspected = tokio::fs::symlink_metadata(root).await?;
     if !inspected.file_type().is_dir() {
         return Err(SeedError::NotDirectory);
@@ -306,7 +318,18 @@ async fn stage_directory(
     let tree = Tree::new(root, source_root, Arc::clone(clock));
     #[cfg(not(unix))]
     let tree = Tree::new(root);
-    let mut entries = tree.with_recorded(recorded).walk(limits)?;
+    let entries = tree.with_recorded(recorded).walk(limits)?;
+    Ok((batch, entries))
+}
+
+async fn stage_directory(
+    catalog: &Admin,
+    config: &Config,
+    clock: &Arc<dyn Clock>,
+    root: &Path,
+    request_deadline: Option<tokio::time::Instant>,
+) -> Result<Staged, SeedError> {
+    let (batch, mut entries) = open_tree(catalog, config, clock, root, request_deadline).await?;
     let mut seed = Seed {
         batch,
         config,
@@ -331,7 +354,7 @@ async fn stage_directory(
         let Seen { label, fixture } = seen?;
         walked += 1;
         // A chosen limit already says how large a tree may be.
-        if walked == LARGE_TREE_ENTRIES + 1 && limits.entries.is_none() {
+        if walked == LARGE_TREE_ENTRIES + 1 && config.max_seed_entries.is_none() {
             warn_large_tree("seed_tree_large", "seed_dir", "max_seed_entries");
         }
         seed.entry(label, fixture).await?;
