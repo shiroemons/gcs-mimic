@@ -2,10 +2,10 @@ use super::*;
 use crate::storage::sync_state::writeback::StaleReason;
 use crate::sync::SyncError;
 
-/// A busy resource passes on its own wherever it is met, and each kind of a whole file system's
-/// failure is the volume's, whether it comes as a kind or under an admin failure.
+/// A busy resource passes on its own under an admin failure as it does by itself
+/// (`fsutil::IoFailureClass`), and a whole file system's failure stays the volume's.
 #[test]
-fn each_io_kind_has_one_class() {
+fn an_admin_io_failure_has_its_kinds_class() {
     for kind in [
         io::ErrorKind::TimedOut,
         io::ErrorKind::WouldBlock,
@@ -13,37 +13,15 @@ fn each_io_kind_has_one_class() {
         io::ErrorKind::ResourceBusy,
     ] {
         assert_eq!(
-            FailureClass::of_kind(kind),
-            Some(FailureClass::Transient),
-            "{kind:?}"
-        );
-        assert_eq!(
             FailureClass::of_admin(&AdminError::Io(io::Error::from(kind).into())),
             Some(FailureClass::Transient),
             "{kind:?}"
         );
     }
-    for kind in [
-        io::ErrorKind::StorageFull,
-        io::ErrorKind::QuotaExceeded,
-        io::ErrorKind::ReadOnlyFilesystem,
-    ] {
-        assert_eq!(
-            FailureClass::of_kind(kind),
-            Some(FailureClass::Volume),
-            "{kind:?}"
-        );
-    }
-    for errno in [libc::EMFILE, libc::ENFILE, libc::EAGAIN, libc::ENOMEM] {
-        assert_eq!(
-            FailureClass::of_io(&io::Error::from_raw_os_error(errno)),
-            Some(FailureClass::Transient),
-            "{errno}"
-        );
-    }
-    for kind in [io::ErrorKind::PermissionDenied, io::ErrorKind::NotFound] {
-        assert_eq!(FailureClass::of_kind(kind), None, "{kind:?}");
-    }
+    assert_eq!(
+        FailureClass::of_kind(io::ErrorKind::StorageFull),
+        Some(FailureClass::Volume)
+    );
 }
 
 /// An entry that kept failing to open is looked at again; any other race, a moot operation and

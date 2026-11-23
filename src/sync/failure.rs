@@ -54,34 +54,14 @@ impl FailureClass {
         }
     }
 
-    /// What an I/O failure's kind alone says.
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "io::ErrorKind is non-exhaustive, and a kind this match does not name has no class"
-    )]
+    /// What an I/O failure's kind alone says ([`fsutil::IoFailureClass::of_kind`]).
     pub(in crate::sync) fn of_kind(kind: io::ErrorKind) -> Option<Self> {
-        match kind {
-            io::ErrorKind::TimedOut
-            | io::ErrorKind::WouldBlock
-            | io::ErrorKind::Interrupted
-            | io::ErrorKind::ResourceBusy => Some(Self::Transient),
-            io::ErrorKind::StorageFull
-            | io::ErrorKind::QuotaExceeded
-            | io::ErrorKind::ReadOnlyFilesystem => Some(Self::Volume),
-            _ => None,
-        }
+        fsutil::IoFailureClass::of_kind(kind).map(Self::from)
     }
 
-    /// What an I/O failure says, with exhausted descriptors or memory, which its kind does not
-    /// name, as transient.
+    /// What an I/O failure says ([`fsutil::IoFailureClass::of`]).
     pub(in crate::sync) fn of_io(error: &io::Error) -> Option<Self> {
-        Self::of_kind(error.kind()).or_else(|| {
-            matches!(
-                error.raw_os_error(),
-                Some(libc::EMFILE | libc::ENFILE | libc::EAGAIN | libc::ENOMEM)
-            )
-            .then_some(Self::Transient)
-        })
+        fsutil::IoFailureClass::of(error).map(Self::from)
     }
 
     /// What one admin failure says by itself; an I/O failure below it is its own link.
@@ -229,6 +209,15 @@ impl FailureClass {
             | writeback::Error::RecoveryRequired
             | writeback::Error::Protected
             | writeback::Error::WorkspaceChanged => None,
+        }
+    }
+}
+
+impl From<fsutil::IoFailureClass> for FailureClass {
+    fn from(class: fsutil::IoFailureClass) -> Self {
+        match class {
+            fsutil::IoFailureClass::Transient => Self::Transient,
+            fsutil::IoFailureClass::Volume => Self::Volume,
         }
     }
 }

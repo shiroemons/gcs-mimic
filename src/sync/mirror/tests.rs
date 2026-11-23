@@ -11,7 +11,7 @@ use crate::sync::export::{
     restore::{Restored, restore_from_catalog},
 };
 
-use crate::sync::backoff::RetryBudget;
+use crate::retry::RetryBudget;
 use crate::sync::test_support::{Retrack, hooked_worker, retrack};
 use crate::{
     clock::SystemClock,

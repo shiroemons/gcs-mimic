@@ -1,6 +1,5 @@
 //! Retrying the steps of an export that fail transiently, with backoff.
 
-use crate::sync::backoff::{Backoff, RETRY_DELAY_MAX, RetryBudget};
 #[cfg(test)]
 use crate::sync::mirror::export_checkpoint;
 use crate::{
@@ -22,12 +21,16 @@ use crate::{
         tree::{ParentError, ParentOpen, parent},
     },
 };
+use crate::{
+    retry::RetryBudget,
+    sync::backoff::{Backoff, RETRY_DELAY_MAX},
+};
 use std::{fs::File, future::Future, io, path::PathBuf, time::Duration};
 
 /// A failed export step waits 1 s, then 2 s; a third failure pauses synchronization.
 pub(super) const EXPORT_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), RETRY_DELAY_MAX);
 
-/// Whether a failed export step is tried again within [`RetryBudget::EXPORT`]: a failure that
+/// Whether a failed export step is tried again within [`RetryBudget::STANDARD`]: a failure that
 /// passes, or one of the whole file system, which an operator may clear before the budget runs
 /// out ([`FailureClass::retries`]). A step that still fails then fails the path as before.
 pub(super) fn retryable(error: &writeback::Error) -> bool {
@@ -76,7 +79,7 @@ pub(super) async fn wait_retry(
     retry: &mut Backoff,
     root: &RootLease,
 ) -> bool {
-    if !RetryBudget::EXPORT.allows_retry(retry.retries()) {
+    if !RetryBudget::STANDARD.allows_retry(retry.retries()) {
         return false;
     }
     #[cfg(test)]

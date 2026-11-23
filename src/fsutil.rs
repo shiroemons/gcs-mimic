@@ -2,8 +2,10 @@
 //! Descriptor-based filesystem operations; OS-specific unsafe stays in this module.
 
 use std::{collections::VecDeque, ffi::OsString, fs::File, io};
+mod failure;
 mod hash;
 mod lookup;
+pub(crate) use failure::IoFailureClass;
 pub(crate) use hash::{HashOutcome, hash_exact};
 
 #[cfg(unix)]

@@ -2,6 +2,7 @@
 
 use super::{Content, LiveObject, Occasion, retry::advance_with_retry};
 use crate::{
+    retry::RetryBudget,
     storage::{
         Catalog,
         admin::{AdminError, BucketName, ObjectName},
@@ -10,7 +11,7 @@ use crate::{
             writeback::{InstallOutcome, LiveSource},
         },
     },
-    sync::{Reconciliation, SyncError, backoff::RetryBudget, failure::superseded},
+    sync::{Reconciliation, SyncError, failure::superseded},
 };
 
 /// What a restore from the catalog left at the object's path.
@@ -43,7 +44,7 @@ pub(in crate::sync) async fn restore_from_catalog(
     // A restore plans again from the tree when the tree changed under its installation
     // ([`InstallOutcome::Raced`]). Each attempt reads the tree afresh and runs every check of an
     // export, so a retry never writes over what the user put at the path meanwhile.
-    for _ in 0..RetryBudget::EXPORT.attempts() {
+    for _ in 0..RetryBudget::STANDARD.attempts() {
         match restore_once(catalog, root, bucket, name).await? {
             Some(restored @ (Restored::Written | Restored::Kept | Restored::Gone)) => {
                 return Ok(restored);

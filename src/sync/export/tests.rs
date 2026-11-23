@@ -8,16 +8,13 @@ use super::{
     retry::{EXPORT_BACKOFF, retryable, with_retry},
 };
 use crate::{
+    retry::RetryBudget,
     storage::{
         Catalog,
         admin::{AdminError, BucketName},
         sync_state::{root::RootLease, writeback},
     },
-    sync::{
-        Reconciliation, SyncError,
-        backoff::{Backoff, RetryBudget},
-        interrupt::Interrupt,
-    },
+    sync::{Reconciliation, SyncError, backoff::Backoff, interrupt::Interrupt},
     test_support::TestDir,
 };
 use std::{fs, io, time::Duration};
@@ -80,8 +77,8 @@ fn retry_backoff_doubles_up_to_its_cap_and_starts_over_after_a_reset() {
     let mut export = EXPORT_BACKOFF;
     assert_eq!(export.next_delay(), Duration::from_secs(1));
     assert_eq!(export.next_delay(), Duration::from_secs(2));
-    assert_eq!(export.retries() + 1, RetryBudget::EXPORT.attempts());
-    assert!(!RetryBudget::EXPORT.allows_retry(export.retries()));
+    assert_eq!(export.retries() + 1, RetryBudget::STANDARD.attempts());
+    assert!(!RetryBudget::STANDARD.allows_retry(export.retries()));
 }
 
 #[test]
