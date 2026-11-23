@@ -143,32 +143,15 @@ integer_enum!(crate::bucket::PublicAccessPrevention, { Inherited => 0, Enforced 
 // The effective access a bucket query computes from its own setting and its parent project's.
 integer_enum!(crate::auth::PublicAccess, { Allowed => 0, Prevented => 1 });
 
-// Only columns written from these types decode into them. Catalog tables (`objects`,
-// `buckets`, ...) may hold names the fake-gcs-server profile or an older transport accepted, so
-// their rows decode as `String`.
-macro_rules! name_column {
-    ($name:ty) => {
-        impl rusqlite::ToSql for $name {
-            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-                Ok(rusqlite::types::ToSqlOutput::Borrowed(
-                    rusqlite::types::ValueRef::Text(self.as_str().as_bytes()),
-                ))
-            }
-        }
-
-        impl rusqlite::types::FromSql for $name {
-            fn column_result(
-                value: rusqlite::types::ValueRef<'_>,
-            ) -> rusqlite::types::FromSqlResult<Self> {
-                <$name>::try_from(value.as_str()?)
-                    .map_err(|error| rusqlite::types::FromSqlError::Other(Box::new(error)))
-            }
-        }
-    };
+// Binding only: catalog tables (`objects`, `buckets`, ...) may hold names the fake-gcs-server
+// profile or an older transport accepted, so their rows decode as `String`.
+impl rusqlite::ToSql for crate::bucket::name::BucketName {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::Borrowed(
+            rusqlite::types::ValueRef::Text(self.as_str().as_bytes()),
+        ))
+    }
 }
-
-name_column!(crate::bucket::name::BucketName);
-name_column!(crate::object::name::ObjectName);
 
 // Binding only: stored project columns may predate the identifier rules, so rows decode as
 // `String`.
@@ -177,19 +160,6 @@ impl rusqlite::ToSql for crate::auth::ProjectId {
         Ok(rusqlite::types::ToSqlOutput::Borrowed(
             rusqlite::types::ValueRef::Text(self.as_str().as_bytes()),
         ))
-    }
-}
-
-impl rusqlite::ToSql for crate::object::generation::Generation {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        Ok(rusqlite::types::ToSqlOutput::Owned(self.get().into()))
-    }
-}
-
-impl rusqlite::types::FromSql for crate::object::generation::Generation {
-    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
-        let value = i64::column_result(value)?;
-        Self::try_from(value).map_err(|_| rusqlite::types::FromSqlError::OutOfRange(value))
     }
 }
 
@@ -529,60 +499,6 @@ mod tests {
             ],
             2,
         );
-    }
-
-    /// A column written from these types holds only values their rules accept, so a value
-    /// outside them is a corrupt catalog.
-    #[test]
-    fn typed_name_and_generation_columns_reject_invalid_values_as_corruption() {
-        use crate::bucket::name::BucketName;
-        use crate::object::{generation::Generation, name::ObjectName};
-        let connection = Connection::open_in_memory().unwrap();
-        for value in [1, i64::MAX] {
-            let generation = Generation::try_from(value).unwrap();
-            assert_eq!(
-                scalar::<i64>(&connection, "SELECT ?1", [generation]).unwrap(),
-                value
-            );
-            assert_eq!(
-                scalar::<Generation>(&connection, "SELECT ?1", [value]).unwrap(),
-                generation
-            );
-        }
-        for invalid in [0, -1, i64::MIN] {
-            let error = scalar::<Generation>(&connection, "SELECT ?1", [invalid]).unwrap_err();
-            assert!(
-                matches!(error, rusqlite::Error::IntegralValueOutOfRange(0, value) if value == invalid)
-            );
-            assert!(matches!(
-                super::super::unavailable(error),
-                crate::bucket::CatalogError::Corrupt(_)
-            ));
-        }
-        let bucket = BucketName::try_from("test-bucket").unwrap();
-        let name = ObjectName::try_from("日本語/a b").unwrap();
-        assert_eq!(
-            scalar::<BucketName>(&connection, "SELECT ?1", [&bucket]).unwrap(),
-            bucket
-        );
-        assert_eq!(
-            scalar::<ObjectName>(&connection, "SELECT ?1", [&name]).unwrap(),
-            name
-        );
-        let errors = [
-            scalar::<BucketName>(&connection, "SELECT 'UPPER'", []).unwrap_err(),
-            scalar::<ObjectName>(&connection, "SELECT '..'", []).unwrap_err(),
-        ];
-        for error in errors {
-            assert!(matches!(
-                error,
-                rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, _)
-            ));
-            assert!(matches!(
-                super::super::unavailable(error),
-                crate::bucket::CatalogError::Corrupt(_)
-            ));
-        }
     }
 
     #[test]
