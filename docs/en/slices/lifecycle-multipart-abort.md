@@ -26,7 +26,7 @@ Retirement calls the existing multipart `retire` path: it journals every part bl
 
 No schema, blob write, rename, unlink or fsync operation is added. The existing disk deletion-journal path unlinks staging files, synchronizes their directory, then forgets the journal rows; failures remain retryable. Existing memory reclamation checks references before removing the blob. Tests verify bytes disappear on both backends, commit rollback preserves parts, and process-crash/power-loss snapshots at the second page recover without resurrecting uploads or leaking parts. Injected reclaim, directory-sync and journal-forget failures retain the deletion row until retry.
 
-`lifecycle_execution=disabled` disables abort along with other lifecycle actions. A configured synchronization directory defaults execution to disabled unless explicitly enabled. Enabling abort has no host-file effect because incomplete multipart parts were never synchronized objects. The ordinary seven-day multipart expiry remains active independently of lifecycle configuration. Both memory and disk follow these existing controls; synchronization configuration and explicit enable are exercised with the memory catalog, while disk cleanup and restart use the disk catalog.
+`lifecycle_execution=disabled` disables abort along with other lifecycle actions. Execution defaults to enabled in every configuration; 0.27.0 defaulted it to disabled when the since-removed synchronization directory was configured. The ordinary seven-day multipart expiry remains active independently of lifecycle configuration. Both memory and disk follow these existing controls; explicit enable is exercised with the memory catalog, while disk cleanup and restart use the disk catalog.
 
 ## Acceptance evidence
 
@@ -45,7 +45,7 @@ All execution cases use the real catalog lifecycle pass and manual clock. XML mi
 | Object-only conditions never match even without rule validation | `multipart_abort_evaluation_rejects_object_only_conditions_without_validation` |
 | Completion wins its lease or the aborted ID fails before completion | `multipart_abort_completion_lease_wins_or_missing_id_prevents_completion` |
 | Disk/memory part reclamation, no notification, all four XML missing-ID operations | `multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory` |
-| Disabled execution, synchronization default, explicit enable and admin serialization | `multipart_abort_disabled_and_sync_defaults_preserve_uploads_until_enabled` |
+| Disabled execution, explicit enable and admin serialization | `multipart_abort_disabled_execution_preserves_uploads_until_enabled` |
 | Multiple same-name pages and shared action cap with object Delete | `multipart_abort_keyset_pages_share_the_action_budget_with_object_deletion` |
 | Abort, transition, deletion and archive in one capped pass; continuation preserves the applied class and archived versions | `multipart_aborts_transitions_deletes_and_archives_share_one_strict_action_limit` |
 | Indexed query plan with no full scan or temporary sort | `multipart_abort_scan_seeks_the_existing_list_index_without_sorting` |
