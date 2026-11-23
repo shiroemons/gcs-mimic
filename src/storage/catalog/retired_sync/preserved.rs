@@ -9,7 +9,7 @@
 #[cfg(test)]
 use super::super::fault::{self, Step};
 use super::super::{CatalogError, sql, unavailable};
-use rusqlite::{Connection, Row, types::Type};
+use rusqlite::{Connection, Row, types::ValueRef};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -34,7 +34,8 @@ incomplete. workspace_entries may still exist in the private workspace of a form
 synchronized folder, holding the file a write-back displaced or its own copy of the object; \
 target is where that file was, relative to root. gcs-mimic never deletes, moves or changes any \
 of these files: inspect them and remove them yourself once they are no longer needed. md5 and \
-crc32c are base64, as in the JSON API's md5Hash and crc32c.";
+crc32c are base64, as in the JSON API's md5Hash and crc32c; digests unreadable means \
+synchronization's record of them could not be read.";
 
 // The rows that name files, each as the tables and the condition of a query. [`NAMES_FILES`]
 // asks whether any of them exists and the listings select them, so a manifest is written
@@ -242,11 +243,31 @@ struct ConflictCopy {
     #[serde(skip_serializing_if = "Option::is_none")]
     generation: Option<i64>,
     size: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    md5: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    crc32c: Option<String>,
+    /// Absent while the copy was not yet written in full.
+    #[serde(flatten)]
+    digests: Option<Digests>,
     state: CopyState,
+}
+
+/// What the manifest says about a copy's digests.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Digests {
+    Known {
+        md5: String,
+        crc32c: String,
+    },
+    /// `retained` holds something no release wrote. The copy is listed all the same, because
+    /// its file matters more than the digests.
+    Unreadable {
+        digests: Unreadable,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Unreadable {
+    Unreadable,
 }
 
 /// What `sync_conflicts.retained` holds: JSON of the copy's observation once it was written. The
@@ -262,24 +283,39 @@ struct RetainedHashes {
     crc32c: u32,
 }
 
+impl Digests {
+    /// The digests a `retained` value records: none for `NULL` or an observation without them.
+    fn from_retained(value: ValueRef<'_>) -> Option<Self> {
+        let bytes = match value {
+            ValueRef::Null => return None,
+            ValueRef::Blob(bytes) | ValueRef::Text(bytes) => bytes,
+            ValueRef::Integer(_) | ValueRef::Real(_) => return Some(Self::unreadable()),
+        };
+        match serde_json::from_slice::<Retained>(bytes) {
+            Ok(retained) => retained.hashes.map(|hashes| Self::Known {
+                md5: crate::base64::encode(&hashes.md5),
+                crc32c: crate::base64::encode(&hashes.crc32c.to_be_bytes()),
+            }),
+            Err(_) => Some(Self::unreadable()),
+        }
+    }
+
+    fn unreadable() -> Self {
+        Self::Unreadable {
+            digests: Unreadable::Unreadable,
+        }
+    }
+}
+
 fn conflict_copy(row: &Row<'_>) -> rusqlite::Result<ConflictCopy> {
     let id: String = row.get(0)?;
-    let hashes = row
-        .get::<_, Option<Vec<u8>>>(5)?
-        .map(|bytes| serde_json::from_slice::<Retained>(&bytes))
-        .transpose()
-        .map_err(|error| sql::conversion_error(5, Type::Blob, error))?
-        .and_then(|retained| retained.hashes);
     Ok(ConflictCopy {
         path: format!("{CONFLICTS}/{id}"),
         bucket: row.get(1)?,
         object: row.get(2)?,
         generation: row.get(3)?,
         size: row.get(4)?,
-        md5: hashes
-            .as_ref()
-            .map(|hashes| crate::base64::encode(&hashes.md5)),
-        crc32c: hashes.map(|hashes| crate::base64::encode(&hashes.crc32c.to_be_bytes())),
+        digests: Digests::from_retained(row.get_ref(5)?),
         state: row.get(6)?,
     })
 }
@@ -289,13 +325,18 @@ struct WorkspaceEntry {
     /// The synchronized folder, as synchronization recorded it.
     root: String,
     path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    bucket: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    object: Option<String>,
+    /// Absent for a recovery whose write-back row was gone.
+    #[serde(flatten)]
+    operation: Option<Operation>,
+}
+
+/// The write-back that left a workspace entry.
+#[derive(Serialize)]
+struct Operation {
+    bucket: String,
+    object: String,
     /// Where the file was, relative to `root`, with `/` on every platform.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target: Option<String>,
+    target: String,
 }
 
 fn workspace_entry(row: &Row<'_>) -> rusqlite::Result<WorkspaceEntry> {
@@ -308,12 +349,21 @@ fn workspace_entry(row: &Row<'_>) -> rusqlite::Result<WorkspaceEntry> {
         .join(id)
         .display()
         .to_string();
+    // The write-back's columns are all set or, without its row, all `NULL`.
+    let operation = row
+        .get::<_, Option<String>>(2)?
+        .map(|bucket| {
+            Ok::<_, rusqlite::Error>(Operation {
+                bucket,
+                object: row.get(3)?,
+                target: row.get(4)?,
+            })
+        })
+        .transpose()?;
     Ok(WorkspaceEntry {
         root,
         path,
-        bucket: row.get(2)?,
-        object: row.get(3)?,
-        target: row.get(4)?,
+        operation,
     })
 }
 
