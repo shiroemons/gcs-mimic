@@ -572,21 +572,12 @@ fn restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects() {
     );
     server.stop();
 
-    // Removing a fixture file never deletes the object it seeded.
+    // Removing a fixture file deletes the object seeding published for it at the next start.
     fs::remove_file(seed.join("local-bucket/keep.txt")).unwrap();
     let server = Server::start(&mut command(&data, Some(&seed)), false);
     assert_eq!(server.ready["seed"], seed_counts(0, 0, 3, 0));
-    assert_eq!(
-        server.media("/storage/v1/b/local-bucket/o/keep.txt"),
-        (200, b"keep".to_vec())
-    );
-    for object in [
-        "hello.txt",
-        "keep.txt",
-        "gone.txt",
-        "untouched.txt",
-        "created.txt",
-    ] {
+    assert_eq!(server.media("/storage/v1/b/local-bucket/o/keep.txt").0, 404);
+    for object in ["hello.txt", "gone.txt", "untouched.txt", "created.txt"] {
         server.delete(&format!("/storage/v1/b/local-bucket/o/{object}"));
     }
     server.delete("/storage/v1/b/local-bucket");

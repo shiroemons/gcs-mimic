@@ -17,7 +17,7 @@
     not(test),
     expect(
         dead_code,
-        reason = "the replays that read and write the records are wired in the next step"
+        reason = "only the pass while the server runs, wired in the next step, clears a proof of absence or reads a bucket's mark"
     )
 )]
 
