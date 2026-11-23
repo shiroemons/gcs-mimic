@@ -74,15 +74,39 @@ pub(crate) fn warn_large_tree(event: &'static str, directory: &str, limit: &str)
 #[derive(Debug)]
 pub enum WalkError {
     Io(io::Error),
-    EntryLimit { limit: NonZeroUsize },
-    DepthLimit { limit: NonZeroUsize },
+    /// What the entry at `path` is, or what that directory lists, could not be read. Nothing
+    /// below the entry is walked, and the walk goes on with the entries after it, so that a
+    /// caller that tells an unreadable entry apart from an absent one still sees the rest.
+    Entry {
+        path: PathBuf,
+        error: io::Error,
+    },
+    EntryLimit {
+        limit: NonZeroUsize,
+    },
+    DepthLimit {
+        limit: NonZeroUsize,
+    },
     NotDirectory,
+}
+
+impl WalkError {
+    /// Whether the walk stops at this failure: it goes on only past an entry it could not read.
+    fn ends_walk(&self) -> bool {
+        match self {
+            Self::Entry { .. } => false,
+            Self::Io(_)
+            | Self::EntryLimit { .. }
+            | Self::DepthLimit { .. }
+            | Self::NotDirectory => true,
+        }
+    }
 }
 
 impl std::fmt::Display for WalkError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Io(error) => error.fmt(f),
+            Self::Io(error) | Self::Entry { error, .. } => error.fmt(f),
             Self::EntryLimit { .. } => f.write_str("source exceeds the configured entry limit"),
             Self::DepthLimit { .. } => f.write_str("source exceeds the configured directory depth"),
             Self::NotDirectory => f.write_str("source must be a directory, not a symlink"),
@@ -93,7 +117,7 @@ impl std::fmt::Display for WalkError {
 impl std::error::Error for WalkError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io(error) => std::error::Error::source(error),
+            Self::Io(error) | Self::Entry { error, .. } => std::error::Error::source(error),
             Self::EntryLimit { .. } | Self::DepthLimit { .. } | Self::NotDirectory => None,
         }
     }
@@ -141,16 +165,21 @@ impl Walker {
         Ok(walk)
     }
 
+    /// Queues the names `path` lists. A listing that fails queues none of them.
     fn children(&mut self, path: &Path, depth: usize) -> Result<(), WalkError> {
+        let unread = |error| WalkError::Entry {
+            path: path.to_owned(),
+            error,
+        };
         let mut children = Vec::new();
-        for entry in fs::read_dir(path)? {
+        for entry in fs::read_dir(path).map_err(unread)? {
             self.entries += 1;
             if let Some(limit) = self.limits.entries
                 && self.entries > limit.get()
             {
                 return Err(WalkError::EntryLimit { limit });
             }
-            children.push(entry?.path());
+            children.push(entry.map_err(unread)?.path());
         }
         children.sort();
         self.pending
@@ -160,7 +189,10 @@ impl Walker {
 
     /// Reads one popped entry and queues a directory's children below it.
     fn visit(&mut self, path: PathBuf, depth: usize) -> Result<WalkEntry, WalkError> {
-        let metadata = fs::symlink_metadata(&path)?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) => return Err(WalkError::Entry { path, error }),
+        };
         if metadata.is_dir() {
             if let Some(limit) = self.limits.depth
                 && depth > limit.get()
@@ -194,7 +226,7 @@ impl Iterator for Walker {
         }
         let (path, depth) = self.pending.pop()?;
         let result = self.visit(path, depth);
-        self.failed = result.is_err();
+        self.failed = result.as_ref().is_err_and(WalkError::ends_walk);
         Some(result)
     }
 }
@@ -254,5 +286,36 @@ mod tests {
             depth.last(),
             Some(Err(WalkError::DepthLimit { limit })) if limit.get() == 1
         ));
+    }
+
+    /// A directory that cannot be listed fails as its own entry, with nothing below it walked,
+    /// and the walk goes on with the entries after it.
+    #[cfg(unix)]
+    #[test]
+    fn a_walk_goes_on_past_a_directory_it_cannot_list() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = crate::test_support::TestDir::new();
+        fs::create_dir_all(directory.0.join("a/locked")).unwrap();
+        fs::write(directory.0.join("a/locked/hidden"), b"").unwrap();
+        fs::write(directory.0.join("a/z-after"), b"").unwrap();
+        let locked = directory.0.join("a/locked");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_dir(&locked).is_ok() {
+            eprintln!(
+                "SKIP: a mode 000 directory stays listable (for example when running as root)"
+            );
+            return;
+        }
+        let walked: Vec<_> = Walker::new(&directory.0, TreeLimits::default())
+            .unwrap()
+            .collect();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+        let [Ok(a), Err(WalkError::Entry { path, error }), Ok(after)] = walked.as_slice() else {
+            panic!("{walked:?}");
+        };
+        assert_eq!(a.path, directory.0.join("a"));
+        assert_eq!(*path, locked);
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(after.path, directory.0.join("a/z-after"));
     }
 }
