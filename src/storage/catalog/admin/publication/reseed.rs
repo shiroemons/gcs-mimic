@@ -193,10 +193,8 @@ impl SeedBatch {
             .0
             .file_workers
             .run(move || {
-                use std::os::unix::fs::MetadataExt;
                 let file = fsutil::open_directory_nofollow(&root)?;
-                let pinned = file.metadata()?;
-                if (pinned.dev(), pinned.ino()) != (inspected.dev(), inspected.ino()) {
+                if fsutil::NodeId::from(&file.metadata()?) != fsutil::NodeId::from(&inspected) {
                     return Err(AdminError::Precondition);
                 }
                 Ok(Arc::new(file))

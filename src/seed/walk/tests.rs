@@ -18,7 +18,7 @@ fn tree() -> (TestDir, Tree) {
             std::sync::Arc::new(File::open(&root).unwrap()),
             std::sync::Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now())),
         );
-        tree.listed.push(DirectoryId::from(
+        tree.listed.push(NodeId::from(
             &fs::symlink_metadata(root.join("bucket")).unwrap(),
         ));
         tree

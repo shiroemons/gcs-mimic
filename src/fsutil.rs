@@ -375,10 +375,6 @@ pub(crate) struct NodeId {
 
 #[cfg(unix)]
 impl FileIdentity {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only tests use the lookup so far")
-    )]
     pub(crate) fn node(&self) -> NodeId {
         NodeId {
             device: self.device,
@@ -400,6 +396,13 @@ impl From<&std::fs::Metadata> for FileIdentity {
             changed_ns: i128::from(metadata.ctime()) * 1_000_000_000
                 + i128::from(metadata.ctime_nsec()),
         }
+    }
+}
+
+#[cfg(unix)]
+impl From<&std::fs::Metadata> for NodeId {
+    fn from(metadata: &std::fs::Metadata) -> Self {
+        FileIdentity::from(metadata).node()
     }
 }
 
