@@ -153,8 +153,11 @@ impl Listings {
 impl Lookup {
     /// Lookups that know nothing about the filesystem: each directory's own answer decides.
     #[cfg_attr(
-        not(all(test, unix)),
-        expect(dead_code, reason = "the seed watcher reuses this")
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only the Unix seed walk opens fixtures through a lookup"
+        )
     )]
     pub(crate) fn unprobed() -> Self {
         Self::unprobed_on(Arc::new(SystemClock))
@@ -323,8 +326,11 @@ impl Lookup {
     /// spelling, for a name whose spelling the caller already knows, under the rule
     /// [`Self::regular`] applies to a name that fails to open ([`Opened`]).
     #[cfg_attr(
-        not(all(test, unix)),
-        expect(dead_code, reason = "the seed watcher reuses this")
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only the Unix seed walk opens fixtures through a lookup"
+        )
     )]
     pub(crate) fn regular_unconfirmed(
         &self,
@@ -337,7 +343,13 @@ impl Lookup {
     /// Opens the existing directory `name` in `parent` without following a symlink or confirming
     /// its spelling, for a name a listing gave or whose spelling the caller already knows, under
     /// the same rule ([`Opened`]).
-    #[expect(dead_code, reason = "the seed watcher reuses this")]
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only the Unix seed walk opens fixtures through a lookup"
+        )
+    )]
     pub(crate) fn directory_unconfirmed(
         &self,
         parent: &File,

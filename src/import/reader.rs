@@ -243,6 +243,32 @@ impl Fingerprint {
         }
         fields
     }
+
+    /// Whether this fingerprint, taken no later than `observed`, could miss a change made after
+    /// it: the file's last modification or status change lies less than two seconds before
+    /// `observed`, or after it. Two seconds cover the coarsest supported timestamp granularity
+    /// (HFS+ and FAT), and a second write within one tick can leave the size and both times as
+    /// the first write left them, as with git's racily clean index entries. The status change
+    /// counts as well, since a copy that keeps the modification time, such as `cp -p`, changes
+    /// only that.
+    pub(crate) fn racy_at(&self, observed: std::time::SystemTime) -> bool {
+        const RACY_WINDOW_NS: i128 = 2_000_000_000;
+        let changed = self
+            .ctime_ns
+            .map_or(self.mtime_ns, |ctime_ns| ctime_ns.max(self.mtime_ns));
+        crate::clock::signed_nanos(observed).saturating_sub(changed) < RACY_WINDOW_NS
+    }
+
+    /// Whether `other` shows the file this fingerprint showed, unchanged: the same size,
+    /// modification time, status change time and inode. The device is not compared: a seed
+    /// record keeps only these four fields, and a volume mounted again can report another
+    /// device number for files that did not change.
+    pub(crate) fn same_file_state(&self, other: &Self) -> bool {
+        self.size == other.size
+            && self.mtime_ns == other.mtime_ns
+            && self.ctime_ns == other.ctime_ns
+            && self.inode == other.inode
+    }
 }
 
 /// A source file opened once, with the fingerprint its handle had then. Every source read goes

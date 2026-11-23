@@ -168,7 +168,7 @@ async fn atomic_seed_late_invalid_metadata_rolls_back_buckets_objects_and_alloca
         .unwrap();
     add(&mut batch, &dir.0, "first", b"new").await;
     add(&mut batch, &dir.0, "object", b"new").await;
-    batch.entries[1].request.content_type = "invalid\ncontent".into();
+    batch.entries[1].publication.request.content_type = "invalid\ncontent".into();
     assert!(matches!(
         batch.commit(SeedMode::Merge).await,
         Err(AdminError::Invalid(_))
