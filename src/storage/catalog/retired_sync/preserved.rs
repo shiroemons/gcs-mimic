@@ -9,7 +9,10 @@
 #[cfg(test)]
 use super::super::fault::{self, Step};
 use super::super::{CatalogError, sql, unavailable};
-use rusqlite::{Connection, Row, types::ValueRef};
+use rusqlite::{
+    Connection, Row,
+    types::{FromSql, FromSqlResult, ValueRef},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -28,14 +31,21 @@ const STAGED: &str = "sync-retired.json.tmp";
 const WORKSPACE: &str = ".gcs-mimic-sync-work";
 
 pub(super) const DESCRIPTION: &str = "gcs-mimic removed directory synchronization at catalog schema 58 and \
-listed here the files its records still named. conflict_copies are copies of edits made in a \
-synchronized folder, kept in this data directory; state capturing means the copy may be \
-incomplete. workspace_entries may still exist in the private workspace of a formerly \
-synchronized folder, holding the file a write-back displaced or its own copy of the object; \
-target is where that file was, relative to root. gcs-mimic never deletes, moves or changes any \
-of these files: inspect them and remove them yourself once they are no longer needed. md5 and \
-crc32c are base64, as in the JSON API's md5Hash and crc32c; digests unreadable means \
-synchronization's record of them could not be read.";
+listed here the files its records still named. Folder paths are as the gcs-mimic process that \
+synchronized them saw them, for example inside its container. folders lists every formerly \
+synchronized folder; each may still hold synchronization's marker .gcs-mimic-sync.json and its \
+private workspace .gcs-mimic-sync-work/. folder_base64 gives a folder path's bytes when they \
+are not UTF-8. conflict_copies are copies of edits made in a synchronized folder, kept in this \
+data directory at path; state capturing means the copy may be incomplete. workspace_entries may \
+still exist in the private workspace of a formerly synchronized folder, holding the file a \
+write-back displaced or its own copy of the object. target is where a file was, relative to its \
+folder. gcs-mimic never deletes, moves or changes any of these files: inspect them and remove \
+them yourself once they are no longer needed. md5 and crc32c are base64, as in the JSON API's \
+md5Hash and crc32c; digests unreadable means synchronization's record of them could not be \
+read.";
+
+/// Every formerly synchronized folder.
+const FOLDERS: &str = "SELECT location FROM sync_roots ORDER BY location";
 
 // The rows that name files, each as the tables and the condition of a query. [`NAMES_FILES`]
 // asks whether any of them exists and the listings select them, so a manifest is written
@@ -44,7 +54,7 @@ synchronization's record of them could not be read.";
 /// A conflict copy not yet discarded (state 2): its file is still under `sync-conflicts/`.
 macro_rules! kept_copies {
     () => {
-        "FROM sync_conflicts c WHERE c.state != 2"
+        "FROM sync_conflicts c JOIN sync_roots r ON r.root_id = c.root_id WHERE c.state != 2"
     };
 }
 
@@ -79,9 +89,11 @@ const NAMES_FILES: &str = concat!(
     ")"
 );
 
-/// The conflict copies, in the order synchronization captured them.
+/// The conflict copies, in the order synchronization captured them. Each was taken from the
+/// path synchronization gave its object in the folder, `<bucket>/<name>`.
 const CONFLICT_COPIES: &str = concat!(
-    "SELECT c.id, c.bucket, c.name, c.generation, c.size, c.retained, c.state ",
+    "SELECT r.location, c.id, c.bucket || '/' || c.name, c.bucket, c.incarnation, c.name,
+    c.generation, c.size, c.retained, c.state ",
     kept_copies!(),
     " ORDER BY c.ordinal"
 );
@@ -89,9 +101,9 @@ const CONFLICT_COPIES: &str = concat!(
 /// The workspace entries a write-back or a recovery may have left. A write-back that a held
 /// recovery workspace recovers is one entry.
 const WORKSPACE_ENTRIES: &str = concat!(
-    "SELECT r.location, o.id, o.bucket, o.name, o.path ",
+    "SELECT r.location, o.id, o.path, o.bucket, o.incarnation, o.name ",
     open_write_backs!(),
-    " UNION SELECT r.location, w.id, o.bucket, o.name, o.path ",
+    " UNION SELECT r.location, w.id, o.path, o.bucket, o.incarnation, o.name ",
     held_workspaces!(),
     " ORDER BY 1, 2"
 );
@@ -109,6 +121,9 @@ pub(super) fn write_manifest(connection: &Connection, data_dir: &Path) -> Result
     let mut manifest = Manifest::create(data_dir)?;
     manifest.put(b"{\n  \"description\": ")?;
     manifest.put(&serde_json::to_vec(DESCRIPTION).map_err(unavailable)?)?;
+    manifest.list(connection, "folders", FOLDERS, |row| {
+        row.get::<_, Folder>(0)
+    })?;
     manifest.list(
         connection,
         "conflict_copies",
@@ -233,11 +248,42 @@ enum CopyState {
 }
 sql::integer_enum!(CopyState, { Capturing => 0, Registered => 1 });
 
+/// A formerly synchronized folder, as the process that synchronized it saw its path.
+#[derive(Serialize)]
+struct Folder {
+    folder: String,
+    /// The path's bytes, when they are not UTF-8 and `folder` replaces some of them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_base64: Option<String>,
+}
+
+/// `sync_roots.location`: the folder's path in the bytes of the platform that synchronized it.
+impl FromSql for Folder {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let location = value.as_blob()?;
+        Ok(match std::str::from_utf8(location) {
+            Ok(folder) => Self {
+                folder: folder.to_owned(),
+                folder_base64: None,
+            },
+            Err(_) => Self {
+                folder: String::from_utf8_lossy(location).into_owned(),
+                folder_base64: Some(crate::base64::encode(location)),
+            },
+        })
+    }
+}
+
 #[derive(Serialize)]
 struct ConflictCopy {
     /// Relative to the data directory, with `/` on every platform.
     path: String,
+    #[serde(flatten)]
+    folder: Folder,
+    /// Where the edited file was, relative to the folder, with `/` on every platform.
+    target: String,
     bucket: String,
+    bucket_incarnation: String,
     object: String,
     /// The object's generation the copy was taken against; absent when there was no object.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -308,22 +354,25 @@ impl Digests {
 }
 
 fn conflict_copy(row: &Row<'_>) -> rusqlite::Result<ConflictCopy> {
-    let id: String = row.get(0)?;
+    let id: String = row.get(1)?;
     Ok(ConflictCopy {
         path: format!("{CONFLICTS}/{id}"),
-        bucket: row.get(1)?,
-        object: row.get(2)?,
-        generation: row.get(3)?,
-        size: row.get(4)?,
-        digests: Digests::from_retained(row.get_ref(5)?),
-        state: row.get(6)?,
+        folder: row.get(0)?,
+        target: row.get(2)?,
+        bucket: row.get(3)?,
+        bucket_incarnation: row.get(4)?,
+        object: row.get(5)?,
+        generation: row.get(6)?,
+        size: row.get(7)?,
+        digests: Digests::from_retained(row.get_ref(8)?),
+        state: row.get(9)?,
     })
 }
 
 #[derive(Serialize)]
 struct WorkspaceEntry {
-    /// The synchronized folder, as synchronization recorded it.
-    root: String,
+    #[serde(flatten)]
+    folder: Folder,
     path: String,
     /// Absent for a recovery whose write-back row was gone.
     #[serde(flatten)]
@@ -333,18 +382,19 @@ struct WorkspaceEntry {
 /// The write-back that left a workspace entry.
 #[derive(Serialize)]
 struct Operation {
-    bucket: String,
-    object: String,
-    /// Where the file was, relative to `root`, with `/` on every platform.
+    /// Where the file was, relative to the folder, with `/` on every platform.
     target: String,
+    bucket: String,
+    bucket_incarnation: String,
+    object: String,
 }
 
 fn workspace_entry(row: &Row<'_>) -> rusqlite::Result<WorkspaceEntry> {
-    // The location holds the folder's path in the platform's encoding; a name that is not
-    // UTF-8 keeps a replacement character, which is still enough to find the folder.
-    let root = String::from_utf8_lossy(&row.get::<_, Vec<u8>>(0)?).into_owned();
+    let folder: Folder = row.get(0)?;
     let id: String = row.get(1)?;
-    let path = Path::new(&root)
+    // A folder path that is not UTF-8 keeps its replacement characters here; `folder_base64`
+    // has its bytes.
+    let path = Path::new(&folder.folder)
         .join(WORKSPACE)
         .join(id)
         .display()
@@ -352,16 +402,17 @@ fn workspace_entry(row: &Row<'_>) -> rusqlite::Result<WorkspaceEntry> {
     // The write-back's columns are all set or, without its row, all `NULL`.
     let operation = row
         .get::<_, Option<String>>(2)?
-        .map(|bucket| {
+        .map(|target| {
             Ok::<_, rusqlite::Error>(Operation {
-                bucket,
-                object: row.get(3)?,
-                target: row.get(4)?,
+                target,
+                bucket: row.get(3)?,
+                bucket_incarnation: row.get(4)?,
+                object: row.get(5)?,
             })
         })
         .transpose()?;
     Ok(WorkspaceEntry {
-        root,
+        folder,
         path,
         operation,
     })
