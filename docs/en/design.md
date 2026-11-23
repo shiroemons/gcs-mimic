@@ -19,8 +19,8 @@ Google strict behavior and permissive source behavior need separate profiles
 and evidence. The existing permissive auth mode is not a complete fake-gcs-server profile.
 
 Directory synchronization was removed: SQLite and opaque blobs are the only
-persistent state, and `seed_dir` reads a folder at startup and never writes to
-it ([seed contract](slices/seed.md)). The
+persistent state, and `seed_dir` is read-only input that is replayed at startup
+and again while the server runs, never written to ([seed contract](slices/seed.md)). The
 [filesystem investigation](fake-gcs-server-storage.md) records the original
 source behavior, rather than a second implementation-status source.
 

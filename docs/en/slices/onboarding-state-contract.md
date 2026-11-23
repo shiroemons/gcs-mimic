@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-This contract freezes the Shared state boundary for initialization and import. Directory synchronization was removed; `seed_dir` reads a folder at startup and never writes to it, so every synchronization requirement below is withdrawn, and the benchmark records keep describing the measured source as dated. The change journal, whose only consumer was synchronization, was withdrawn with it: nothing records or reads changes, and schema 58 drops its tables. DESIGN-062, DESIGN-072, DESIGN-074 and AUDIT-014 remain PARTIAL; UX-002 retains its implemented seed-before-ready scope. The [startup phase slice](startup-phases.md) supplies the runtime startup subset below; other runtime cases remain PENDING until their owning slices supply executable evidence.
+This contract freezes the Shared state boundary for initialization and import. Directory synchronization was removed; `seed_dir` is read-only input and is never written to, so every synchronization requirement below is withdrawn, and the benchmark records keep describing the measured source as dated. The change journal, whose only consumer was synchronization, was withdrawn with it: nothing records or reads changes, and schema 58 drops its tables. DESIGN-062, DESIGN-072, DESIGN-074 and AUDIT-014 remain PARTIAL; UX-002 retains its implemented seed-before-ready scope. The [startup phase slice](startup-phases.md) supplies the runtime startup subset below; other runtime cases remain PENDING until their owning slices supply executable evidence.
 
 ## Acceptance and scope
 

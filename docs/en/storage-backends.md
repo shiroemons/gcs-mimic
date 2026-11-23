@@ -23,8 +23,9 @@ and quiesced capture now have [separate contracts](slices/source-storage-contrac
 Do not introduce a generic backend framework before a concrete second runtime
 backend needs one.
 
-Directory synchronization was removed: `seed_dir` reads a folder at startup and
-never writes to it ([seed contract](slices/seed.md)), and the catalog stays the
+Directory synchronization was removed: `seed_dir` is read-only input, replayed at
+startup and while the server runs, and never written to
+([seed contract](slices/seed.md)), and the catalog stays the
 only index. The
 [filesystem investigation](fake-gcs-server-storage.md) records source behavior
 and executed macOS edit/reseed cases.

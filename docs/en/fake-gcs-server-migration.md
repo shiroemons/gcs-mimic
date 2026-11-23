@@ -602,7 +602,7 @@ for new configurations.
 | `-port-http` | Native `--port-http`, `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; default primary IP:8000. Other schemes fail instead of discarding the port |
 | `-external-url` | Refused; choose `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Source fixes selfLink/mediaLink only; native fixes resumable URLs too. Choose an address every client can reach, or omit the fixed origin |
 | `-public-host` | Accepted as `--public-base-url` with the effective scheme | Its subdomains select virtual-host buckets; JSON API callers must use another host or set `--api-base-url` explicitly. Existing explicit API-origin conflicts still fail |
-| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup. Exactly identical objects keep their generation. Since 0.8.0, seeding publishes the complete tree atomically, fails the entire replay on a differing protected object, and adds opt-in reseed. 0.7.0 and earlier lack those additions. |
+| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup, and again every `seed_watch_interval_ms` while the server runs (default 1000; 0 disables). Exactly identical objects keep their generation. Since 0.8.0, seeding publishes the complete tree atomically, fails the entire replay on a differing protected object, and adds opt-in reseed. 0.7.0 and earlier lack those additions. |
 | `-filesystem-root` | Refused; choose `--data-dir` or `GCS_MIMIC_DATA_DIR` | Image path `/var/lib/gcs-mimic`; convert a stopped source snapshot with `gcs-mimic import fake-gcs-server` instead of reusing its format |
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
 | `-log-level` | Native `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr and informational diagnostic severity; validation warnings/errors and stdout lifecycle remain unfiltered |
@@ -694,7 +694,10 @@ The existing `auth_mode=permissive` is not already a complete fake-gcs-server pr
 - Native seeding replays on every startup: an object
   that differs from its seed file in bytes or metadata is replaced as a new
   generation, so seed files win over API edits at restart; only an exactly
-  identical object keeps its generation. Since 0.8.0, opt-in atomic reseed is
+  identical object keeps its generation. While the server runs, a watch replays
+  a changed file every `seed_watch_interval_ms` and deletes the object seeding
+  published for a removed file, and an API edit stays until its file changes.
+  Since 0.8.0, opt-in atomic reseed is
   available (disk merge, RAM replacement); a changed protected fixture rejects
   the complete replay. Durable migration must never silently replay fixtures over
   imported changes; do not mount seed files that overlap imported objects unless
@@ -709,9 +712,9 @@ required conflict blocks the full compatibility claim.
 
 ## Editable directory requirement
 
-Directory synchronization was removed: `seed_dir` reads a folder at startup and
-never writes to it ([seed contract](slices/seed.md)), so API writes do not appear
-as files. SQLite remains the metadata/index catalog with opaque immutable blobs.
+Directory synchronization was removed: `seed_dir` is read-only input, replayed at
+startup and while the server runs, and never written to ([seed contract](slices/seed.md)),
+so API writes do not appear as files. SQLite remains the metadata/index catalog with opaque immutable blobs.
 The ledger entry `delivery_plan.migration.filesystem_sync_contract` records the
 withdrawn requirement.
 See the [source investigation and executed file-edit cases](fake-gcs-server-storage.md).

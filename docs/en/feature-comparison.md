@@ -258,10 +258,10 @@ not imply complete XML semantics or authenticated-only public access.
 | --- | --- | --- | --- |
 | Runtime / embedded use | Rust binary | Go binary or Go test library | Python CLI or Python test server |
 | Preserve API-created bytes across normal restart | ✅ SQLite catalog and opaque files | ✅ Filesystem backend | ✅ Files and JSON metadata |
-| API-created objects appear as bucket/object files | ❌ Opaque storage; `seed_dir` reads a folder at startup and never writes to it | ✅ Filesystem backend | ✅ Disk backend |
+| API-created objects appear as bucket/object files | ❌ Opaque storage; `seed_dir` reads a folder and never writes to it | ✅ Filesystem backend | ✅ Disk backend |
 | Reconcile external edits with hashes and generation metadata | ❌ | ❌ Direct reads can expose stale metadata | ❌ No reconciliation contract |
 | Optional in-memory backend | 🚧 `--backend memory` with explicit storage budgets; [contract](slices/memory-backend.md) | ✅ | ✅ |
-| Import a bucket/object seed directory | ✅ Every startup and opt-in atomic reseed; an exactly identical object keeps its generation | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
+| Import a bucket/object seed directory | ✅ Every startup, a watch that replays the folder every `seed_watch_interval_ms` while the server runs, and opt-in atomic reseed; an exactly identical object keeps its generation | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
 | Create buckets with their settings (CORS, versioning, project, IAM policy) from a startup document | 🚧 A JSON document from `buckets_file`, or inline in `GCS_MIMIC_BUCKETS`; entries may set an initial `iamPolicy`, and `buckets_mode=reconcile`, the default, writes edited fields to existing buckets, while `create` keeps them and warns about unapplied edits. Inline documents, `iamPolicy` and reconcile need 0.14.0 or later; the name `buckets_mode` and its default for a file need 0.20.0. Crash-boundary and review cases remain pending (DESIGN-062 `PARTIAL`); [contract](slices/bucket-initialization.md) | ❌ No startup bucket document; seed directories create buckets without settings | ❌ No startup bucket document |
 | Published native binaries | ✅ macOS, Windows and Linux amd64+arm64 | ✅ macOS/Linux amd64+arm64; Windows amd64 | ❌ Python runtime required |
 | Published Docker image | ✅ GHCR and Docker Hub linux/amd64+arm64 | ✅ Docker Hub | ✅ Docker Hub |
@@ -269,17 +269,21 @@ not imply complete XML semantics or authenticated-only public access.
 
 gcs-mimic applies its seed directory before readiness on
 every startup, and the image reads `/data` without extra settings. As in
-fake-gcs-server, an object that differs from its seed file in bytes or metadata,
+fake-gcs-server, at startup an object that differs from its seed file in bytes or metadata,
 including API metadata edits, becomes a new live generation. Only an object
 exactly matching what seeding would write keeps its generation, where
 fake-gcs-server writes a new one; fake-gcs-server also offers
 `/_internal/reseed`, while gcs-mimic offers an opt-in atomic reseed through its
-local administration route ([contract](slices/atomic-seed-reseed.md)); neither
-has a seed watcher. Neither product deletes
-objects whose seed file was removed.
+local administration route ([contract](slices/atomic-seed-reseed.md)).
+fake-gcs-server has no seed watcher; gcs-mimic replays the folder every
+`seed_watch_interval_ms` (1000 by default; 0 replays only at startup), and
+`gcs-mimic seed wait` waits for a pass. fake-gcs-server does not delete objects
+whose seed file was removed. gcs-mimic deletes an object that seeding published
+for a removed file, unless an API request changed it or a hold or retention
+period protects it ([passes while the server runs](slices/seed.md#passes-while-the-server-runs)).
 
-Directory synchronization was removed: `seed_dir` reads a folder at startup and
-never writes to it. The earlier
+Directory synchronization was removed: `seed_dir` reads a folder and never
+writes to it. The earlier
 [sync directory evidence](evidence/sync-dir-containers.txt) is kept as a dated
 record.
 Disk persistence does not imply equivalent crash or power-loss guarantees.

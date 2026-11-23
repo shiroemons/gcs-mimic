@@ -213,7 +213,7 @@ Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.2, Node.
 - Location and storage class are metadata. Nothing is physically placed.
 - Customer-supplied keys are required to read an object, but the data is not encrypted on disk.
 - The RAM backend (`GCS_MIMIC_BACKEND: memory`) holds about half of the memory in object bytes by default, from 64 MiB to 1 GiB, and 1 GiB on every system but Linux, where the memory cannot be read. Data is lost at exit.
-- Directory synchronization was removed. `seed_dir` reads a folder at startup and never writes to it.
+- Directory synchronization was removed. `seed_dir` reads a folder and never writes to it. It is replayed at startup and again every `GCS_MIMIC_SEED_WATCH_INTERVAL_MS` (1000 ms by default; 0 means startup only), and removing a file deletes the object seeding published for it.
 - Soft delete is off unless a bucket policy or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` turns it on, unlike Cloud Storage.
 - V2 signed URLs are a subset. Unsupported gRPC fields and methods return `UNIMPLEMENTED`.
 
@@ -244,7 +244,7 @@ Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.2, Node.
 - Tests that pass in default mode prove nothing about authorization or signed URLs.
 - The image has no shell and runs as UID/GID 10001. Do not write shell healthchecks or entrypoints. Files under `/data` must be readable by that user.
 - Files in `/var/lib/gcs-mimic` are opaque. Use the API or a `/data` mount.
-- A `/data` mount is applied on every startup and replaces API changes to the same object names.
+- A `/data` mount is applied on every startup and replaces API changes to the same object names. While the server runs, changed files are applied again (see `GCS_MIMIC_SEED_WATCH_INTERVAL_MS`), and a removed file deletes the object seeding published for it.
 - Other settings are `GCS_MIMIC_SIGNED_URLS` (`verify` checks signatures in default mode), `GCS_MIMIC_GRPC_LISTEN` and `GCS_MIMIC_LOG_LEVEL`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.27.0 --help` lists every option.
 - A passing SDK scorecard means ordinary workflows work, not that the API is complete.
 
