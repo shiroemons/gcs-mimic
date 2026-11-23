@@ -1,4 +1,8 @@
-use crate::{api_error::ApiError, fsutil::Unopenable, storage::admin::AdminError};
+use crate::{
+    api_error::ApiError,
+    fsutil::{IdentityField, Unopenable},
+    storage::admin::AdminError,
+};
 use std::{error::Error, fmt, io, path::StripPrefixError};
 
 #[derive(Debug)]
@@ -62,6 +66,86 @@ impl fmt::Display for SeedError {
     }
 }
 
+impl SeedError {
+    /// This error as a pass report states it, in `problems[].reason` and `error`.
+    pub(crate) const fn reason(&self) -> Reason<'_> {
+        Reason(self)
+    }
+}
+
+/// A [`SeedError`] in a sentence. Its own text names a failure of the catalog as the variant of
+/// [`AdminError`], which startup diagnostics keep; a report a script reads says what happened.
+pub(crate) struct Reason<'a>(&'a SeedError);
+
+impl fmt::Display for Reason<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            SeedError::Admin(error) | SeedError::BucketName(error) => admin_reason(error, f),
+            SeedError::Entry { label, source } => write!(f, "{label}: {}", source.reason()),
+            SeedError::Import(source) => write!(f, "seed import: {}", source.reason()),
+            SeedError::Io(_)
+            | SeedError::Unopenable
+            | SeedError::ObjectName(_)
+            | SeedError::RelativePath(_)
+            | SeedError::EntryLimit { .. }
+            | SeedError::DepthLimit { .. }
+            | SeedError::BucketLimit { .. }
+            | SeedError::NotDirectory
+            | SeedError::Overlap
+            | SeedError::WalkStopped
+            | SeedError::TreeChanged
+            | SeedError::NonUtf8Name
+            | SeedError::UnsupportedFile
+            | SeedError::FileLimit
+            | SeedError::MissingRoot => self.0.fmt(f),
+        }
+    }
+}
+
+fn admin_reason(error: &AdminError, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match error {
+        AdminError::Busy { .. } => f.write_str("the catalog stayed busy"),
+        AdminError::DiskFull(_) => f.write_str("the disk under data_dir is full"),
+        AdminError::Closed => f.write_str("the server is closing"),
+        AdminError::Precondition => f.write_str("the object changed meanwhile"),
+        AdminError::Hold => f.write_str("a hold or retention period protects the object"),
+        AdminError::SeedProjectMismatch => {
+            f.write_str("a bucket of another project has the directory's name")
+        }
+        AdminError::SeedMetadataBudget { mib } => {
+            write!(f, "seed metadata exceeds {mib} MiB; raise max_seed_entries")
+        }
+        AdminError::SourceChanged { fields } if fields.is_empty() => {
+            f.write_str("the file changed while it was read")
+        }
+        AdminError::SourceChanged { fields } => {
+            f.write_str("the file changed while it was read: its ")?;
+            for (index, field) in fields.iter().enumerate() {
+                if index > 0 {
+                    f.write_str(", ")?;
+                }
+                f.write_str(match field {
+                    IdentityField::Device => "device",
+                    IdentityField::Inode => "inode",
+                    IdentityField::Size => "size",
+                    IdentityField::Mtime => "modification time",
+                    IdentityField::Ctime => "status change time",
+                })?;
+            }
+            f.write_str(" changed")
+        }
+        AdminError::Corrupt(cause) => write!(f, "the catalog is corrupt: {cause}"),
+        AdminError::Io(cause) => write!(f, "an I/O operation failed: {cause}"),
+        AdminError::NotFound => f.write_str("the bucket or object is gone"),
+        AdminError::Invalid(reason) => f.write_str(reason),
+        AdminError::Checksum => f.write_str("the bytes read do not match their checksum"),
+        AdminError::TooLarge => f.write_str("the file exceeds max_object_bytes"),
+        AdminError::Forbidden => f.write_str("the write is not authorized"),
+        AdminError::BodyAborted(cause) => write!(f, "reading the file stopped: {cause}"),
+        AdminError::Backend(cause) => write!(f, "the catalog failed: {cause}"),
+    }
+}
+
 impl Error for SeedError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -109,6 +193,60 @@ mod tests {
         let error = SeedError::ObjectName(crate::json::validate_object_name("").unwrap_err());
         let cause = error.source().unwrap().downcast_ref::<ApiError>().unwrap();
         assert_eq!(error.to_string(), cause.message);
+    }
+
+    /// A pass report states a failure of the catalog in words, while the error's own text keeps
+    /// the variant that startup diagnostics print.
+    #[test]
+    fn a_pass_report_states_a_catalog_failure_in_words() {
+        let changed = SeedError::Admin(AdminError::SourceChanged {
+            fields: vec![IdentityField::Size, IdentityField::Mtime],
+        });
+        assert_eq!(
+            changed.reason().to_string(),
+            "the file changed while it was read: its size, modification time changed"
+        );
+        assert!(
+            changed
+                .to_string()
+                .starts_with("administrative operation: SourceChanged"),
+            "{changed}"
+        );
+        let entry = SeedError::Entry {
+            label: "bucket/a".to_owned(),
+            source: Box::new(SeedError::Admin(AdminError::Invalid("bad name".into()))),
+        };
+        assert_eq!(entry.reason().to_string(), "bucket/a: bad name");
+        assert_eq!(
+            SeedError::FileLimit.reason().to_string(),
+            SeedError::FileLimit.to_string()
+        );
+        for error in [
+            AdminError::Busy {
+                retry_after: std::time::Duration::from_secs(2),
+            },
+            AdminError::DiskFull(io::ErrorKind::StorageFull.into()),
+            AdminError::Closed,
+            AdminError::Precondition,
+            AdminError::Hold,
+            AdminError::SeedProjectMismatch,
+            AdminError::SeedMetadataBudget { mib: 1 },
+            AdminError::SourceChanged { fields: Vec::new() },
+            AdminError::Corrupt("row".into()),
+            AdminError::Io(io::ErrorKind::PermissionDenied.into()),
+            AdminError::NotFound,
+            AdminError::Checksum,
+            AdminError::TooLarge,
+            AdminError::Forbidden,
+            AdminError::BodyAborted("body".into()),
+            AdminError::Backend("database".into()),
+        ] {
+            let reason = SeedError::Admin(error).reason().to_string();
+            assert!(
+                !reason.contains(['{', '(', '"']) && !reason.starts_with("administrative"),
+                "{reason}"
+            );
+        }
     }
 
     #[test]
