@@ -43,6 +43,7 @@ pub(crate) use purge::PurgeError;
 pub(crate) mod replay;
 mod reset;
 pub(super) use reset::validate_reset_epoch;
+pub(crate) mod seed_records;
 
 #[cfg(test)]
 mod tests;

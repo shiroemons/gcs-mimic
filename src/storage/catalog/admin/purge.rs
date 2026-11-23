@@ -200,6 +200,7 @@ const DELETED: &[&str] = &[
     "objects",
     "resumable_sessions",
     "rewrite_sessions",
+    "seed_objects",
     "soft_deleted_buckets",
     "upload_replays",
     "xml_multipart_uploads",
@@ -214,6 +215,11 @@ const CASCADED: &[&str] = &[
     "bucket_notifications",
     "xml_multipart_parts",
 ];
+/// The tables whose rows keep the incarnation of a bucket they observed, which no later bucket of
+/// the name shares: a seed bucket mark keeps a purged bucket from being created again while its
+/// fixture directory stays.
+#[cfg(test)]
+const INCARNATION_BOUND: &[&str] = &["seed_buckets"];
 /// The tables of the whole instance: allocators, the reset epoch, the deletion journals the purge
 /// appends to, derived transfers owned by requests, and import state, which refuses the purge
 /// while it would touch the bucket.

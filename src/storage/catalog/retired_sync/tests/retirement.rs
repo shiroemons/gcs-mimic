@@ -417,11 +417,16 @@ async fn released() -> Released {
     }
 }
 
-/// Schema 58 with no synchronization or change journal object left.
+/// Schema 58 with no synchronization or change journal object left. Checks a catalog that the
+/// retirement step upgraded, alone or with every later step of an open.
 #[track_caller]
 fn assert_retired(connection: &Connection) {
-    assert_eq!(user_version(connection), RETIREMENT_SCHEMA_VERSION);
-    validate_schema(connection, RETIREMENT_SCHEMA_VERSION).unwrap();
+    let version = user_version(connection);
+    assert!(
+        [RETIREMENT_SCHEMA_VERSION, CATALOG_SCHEMA_VERSION].contains(&version),
+        "{version}"
+    );
+    validate_schema(connection, version).unwrap();
     assert_eq!(
         names(
             connection,

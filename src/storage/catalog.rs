@@ -149,7 +149,7 @@ use schema::{initialize_catalog, upgrade, validate_schema, validate_schema_versi
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = retired_sync::RETIREMENT_SCHEMA_VERSION;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = admin::seed_records::SCHEMA_VERSION;
 /// Matches `length(CAST(.. AS BLOB)) <= 65536` on the session, rewrite, notification, appendable,
 /// upload replay and multipart documents (schema versions 7, 11, 28, 34, 35 and 37). Those
 /// schema texts are frozen history: raising this needs a migration such as
