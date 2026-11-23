@@ -28,8 +28,12 @@ pub(crate) struct LiveWalk {
     pub(crate) buckets_kept_deleted: usize,
 }
 
-/// What a pass committed, and what it left as it was.
+/// What a pass committed, and what it left as it was. The default is the outcome of a pass that
+/// could not run: it listed nothing and changed nothing.
+#[derive(Default)]
 pub(crate) struct LiveOutcome {
+    /// Whether the walk listed the whole tree, as [`LiveWalk::complete`] says.
+    pub(crate) complete: bool,
     pub(crate) counts: LiveCounts,
     pub(crate) problems: Problems,
 }
@@ -61,6 +65,7 @@ impl SeedBatch {
             && found_directories.is_empty()
         {
             return Ok(LiveOutcome {
+                complete: walk.complete,
                 counts,
                 problems: walk.problems,
             });
@@ -175,7 +180,11 @@ fn commit(
     let transaction = sql::immediate(connection).map_err(objects_error)?;
     let now = super::super::recorded_instant(batch.admin.catalog.0.clock.now())?;
     check_guards(&transaction, SeedMode::Merge, now)?;
-    let LiveWalk { mut problems, .. } = walk;
+    let LiveWalk {
+        complete,
+        mut problems,
+        ..
+    } = walk;
     take_buckets(&transaction, batch, &mut counts, &mut problems)?;
     replay_live_files(&transaction, batch, now, &mut counts, &mut problems)?;
     replay_live_absences(&transaction, batch, (pass, now), &mut counts, &mut problems)?;
@@ -190,7 +199,11 @@ fn commit(
         seed_records::mark_found(&transaction, bucket)?;
     }
     objects::commit_publication(transaction)?;
-    Ok(LiveOutcome { counts, problems })
+    Ok(LiveOutcome {
+        complete,
+        counts,
+        problems,
+    })
 }
 
 /// Forgets the mark of each directory whose name a complete walk, that of pass number `pass` at

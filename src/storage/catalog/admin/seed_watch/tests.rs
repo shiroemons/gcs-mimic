@@ -21,10 +21,11 @@ fn report(pending_deletions: usize, deleted: usize) -> PassReport {
     };
     PassReport::new(
         (UNIX_EPOCH, UNIX_EPOCH),
-        true,
-        counts,
-        Problems::default(),
-        None,
+        Ok(LiveOutcome {
+            complete: true,
+            counts,
+            problems: Problems::default(),
+        }),
     )
 }
 
@@ -128,6 +129,35 @@ async fn a_pass_that_panics_drops_readiness_until_the_replacement_passes_at_once
     wait.await.unwrap().unwrap();
     assert!(catalog.background_tasks_running());
     catalog.close().await.unwrap();
+}
+
+/// A pass that could not run reports why, listed nothing and is not clean; the times of every
+/// report read as RFC 3339.
+#[test]
+fn a_pass_that_could_not_run_reports_why_and_changed_nothing() {
+    let later = UNIX_EPOCH + Duration::from_millis(1500);
+    let failed = PassReport::new((UNIX_EPOCH, later), Err("seed_dir is gone".to_owned()));
+    assert_eq!(
+        serde_json::to_value(&failed).unwrap(),
+        serde_json::json!({
+            "startedAt": "1970-01-01T00:00:00.000Z",
+            "completedAt": "1970-01-01T00:00:01.500Z",
+            "complete": false,
+            "bucketsCreated": 0,
+            "published": 0,
+            "recorded": 0,
+            "deleted": 0,
+            "pendingDeletions": 0,
+            "pendingDirectories": 0,
+            "tombstones": 0,
+            "bucketsKeptDeleted": 0,
+            "problems": [],
+            "problemsOmitted": 0,
+            "error": "seed_dir is gone",
+            "clean": false,
+        })
+    );
+    assert_eq!(serde_json::to_value(report(0, 0)).unwrap()["clean"], true);
 }
 
 #[test]
