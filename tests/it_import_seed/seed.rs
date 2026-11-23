@@ -1268,6 +1268,52 @@ fn a_running_server_replays_the_seed_directory_after_each_interval() {
     server.stop();
 }
 
+/// A pass that cannot run, as while the seed directory is away, reports why and warns with
+/// `seed_pass_failed` and the whole chain of causes, down to the operating system's error. The
+/// passes go on: once the directory is back, a pass applies it.
+#[test]
+fn a_pass_that_cannot_run_warns_with_its_cause_and_the_passes_go_on() {
+    let dir = TestDir::new();
+    let seed = dir.0.join("fixtures");
+    fixture(&seed, "local-bucket/file", b"before");
+    let mut serve = command(&dir.0.join("data"), Some(&seed));
+    serve
+        .args(["--seed-watch-interval-ms", "50", "--admin-enabled", "true"])
+        .stderr(Stdio::piped());
+    let mut server = Server::start(&mut serve, false);
+    let aside = dir.0.join("aside");
+    fs::rename(&seed, &aside).unwrap();
+    common::eventually("a pass that could not run", || {
+        server.json("/_internal/seed")["lastPass"]["error"].is_string()
+    });
+    fs::rename(&aside, &seed).unwrap();
+    fixture(&seed, "local-bucket/file", b"after");
+    common::eventually("a pass over the directory that came back", || {
+        server.media("/storage/v1/b/local-bucket/o/file") == (200, b"after".to_vec())
+    });
+    let stderr = server.child.stderr.take().unwrap();
+    server.stop();
+    let failed: Vec<Value> = BufReader::new(stderr)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap())
+        .filter(|event| event["event"] == "seed_pass_failed")
+        .collect();
+    assert!(!failed.is_empty());
+    for event in failed {
+        assert_eq!(event["level"], "warn", "{event}");
+        assert!(
+            event["pass"].as_u64().is_some_and(|pass| pass > 0),
+            "{event}"
+        );
+        assert!(
+            event["cause"]
+                .as_str()
+                .is_some_and(|cause| cause.contains("os error")),
+            "{event}"
+        );
+    }
+}
+
 /// A folder that directory synchronization used may still hold its marker or its private
 /// workspace, which can keep the only copy of a file a write-back displaced. Startup stops before
 /// the catalog opens, names what is left, and leaves every file as it was; once the operator
