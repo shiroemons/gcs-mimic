@@ -15,6 +15,7 @@ use unsupported as imp;
 
 pub(crate) use imp::directory_at;
 use imp::directory_names_within;
+pub(crate) use imp::uncached_identity;
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };
@@ -254,17 +255,19 @@ pub(crate) struct FileIdentity {
     pub changed_ns: i128,
 }
 
+/// How long after a file's last change an observation of it is settled, in nanoseconds: two
+/// seconds cover the coarsest supported timestamp granularity (HFS+ and FAT).
+const SETTLED_AFTER_NS: i128 = 2_000_000_000;
+
 impl FileIdentity {
     /// Whether these timestamps, observed at `observed_ns`, would show any later change: the last
-    /// change lies two seconds or more before the observation, which covers the coarsest supported
-    /// HFS+/FAT timestamp granularity. Closer to it, a change in the same tick can leave every
-    /// timestamp as it was, so the observation is racy.
-    #[cfg_attr(
-        not(all(test, unix)),
-        expect(dead_code, reason = "only tests use the lookup so far")
-    )]
+    /// modification or status change lies `SETTLED_AFTER_NS` or more before the observation.
+    /// Closer to it, or after it, a change in the same tick can leave the size and every
+    /// timestamp as they were, as with git's racily clean index entries, so the observation is
+    /// racy. The status change counts as well, since a copy that keeps the modification time,
+    /// such as `cp -p`, changes only that.
     pub(crate) fn settled_at(&self, observed_ns: i128) -> bool {
-        observed_ns.saturating_sub(self.modified_ns.max(self.changed_ns)) >= 2_000_000_000
+        observed_ns.saturating_sub(self.modified_ns.max(self.changed_ns)) >= SETTLED_AFTER_NS
     }
 
     /// The fields that differ in `after`.

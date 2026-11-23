@@ -9,16 +9,16 @@ use crate::{
         Catalog,
         admin::{
             Admin, BucketDefinition, BucketName, Origin, Publication, PublishMode, Removed,
-            SeedBatch, SeedMode, initialization::Initialization,
+            SeedBatch, SeedMode,
+            initialization::Initialization,
+            replay::{self, Phase, Unread},
         },
     },
 };
-use decision::{Observation, Outcome, Phase, decide};
 use serde::Serialize;
-use std::{io, path::Path};
-use walk::{Fixture, Object, Opened, Rejected, Seen, Source, Tree, Walked};
+use std::path::Path;
+use walk::{Fixture, Object, Opened, Seen, Source, Tree, Walked};
 
-pub(crate) mod decision;
 mod error;
 mod walk;
 pub use error::SeedError;
@@ -158,33 +158,33 @@ impl From<WalkError> for SeedError {
 fn source_failure(error: crate::storage::admin::AdminError) -> SeedError {
     use crate::storage::admin::AdminError;
     match error {
-        AdminError::Io(cause) => SeedError::Io(io::Error::new(cause.kind(), cause)),
+        AdminError::Io(cause) => SeedError::Io(std::io::Error::new(cause.kind(), cause)),
         error => SeedError::Admin(error),
     }
 }
 
-/// Applies a startup replay's decision at a name where the walk found no file to read: an
-/// unknown or unusable entry fails the replay with `failure`, and a name proven absent is left
-/// alone. With no record of the name, none of these depends on the live object, so it is not
-/// looked up, and failing or leaving the name are all the decision can come to.
-fn replay_unread(
-    observation: &Observation,
-    failure: impl FnOnce() -> SeedError,
-) -> Result<(), SeedError> {
-    match decide(Phase::Startup, observation, None, None) {
-        Outcome::Fail => Err(failure()),
-        Outcome::Publish
-        | Outcome::Record
-        | Outcome::Delete { .. }
-        | Outcome::Keep
-        | Outcome::Forget
-        | Outcome::Skip(_) => Ok(()),
+/// Applies a startup replay's decision at the entry `label`, which the walk could not read or
+/// seeding cannot use for `reason`.
+fn unread(label: &str, reason: impl Into<SeedError>) -> Result<(), SeedError> {
+    match replay::unread(Phase::Startup, reason.into()) {
+        Unread::Fail(error) => Err(error),
+        Unread::Report(error) => {
+            skipped(label, &error.to_string());
+            Ok(())
+        }
     }
 }
 
-/// A replay that failed at a name proven absent would report it as the open that found nothing.
-fn not_found() -> SeedError {
-    SeedError::Io(io::ErrorKind::NotFound.into())
+/// Reports the entry `label`, which a replay left as it was for `reason`.
+fn skipped(label: &str, reason: &str) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Warn,
+        "seed_skipped",
+        serde_json::json!({
+            "path": label,
+            "reason": reason,
+        }),
+    );
 }
 
 /// A fixture tree staged in a batch that has yet to commit.
@@ -291,15 +291,10 @@ impl Seed<'_> {
     /// names no entry, as when the walk itself failed there; any other names it by `label`.
     async fn entry(&mut self, label: String, fixture: Fixture) -> Result<(), SeedError> {
         let replayed = match fixture {
-            Fixture::Unknown(unknown) => {
-                return replay_unread(&Observation::Unknown, || unknown.into());
-            }
-            Fixture::Absent(vacant) => {
-                return replay_unread(&Observation::Absent(vacant), not_found);
-            }
-            Fixture::Unusable(Rejected { reason, error }) => {
-                replay_unread(&Observation::Unusable(reason), || error)
-            }
+            Fixture::Unknown(unknown) => return unread(&label, unknown),
+            // No record is kept yet, so a name proven absent owns nothing a replay could delete.
+            Fixture::Absent(_) => return Ok(()),
+            Fixture::Unusable(rejected) => unread(&label, rejected),
             Fixture::OsMetadata => {
                 self.skipped_os_metadata += 1;
                 Ok(())
@@ -307,19 +302,12 @@ impl Seed<'_> {
             // fake-gcs-server ignores top-level files, and an implicit /data mount often holds
             // a README or .gitkeep, so skipping keeps such trees startable.
             Fixture::TopLevelFile => {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Warn,
-                    "seed_skipped",
-                    serde_json::json!({
-                        "path": &label,
-                        "reason": "top-level entries must be bucket directories",
-                    }),
-                );
+                skipped(&label, "top-level entries must be bucket directories");
                 Ok(())
             }
             Fixture::Bucket(leaf) => self.bucket(&leaf),
             Fixture::Directory => Ok(()),
-            Fixture::Object(object) => self.object(*object).await,
+            Fixture::Object(object) => self.object(&label, *object).await,
         };
         replayed.map_err(|error| SeedError::Entry {
             label,
@@ -342,7 +330,7 @@ impl Seed<'_> {
 
     /// Stages a fixture file. Whether it replaces the live object is decided when the batch
     /// commits, where the live object is known.
-    async fn object(&mut self, object: Object) -> Result<(), SeedError> {
+    async fn object(&mut self, label: &str, object: Object) -> Result<(), SeedError> {
         let Object {
             bucket,
             name,
@@ -355,12 +343,8 @@ impl Seed<'_> {
             fingerprint,
         } = match source {
             Source::File(opened) => *opened,
-            Source::Absent(vacant) => {
-                return replay_unread(&Observation::Absent(vacant), not_found);
-            }
-            Source::Unknown(unknown) => {
-                return replay_unread(&Observation::Unknown, || unknown.into());
-            }
+            Source::Absent(_) => return Ok(()),
+            Source::Unknown(unknown) => return unread(label, unknown),
         };
         let config = self.config;
         if !metadata.is_file() || metadata.len() > config.max_object_bytes {

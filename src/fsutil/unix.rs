@@ -150,10 +150,6 @@ pub fn directory_writable(directory: &File) -> io::Result<()> {
     unsafe_code,
     reason = "statx with AT_STATX_FORCE_SYNC has no safe std equivalent"
 )]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "only tests use the lookup so far")
-)]
 pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
     const NEEDED: libc::c_uint =
         libc::STATX_INO | libc::STATX_SIZE | libc::STATX_MTIME | libc::STATX_CTIME;
@@ -196,10 +192,6 @@ pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> 
 /// The identity of `file` as `fstat` reports it. Other Unix platforms have no request past a
 /// network mount's attribute cache, so a lookup there sees what that cache answers.
 #[cfg(not(target_os = "linux"))]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "only tests use the lookup so far")
-)]
 pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
     Ok(super::stat_identity(file)?)
 }
