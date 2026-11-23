@@ -429,9 +429,14 @@ a new live generation with seed default metadata (versioned buckets keep the
 previous one as noncurrent). Since 0.8.0, a changed protected fixture
 fails the complete prepared-tree replay, preserving the preceding namespace and
 emitting no ready event. An identical protected fixture is unchanged. Holds and
-storage class are not part of same-body comparison. Objects without a seed file
-are untouched, and removing a seed file never deletes an object. Seed input is
-not watched. Since 0.8.0, an opt-in [reseed endpoint](slices/atomic-seed-reseed.md)
+storage class are not part of same-body comparison. Objects seeding did not
+publish are untouched; removing a seed file deletes the object seeding published
+for it, unless an API request changed it or a hold or retention period protects
+it. While the server runs, a pass applies changed, added and removed seed files
+every `seed_watch_interval_ms` (1000 by default; 0 stops it), and with
+`--admin-enabled`, `gcs-mimic seed wait` returns once a pass applied them; see
+[passes while the server runs](slices/seed.md#passes-while-the-server-runs).
+Since 0.8.0, an opt-in [reseed endpoint](slices/atomic-seed-reseed.md)
 (with `--admin-enabled`) offers disk merge and RAM replacement. The ready event's `seed` field reports `buckets` and
 `objects` (newly created), `replaced`, `unchanged`, `blocked` and
 `skipped_os_metadata`; successful atomic replay has `blocked=0`. 0.7.0 and earlier
