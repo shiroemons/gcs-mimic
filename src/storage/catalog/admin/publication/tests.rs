@@ -40,7 +40,7 @@ fn staging_ownership_distinguishes_creation_collision_from_later_failure() {
     let stage = dir.0.join("stage");
     fs::write(&stage, b"other owner").unwrap();
     assert!(matches!(
-        stage_file(&input, &stage, None, ExpectedHashes::default(), 1024),
+        stage_file(&input, &stage, ExpectedHashes::default(), 1024),
         Err(StageFailure::NotCreated(AdminError::Io(_)))
     ));
     assert_eq!(fs::read(&stage).unwrap(), b"other owner");
@@ -50,38 +50,36 @@ fn staging_ownership_distinguishes_creation_collision_from_later_failure() {
     COPY_HOOK
         .with_borrow_mut(|hook| *hook = Some(Box::new(move || fs::write(path, b"x").unwrap())));
     assert!(matches!(
-        stage_file(&input, &stage, None, ExpectedHashes::default(), 1024),
+        stage_file(&input, &stage, ExpectedHashes::default(), 1024),
         Err(StageFailure::Created(AdminError::SourceChanged { .. }))
     ));
     FORCE_COPY.set(false);
     assert_eq!(fs::read(stage).unwrap(), b"source");
 }
 
-/// A source that no longer has the identity an earlier stat of it observed is refused as changed
-/// before anything is staged, so what the caller keeps of that stat never describes other bytes.
+/// Staging reports what the source was just before it read it, so a source rewritten after the
+/// caller opened it is staged with what it holds then, and the fingerprint describes those
+/// bytes rather than what the caller saw.
 #[test]
-fn a_source_changed_since_it_was_observed_is_refused_before_staging() {
+fn staging_fingerprints_the_source_as_it_reads_it() {
     let dir = crate::test_support::TestDir::new();
     let input = source(&dir.0, b"source");
-    let observed = crate::fsutil::uncached_identity(&input).unwrap();
-    fs::write(dir.0.join("source"), b"changed").unwrap();
-    let stage = dir.0.join("stage");
-    assert!(matches!(
-        stage_file(&input, &stage, Some(observed), ExpectedHashes::default(), 1024),
-        Err(StageFailure::NotCreated(AdminError::SourceChanged { fields }))
-            if fields.contains(&crate::fsutil::IdentityField::Size)
-    ));
-    assert!(!stage.exists());
-    let current = crate::fsutil::uncached_identity(&input).unwrap();
-    let Staged { size, .. } = stage_file(
+    let opened = crate::fsutil::uncached_identity(&input).unwrap();
+    fs::write(dir.0.join("source"), b"rewritten").unwrap();
+    let staged = stage_file(
         &input,
-        &stage,
-        Some(current),
+        &dir.0.join("stage"),
         ExpectedHashes::default(),
         1024,
     )
     .unwrap();
-    assert_eq!(size, 7);
+    assert_eq!(staged.size, 9);
+    assert_eq!(fs::read(dir.0.join("stage")).unwrap(), b"rewritten");
+    assert_eq!(
+        staged.source.identity(),
+        crate::fsutil::uncached_identity(&input).unwrap()
+    );
+    assert_ne!(staged.source.identity(), opened);
 }
 
 #[test]
@@ -99,7 +97,7 @@ fn already_exists_after_staging_creation_still_requires_cleanup() {
         Fault::Io(io::ErrorKind::AlreadyExists),
     );
     assert!(
-        matches!(stage_file(&input, &stage, None, ExpectedHashes::default(), 1024), Err(StageFailure::Created(AdminError::Io(cause))) if cause.kind() == io::ErrorKind::AlreadyExists)
+        matches!(stage_file(&input, &stage, ExpectedHashes::default(), 1024), Err(StageFailure::Created(AdminError::Io(cause))) if cause.kind() == io::ErrorKind::AlreadyExists)
     );
     FORCE_COPY.set(false);
     assert!(stage.exists());
@@ -706,7 +704,7 @@ async fn a_seed_commit_and_a_publication_behind_it_end_by_their_deadlines() {
     let mut batch = admin.seed_batch().await.unwrap();
     let input = entry(&admin, &dir.0, "behind", b"behind").await;
     batch
-        .object(
+        .fixture(
             BucketName::new("test-bucket").unwrap(),
             ObjectName::new("seeded").unwrap(),
             request(None),
@@ -951,8 +949,8 @@ fn publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers() 
     });
     let stage = dir.0.join("snapshot");
     FORCE_COPY.set(true);
-    let Staged { size, hashes } =
-        stage_file(&input, &stage, None, ExpectedHashes::default(), 200_000).unwrap();
+    let Staged { size, hashes, .. } =
+        stage_file(&input, &stage, ExpectedHashes::default(), 200_000).unwrap();
     assert_eq!(size, bytes.len() as u64);
     assert_eq!(hashes.crc32c, crc32c::crc32c(&fs::read(stage).unwrap()));
     let input = source(&dir.0, &bytes);
@@ -963,7 +961,6 @@ fn publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers() 
     let result = stage_file(
         &input,
         &dir.0.join("drift"),
-        None,
         ExpectedHashes::default(),
         200_000,
     );

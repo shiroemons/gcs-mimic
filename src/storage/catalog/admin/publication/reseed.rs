@@ -51,11 +51,14 @@ pub(crate) struct Removed {
 /// One staged fixture file.
 struct SeedEntry {
     publication: BatchPublication,
-    /// What the fixture file's handle reported when the walk opened it, which the record of
-    /// the replay keeps.
-    #[expect(
-        dead_code,
-        reason = "the seed record table that keeps each replayed file's fingerprint is not wired yet"
+    /// What the fixture file was when staging read the bytes the entry publishes, which the
+    /// record of the replay keeps.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the seed record table that keeps each replayed file's fingerprint is not wired yet"
+        )
     )]
     fingerprint: Fingerprint,
 }
@@ -207,31 +210,17 @@ impl SeedBatch {
         Ok(())
     }
 
-    /// Stages `source` as a fixture, with the fingerprint its handle reports.
-    #[cfg(test)]
-    pub(crate) async fn object(
-        &mut self,
-        bucket: BucketName,
-        name: ObjectName,
-        request: Publication,
-        source: File,
-    ) -> Result<(), AdminError> {
-        let observed = std::time::SystemTime::now();
-        let fingerprint = Fingerprint::new(fsutil::uncached_identity(&source)?, observed);
-        self.fixture(bucket, name, request, source, fingerprint)
-            .await
-    }
-
-    /// Stages the fixture file `source`, whose handle reported `fingerprint` when the walk
-    /// opened it. A file that changed since then fails with `SourceChanged`, so the fingerprint
-    /// describes the bytes staged; a pass while running takes that failure for an unknown name.
+    /// Stages the fixture file `source` with what it holds when staging reads it, even where it
+    /// changed after the walk opened it, as a startup replay always has. The replay keeps the
+    /// fingerprint the staging read took, which describes exactly the bytes staged. A file that
+    /// changes while it is read fails with `SourceChanged`, which a pass while running takes for
+    /// an unknown name.
     pub(crate) async fn fixture(
         &mut self,
         bucket: BucketName,
         name: ObjectName,
         request: Publication,
         source: File,
-        fingerprint: Fingerprint,
     ) -> Result<(), AdminError> {
         request.metadata.validate()?;
         self.charge_metadata(
@@ -243,14 +232,10 @@ impl SeedBatch {
         // The batch owns one activity/admission lease; individual 256-handle permits must not deadlock a larger tree.
         let staged = self
             .admin
-            .stage_observed_file(
-                source,
-                fingerprint.identity(),
-                request.expected,
-                request.max_bytes,
-            )
+            .stage_from_file(source, request.expected, request.max_bytes)
             .await?
             .into_batch(self.request.clone());
+        let fingerprint = staged.fingerprint();
         self.entries.push(SeedEntry {
             publication: BatchPublication {
                 bucket,

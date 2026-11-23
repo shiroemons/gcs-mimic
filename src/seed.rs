@@ -349,11 +349,7 @@ impl Seed<'_> {
             leaf,
             source,
         } = object;
-        let Opened {
-            file,
-            metadata,
-            fingerprint,
-        } = match source {
+        let Opened { file, metadata, .. } = match source {
             Source::File(opened) => *opened,
             Source::Absent(_) => {
                 vanished(label);
@@ -373,9 +369,7 @@ impl Seed<'_> {
             max_bytes: config.max_object_bytes,
             mode: PublishMode::Replace,
         };
-        self.batch
-            .fixture(bucket, name, request, file, fingerprint)
-            .await?;
+        self.batch.fixture(bucket, name, request, file).await?;
         Ok(())
     }
 }
