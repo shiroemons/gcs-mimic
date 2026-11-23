@@ -216,8 +216,10 @@ a directory past a limit and a bucket of another project under a directory's
 name. On native Windows a removed file never deletes its object. A pass that
 cannot run warns with `seed_pass_failed` (fields `pass` and `cause`, the whole
 cause chain), once when passes start failing and again only when the reason
-changes; `seed_pass_recovered` at info level reports the next success. Renaming a file only by
-case on a case-insensitive filesystem keeps the object of the old name. The
+changes; `seed_pass_recovered` at info level reports the next success with the
+number of failed passes as `failed_passes`. `--log-level warn` hides
+`seed_pass_recovered`, and `--log-level error` hides both. Renaming a file only
+by case on a case-insensitive filesystem keeps the object of the old name. The
 watch polls, so a change takes effect within about the interval.
 
 With local administration (`GCS_MIMIC_ADMIN_ENABLED=true`, on an isolated
