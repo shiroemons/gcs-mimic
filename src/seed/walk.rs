@@ -397,7 +397,7 @@ impl Tree {
             Err(error) => self.unread(relative, error),
         };
         Ok(Seen {
-            label: relative.display().to_string(),
+            label: label(relative),
             fixture,
         })
     }
@@ -571,6 +571,16 @@ fn opened(opened: io::Result<crate::fsutil::Opened<File>>) -> Result<File, Unope
         Ok(crate::fsutil::Opened::Unopenable) => Err(Unknown::Unopenable.into()),
         Err(error) => Err(Unknown::Io(error).into()),
     }
+}
+
+/// The path below the root with `/` between its components on every platform, as bucket and
+/// object names join them, so that a report or a warning names an entry the same way on Windows.
+fn label(relative: &Path) -> String {
+    relative
+        .iter()
+        .map(OsStr::to_string_lossy)
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[cfg(test)]
