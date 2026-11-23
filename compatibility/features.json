@@ -69499,7 +69499,7 @@
         },
         {
           "id": "catalog-retired-synchronization-schema",
-          "description": "The schema steps that released directory synchronization added (17, 19, 20, 21, 27, 40, 41, 42 and 50) stay frozen, so a data directory from any release up to 0.27.0 still upgrades and validates. Schema 17 commits whole and a catalog keeps exactly one identity; the schema 50 deletion history step commits whole and clears its automatic count only at a new baseline. A catalog with synchronization rows from before schema 40 upgrades with them through schema 57: each finding gains the owner of the bucket incarnation it names, or none when that incarnation is gone, and each root gains one observation and one deletion history. Schema 58, in one transaction, copies the reset epoch from change_journal_state into the new reset_epoch table, drops change_journal and change_journal_state, which nothing has read since synchronization was removed, and drops the 16 synchronization tables with their 9 indexes and 32 triggers; a failed step leaves schema 57 with its rows and its epoch, and catalog_identity stays. A schema 57 catalog keeps a non-zero epoch through the upgrade, reset and replacing reseed read and raise it in reset_epoch, and a reset whose commit reports an error after it succeeded still resolves by it. Pending write-backs and deletion sets go with their rows, while the objects they name keep their rows and bytes. When conflict copies not yet discarded, write-backs past a prepared publish that are not complete, or recovery workspaces not yet released remain, sync-retired.json in the data directory lists them first, in a stable order, with every formerly synchronized folder as the old process saw it (a path that is not UTF-8 also as base64), the target object of each copy and entry, and a copy's digests or \"unreadable\" when its stored digests cannot be decoded. The manifest goes through a staged file that is created anew without following a link at its name, flushed, synced, renamed and made durable by a directory sync. A manifest name that holds other content keeps its bytes and the next free sync-retired.<n>.json is used; one with the same content is reused. A failed write, flush, sync, rename, directory sync or commit, and an abort or power-loss snapshot at each of those steps, restart into the same manifest with every file under sync-conflicts/ and in the synchronized folder unchanged; a manifest I/O error names its step and path; at the commit the manifest already survives a power loss. Each kind of row that names a file writes the manifest alone; rows that name no file write no manifest and leave an earlier one as it is, and a catalog without a data directory refuses rows that do. Every supported release fixture opens with no synchronization or change journal object, the epoch it held, and no manifest. The commit warns once with sync_retired_files_listed, naming the manifest, the conflict copies and the workspace entries of each folder. Each start warns once with sync_retired_files while a manifest remains or sync-conflicts/ holds entries other than operating-system and editor files, giving the entry count, how many of them a manifest lists, every manifest and its workspace entries, and leaves every file in place; a path it cannot read gets sync_retired_files_unchecked with the error, and the start goes on.",
+          "description": "The schema steps that released directory synchronization added (17, 19, 20, 21, 27, 40, 41, 42 and 50) stay frozen, so a data directory from any release up to 0.27.0 still upgrades and validates. Schema 17 commits whole and a catalog keeps exactly one identity; the schema 50 deletion history step commits whole and clears its automatic count only at a new baseline. A catalog with synchronization rows from before schema 40 upgrades with them through schema 57: each finding gains the owner of the bucket incarnation it names, or none when that incarnation is gone, and each root gains one observation and one deletion history. Schema 58, in one transaction, copies the reset epoch from change_journal_state into the new reset_epoch table, drops change_journal and change_journal_state, which nothing has read since synchronization was removed, and drops the 16 synchronization tables with their 9 indexes and 32 triggers; a failed step leaves schema 57 with its rows and its epoch, and catalog_identity stays. A schema 57 catalog keeps a non-zero epoch through the upgrade, reset and replacing reseed read and raise it in reset_epoch, and a reset whose commit reports an error after it succeeded still resolves by it. Pending write-backs and deletion sets go with their rows, while the objects they name keep their rows and bytes. When conflict copies not yet discarded, write-backs past a prepared publish that are not complete, or recovery workspaces not yet released remain, sync-retired.json in the data directory lists them first, in a stable order, with every formerly synchronized folder as the old process saw it (a path that is not UTF-8 also as base64), the target object of each copy and entry, and a copy's digests or \"unreadable\" when its stored digests cannot be decoded. The manifest goes through a staged file with a new name for each attempt, sync-retired.json.<32 lowercase hex digits>.tmp, which is created without following a link, flushed, synced, renamed without replacing an existing name and made durable by a directory sync. The staged files earlier attempts left, recognised by exactly that name form, are removed first and no other file is; one that cannot be removed yet is left with a sync_retired_staged_kept warning and does not fail the start. A manifest name that holds other content keeps its bytes, including a name taken after the search found it free, and the next free sync-retired.<n>.json is used; the search stops after sync-retired.9999.json with an error that names the data directory and leaves schema 57. A name with the same content is reused and the staged copy removed. A failed write, flush, sync, rename, directory sync or commit, a directory sync that fails after an earlier start already published the same manifest, and an abort or power-loss snapshot at each of those steps, restart into the same manifest bytes with every file under sync-conflicts/ and in the synchronized folder unchanged; a manifest I/O error names its step and path and keeps the I/O error's classification and cause; at the commit the manifest already survives a power loss. Each kind of row that names a file writes the manifest alone; rows that name no file write no manifest and leave an earlier one as it is, and a catalog without a data directory refuses rows that do. Every supported release fixture opens with no synchronization or change journal object, the epoch it held, and no manifest. The commit warns once with sync_retired_files_listed, naming the manifest, the conflict copies and the workspace entries of each folder. Each start warns once with sync_retired_files while a manifest remains or sync-conflicts/ holds entries other than operating-system and editor files, giving the entry count, how many of them a manifest lists, every manifest and its workspace entries, and leaves every file in place; a path it cannot read gets sync_retired_files_unchecked with the error and its causes, and the start goes on.",
           "result": "PASS",
           "test_ids": [
             "the_identity_step_commits_whole_and_a_catalog_keeps_exactly_one_identity",
@@ -69518,6 +69518,10 @@
             "a_link_at_the_staged_name_is_removed_rather_than_followed",
             "a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_finishes",
             "a_manifest_with_other_content_is_kept_and_the_next_free_name_is_used",
+            "a_manifest_name_taken_before_the_rename_is_kept_and_the_next_name_is_used",
+            "a_start_that_finds_every_manifest_name_taken_fails_and_names_the_directory",
+            "staged_manifests_earlier_attempts_left_are_removed_and_nothing_else",
+            "contextual_catalog_failures_keep_classification_and_sources",
             "a_crash_at_each_manifest_step_or_before_the_commit_restarts_with_the_same_manifest",
             "supported_release_data_directories_upgrade_without_changing_resources",
             "start_warns_once_while_the_data_directory_holds_synchronization_copies",
@@ -69563,6 +69567,10 @@
         "a_link_at_the_staged_name_is_removed_rather_than_followed",
         "a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_finishes",
         "a_manifest_with_other_content_is_kept_and_the_next_free_name_is_used",
+        "a_manifest_name_taken_before_the_rename_is_kept_and_the_next_name_is_used",
+        "a_start_that_finds_every_manifest_name_taken_fails_and_names_the_directory",
+        "staged_manifests_earlier_attempts_left_are_removed_and_nothing_else",
+        "contextual_catalog_failures_keep_classification_and_sources",
         "a_crash_at_each_manifest_step_or_before_the_commit_restarts_with_the_same_manifest",
         "start_warns_once_while_the_data_directory_holds_synchronization_copies",
         "start_warns_while_a_manifest_lists_only_workspace_entries",
@@ -69570,7 +69578,20 @@
       ],
       "verification": [
         {
-          "command": "CARGO_PROFILE_DEV_DEBUG=line-tables-only cargo test --locked --offline --lib (2359 passed)",
+          "command": "CARGO_PROFILE_DEV_DEBUG=line-tables-only cargo test --locked --offline --lib -- storage::catalog::retired_sync storage::failure:: (38 passed)",
+          "result": "PASS",
+          "verified_at": "2026-11-24",
+          "artifact": "docs/en/container-usage.md",
+          "test_ids": [
+            "a_manifest_name_taken_before_the_rename_is_kept_and_the_next_name_is_used",
+            "a_start_that_finds_every_manifest_name_taken_fails_and_names_the_directory",
+            "staged_manifests_earlier_attempts_left_are_removed_and_nothing_else",
+            "contextual_catalog_failures_keep_classification_and_sources",
+            "a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_finishes"
+          ]
+        },
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=line-tables-only cargo test --locked --offline --lib (2372 passed)",
           "result": "PASS",
           "verified_at": "2026-11-24",
           "artifact": "docs/en/container-usage.md",
