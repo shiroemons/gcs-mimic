@@ -296,23 +296,42 @@ fn count(directory: &Path, listed: &BTreeSet<String>) -> io::Result<(u64, u64)> 
     Ok((held, named))
 }
 
+/// A path a warning names, with the error that stopped the work on it.
 #[derive(Serialize)]
-struct Unreadable {
+struct Unfinished {
     message: String,
     path: String,
     error: String,
 }
 
 /// Warns that the start could not check `path`, and goes on.
-fn unreadable(path: &Path, error: &dyn Error) {
+pub(super) fn unreadable(path: &Path, error: &dyn Error) {
     let path = path.display().to_string();
     emit(
         LogLevel::Warn,
         "sync_retired_files_unchecked",
-        Unreadable {
+        Unfinished {
             message: format!(
                 "could not check {path} for files the removed directory synchronization left: \
                  {error}; the start goes on"
+            ),
+            path,
+            error: error.to_string(),
+        },
+    );
+}
+
+/// Warns that the staged manifest at `path`, which an attempt left, could not be removed yet. A
+/// later attempt removes it; this one stages under a name of its own.
+pub(super) fn staged_kept(path: &Path, error: &dyn Error) {
+    let path = path.display().to_string();
+    emit(
+        LogLevel::Warn,
+        "sync_retired_staged_kept",
+        Unfinished {
+            message: format!(
+                "could not remove {path}, a staged retired synchronization manifest: {error}; \
+                 a later start removes it"
             ),
             path,
             error: error.to_string(),
