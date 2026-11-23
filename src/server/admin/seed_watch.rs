@@ -35,8 +35,8 @@ pub(super) fn status(
 }
 
 /// `POST /_internal/seed/wait`: starts a pass now and answers with the report of the first pass
-/// that started after the request and left no removed file or directory waiting for its second
-/// proof, so that every change made to the tree before the request is applied or reported.
+/// that started after the request and left no removed file waiting for its second proof, so that
+/// every change made to the tree before the request is applied or reported.
 pub(super) async fn respond_wait(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
@@ -72,7 +72,7 @@ async fn wait(
             "No pass replays seed_dir while the server runs; configure seed_dir and a positive seed_watch_interval_ms at startup",
         )),
         Err(WaitError::TimedOut) => Err(ApiError::service_unavailable(format!(
-            "No pass over seed_dir finished within {} ms without a removed file or directory waiting for its second proof; retry, or wait longer with timeoutMs",
+            "No pass over seed_dir finished within {} ms without a removed file waiting for its second proof; retry, or wait longer with timeoutMs",
             timeout.as_millis()
         ))),
         Err(WaitError::Closed) => Err(ApiError::service_unavailable(
