@@ -21,23 +21,12 @@
 //!   [`truncated`] lowers the durable length when a seamed path cuts a file back, so bytes
 //!   written again past the cut stay volatile until the next recorded sync. Whether the cut
 //!   itself survives is not modeled: the snapshot cannot bring back bytes already gone.
-//! - Directory entries: [`dir_created`], [`file_created`], [`unlinked`], [`dir_removed`] and
-//!   [`renamed`] record entries that stay volatile until [`dir_synced`] syncs their parent. The
-//!   snapshot undoes them, newest first: a volatile rename moves the file back to its old name, a
-//!   volatile new entry vanishes, a volatile unlink restores bytes from its retained test
-//!   descriptor, and a volatile directory removal creates the empty directory again. Only an
-//!   empty directory can be removed, so nothing inside it needs restoring; the snapshot fails if
-//!   the directory's name is taken again, because skipping that undo would invent a state no
-//!   power loss leaves. Entries made by paths outside these seams are not modeled; they survive
-//!   as they are on disk.
-//! - Renames that change two directory entries: [`exchanged`] records two names that swapped
-//!   their files, and [`moved`] a file that moved to a new name in another directory. Either
-//!   stays volatile until both directories are synced: no single directory sync is specified to
-//!   make a change to two directories durable. The model assumes the rename itself is atomic, so
-//!   a power loss keeps the change whole or undoes it whole, never half of it. The snapshot
-//!   undoes it the same way, exchanging the two names again or moving the file back without
-//!   replacing anything, and fails if either name is missing or the old name is taken again:
-//!   skipping that undo would invent a state no power loss leaves.
+//! - Directory entries: [`dir_created`], [`file_created`], [`unlinked`] and [`renamed`] record
+//!   entries that stay volatile until [`dir_synced`] syncs their parent. The snapshot undoes
+//!   them, newest first: a volatile rename moves the file back to its old name, a volatile new
+//!   entry vanishes, and a volatile unlink restores bytes from its retained test descriptor.
+//!   Entries made by paths outside these seams are not modeled; they survive as they are on
+//!   disk.
 //! - SQLite files keep their on-disk state: SQLite syncs them itself, and its WAL commit
 //!   protocol is not what these tests check.
 //! - Unix only, because directory fsync is the unix publication protocol.
@@ -417,8 +406,8 @@ fn fire(fired: Armed, step: Step) -> Result<(), Injected> {
 struct Ledger {
     /// Durable length per file, keyed by device and inode.
     durable: HashMap<(u64, u64), u64>,
-    /// Directory entries that a directory sync has yet to make durable, oldest first.
-    volatile: Vec<Volatile>,
+    /// Directory entries whose parent has not been synced since, oldest first.
+    volatile: Vec<Entry>,
 }
 
 #[cfg(unix)]
@@ -426,59 +415,19 @@ enum Entry {
     Created(PathBuf),
     CreatedFile(PathBuf),
     Unlinked { path: PathBuf, file: fs::File },
-    RemovedDirectory(PathBuf),
     Renamed { from: PathBuf, to: PathBuf },
-    Exchanged { left: PathBuf, right: PathBuf },
-    Moved { from: PathBuf, to: PathBuf },
 }
 
 #[cfg(unix)]
 impl Entry {
-    /// The directories whose syncs together make this entry durable.
-    fn parents(&self) -> Vec<PathBuf> {
-        let mut parents: Vec<PathBuf> = match self {
+    /// The directory whose sync makes this entry durable.
+    fn parent(&self) -> Option<&Path> {
+        match self {
             Self::Created(path)
             | Self::CreatedFile(path)
             | Self::Unlinked { path, .. }
-            | Self::RemovedDirectory(path)
-            | Self::Renamed { to: path, .. } => vec![path],
-            Self::Exchanged {
-                left: first,
-                right: second,
-            }
-            | Self::Moved {
-                from: first,
-                to: second,
-            } => vec![first, second],
+            | Self::Renamed { to: path, .. } => path.parent(),
         }
-        .into_iter()
-        .filter_map(|path| path.parent().map(Path::to_owned))
-        .collect();
-        parents.dedup();
-        parents
-    }
-}
-
-/// A directory entry that a power loss would undo, with the directories still to be synced.
-#[cfg(unix)]
-struct Volatile {
-    entry: Entry,
-    unsynced: Vec<PathBuf>,
-}
-
-#[cfg(unix)]
-impl Volatile {
-    fn new(entry: Entry) -> Self {
-        Self {
-            unsynced: entry.parents(),
-            entry,
-        }
-    }
-
-    /// Counts the sync of `synced`; whether the entry still awaits the sync of another directory.
-    fn volatile_after(&mut self, synced: &Path) -> bool {
-        self.unsynced.retain(|parent| parent != synced);
-        !self.unsynced.is_empty()
     }
 }
 
@@ -492,16 +441,6 @@ fn inode(metadata: &fs::Metadata) -> (u64, u64) {
 #[cfg(unix)]
 fn sqlite_file(name: &std::ffi::OsStr) -> bool {
     name.to_string_lossy().starts_with("catalog.sqlite3")
-}
-
-/// Whether any entry, a dangling symlink included, has the name `path`.
-#[cfg(unix)]
-fn present(path: &Path) -> io::Result<bool> {
-    match fs::symlink_metadata(path) {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error),
-    }
 }
 
 /// Resolves `path` like [`key`], through its parent when the path itself is gone.
@@ -580,7 +519,7 @@ pub(crate) fn truncated(data_dir: &Path, metadata: &fs::Metadata) {
 #[cfg(unix)]
 pub(crate) fn dir_created(path: &Path) {
     record(path, |ledger, path| {
-        ledger.volatile.push(Volatile::new(Entry::Created(path)));
+        ledger.volatile.push(Entry::Created(path));
     });
 }
 
@@ -588,9 +527,7 @@ pub(crate) fn dir_created(path: &Path) {
 #[cfg(unix)]
 pub(crate) fn file_created(path: &Path) {
     record(path, |ledger, path| {
-        ledger
-            .volatile
-            .push(Volatile::new(Entry::CreatedFile(path)));
+        ledger.volatile.push(Entry::CreatedFile(path));
     });
 }
 
@@ -621,23 +558,13 @@ pub(crate) fn unlinked(path: &Path, file: &fs::File) -> io::Result<()> {
         .filter(|fault| path.starts_with(&fault.data_dir))
     {
         if let Some(ledger) = &mut fault.ledger {
-            ledger.volatile.push(Volatile::new(Entry::Unlinked {
+            ledger.volatile.push(Entry::Unlinked {
                 path: path.clone(),
                 file: file.try_clone()?,
-            }));
+            });
         }
     }
     Ok(())
-}
-
-/// Records that the empty directory at `path` was removed, durable only once its parent is synced.
-#[cfg(unix)]
-pub(crate) fn dir_removed(path: &Path) {
-    record(path, |ledger, path| {
-        ledger
-            .volatile
-            .push(Volatile::new(Entry::RemovedDirectory(path)));
-    });
 }
 
 /// Records a rename, durable only once the destination's directory is synced.
@@ -645,36 +572,10 @@ pub(crate) fn dir_removed(path: &Path) {
 pub(crate) fn renamed(from: &Path, to: &Path) {
     let from = resolve(from);
     record(to, |ledger, to| {
-        ledger.volatile.push(Volatile::new(Entry::Renamed {
+        ledger.volatile.push(Entry::Renamed {
             from: from.clone(),
             to,
-        }));
-    });
-}
-
-/// Records that the files at `left` and `right` swapped names in one atomic exchange, durable
-/// only once both of their directories are synced.
-#[cfg(unix)]
-pub(crate) fn exchanged(left: &Path, right: &Path) {
-    let left = resolve(left);
-    record(right, |ledger, right| {
-        ledger.volatile.push(Volatile::new(Entry::Exchanged {
-            left: left.clone(),
-            right,
-        }));
-    });
-}
-
-/// Records that the file at `from` moved to the new name `to`, which it did not replace, durable
-/// only once both of their directories are synced.
-#[cfg(unix)]
-pub(crate) fn moved(from: &Path, to: &Path) {
-    let from = resolve(from);
-    record(to, |ledger, to| {
-        ledger.volatile.push(Volatile::new(Entry::Moved {
-            from: from.clone(),
-            to,
-        }));
+        });
     });
 }
 
@@ -684,7 +585,7 @@ pub(crate) fn dir_synced(path: &Path) {
     record(path, |ledger, path| {
         ledger
             .volatile
-            .retain_mut(|change| change.volatile_after(&path));
+            .retain(|entry| entry.parent() != Some(path.as_path()));
     });
 }
 
@@ -719,8 +620,8 @@ impl Ledger {
                 .map(|relative| target.join(relative))
                 .map_err(|_| io::Error::other("volatile entry outside the data directory"))
         };
-        for change in self.volatile.iter().rev() {
-            self.undo(&change.entry, &relocate)?;
+        for entry in self.volatile.iter().rev() {
+            self.undo(entry, &relocate)?;
         }
         Ok(())
     }
@@ -750,43 +651,11 @@ impl Ledger {
                     self.restore_unlinked(&path, file)?;
                 }
             }
-            Entry::RemovedDirectory(path) => {
-                let path = relocate(path)?;
-                if present(&path)? {
-                    return Err(io::Error::other(format!(
-                        "cannot undo the volatile removal of directory {}: its name is taken",
-                        path.display()
-                    )));
-                }
-                fs::create_dir(path)?;
-            }
             Entry::Renamed { from, to } => {
                 let to = relocate(to)?;
                 if to.exists() {
                     fs::rename(to, relocate(from)?)?;
                 }
-            }
-            Entry::Exchanged { left, right } => {
-                let (left, right) = (relocate(left)?, relocate(right)?);
-                if !present(&left)? || !present(&right)? {
-                    return Err(io::Error::other(format!(
-                        "cannot undo the volatile exchange of {} and {}: a name is missing",
-                        left.display(),
-                        right.display()
-                    )));
-                }
-                crate::fsutil::exchange_paths(&left, &right)?;
-            }
-            Entry::Moved { from, to } => {
-                let (from, to) = (relocate(from)?, relocate(to)?);
-                if !present(&to)? || present(&from)? {
-                    return Err(io::Error::other(format!(
-                        "cannot undo the volatile move of {} to {}: the file is gone or its old name is taken",
-                        from.display(),
-                        to.display()
-                    )));
-                }
-                crate::fsutil::rename_noreplace(&to, &from)?;
             }
         }
         Ok(())

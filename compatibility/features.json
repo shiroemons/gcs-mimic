@@ -61181,9 +61181,6 @@
       ],
       "test_ids": [
         "fatal_listener_failure_drains_background_work_before_catalog_close",
-        "exchanges_and_moves_between_directories_need_both_directory_syncs",
-        "undoing_an_exchange_with_a_missing_name_fails_the_snapshot",
-        "undoing_a_move_onto_a_taken_name_fails_the_snapshot",
         "obj_http_restart_and_sigkill_mid_upload_clean_staging",
         "obj_http_sigkill_after_blob_rename_before_commit_and_after_success",
         "recovery_clears_staging_orphans_and_pending_deletions_preserving_live_objects",
@@ -61242,13 +61239,6 @@
         "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit"
       ],
       "verification": [
-        {
-          "command": "cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::fault sync_state::writeback sync:: fsutil::",
-          "result": "PASS",
-          "verified_at": "2026-11-19",
-          "artifact": "docs/en/slices/shared-publication-io.md",
-          "test_ids": ["exchanges_and_moves_between_directories_need_both_directory_syncs","undoing_an_exchange_with_a_missing_name_fails_the_snapshot","undoing_a_move_onto_a_taken_name_fails_the_snapshot"]
-        },
         {
           "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
           "result": "PASS",

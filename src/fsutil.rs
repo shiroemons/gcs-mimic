@@ -1057,26 +1057,14 @@ fn failing_open(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
     })
 }
 
+/// Renames `source` to `destination` unless an entry already has that name.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-#[derive(Clone, Copy)]
-enum RenameMode {
-    NoReplace,
-    /// Only the fault model's undo of an exchange swaps two names ([`exchange_paths`]).
-    #[cfg(test)]
-    Exchange,
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-#[expect(
-    unsafe_code,
-    reason = "exclusive and exchange renames have no safe std equivalent"
-)]
+#[expect(unsafe_code, reason = "an exclusive rename has no safe std equivalent")]
 fn rename_at(
     source_directory: libc::c_int,
     source: &std::ffi::CStr,
     destination_directory: libc::c_int,
     destination: &std::ffi::CStr,
-    mode: RenameMode,
 ) -> Result<(), FsError> {
     // SAFETY: the C strings remain live and the descriptors belong to the caller or AT_FDCWD.
     let result = unsafe {
@@ -1089,11 +1077,7 @@ fn rename_at(
                 source.as_ptr(),
                 destination_directory,
                 destination.as_ptr(),
-                match mode {
-                    RenameMode::NoReplace => libc::RENAME_NOREPLACE,
-                    #[cfg(test)]
-                    RenameMode::Exchange => libc::RENAME_EXCHANGE,
-                },
+                libc::RENAME_NOREPLACE,
             )
         }
         #[cfg(target_os = "macos")]
@@ -1103,11 +1087,7 @@ fn rename_at(
                 source.as_ptr(),
                 destination_directory,
                 destination.as_ptr(),
-                match mode {
-                    RenameMode::NoReplace => libc::RENAME_EXCL,
-                    #[cfg(test)]
-                    RenameMode::Exchange => libc::RENAME_SWAP,
-                },
+                libc::RENAME_EXCL,
             )
         }
     };
@@ -1133,44 +1113,13 @@ pub(crate) fn rename_noreplace(from: &std::path::Path, to: &std::path::Path) -> 
         use std::os::unix::ffi::OsStrExt;
         let source = std::ffi::CString::new(from.as_os_str().as_bytes())?;
         let destination = std::ffi::CString::new(to.as_os_str().as_bytes())?;
-        match rename_at(
-            libc::AT_FDCWD,
-            &source,
-            libc::AT_FDCWD,
-            &destination,
-            RenameMode::NoReplace,
-        ) {
+        match rename_at(libc::AT_FDCWD, &source, libc::AT_FDCWD, &destination) {
             Ok(()) => return Ok(()),
             Err(FsError::Unsupported) => {}
             Err(FsError::Io(error)) => return Err(error),
         }
     }
     link_then_unlink(from, to)
-}
-
-/// Swaps the entries at `left` and `right` in one atomic exchange, as the fault model undoes a
-/// volatile exchange in a snapshot.
-#[cfg(all(test, unix))]
-pub(crate) fn exchange_paths(left: &std::path::Path, right: &std::path::Path) -> io::Result<()> {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        let left = std::ffi::CString::new(left.as_os_str().as_bytes())?;
-        let right = std::ffi::CString::new(right.as_os_str().as_bytes())?;
-        rename_at(
-            libc::AT_FDCWD,
-            &left,
-            libc::AT_FDCWD,
-            &right,
-            RenameMode::Exchange,
-        )
-        .map_err(io::Error::from)
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        let _ = (left, right);
-        Err(io::Error::from(io::ErrorKind::Unsupported))
-    }
 }
 
 #[cfg(unix)]
