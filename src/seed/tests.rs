@@ -1,6 +1,6 @@
 use super::*;
 #[cfg(unix)]
-use crate::storage::admin::{AdminError, ObjectName};
+use crate::storage::admin::ObjectName;
 use crate::{clock::SystemClock, test_support::TestDir};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -324,13 +324,13 @@ fn innermost(mut error: &SeedError) -> &SeedError {
 }
 
 /// A bucket directory, or the root itself, that another replaced at its path after the walk
-/// listed it fails startup with the precondition failure a root replaced before it was pinned
-/// meets: the walk cannot tell what it listed from what a lookup then finds there, so a fixture
-/// it no longer finds is not taken for removed, and the seed stays incomplete. The swap comes as
-/// the last fixture opens, so that the walk itself visits no path below the new directory.
+/// listed it fails startup as a changed tree: the walk cannot tell what it listed from what a
+/// lookup then finds there, so a fixture it no longer finds is not taken for removed, and the
+/// seed stays incomplete. The swap comes as the last fixture opens, so that the walk itself
+/// visits no path below the new directory.
 #[cfg(unix)]
 #[tokio::test]
-async fn a_directory_replaced_after_the_listing_fails_startup_as_a_precondition() {
+async fn a_directory_replaced_after_the_listing_fails_startup_as_a_changed_tree() {
     for replaces_root in [false, true] {
         let (dir, config) = fixture();
         let root = std::fs::canonicalize(config.seed_dir.as_ref().unwrap()).unwrap();
@@ -350,16 +350,38 @@ async fn a_directory_replaced_after_the_listing_fails_startup_as_a_precondition(
         let catalog = Catalog::open(&config.data_dir).await.unwrap();
         let failure = import(&catalog, &config, &clock()).await.unwrap_err();
         assert!(
-            matches!(
-                innermost(&failure),
-                SeedError::Admin(AdminError::Precondition)
-            ),
+            matches!(innermost(&failure), SeedError::TreeChanged),
             "root {replaces_root}: {failure:?}"
         );
         assert!(!seed_complete(&catalog).await);
         assert_eq!(seeded(&catalog, "a").await, None);
         catalog.close().await.unwrap();
     }
+}
+
+/// A root replaced at its path between its inspection and the open that pins it fails startup
+/// as a changed tree, as a directory replaced during the walk does.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_root_replaced_before_it_is_pinned_fails_startup_as_a_changed_tree() {
+    let (dir, config) = fixture();
+    let root = config.seed_dir.clone().unwrap();
+    let moved = dir.0.join("moved");
+    SOURCE_SWAPS.lock().unwrap().push((
+        root.clone(),
+        Box::new(move || {
+            std::fs::rename(&root, moved).unwrap();
+            std::fs::create_dir(&root).unwrap();
+        }),
+    ));
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    let failure = import(&catalog, &config, &clock()).await.unwrap_err();
+    assert!(
+        matches!(innermost(&failure), SeedError::TreeChanged),
+        "{failure:?}"
+    );
+    assert!(!seed_complete(&catalog).await);
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]

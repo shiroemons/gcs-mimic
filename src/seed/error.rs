@@ -15,6 +15,7 @@ pub enum SeedError {
     NotDirectory,
     Overlap,
     WalkStopped,
+    TreeChanged,
     NonUtf8Name,
     UnsupportedFile,
     FileLimit,
@@ -46,6 +47,9 @@ impl fmt::Display for SeedError {
             Self::NotDirectory => f.write_str("seed_dir must be a directory, not a symlink"),
             Self::Overlap => f.write_str("seed_dir and data_dir must not overlap"),
             Self::WalkStopped => f.write_str("seed directory walk stopped before it finished"),
+            Self::TreeChanged => {
+                f.write_str("a seed directory was replaced while the walk read the tree")
+            }
             Self::NonUtf8Name => f.write_str("fixture names must be UTF-8"),
             Self::UnsupportedFile => {
                 f.write_str("only regular files and directories are supported")
@@ -73,6 +77,7 @@ impl Error for SeedError {
             | Self::NotDirectory
             | Self::Overlap
             | Self::WalkStopped
+            | Self::TreeChanged
             | Self::NonUtf8Name
             | Self::UnsupportedFile
             | Self::FileLimit

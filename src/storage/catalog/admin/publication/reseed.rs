@@ -182,22 +182,21 @@ impl SeedBatch {
         Ok(())
     }
 
+    /// Opens the directory `root` without following a symlink, on a file worker, with the node
+    /// the descriptor holds.
     #[cfg(unix)]
     pub(crate) async fn open_root(
         &self,
         root: std::path::PathBuf,
-        inspected: std::fs::Metadata,
-    ) -> Result<Arc<File>, AdminError> {
+    ) -> Result<(Arc<File>, fsutil::NodeId), AdminError> {
         self.admin
             .catalog
             .0
             .file_workers
             .run(move || {
                 let file = fsutil::open_directory_nofollow(&root)?;
-                if fsutil::NodeId::from(&file.metadata()?) != fsutil::NodeId::from(&inspected) {
-                    return Err(AdminError::Precondition);
-                }
-                Ok(Arc::new(file))
+                let node = fsutil::NodeId::from(&file.metadata()?);
+                Ok((Arc::new(file), node))
             })
             .await
     }

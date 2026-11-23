@@ -784,6 +784,7 @@ fn seed_advice(error: &SeedError) -> SeedAdvice {
         | SeedError::Unopenable(_)
         | SeedError::RelativePath(_)
         | SeedError::WalkStopped
+        | SeedError::TreeChanged
         | SeedError::MissingRoot => SeedAdvice::Reason(UNREADABLE_FIXTURE),
     }
 }

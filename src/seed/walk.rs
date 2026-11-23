@@ -92,14 +92,14 @@ pub(super) enum Unknown {
 /// A startup replay fails on an unknown entry with the I/O error, as it did before lookups
 /// retried. A name that kept failing to open fails as [`SeedError::Unopenable`], which the
 /// reseed route reports as a failure that another attempt may pass, as it did the `NotFound`
-/// such an open failed with before. A replaced directory fails as a root that changed before it
-/// was pinned does.
+/// such an open failed with before. A replaced directory fails as [`SeedError::TreeChanged`], as
+/// a root replaced before it was pinned does, which another attempt reads as the tree now is.
 impl From<Unknown> for SeedError {
     fn from(unknown: Unknown) -> Self {
         match unknown {
             Unknown::Io(error) => Self::Io(error),
             Unknown::Unopenable => Self::Unopenable(crate::fsutil::Unopenable),
-            Unknown::Replaced => Self::Admin(AdminError::Precondition),
+            Unknown::Replaced => Self::TreeChanged,
         }
     }
 }
