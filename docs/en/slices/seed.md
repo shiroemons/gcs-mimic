@@ -53,7 +53,7 @@ Test identifiers below are the exact integration test function names in
 | seed-layout | Create buckets, empty buckets and nested objects, including Unicode, spaces, binary bytes and hidden files; list/download with size, MD5, CRC32C and default extension Content-Type | `seeded_http_metadata_bytes_and_strict_administrative_import` | PASS |
 | seed-auth | Both profiles seed administratively; strict API reads still require the configured local token | `seeded_http_metadata_bytes_and_strict_administrative_import` | PASS |
 | seed-project | Honor a nondefault owning project and accept an empty seed root | `explicit_project_and_empty_seed_directory_are_supported` | PASS |
-| seed-replay | Restart restores fixture bytes and seed-default metadata over an API overwrite and over API metadata edits, keeps the generation of an object that already matches, recreates an API-deleted fixture object and a deleted fixture bucket, keeps API-only objects and never deletes an object whose fixture file was removed | `restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects` | PASS |
+| seed-replay | Restart restores fixture bytes and seed-default metadata over an API overwrite and over API metadata edits, keeps the generation of an object that already matches, recreates an API-deleted fixture object and a deleted fixture bucket, keeps API-only objects and deletes the object seeding published for a removed fixture file | `restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects` | PASS |
 | seed-replace | An edited fixture file publishes a new live generation; a versioned bucket keeps the previous generation as noncurrent, an unversioned bucket drops it | `edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent` | PASS |
 | seed-blocked | A differing held fixture fails the entire replay without readiness or any namespace changes; an identical held object is unchanged; releasing changed holds permits the complete retry | `held_seed_changes_roll_back_the_entire_tree_while_identical_held_objects_are_unchanged` | See [atomic replay](atomic-seed-reseed.md) |
 | seed-content-type | `.txt` maps to `text/plain; charset=utf-8` by default; `seed_content_type=octet-stream` restores `application/octet-stream`; switching modes replaces only objects whose mapping changes and a repeated replay is unchanged | `default_content_type_is_extension_and_octet_stream_is_opt_in` | PASS |
@@ -184,8 +184,15 @@ counted; an existing bucket keeps its settings but must belong to
   readiness and explains how to release protection and retry. No other selected
   bucket or object changes. Successful results retain `blocked: 0`.
 
-Objects that have no fixture file are never touched, and removing a fixture
-file never deletes an object. Deleting a seeded bucket through the API does not
+Objects seeding did not publish are never touched. Removing a fixture file
+deletes the object seeding published for it at the next replay, under the
+generation and metageneration seeding recorded; an object an API request wrote
+or edited at that name stays, and so does one a hold or retention period
+protects.
+Seeding owns only what a replay of a release that keeps seed records published
+or found identical to a version it already owned, so an identical object an
+earlier release seeded stays after its file is removed, until the file changes
+and is published again. Deleting a seeded bucket through the API does not
 survive the next replay: the bucket and the current fixture files reappear.
 An identical object keeps its generation instead of being rewritten.
 The opt-in [reseed endpoint](atomic-seed-reseed.md) also replays the configured
@@ -214,9 +221,10 @@ pass:
   again, a reseed or a restart creates it again.
 - leaves an entry it cannot replay as it is and reports it: an unusable entry, a
   file past `max_object_bytes`, a directory past `max_buckets_per_batch`, an
-  object a hold or retention period protects, and a directory whose name a bucket
-  of another project has. A walk that failed or stopped at `max_seed_entries` or
-  `max_seed_depth` proves nothing absent, so that pass deletes nothing.
+  object a hold or retention period protects, and a directory whose name a
+  bucket of another project has. A walk that failed or stopped at
+  `max_seed_entries` or `max_seed_depth` proves nothing absent, so that pass
+  deletes nothing.
 
 A pass that would change nothing opens no transaction. Objects a pass publishes
 or deletes are notified like those of a startup replay.
@@ -229,8 +237,8 @@ the browser and host checks of `/_internal/reseed`:
 - `POST /_internal/seed/wait`, with an empty body and an optional `timeoutMs`
   from 1 to 600000 (default 60000), starts a pass at once and answers the report
   of the first pass that started after the request and left no deletion waiting
-  for its second proof. It answers 400 `invalid` when no passes run, and 503 with
-  `Retry-After: 1` when the time runs out first or the server closes.
+  for its second proof. It answers 400 `invalid` when no passes run, and 503
+  with `Retry-After: 1` when the time runs out first or the server closes.
   `request_timeout_ms` ends a longer wait sooner.
 
 A pass report has `startedAt`, `completedAt`, `complete` (the walk listed the
@@ -240,6 +248,16 @@ whole tree), `clean` (complete, without problems or error), the counts
 up on every pass until a file returns there) and `bucketsKeptDeleted`, the first
 100 `problems` with their `path` and `reason`, `problemsOmitted`, and `error`
 when the pass could not run, such as when the seed root went away.
+
+`gcs-mimic seed status` and `gcs-mimic seed wait` call these routes and print
+the answer as one line of JSON, with DEL and the C1 controls escaped as well.
+They find the server as `healthcheck` does unless
+`--endpoint http(s)://HOST:PORT` names it, and `--ca-cert PATH` replaces the
+embedded development CA. `seed wait --timeout DURATION` (`Nms`, `Ns` or `Nm`,
+1ms to 10m, 60s by default) sets `timeoutMs`. Each command exits 1 when the
+request fails or the server refuses it; `seed wait` also exits 1, after
+printing the report, when the pass has an `error` or is not `complete`, and
+with `--require-clean` when it is not `clean`.
 
 ### Durable initialization and recovery
 
