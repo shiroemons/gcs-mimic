@@ -444,7 +444,6 @@ mod cancellation_tests {
     #[test]
     fn cancelled_policy_request_still_executes_its_owned_job() {
         let runtime = tokio::runtime::Builder::new_current_thread()
-            .max_blocking_threads(1)
             .enable_all()
             .build()
             .unwrap();
@@ -462,11 +461,21 @@ mod cancellation_tests {
                 .configure_public_access_prevention(&["old-project".into()])
                 .await
                 .unwrap();
+            // Catalog jobs run on the catalog's own thread, so hold that thread with a job queued
+            // past the execution permit. The request below then takes the permit and queues its
+            // job behind the held one, and its first poll cannot see the job finish however fast
+            // the job is: dropping it afterwards cancels a request whose job is already queued.
             let (entered, blocked) = tokio::sync::oneshot::channel();
-            let (release, released) = mpsc::channel();
-            let blocker = tokio::task::spawn_blocking(move || {
-                entered.send(()).unwrap();
-                released.recv_timeout(Duration::from_secs(10)).unwrap();
+            let (release, released) = mpsc::channel::<()>();
+            let held = catalog.clone();
+            let blocker = tokio::spawn(async move {
+                held.0
+                    .executor
+                    .run(move || {
+                        entered.send(()).unwrap();
+                        released.recv_timeout(Duration::from_secs(10)).unwrap();
+                    })
+                    .await
             });
             blocked.await.unwrap();
             {
@@ -480,7 +489,7 @@ mod cancellation_tests {
                 .await;
             }
             release.send(()).unwrap();
-            blocker.await.unwrap();
+            blocker.await.unwrap().unwrap();
             let projects: Vec<String> = catalog
                 .run(|connection| {
                     let mut statement = connection
