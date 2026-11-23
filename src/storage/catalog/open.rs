@@ -398,6 +398,9 @@ impl Catalog {
                     serde_json::json!({"message":format!("migrated catalog schema from version {stored_version} to {CATALOG_SCHEMA_VERSION}; releases that support only schema {stored_version} can no longer open this data directory"),"from":stored_version,"to":CATALOG_SCHEMA_VERSION}),
                 );
             }
+            if let Some(data_dir) = disk_dir {
+                retired_sync::warn_preserved_copies(data_dir)?;
+            }
             match backend.kind() {
                 crate::config::Backend::Memory => {
                     connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;

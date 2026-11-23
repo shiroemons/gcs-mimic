@@ -10,8 +10,8 @@
 //! Schema 58 drops every synchronization table, and with them their indexes and triggers. Rows
 //! there may name files a user made: copies of edits under `sync-conflicts/` in the data
 //! directory, and entries left in the private workspace of a formerly synchronized folder.
-//! [`preserved`] lists them in a durable manifest before the transaction that drops the rows.
-//! Nothing deletes, moves or changes those files.
+//! [`preserved`] lists them in a durable manifest before the transaction that drops the rows, and
+//! warns at every start while copies remain. Nothing deletes, moves or changes those files.
 
 use super::{CatalogError, sql, unavailable};
 use rusqlite::Connection;
@@ -20,6 +20,8 @@ use std::path::Path;
 mod preserved;
 #[cfg(test)]
 mod tests;
+
+pub(super) use preserved::warn_preserved_copies;
 
 /// Schema 17: the catalog's identity and the files synchronization tracked. The identity is not
 /// synchronization state: reset, reseed and import keep it, and schema 58 leaves it in place.
