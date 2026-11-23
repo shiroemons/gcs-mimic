@@ -66,8 +66,20 @@ async fn pass(
     let started_at = clock.now();
     let outcome = walk_and_commit(catalog, config, clock, number)
         .await
+        .inspect_err(|error| warn_failed(number, error))
         .map_err(|error| error.reason().to_string());
     PassReport::new((started_at, clock.now()), outcome)
+}
+
+/// Warns that pass number `number` could not run, with the whole chain of causes, which its
+/// report leaves out to state the failure in words. Each pass that fails warns again, so the
+/// warning repeats every interval while the cause lasts.
+fn warn_failed(number: u64, error: &SeedError) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Warn,
+        "seed_pass_failed",
+        serde_json::json!({"pass": number, "cause": crate::error::Report(error).to_string()}),
+    );
 }
 
 /// Walks the tree, stages each file to read again, and commits what pass number `number` found.
