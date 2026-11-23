@@ -523,6 +523,62 @@ async fn each_kind_of_row_that_names_a_file_alone_writes_the_manifest() {
     }
 }
 
+/// A copy whose recorded observation no release could have written is still listed, marked as
+/// having unreadable digests, and the upgrade goes on.
+#[tokio::test]
+async fn a_copy_whose_digests_cannot_be_read_is_listed_and_retires() {
+    let dir = TestDir::new();
+    bucket_catalog(&dir.0).await.close().await.unwrap();
+    let connection = at_schema_57(&dir.0);
+    record_folder(&connection, &dir.0.join("folder"));
+    conflict(
+        &connection,
+        0xc1,
+        "truncated",
+        (None, 1, 3),
+        Some(b"{".to_vec()),
+    );
+    conflict(
+        &connection,
+        0xc2,
+        "short",
+        (None, 1, 3),
+        Some(retained(3)[..40].to_vec()),
+    );
+    conflict(&connection, 0xc3, "integer", (None, 1, 3), None);
+    connection
+        .execute(
+            "UPDATE sync_conflicts SET retained = 7 WHERE id = ?1",
+            [id(0xc3)],
+        )
+        .unwrap();
+    drop(connection);
+
+    Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
+    let copy = |number: u32, object: &str| {
+        json!({
+            "path": format!("sync-conflicts/{}", id(number)),
+            "bucket": BUCKET,
+            "object": object,
+            "size": 3,
+            "digests": "unreadable",
+            "state": "registered",
+        })
+    };
+    assert_eq!(
+        read_manifest(&dir.0.join(MANIFEST)),
+        manifest(
+            &[
+                copy(0xc1, "truncated"),
+                copy(0xc2, "short"),
+                copy(0xc3, "integer")
+            ],
+            &[]
+        )
+    );
+    assert_retired(&Connection::open(dir.0.join("catalog.sqlite3")).unwrap());
+}
+
 /// The step drops the synchronization tables in one transaction: when the last drop fails, the
 /// tables dropped before it come back with their rows.
 #[test]
