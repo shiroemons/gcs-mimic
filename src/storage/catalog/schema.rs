@@ -327,7 +327,7 @@ pub(super) const STEPS: &[Step] = &[
     Step::migrated_with_files(
         retired_sync::RETIREMENT_SCHEMA_VERSION,
         retired_sync::RETIREMENT_SCHEMA,
-        Some(retired_sync::validate_reset_epoch),
+        Some(admin::validate_reset_epoch),
         retired_sync::retire,
     ),
 ];

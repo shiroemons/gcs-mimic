@@ -130,6 +130,18 @@ impl Reclamation {
 /// transaction.
 const EPOCH: &str = "SELECT epoch FROM reset_epoch WHERE singleton = 1";
 
+/// Checks that the catalog holds the one reset epoch row that reset and reseed read. Schema 58
+/// creates the table and moves the epoch into it.
+pub(in crate::storage::catalog) fn validate_reset_epoch(
+    connection: &Connection,
+) -> Result<(), CatalogError> {
+    sql::validate(
+        connection,
+        "SELECT count(*) = 1 AND min(singleton) = 1 FROM reset_epoch",
+        "invalid reset epoch state",
+    )
+}
+
 /// What a reset or replacing reseed removed, and the reset epoch it committed.
 pub(super) struct Cleared {
     pub(super) buckets: i64,
