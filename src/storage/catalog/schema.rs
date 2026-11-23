@@ -118,6 +118,8 @@ pub(super) fn validate_schema_version(version: i64, supported: i64) -> Result<()
 
 type StateCheck = fn(&Connection) -> Result<(), CatalogError>;
 type Migrate = fn(&mut Connection) -> Result<(), CatalogError>;
+/// A migration that also writes in the catalog's data directory, `None` for a RAM catalog.
+type MigrateWithFiles = fn(&mut Connection, Option<&Path>) -> Result<(), CatalogError>;
 
 /// One schema version: the statements it adds to the expected catalog, the stored-state check it
 /// introduced, and how an older catalog reaches it. Built only through the constructors below,
@@ -154,6 +156,20 @@ impl Step {
             schema: Some(schema),
             check,
             migration: Some(Migration::Function(migrate)),
+        }
+    }
+
+    /// A version whose upgrade writes files beside the catalog before its transaction.
+    const fn migrated_with_files(
+        version: i64,
+        schema: &'static str,
+        migrate: MigrateWithFiles,
+    ) -> Self {
+        Self {
+            version,
+            schema: Some(schema),
+            check: None,
+            migration: Some(Migration::WithFiles(migrate)),
         }
     }
 
@@ -272,6 +288,11 @@ pub(super) const STEPS: &[Step] = &[
         object_hold::RELEASE_TIME_SCHEMA,
         None,
     ),
+    Step::migrated_with_files(
+        retired_sync::RETIREMENT_SCHEMA_VERSION,
+        retired_sync::RETIREMENT_SCHEMA,
+        retired_sync::retire,
+    ),
 ];
 
 #[expect(
@@ -372,10 +393,23 @@ fn migrate_seed(connection: &mut Connection) -> Result<(), CatalogError> {
 pub(super) enum Migration {
     Statements(&'static str),
     Function(Migrate),
+    WithFiles(MigrateWithFiles),
 }
 
 impl Migration {
+    /// Applies the upgrade to a catalog without a data directory, as a RAM catalog has.
+    #[cfg(test)]
     pub(super) fn apply(&self, connection: &mut Connection) -> Result<(), CatalogError> {
+        self.apply_in(connection, None)
+    }
+
+    /// Applies the upgrade to the catalog whose files are in `data_dir`, `None` for a RAM
+    /// catalog.
+    pub(super) fn apply_in(
+        &self,
+        connection: &mut Connection,
+        data_dir: Option<&Path>,
+    ) -> Result<(), CatalogError> {
         match self {
             Self::Statements(schema) => {
                 let transaction = connection.transaction()?;
@@ -383,17 +417,22 @@ impl Migration {
                 transaction.commit().map_err(unavailable)
             }
             Self::Function(migrate) => migrate(connection),
+            Self::WithFiles(migrate) => migrate(connection, data_dir),
         }
     }
 }
 
 /// Upgrades a catalog at `version`: each step above it applies its migration, in order.
-pub(super) fn upgrade(connection: &mut Connection, version: i64) -> Result<(), CatalogError> {
+pub(super) fn upgrade(
+    connection: &mut Connection,
+    version: i64,
+    data_dir: Option<&Path>,
+) -> Result<(), CatalogError> {
     for step in STEPS {
         if version < step.version
             && let Some(migration) = &step.migration
         {
-            migration.apply(connection)?;
+            migration.apply_in(connection, data_dir)?;
         }
     }
     Ok(())

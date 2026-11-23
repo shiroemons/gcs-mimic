@@ -454,7 +454,7 @@ async fn purge_classifies_every_catalog_table() {
         CASCADED,
         INCARNATION_BOUND,
         INSTANCE_WIDE,
-        crate::storage::catalog::retired_sync::TABLES,
+        crate::storage::catalog::retired_sync::SEED_TABLES,
     ];
     for table in &tables {
         let classified = classes
@@ -596,14 +596,6 @@ async fn purge_refuses_without_changes_a_missing_name_an_import_and_writers() {
     assert_eq!(refusal, PurgeError::Importing);
     let finished = "UPDATE import_journal SET active = 0, cursor = expected";
     exec(&catalog, finished).await;
-    // A data directory that synchronized the bucket before synchronization was removed still
-    // maps it in the retired tables, which no longer refuse the purge and keep their rows.
-    for statement in [
-        "INSERT INTO sync_roots VALUES (zeroblob(16), X'00', zeroblob(8), zeroblob(8), 1)",
-        "INSERT INTO sync_buckets SELECT zeroblob(16), name, incarnation FROM buckets JOIN bucket_incarnations ON bucket = name WHERE name = ?1",
-    ] {
-        exec(&catalog, statement).await;
-    }
     let session = start_session(&catalog, TARGET).await;
     let lease = catalog
         .lock_resumable_session(&session.to_string(), TARGET)
@@ -626,17 +618,6 @@ async fn purge_refuses_without_changes_a_missing_name_an_import_and_writers() {
         .unwrap();
     // The claims a refusal took are gone with it, so the next purge gets them.
     assert_eq!(admin.purge_bucket(&target()).await.unwrap().objects, stored);
-    assert_eq!(
-        counts(
-            &catalog,
-            &[(
-                "sync_buckets",
-                "SELECT count(*) FROM sync_buckets WHERE bucket = ?1"
-            )]
-        )
-        .await,
-        [("sync_buckets", 1)]
-    );
     catalog.close().await.unwrap();
 }
 
@@ -759,8 +740,7 @@ async fn purge_empties_a_ram_catalog_at_its_page_budget() {
     }
     catalog
         .run::<_, CatalogError>(|connection| {
-            let pages: i64 = connection.pragma_query_value(None, "page_count", |row| row.get(0))?;
-            connection.pragma_update(None, "max_page_count", pages)?;
+            crate::storage::catalog::test_fixtures::limit_pages(connection, 0)?;
             Ok(())
         })
         .await

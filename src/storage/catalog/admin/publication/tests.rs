@@ -352,11 +352,7 @@ async fn publication_disk_full_rolls_back_the_batch_and_journal() {
         MapPatch::Merge(BTreeMap::from([("large".into(), Some("x".repeat(7_000)))]));
     catalog
         .run_upload(|connection| {
-            let pages: i64 = connection
-                .pragma_query_value(None, "page_count", |row| row.get(0))
-                .map_err(objects_error)?;
-            connection
-                .pragma_update(None, "max_page_count", pages)
+            crate::storage::catalog::test_fixtures::limit_pages(connection, 0)
                 .map_err(objects_error)
         })
         .await

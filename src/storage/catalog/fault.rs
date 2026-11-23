@@ -143,6 +143,20 @@ pub(crate) enum Step {
     AppendSync,
     /// After the appended bytes are durable, before the transaction that publishes their size.
     AppendCommit,
+    /// Before one write of the retired synchronization manifest to its staged file.
+    RetiredManifestWrite,
+    /// Before the flush of the staged manifest's buffered bytes.
+    RetiredManifestFlush,
+    /// Before the staged manifest's `sync_all`.
+    RetiredManifestSync,
+    /// Before the staged manifest is renamed to its final name.
+    RetiredManifestRename,
+    /// After the rename, before the data directory's sync (Unix only, like the sync).
+    #[cfg(unix)]
+    RetiredManifestDirSync,
+    /// After the manifest is durable, before the transaction that retires synchronization
+    /// commits.
+    RetiredSyncCommit,
 }
 
 /// What an armed step does when it is reached.

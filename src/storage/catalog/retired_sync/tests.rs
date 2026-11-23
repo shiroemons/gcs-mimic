@@ -1,20 +1,17 @@
 use super::*;
-use crate::{
-    clock::SystemClock,
-    storage::{
-        Catalog,
-        admin::LocalAdmin,
-        catalog::{
-            CATALOG_SCHEMA_VERSION, STEPS, initialize_catalog, schema::Migration, test_support,
-            validate_schema, validate_schema_version,
-        },
-        test_fixtures::{PERMISSIVE, body, bucket, live, permissive_upload},
+use crate::storage::{
+    Catalog,
+    catalog::{
+        CATALOG_SCHEMA_VERSION, STEPS, initialize_catalog, schema::Migration, test_support,
+        validate_schema, validate_schema_version,
     },
-    test_support::TestDir,
+    test_fixtures::{PERMISSIVE, body, bucket, live, permissive_upload},
 };
+use crate::test_support::TestDir;
 use bytes::Bytes;
 use rusqlite::params;
-use std::sync::Arc;
+
+mod retirement;
 
 const ROOT: [u8; 16] = [1; 16];
 
@@ -24,36 +21,31 @@ fn user_version(connection: &Connection) -> i64 {
         .unwrap()
 }
 
+/// Applies the migration of every step above `from` up to `to`, as an open that stopped at `to`
+/// would have.
+fn upgrade_between(connection: &mut Connection, from: i64, to: i64) {
+    for step in STEPS
+        .iter()
+        .filter(|step| from < step.version && step.version <= to)
+    {
+        if let Some(migration) = &step.migration {
+            migration.apply(connection).unwrap();
+        }
+    }
+    assert_eq!(user_version(connection), to);
+}
+
 /// A new in-memory catalog upgraded through every step up to `version`.
 fn catalog_at(version: i64) -> Connection {
     let mut connection = Connection::open_in_memory().unwrap();
     initialize_catalog(&mut connection).unwrap();
-    for step in STEPS.iter().filter(|step| step.version <= version) {
-        if user_version(&connection) < step.version
-            && let Some(migration) = &step.migration
-        {
-            migration.apply(&mut connection).unwrap();
-        }
-    }
-    assert_eq!(user_version(&connection), version);
+    let initialized = user_version(&connection);
+    upgrade_between(&mut connection, initialized, version);
     connection
 }
 
 fn count(connection: &Connection, query: &str) -> i64 {
     connection.query_row(query, [], |row| row.get(0)).unwrap()
-}
-
-/// Every retired table and the rows it holds.
-fn retired_rows(connection: &Connection) -> Vec<(&'static str, i64)> {
-    TABLES
-        .iter()
-        .map(|table| {
-            (
-                *table,
-                count(connection, &format!("SELECT count(*) FROM {table}")),
-            )
-        })
-        .collect()
 }
 
 /// A root that tracks `bucket/object` and holds one finding for each incarnation given.
@@ -129,9 +121,10 @@ async fn the_identity_step_commits_whole_and_a_catalog_keeps_exactly_one_identit
     assert!(Catalog::open(&dir.0).await.is_err());
 }
 
-/// A data directory that synchronized before schema 40 upgrades with its rows: each finding
-/// gains the owner of the bucket incarnation it names, or none when that incarnation is gone,
-/// and each root gains its observation and its deletion history.
+/// A data directory that synchronized before schema 40 upgrades with its rows through schema 57:
+/// each finding gains the owner of the bucket incarnation it names, or none when that
+/// incarnation is gone, and each root gains its observation and its deletion history. Schema 58
+/// then drops the rows and keeps the object.
 #[tokio::test]
 async fn a_synchronized_catalog_from_before_schema_40_upgrades_with_its_rows() {
     let dir = TestDir::new();
@@ -150,7 +143,7 @@ async fn a_synchronized_catalog_from_before_schema_40_upgrades_with_its_rows() {
     // Schema 39 predates object owners, so the downgrade below drops the one recorded here.
     object.owner = None;
     catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    let mut connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     let incarnation: String = connection
         .query_row(
             "SELECT incarnation FROM bucket_incarnations WHERE bucket = 'bucket'",
@@ -158,23 +151,16 @@ async fn a_synchronized_catalog_from_before_schema_40_upgrades_with_its_rows() {
             |row| row.get(0),
         )
         .unwrap();
+    test_support::downgrade_retired_sync_schema(&connection);
     let gone = "0".repeat(32);
     record_root(&connection, "bucket", &[&incarnation, &gone]);
     test_support::downgrade_deletion_schema(&connection);
     connection.pragma_update(None, "user_version", 39).unwrap();
-    drop(connection);
-
-    let reopened = Catalog::open(&dir.0).await.unwrap();
-    assert_eq!(
-        reopened
-            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
-            .await
-            .unwrap(),
-        object
-    );
-    reopened.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    assert_eq!(user_version(&connection), CATALOG_SCHEMA_VERSION);
+    connection
+        .pragma_update(None, "foreign_keys", true)
+        .unwrap();
+    upgrade_between(&mut connection, 39, RETIREMENT_SCHEMA_VERSION - 1);
+    validate_schema(&connection, RETIREMENT_SCHEMA_VERSION - 1).unwrap();
     let owners = |query: &str| {
         connection
             .prepare(query)
@@ -215,6 +201,20 @@ async fn a_synchronized_catalog_from_before_schema_40_upgrades_with_its_rows() {
             .unwrap(),
         0
     );
+    drop(connection);
+
+    let reopened = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        reopened
+            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap(),
+        object
+    );
+    reopened.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    assert_eq!(user_version(&connection), CATALOG_SCHEMA_VERSION);
+    assert!(!dir.0.join("sync-retired.json").exists());
 }
 
 #[test]
@@ -265,56 +265,4 @@ fn the_deletion_history_step_commits_whole_and_clears_the_count_only_at_a_new_ba
         .unwrap();
     assert_eq!(automatic(&connection), 0);
     assert!(validate_schema_version(50, 49).is_err());
-}
-
-/// Nothing at runtime reads or writes the retired tables: object writes, bucket deletion and a
-/// reset leave every row a released catalog holds there, and the catalog still opens.
-#[tokio::test]
-async fn api_writes_bucket_deletion_and_reset_leave_retired_rows_alone() {
-    let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    catalog
-        .insert_bucket(bucket("bucket", "owner"))
-        .await
-        .unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    let incarnation: String = connection
-        .query_row(
-            "SELECT incarnation FROM bucket_incarnations WHERE bucket = 'bucket'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    record_root(&connection, "bucket", &[&incarnation]);
-    let before = retired_rows(&connection);
-    assert!(before.iter().any(|(_, rows)| *rows > 0));
-    drop(connection);
-
-    let catalog = Catalog::open_for_server(&dir.0, Arc::new(SystemClock), LocalAdmin::Enabled)
-        .await
-        .unwrap();
-    for data in [b"data".as_slice(), b"replaced"] {
-        catalog
-            .put_object(
-                permissive_upload("bucket", "object", 100),
-                body(vec![Bytes::copy_from_slice(data)]),
-            )
-            .await
-            .unwrap();
-    }
-    catalog
-        .delete_object(live("bucket", "object"), Default::default(), PERMISSIVE)
-        .await
-        .unwrap();
-    catalog
-        .delete_bucket("bucket", Default::default(), PERMISSIVE)
-        .await
-        .unwrap();
-    catalog.local_admin().unwrap().reset().await.unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    assert_eq!(retired_rows(&connection), before);
-    drop(connection);
-    Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
 }

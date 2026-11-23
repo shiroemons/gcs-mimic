@@ -185,13 +185,6 @@ async fn sync_bucket_schema_migration_preserves_existing_catalog() {
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     assert_current_schema(&connection);
-    assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM sync_buckets", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
 }
 
 #[tokio::test]
