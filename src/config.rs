@@ -328,6 +328,9 @@ pub struct Config {
     /// Directory levels a seed tree may nest below a bucket; `None` leaves that to the object
     /// name's 1024 bytes.
     pub max_seed_depth: Option<NonZeroUsize>,
+    /// How long the passes that replay `seed_dir` while the server runs wait between each other;
+    /// `None` replays the tree only at startup.
+    pub seed_watch_interval: Option<std::time::Duration>,
     /// Buckets one initialization file or one seed may declare; other buckets of the server do
     /// not count, and `None` stops at none. Either is one atomic publication, so its memory grows
     /// with the batch.
@@ -431,6 +434,7 @@ impl Default for Config {
             seed_content_type: crate::mime::SeedContentType::Extension,
             max_seed_entries: None,
             max_seed_depth: None,
+            seed_watch_interval: Some(std::time::Duration::from_secs(1)),
             max_buckets_per_batch: None,
             default_location: "US".into(),
             // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,

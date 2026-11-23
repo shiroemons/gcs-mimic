@@ -249,6 +249,8 @@ struct Inner {
     session_limits: OnceLock<session_limits::SessionLimits>,
     derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
+    /// Shared with the task that runs the passes, which waits on it without holding the catalog.
+    seed_watch: Arc<admin::seed_watch::SeedWatch>,
     lifecycle: lifecycle::LifecycleSchedule,
     /// Whether a bucket delete may have left XML multipart uploads behind.
     multipart_orphan_scan: AtomicBool,
@@ -278,6 +280,7 @@ impl Drop for Inner {
         // Weak background loops need a stored wake permit even when the last owner disappears between polls.
         self.notification_wake.notify_one();
         self.maintenance_wake.notify_one();
+        self.seed_watch.wake();
     }
 }
 

@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{future::Future, pin::Pin, time::SystemTime};
 
 pub trait Clock: Send + Sync {
     fn now(&self) -> SystemTime;
@@ -7,6 +7,15 @@ pub trait Clock: Send + Sync {
     /// blocking pool that waits before it tries again. A test clock advances instead.
     fn pause(&self, duration: std::time::Duration) {
         std::thread::sleep(duration);
+    }
+
+    /// Waits for `duration` as this clock tells time, for a background task that works on a
+    /// schedule. A test clock ends the wait once a test has moved it past the wait's end.
+    fn sleep(
+        &self,
+        duration: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(tokio::time::sleep(duration))
     }
 }
 
@@ -35,34 +44,47 @@ pub(crate) fn system_time_from_unix_seconds(seconds: i64) -> Option<SystemTime> 
     }
 }
 
+/// A clock that moves only when a test moves it. A watch channel holds the time so that a wait
+/// on the clock ([`Clock::sleep`]) ends when a move passes its end.
 #[cfg(test)]
-pub(crate) struct ManualClock(std::sync::Mutex<SystemTime>);
+pub(crate) struct ManualClock(tokio::sync::watch::Sender<SystemTime>);
 
 #[cfg(test)]
 impl ManualClock {
     pub(crate) fn new(now: SystemTime) -> Self {
-        Self(std::sync::Mutex::new(now))
+        Self(tokio::sync::watch::Sender::new(now))
     }
 
-    #[track_caller]
     pub(crate) fn set(&self, now: SystemTime) {
-        *self.0.lock().unwrap() = now;
+        self.0.send_replace(now);
     }
 
-    #[track_caller]
     pub(crate) fn advance(&self, duration: std::time::Duration) {
-        *self.0.lock().unwrap() += duration;
+        self.0.send_modify(|now| *now += duration);
     }
 }
 
 #[cfg(test)]
 impl Clock for ManualClock {
     fn now(&self) -> SystemTime {
-        *self.0.lock().unwrap()
+        *self.0.borrow()
     }
 
     fn pause(&self, duration: std::time::Duration) {
         self.advance(duration);
+    }
+
+    fn sleep(
+        &self,
+        duration: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        let end = self.now() + duration;
+        let mut time = self.0.subscribe();
+        Box::pin(async move {
+            // The sender lives as long as the clock this wait borrows, so the wait ends only when
+            // the time reaches its end.
+            time.wait_for(|now| *now >= end).await.ok();
+        })
     }
 }
 

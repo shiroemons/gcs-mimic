@@ -19,7 +19,7 @@ use tokio::sync::oneshot;
 mod tests;
 
 mod reseed;
-pub(crate) use reseed::{Removed, SeedBatch, SeedMode};
+pub(crate) use reseed::{LiveOutcome, LiveWalk, Removed, SeedBatch, SeedMode};
 
 #[cfg(test)]
 thread_local! {
