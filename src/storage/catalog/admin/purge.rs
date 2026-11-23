@@ -222,7 +222,6 @@ const INCARNATION_BOUND: &[&str] = &["change_journal"];
 /// The tables of the whole instance: allocators, the change journal's bookkeeping, derived
 /// transfers owned by requests, and import state, which refuses the purge while it would touch
 /// the bucket.
-/// The seed tables (`retired_sync::SEED_TABLES`) have no policy until something writes them.
 #[cfg(test)]
 const INSTANCE_WIDE: &[&str] = &[
     "bucket_generation",

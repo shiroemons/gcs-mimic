@@ -214,11 +214,6 @@ fn assert_synchronization_retired(release: &str, data: &Path) {
         Vec::<String>::new(),
         "{release}"
     );
-    assert_eq!(
-        names("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'seed_objects'"),
-        ["seed_objects"],
-        "{release}"
-    );
     assert!(!data.join("sync-retired.json").exists(), "{release}");
 }
 

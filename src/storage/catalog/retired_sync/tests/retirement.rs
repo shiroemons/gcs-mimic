@@ -331,7 +331,7 @@ async fn released() -> Released {
     Released { dir, objects, rows }
 }
 
-/// Schema 58 with no synchronization object left and the seed records empty.
+/// Schema 58 with no synchronization object left.
 #[track_caller]
 fn assert_retired(connection: &Connection) {
     assert_eq!(user_version(connection), RETIREMENT_SCHEMA_VERSION);
@@ -343,7 +343,6 @@ fn assert_retired(connection: &Connection) {
         ),
         Vec::<String>::new()
     );
-    assert_eq!(count(connection, "SELECT count(*) FROM seed_objects"), 0);
 }
 
 #[tokio::test]
@@ -468,70 +467,33 @@ async fn rows_that_name_no_file_retire_without_a_manifest() {
     assert_retired(&Connection::open(dir.0.join("catalog.sqlite3")).unwrap());
 }
 
-/// The step creates `seed_objects` and drops the synchronization tables in one transaction,
-/// and the new table admits only the values its columns describe.
+/// The step drops the synchronization tables in one transaction: when the last drop fails, the
+/// tables dropped before it come back with their rows.
 #[test]
-fn the_retirement_step_commits_whole_and_checks_each_seed_column() {
+fn the_retirement_step_commits_whole() {
     let mut connection = catalog_at(RETIREMENT_SCHEMA_VERSION - 1);
-    record_root(&connection, BUCKET, &[&"0".repeat(32)]);
     connection
-        .execute_batch("CREATE TABLE seed_objects(collision)")
+        .pragma_update(None, "foreign_keys", true)
+        .unwrap();
+    record_root(&connection, BUCKET, &[&"0".repeat(32)]);
+    // A reference the step does not know about keeps `sync_roots`, which goes last, from
+    // losing its rows.
+    connection
+        .execute_batch("CREATE TABLE blocker(root BLOB REFERENCES sync_roots(root_id))")
+        .unwrap();
+    connection
+        .execute("INSERT INTO blocker VALUES(?1)", [ROOT])
         .unwrap();
     assert!(retire(&mut connection, None).is_err());
     assert_eq!(user_version(&connection), RETIREMENT_SCHEMA_VERSION - 1);
     assert_eq!(count(&connection, "SELECT count(*) FROM sync_findings"), 1);
-    connection.execute_batch("DROP TABLE seed_objects").unwrap();
+    assert_eq!(count(&connection, "SELECT count(*) FROM sync_objects"), 1);
+    connection.execute_batch("DROP TABLE blocker").unwrap();
     retire(&mut connection, None).unwrap();
     assert_retired(&connection);
     assert!(
         validate_schema_version(RETIREMENT_SCHEMA_VERSION, RETIREMENT_SCHEMA_VERSION - 1).is_err()
     );
-
-    let valid = [
-        "'b'",
-        "'n'",
-        "NULL",
-        "0",
-        "zeroblob(16)",
-        "4294967295",
-        "zeroblob(16)",
-        "zeroblob(16)",
-        "zeroblob(8)",
-        "zeroblob(16)",
-        "NULL",
-    ];
-    let insert = |values: &[&str]| {
-        connection.execute_batch(&format!(
-            "INSERT INTO seed_objects VALUES({}); DELETE FROM seed_objects;",
-            values.join(",")
-        ))
-    };
-    insert(&valid).unwrap();
-    let mut owned = valid;
-    owned[2] = "1";
-    owned[10] = "zeroblob(16)";
-    insert(&owned).unwrap();
-    for (column, invalid) in [
-        (0, "NULL"),
-        (1, "NULL"),
-        (2, "0"),
-        (2, "1.5"),
-        (3, "-1"),
-        (3, "1.5"),
-        (4, "zeroblob(15)"),
-        (4, "'0123456789abcdef'"),
-        (5, "-1"),
-        (5, "4294967296"),
-        (6, "zeroblob(15)"),
-        (7, "zeroblob(17)"),
-        (8, "zeroblob(16)"),
-        (9, "NULL"),
-        (10, "zeroblob(8)"),
-    ] {
-        let mut values = valid;
-        values[column] = invalid;
-        assert!(insert(&values).is_err(), "column {column}: {invalid}");
-    }
 }
 
 /// A RAM catalog starts empty; rows that name files without a data directory to list them in

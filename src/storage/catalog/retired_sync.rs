@@ -57,20 +57,10 @@ pub(super) const DELETION_HISTORY_SCHEMA: &str = include_str!("retired_sync/dele
 
 pub(super) const RETIREMENT_SCHEMA_VERSION: i64 = 58;
 
-/// Schema 58: creates `seed_objects` and drops the synchronization tables. Each table goes
-/// before the tables its foreign keys name, because with foreign keys enforced a `DROP TABLE`
-/// first deletes its rows, and a parent's rows cannot go while a child still names them.
-///
-/// `seed_objects` holds, per object, what the seed directory last published there: the
-/// generation the seed owns, if any, and the size, digests and file fingerprint it observed.
-/// The live seed watcher will read and write it; nothing does yet, and no release has shipped
-/// it, so its columns may still change in place.
+/// Schema 58: drops the synchronization tables. Each table goes before the tables its foreign
+/// keys name, because with foreign keys enforced a `DROP TABLE` first deletes its rows, and a
+/// parent's rows cannot go while a child still names them.
 pub(super) const RETIREMENT_SCHEMA: &str = include_str!("retired_sync/retirement.sql");
-
-/// The tables schema 58 adds for the seed watcher. Reset and purge have no policy for them
-/// until the watcher writes them; their classification tests list them here meanwhile.
-#[cfg(test)]
-pub(super) const SEED_TABLES: &[&str] = &["seed_objects"];
 
 /// The tables the released steps created and schema 58 drops.
 #[cfg(test)]
