@@ -154,7 +154,7 @@ fn a_fixture_file_opens_or_is_absent_only_where_a_lookup_proves_it() {
     let file = opened(tree.open(Path::new("bucket/a")));
     let path = File::open(tree.root.join("bucket/a")).unwrap();
     assert_eq!(
-        file.fingerprint.identity,
+        file.fingerprint.identity(),
         crate::fsutil::uncached_identity(&path).unwrap()
     );
     assert!(file.metadata.is_file());
