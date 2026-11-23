@@ -449,7 +449,7 @@ async fn purge_classifies_every_catalog_table() {
         })
         .await
         .unwrap();
-    let classes = [DELETED, CASCADED, INCARNATION_BOUND, INSTANCE_WIDE];
+    let classes = [DELETED, CASCADED, INSTANCE_WIDE];
     for table in &tables {
         let classified = classes
             .iter()

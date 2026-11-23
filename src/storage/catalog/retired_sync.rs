@@ -13,6 +13,9 @@
 //! [`preserved`] lists them in a durable manifest before the transaction that drops the rows, and
 //! warns when it commits and at every start while a manifest or a copy remains. Nothing deletes,
 //! moves or changes those files.
+//!
+//! The same step drops the change journal of schema 15, which synchronization alone read. Its
+//! state row also held the reset epoch, which moves into `reset_epoch` in that transaction.
 
 use super::{CatalogError, sql, unavailable};
 use rusqlite::Connection;
@@ -58,10 +61,20 @@ pub(super) const DELETION_HISTORY_SCHEMA: &str = include_str!("retired_sync/dele
 
 pub(super) const RETIREMENT_SCHEMA_VERSION: i64 = 58;
 
-/// Schema 58: drops the synchronization tables. Each table goes before the tables its foreign
-/// keys name, because with foreign keys enforced a `DROP TABLE` first deletes its rows, and a
-/// parent's rows cannot go while a child still names them.
+/// Schema 58: copies the reset epoch from the change journal's state row into `reset_epoch`,
+/// then drops the change journal and the synchronization tables. Each table goes before the
+/// tables its foreign keys name, because with foreign keys enforced a `DROP TABLE` first deletes
+/// its rows, and a parent's rows cannot go while a child still names them.
 pub(super) const RETIREMENT_SCHEMA: &str = include_str!("retired_sync/retirement.sql");
+
+/// Checks that schema 58 holds the one reset epoch row that reset and reseed read.
+pub(super) fn validate_reset_epoch(connection: &Connection) -> Result<(), CatalogError> {
+    sql::validate(
+        connection,
+        "SELECT count(*) = 1 AND min(singleton) = 1 FROM reset_epoch",
+        "invalid reset epoch state",
+    )
+}
 
 /// The tables the released steps created and schema 58 drops.
 #[cfg(test)]

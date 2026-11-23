@@ -150,6 +150,10 @@ fn check_release(release: &str) {
     let dir = TestDir::new();
     let data = dir.0.join("data");
     copy_tree(&fixture.join("data"), &data);
+    let epoch = reset_epoch(
+        &data,
+        "SELECT epoch FROM change_journal_state WHERE singleton = 1",
+    );
 
     // A second start proves the upgraded directory reopens, not just that it migrated once.
     for _ in 0..2 {
@@ -192,13 +196,22 @@ fn check_release(release: &str) {
         }
         server.stop();
     }
-    assert_synchronization_retired(release, &data);
+    assert_synchronization_retired(release, &data, epoch);
 }
 
-/// Every release up to 0.27.0 created the directory-synchronization tables; the upgraded
-/// catalog holds none of them, and the fixtures, which never synchronized a folder, leave no
-/// files for a manifest to list.
-fn assert_synchronization_retired(release: &str, data: &Path) {
+/// The reset epoch that `query` reads from the catalog in `data`.
+fn reset_epoch(data: &Path, query: &str) -> i64 {
+    rusqlite::Connection::open(data.join("catalog.sqlite3"))
+        .unwrap()
+        .query_row(query, [], |row| row.get(0))
+        .unwrap()
+}
+
+/// Every release up to 0.27.0 created the directory-synchronization tables and the change
+/// journal; the upgraded catalog holds none of them but keeps the `epoch` the journal's state
+/// row held, and the fixtures, which never synchronized a folder, leave no files for a manifest
+/// to list.
+fn assert_synchronization_retired(release: &str, data: &Path, epoch: i64) {
     let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
     let names = |query: &str| -> Vec<String> {
         connection
@@ -210,8 +223,15 @@ fn assert_synchronization_retired(release: &str, data: &Path) {
             .unwrap()
     };
     assert_eq!(
-        names("SELECT name FROM sqlite_schema WHERE name GLOB 'sync_*' OR tbl_name GLOB 'sync_*'"),
+        names(
+            "SELECT name FROM sqlite_schema WHERE name GLOB 'sync_*' OR tbl_name GLOB 'sync_*' OR tbl_name GLOB 'change_journal*'"
+        ),
         Vec::<String>::new(),
+        "{release}"
+    );
+    assert_eq!(
+        reset_epoch(data, "SELECT epoch FROM reset_epoch WHERE singleton = 1"),
+        epoch,
         "{release}"
     );
     assert!(!data.join("sync-retired.json").exists(), "{release}");

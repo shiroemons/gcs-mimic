@@ -111,13 +111,13 @@ const RETIRED_SYNC_SCHEMAS: [&str; 9] = [
     include_str!("retired_sync/deletion_history.sql"),
 ];
 
-/// Restores schema 57 from 58: creates the synchronization tables again, empty, from the
-/// statements releases ran. Leaves an older catalog as it is: one from before schema 17 has no
-/// identity, and one from before schema 58 still has the tables.
+/// Restores schema 57 from 58: creates the change journal and the synchronization tables again,
+/// empty, from the statements releases ran, and moves the reset epoch back into the journal's
+/// state row. Leaves a catalog from before schema 58, which has no `reset_epoch`, as it is.
 pub(crate) fn downgrade_retired_sync_schema(connection: &rusqlite::Connection) {
     let retired: bool = connection
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = 'catalog_identity') AND NOT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = 'sync_roots')",
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = 'reset_epoch')",
             [],
             |row| row.get(0),
         )
@@ -127,6 +127,14 @@ pub(crate) fn downgrade_retired_sync_schema(connection: &rusqlite::Connection) {
     }
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    connection
+        .execute_batch(include_str!("change_journal/schema.sql"))
+        .unwrap();
+    connection
+        .execute_batch(
+            "UPDATE change_journal_state SET epoch = (SELECT epoch FROM reset_epoch); DROP TABLE reset_epoch;",
+        )
         .unwrap();
     for schema in RETIRED_SYNC_SCHEMAS {
         connection.execute_batch(schema).unwrap();

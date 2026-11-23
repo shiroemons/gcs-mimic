@@ -82,11 +82,7 @@ fn reset(connection: &mut Connection, backend: &BlobBackend) -> Result<ResetOutc
     let cleared = clear_in_transaction(&transaction, Reclamation::for_backend(backend))?;
     if let Err(error) = objects::commit_publication(transaction) {
         // A commit can succeed before reporting an I/O error. The durable epoch resolves it.
-        let committed: i64 = sql::scalar(
-            connection,
-            "SELECT epoch FROM change_journal_state WHERE singleton = 1",
-            [],
-        )?;
+        let committed: i64 = sql::scalar(connection, EPOCH, [])?;
         if committed != cleared.epoch {
             return Err(unavailable(error));
         }
@@ -130,7 +126,11 @@ impl Reclamation {
     }
 }
 
-/// What a reset or replacing reseed removed, and the journal epoch it committed.
+/// The count of resets and replacing reseeds committed, which each raises by one in its
+/// transaction.
+const EPOCH: &str = "SELECT epoch FROM reset_epoch WHERE singleton = 1";
+
+/// What a reset or replacing reseed removed, and the reset epoch it committed.
 pub(super) struct Cleared {
     pub(super) buckets: i64,
     pub(super) objects: i64,
@@ -149,11 +149,7 @@ pub(super) fn clear_in_transaction(
     if importing {
         return Err(CatalogError::PreconditionFailed);
     }
-    let epoch: i64 = sql::scalar(
-        transaction,
-        "SELECT epoch FROM change_journal_state WHERE singleton = 1",
-        [],
-    )?;
+    let epoch: i64 = sql::scalar(transaction, EPOCH, [])?;
     let next = epoch
         .checked_add(1)
         .ok_or_else(|| unavailable("reset epoch exhausted"))?;
@@ -178,7 +174,7 @@ pub(super) fn clear_in_transaction(
     }
     sql::exec(
         transaction,
-        "UPDATE change_journal_state SET epoch = ?1, floor = sequence WHERE singleton = 1",
+        "UPDATE reset_epoch SET epoch = ?1 WHERE singleton = 1",
         [next],
     )?;
     Ok(Cleared {
@@ -188,7 +184,8 @@ pub(super) fn clear_in_transaction(
     })
 }
 
-// High-water allocators, catalog identity and the blob deletion journal survive reset.
+// High-water allocators, the reset epoch, catalog identity and the blob deletion journal survive
+// reset.
 const CLEAR: &[&str] = &[
     "DELETE FROM notification_outbox",
     "DELETE FROM xml_multipart_parts",
@@ -203,7 +200,6 @@ const CLEAR: &[&str] = &[
     "DELETE FROM upload_replays",
     "DELETE FROM import_observations",
     "DELETE FROM import_journal",
-    "DELETE FROM change_journal",
     "DELETE FROM hmac_keys",
     "DELETE FROM objects",
     "DELETE FROM soft_deleted_buckets",
@@ -219,9 +215,9 @@ const RETAINED: &[&str] = &[
     "bucket_generation",
     "policy_revision",
     "catalog_identity",
-    "change_journal_state",
     "notification_outbox_state",
     "pending_blob_deletions",
+    "reset_epoch",
     "startup_seed",
 ];
 #[cfg(test)]

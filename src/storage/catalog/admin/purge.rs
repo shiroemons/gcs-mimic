@@ -214,19 +214,13 @@ const CASCADED: &[&str] = &[
     "bucket_notifications",
     "xml_multipart_parts",
 ];
-/// The tables whose rows keep the incarnation of a bucket they observed, which no later bucket of
-/// the name shares: the change journal, which nothing writes any more, keeps what an older release
-/// recorded.
-#[cfg(test)]
-const INCARNATION_BOUND: &[&str] = &["change_journal"];
-/// The tables of the whole instance: allocators, the change journal's bookkeeping, derived
-/// transfers owned by requests, and import state, which refuses the purge while it would touch
-/// the bucket.
+/// The tables of the whole instance: allocators, the reset epoch, the deletion journals the purge
+/// appends to, derived transfers owned by requests, and import state, which refuses the purge
+/// while it would touch the bucket.
 #[cfg(test)]
 const INSTANCE_WIDE: &[&str] = &[
     "bucket_generation",
     "catalog_identity",
-    "change_journal_state",
     "derived_deletions",
     "derived_inputs",
     "derived_transfers",
@@ -237,6 +231,7 @@ const INSTANCE_WIDE: &[&str] = &[
     "object_generation",
     "pending_blob_deletions",
     "policy_revision",
+    "reset_epoch",
     "startup_seed",
     "xml_multipart_deletions",
 ];

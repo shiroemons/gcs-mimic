@@ -1,3 +1,10 @@
+CREATE TABLE reset_epoch (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    epoch INTEGER NOT NULL CHECK(typeof(epoch) = 'integer' AND epoch >= 0)
+) WITHOUT ROWID;
+INSERT INTO reset_epoch SELECT singleton, epoch FROM change_journal_state;
+DROP TABLE change_journal;
+DROP TABLE change_journal_state;
 DROP TABLE sync_deletion_members;
 DROP TABLE sync_deletion_sets;
 DROP TABLE sync_deletion_history;
