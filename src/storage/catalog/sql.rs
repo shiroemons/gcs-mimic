@@ -134,16 +134,6 @@ integer_enum!(crate::bucket::PublicAccessPrevention, { Inherited => 0, Enforced 
 // The effective access a bucket query computes from its own setting and its parent project's.
 integer_enum!(crate::auth::PublicAccess, { Allowed => 0, Prevented => 1 });
 
-// Binding only: catalog tables (`objects`, `buckets`, ...) may hold names the fake-gcs-server
-// profile or an older transport accepted, so their rows decode as `String`.
-impl rusqlite::ToSql for crate::bucket::name::BucketName {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        Ok(rusqlite::types::ToSqlOutput::Borrowed(
-            rusqlite::types::ValueRef::Text(self.as_str().as_bytes()),
-        ))
-    }
-}
-
 // Binding only: stored project columns may predate the identifier rules, so rows decode as
 // `String`.
 impl rusqlite::ToSql for crate::auth::ProjectId {
