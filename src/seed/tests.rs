@@ -1,6 +1,9 @@
 use super::*;
+#[cfg(unix)]
+use crate::storage::admin::{AdminError, ObjectName};
 use crate::{clock::SystemClock, test_support::TestDir};
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
 /// Walk entry index at which the seed walk of a root panics, keyed by the canonical root
@@ -199,6 +202,110 @@ async fn an_unreadable_fixture_fails_as_tree_io_with_its_permission_kind() {
         "{error:?}"
     );
     assert!(!seed_complete(&catalog).await);
+    catalog.close().await.unwrap();
+}
+
+/// The body of the live object `name` in the seeded bucket, or `None` when it has none.
+#[cfg(unix)]
+async fn seeded(catalog: &Catalog, name: &str) -> Option<Vec<u8>> {
+    let admin = catalog.admin(Origin::Seed);
+    let bucket = BucketName::new("bucket").unwrap();
+    let name = ObjectName::new(name).unwrap();
+    let (_, mut reader) = admin.open_object(&bucket, &name, None).await.ok()?;
+    let mut body = Vec::new();
+    while let Some(chunk) = reader.next_chunk().await.unwrap() {
+        body.extend_from_slice(&chunk);
+    }
+    Some(body)
+}
+
+/// A fixture whose open fails with `ENOENT` for a moment while its name still holds it, as a
+/// Docker Desktop bind mount answers for a file the host just replaced, is opened again within
+/// the lookup's bounded wait and seeded instead of failing startup.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn a_fixture_that_fails_to_open_for_a_moment_is_opened_again_and_seeded() {
+    let (_dir, config) = fixture();
+    let bucket = config.seed_dir.as_ref().unwrap().join("bucket");
+    let settling = crate::fsutil::FailingOpens::vanishing(&bucket, "b", 3);
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    let outcome = import(&catalog, &config, &SystemClock).await.unwrap();
+    assert!(
+        matches!(
+            outcome,
+            SeedOutcome::Imported {
+                buckets: 1,
+                objects: 3,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(settling.left(), 0);
+    assert_eq!(seeded(&catalog, "b").await.as_deref(), Some(&b"b"[..]));
+    assert!(seed_complete(&catalog).await);
+    catalog.close().await.unwrap();
+}
+
+/// A fixture that keeps failing to open while its name still holds it fails startup, named by
+/// its path, once the lookup's bounded wait runs out: whether it holds a file is unknown, so it
+/// is neither skipped nor taken for absent, and the seed stays incomplete.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn a_fixture_that_keeps_failing_to_open_fails_startup_and_leaves_the_seed_incomplete() {
+    let (_dir, config) = fixture();
+    let bucket = config.seed_dir.as_ref().unwrap().join("bucket");
+    let _vanishing = crate::fsutil::FailingOpens::vanishing(&bucket, "b", usize::MAX);
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    let failure = import(&catalog, &config, &SystemClock).await.unwrap_err();
+    let SeedError::Import(entry) = &failure else {
+        panic!("{failure:?}");
+    };
+    assert!(
+        matches!(
+            entry.as_ref(),
+            SeedError::Entry { label, source }
+                if label == "bucket/b"
+                    && matches!(source.as_ref(), SeedError::Admin(AdminError::Backend(_)))
+        ),
+        "{failure:?}"
+    );
+    assert!(!seed_complete(&catalog).await);
+    assert_eq!(seeded(&catalog, "a").await, None);
+    catalog.close().await.unwrap();
+}
+
+/// A fixture removed after the walk listed it, which a lookup then proves absent, is left out:
+/// seeding never wrote that name in this replay, so nothing is published or deleted there, and
+/// the rest of the tree is seeded.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_fixture_removed_after_the_listing_is_left_out_and_the_rest_is_seeded() {
+    let (_dir, config) = fixture();
+    let removed = std::fs::canonicalize(config.seed_dir.as_ref().unwrap())
+        .unwrap()
+        .join("bucket/b");
+    let target = removed.clone();
+    SOURCE_SWAPS.lock().unwrap().push((
+        removed,
+        Box::new(move || std::fs::remove_file(target).unwrap()),
+    ));
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    let outcome = import(&catalog, &config, &SystemClock).await.unwrap();
+    assert!(
+        matches!(
+            outcome,
+            SeedOutcome::Imported {
+                buckets: 1,
+                objects: 2,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(seeded(&catalog, "b").await, None);
+    assert_eq!(seeded(&catalog, "c").await.as_deref(), Some(&b"c"[..]));
+    assert!(seed_complete(&catalog).await);
     catalog.close().await.unwrap();
 }
 

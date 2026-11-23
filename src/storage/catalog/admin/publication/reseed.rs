@@ -1,7 +1,11 @@
 //! A prepared fixture namespace has one catalog publication boundary.
 
 use super::*;
-use crate::storage::catalog::{admin::initialization::Initialization, sql};
+use crate::{
+    import::Fingerprint,
+    seed::decision::{Content, LiveObject, Observation, Outcome, Phase, Protection, decide},
+    storage::catalog::{admin::initialization::Initialization, objects::Versioning, sql},
+};
 use std::num::NonZeroUsize;
 
 #[derive(Clone, Copy)]
@@ -42,11 +46,23 @@ pub(crate) struct Removed {
     pub objects: i64,
 }
 
+/// One staged fixture file.
+struct SeedEntry {
+    publication: BatchPublication,
+    /// What the fixture file's handle reported when the walk opened it.
+    fingerprint: Fingerprint,
+}
+
+/// The publications of `entries`, for the cleanup that reclaims what they staged.
+fn publications(entries: Vec<SeedEntry>) -> Vec<BatchPublication> {
+    entries.into_iter().map(|entry| entry.publication).collect()
+}
+
 pub(crate) struct SeedBatch {
     admin: Admin,
     buckets: Vec<BucketDefinition>,
-    entries: Vec<BatchPublication>,
-    prepared: Vec<BatchPublication>,
+    entries: Vec<SeedEntry>,
+    prepared: Vec<SeedEntry>,
     activity: Option<crate::storage::catalog::Activity>,
     _admission: OwnedSemaphorePermit,
     request: Arc<OwnedSemaphorePermit>,
@@ -176,44 +192,35 @@ impl SeedBatch {
             .await
     }
 
-    #[cfg(unix)]
-    pub(crate) async fn open_source(
-        &self,
-        root: Arc<File>,
-        relative: std::path::PathBuf,
-    ) -> Result<File, AdminError> {
-        self.admin
-            .catalog
-            .0
-            .file_workers
-            .run(move || {
-                let mut directory = root.try_clone()?;
-                let mut components = relative.iter().peekable();
-                while let Some(name) = components.next() {
-                    if components.peek().is_none() {
-                        return Ok(fsutil::open_regular_at(&directory, name)?);
-                    }
-                    directory = fsutil::directory_at(&directory, name)?;
-                }
-                Err(AdminError::Invalid(
-                    "seed source must be a regular file".into(),
-                ))
-            })
-            .await
-    }
-
     pub(crate) fn bucket(&mut self, definition: BucketDefinition) -> Result<(), AdminError> {
         self.charge_metadata(metadata_size(&definition.0)?)?;
         self.buckets.push(definition);
         Ok(())
     }
 
+    /// Stages `source` as a fixture, with the fingerprint its handle reports.
+    #[cfg(test)]
     pub(crate) async fn object(
         &mut self,
         bucket: BucketName,
         name: ObjectName,
         request: Publication,
         source: File,
+    ) -> Result<(), AdminError> {
+        let fingerprint = Fingerprint::of_file(&source)?;
+        self.fixture(bucket, name, request, source, fingerprint)
+            .await
+    }
+
+    /// Stages the fixture file `source`, whose handle reported `fingerprint` when the walk
+    /// opened it.
+    pub(crate) async fn fixture(
+        &mut self,
+        bucket: BucketName,
+        name: ObjectName,
+        request: Publication,
+        source: File,
+        fingerprint: Fingerprint,
     ) -> Result<(), AdminError> {
         request.metadata.validate()?;
         self.charge_metadata(
@@ -228,11 +235,14 @@ impl SeedBatch {
             .stage_from_file(source, request.expected, request.max_bytes)
             .await?
             .into_batch(self.request.clone());
-        self.entries.push(BatchPublication {
-            bucket,
-            name,
-            request,
-            staged,
+        self.entries.push(SeedEntry {
+            publication: BatchPublication {
+                bucket,
+                name,
+                request,
+                staged,
+            },
+            fingerprint,
         });
         Ok(())
     }
@@ -290,7 +300,7 @@ impl SeedBatch {
             .await
             .map_err(AdminError::backend)?;
         // Reference-aware cleanup also handles a commit whose caller was cancelled or whose result was ambiguous.
-        let entries = std::mem::take(&mut batch.entries);
+        let entries = publications(std::mem::take(&mut batch.entries));
         let ownership = batch.request.clone();
         let cleanup = crate::task::spawn_supervised("seed-batch-cleanup", async move {
             let _ownership = ownership;
@@ -317,6 +327,7 @@ impl Drop for SeedBatch {
         if entries.is_empty() {
             return;
         }
+        let entries = publications(entries);
         let ownership = self.request.clone();
         let activity = self.activity.take();
         crate::task::spawn_supervised_on(&self.runtime, "seed-batch-abort-cleanup", async move {
@@ -332,16 +343,13 @@ impl Drop for SeedBatch {
     }
 }
 
-async fn prepare_entry(
-    catalog: Catalog,
-    mut entry: BatchPublication,
-) -> Result<BatchPublication, AdminError> {
-    if entry.staged.published {
+async fn prepare_entry(catalog: Catalog, mut entry: SeedEntry) -> Result<SeedEntry, AdminError> {
+    if entry.publication.staged.published {
         return Ok(entry);
     }
     crate::task::spawn_supervised("seed-prepare-object", async move {
         let _activity = catalog.activity()?;
-        let staged = &mut entry.staged;
+        let staged = &mut entry.publication.staged;
         let id = staged.blob_id();
         let source = id.staging_path(&catalog.0.data_dir);
         let destination = id.blob_path(&catalog.0.data_dir);
@@ -461,22 +469,34 @@ fn commit(
         }
     }
     let mut published = Vec::new();
-    for entry in &batch.entries {
+    for SeedEntry {
+        publication: entry,
+        fingerprint,
+    } in &batch.entries
+    {
         validate_staged_entry(entry)?;
         let previous = objects::lookup(&transaction, entry.bucket.as_str(), entry.name.as_str())?;
-        if previous
+        let live = previous
             .as_ref()
-            .is_some_and(|stored| matches_seed(&stored.record, entry))
-        {
-            counts.unchanged += 1;
-            continue;
-        }
-        publish_entry(&transaction, entry, &batch.admin.grant, clock)?;
-        published.push(entry.staged.blob_id());
-        if previous.is_some() {
-            counts.replaced += 1;
-        } else {
-            counts.objects += 1;
+            .map(|stored| live_object(&transaction, &stored.record, entry, clock))
+            .transpose()?;
+        // No seed record is kept yet, so the replay decides as it did before records.
+        let observation = Observation::File(fingerprint.clone());
+        match decide(Phase::Startup, &observation, None, live) {
+            Outcome::Publish => {
+                publish_entry(&transaction, entry, &batch.admin.grant, clock)?;
+                published.push(entry.staged.blob_id());
+                if previous.is_some() {
+                    counts.replaced += 1;
+                } else {
+                    counts.objects += 1;
+                }
+            }
+            Outcome::Record => counts.unchanged += 1,
+            // The refusal the replacement itself would meet, before anything is written.
+            Outcome::Fail => return Err(AdminError::Hold),
+            // A file observation never deletes, and a startup replay never keeps or skips one.
+            Outcome::Delete { .. } | Outcome::Keep | Outcome::Forget | Outcome::Skip(_) => {}
         }
     }
     sql::exec(
@@ -510,7 +530,7 @@ fn clear_replaced(connection: &mut Connection, batch: &SeedBatch) -> bool {
             let selected: Vec<_> = batch
                 .entries
                 .iter()
-                .map(|entry| entry.staged.blob_id().to_hex())
+                .map(|entry| entry.publication.staged.blob_id().to_hex())
                 .collect();
             let Err(error) =
                 backend.retain_memory_ids(&selected.iter().map(String::as_str).collect())
@@ -563,6 +583,35 @@ fn confirmed(
         }
     }
     Ok(true)
+}
+
+/// What a replay of `entry` finds in `live`, the object the catalog holds at its name. The
+/// protection is the refusal a replacement would meet: a hold or the bucket's retention policy,
+/// and an object's own retention period where no versioning keeps the replaced generation.
+fn live_object(
+    transaction: &rusqlite::Transaction<'_>,
+    live: &ObjectRecord,
+    entry: &BatchPublication,
+    clock: &dyn Clock,
+) -> Result<LiveObject, AdminError> {
+    let now = clock.now();
+    let protected = live.check_policy_and_holds(now).is_err()
+        || (live.check_object_retention(now).is_err()
+            && objects::BucketPublication::load(transaction, entry.bucket.as_str())?.versioning
+                == Versioning::Disabled);
+    Ok(LiveObject {
+        generation: live.generation,
+        content: if matches_seed(live, entry) {
+            Content::AsSeeded
+        } else {
+            Content::Different
+        },
+        protection: if protected {
+            Protection::Protected
+        } else {
+            Protection::Unprotected
+        },
+    })
 }
 
 fn matches_seed(live: &ObjectRecord, entry: &BatchPublication) -> bool {

@@ -48,7 +48,7 @@ use std::{
 #[cfg(all(test, unix))]
 use {
     super::{Child, FileIdentity, RegularChild},
-    crate::clock::{SystemClock, signed_nanos},
+    crate::clock::signed_nanos,
     std::{
         collections::{HashSet, VecDeque},
         ffi::OsString,
@@ -171,8 +171,11 @@ impl Lookup {
     /// Lookups that know nothing about the filesystem, telling the time and waiting on `clock`:
     /// each directory's own answer decides.
     #[cfg_attr(
-        not(all(test, unix)),
-        expect(dead_code, reason = "only tests use the lookup so far")
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only the Unix seed walk opens fixtures through a lookup"
+        )
     )]
     pub(crate) fn unprobed_on(clock: Arc<dyn Clock>) -> Self {
         Self {
@@ -186,9 +189,9 @@ impl Lookup {
     }
 
     /// Like [`Self::unprobed_on`], on the system clock.
-    #[cfg(all(test, unix))]
+    #[cfg(unix)]
     pub(crate) fn unprobed() -> Self {
-        Self::unprobed_on(Arc::new(SystemClock))
+        Self::unprobed_on(Arc::new(crate::clock::SystemClock))
     }
 
     /// Lookups below a root whose probe matched names as `matching` says, telling the time of a
@@ -316,8 +319,11 @@ impl Lookup {
     /// spelling, for a name whose spelling the caller already knows, under the rule that a name
     /// which fails to open holds nothing only where `fstatat` finds nothing ([`Opened`]).
     #[cfg_attr(
-        not(all(test, unix)),
-        expect(dead_code, reason = "only tests use the lookup so far")
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only the Unix seed walk opens fixtures through a lookup"
+        )
     )]
     pub(crate) fn regular_unconfirmed(
         &self,
@@ -330,7 +336,13 @@ impl Lookup {
     /// Opens the existing directory `name` in `parent` without following a symlink or confirming
     /// its spelling, for a name a listing gave or whose spelling the caller already knows, under
     /// the same rule ([`Opened`]).
-    #[expect(dead_code, reason = "only tests use the lookup so far")]
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only the Unix seed walk opens fixtures through a lookup"
+        )
+    )]
     pub(crate) fn directory_unconfirmed(
         &self,
         parent: &File,

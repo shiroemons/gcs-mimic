@@ -4,29 +4,24 @@ use crate::{
     clock::Clock,
     config::Config,
     object::ExpectedHashes,
-    source_tree::{
-        LARGE_TREE_ENTRIES, TreeLimits, WalkEntry, WalkError, Walker, is_os_metadata,
-        warn_large_tree,
-    },
+    source_tree::{LARGE_TREE_ENTRIES, TreeLimits, WalkError, warn_large_tree},
     storage::{
         Catalog,
         admin::{
-            Admin, BucketDefinition, BucketName, ObjectName, Origin, Publication, PublishMode,
-            Removed, SeedBatch, SeedMode, initialization::Initialization,
+            Admin, BucketDefinition, BucketName, Origin, Publication, PublishMode, Removed,
+            SeedBatch, SeedMode, initialization::Initialization,
         },
     },
 };
+use decision::{Observation, Outcome, Phase, decide};
 use serde::Serialize;
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
-use tokio::sync::mpsc;
+use std::{io, path::Path};
+use walk::{Fixture, Object, Opened, Rejected, Seen, Source, Tree, Walked};
 
+pub(crate) mod decision;
 mod error;
+mod walk;
 pub use error::SeedError;
-
-type Entry = Result<WalkEntry, SeedError>;
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "outcome", rename_all = "lowercase")]
@@ -152,8 +147,8 @@ impl From<WalkError> for SeedError {
     }
 }
 
-/// Opening the fixture tree is reading it. Reporting its I/O failure as [`SeedError::Io`], as
-/// the walk and the portable open path do, lets an unreadable fixture classify alike on every
+/// Pinning the fixture root is reading the tree. Reporting its I/O failure as [`SeedError::Io`],
+/// as the walk and the fixture opens do, lets an unreadable tree classify alike on every
 /// platform instead of passing for a storage failure.
 #[cfg(unix)]
 #[expect(
@@ -168,39 +163,28 @@ fn source_failure(error: crate::storage::admin::AdminError) -> SeedError {
     }
 }
 
-/// One message from the walk thread. The walk ends only with [`Walked::Done`]: a thread that
-/// panicked or stopped early drops its sender without one, and a closed channel alone would
-/// otherwise look like the end of a complete walk and mark a partial seed complete. The entry is
-/// boxed because Linux `Metadata` carries statx fields that make an unboxed variant over 200 bytes.
-enum Walked {
-    Entry(Box<Entry>),
-    Done,
+/// Applies a startup replay's decision at a name where the walk found no file to read: an
+/// unknown or unusable entry fails the replay with `failure`, and a name proven absent is left
+/// alone. With no record of the name, none of these depends on the live object, so it is not
+/// looked up, and failing or leaving the name are all the decision can come to.
+fn replay_unread(
+    observation: &Observation,
+    failure: impl FnOnce() -> SeedError,
+) -> Result<(), SeedError> {
+    match decide(Phase::Startup, observation, None, None) {
+        Outcome::Fail => Err(failure()),
+        Outcome::Publish
+        | Outcome::Record
+        | Outcome::Delete { .. }
+        | Outcome::Keep
+        | Outcome::Forget
+        | Outcome::Skip(_) => Ok(()),
+    }
 }
 
-fn entries(root: PathBuf, limits: TreeLimits) -> io::Result<mpsc::Receiver<Walked>> {
-    let (send, receive) = mpsc::channel(2);
-    crate::task::spawn_thread("seed-walk", move || {
-        let walk = match Walker::new(&root, limits) {
-            Ok(walk) => walk,
-            Err(error) => {
-                let _ = send.blocking_send(Walked::Entry(Box::new(Err(error.into()))));
-                return;
-            }
-        };
-        #[cfg(test)]
-        let walk = walk.enumerate().map(|(index, entry)| {
-            tests::injected_walk_panic(&root, index);
-            entry
-        });
-        for entry in walk {
-            let entry = entry.map_err(SeedError::from);
-            if send.blocking_send(Walked::Entry(Box::new(entry))).is_err() {
-                return;
-            }
-        }
-        let _ = send.blocking_send(Walked::Done);
-    })?;
-    Ok(receive)
+/// A replay that failed at a name proven absent would report it as the open that found nothing.
+fn not_found() -> SeedError {
+    SeedError::Io(io::ErrorKind::NotFound.into())
 }
 
 /// A fixture tree staged in a batch that has yet to commit.
@@ -256,11 +240,13 @@ async fn stage_directory(
         entries: config.max_seed_entries,
         depth: config.max_seed_depth,
     };
-    let mut entries = entries(root.clone(), limits)?;
+    #[cfg(unix)]
+    let tree = Tree::new(root, source_root);
+    #[cfg(not(unix))]
+    let tree = Tree::new(root);
+    let mut entries = tree.walk(limits)?;
     let mut seed = Seed {
         batch,
-        #[cfg(unix)]
-        source_root,
         config,
         clock,
         buckets: 0,
@@ -268,40 +254,21 @@ async fn stage_directory(
     };
     let mut walked = 0;
     loop {
-        let entry = match entries.recv().await {
-            Some(Walked::Entry(entry)) => *entry,
+        let seen = match entries.recv().await {
+            Some(Walked::Entry(seen)) => *seen,
             Some(Walked::Done) => break,
             // The thread already reported its panic; failing here keeps the seed incomplete.
             None => {
                 return Err(SeedError::WalkStopped);
             }
         };
-        let WalkEntry {
-            path,
-            metadata,
-            depth,
-        } = entry?;
+        let Seen { label, fixture } = seen?;
         walked += 1;
         // A chosen limit already says how large a tree may be.
         if walked == LARGE_TREE_ENTRIES + 1 && limits.entries.is_none() {
             warn_large_tree("seed_tree_large", "seed_dir", "max_seed_entries");
         }
-        // The walker only yields paths below the root it was given.
-        let relative = path.strip_prefix(&root).map_err(SeedError::RelativePath)?;
-        let label = relative.display().to_string();
-        let fixture = Fixture {
-            path: &path,
-            relative,
-            label: &label,
-            metadata: &metadata,
-            depth,
-        };
-        seed.entry(&fixture)
-            .await
-            .map_err(|error| SeedError::Entry {
-                label,
-                source: Box::new(error),
-            })?;
+        seed.entry(label, fixture).await?;
     }
     Ok(Staged {
         batch: seed.batch,
@@ -312,8 +279,6 @@ async fn stage_directory(
 /// Shared inputs of one seed import.
 struct Seed<'a> {
     batch: SeedBatch,
-    #[cfg(unix)]
-    source_root: std::sync::Arc<std::fs::File>,
     config: &'a Config,
     clock: &'a dyn Clock,
     buckets: usize,
@@ -321,100 +286,45 @@ struct Seed<'a> {
     skipped_os_metadata: usize,
 }
 
-/// One walked fixture entry.
-struct Fixture<'a> {
-    path: &'a Path,
-    relative: &'a Path,
-    label: &'a str,
-    metadata: &'a std::fs::Metadata,
-    depth: usize,
-}
-
-/// What one walked fixture entry is, decided once from its depth and type.
-enum FixtureKind<'a> {
-    /// A file macOS or Windows leaves beside fixtures; it is skipped and counted.
-    OsMetadata,
-    /// A top-level file, which fake-gcs-server ignores; it is skipped with a warning.
-    TopLevelFile,
-    /// A top-level directory names a bucket.
-    Bucket(&'a str),
-    /// A directory below a bucket. Its path must still be a valid object name.
-    Directory,
-    /// A regular file below a bucket names an object; `leaf` selects its content type.
-    Object {
-        bucket: BucketName,
-        name: ObjectName,
-        leaf: &'a str,
-    },
-}
-
-impl<'a> Fixture<'a> {
-    /// Classifies the entry. Its checks fail in a fixed order: the leaf name, the entry type, the
-    /// bucket component, the object name, then the bucket name of an object.
-    fn kind(&self) -> Result<FixtureKind<'a>, SeedError> {
-        let leaf = self
-            .path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or(SeedError::NonUtf8Name)?;
-        let kind = self.metadata.file_type();
-        if kind.is_symlink() || (!kind.is_file() && !kind.is_dir()) {
-            return Err(SeedError::UnsupportedFile);
-        }
-        if kind.is_file() && is_os_metadata(leaf) {
-            return Ok(FixtureKind::OsMetadata);
-        }
-        let mut components = self.relative.iter();
-        let bucket = components
-            .next()
-            .and_then(|part| part.to_str())
-            .ok_or(SeedError::NonUtf8Name)?;
-        if self.depth == 0 {
-            return Ok(if kind.is_dir() {
-                FixtureKind::Bucket(leaf)
-            } else {
-                FixtureKind::TopLevelFile
-            });
-        }
-        let name = components
-            .map(|part| part.to_str().ok_or(SeedError::NonUtf8Name))
-            .collect::<Result<Vec<_>, _>>()?
-            .join("/");
-        // Startup and the reseed route report a fixed message, so the rule it broke is dropped.
-        let name = ObjectName::try_from(name).map_err(|_| {
-            SeedError::ObjectName(crate::api_error::ApiError::invalid_parameter(
-                "Invalid object name",
-            ))
-        })?;
-        if kind.is_dir() {
-            return Ok(FixtureKind::Directory);
-        }
-        let bucket = BucketName::new(bucket).map_err(SeedError::BucketName)?;
-        Ok(FixtureKind::Object { bucket, name, leaf })
-    }
-}
-
 impl Seed<'_> {
-    async fn entry(&mut self, fixture: &Fixture<'_>) -> Result<(), SeedError> {
-        match fixture.kind()? {
-            FixtureKind::OsMetadata => self.skipped_os_metadata += 1,
+    /// Replays one walked entry. A failure met before the walk could tell what the entry is
+    /// names no entry, as when the walk itself failed there; any other names it by `label`.
+    async fn entry(&mut self, label: String, fixture: Fixture) -> Result<(), SeedError> {
+        let replayed = match fixture {
+            Fixture::Unknown(unknown) => {
+                return replay_unread(&Observation::Unknown, || unknown.into());
+            }
+            Fixture::Absent(vacant) => {
+                return replay_unread(&Observation::Absent(vacant), not_found);
+            }
+            Fixture::Unusable(Rejected { reason, error }) => {
+                replay_unread(&Observation::Unusable(reason), || error)
+            }
+            Fixture::OsMetadata => {
+                self.skipped_os_metadata += 1;
+                Ok(())
+            }
             // fake-gcs-server ignores top-level files, and an implicit /data mount often holds
             // a README or .gitkeep, so skipping keeps such trees startable.
-            FixtureKind::TopLevelFile => crate::diagnostics::emit(
-                crate::diagnostics::LogLevel::Warn,
-                "seed_skipped",
-                serde_json::json!({
-                    "path": fixture.label,
-                    "reason": "top-level entries must be bucket directories",
-                }),
-            ),
-            FixtureKind::Bucket(leaf) => self.bucket(leaf)?,
-            FixtureKind::Directory => {}
-            FixtureKind::Object { bucket, name, leaf } => {
-                self.object(fixture, bucket, name, leaf).await?;
+            Fixture::TopLevelFile => {
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Warn,
+                    "seed_skipped",
+                    serde_json::json!({
+                        "path": &label,
+                        "reason": "top-level entries must be bucket directories",
+                    }),
+                );
+                Ok(())
             }
-        }
-        Ok(())
+            Fixture::Bucket(leaf) => self.bucket(&leaf),
+            Fixture::Directory => Ok(()),
+            Fixture::Object(object) => self.object(*object).await,
+        };
+        replayed.map_err(|error| SeedError::Entry {
+            label,
+            source: Box::new(error),
+        })
     }
 
     fn bucket(&mut self, leaf: &str) -> Result<(), SeedError> {
@@ -430,40 +340,43 @@ impl Seed<'_> {
         Ok(())
     }
 
-    async fn object(
-        &mut self,
-        fixture: &Fixture<'_>,
-        bucket: BucketName,
-        name: ObjectName,
-        leaf: &str,
-    ) -> Result<(), SeedError> {
+    /// Stages a fixture file. Whether it replaces the live object is decided when the batch
+    /// commits, where the live object is known.
+    async fn object(&mut self, object: Object) -> Result<(), SeedError> {
+        let Object {
+            bucket,
+            name,
+            leaf,
+            source,
+        } = object;
+        let Opened {
+            file,
+            metadata,
+            fingerprint,
+        } = match source {
+            Source::File(opened) => *opened,
+            Source::Absent(vacant) => {
+                return replay_unread(&Observation::Absent(vacant), not_found);
+            }
+            Source::Unknown(unknown) => {
+                return replay_unread(&Observation::Unknown, || unknown.into());
+            }
+        };
         let config = self.config;
-        #[cfg(test)]
-        tests::injected_source_swap(fixture.path);
-        #[cfg(unix)]
-        let file = tokio::fs::File::from_std(
-            self.batch
-                .open_source(self.source_root.clone(), fixture.relative.to_owned())
-                .await
-                .map_err(source_failure)?,
-        );
-        #[cfg(not(unix))]
-        let file = tokio::fs::File::open(fixture.path).await?;
-        let metadata = file.metadata().await?;
         if !metadata.is_file() || metadata.len() > config.max_object_bytes {
             return Err(SeedError::FileLimit);
         }
-        let content_type = config.seed_content_type.for_name(leaf);
-        let file = file.into_std().await;
         let request = Publication {
-            content_type: content_type.into(),
+            content_type: config.seed_content_type.for_name(&leaf).into(),
             expected: ExpectedHashes::default(),
             condition: None,
             metadata: Default::default(),
             max_bytes: config.max_object_bytes,
             mode: PublishMode::Replace,
         };
-        self.batch.object(bucket, name, request, file).await?;
+        self.batch
+            .fixture(bucket, name, request, file, fingerprint)
+            .await?;
         Ok(())
     }
 }
