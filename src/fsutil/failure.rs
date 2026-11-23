@@ -22,7 +22,7 @@ impl IoFailureClass {
         clippy::wildcard_enum_match_arm,
         reason = "io::ErrorKind is non-exhaustive, and a kind this match does not name has no class"
     )]
-    pub(crate) fn of_kind(kind: io::ErrorKind) -> Option<Self> {
+    fn of_kind(kind: io::ErrorKind) -> Option<Self> {
         match kind {
             io::ErrorKind::TimedOut
             | io::ErrorKind::WouldBlock
@@ -39,14 +39,24 @@ impl IoFailureClass {
     /// name, as transient.
     #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
     pub(crate) fn of(error: &io::Error) -> Option<Self> {
-        Self::of_kind(error.kind()).or_else(|| {
-            matches!(
-                error.raw_os_error(),
-                Some(libc::EMFILE | libc::ENFILE | libc::EAGAIN | libc::ENOMEM)
-            )
-            .then_some(Self::Transient)
-        })
+        Self::of_kind(error.kind()).or_else(|| exhausted(error).then_some(Self::Transient))
     }
+}
+
+/// Whether the failure's errno reports exhausted descriptors or memory.
+#[cfg(unix)]
+fn exhausted(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(libc::EMFILE | libc::ENFILE | libc::EAGAIN | libc::ENOMEM)
+    )
+}
+
+/// Elsewhere a raw OS error is no errno: Windows reports a Win32 error code, whose numbers
+/// mean something else, so it names no exhaustion here.
+#[cfg(not(unix))]
+fn exhausted(_: &io::Error) -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -54,7 +64,8 @@ mod tests {
     use super::*;
 
     /// A busy resource passes on its own, each kind of a whole file system's failure is the
-    /// volume's, and exhausted descriptors or memory pass although their kind names neither.
+    /// volume's, and on Unix exhausted descriptors or memory pass although their kind names
+    /// neither.
     #[test]
     fn each_io_kind_has_one_class() {
         for kind in [
@@ -85,6 +96,7 @@ mod tests {
                 "{kind:?}"
             );
         }
+        #[cfg(unix)]
         for errno in [libc::EMFILE, libc::ENFILE, libc::EAGAIN, libc::ENOMEM] {
             assert_eq!(
                 IoFailureClass::of(&io::Error::from_raw_os_error(errno)),
