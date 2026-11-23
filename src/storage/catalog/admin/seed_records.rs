@@ -11,8 +11,10 @@
 //! a mark, and leaves alone a marked directory whose bucket is gone or is another incarnation: a
 //! bucket an API request, a purge or a reset deleted stays deleted until its directory is removed
 //! and created again, or until a reseed or a restart replays the tree. Marks therefore outlive
-//! the buckets they name; only a replay that listed the whole tree drops one, for a directory it
-//! no longer found.
+//! the buckets they name. A startup replay or a reseed, which lists the whole tree or fails,
+//! drops the mark of a directory it no longer found; a pass drops one only as it would delete a
+//! file's object, once proofs of absence from consecutive passes, the first and the last a second
+//! apart, showed the directory's name empty. A directory a pass could not read keeps its mark.
 
 use super::replay::{Absence, Body, Fingerprint, SeedRecord, Version};
 use crate::{
@@ -52,7 +54,10 @@ pub(in crate::storage::catalog) const SCHEMA: &str = "CREATE TABLE seed_objects 
 ) WITHOUT ROWID;
 CREATE TABLE seed_buckets (
     bucket TEXT PRIMARY KEY NOT NULL COLLATE BINARY,
-    incarnation TEXT NOT NULL CHECK(typeof(incarnation) = 'text')
+    incarnation TEXT NOT NULL CHECK(typeof(incarnation) = 'text'),
+    absent_since INTEGER CHECK(absent_since IS NULL OR typeof(absent_since) = 'integer'),
+    absent_pass INTEGER CHECK(absent_pass IS NULL OR (typeof(absent_pass) = 'integer' AND absent_pass > 0)),
+    CHECK((absent_since IS NULL) = (absent_pass IS NULL))
 ) WITHOUT ROWID;
 PRAGMA user_version = 59;";
 
@@ -61,12 +66,17 @@ const SELECT_ONE: &str = "SELECT bucket, name, owned_generation, owned_metagener
 const UPSERT: &str = "INSERT OR REPLACE INTO seed_objects (bucket, name, owned_generation, owned_metageneration, deleted_generation, deleted_metageneration, size, md5, crc32c, device, inode, file_size, modified_ns, changed_ns, racy, absent_since, absent_pass) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)";
 const FOUND: &str = "UPDATE seed_objects SET absent_since = NULL, absent_pass = NULL WHERE bucket = ?1 AND name = ?2 AND absent_since IS NOT NULL";
 const CLEAR_ABSENCES: &str = "UPDATE seed_objects SET absent_since = NULL, absent_pass = NULL WHERE absent_since IS NOT NULL";
+const CLEAR_MARK_ABSENCES: &str = "UPDATE seed_buckets SET absent_since = NULL, absent_pass = NULL WHERE absent_since IS NOT NULL";
 const FORGET: &str = "DELETE FROM seed_objects WHERE bucket = ?1 AND name = ?2";
-const MARK: &str = "INSERT OR REPLACE INTO seed_buckets SELECT bucket, incarnation FROM bucket_incarnations WHERE bucket = ?1";
+const MARK: &str = "INSERT OR REPLACE INTO seed_buckets (bucket, incarnation) SELECT bucket, incarnation FROM bucket_incarnations WHERE bucket = ?1";
 const UNMARK: &str = "DELETE FROM seed_buckets WHERE bucket = ?1";
 const MARKS: &str = "SELECT bucket FROM seed_buckets";
 const MARK_STATE: &str = "SELECT seed_buckets.incarnation, bucket_incarnations.incarnation FROM seed_buckets LEFT JOIN bucket_incarnations USING (bucket) WHERE seed_buckets.bucket = ?1";
-const MARK_STATES: &str = "SELECT seed_buckets.bucket, seed_buckets.incarnation IS bucket_incarnations.incarnation FROM seed_buckets LEFT JOIN bucket_incarnations USING (bucket)";
+const MARK_STATES: &str = "SELECT seed_buckets.bucket, seed_buckets.incarnation IS bucket_incarnations.incarnation, seed_buckets.absent_since, seed_buckets.absent_pass FROM seed_buckets LEFT JOIN bucket_incarnations USING (bucket)";
+const MARK_ABSENCE: &str = "SELECT absent_since, absent_pass FROM seed_buckets WHERE bucket = ?1";
+const MARK_ABSENT: &str =
+    "UPDATE seed_buckets SET absent_since = ?2, absent_pass = ?3 WHERE bucket = ?1";
+const MARK_FOUND: &str = "UPDATE seed_buckets SET absent_since = NULL, absent_pass = NULL WHERE bucket = ?1 AND absent_since IS NOT NULL";
 
 /// The bucket and object name a record belongs to.
 pub(crate) type RecordKey = (String, String);
@@ -81,6 +91,14 @@ pub(crate) enum Mark {
     Current,
     /// The bucket seeding took was deleted, or the live one is a later incarnation.
     Gone,
+}
+
+/// A marked directory: whether its bucket is still the one seeding took, and the run of passes
+/// that proved the directory's name empty.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Marked {
+    pub(crate) mark: Mark,
+    pub(crate) absent: Option<Absence>,
 }
 
 /// A row of [`SELECT_ALL`] or [`SELECT_ONE`], whose columns follow the table's.
@@ -224,11 +242,12 @@ pub(crate) fn found(connection: &Connection, bucket: &str, name: &str) -> Result
     Ok(())
 }
 
-/// Clears every proof of absence, as a startup replay and a reseed do: the passes after them
-/// start every wait over, and pass numbers, which start over with the server, never meet a
-/// proof an earlier server kept.
+/// Clears every proof of absence, of files and of marked directories, as a startup replay and a
+/// reseed do: the passes after them start every wait over, and pass numbers, which start over
+/// with the server, never meet a proof an earlier server kept.
 pub(crate) fn clear_absences(connection: &Connection) -> Result<(), CatalogError> {
     sql::exec(connection, CLEAR_ABSENCES, [])?;
+    sql::exec(connection, CLEAR_MARK_ABSENCES, [])?;
     Ok(())
 }
 
@@ -242,16 +261,46 @@ pub(crate) fn forget(
     Ok(())
 }
 
-/// Marks the live bucket `bucket` as one seeding took for its directory.
+/// Marks the live bucket `bucket` as one seeding took for its directory, without a proof that
+/// the directory is gone.
 pub(crate) fn mark(connection: &Connection, bucket: &str) -> Result<(), CatalogError> {
     sql::exec(connection, MARK, [bucket])?;
     Ok(())
 }
 
 /// Forgets that seeding took a bucket for the directory `bucket`, which a replay that listed the
-/// whole tree no longer found.
+/// whole tree no longer found, or which consecutive passes proved gone.
 pub(crate) fn unmark(connection: &Connection, bucket: &str) -> Result<(), CatalogError> {
     sql::exec(connection, UNMARK, [bucket])?;
+    Ok(())
+}
+
+/// The run of passes that proved the marked directory `bucket` gone; none where it is unmarked.
+pub(crate) fn mark_absence(
+    connection: &Connection,
+    bucket: &str,
+) -> Result<Option<Absence>, CatalogError> {
+    Ok(
+        sql::row(connection, MARK_ABSENCE, [bucket], |row| absence(row, 0))
+            .optional()?
+            .flatten(),
+    )
+}
+
+/// Keeps `absence` as the run of passes that proved the marked directory `bucket` gone.
+pub(crate) fn mark_absent(
+    connection: &Connection,
+    bucket: &str,
+    absence: Absence,
+) -> Result<(), CatalogError> {
+    let (since, pass) = absence_columns(Some(absence))?;
+    sql::exec(connection, MARK_ABSENT, params![bucket, since, pass])?;
+    Ok(())
+}
+
+/// Clears any proof that the marked directory `bucket` is gone, writing only where one was kept.
+pub(crate) fn mark_found(connection: &Connection, bucket: &str) -> Result<(), CatalogError> {
+    sql::exec(connection, MARK_FOUND, [bucket])?;
     Ok(())
 }
 
@@ -277,15 +326,18 @@ pub(crate) fn mark_of(connection: &Connection, bucket: &str) -> Result<Mark, Cat
     })
 }
 
-/// Each marked directory with whether its bucket is still the one seeding took; a directory
-/// missing here is [`Mark::Unmarked`].
-pub(crate) fn mark_states(connection: &Connection) -> Result<HashMap<String, Mark>, CatalogError> {
+/// Each marked directory with whether its bucket is still the one seeding took, and its proofs of
+/// absence; a directory missing here is [`Mark::Unmarked`].
+pub(crate) fn mark_states(
+    connection: &Connection,
+) -> Result<HashMap<String, Marked>, CatalogError> {
     Ok(connection
         .prepare_cached(MARK_STATES)?
         .query_map([], |row| {
             let current: bool = row.get(1)?;
             let mark = if current { Mark::Current } else { Mark::Gone };
-            Ok((row.get(0)?, mark))
+            let absent = absence(row, 2)?;
+            Ok((row.get(0)?, Marked { mark, absent }))
         })?
         .collect::<rusqlite::Result<_>>()?)
 }

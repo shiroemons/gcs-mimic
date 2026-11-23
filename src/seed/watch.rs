@@ -10,7 +10,7 @@
 
 use super::{
     SeedError, open_tree, split_label,
-    walk::{Fixture, Object, Opened, Seen, Source, Unlisted, Walked},
+    walk::{Fixture, Object, Opened, Presence, Seen, Source, Unlisted, UnlistedDirectory, Walked},
 };
 use crate::{
     clock::Clock,
@@ -85,7 +85,6 @@ async fn walk_and_commit(
         skipped: HashSet::new(),
         walk: LiveWalk {
             complete: true,
-            directories: HashSet::new(),
             problems: Problems::default(),
             buckets_kept_deleted: 0,
         },
@@ -98,6 +97,7 @@ async fn walk_and_commit(
                 Err(error) => pass.incomplete(&error),
             },
             Some(Walked::Unlisted(unlisted)) => pass.unlisted(*unlisted),
+            Some(Walked::UnlistedDirectory(unlisted)) => pass.unlisted_directory(unlisted),
             Some(Walked::Done) => break,
             None => {
                 pass.incomplete(&SeedError::WalkStopped);
@@ -133,13 +133,14 @@ impl Pass<'_> {
     async fn entry(&mut self, label: &str, fixture: Fixture) -> Result<(), SeedError> {
         match fixture {
             Fixture::Unknown(unknown) => self.report(label, &SeedError::from(unknown)),
-            Fixture::Absent(proof) => {
-                if let Some((bucket, name)) = split_label(label)
-                    && !self.skipped.contains(bucket)
-                {
+            Fixture::Absent(proof) => match split_label(label) {
+                Some((bucket, name)) if !self.skipped.contains(bucket) => {
                     self.batch.absent(bucket, name, proof);
                 }
-            }
+                Some(_) => {}
+                // A top-level name the walk listed and then found empty.
+                None => self.batch.directory_absent(label, proof),
+            },
             Fixture::Unusable(rejected) => self.report(label, &SeedError::from(rejected)),
             // Skipped as at startup, without a report on every pass: fake-gcs-server ignores a
             // top-level file, and a mounted directory often holds a README.
@@ -176,11 +177,22 @@ impl Pass<'_> {
         }
     }
 
+    /// Takes what a lookup found at the name of a marked top-level directory the walk did not
+    /// list. Only a proof that the name is empty counts toward forgetting the mark; a name the
+    /// lookup could not tell is reported, and the directory keeps its mark.
+    fn unlisted_directory(&mut self, unlisted: UnlistedDirectory) {
+        let UnlistedDirectory { bucket, found } = unlisted;
+        match found {
+            Presence::Absent(proof) => self.batch.directory_absent(&bucket, proof),
+            Presence::Present => {}
+            Presence::Unknown(unknown) => self.report(&bucket, &SeedError::from(unknown)),
+        }
+    }
+
     /// Takes a top-level directory: a directory past `max_buckets_per_batch` is left out with
     /// everything below it, as is one whose bucket was deleted after seeding took it. A
     /// directory without a mark gets its bucket when the pass commits.
     fn bucket(&mut self, name: &BucketName) -> Result<(), SeedError> {
-        self.walk.directories.insert(name.as_str().to_owned());
         if let Some(limit) = self.config.max_buckets_per_batch
             && self.buckets >= limit.get()
         {

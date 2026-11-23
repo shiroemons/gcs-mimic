@@ -218,6 +218,17 @@ impl Watched {
             .unwrap();
     }
 
+    /// Deletes the seeded bucket and its objects as API requests would.
+    async fn api_delete_bucket(&self) {
+        for name in ["a", "b", "c"] {
+            self.api_delete("bucket", name).await;
+        }
+        self.catalog
+            .delete_bucket("bucket", BucketConditions::default(), PERMISSIVE)
+            .await
+            .unwrap();
+    }
+
     async fn bucket_exists(&self, bucket: &str) -> bool {
         self.catalog
             .admin(Origin::Seed)
@@ -463,33 +474,110 @@ async fn a_removed_directory_deletes_its_objects_and_keeps_its_bucket() {
     watched.close().await;
 }
 
-/// A bucket an API request deleted is not created again while its directory stays; removing the
-/// directory and adding it back creates it, as a new directory does.
+/// A bucket an API request deleted is not created again while its directory stays.
 #[tokio::test]
 async fn a_bucket_the_api_deleted_stays_deleted_while_its_directory_stays() {
     let watched = watched().await;
-    for name in ["a", "b", "c"] {
-        watched.api_delete("bucket", name).await;
-    }
-    watched
-        .catalog
-        .delete_bucket("bucket", BucketConditions::default(), PERMISSIVE)
-        .await
-        .unwrap();
+    watched.api_delete_bucket().await;
     watched.write("bucket/d", b"d");
     let report = watched.pass().await;
     assert_clean(&report);
     assert_eq!(report.counts.buckets_kept_deleted, 1);
     assert!(!watched.bucket_exists("bucket").await);
+    watched.close().await;
+}
+
+/// A directory away for one pass keeps the bucket an API request deleted deleted; one removed
+/// for two passes a second apart and added back gets it again, as a new directory does.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_directory_removed_and_added_back_gets_the_bucket_the_api_deleted() {
+    let watched = watched().await;
+    watched.api_delete_bucket().await;
     let aside = watched.dir.0.join("aside");
-    std::fs::rename(watched.seed.join("bucket"), &aside).unwrap();
-    watched.pass().await;
-    std::fs::rename(&aside, watched.seed.join("bucket")).unwrap();
+    let directory = watched.seed.join("bucket");
+    std::fs::rename(&directory, &aside).unwrap();
+    assert_eq!(watched.pass().await.counts.pending_directories, 1);
+    std::fs::rename(&aside, &directory).unwrap();
+    watched.clock.advance(Duration::from_secs(2));
+    let report = watched.pass().await;
+    assert_eq!(report.counts.buckets_kept_deleted, 1, "{report:?}");
+    assert!(!watched.bucket_exists("bucket").await);
+
+    std::fs::rename(&directory, &aside).unwrap();
+    assert_eq!(watched.pass().await.counts.pending_directories, 1);
+    assert_clean(&watched.confirm().await);
+    std::fs::rename(&aside, &directory).unwrap();
+    watched.write("bucket/d", b"d");
     let report = watched.pass().await;
     assert_eq!(report.counts.buckets_created, 1);
     assert_eq!(report.counts.published, 4);
     assert_eq!(watched.body("bucket", "d").await, b"d");
     watched.close().await;
+}
+
+/// A directory a pass cannot list proves nothing gone: once it is readable again, a bucket an
+/// API request deleted stays deleted, and one it created again keeps the objects it holds.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_unreadable_directory_keeps_the_bucket_the_api_deleted_or_created_again() {
+    use std::os::unix::fs::PermissionsExt;
+    for recreated in [false, true] {
+        let watched = watched().await;
+        watched.api_delete_bucket().await;
+        let api = if recreated {
+            watched
+                .catalog
+                .admin(Origin::Seed)
+                .ensure_bucket(
+                    BucketDefinition::default_for(
+                        &BucketName::new("bucket").unwrap(),
+                        &watched.config.seed_project,
+                        &crate::clock::SystemClock,
+                    )
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+            Some(watched.api_write("bucket", "a", b"api").await)
+        } else {
+            None
+        };
+        let directory = watched.seed.join("bucket");
+        let mode =
+            |bits| std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(bits));
+        mode(0o000).unwrap();
+        if std::fs::read_dir(&directory).is_ok() {
+            mode(0o755).unwrap();
+            eprintln!(
+                "SKIP: a mode 000 directory stays listable (for example when running as root)"
+            );
+            return;
+        }
+        let report = watched.pass().await;
+        let confirmed = watched.confirm().await;
+        mode(0o755).unwrap();
+        assert!(
+            report
+                .problems
+                .listed()
+                .iter()
+                .any(|problem| problem.path.as_deref() == Some("bucket")),
+            "{report:?}"
+        );
+        assert_eq!(confirmed.counts.pending_directories, 0, "{confirmed:?}");
+        let report = watched.pass().await;
+        assert_eq!(report.counts.buckets_created, 0, "{report:?}");
+        assert_eq!(report.counts.published, 0, "{report:?}");
+        match api {
+            Some(written) => {
+                assert_eq!(watched.generation("bucket", "a").await, written.generation);
+                assert_eq!(watched.body("bucket", "a").await, b"api");
+            }
+            None => assert!(!watched.bucket_exists("bucket").await),
+        }
+        watched.close().await;
+    }
 }
 
 /// An entry seeding cannot use is reported, and the object of the file it replaced stays.
