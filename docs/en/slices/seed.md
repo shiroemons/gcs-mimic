@@ -200,7 +200,9 @@ Objects seeding did not publish are never touched. Removing a fixture file
 deletes the object seeding published for it at the next replay, under the
 generation and metageneration seeding recorded; an object an API request wrote
 or edited at that name stays, and so does one a hold or retention period
-protects.
+protects. Only a Unix walk, which looks names up through the pinned root, proves
+a file absent: on Windows the object stays, a replay warns with `seed_skipped`
+and every pass reports the name as a problem.
 Seeding owns only what a replay of a release that keeps seed records published
 or found identical to a version it already owned, so an identical object an
 earlier release seeded stays after its file is removed, until the file changes

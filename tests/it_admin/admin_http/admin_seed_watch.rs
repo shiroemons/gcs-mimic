@@ -21,7 +21,8 @@ fn watched(data: &TestDir, source: &TestDir) -> Server {
 }
 
 /// A wait returns once the tree it found is applied, including the deletion of a removed file
-/// that takes a second proof, and the status then reports that pass.
+/// that takes a second proof, and the status then reports that pass. Only a Unix walk proves a
+/// file absent; elsewhere the object stays, and the pass reports its name.
 #[test]
 fn a_wait_applies_the_changed_tree_and_the_status_reports_its_pass() {
     let (data, source) = (TestDir::new(), TestDir::new());
@@ -33,18 +34,29 @@ fn a_wait_applies_the_changed_tree_and_the_status_reports_its_pass() {
     std::fs::write(source.0.join("test-bucket/added"), b"added").unwrap();
     std::fs::remove_file(source.0.join("test-bucket/value")).unwrap();
     let pass = server.request("POST", WAIT, "", b"").json_ok();
-    assert_eq!(
-        (
-            &pass["complete"],
-            &pass["clean"],
-            &pass["deleted"],
-            &pass["pendingDeletions"]
-        ),
-        (&json!(true), &json!(true), &json!(1), &json!(0)),
-        "{pass}"
+    let counts = (
+        &pass["complete"],
+        &pass["clean"],
+        &pass["deleted"],
+        &pass["pendingDeletions"],
     );
-    assert_eq!(pass["problems"], json!([]), "{pass}");
-    server.request("GET", OBJECT, "", b"").expect(404);
+    if cfg!(unix) {
+        assert_eq!(
+            counts,
+            (&json!(true), &json!(true), &json!(1), &json!(0)),
+            "{pass}"
+        );
+        assert_eq!(pass["problems"], json!([]), "{pass}");
+        server.request("GET", OBJECT, "", b"").expect(404);
+    } else {
+        assert_eq!(
+            counts,
+            (&json!(true), &json!(false), &json!(0), &json!(0)),
+            "{pass}"
+        );
+        assert_eq!(pass["problems"][0]["path"], "test-bucket/value", "{pass}");
+        server.request("GET", OBJECT, "", b"").expect(200);
+    }
     assert_eq!(
         server
             .request(
