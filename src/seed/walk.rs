@@ -98,7 +98,7 @@ impl From<Unknown> for SeedError {
     fn from(unknown: Unknown) -> Self {
         match unknown {
             Unknown::Io(error) => Self::Io(error),
-            Unknown::Unopenable => Self::Unopenable(crate::fsutil::Unopenable),
+            Unknown::Unopenable => Self::Unopenable,
             Unknown::Replaced => Self::TreeChanged,
         }
     }

@@ -271,7 +271,7 @@ async fn a_fixture_that_keeps_failing_to_open_fails_startup_and_leaves_the_seed_
         matches!(
             entry.as_ref(),
             SeedError::Entry { label, source }
-                if label == "bucket/b" && matches!(source.as_ref(), SeedError::Unopenable(_))
+                if label == "bucket/b" && matches!(source.as_ref(), SeedError::Unopenable)
         ),
         "{failure:?}"
     );

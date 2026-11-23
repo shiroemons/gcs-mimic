@@ -146,7 +146,7 @@ pub(super) fn tree_failure(error: &SeedError, operation: Operation) -> ApiError 
         // replaced during the walk is read as it now is by the next attempt.
         SeedError::WalkStopped
         | SeedError::RelativePath(_)
-        | SeedError::Unopenable(_)
+        | SeedError::Unopenable
         | SeedError::TreeChanged => retry(operation),
     }
 }
