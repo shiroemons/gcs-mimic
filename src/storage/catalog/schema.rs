@@ -204,8 +204,17 @@ impl Step {
     }
 
     /// Checks the state this step introduced only in catalogs older than `version`, whose
-    /// upgrade replaced or dropped it.
+    /// upgrade replaced or dropped it. [`STEPS`] is a constant, so a step without a check, or a
+    /// `version` that is not later than the step, fails the build.
     const fn checked_below(self, version: i64) -> Self {
+        assert!(
+            self.check.is_some(),
+            "only a step with a check can stop checking"
+        );
+        assert!(
+            self.version < version,
+            "a check stops at a later version than its step"
+        );
         Self {
             checked_below: Some(version),
             ..self
