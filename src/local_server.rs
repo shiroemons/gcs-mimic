@@ -31,47 +31,43 @@ pub(super) fn origin(
     }
 }
 
-/// Runs `attempt` at `configured`, the server the configuration gives. When that fails in a way
-/// `retry` accepts, it runs again at the server the options of the container's PID 1 give, which
-/// `locate` turns into the attempt's target, unless they give the same one. A Compose `command`
-/// such as `--scheme https` reaches only the server process, not the environment of a command
-/// run beside it. Returns where the attempt that answered ran, and its answer; when the
-/// fallback is not tried, the first failure.
+/// Runs `attempt` at `configured`, the server the configuration gives. When that fails, it runs
+/// again at the server the options of the container's PID 1 give, which `locate` turns into the
+/// attempt's target, unless they give the same one. A Compose `command` such as
+/// `--scheme https` reaches only the server process, not the environment of a command run beside
+/// it. Returns the answer of the attempt that answered; when the fallback is not tried, the
+/// first failure.
 pub(super) fn with_container_fallback<L: PartialEq, T, E>(
-    configured: L,
+    configured: &L,
     attempt: impl FnMut(&L) -> Result<T, E>,
-    retry: impl FnOnce(&E) -> bool,
     locate: impl FnOnce(&[String]) -> Result<L, E>,
-) -> Result<(L, T), E> {
+) -> Result<T, E> {
     // Only a failed attempt consults PID 1: Rosetta emulates /proc/<pid>/cmdline with a
     // temporary file, which crashes the command on a read-only root, so ordinary setups never
     // read it.
     let pid1 = || std::fs::read("/proc/1/cmdline").ok();
-    fallback_from(configured, attempt, retry, locate, pid1)
+    fallback_from(configured, attempt, locate, pid1)
 }
 
 /// [`with_container_fallback`] with PID 1's command line read by `pid1`.
 fn fallback_from<L: PartialEq, T, E>(
-    configured: L,
+    configured: &L,
     mut attempt: impl FnMut(&L) -> Result<T, E>,
-    retry: impl FnOnce(&E) -> bool,
     locate: impl FnOnce(&[String]) -> Result<L, E>,
     pid1: impl FnOnce() -> Option<Vec<u8>>,
-) -> Result<(L, T), E> {
-    let error = match attempt(&configured) {
-        Ok(answer) => return Ok((configured, answer)),
-        Err(error) if retry(&error) => error,
-        Err(error) => return Err(error),
+) -> Result<T, E> {
+    let error = match attempt(configured) {
+        Ok(answer) => return Ok(answer),
+        Err(error) => error,
     };
     let Some(server_args) = pid1().and_then(|cmdline| container_server_args(&cmdline)) else {
         return Err(error);
     };
     let fallback = locate(&server_args)?;
-    if fallback == configured {
+    if fallback == *configured {
         return Err(error);
     }
-    let answer = attempt(&fallback)?;
-    Ok((fallback, answer))
+    attempt(&fallback)
 }
 
 /// The server options in `cmdline`, the NUL-separated `/proc/1/cmdline` of a container's PID 1,

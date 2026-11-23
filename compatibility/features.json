@@ -60417,7 +60417,7 @@
         "filesystem_import_source_replacement_during_publication_stays_unservable",
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit",
         "only_a_gcs_mimic_server_with_options_gives_a_fallback",
-        "a_retryable_failure_tries_the_server_pid_1_gives_once",
+        "a_failure_tries_the_server_pid_1_gives_once",
         "root_rules_decide_only_what_the_casefold_flag_leaves_open",
         "a_pass_reads_an_unchanged_directory_once",
         "a_directory_changed_during_a_pass_is_read_again",
@@ -60701,7 +60701,7 @@
           "result": "PASS",
           "verified_at": "2026-11-20",
           "artifact": "docs/en/container-usage.md",
-          "test_ids": ["only_a_gcs_mimic_server_with_options_gives_a_fallback", "a_retryable_failure_tries_the_server_pid_1_gives_once", "healthcheck_usage_errors_come_before_any_probe"]
+          "test_ids": ["only_a_gcs_mimic_server_with_options_gives_a_fallback", "a_failure_tries_the_server_pid_1_gives_once", "healthcheck_usage_errors_come_before_any_probe"]
         },
         {
           "command": "docker buildx build --platform linux/arm64 --load --tag gcs-mimic:smoke-bind-arm64 .; bash target/smoke-sync-stages.sh --image gcs-mimic:smoke-bind-arm64 linux/arm64; GCSM_SMOKE_AS_HOST_USER=1 bash target/smoke-compose-stage.sh --image gcs-mimic:smoke-bind-arm64 linux/arm64 (the volume and Compose synchronization stages of scripts/smoke-containers.sh, extracted unchanged with the sed commands the record shows; Docker Desktop 29.9.3 and Docker Compose v5.6.1 on an arm64 macOS host)",

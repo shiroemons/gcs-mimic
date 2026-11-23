@@ -626,16 +626,13 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
         )
     };
     if let Some(url) = &options.url {
-        probe(url, ca_cert).map_err(|error| failed(url, error))?;
-        return Ok(());
+        return probe(url, ca_cert).map_err(|error| failed(url, error));
     }
     local_server::with_container_fallback(
-        probe_url(&[], &repair)?,
+        &probe_url(&[], &repair)?,
         |url| probe(url, ca_cert).map_err(|error| failed(url, error)),
-        |_| true,
         |server_args| probe_url(server_args, &repair),
-    )?;
-    Ok(())
+    )
 }
 
 /// The options of `gcs-mimic healthcheck`.
@@ -830,8 +827,8 @@ fn probe_url(
     Err(diagnostics)
 }
 
-/// The body of the HTTP 200 answer to `url`.
-fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> io::Result<Vec<u8>> {
+/// Passes when `url` answers HTTP 200 with a complete body.
+fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> io::Result<()> {
     let client = match (url.scheme, ca_cert) {
         (ProbeScheme::Https, Some(path)) => Some(tls::client_config(path)?),
         (ProbeScheme::Https, None) => Some(tls::development_client_config()?),
@@ -885,12 +882,13 @@ fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> io::Result<Vec<u8>> {
     result
 }
 
-/// The body of an HTTP 200 answer to `GET /{path}`.
+/// Passes when `GET /{path}` answers HTTP 200 with as many body bytes as its Content-Length
+/// gives.
 async fn probe_response(
     mut stream: impl AsyncRead + AsyncWrite + Unpin,
     authority: &str,
     path: &str,
-) -> io::Result<Vec<u8>> {
+) -> io::Result<()> {
     let request = format!("GET /{path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n");
     stream.write_all(request.as_bytes()).await?;
     stream.flush().await?;
@@ -951,7 +949,7 @@ async fn probe_response(
     if length.is_some_and(|n| n != response.len() - boundary - 4) {
         return Err(io::Error::other("incomplete probe body"));
     }
-    Ok(response.split_off(boundary + 4))
+    Ok(())
 }
 
 #[cfg(test)]

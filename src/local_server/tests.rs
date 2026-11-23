@@ -40,60 +40,47 @@ fn locate(server_args: &[String]) -> Result<String, String> {
     origin(server_args, []).map_err(|unreliable| unreliable.origin)
 }
 
-/// A failure the caller lets the fallback retry reaches the server PID 1's options give, and the
-/// answer comes from there; one it does not, an unchanged target or no gcs-mimic server as PID 1
-/// returns the first failure, and the second attempt's failure is returned as its own.
+/// A failure reaches the server PID 1's options give, and the answer comes from there; an
+/// unchanged target or no gcs-mimic server as PID 1 returns the first failure, and the second
+/// attempt's failure is returned as its own.
 #[test]
-fn a_retryable_failure_tries_the_server_pid_1_gives_once() {
+fn a_failure_tries_the_server_pid_1_gives_once() {
     let tried = RefCell::new(Vec::new());
     let attempt = |answers: &'static [Result<&'static str, &'static str>]| {
         let tried = &tried;
         let mut answers = answers.iter();
         move |target: &String| {
             tried.borrow_mut().push(target.clone());
-            answers
-                .next()
-                .copied()
-                .unwrap()
-                .map(str::to_owned)
-                .map_err(str::to_owned)
+            answers.next().copied().unwrap().map_err(str::to_owned)
         }
     };
-    let configured = || CONFIGURED.to_owned();
     let pid1 = |cmdline: &'static [u8]| move || Some(cmdline.to_vec());
 
     let answered = fallback_from(
-        configured(),
+        &CONFIGURED.to_owned(),
         attempt(&[Err("plain HTTP to TLS"), Ok("ready")]),
-        |_| true,
         locate,
         pid1(PID1),
     );
-    assert_eq!(answered, Ok((CONTAINER.to_owned(), "ready".to_owned())));
+    assert_eq!(answered, Ok("ready"));
     assert_eq!(tried.take(), [CONFIGURED, CONTAINER]);
 
     let refused = fallback_from(
-        configured(),
+        &CONFIGURED.to_owned(),
         attempt(&[Err("refused"), Err("refused again")]),
-        |_| true,
         locate,
         pid1(PID1),
     );
     assert_eq!(refused, Err("refused again".to_owned()));
     assert_eq!(tried.take(), [CONFIGURED, CONTAINER]);
 
-    for (retry, cmdline) in [
-        (false, PID1),
-        (
-            true,
-            b"/usr/local/bin/gcs-mimic\0--scheme\0http\0".as_slice(),
-        ),
-        (true, b"/bin/sh\0".as_slice()),
+    for cmdline in [
+        b"/usr/local/bin/gcs-mimic\0--scheme\0http\0".as_slice(),
+        b"/bin/sh\0",
     ] {
         let failed = fallback_from(
-            configured(),
+            &CONFIGURED.to_owned(),
             attempt(&[Err("first")]),
-            |_| retry,
             locate,
             pid1(cmdline),
         );
