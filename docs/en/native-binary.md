@@ -444,7 +444,9 @@ bucket an API request deleted or created again stays as that request left it
 while the server runs, even when its directory is removed and added back; a
 reseed or a restart replays the directory. A pass that cannot run, such as one
 whose `seed_dir` went away, emits a `seed_pass_failed` warning with its whole
-cause on every pass until the cause is gone; see
+cause, once for each run of such passes and again only when the reason changes,
+and the first pass that runs again emits an info-level `seed_pass_recovered`
+event; see
 [passes while the server runs](slices/seed.md#passes-while-the-server-runs).
 Since 0.8.0, an opt-in [reseed endpoint](slices/atomic-seed-reseed.md)
 (with `--admin-enabled`) offers disk merge and RAM replacement. The ready event's `seed` field reports `buckets` and

@@ -64,8 +64,8 @@ Test identifiers below are the exact integration test function names in
 | seed-invalid | Reject invalid bucket/object names, missing/overlapping configured roots and oversize files; accept zero bytes and the inclusive file-size cap | `invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive` | PASS |
 | seed-retired-sync | A seed root that holds synchronization's marker or workspace stops startup before the catalog opens, names them and leaves them unchanged; once they are removed, the root seeds | `a_seed_directory_that_synchronization_used_stops_startup_until_its_files_are_removed` | PASS |
 | seed-records | Schema 59 keeps seed records with their proofs of absence, and bucket marks; the first start with records owns nothing it did not publish; a restart or reseed deletes the object seeding owns only for a removed file its walk never listed, keeps a file listed and then missing, warns about a name it cannot tell about only while seeding owns its object, keeps API writes and buckets, and changes nothing when a deletion fails | `seed::tests::records`, `seed_records::tests`, `replay::tests`, the three `a_file_back_*` replay tests, `restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects`, `a_restart_warns_about_an_unproven_removal_only_while_seeding_owns_the_object` | PASS |
-| seed-live-passes | Passes publish new and changed files, delete only after proofs from consecutive passes, keep API changes, protected objects and buckets, keep a bucket the API deleted or created again while its directory stays, cannot be read, or goes away and comes back, until a reseed replays it, leave out a directory named like a bucket of another project, report what they leave in words, delete nothing after an incomplete walk, emit no bucket notifications, and never write to the seed root | `seed::watch::tests` (22 tests), `the_seed_watch_interval_defaults_to_a_second_and_zero_stops_the_passes`, `a_running_server_replays_the_seed_directory_after_each_interval` | PASS |
-| seed-live-report | The status and wait routes, their bounds and refusals, a wait served by the first settled pass that started after it, the report and the `seed_pass_failed` warning of a pass that could not run, and readiness that drops while a panicked pass restarts | `seed_watch::tests` (5 tests), `a_wait_takes_only_a_bounded_timeout`, `admin_seed_watch` (3 tests), `a_pass_that_cannot_run_warns_with_its_cause_and_the_passes_go_on` | PASS |
+| seed-live-passes | Passes publish new and changed files, delete only after proofs from consecutive passes, keep API changes, protected objects and buckets, keep a bucket the API deleted or created again while its directory stays, cannot be read, or goes away and comes back, until a reseed replays it, leave out a directory named like a bucket of another project, report what they leave in words, delete nothing after an incomplete walk, emit no bucket notifications, and never write to the seed root | `seed::watch::tests` (22 of its 23 tests), `the_seed_watch_interval_defaults_to_a_second_and_zero_stops_the_passes`, `a_running_server_replays_the_seed_directory_after_each_interval` | PASS |
+| seed-live-report | The status and wait routes, their bounds and refusals, a wait served by the first settled pass that started after it, the report of a pass that could not run, one `seed_pass_failed` warning for each run of such passes and each change of reason, one `seed_pass_recovered` event when a pass runs again, and readiness that drops while a panicked pass restarts | `seed_watch::tests` (5 tests), `a_wait_takes_only_a_bounded_timeout`, `admin_seed_watch` (3 tests), `a_lasting_failure_warns_once_for_each_new_reason_and_once_when_it_ends`, `a_pass_that_cannot_run_warns_with_its_cause_and_the_passes_go_on` | PASS |
 | seed-live-cli | `gcs-mimic seed status` and `seed wait`, their output, exit status and advice, and the server URL and CA they read as `healthcheck` does | `seed_cli::tests` (3 tests), `local_server::tests` (4 tests), `it_process::seed_cli` (2 tests), `helper_help_texts_keep_their_exact_bytes` | PASS |
 | seed-live-hosts | Passes on Linux and Windows hosts, container bind mounts, network and case-insensitive filesystems | none; only a macOS ARM64 host ran them | PENDING |
 | seed-walk | Accept a tree at a named limit; reject a deeper tree or more entries with a message that names the setting | `named_fixture_limits_are_inclusive_and_name_their_settings` | PASS |
@@ -284,11 +284,21 @@ to delete; each is looked up on every pass until a file returns there) and
 `bucketsKeptDeleted` (directories whose bucket an API request deleted or created
 again), the first 100 `problems` with their `path` and `reason`,
 `problemsOmitted`, and `error` when the pass could not run, such as when the
-seed root went away. Such a pass also emits a `seed_pass_failed` warning event
-on stderr with the pass number as `pass` and the whole chain of causes as
-`cause`, down to the operating system's or the database's error, which `error`
-states only in words. Each pass that cannot run warns, so the warning repeats
-every `seed_watch_interval_ms` while the cause lasts.
+seed root went away. The report of each such pass states its `error`, while
+stderr tells of a lasting failure once:
+
+- The first pass that cannot run after startup, or after a pass that ran, emits
+  a `seed_pass_failed` warning event with the pass number as `pass` and the
+  whole chain of causes as `cause`, down to the operating system's or the
+  database's error, which `error` states only in words.
+- A later pass of the same run warns again only when its `error` differs from
+  the one the last warning was for, even when it returns to an earlier one. A
+  missing seed root or a full disk thus warns once, not every
+  `seed_watch_interval_ms`.
+- The first pass that runs after such a run emits an info-level
+  `seed_pass_recovered` event with its number as `pass` and the number of
+  passes in a row that could not run as `failed_passes`. With `log_level` set
+  to `warn` or `error`, it is left out like the other informational events.
 
 `gcs-mimic seed status` and `gcs-mimic seed wait` call these routes and print
 the answer as one line of JSON, with DEL and the C1 controls escaped as well.
