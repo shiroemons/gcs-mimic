@@ -84,6 +84,52 @@ async fn a_wait_ends_at_its_deadline_or_when_the_passes_stop() {
     assert!(!watch.status().enabled);
 }
 
+/// A pass that panics restarts the task, and readiness reports it down until a pass of the
+/// replacement completes. The replacement passes at once, so a request that waited for the pass
+/// the panic ended is served long before the interval.
+#[tokio::test]
+async fn a_pass_that_panics_drops_readiness_until_the_replacement_passes_at_once() {
+    use std::sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    };
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let calls = Arc::new(AtomicU64::new(0));
+    let (entered, mut replacement) = tokio::sync::mpsc::unbounded_channel();
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
+    let released = Arc::new(Mutex::new(Some(released)));
+    catalog.start_seed_watch(Duration::from_secs(3600), move |_, _| {
+        let call = calls.fetch_add(1, Ordering::SeqCst);
+        let entered = entered.clone();
+        let released = (call > 0)
+            .then(|| released.lock().unwrap().take())
+            .flatten();
+        async move {
+            assert!(call > 0, "injected seed pass panic");
+            entered.send(()).unwrap();
+            if let Some(released) = released {
+                released.await.unwrap();
+            }
+            report(0, 0)
+        }
+    });
+    assert!(catalog.background_tasks_running());
+    let wait = {
+        let catalog = catalog.clone();
+        tokio::spawn(async move { catalog.seed_watch().wait(hang_deadline()).await })
+    };
+    tokio::time::timeout_at(hang_deadline(), replacement.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!catalog.background_tasks_running());
+    release.send(()).unwrap();
+    wait.await.unwrap().unwrap();
+    assert!(catalog.background_tasks_running());
+    catalog.close().await.unwrap();
+}
+
 #[test]
 fn a_pass_reports_at_most_a_hundred_problems_by_path() {
     let mut problems = Problems::default();
