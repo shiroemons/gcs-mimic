@@ -292,4 +292,4 @@ Re-verified on 2026-11-08 on the integration branch after the recorded member se
 | `cargo test --locked --test it_xml_auth`; `cargo test --locked --test it_sync` | PASS, 272 and 30 tests |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings`; `cargo xtask lint` | PASS, no new production violation |
 
-Reconciliation outside startup, file watching, lifecycle, ACL members, directory synchronization, source import, additional settings/dependencies and other tracks' internals remain outside this contract. The next independent slice is directory synchronization or source import; neither is implied by initialization delivery.
+Reconciliation outside startup, file watching, lifecycle, ACL members, source import, additional settings/dependencies and other tracks' internals remain outside this contract. Source import is not implied by initialization delivery.

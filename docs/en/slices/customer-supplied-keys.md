@@ -88,9 +88,8 @@ an invalid key never creates an object.
 
 Cloud Storage stores only the key's SHA-256 and encrypts the data with the key.
 gcs-mimic likewise never persists, logs or returns the key itself, but it
-stores object bytes unencrypted under the data directory, including the
-visible tree of directory synchronization. Possession of the data directory
-therefore reveals encrypted objects' contents. This keeps streaming,
+stores object bytes unencrypted under the data directory. Possession of the
+data directory therefore reveals encrypted objects' contents. This keeps streaming,
 range reads, compose and rewrite unchanged and avoids a new cryptographic
 dependency; the SHA-256 comes from the existing `ring` dependency.
 

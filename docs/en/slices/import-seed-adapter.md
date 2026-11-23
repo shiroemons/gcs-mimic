@@ -29,7 +29,7 @@ replacement. `seed_content_type` now defaults to `extension`; `octet-stream` is
 opt-in. Top-level regular files are skipped with a `seed_skipped` warning
 instead of failing startup. `default_seed_dir` supplies a seed root only when
 `seed_dir` is unset and the path is an existing directory disjoint from
-`data_dir` and `sync_dir`. The verification table below is the historical
+`data_dir`. The verification table below is the historical
 record of the adapter slice; current replay results are recorded in the seed
 contract.
 

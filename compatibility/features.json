@@ -915,7 +915,7 @@
           "Prepare docs/en/releases/0.1.0.md with ledger/evidence mapping, schema/upgrade limits and runnable file combinations; distinguish pre-tag gates that must pass from tag execution, assign pin refresh/revalidation and pending SHA/diff/freshness rules to dist-tag-publication, and remove source-identity/resource/schedule finalization markers before publication; failed local gates remain release-blocking; see docs/en/slices/dist-release-notes.md.",
           "Publish only after separate authorization; verify registry/release access and immutable identity instead of treating configured workflows as executed."
         ],
-        "deferred_scope": "The first 0.x release does not require Rails, initializer, synchronization, gRPC, lifecycle or all coverage groups; it does require the explicit release-policy/platform gates. Version 1.0.0 additionally requires the stable-contract gate in docs/en/release-policy.md; the complete reference-superset gate and named extensions remain a separate goal."
+        "deferred_scope": "The first 0.x release does not require Rails, initializer, gRPC, lifecycle or all coverage groups; it does require the explicit release-policy/platform gates. Version 1.0.0 additionally requires the stable-contract gate in docs/en/release-policy.md; the complete reference-superset gate and named extensions remain a separate goal."
       },
       {
         "id": "configuration-workflows",
@@ -933,16 +933,16 @@
       {
         "id": "onboarding-state-contract",
         "order": 21,
-        "title": "Freeze shared initialization and synchronization boundaries",
+        "title": "Freeze shared initialization boundaries",
         "depends_on": ["runtime-foundation", "bucket-metadata-update"],
         "feature_ids": ["DESIGN-062", "DESIGN-072", "DESIGN-074", "UX-002"],
         "completion_conditions": [
           "Specify bucket/project identity, strict initialization authority, readiness ordering and the shared bounded mutation/publication interface before adapter implementation.",
           "Assign catalog/schema/publication changes to one integration owner; initializer, watcher and importer adapters must preserve conditions, hashes, generations and recovery.",
-          "Freeze the create-missing-only policy without coupling initializer completion to synchronization or public-host configuration.",
+          "Freeze the create-missing-only policy without coupling initializer completion to public-host configuration.",
           "shared-timestamp-precision follows repo-lints and precedes shared-imported-identity: schema 14 stores bucket/object times in microseconds with an atomic version-13 migration and unchanged JSON/XML/ETags/internal deadlines; initial AUDIT-014 timestamp migration/backup/downgrade cases live in docs/en/slices/catalog-timestamp-precision.md."
         ],
-        "deferred_scope": "A design contract is not implementation evidence. File schema, synchronization conflicts/names and source-format preservation require their own scoped decisions."
+        "deferred_scope": "A design contract is not implementation evidence. File schema and source-format preservation require their own scoped decisions."
       },
       {
         "id": "bucket-initialization",
@@ -955,20 +955,18 @@
           "Create missing buckets, optionally with an iamPolicy that replaces the default policy in the creation transaction; verify independent CORS/versioning effects for two buckets. In create mode preserve API changes, existing objects and settings across restarts, warning about an edited entry that was not applied; in reconcile mode, the default since 0.20.0, apply only the differing written members.",
           "Removing an entry does not delete a bucket; one batched lookup and one administrative transaction plan and apply the whole run, so a public policy refused by public access prevention fails before any write. Precommit failure rolls back the run, postcommit failure preserves it, and retry converges. Existing project mismatches warn without mutation, and ready reports disabled or applied with created/existing/project_mismatches/unapplied/reconciled counts. buckets_mode=reconcile, the default for buckets_file and the inline buckets document alike since 0.20.0, applies only the differing written members of existing buckets, except location and owner; buckets_mode=create keeps them. Runtime cases map to BUCKET-INIT-INPUT, BUCKET-INIT-STARTUP, BUCKET-INIT-INDEPENDENT-SETTINGS, BUCKET-INIT-PRESERVE-API-CHANGES, BUCKET-INIT-IAM-POLICY, BUCKET-INIT-UNAPPLIED, BUCKET-INIT-RECONCILE and BUCKET-INIT-ONBOARDING; broader instruction-level crash injection remains explicit under BUCKET-INIT-ATOMICITY."
         ],
-        "deferred_scope": "Reconciliation outside startup, file watching, ACL members and lifecycle are not the initializer contract. Directory synchronization and source-state import are independent tracks."
+        "deferred_scope": "Reconciliation outside startup, file watching, ACL members and lifecycle are not the initializer contract. Source-state import is an independent track."
       },
       {
         "id": "directory-synchronization",
         "order": 23,
-        "title": "Synchronize inspectable bucket/object files in both directions",
+        "title": "Directory synchronization (removed): seed_dir reads a folder at startup and never writes to it",
         "depends_on": ["onboarding-state-contract", "json-object-media", "json-list-and-metadata"],
         "feature_ids": ["DESIGN-062", "DESIGN-072", "DESIGN-074", "DESIGN-076"],
         "completion_conditions": [
-          "Freeze the settings, API-priority conflict preservation, metadata ownership, reversible name mapping, marker safety, strict controls and fixed-target approval contract in docs/en/slices/directory-synchronization.md before implementation; its documentation alone is not runtime evidence.",
-          "Verify API/external create, overwrite, deletion and rename with multiple buckets while preserving checksums, immutable generations and bucket settings.",
-          "Handle partial writes, editor replacement, duplicate/self/missed events and bounded rescans; verify interruption, restart, disk-full and visible conflict handling without silent data loss."
+          "Directory synchronization was removed; no bidirectional synchronization requirement remains. The startup seed contract in docs/en/slices/seed.md describes what a folder can do: it is read at startup and never written to."
         ],
-        "deferred_scope": "One-time seed or import does not satisfy bidirectional synchronization. Initializer completion and full public-host configuration are not prerequisites. Most sync runtime cases pass and the sync-* cases still listed PENDING record the remaining scope; file watching uses the existing libc dependency (inotify and FSEvents) with no notification crate, and native Windows synchronization is considered separately. Shared state owns its internals; required properties and acceptance handoffs are in the directory synchronization contract."
+        "deferred_scope": "Bidirectional synchronization, its sync-* cases and its platform acceptance no longer apply. Initializer completion and full public-host configuration were never prerequisites."
       },
       {
         "id": "source-storage-contract",
@@ -1015,21 +1013,12 @@
         "reference": "docs/en/fake-gcs-server-migration.md#configuration-compatibility-and-extensions"
       },
       "filesystem_sync_contract": {
-        "requirement": "Provide a configured, inspectable bucket/object directory with bidirectional synchronization: external additions, edits and deletions reach the API, and API mutations appear in the same directory. A one-time seed import or migration converter does not satisfy this requirement.",
-        "current_boundary": "--sync-dir exports API changes to an inspectable directory, observes it with bounded scans, ingests external creates and edits, and applies external deletions only after a fixed-revision approval; the gcs-mimic sync CLI drives the live controls. docs/en/slices/directory-synchronization.md owns the contract; complete conflict, recovery and platform acceptance remains open, so DESIGN-062, DESIGN-072 and DESIGN-074 remain PARTIAL. DESIGN-076 is unchanged.",
-        "catalog_boundary": "SQLite may remain the metadata/index catalog. External changes must use shared bounded ingestion, checksum, generation and atomic-publication logic; do not mutate committed internal blobs in place or update only catalog size/path fields.",
-        "acceptance_targets": [
-          "Verify API/external create, overwrite, delete and rename in both directions, including multiple buckets and persistence of independent bucket settings.",
-          "Handle editor temporary files, partial writes, atomic replacement, self-generated events and duplicate or missed notifications without stale hashes or update loops.",
-          "Define API/external conflict behavior and visible synchronization failures before implementation; verify no silent data loss and preserve retained generations.",
-          "Define portable name mapping, file/directory collisions and symlink policy; reject unrepresentable state explicitly.",
-          "Verify bounded rescan and restart/recovery across the visible directory, immutable blobs and SQLite before claiming compatibility."
-        ],
-        "open_decisions": [
-          "File watching uses inotify and FSEvents through the existing libc dependency and adds no notification crate; Docker bind mount notification support still needs its own evidence, and native Windows synchronization is considered separately.",
-          "Shared state chooses its internal identity/state/journal/admission/recovery mechanisms and benchmark thresholds; the directory synchronization contract requests properties and acceptance cases only."
-        ],
-        "reference": "docs/en/slices/directory-synchronization.md"
+        "requirement": "Withdrawn: directory synchronization was removed. seed_dir reads a folder at startup and never writes to it, so API mutations do not appear as files.",
+        "current_boundary": "No synchronization exists. The startup seed contract in docs/en/slices/seed.md owns what a folder can do. DESIGN-062, DESIGN-072 and DESIGN-074 keep their ledger statuses; DESIGN-076 is unchanged.",
+        "catalog_boundary": "SQLite remains the metadata/index catalog with opaque immutable blobs; do not mutate committed internal blobs in place or update only catalog size/path fields.",
+        "acceptance_targets": [],
+        "open_decisions": [],
+        "reference": "docs/en/slices/seed.md"
       },
       "full_superset_gate": [
         "Inventory all public source flags/settings, routes, helper/event behavior, backend modes, Go APIs and Storage v1 gRPC; do not silently drop surfaces missing from the current GCS inventory.",
@@ -37399,7 +37388,7 @@
       ],
       "source_checked_at": "2026-11-11",
       "source_evidence": "SPEC_BASED",
-      "notes": "Stored Delete rules execute through the shared evaluator and paged maintenance. Execution defaults on without synchronization and off with sync_dir; explicit enabled also deletes synchronized host files. Unconfigured catalogs do not execute rules. Unversioned/soft deletion, version transitions, restore age, protection, notifications and atomic pages are covered on disk and RAM. Class-dependent Delete uses the stored class and can follow a transition in the same pass. Deterministically malformed versions are skipped without blocking healthy pages. Scope and evidence: docs/en/slices/lifecycle-execution.md and docs/en/slices/lifecycle-storage-class.md. Empty HNS folders and provider interaction questions remain pending.",
+      "notes": "Stored Delete rules execute through the shared evaluator and paged maintenance. Execution defaults on; an explicit disabled keeps rules stored without executing them. Unconfigured catalogs do not execute rules. Unversioned/soft deletion, version transitions, restore age, protection, notifications and atomic pages are covered on disk and RAM. Class-dependent Delete uses the stored class and can follow a transition in the same pass. Deterministically malformed versions are skipped without blocking healthy pages. Scope and evidence: docs/en/slices/lifecycle-execution.md and docs/en/slices/lifecycle-storage-class.md. Empty HNS folders and provider interaction questions remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -37559,7 +37548,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Lifecycle conservatively waits for object retention before archiving a live version; newer counts exclude soft-deleted versions and soft deletion emits the existing local delete event. These provider interaction choices and empty HNS folder cleanup remain unverified. Protected independent Delete precedence over transitions and same-pass transition/Delete chains remain local scheduling choices. Earlier-release rule execution uses a synthetic schema 52 fixture because the released-data fixture has no lifecycle rules. Event-hold release retains the existing creation-based bucket-retention limitation. A later synchronization run can remove a previously tracked host file deleted from the catalog while synchronization was absent; this cross-startup interaction is source-inspected only.",
+        "Lifecycle conservatively waits for object retention before archiving a live version; newer counts exclude soft-deleted versions and soft deletion emits the existing local delete event. These provider interaction choices and empty HNS folder cleanup remain unverified. Protected independent Delete precedence over transitions and same-pass transition/Delete chains remain local scheduling choices. Earlier-release rule execution uses a synthetic schema 52 fixture because the released-data fixture has no lifecycle rules. Event-hold release retains the existing creation-based bucket-retention limitation.",
         "Current-time selection explicitly differs from documented Google priority: a class-dependent Delete yields to an applicable transition, while any matching independent Delete wins. Delayed passes may retain or delete objects compared with timely execution; removed successor evidence, overwritten live-only opportunities and class-gated route divergence are fixed examples. See BEHAVIOR-LIFECYCLE-003 and docs/en/slices/lifecycle-storage-class.md."
       ],
       "implemented_in": "9cba2f417db0a497613f7f7deca0280ebd754475",
@@ -37582,7 +37571,7 @@
       ],
       "source_checked_at": "2026-11-11",
       "source_evidence": "SPEC_BASED",
-      "notes": "Supported in-place transitions evaluate current rules and facts at the pass time. A matching Delete without matchesStorageClass wins; a class-dependent Delete yields to an applicable transition, with the coldest target winning. Changed classes are re-evaluated in the same transaction within the strict 1024-action budget. Descending version scans use current surviving-successor counts; archiving records physical time and stops that generation until a later pass. No historical replay or additional persistent state is used. Independent-priority oracle tests define the class-independent transition safety domain and pin known late-pass differences in both directions. JSON/gRPC class timestamps, shared new-generation reset, typed location limits and synchronization behavior remain covered. Scope and evidence: docs/en/slices/lifecycle-storage-class.md.",
+      "notes": "Supported in-place transitions evaluate current rules and facts at the pass time. A matching Delete without matchesStorageClass wins; a class-dependent Delete yields to an applicable transition, with the coldest target winning. Changed classes are re-evaluated in the same transaction within the strict 1024-action budget. Descending version scans use current surviving-successor counts; archiving records physical time and stops that generation until a later pass. No historical replay or additional persistent state is used. Independent-priority oracle tests define the class-independent transition safety domain and pin known late-pass differences in both directions. JSON/gRPC class timestamps, shared new-generation reset, and typed location limits remain covered. Scope and evidence: docs/en/slices/lifecycle-storage-class.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -38815,7 +38804,7 @@
       ],
       "source_checked_at": "2026-11-10",
       "source_evidence": "SPEC_BASED",
-      "notes": "Deterministic local scheduling evaluates current facts on the injected clock, with exact clean-schedule/protection deadlines, one-second write coalescing, rising-edge wakeup, descending primary-key pages and restart reconstruction. The strict 1024-action cap may stop mid-chain and returns now; continuation uses the stored class. A protected class-dependent Delete schedules an applicable future transition, while independent Delete retains its existing blocking behavior. Execution defaults off with sync_dir and on otherwise. XML multipart abort shares the same action cap and execution setting, with initiation-age deadlines and lease-release wakeups covered by BEHAVIOR-LIFECYCLE-004. Contracts: docs/en/slices/lifecycle-execution.md, docs/en/slices/lifecycle-storage-class.md and docs/en/slices/lifecycle-multipart-abort.md.",
+      "notes": "Deterministic local scheduling evaluates current facts on the injected clock, with exact clean-schedule/protection deadlines, one-second write coalescing, rising-edge wakeup, descending primary-key pages and restart reconstruction. The strict 1024-action cap may stop mid-chain and returns now; continuation uses the stored class. A protected class-dependent Delete schedules an applicable future transition, while independent Delete retains its existing blocking behavior. Execution defaults on. XML multipart abort shares the same action cap and execution setting, with initiation-age deadlines and lease-release wakeups covered by BEHAVIOR-LIFECYCLE-004. Contracts: docs/en/slices/lifecycle-execution.md, docs/en/slices/lifecycle-storage-class.md and docs/en/slices/lifecycle-multipart-abort.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -57701,7 +57690,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only seed input, create-missing bucket initialization and historical SDK/container evidence remain in docs/en/slices/seed.md and docs/en/slices/bucket-initialization.md. The bucket document comes from buckets_file or, inline, from buckets (CLI, environment, or a JSON config member holding the object or a string), with the same limits and validation; naming both fails startup. Bucket document entries may write an initial iamPolicy, and buckets_mode=reconcile, the default for buckets_file and the inline buckets document alike, applies written fields to existing buckets at startup, while buckets_mode=create keeps them and warns about edited entries it did not apply. Current startup replay stages the complete tree and publishes atomically: differing protected fixtures fail the whole replay, identical fixtures keep generations, and non-fixture objects remain untouched. Disk reseed merges; RAM reseed replaces. Explicit source import preserves its declared metadata subset and quiesced memory snapshots preserve retained history; seed metadata files remain literal bodies. Post-ready directory synchronization now includes native Linux/macOS observation, conditional create/edit ingestion, continuous API export and revision-bound external deletion controls. Conflict recovery and strict synchronization remain under integration, with final Linux/SDK/container evidence pending. See docs/en/slices/atomic-seed-reseed.md, docs/en/slices/source-state-preservation.md, docs/en/slices/source-memory-snapshot.md and docs/en/evidence/migration-integration.md. No complete source-fixture equivalence or performance improvement is claimed.",
+      "notes": "Read-only seed input, create-missing bucket initialization and historical SDK/container evidence remain in docs/en/slices/seed.md and docs/en/slices/bucket-initialization.md. The bucket document comes from buckets_file or, inline, from buckets (CLI, environment, or a JSON config member holding the object or a string), with the same limits and validation; naming both fails startup. Bucket document entries may write an initial iamPolicy, and buckets_mode=reconcile, the default for buckets_file and the inline buckets document alike, applies written fields to existing buckets at startup, while buckets_mode=create keeps them and warns about edited entries it did not apply. Current startup replay stages the complete tree and publishes atomically: differing protected fixtures fail the whole replay, identical fixtures keep generations, and non-fixture objects remain untouched. Disk reseed merges; RAM reseed replaces. Explicit source import preserves its declared metadata subset and quiesced memory snapshots preserve retained history; seed metadata files remain literal bodies. Directory synchronization was removed: seed_dir reads a folder at startup and never writes to it. See docs/en/slices/atomic-seed-reseed.md, docs/en/slices/source-state-preservation.md, docs/en/slices/source-memory-snapshot.md and docs/en/evidence/migration-integration.md. No complete source-fixture equivalence or performance improvement is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -58477,7 +58466,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Seed remains literal file input; metadata files are object bodies. Explicit filesystem xattr/sidecar import and quiesced memory snapshots have separate validated contracts in docs/en/slices/import-filesystem.md and docs/en/slices/source-memory-snapshot.md. Normalized-away filesystem names/history cannot be recovered.",
-        "Native continuous observation, external deletion revisions and bounded administration are implemented in separately scoped slices. Conflict recovery, strict synchronization and final combined Linux/SDK/container execution remain under integration; parent completion is not claimed. See docs/en/slices/continuous-directory-observation.md, docs/en/slices/external-deletion-controls.md and docs/en/evidence/migration-integration.md."
+        "Directory synchronization was removed, with its observation, deletion-control and conflict-recovery slices. Final combined Linux/SDK/container execution remains under integration; parent completion is not claimed. See docs/en/slices/seed.md and docs/en/evidence/migration-integration.md."
       ],
       "implemented_in": "56a701b3905f43af372f861307863c0e3104de42",
       "last_verified": "2026-10-27"
@@ -59073,7 +59062,7 @@
       "acceptance_cases": [
         {
           "id": "healthcheck-default-url",
-          "description": "Healthcheck derives readiness URL from environment/config with wildcard loopback and both HTTP preference, trusts the development CA and preserves explicit URL behavior. Sync commands given no --endpoint find their server through the same origin function (DESIGN-072 sync-cli-server-discovery). Contract: docs/en/slices/migrate-defaults.md.",
+          "description": "Healthcheck derives readiness URL from environment/config with wildcard loopback and both HTTP preference, trusts the development CA and preserves explicit URL behavior. Contract: docs/en/slices/migrate-defaults.md.",
           "result": "PASS",
           "test_ids": ["healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin", "healthcheck_defaults_follow_http_https_both_and_changed_ports"]
         },
@@ -59431,7 +59420,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Opt-in live management, isolated fixture administration, reset and atomic seed/reseed use dedicated local authority outside Google API namespaces. Config updates require the same admin_principal; strict opt-in requires that setting at startup. All management routes, including separately authorized sync controls, reject page-initiated requests with 403 and unapproved public DNS hosts with 421; admin_allowed_hosts supplies explicit DNS exceptions. Contract and adapter tests: docs/en/slices/http-adapter-boundaries.md. Source checkout only; scope: docs/en/slices/local-fixture-administration.md, docs/en/slices/local-instance-reset.md, docs/en/slices/atomic-seed-reseed.md and docs/en/slices/bucket-purge.md. Final combined SDK/container acceptance remains pending.",
+      "notes": "Opt-in live management, isolated fixture administration, reset and atomic seed/reseed use dedicated local authority outside Google API namespaces. Config updates require the same admin_principal; strict opt-in requires that setting at startup. All management routes reject page-initiated requests with 403 and unapproved public DNS hosts with 421; admin_allowed_hosts supplies explicit DNS exceptions. Contract and adapter tests: docs/en/slices/http-adapter-boundaries.md. Source checkout only; scope: docs/en/slices/local-fixture-administration.md, docs/en/slices/local-instance-reset.md, docs/en/slices/atomic-seed-reseed.md and docs/en/slices/bucket-purge.md. Final combined SDK/container acceptance remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -59492,7 +59481,7 @@
         {"command": "cargo test --locked --offline --lib storage::catalog::admin::reset", "result": "PASS", "verified_at": "2026-10-30", "artifact": "docs/en/slices/local-instance-reset.md", "test_ids": ["admin-reset-recovery"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Final combined source/SDK/container verification remains pending. Administration is disabled by default, uses a dedicated authority and does not grant Google IAM permissions; active synchronization is not reset or reseeded silently."],
+      "known_deviations": ["Final combined source/SDK/container verification remains pending. Administration is disabled by default, uses a dedicated authority and does not grant Google IAM permissions."],
       "implemented_in": null,
       "last_verified": "2026-11-16"
     },
@@ -60084,7 +60073,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Indexed object/blob references, persistent generations, bounded recovery and shared publication retain their existing contracts. Source import now preserves declared class/customTime/ACL and timestamp state, and quiesced snapshots preserve retained memory generations. Directory synchronization uses bounded dedicated-worker pages, fixed one-second settling, atomic generation/incarnation checks and metadata inheritance. Native observation reconciles external changes without periodic idle polling; deletion uses a fixed paged revision, threshold guard and one-shot approval, preserving holds and version history. Mapping findings and original owners remain bounded and retained. See docs/en/slices/source-state-preservation.md, docs/en/slices/continuous-directory-observation.md and docs/en/slices/external-deletion-controls.md. Conflict recovery, strict synchronization and final Linux/SDK/container execution are still under integration; complete platform/power-loss parity and performance improvement are not claimed.",
+      "notes": "Indexed object/blob references, persistent generations, bounded recovery and shared publication retain their existing contracts. Source import now preserves declared class/customTime/ACL and timestamp state, and quiesced snapshots preserve retained memory generations. Directory synchronization was removed; seed_dir reads a folder at startup and never writes to it. See docs/en/slices/source-state-preservation.md. Final Linux/SDK/container execution is still under integration; complete platform/power-loss parity and performance improvement are not claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -60471,7 +60460,7 @@
           "command": "cargo test --locked --offline --lib -- sync::ingest sync::mirror schema_migration storage::catalog_tests sync_state change_journal import_journal import_publication",
           "result": "PASS",
           "verified_at": "2026-10-27",
-          "artifact": "docs/en/slices/directory-synchronization.md",
+          "artifact": "docs/en/native-binary.md",
           "test_ids": ["sync_bucket_schema_migration_preserves_existing_catalog"]
         },
         {
@@ -60485,7 +60474,7 @@
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- quiet_ racy_exported ingest_initial_baseline_runtime ingest_unchanged_files external_inventory source_recheck descriptor_pressure unavailable_casefold_flags rescan_during_native_quiet --test-threads=4",
           "result": "PASS",
           "verified_at": "2026-11-04",
-          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "artifact": "docs/en/slices/seed.md",
           "test_ids": ["unavailable_casefold_flags_fall_back_to_exact_directory_names"]
         },
         {
@@ -60728,14 +60717,14 @@
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 fsutil:: sync::tree:: sync::naming:: empty_directory:: path_reuse::",
           "result": "PASS",
           "verified_at": "2026-11-20",
-          "artifact": "docs/en/slices/directory-synchronization.md",
+          "artifact": "docs/en/slices/seed.md",
           "test_ids": ["a_pass_reads_an_unchanged_directory_once", "a_directory_changed_during_a_pass_is_read_again", "a_directory_that_just_changed_is_read_for_each_lookup", "a_directory_beyond_the_kept_names_is_read_for_each_lookup", "a_directory_reports_its_uncached_identity_as_fstat_does", "root_rules_decide_only_what_the_casefold_flag_leaves_open", "unavailable_casefold_flags_fall_back_to_exact_directory_names"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --bin gcs-mimic -- --test-threads=4 sync_cli:: local_server:: healthcheck",
           "result": "PASS",
           "verified_at": "2026-11-20",
-          "artifact": "docs/en/slices/sync-cli.md",
+          "artifact": "docs/en/container-usage.md",
           "test_ids": ["only_a_gcs_mimic_server_with_options_gives_a_fallback", "a_retryable_failure_tries_the_server_pid_1_gives_once", "healthcheck_usage_errors_come_before_any_probe"]
         },
         {
@@ -60769,14 +60758,14 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Native continuous observation, conditional create/edit ingestion and revision-bound guarded deletion have scoped macOS evidence. Conflict recovery, strict synchronization and final Linux/SDK/container execution remain under integration; native Windows and physical host-power-loss guarantees are not claimed. A permanent export I/O failure pauses synchronization, and graceful shutdown still interrupts the retry and releases the root. See docs/en/slices/continuous-directory-observation.md and docs/en/slices/external-deletion-controls.md.",
-        "Recovery and lookup are indexed. Broader catalog growth/resource behavior remains unverified beyond the six native onboarding workloads in docs/en/evidence/onboarding-state-benchmark.md; startup-10000 CPU calibration and cgroup measurements remain pending. The measured source is 60a4f03, not the later integration target. The synchronization rescan timing is one Docker Desktop run at 1,000 files, unchanged and after one change (onboarding-state-sync-benchmark), not a native or cgroup measurement.",
+        "Directory synchronization was removed; seed_dir reads a folder at startup and never writes to it. Final Linux/SDK/container execution remains under integration; native Windows and physical host-power-loss guarantees are not claimed. See docs/en/slices/seed.md.",
+        "Recovery and lookup are indexed. Broader catalog growth/resource behavior remains unverified beyond the six native onboarding workloads in docs/en/evidence/onboarding-state-benchmark.md; startup-10000 CPU calibration and cgroup measurements remain pending. The measured source is 60a4f03, not the later integration target. The recorded synchronization rescan timing (onboarding-state-sync-benchmark) is a dated measurement of removed code, not a native or cgroup measurement.",
         "Shared imported identity, batch/file publication and import journals preserve the declared source subset with conditional publication and restart evidence. Source class/customTime/ACL and memory history extend that subset; see docs/en/slices/source-state-preservation.md and docs/en/slices/source-memory-snapshot.md. Broader source parity and performance are not claimed.",
-        "Publication I/O primitives and bounded reclamation are verified on macOS ARM64; Linux runtime and native Windows execution remain unverified. Windows fsutil metadata compilation passes, but whole-crate cross-check requires the unavailable MinGW compiler; existing-target Windows exchange returns Unsupported for Sync's checked-replace policy. Orphan scanning stays before bind. See docs/en/slices/shared-publication-io.md.",
+        "Publication I/O primitives and bounded reclamation are verified on macOS ARM64; Linux runtime and native Windows execution remain unverified. Windows fsutil metadata compilation passes, but whole-crate cross-check requires the unavailable MinGW compiler; existing-target Windows exchange returns Unsupported. Orphan scanning stays before bind. See docs/en/slices/shared-publication-io.md.",
         "Dry-run repeats bounded bucket-name decoding during preflight, duplicate classification and root validation; Blocked also represents an uninspected valid parent. Invalid-parent child findings and record suppression remain tested. Walker::root_entries is documented and debug-guarded for use before the first next call.",
         "Read-only source inspection has macOS/Linux ARM64 evidence. Native Windows runtime and file-ID/ctime observation remain unverified. Metadata-only reports never certify body bytes; filesystem-normalized original names and discarded history remain unrecoverable. Memory history requires the separate quiesced snapshot format. No publication/journal benchmark or time/CPU/RSS improvement is claimed.",
         "Seed uses bounded source traversal and counts skipped regular OS metadata files. Current whole-tree staging and publication supersede the earlier per-file adapter; literal seed data and selected durable-import formats remain distinct. See docs/en/slices/import-seed-adapter.md and docs/en/slices/atomic-seed-reseed.md.",
-        "Directory synchronization retains checked mapping/root identity, bounded observation, atomic ingestion/export and deletion-approval contracts. Findings and bounded waits have native control tests, while conflict transfer/recovery and strict startup remain under integration. Exhaustive alias/platform guarantees and final combined execution are pending; no measured performance is claimed. See docs/en/evidence/migration-integration.md.",
+        "Directory synchronization was removed. Final combined execution is pending; no measured performance is claimed. See docs/en/evidence/migration-integration.md.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
@@ -61031,7 +61020,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Locked startup recovers staging/orphans and pending deletions in bounded pages and rejects missing/truncated live blobs. Accepted publication work drains before close; transaction-local conditions preserve racing API state. Atomic whole-tree seed/reseed, import journals and protected external-deletion restoration use shared durable publication. Selected process-abort and PowerLoss seam snapshots verify all-old/all-new namespace and restoration boundaries. Native observation, deletion revisions and bounded controls extend directory synchronization; conflict recovery and strict synchronization remain under integration. See docs/en/slices/atomic-seed-reseed.md, docs/en/slices/source-memory-snapshot.md and docs/en/slices/external-deletion-controls.md. Exhaustive instruction-level failure coverage, physical host power loss, final Linux execution and Windows checked replacement are not claimed. Recovery duration remains unbounded, and no performance improvement is claimed.",
+      "notes": "Locked startup recovers staging/orphans and pending deletions in bounded pages and rejects missing/truncated live blobs. Accepted publication work drains before close; transaction-local conditions preserve racing API state. Atomic whole-tree seed/reseed and import journals use shared durable publication. Selected process-abort and PowerLoss seam snapshots verify all-old/all-new namespace boundaries. See docs/en/slices/atomic-seed-reseed.md and docs/en/slices/source-memory-snapshot.md. Exhaustive instruction-level failure coverage, physical host power loss, final Linux execution and Windows checked replacement are not claimed. Recovery duration remains unbounded, and no performance improvement is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -61281,7 +61270,7 @@
           "command": "cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::fault sync_state::writeback sync:: fsutil::",
           "result": "PASS",
           "verified_at": "2026-11-19",
-          "artifact": "docs/en/slices/native-writeback-recovery.md",
+          "artifact": "docs/en/slices/shared-publication-io.md",
           "test_ids": ["exchanges_and_moves_between_directories_need_both_directory_syncs","undoing_an_exchange_with_a_missing_name_fails_the_snapshot","undoing_a_move_onto_a_taken_name_fails_the_snapshot"]
         },
         {
@@ -61464,15 +61453,13 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Native continuous observation and revision-bound guarded deletion extend the earlier create/edit/export scope. Selected restoration durability snapshots pass; conflict transfer/recovery, strict startup and final Linux/SDK/container execution remain under integration. Native Windows and physical host-power-loss guarantees are not claimed. See docs/en/slices/continuous-directory-observation.md and docs/en/slices/external-deletion-controls.md.",
+        "Directory synchronization was removed; seed_dir reads a folder at startup and never writes to it. Final Linux/SDK/container execution remains under integration. Native Windows and physical host-power-loss guarantees are not claimed. See docs/en/slices/seed.md.",
         "Not every instruction boundary has a process-kill test: fsync/deletion windows use recovery-state fixtures; host power loss unverified.",
         "Publication I/O and concurrent media/derived/resumable reclamation are verified on macOS ARM64. Linux/Windows runtime, unsupported-filesystem capability branches and host power loss remain unverified; Windows exchange is explicitly Unsupported. Native batch/mutable-file staging is covered in docs/en/slices/shared-publication-modes.md; exhaustive batch/file crash injection and post-ready orphan scanning remain later scopes. See docs/en/slices/shared-publication-io.md.",
         "Startup CancelSafe is a nominal audit marker, not a compiler proof; new phases require documented side-effect ownership and production-path interruption/owned-effect tests before marking their waits safe. See docs/en/slices/startup-phases.md.",
         "Shutdown during object-count-proportional recovery waits for completion without a deadline or accelerated second-signal path. Startup measurements are observations, not shutdown latency bounds; recovery internals remain unchanged.",
-        "Root marker/activation, runtime startup, continuous API export, I/O retry and live SIGTERM/restart pass the native subset in docs/en/slices/directory-synchronization.md and docs/en/slices/shared-sync-root.md. What stays open in marker, write-back and shutdown recovery is listed in the sync-marker-recovery, sync-writeback-recovery and sync-shutdown-lock rows. Windows checked replacement and power-loss namespace durability are not claimed.",
-        "Synchronization's crash and power-loss cases cover the marker, installation, write-back and conflict stages that the fault seam in src/storage/catalog/fault.rs models with Snapshot and Fault::PowerLoss snapshots, and its shutdown cases cover the interruption points their tests name; a process kill or a shutdown at any other instruction is excluded, not pending.",
+        "Directory synchronization, with its root marker, write-back and shutdown recovery, was removed. Windows checked replacement and power-loss namespace durability are not claimed.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
-        "An export over a preserved conflict judges the body its exchange displaced by the capture, while restart recovery judges it by the record in sync_objects, and the two can disagree either way after a crash right after the exchange: a captured body, which installation would unlink, stays protected and leaves a second copy in the conflict store, so the restart reports a conflict the uninterrupted export would not; and old tracked bytes that a user wrote back just before the exchange, which installation would keep, are unlinked by recovery as the tracked body an API change may replace.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
@@ -61632,7 +61619,7 @@
         {"command": "cargo check --tests --locked --offline; cargo test --locked --offline --lib grpc:: -- --nocapture; cargo test --locked --offline --lib ram_ -- --nocapture; cargo test --locked --offline --lib appendable -- --nocapture; cargo test --locked --offline --test memory_backend", "result": "PASS", "verified_at": "2026-10-30", "artifact": "docs/en/slices/memory-backend.md", "test_ids": ["ram-appendable-grpc-native"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Final combined SDK/container gates remain pending; native appendable and gRPC subsets pass without completing their broad provider/Rapid contracts. Directory synchronization and import destinations remain disk-only. Storage limits do not bound RSS or establish a 1 GiB/default-capacity workload; RAM loses all state at process exit and has no fsync/power-loss recovery contract."],
+      "known_deviations": ["Final combined SDK/container gates remain pending; native appendable and gRPC subsets pass without completing their broad provider/Rapid contracts. Import destinations remain disk-only. Storage limits do not bound RSS or establish a 1 GiB/default-capacity workload; RAM loses all state at process exit and has no fsync/power-loss recovery contract."],
       "implemented_in": null,
       "last_verified": "2026-10-30"
     },
@@ -64681,7 +64668,7 @@
       ],
       "source_checked_at": "2026-11-13",
       "source_evidence": "PROJECT_POLICY",
-      "notes": "Project contract, not Cloud Storage behavior. The 0.x breaking changes the public contract review decided on 2026-11-12, shipped together in 0.20.0 without aliases: buckets_mode replaces buckets_file_mode and defaults to reconcile for a file too, and the ready field buckets_file becomes buckets; connection_timeout_ms is removed; underscore spellings of server options are refused; backend=filesystem is a flag translation only; compat_profile=legacy-emulator becomes fake-gcs-server; gcs-mimic sync and the server exchange x-gcs-mimic-version and refuse another release; sync approve refuses --revision; the Go package refuses a binary outside its minor release. Every withdrawn name or value stops startup from each source with one diagnostic that names its replacement in that source's spelling. Contract: docs/en/slices/contract-cleanup.md; review: docs/en/public-contract-review.md; release notes: docs/en/releases/0.20.0.md.",
+      "notes": "Project contract, not Cloud Storage behavior. The 0.x breaking changes the public contract review decided on 2026-11-12, shipped together in 0.20.0 without aliases: buckets_mode replaces buckets_file_mode and defaults to reconcile for a file too, and the ready field buckets_file becomes buckets; connection_timeout_ms is removed; underscore spellings of server options are refused; backend=filesystem is a flag translation only; compat_profile=legacy-emulator becomes fake-gcs-server; gcs-mimic sync and the server exchanged x-gcs-mimic-version, and sync approve refused --revision, until directory synchronization was removed; the Go package refuses a binary outside its minor release. Every withdrawn name or value stops startup from each source with one diagnostic that names its replacement in that source's spelling. Contract: docs/en/slices/contract-cleanup.md; review: docs/en/public-contract-review.md; release notes: docs/en/releases/0.20.0.md.",
       "dependencies": [
         "DESIGN-062",
         "DESIGN-064",
@@ -65514,7 +65501,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Existing host/peer CRUD, bounded configuration diagnostics, advertised/public origins, CORS/strict signatures, location defaults and dual-listener evidence retains its linked historical scope. Since 0.18.0, host/port/port-http are native options and port-http requires scheme=both. Accepted source translations preserve working requests and emit one native-equivalent info diagnostic with canonical native_args and a shell line when values need no JSON escaping; filesystem-root, external-url, cors-headers and location fail together with per-flag native advice. public-host is accepted with advice that its subdomains select virtual-host buckets, so JSON callers need another host or an explicit api_base_url. Every event.* flag requires an effective local Pub/Sub emulator host; no Google delivery occurs. HTTPS remains the default. New administration, atomic replay, source migration, synchronization and client adapters retain their separately scoped evidence and integrated-execution gates. This broad onboarding row remains PARTIAL. See docs/en/slices/option-aliases.md, docs/en/fake-gcs-server-configuration.md and docs/en/evidence/migration-integration.md.",
+      "notes": "Existing host/peer CRUD, bounded configuration diagnostics, advertised/public origins, CORS/strict signatures, location defaults and dual-listener evidence retains its linked historical scope. Since 0.18.0, host/port/port-http are native options and port-http requires scheme=both. Accepted source translations preserve working requests and emit one native-equivalent info diagnostic with canonical native_args and a shell line when values need no JSON escaping; filesystem-root, external-url, cors-headers and location fail together with per-flag native advice. public-host is accepted with advice that its subdomains select virtual-host buckets, so JSON callers need another host or an explicit api_base_url. Every event.* flag requires an effective local Pub/Sub emulator host; no Google delivery occurs. HTTPS remains the default. New administration, atomic replay, source migration and client adapters retain their separately scoped evidence and integrated-execution gates. This broad onboarding row remains PARTIAL. See docs/en/slices/option-aliases.md, docs/en/fake-gcs-server-configuration.md and docs/en/evidence/migration-integration.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -69453,7 +69440,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Existing timestamp/journal migrations retain rollback, identity and newer-format rejection evidence in docs/en/slices/catalog-timestamp-precision.md and docs/en/slices/onboarding-state-contract.md. Source builds extend schema migrations through sync conflict/recovery state: schema 39 preserves bucket nanoseconds while object precision remains exact microseconds, and schema 42 retains conflict ownership, revisions and accepted operation intent. Restartable filesystem import and quiesced actual-memory capture preserve their declared subset; see docs/en/slices/source-memory-snapshot.md, docs/en/slices/go-source-memory-export.md and docs/en/slices/sync-conflict-recovery.md. Final combined schema/cutover, older-executable backup restoration and Linux/SDK/container verification remain pending. Never open a newer catalog with an older executable or infer physical host-power-loss safety from cooperative seam snapshots. Parent remains PARTIAL.",
+      "notes": "Existing timestamp/journal migrations retain rollback, identity and newer-format rejection evidence in docs/en/slices/catalog-timestamp-precision.md and docs/en/slices/onboarding-state-contract.md. Source builds extend schema migrations: schema 39 preserves bucket nanoseconds while object precision remains exact microseconds. Restartable filesystem import and quiesced actual-memory capture preserve their declared subset; see docs/en/slices/source-memory-snapshot.md and docs/en/slices/go-source-memory-export.md. Final combined schema/cutover, older-executable backup restoration and Linux/SDK/container verification remain pending. Never open a newer catalog with an older executable or infer physical host-power-loss safety from cooperative seam snapshots. Parent remains PARTIAL.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",

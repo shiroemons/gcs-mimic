@@ -16,7 +16,6 @@ Send `DELETE /_internal/buckets/{bucket}` with an empty body and no query parame
 | A name that is not a bucket name | 400 `invalidParameter`, `Invalid bucket name` |
 | A name with no live or soft-deleted bucket | 404 `notFound` |
 | An import is incomplete | 409 `conflict`, no changes |
-| Directory synchronization maps the bucket | 409 `conflict`, no changes; external files are never touched |
 | A request writes one of the bucket's sessions or appendable objects | 503 `backendError` with `Retry-After: 1`, no changes |
 | The catalog wait expires before the purge gets the writer connection | 503 `backendError` with `Retry-After: 1`, no changes |
 | A failure the purge cannot resolve | 503 `backendError` with `Retry-After: 1`, "could not confirm completion" |
@@ -47,7 +46,6 @@ One immediate transaction on the writer connection removes everything the catalo
 | Rewrite sessions that read from or write to the bucket | Deleted; their derived transfers are discarded after commit |
 | Upload replay records of the current incarnation | Deleted |
 | Queued notification events that name the bucket | Deleted from the outbox |
-| Directory synchronization object rows | Deleted |
 | The change journal | Receives one bucket deletion record while the bucket's identity still exists |
 
 `purge_classifies_every_catalog_table` classifies every catalog table as deleted, cascaded, bound to an incarnation or instance-wide, so a later table must be classified before the test passes, and every deleted or cascaded table must have a check in the purge tests that its rows of the bucket are gone.
@@ -77,15 +75,15 @@ Reclamation drains the whole deletion journal, not only the purge's entries, and
 Storage tests in `src/storage/catalog/admin/purge/tests.rs`:
 
 - `purge_classifies_every_catalog_table`
-- `purge_removes_every_generation_session_and_record_past_holds_and_spares_other_buckets`: a soft-deleted version with a retained object, then a live versioned bucket with current, noncurrent and soft-deleted generations under both holds, locked object retention and a locked bucket retention policy; one resumable session, XML multipart upload with a part, appendable object and rewrite in progress; a notification configuration with a queued event, a bucket ACL, an initialization record, a sync row and a replay record. Every such row, every derived transfer and both journals are gone afterwards; the other bucket keeps its objects, session staging and queued event; only its files remain on disk; restart and recreating the name start empty.
+- `purge_removes_every_generation_session_and_record_past_holds_and_spares_other_buckets`: a soft-deleted version with a retained object, then a live versioned bucket with current, noncurrent and soft-deleted generations under both holds, locked object retention and a locked bucket retention policy; one resumable session, XML multipart upload with a part, appendable object and rewrite in progress; a notification configuration with a queued event, a bucket ACL, an initialization record and a replay record. Every such row, every derived transfer and both journals are gone afterwards; the other bucket keeps its objects, session staging and queued event; only its files remain on disk; restart and recreating the name start empty.
 - `purge_on_memory_returns_the_buckets_ram_and_keeps_other_uploads` and `purge_empties_a_ram_catalog_at_its_page_budget` for the RAM backend.
 - `purge_does_not_wait_for_an_upload_to_another_bucket`, on disk and in RAM: an upload to another bucket holds its lease through the purge and then finishes.
-- `purge_refuses_without_changes_a_missing_name_an_import_synchronization_and_writers`: missing name, incomplete import, a synchronization mapping, a held resumable writer and a live appendable writer, then a purge that succeeds once they are gone.
+- `purge_refuses_without_changes_a_missing_name_an_import_and_writers`: missing name, incomplete import, a held resumable writer and a live appendable writer, then a purge that succeeds once they are gone.
 - `purge_failed_commit_changes_nothing_and_an_error_after_commit_resolves_as_success`
 - `failed_purge_cleanup_answers_pending_and_maintenance_or_restart_finishes_it`: a failed blob unlink, which maintenance then reclaims, and a failed staging-directory sync, which the next open finishes.
 - `purge_crash_and_power_loss_snapshots_recover_the_bucket_whole_or_not_at_all`: process-abort and Unix power-loss snapshots before and after commit, at the session-file unlink sync and after it, and at reclamation's unlink, shard sync and journal removal. Each reopens with the bucket's rows all present (before commit) or all gone, the other bucket's object and session intact, and no leftover staging or blob file.
 
-Wire tests in `tests/it_admin/admin_http/admin_purge/mod.rs`: `bucket_purge_is_opt_in_and_refuses_malformed_requests_without_changes`, `bucket_purge_deletes_every_generation_and_session_past_holds_and_keeps_other_buckets` (disk and memory backends), `bucket_purge_answers_503_while_a_session_of_the_bucket_writes_and_never_waits_for_others`, `bucket_purge_uses_the_management_guards_and_the_local_manager`, `virtual_host_purge_lookalike_keeps_object_semantics` and, on Linux and macOS, `bucket_purge_refuses_a_bucket_directory_synchronization_maps`. `server::admin::purge::tests` pins the path decoding and every failure's status, reason and message. The guard and page-initiated request tests list the route beside the other management routes.
+Wire tests in `tests/it_admin/admin_http/admin_purge/mod.rs`: `bucket_purge_is_opt_in_and_refuses_malformed_requests_without_changes`, `bucket_purge_deletes_every_generation_and_session_past_holds_and_keeps_other_buckets` (disk and memory backends), `bucket_purge_answers_503_while_a_session_of_the_bucket_writes_and_never_waits_for_others`, `bucket_purge_uses_the_management_guards_and_the_local_manager` and `virtual_host_purge_lookalike_keeps_object_semantics`. `server::admin::purge::tests` pins the path decoding and every failure's status, reason and message. The guard and page-initiated request tests list the route beside the other management routes.
 
 Verification on 2026-11-16 (macOS): `cargo test --locked --lib -- storage::catalog::admin::purge server::admin::purge` passed 11 cases and `cargo test --locked --test it_admin admin_purge` passed 6. `cargo test --workspace --locked` passed 3,779 tests with 1 existing ignored test and no failures. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings` and `cargo xtask lint` passed with zero new production violations and zero ratcheted findings. `cargo xtask compatibility render` left both feature matrices unchanged, and `cargo xtask compatibility check` passed.
 

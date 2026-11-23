@@ -16,8 +16,8 @@ A name kept through `1.x` as an alias needs the accepted-with-a-warning path of 
 | `connection_timeout_ms` is removed | 10 |
 | Server options written with underscores, such as `--max_connections`, are refused | 13 |
 | `backend=filesystem` is accepted only as the fake-gcs-server flag | 14 |
-| `gcs-mimic sync` and the server refuse each other across releases | 6 |
-| `sync approve` refuses `--revision` | 9 |
+| `gcs-mimic sync` and the server refuse each other across releases (removed with directory synchronization) | 6 |
+| `sync approve` refuses `--revision` (removed with directory synchronization) | 9 |
 | The Go package refuses a binary of another release | 18 |
 | `compat_profile=legacy-emulator` becomes `fake-gcs-server` | 12 |
 
@@ -38,7 +38,7 @@ None has an alias. Every withdrawn name or value stops startup from the command 
 
 ### Synchronization controls
 
-`gcs-mimic sync` sends `x-gcs-mimic-version` with its version, and every answer of a `/_internal/sync` route carries the server's. The server checks the header first in its control path, after the browser and host guards and before authentication and any catalog wait, and answers 400 `versionMismatch` naming both versions. The command prints the answer as always, then refuses one from another release or without a version before judging the status. See the [CLI contract](sync-cli.md).
+Directory synchronization was removed, with the `gcs-mimic sync` command and the `/_internal/sync` routes, so the version check between them and the `sync approve --revision` refusal no longer exist. `seed_dir` reads a folder at startup and never writes to it.
 
 ### Go package
 
@@ -52,8 +52,8 @@ None has an alias. Every withdrawn name or value stops startup from the command 
 | DESIGN-103-WITHDRAWN-NAMES | `buckets_file_mode` and `connection_timeout_ms` stop startup from each source with one diagnostic that names the replacement in that source's spelling. |
 | DESIGN-103-WITHDRAWN-VALUES | `compat_profile=legacy-emulator` and `backend=filesystem` stop startup from each source naming the new value; the `-backend filesystem` flag still starts with `disk`; `fake-gcs-server` behaves as `legacy-emulator` did. |
 | DESIGN-103-UNDERSCORE | `--max_connections 10` and `-max_connections=10` exit 1 before a catalog with one diagnostic naming `--max-connections`; helper commands are unchanged. |
-| DESIGN-103-SYNC-VERSION | A server refuses another version and a missing one with 400 `versionMismatch` before authorization or any wait; the command refuses an answer from another release or without a version and names both; matching releases work as before. |
-| DESIGN-103-SYNC-APPROVE | `sync approve --revision` exits 1 without a request and names `--deletion-set`. |
+| DESIGN-103-SYNC-VERSION | Removed with directory synchronization: no `/_internal/sync` route or `gcs-mimic sync` command remains to check. |
+| DESIGN-103-SYNC-APPROVE | Removed with directory synchronization: `gcs-mimic sync` no longer exists. |
 | DESIGN-103-GO-VERSION | The Go package starts a binary of its minor release and refuses another one, or a ready event without a version, with `*UnsupportedBinaryError`; an early exit of another release reports the version, and of the same release keeps its own error. |
 
 ## Migration
@@ -67,11 +67,9 @@ None has an alias. Every withdrawn name or value stops startup from the command 
 | Write server options with underscores | Write them with hyphens. |
 | Set `backend=filesystem` in the environment or JSON | Set `disk`. |
 | Set `compat_profile=legacy-emulator` | Set `fake-gcs-server`. |
-| Use `sync approve --revision` | Use `--deletion-set`. |
-| Run `gcs-mimic sync` or the Go package against another release | Use the server's release, or build the binary from the package's checkout. |
+| Run the Go package against another release | Use the server's release, or build the binary from the package's checkout. |
 
 ## Limits
 
-- A `0.20.0` command cannot recognize a server before `0.20.0` until that server has handled the request. It says so, so that a mutation is inspected before it is retried.
 - The Go package's range check needs `moduleVersion` to move with each release; the recipe check fails when it does not.
 - The withdrawn names and values are refused for good. After `1.0.0`, the [release policy](../release-policy.md) deprecates with a warning first.

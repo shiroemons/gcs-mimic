@@ -89,11 +89,10 @@ The following existing defaults and validation remain unchanged:
 | `max_resumable_sessions`, `max_rewrite_sessions` | `0`, `0` | Each `0..4294967295`; 0 is unlimited |
 | `max_seed_entries`, `max_seed_depth` | `0`, `0` | `0..=2^64−1`, `0..=1024`; 0 is unlimited, so memory and time grow with the tree; a positive value stops there and names the setting; past 10,000 entries without a limit, `seed_tree_large` warns once per start |
 | `max_buckets_per_batch` | `0` | `0..=2^64−1`; 0 is unlimited; buckets one initialization file or one seed may declare, not all buckets of the server |
-| `max_sync_entries`, `max_sync_depth` | `0`, `0` | `0..=2^64−1`, `0..=1024`; 0 is unlimited, though a walk stops at 1024 levels; require `sync_dir`; files and directories in `sync_dir`, also the watches Linux may use, and levels below `sync_dir` counting the bucket; past 10,000 entries without a limit, `sync_tree_large` warns once per process |
 | `worker_threads`, `max_blocking_threads` | Available CPUs from `2` to `8`, `8` | Each `1..1024` |
 | `memory_max_bytes`, `memory_catalog_max_bytes` | Half of the available memory less 32 MiB, within 64 MiB to 1 GiB; `16777216` | `1..1099511627776`, `1048576..1099511627776`; only with `backend=memory` |
 | `default_soft_delete_retention_seconds` | `0` | `0`, or `1..7776000`; a local default and lower bound, unlike Cloud Storage's seven days and 7 to 90 days; the 90-day ceiling is Cloud Storage's |
-| `lifecycle_execution` | `disabled` with `sync_dir`, `enabled` otherwise | `enabled` or `disabled`; `--lifecycle-execution`, `GCS_MIMIC_LIFECYCLE_EXECUTION`, JSON `lifecycle_execution`. Explicit enabled also deletes synchronized host files; ready reports the effective mode. Starting previously synchronized data without `sync_dir` enables execution by default, and its deletions can reach tracked host files when synchronization resumes. [Upgrade effect and contract](lifecycle-execution.md) |
+| `lifecycle_execution` | `enabled` | `enabled` or `disabled`; `--lifecycle-execution`, `GCS_MIMIC_LIFECYCLE_EXECUTION`, JSON `lifecycle_execution`. Ready reports the effective mode. [Upgrade effect and contract](lifecycle-execution.md) |
 | `header_read_timeout_ms` | `30000` | 0 disables, no upper limit; a request head, the gRPC handshake and the HTTP/2 ping wait |
 | `body_inactivity_timeout_ms` | `0` | 0 disables, no upper limit; silence while a request body on any route, a response body or a gRPC stream is in flight |
 | `request_timeout_ms` | `180000` | 0 disables, no upper limit; a handler's time before its response starts, excluding waits for request body bytes |
@@ -345,7 +344,7 @@ struct Diagnostic {
 
 The enum's declaration order is the fixed sort order; its serialized names are
 `cli`, `environment`, `config`, `tls`, `identity`, `filesystem`, `catalog`,
-`initializer`, `seed`, `sync`, `import`, `listener`, `runtime`. Input validation
+`initializer`, `seed`, `import`, `listener`, `runtime`. Input validation
 uses its originating input source. Material loading uses `tls`/`identity`,
 `/data` inspection uses `filesystem`, catalog open/recovery/close uses `catalog`,
 bind/serve uses `listener`, and runtime/signal creation and otherwise unclassified
