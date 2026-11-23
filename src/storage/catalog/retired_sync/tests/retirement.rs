@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use rusqlite::types::Value;
+use serde_json::{Value as Json, json};
 use std::{
     collections::BTreeMap,
     fs, io,
@@ -31,6 +32,36 @@ const OBJECTS: [(&str, &[u8]); 3] = [
 
 fn id(number: u32) -> String {
     format!("{number:032x}")
+}
+
+/// The manifest at `path`, parsed.
+#[track_caller]
+fn read_manifest(path: &Path) -> Json {
+    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// The manifest that lists `copies` and `entries`.
+fn manifest(copies: &[Json], entries: &[Json]) -> Json {
+    json!({
+        "description": preserved::DESCRIPTION,
+        "conflict_copies": copies,
+        "workspace_entries": entries,
+    })
+}
+
+/// How the manifest lists the workspace entry `number` in `folder`: one a write-back of `object`
+/// left, or one a recovery left after its write-back was gone (`None`).
+fn workspace_entry(folder: &Path, number: u32, object: Option<&str>) -> Json {
+    let mut entry = json!({
+        "root": folder.to_str().unwrap(),
+        "path": folder.join(".gcs-mimic-sync-work").join(id(number)).to_str().unwrap(),
+    });
+    if let Some(object) = object {
+        entry["bucket"] = json!(BUCKET);
+        entry["object"] = json!(object);
+        entry["target"] = json!(format!("{BUCKET}/{object}"));
+    }
+    entry
 }
 
 /// A data directory at schema 57 with a synchronized folder beside it, both as a 0.27.0 server
@@ -63,50 +94,36 @@ impl Released {
         }
     }
 
-    /// The manifest the rows of [`released`] give, byte for byte.
-    fn manifest(&self) -> String {
-        let quoted = |text: &str| serde_json::to_string(text).unwrap();
-        let root = self.folder().to_str().unwrap().to_owned();
-        let entry = |id: &str, object: Option<&str>| {
-            let path = Path::new(&root).join(".gcs-mimic-sync-work").join(id);
-            let located = format!(
-                "{{\"root\":{},\"path\":{}",
-                quoted(&root),
-                quoted(&path.display().to_string())
-            );
-            match object {
-                Some(name) => format!(
-                    "{located},\"bucket\":\"{BUCKET}\",\"object\":\"{name}\",\"target\":\"{name}\"}}"
-                ),
-                None => format!("{located}}}"),
-            }
-        };
-        let published = &self.objects[0].0;
-        [
-            "{\n  \"description\": ".to_owned(),
-            quoted(preserved::DESCRIPTION),
-            ",\n  \"conflict_copies\": [\n    ".to_owned(),
-            format!(
-                "{{\"path\":\"sync-conflicts/{}\",\"bucket\":\"{BUCKET}\",\"object\":\"kept\",\"size\":4,\"state\":\"capturing\"}}",
-                id(0xc2)
-            ),
-            ",\n    ".to_owned(),
-            format!(
-                "{{\"path\":\"sync-conflicts/{}\",\"bucket\":\"{BUCKET}\",\"object\":\"published\",\"generation\":{},\"size\":11,\"md5\":\"AAECAwQFBgcICQoLDA0ODw==\",\"crc32c\":\"AQIDBA==\",\"state\":\"registered\"}}",
-                id(0xc1),
-                published.generation
-            ),
-            "\n  ],\n  \"workspace_entries\": [\n    ".to_owned(),
-            entry(&id(0xa2), Some("published")),
-            ",\n    ".to_owned(),
-            entry(&id(0xa3), Some("removed")),
-            ",\n    ".to_owned(),
-            entry(&id(0xa5), Some("conflicted")),
-            ",\n    ".to_owned(),
-            entry(&id(0xa6), None),
-            "\n  ]\n}\n".to_owned(),
-        ]
-        .concat()
+    /// The manifest the rows of [`released`] give.
+    fn manifest(&self) -> Json {
+        let folder = self.folder();
+        manifest(
+            &[
+                json!({
+                    "path": format!("sync-conflicts/{}", id(0xc2)),
+                    "bucket": BUCKET,
+                    "object": "kept",
+                    "size": 4,
+                    "state": "capturing",
+                }),
+                json!({
+                    "path": format!("sync-conflicts/{}", id(0xc1)),
+                    "bucket": BUCKET,
+                    "object": "published",
+                    "generation": self.objects[0].0.generation,
+                    "size": 11,
+                    "md5": "AAECAwQFBgcICQoLDA0ODw==",
+                    "crc32c": "AQIDBA==",
+                    "state": "registered",
+                }),
+            ],
+            &[
+                workspace_entry(&folder, 0xa2, Some("published")),
+                workspace_entry(&folder, 0xa3, Some("removed")),
+                workspace_entry(&folder, 0xa5, Some("conflicted")),
+                workspace_entry(&folder, 0xa6, None),
+            ],
+        )
     }
 }
 
@@ -172,7 +189,7 @@ fn retained(size: u64) -> Vec<u8> {
 fn write_back(connection: &Connection, number: u32, name: &str, kind: i64, phase: i64) {
     connection
         .execute(
-            "INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) SELECT ?1,?2,'owner',bucket,incarnation,?3,?3,1,?4,?5,1,0,0,zeroblob(8),4,zeroblob(16),0 FROM bucket_incarnations WHERE bucket=?6",
+            "INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) SELECT ?1,?2,'owner',bucket,incarnation,?3,bucket||'/'||?3,1,?4,?5,1,0,0,zeroblob(8),4,zeroblob(16),0 FROM bucket_incarnations WHERE bucket=?6",
             params![id(number), ROOT, name, kind, phase, BUCKET],
         )
         .unwrap();
@@ -205,9 +222,34 @@ fn conflict(
         .unwrap();
 }
 
-/// The rows of every kind 0.27.0 wrote for one root, those that name files and those that do
-/// not, with the files they name.
-fn record_synchronization(connection: &Connection, folder: &Path, data: &Path, generation: i64) {
+/// A new catalog in `data` holding [`BUCKET`], open.
+async fn bucket_catalog(data: &Path) -> Catalog {
+    let catalog = Catalog::open(data).await.unwrap();
+    catalog
+        .insert_bucket(bucket(BUCKET, "owner"))
+        .await
+        .unwrap();
+    catalog
+}
+
+/// The closed catalog in `data` back at schema 57, as 0.27.0 left it, with foreign keys
+/// enforced.
+fn at_schema_57(data: &Path) -> Connection {
+    let connection = Connection::open(data.join("catalog.sqlite3")).unwrap();
+    test_support::downgrade_retired_sync_schema(&connection);
+    connection
+        .pragma_update(None, "user_version", RETIREMENT_SCHEMA_VERSION - 1)
+        .unwrap();
+    validate_schema(&connection, RETIREMENT_SCHEMA_VERSION - 1).unwrap();
+    connection
+        .pragma_update(None, "foreign_keys", true)
+        .unwrap();
+    connection
+}
+
+/// Records `folder` as synchronized with [`BUCKET`], with the per-folder rows that write-backs
+/// and conflict copies need.
+fn record_folder(connection: &Connection, folder: &Path) {
     let incarnation: String = connection
         .query_row(
             "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
@@ -228,6 +270,18 @@ fn record_synchronization(connection: &Connection, folder: &Path, data: &Path, g
             [ROOT],
         )
         .unwrap();
+    connection
+        .execute(
+            "INSERT INTO sync_conflict_roots VALUES(?1,?2)",
+            params![ROOT, id(0xe1)],
+        )
+        .unwrap();
+}
+
+/// The rows of every kind 0.27.0 wrote for one root, those that name files and those that do
+/// not, with the files they name.
+fn record_synchronization(connection: &Connection, folder: &Path, data: &Path, generation: i64) {
+    record_folder(connection, folder);
     // The write-back of a rejected deletion, prepared: its entry holds only its own copy.
     write_back(connection, 0xa1, "kept", 0, 0);
     write_back(connection, 0xa2, "published", 0, 1);
@@ -237,12 +291,6 @@ fn record_synchronization(connection: &Connection, folder: &Path, data: &Path, g
     recovery(connection, 0xa5, 0);
     recovery(connection, 0xa6, 1);
     recovery(connection, 0xa7, 2);
-    connection
-        .execute(
-            "INSERT INTO sync_conflict_roots VALUES(?1,?2)",
-            params![ROOT, id(0xe1)],
-        )
-        .unwrap();
     // Listed in capture order, which is not the order of their IDs.
     conflict(connection, 0xc2, "kept", (None, 0, 4), None);
     conflict(
@@ -300,11 +348,7 @@ async fn released() -> Released {
     let data = dir.0.join("data");
     let folder = dir.0.join("folder");
     fs::create_dir(&data).unwrap();
-    let catalog = Catalog::open(&data).await.unwrap();
-    catalog
-        .insert_bucket(bucket(BUCKET, "owner"))
-        .await
-        .unwrap();
+    let catalog = bucket_catalog(&data).await;
     let mut objects = Vec::new();
     for (name, bytes) in OBJECTS {
         let record = catalog
@@ -317,15 +361,7 @@ async fn released() -> Released {
         objects.push((record, bytes.to_vec()));
     }
     catalog.close().await.unwrap();
-    let connection = Connection::open(data.join("catalog.sqlite3")).unwrap();
-    test_support::downgrade_retired_sync_schema(&connection);
-    connection
-        .pragma_update(None, "user_version", RETIREMENT_SCHEMA_VERSION - 1)
-        .unwrap();
-    validate_schema(&connection, RETIREMENT_SCHEMA_VERSION - 1).unwrap();
-    connection
-        .pragma_update(None, "foreign_keys", true)
-        .unwrap();
+    let connection = at_schema_57(&data);
     record_synchronization(&connection, &folder, &data, objects[0].0.generation);
     let rows = objects_table(&connection);
     Released { dir, objects, rows }
@@ -387,10 +423,7 @@ async fn a_released_catalog_lists_the_files_its_rows_name_and_drops_every_sync_o
     let catalog = Catalog::open(&data).await.unwrap();
     released.assert_objects(&catalog).await;
     catalog.close().await.unwrap();
-    assert_eq!(
-        fs::read_to_string(data.join(MANIFEST)).unwrap(),
-        released.manifest()
-    );
+    assert_eq!(read_manifest(&data.join(MANIFEST)), released.manifest());
     assert!(!data.join(STAGED).exists());
     assert_eq!(files(&data.join("sync-conflicts")), copies);
     assert_eq!(files(&released.folder()), folder);
@@ -419,52 +452,75 @@ async fn a_released_catalog_lists_the_files_its_rows_name_and_drops_every_sync_o
 #[tokio::test]
 async fn rows_that_name_no_file_retire_without_a_manifest() {
     let dir = TestDir::new();
-    Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
+    bucket_catalog(&dir.0).await.close().await.unwrap();
     assert!(!dir.0.join(MANIFEST).exists());
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    test_support::downgrade_retired_sync_schema(&connection);
-    connection
-        .pragma_update(None, "user_version", RETIREMENT_SCHEMA_VERSION - 1)
-        .unwrap();
-    connection
-        .pragma_update(None, "foreign_keys", true)
-        .unwrap();
-    record_root(&connection, BUCKET, &[&"0".repeat(32)]);
-    connection
-        .execute(
-            "INSERT INTO sync_writeback_roots VALUES(?1,1024,16,zeroblob(16),zeroblob(16),0,0,0,0,zeroblob(8),zeroblob(8),NULL,NULL)",
-            [ROOT],
-        )
-        .unwrap();
-    connection
-        .execute(
-            "INSERT INTO sync_conflict_roots VALUES(?1,?2)",
-            params![ROOT, id(0xe1)],
-        )
-        .unwrap();
+    let connection = at_schema_57(&dir.0);
+    record_folder(&connection, &dir.0.join("folder"));
     // A prepared publish holds only its own copy of the object, a complete write-back and a
     // released workspace hold nothing, and a discarded copy's file was removed first.
-    for (number, phase) in [(0xa1, 0), (0xa4, 4)] {
-        connection
-            .execute(
-                "INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,'owner',?3,?4,'object',?1,1,0,?5,1,0,0,zeroblob(8),4,zeroblob(16),0)",
-                params![id(number), ROOT, BUCKET, "0".repeat(32), phase],
-            )
-            .unwrap();
-    }
+    write_back(&connection, 0xa1, "object", 0, 0);
+    write_back(&connection, 0xa4, "object", 0, 4);
     recovery(&connection, 0xa7, 2);
-    connection
-        .execute(
-            "INSERT INTO sync_conflicts(id,root_id,revision,owner,bucket,incarnation,name,generation,state,size,source_op,source,retained) VALUES(?1,?2,?3,'owner',?4,?5,'object',1,2,3,NULL,X'7B7D',NULL)",
-            params![id(0xc3), ROOT, id(0xe3), BUCKET, "0".repeat(32)],
-        )
-        .unwrap();
+    conflict(&connection, 0xc3, "object", (Some(1), 2, 3), None);
     drop(connection);
 
     Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
     assert!(!dir.0.join(MANIFEST).exists());
     assert!(!dir.0.join(STAGED).exists());
     assert_retired(&Connection::open(dir.0.join("catalog.sqlite3")).unwrap());
+}
+
+/// Each kind of row that names a file writes the manifest on its own, listing just that file.
+#[tokio::test]
+async fn each_kind_of_row_that_names_a_file_alone_writes_the_manifest() {
+    /// What a case records, and the manifest it gives for the folder.
+    type Case = (&'static str, fn(&Connection), fn(&Path) -> Json);
+    let cases: [Case; 3] = [
+        (
+            "recovery workspace",
+            |connection| recovery(connection, 0xa6, 0),
+            |folder| manifest(&[], &[workspace_entry(folder, 0xa6, None)]),
+        ),
+        (
+            "write-back",
+            |connection| write_back(connection, 0xa3, "removed", 1, 1),
+            |folder| manifest(&[], &[workspace_entry(folder, 0xa3, Some("removed"))]),
+        ),
+        (
+            "conflict copy",
+            |connection| conflict(connection, 0xc1, "edited", (Some(1), 1, 3), None),
+            |_| {
+                manifest(
+                    &[json!({
+                        "path": format!("sync-conflicts/{}", id(0xc1)),
+                        "bucket": BUCKET,
+                        "object": "edited",
+                        "generation": 1,
+                        "size": 3,
+                        "state": "registered",
+                    })],
+                    &[],
+                )
+            },
+        ),
+    ];
+    for (kind, record, expected) in cases {
+        let dir = TestDir::new();
+        let folder = dir.0.join("folder");
+        bucket_catalog(&dir.0).await.close().await.unwrap();
+        let connection = at_schema_57(&dir.0);
+        record_folder(&connection, &folder);
+        record(&connection);
+        drop(connection);
+
+        Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
+        assert_eq!(
+            read_manifest(&dir.0.join(MANIFEST)),
+            expected(&folder),
+            "{kind}"
+        );
+        assert_retired(&Connection::open(dir.0.join("catalog.sqlite3")).unwrap());
+    }
 }
 
 /// The step drops the synchronization tables in one transaction: when the last drop fails, the
@@ -564,15 +620,25 @@ async fn a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_fin
         assert_eq!(count(&connection, "SELECT count(*) FROM sync_conflicts"), 3);
         drop(connection);
         assert_eq!(files(&data.join("sync-conflicts")), copies, "{step:?}");
+        let published = fs::read(data.join(MANIFEST)).ok();
 
         let catalog = Catalog::open(&data).await.unwrap();
         released.assert_objects(&catalog).await;
         catalog.close().await.unwrap();
         assert_eq!(
-            fs::read_to_string(data.join(MANIFEST)).unwrap(),
+            read_manifest(&data.join(MANIFEST)),
             released.manifest(),
             "{step:?}"
         );
+        // Written again from the same rows, a manifest the failed open published keeps its
+        // bytes.
+        if let Some(published) = published {
+            assert_eq!(
+                fs::read(data.join(MANIFEST)).unwrap(),
+                published,
+                "{step:?}"
+            );
+        }
         assert!(!data.join(STAGED).exists(), "{step:?}");
         assert_eq!(files(&data.join("sync-conflicts")), copies, "{step:?}");
         assert_eq!(files(&released.folder()), folder, "{step:?}");
@@ -614,7 +680,7 @@ async fn a_crash_at_each_manifest_step_or_before_the_commit_restarts_with_the_sa
             // The rows go only once the manifest that lists them survives a crash.
             if step == Step::RetiredSyncCommit {
                 assert_eq!(
-                    fs::read_to_string(snapshot.join(MANIFEST)).unwrap(),
+                    read_manifest(&snapshot.join(MANIFEST)),
                     released.manifest(),
                     "{crash:?}"
                 );
@@ -624,7 +690,7 @@ async fn a_crash_at_each_manifest_step_or_before_the_commit_restarts_with_the_sa
             released.assert_objects(&catalog).await;
             catalog.close().await.unwrap();
             assert_eq!(
-                fs::read_to_string(snapshot.join(MANIFEST)).unwrap(),
+                read_manifest(&snapshot.join(MANIFEST)),
                 released.manifest(),
                 "{crash:?} at {step:?}"
             );
