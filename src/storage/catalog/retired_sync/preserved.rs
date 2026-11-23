@@ -17,7 +17,7 @@ use rusqlite::{
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    io::{self, Write},
+    io::{self, BufRead, Write},
     path::{Path, PathBuf},
 };
 
@@ -114,11 +114,15 @@ pub(super) fn named(connection: &Connection) -> Result<bool, CatalogError> {
     Ok(sql::scalar(connection, NAMES_FILES, [])?)
 }
 
-/// Writes the manifest durably into `data_dir`: a staged file written, flushed and synced, then
-/// renamed over any manifest an earlier attempt published, then the directory synced. The rows
-/// it reads are the ones a later transaction drops, so writing it again from the same rows
-/// gives the same bytes.
-pub(super) fn write_manifest(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError> {
+/// Writes the manifest durably into `data_dir` and returns where: a staged file written, flushed
+/// and synced, then renamed to the first manifest name that is free, then the directory synced.
+/// The rows it reads are the ones a later transaction drops, so writing it again from the same
+/// rows gives the same bytes, and a manifest an earlier attempt published with them is kept
+/// instead.
+pub(super) fn write_manifest(
+    connection: &Connection,
+    data_dir: &Path,
+) -> Result<PathBuf, CatalogError> {
     let mut manifest = Manifest::create(data_dir)?;
     manifest.put(b"{\n  \"description\": ")?;
     manifest.put(&serde_json::to_vec(DESCRIPTION).map_err(unavailable)?)?;
@@ -215,7 +219,7 @@ impl<'a> Manifest<'a> {
         self.put(close)
     }
 
-    fn publish(self) -> Result<(), CatalogError> {
+    fn publish(self) -> Result<PathBuf, CatalogError> {
         let Self {
             data_dir,
             staged,
@@ -230,25 +234,101 @@ impl<'a> Manifest<'a> {
         #[cfg(test)]
         fault::hit_io(data_dir, Step::RetiredManifestSync).map_err(failed("sync", &staged))?;
         file.sync_all().map_err(failed("sync", &staged))?;
+        let metadata = file.metadata().map_err(failed("sync", &staged))?;
         #[cfg(test)]
-        fault::file_synced(data_dir, &file.metadata().map_err(failed("sync", &staged))?);
+        fault::file_synced(data_dir, &metadata);
         drop(file);
-        let manifest = data_dir.join(MANIFEST);
-        #[cfg(test)]
-        fault::hit_io(data_dir, Step::RetiredManifestRename)
-            .map_err(failed("rename the staged file to", &manifest))?;
-        fs::rename(&staged, &manifest).map_err(failed("rename the staged file to", &manifest))?;
+        let (manifest, found) = destination(data_dir, &staged, metadata.len())?;
+        match found {
+            Destination::Identical => {
+                objects::unlink(&staged).map_err(failed("remove the staged file", &staged))?;
+            }
+            Destination::Free => {
+                #[cfg(test)]
+                fault::hit_io(data_dir, Step::RetiredManifestRename)
+                    .map_err(failed("rename the staged file to", &manifest))?;
+                fs::rename(&staged, &manifest)
+                    .map_err(failed("rename the staged file to", &manifest))?;
+                #[cfg(all(test, unix))]
+                fault::renamed(&staged, &manifest);
+            }
+        }
         // Windows has no directory sync; like the blob store there, it relies on the rename.
         #[cfg(unix)]
         {
-            #[cfg(test)]
-            fault::renamed(&staged, &manifest);
             #[cfg(test)]
             fault::hit_io(data_dir, Step::RetiredManifestDirSync)
                 .map_err(failed("sync the directory", data_dir))?;
             objects::sync_dir(data_dir).map_err(failed("sync the directory", data_dir))?;
         }
-        Ok(())
+        Ok(manifest)
+    }
+}
+
+/// The name of the `number`th manifest: `sync-retired.json`, then `sync-retired.1.json` and on.
+fn manifest_name(number: u32) -> String {
+    if number == 0 {
+        MANIFEST.to_owned()
+    } else {
+        format!("sync-retired.{number}.json")
+    }
+}
+
+/// How a manifest name can take the staged manifest.
+enum Destination {
+    Free,
+    /// It holds the staged bytes already: an earlier attempt published the manifest from the
+    /// same rows and stopped before the rows went.
+    Identical,
+}
+
+/// The first manifest name in `data_dir` that is free or holds exactly the staged bytes. A
+/// manifest with other content, such as one an upgrade of a restored catalog wrote, is never
+/// replaced.
+fn destination(
+    data_dir: &Path,
+    staged: &Path,
+    len: u64,
+) -> Result<(PathBuf, Destination), CatalogError> {
+    for number in 0..=u32::MAX {
+        let candidate = data_dir.join(manifest_name(number));
+        if let Some(destination) = compare(staged, len, &candidate)
+            .map_err(failed("compare the staged file with", &candidate))?
+        {
+            return Ok((candidate, destination));
+        }
+    }
+    Err(unavailable(
+        "every retired synchronization manifest name holds another manifest",
+    ))
+}
+
+/// Whether `candidate` can take the `len` staged bytes, or `None` while it holds anything else.
+fn compare(staged: &Path, len: u64, candidate: &Path) -> io::Result<Option<Destination>> {
+    let metadata = match fs::symlink_metadata(candidate) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(Some(Destination::Free));
+        }
+        Err(error) => return Err(error),
+    };
+    if !metadata.is_file() || metadata.len() != len {
+        return Ok(None);
+    }
+    let mut ours = io::BufReader::new(fs::File::open(staged)?);
+    let mut theirs = io::BufReader::new(fs::File::open(candidate)?);
+    loop {
+        let left = ours.fill_buf()?;
+        let right = theirs.fill_buf()?;
+        if left.is_empty() || right.is_empty() {
+            return Ok((left.is_empty() && right.is_empty()).then_some(Destination::Identical));
+        }
+        let common = left.len().min(right.len());
+        if left.iter().zip(right).any(|(left, right)| left != right) {
+            return Ok(None);
+        }
+        ours.consume(common);
+        theirs.consume(common);
     }
 }
 
