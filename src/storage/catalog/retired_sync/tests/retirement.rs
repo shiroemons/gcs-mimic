@@ -694,41 +694,85 @@ fn rows_that_name_files_need_a_data_directory() {
     assert_eq!(count(&connection, "SELECT count(*) FROM sync_conflicts"), 1);
 }
 
+/// A link at the staged manifest's name, to a file or to nothing, is removed rather than
+/// written through.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_link_at_the_staged_name_is_removed_rather_than_followed() {
+    for existing in [true, false] {
+        let released = released().await;
+        let data = released.data();
+        let outside = released.dir.0.join("outside");
+        if existing {
+            fs::write(&outside, b"not the manifest").unwrap();
+        }
+        std::os::unix::fs::symlink(&outside, data.join(STAGED)).unwrap();
+
+        Catalog::open(&data).await.unwrap().close().await.unwrap();
+        assert_eq!(read_manifest(&data.join(MANIFEST)), released.manifest());
+        assert!(fs::symlink_metadata(data.join(STAGED)).is_err());
+        if existing {
+            assert_eq!(fs::read(&outside).unwrap(), b"not the manifest");
+        } else {
+            assert!(!outside.exists());
+        }
+    }
+}
+
 /// A failure while the manifest is written, or of the transaction after it, leaves schema 57
-/// and every file; the next open writes the same manifest and retires the rows.
+/// and every file; the next open writes the same manifest and retires the rows. A manifest
+/// step's error names the step and the file it worked on.
 #[tokio::test]
 async fn a_failed_manifest_step_or_commit_leaves_schema_57_and_the_next_open_finishes() {
     let full = || Fault::Io(io::ErrorKind::StorageFull);
+    // The step that failed, and the file in the data directory it names; `None` names the
+    // directory itself.
+    let staged = Some(("write", Some(STAGED)));
     let faults = [
-        (Step::RetiredManifestWrite, 0, full()),
-        (Step::RetiredManifestWrite, 4, full()),
-        (Step::RetiredManifestFlush, 0, full()),
+        (Step::RetiredManifestWrite, 0, full(), staged),
+        (Step::RetiredManifestWrite, 4, full(), staged),
+        (
+            Step::RetiredManifestFlush,
+            0,
+            full(),
+            Some(("flush", Some(STAGED))),
+        ),
         (
             Step::RetiredManifestSync,
             0,
             Fault::Io(io::ErrorKind::Other),
+            Some(("sync", Some(STAGED))),
         ),
         (
             Step::RetiredManifestRename,
             0,
             Fault::Io(io::ErrorKind::PermissionDenied),
+            Some(("rename the staged file to", Some(MANIFEST))),
         ),
         #[cfg(unix)]
         (
             Step::RetiredManifestDirSync,
             0,
             Fault::Io(io::ErrorKind::Other),
+            Some(("sync the directory", None)),
         ),
-        (Step::RetiredSyncCommit, 0, Fault::RollBack),
-        (Step::RetiredSyncCommit, 0, full()),
+        (Step::RetiredSyncCommit, 0, Fault::RollBack, None),
+        (Step::RetiredSyncCommit, 0, full(), None),
     ];
-    for (step, skip, fault) in faults {
+    for (step, skip, fault, context) in faults {
         let released = released().await;
         let data = released.data();
         let copies = files(&data.join("sync-conflicts"));
         let folder = files(&released.folder());
         fault::arm(&data, step, skip, fault);
-        assert!(Catalog::open(&data).await.is_err(), "{step:?}");
+        let Err(error) = Catalog::open(&data).await else {
+            panic!("{step:?}: the open succeeded");
+        };
+        if let Some((phrase, file)) = context {
+            let path = file.map_or_else(|| data.clone(), |file| data.join(file));
+            let expected = format!("could not {phrase} {}", path.display());
+            assert!(error.to_string().contains(&expected), "{step:?}: {error}");
+        }
         assert_eq!(fault::pending(&data), 0, "{step:?}");
         let connection = Connection::open(data.join("catalog.sqlite3")).unwrap();
         assert_eq!(

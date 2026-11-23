@@ -8,7 +8,8 @@
 
 #[cfg(test)]
 use super::super::fault::{self, Step};
-use super::super::{CatalogError, sql, unavailable};
+use super::super::{CatalogError, objects, sql, unavailable};
+use crate::storage::failure::object_context;
 use rusqlite::{
     Connection, Row,
     types::{FromSql, FromSqlResult, ValueRef},
@@ -17,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs,
     io::{self, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 /// Where synchronization kept its copies of user edits, relative to the data directory.
@@ -25,7 +26,7 @@ const CONFLICTS: &str = "sync-conflicts";
 /// The manifest's name in the data directory.
 const MANIFEST: &str = "sync-retired.json";
 /// The manifest before its rename. An attempt that stopped before the rename leaves it, and the
-/// next attempt writes it again from the start.
+/// next attempt removes it and writes it again from the start.
 const STAGED: &str = "sync-retired.json.tmp";
 /// The private directory synchronization kept inside each synchronized folder.
 const WORKSPACE: &str = ".gcs-mimic-sync-work";
@@ -140,47 +141,54 @@ pub(super) fn write_manifest(connection: &Connection, data_dir: &Path) -> Result
     manifest.publish()
 }
 
+/// The error of a manifest step, naming the step and the file it worked on.
+fn failed<'a>(step: &'static str, path: &'a Path) -> impl FnOnce(io::Error) -> CatalogError + 'a {
+    move |error| {
+        unavailable(object_context(
+            format_args!(
+                "retired synchronization manifest: could not {step} {}",
+                path.display()
+            ),
+            error,
+        ))
+    }
+}
+
 /// The staged manifest while it is written. Each record goes through one `put`, which the test
 /// fault seam can fail; the buffer keeps the writes few.
 struct Manifest<'a> {
     data_dir: &'a Path,
+    staged: PathBuf,
     out: io::BufWriter<fs::File>,
 }
 
 impl<'a> Manifest<'a> {
-    fn create(data_dir: &'a Path) -> io::Result<Self> {
-        let path = data_dir.join(STAGED);
-        let file = match fs::OpenOptions::new()
+    /// Creates the staged file where nothing else exists: a file an earlier attempt left there
+    /// is removed first, so a link at that name is removed rather than followed.
+    fn create(data_dir: &'a Path) -> Result<Self, CatalogError> {
+        let staged = data_dir.join(STAGED);
+        objects::unlink(&staged).map_err(failed("remove the earlier staged file", &staged))?;
+        let file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&path)
-        {
-            Ok(file) => {
-                #[cfg(all(test, unix))]
-                fault::file_created(&path);
-                file
-            }
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                let file = fs::OpenOptions::new()
-                    .write(true)
-                    .truncate(true)
-                    .open(&path)?;
-                #[cfg(test)]
-                fault::truncated(data_dir, &file.metadata()?);
-                file
-            }
-            Err(error) => return Err(error),
-        };
+            .open(&staged)
+            .map_err(failed("create", &staged))?;
+        #[cfg(all(test, unix))]
+        fault::file_created(&staged);
         Ok(Self {
             data_dir,
+            staged,
             out: io::BufWriter::new(file),
         })
     }
 
-    fn put(&mut self, bytes: &[u8]) -> io::Result<()> {
+    fn put(&mut self, bytes: &[u8]) -> Result<(), CatalogError> {
         #[cfg(test)]
-        fault::hit_io(self.data_dir, Step::RetiredManifestWrite)?;
-        self.out.write_all(bytes)
+        fault::hit_io(self.data_dir, Step::RetiredManifestWrite)
+            .map_err(failed("write", &self.staged))?;
+        self.out
+            .write_all(bytes)
+            .map_err(failed("write", &self.staged))
     }
 
     /// Writes `key`, which needs no JSON escape, and one compact JSON object per row `query`
@@ -204,36 +212,41 @@ impl<'a> Manifest<'a> {
             written = true;
         }
         let close: &[u8] = if written { b"\n  ]" } else { b"]" };
-        Ok(self.put(close)?)
+        self.put(close)
     }
 
-    fn publish(mut self) -> Result<(), CatalogError> {
+    fn publish(self) -> Result<(), CatalogError> {
+        let Self {
+            data_dir,
+            staged,
+            mut out,
+        } = self;
         #[cfg(test)]
-        fault::hit_io(self.data_dir, Step::RetiredManifestFlush)?;
-        self.out.flush()?;
-        let file = self
-            .out
+        fault::hit_io(data_dir, Step::RetiredManifestFlush).map_err(failed("flush", &staged))?;
+        out.flush().map_err(failed("flush", &staged))?;
+        let file = out
             .into_inner()
-            .map_err(io::IntoInnerError::into_error)?;
+            .map_err(|error| failed("flush", &staged)(error.into_error()))?;
         #[cfg(test)]
-        fault::hit_io(self.data_dir, Step::RetiredManifestSync)?;
-        file.sync_all()?;
+        fault::hit_io(data_dir, Step::RetiredManifestSync).map_err(failed("sync", &staged))?;
+        file.sync_all().map_err(failed("sync", &staged))?;
         #[cfg(test)]
-        fault::file_synced(self.data_dir, &file.metadata()?);
+        fault::file_synced(data_dir, &file.metadata().map_err(failed("sync", &staged))?);
         drop(file);
-        let staged = self.data_dir.join(STAGED);
-        let manifest = self.data_dir.join(MANIFEST);
+        let manifest = data_dir.join(MANIFEST);
         #[cfg(test)]
-        fault::hit_io(self.data_dir, Step::RetiredManifestRename)?;
-        fs::rename(&staged, &manifest)?;
+        fault::hit_io(data_dir, Step::RetiredManifestRename)
+            .map_err(failed("rename the staged file to", &manifest))?;
+        fs::rename(&staged, &manifest).map_err(failed("rename the staged file to", &manifest))?;
         // Windows has no directory sync; like the blob store there, it relies on the rename.
         #[cfg(unix)]
         {
             #[cfg(test)]
             fault::renamed(&staged, &manifest);
             #[cfg(test)]
-            fault::hit_io(self.data_dir, Step::RetiredManifestDirSync)?;
-            super::super::objects::sync_dir(self.data_dir)?;
+            fault::hit_io(data_dir, Step::RetiredManifestDirSync)
+                .map_err(failed("sync the directory", data_dir))?;
+            objects::sync_dir(data_dir).map_err(failed("sync the directory", data_dir))?;
         }
         Ok(())
     }
