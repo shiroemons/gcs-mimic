@@ -52,7 +52,7 @@ pub(super) enum Fixture {
     /// A top-level file, which fake-gcs-server ignores; it is skipped with a warning.
     TopLevelFile,
     /// A top-level directory names a bucket.
-    Bucket(String),
+    Bucket(BucketName),
     /// A directory below a bucket. Its path is a valid object name.
     Directory,
     /// A regular file below a bucket names an object.
@@ -358,7 +358,9 @@ impl Tree {
     }
 
     /// Classifies an inspected entry. Its checks fail in a fixed order: the leaf name, the entry
-    /// type, the bucket component, the object name, then the bucket name of an object.
+    /// type, the bucket component, a bucket directory's name, the object name, then the bucket
+    /// name of an object. A bucket directory with an invalid name is unusable here, before a
+    /// replay counts it against the bucket limit.
     fn fixture(
         &self,
         path: &Path,
@@ -386,11 +388,12 @@ impl Tree {
             .and_then(OsStr::to_str)
             .ok_or(Rejected::NonUtf8Name)?;
         if depth == 0 {
-            return Ok(if kind.is_dir() {
-                Fixture::Bucket(leaf.to_owned())
-            } else {
-                Fixture::TopLevelFile
-            });
+            if kind.is_file() {
+                return Ok(Fixture::TopLevelFile);
+            }
+            return BucketName::new(leaf)
+                .map(Fixture::Bucket)
+                .map_err(Rejected::BucketName);
         }
         let name = components
             .map(|part| part.to_str().ok_or(Rejected::NonUtf8Name))

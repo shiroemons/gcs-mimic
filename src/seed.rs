@@ -314,7 +314,7 @@ impl Seed<'_> {
                 skipped(&label, "top-level entries must be bucket directories");
                 Ok(())
             }
-            Fixture::Bucket(leaf) => self.bucket(&leaf),
+            Fixture::Bucket(name) => self.bucket(&name),
             Fixture::Directory => Ok(()),
             Fixture::Object(object) => self.object(&label, *object).await,
         };
@@ -324,14 +324,13 @@ impl Seed<'_> {
         })
     }
 
-    fn bucket(&mut self, leaf: &str) -> Result<(), SeedError> {
+    fn bucket(&mut self, name: &BucketName) -> Result<(), SeedError> {
         if let Some(limit) = self.config.max_buckets_per_batch
             && self.buckets >= limit.get()
         {
             return Err(SeedError::BucketLimit { limit: limit.get() });
         }
-        let name = BucketName::new(leaf).map_err(SeedError::BucketName)?;
-        let record = BucketDefinition::default_for(&name, &self.config.seed_project, self.clock)?;
+        let record = BucketDefinition::default_for(name, &self.config.seed_project, self.clock)?;
         self.batch.bucket(record)?;
         self.buckets += 1;
         Ok(())
