@@ -7,10 +7,14 @@
 //! gone, and never fails on an entry it cannot replay: it reports the entry and leaves the name as
 //! it is. A pass that cannot run at all, such as one whose seed directory went away, changes
 //! nothing and reports why. No pass writes to the seed directory.
+//!
+//! No pass forgets the bucket it took for a top-level directory, even once that directory is gone:
+//! a bucket an API request deleted or created again stays as that request left it until a reseed
+//! or a restart, however the directory comes and goes.
 
 use super::{
     SeedError, open_tree, split_label,
-    walk::{Fixture, Object, Opened, Presence, Seen, Source, Unlisted, UnlistedDirectory, Walked},
+    walk::{Fixture, Object, Opened, Seen, Source, Unlisted, Walked},
 };
 use crate::{
     clock::Clock,
@@ -96,7 +100,6 @@ async fn walk_and_commit(
                 Err(error) => pass.incomplete(&error),
             },
             Some(Walked::Unlisted(unlisted)) => pass.unlisted(*unlisted),
-            Some(Walked::UnlistedDirectory(unlisted)) => pass.unlisted_directory(unlisted)?,
             Some(Walked::Done) => break,
             None => {
                 pass.incomplete(&SeedError::WalkStopped);
@@ -135,9 +138,10 @@ impl Pass<'_> {
                 Some((bucket, name)) if !self.skipped.contains(bucket) => {
                     self.batch.absent(bucket, name, proof);
                 }
-                Some(_) => {}
-                // A top-level name the walk listed and then found empty.
-                None => self.batch.directory_absent(label, proof),
+                // A name below a bucket the pass leaves out, or a top-level name the walk listed
+                // and then found empty, which keeps its mark as every directory that went away
+                // does.
+                Some(_) | None => {}
             },
             Fixture::Unusable(rejected) => self.unread(label, rejected)?,
             // Skipped as at startup, without a report on every pass: fake-gcs-server ignores a
@@ -189,22 +193,9 @@ impl Pass<'_> {
         }
     }
 
-    /// Takes what a lookup found at the name of a marked top-level directory the walk did not
-    /// list. Only a proof that the name is empty counts toward forgetting the mark; a name the
-    /// lookup could not tell is reported, and the directory keeps its mark.
-    fn unlisted_directory(&mut self, unlisted: UnlistedDirectory) -> Result<(), SeedError> {
-        let UnlistedDirectory { bucket, found } = unlisted;
-        match found {
-            Presence::Absent(proof) => self.batch.directory_absent(&bucket, proof),
-            Presence::Present => {}
-            Presence::Unknown(unknown) => self.unread(&bucket, unknown)?,
-        }
-        Ok(())
-    }
-
     /// Takes a top-level directory: a directory past `max_buckets_per_batch` is left out with
-    /// everything below it, as is one whose bucket was deleted after seeding took it. A
-    /// directory without a mark gets its bucket when the pass commits.
+    /// everything below it, as is one whose bucket was deleted, or created again, after seeding
+    /// took it. A directory without a mark gets its bucket when the pass commits.
     fn bucket(&mut self, name: &BucketName) -> Result<(), SeedError> {
         if let Some(limit) = self.config.max_buckets_per_batch
             && self.buckets >= limit.get()

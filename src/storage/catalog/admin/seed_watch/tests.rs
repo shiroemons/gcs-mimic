@@ -148,7 +148,6 @@ fn a_pass_that_could_not_run_reports_why_and_changed_nothing() {
             "recorded": 0,
             "deleted": 0,
             "pendingDeletions": 0,
-            "pendingDirectories": 0,
             "tombstones": 0,
             "bucketsKeptDeleted": 0,
             "problems": [],

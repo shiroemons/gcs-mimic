@@ -10,7 +10,7 @@ use crate::{
                 self, Attributes, Body, Fingerprint, LiveObject, Phase, Protection, Replay,
                 SeedRecord, Unproven, Vanished, Version,
             },
-            seed_records::{self, Mark, Marked, RecordKey},
+            seed_records::{self, Mark, RecordKey},
         },
         sql,
     },
@@ -90,21 +90,12 @@ pub(crate) struct SeedBatch {
     /// they are.
     records: Option<HashMap<RecordKey, SeedRecord>>,
     /// The directories whose buckets seeding took, as the batch read them with the records.
-    marks: HashMap<String, Marked>,
+    marks: HashMap<String, Mark>,
     /// The recorded names whose fixture files a lookup proved absent.
     absences: Vec<(RecordKey, Vacant)>,
-    /// The marked directories whose names a lookup proved empty.
-    directory_absences: Vec<(String, Vacant)>,
     /// The recorded names the walk did not list where the lookup after it could not tell
     /// whether the fixture file is there, each with the reason.
     unproven: Vec<(RecordKey, String)>,
-}
-
-/// What a walk looks up where it does not list it: the names seeding recorded, and the
-/// directories whose buckets it took.
-pub(crate) struct Recorded {
-    pub(crate) names: Vec<RecordKey>,
-    pub(crate) directories: Vec<String>,
 }
 
 /// A batch holds every object's metadata in memory until it commits. A limit the operator chose
@@ -171,7 +162,6 @@ impl Admin {
             records: None,
             marks: HashMap::new(),
             absences: Vec::new(),
-            directory_absences: Vec::new(),
             unproven: Vec::new(),
         })
     }
@@ -230,9 +220,8 @@ impl SeedBatch {
     }
 
     /// Reads what seeding recorded and the buckets it took, for a batch that walks the fixture
-    /// tree, and returns the recorded names and the marked directories, which the walk looks up
-    /// where it does not list them.
-    pub(crate) async fn read_records(&mut self) -> Result<Recorded, AdminError> {
+    /// tree, and returns the recorded names, which the walk looks up where it does not list them.
+    pub(crate) async fn read_records(&mut self) -> Result<Vec<RecordKey>, AdminError> {
         let (records, marks) = self
             .admin
             .catalog
@@ -243,10 +232,7 @@ impl SeedBatch {
                 ))
             })
             .await?;
-        let recorded = Recorded {
-            names: records.keys().cloned().collect(),
-            directories: marks.keys().cloned().collect(),
-        };
+        let recorded = records.keys().cloned().collect();
         self.records = Some(records);
         self.marks = marks;
         Ok(recorded)
@@ -262,17 +248,7 @@ impl SeedBatch {
     /// Whether seeding took the bucket of the directory `bucket`, as the batch read it with the
     /// records.
     pub(crate) fn mark(&self, bucket: &str) -> Mark {
-        self.marks
-            .get(bucket)
-            .map_or(Mark::Unmarked, |marked| marked.mark)
-    }
-
-    /// Takes `proof` that the name of the top-level directory `bucket` is empty, where seeding
-    /// took a bucket for that directory; a directory without a mark has nothing to forget.
-    pub(crate) fn directory_absent(&mut self, bucket: &str, proof: Vacant) {
-        if self.marks.contains_key(bucket) {
-            self.directory_absences.push((bucket.to_owned(), proof));
-        }
+        self.marks.get(bucket).copied().unwrap_or(Mark::Unmarked)
     }
 
     /// Takes `proof` that the fixture file of `bucket`/`name` is gone, and returns whether the

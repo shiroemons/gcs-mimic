@@ -20,7 +20,7 @@ const OTHER_PROJECT: &str =
 /// absent.
 pub(crate) struct LiveWalk {
     /// Whether the walk listed the whole tree, met no failure and ended with its final check of
-    /// the root. Only then do its proofs of absence count, of files and of marked directories.
+    /// the root. Only then do its proofs that files are absent count.
     pub(crate) complete: bool,
     /// What the walk left as it was.
     pub(crate) problems: Problems,
@@ -51,18 +51,12 @@ impl SeedBatch {
             ..LiveCounts::default()
         };
         let found = self.found_names(&walk);
-        let found_directories = self.found_directories(&walk);
         self.keep_owned_absences(&walk, &mut counts);
-        if !walk.complete {
-            self.directory_absences.clear();
-        }
         if self.entries.is_empty()
             && self.buckets.is_empty()
             && self.absences.is_empty()
             && self.unproven.is_empty()
             && found.is_empty()
-            && self.directory_absences.is_empty()
-            && found_directories.is_empty()
         {
             return Ok(LiveOutcome {
                 complete: walk.complete,
@@ -80,11 +74,7 @@ impl SeedBatch {
                 .map_err(|_| AdminError::Closed)?;
         let (outcome, mut batch) = catalog
             .run_upload_admitted::<_, AdminError>(execution, move |connection| {
-                let found = Found {
-                    names: &found,
-                    directories: &found_directories,
-                };
-                let outcome = commit(connection, &self, walk, &found, (pass, counts));
+                let outcome = commit(connection, &self, walk, &found, pass, counts);
                 Ok((outcome, self))
             })
             .await?;
@@ -143,39 +133,17 @@ impl SeedBatch {
         counts.tombstones += tombstones.len();
         owned
     }
-
-    /// The marked directories whose proof of absence a pass clears: every one that kept one,
-    /// except where a complete walk proved its name empty again.
-    fn found_directories(&self, walk: &LiveWalk) -> Vec<String> {
-        let proven: HashSet<&str> = if walk.complete {
-            self.directory_absences
-                .iter()
-                .map(|(bucket, _)| bucket.as_str())
-                .collect()
-        } else {
-            HashSet::new()
-        };
-        self.marks
-            .iter()
-            .filter(|(bucket, marked)| marked.absent.is_some() && !proven.contains(bucket.as_str()))
-            .map(|(bucket, _)| bucket.clone())
-            .collect()
-    }
 }
 
-/// The recorded names and the marked directories whose proofs of absence a pass clears.
-struct Found<'a> {
-    names: &'a [RecordKey],
-    directories: &'a [String],
-}
-
-/// The commit of pass number `pass`, which starts from `counts`.
+/// The commit of pass number `pass`, which starts from `counts` and clears the proofs of absence
+/// of the `found` names.
 fn commit(
     connection: &mut Connection,
     batch: &SeedBatch,
     walk: LiveWalk,
-    found: &Found<'_>,
-    (pass, mut counts): (u64, LiveCounts),
+    found: &[RecordKey],
+    pass: u64,
+    mut counts: LiveCounts,
 ) -> Result<LiveOutcome, AdminError> {
     let transaction = sql::immediate(connection).map_err(objects_error)?;
     let now = super::super::recorded_instant(batch.admin.catalog.0.clock.now())?;
@@ -187,16 +155,12 @@ fn commit(
     } = walk;
     take_buckets(&transaction, batch, &mut counts, &mut problems)?;
     replay_live_files(&transaction, batch, now, &mut counts, &mut problems)?;
-    replay_live_absences(&transaction, batch, (pass, now), &mut counts, &mut problems)?;
+    replay_live_absences(&transaction, batch, pass, now, &mut counts, &mut problems)?;
     counts.tombstones += replay_unproven(&transaction, batch, now, |bucket, name, reason| {
         problems.report(Some(&format!("{bucket}/{name}")), &reason);
     })?;
-    forget_directories(&transaction, batch, (pass, now), &mut counts)?;
-    for (bucket, name) in found.names {
+    for (bucket, name) in found {
         seed_records::found(&transaction, bucket, name)?;
-    }
-    for bucket in found.directories {
-        seed_records::mark_found(&transaction, bucket)?;
     }
     objects::commit_publication(transaction)?;
     Ok(LiveOutcome {
@@ -206,33 +170,12 @@ fn commit(
     })
 }
 
-/// Forgets the mark of each directory whose name a complete walk, that of pass number `pass` at
-/// `now`, proved empty, once a later proof confirms the first as for a file. Until then the
-/// directory keeps its mark, so a bucket an API request deleted stays deleted, and one it created
-/// again is not taken over, while its directory is only unreadable or away for a moment.
-fn forget_directories(
-    transaction: &rusqlite::Transaction<'_>,
-    batch: &SeedBatch,
-    (pass, now): (u64, SystemTime),
-    counts: &mut LiveCounts,
-) -> Result<(), AdminError> {
-    for (bucket, _) in &batch.directory_absences {
-        let proven = seed_records::mark_absence(transaction, bucket)?;
-        match replay::confirm_absence(proven, pass, now) {
-            Confirmation::Confirmed => seed_records::unmark(transaction, bucket)?,
-            Confirmation::Pending(absence) => {
-                seed_records::mark_absent(transaction, bucket, absence)?;
-                counts.pending_directories += 1;
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Creates the bucket of each directory the walk found without a mark, or takes over a bucket of
 /// the seed project an API request created under the directory's name, and marks it. A directory
 /// marked since the walk read the marks is left as it is, and so is one whose name a bucket of
-/// another project has, which the pass reports.
+/// another project has, which the pass reports. No pass forgets a mark, so a directory that went
+/// away and came back is never new again here, and never takes over a bucket an API request
+/// created while seeding's own was deleted.
 fn take_buckets(
     transaction: &rusqlite::Transaction<'_>,
     batch: &SeedBatch,
@@ -337,7 +280,8 @@ fn replay_live_files(
 fn replay_live_absences(
     transaction: &rusqlite::Transaction<'_>,
     batch: &SeedBatch,
-    (pass, now): (u64, SystemTime),
+    pass: u64,
+    now: SystemTime,
     counts: &mut LiveCounts,
     problems: &mut Problems,
 ) -> Result<(), AdminError> {
