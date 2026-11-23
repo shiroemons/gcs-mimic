@@ -502,6 +502,34 @@ fn a_deletion_while_running_waits_for_a_second_proof_a_second_later() {
     );
 }
 
+/// A pass between two proofs of absence that finds an entry under the name, here one that keeps
+/// failing to open, ends the wait: the proofs count only from consecutive passes, so the next
+/// proof starts the wait again rather than confirming the deletion.
+#[test]
+fn an_entry_found_between_two_proofs_of_absence_starts_the_wait_again() {
+    let first = written();
+    let owner = record(Some(SEEDED));
+    assert_eq!(
+        confirm_absence(&owner, first),
+        Confirmation::Pending { since: first }
+    );
+    let proven = SeedRecord {
+        absent_since: Some(first),
+        ..owner
+    };
+    assert_eq!(
+        unread(Phase::Live, "unopenable"),
+        Unread::Report("unopenable")
+    );
+    let found = proven.found();
+    let third = first + Duration::from_secs(2);
+    assert_eq!(
+        confirm_absence(&found, third),
+        Confirmation::Pending { since: third }
+    );
+    assert_eq!(confirm_absence(&proven, third), Confirmation::Confirmed);
+}
+
 /// A name that could not be read fails a startup replay with its reason, and is reported with
 /// its reason while the server runs, never taken for an unchanged one.
 #[test]

@@ -112,12 +112,30 @@ pub(crate) struct SeedRecord {
     /// The fingerprint of the read that last hashed the file, or of a later stat that found it
     /// unchanged.
     pub(crate) fingerprint: Fingerprint,
-    /// When a pass while the server runs first proved the file gone. A pass that finds the file
-    /// clears it.
+    /// When a pass while the server runs first proved the file gone, in a run of consecutive
+    /// passes that each proved it gone. A pass that finds an entry of any kind under the name, or
+    /// cannot tell whether it holds one, clears it ([`SeedRecord::found`]).
     pub(crate) absent_since: Option<SystemTime>,
 }
 
 impl SeedRecord {
+    /// The record a pass keeps at a name under which it found an entry of any kind, such as a
+    /// file it read, one that kept failing to open or one seeding cannot use, or where it could
+    /// not tell: an earlier proof of absence no longer counts toward a deletion.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the pass that watches the seed directory while the server runs is not wired yet"
+        )
+    )]
+    pub(crate) fn found(self) -> Self {
+        Self {
+            absent_since: None,
+            ..self
+        }
+    }
+
     /// The record kept for [`Vanished::Tombstone`]: it owns nothing, and keeps the body, the
     /// fingerprint and `absent_since` it had.
     #[cfg_attr(
@@ -240,8 +258,9 @@ pub(crate) fn live_file(record: Option<&SeedRecord>, observed: &Fingerprint) -> 
 /// What a pass while the server runs does with a fixture file it read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Reread {
-    /// The file holds the body the record read: record the new fingerprint and keep everything
-    /// else, so that an API delete or overwrite stays.
+    /// The file holds the body the record read: record the new fingerprint, clear the proof of
+    /// absence ([`SeedRecord::found`]) and keep everything else, so that an API delete or
+    /// overwrite stays.
     Refresh,
     /// The name has no record, or the file's content changed: replay it as a startup replay
     /// would.
@@ -332,7 +351,8 @@ const ABSENCE_CONFIRMED_AFTER: Duration = Duration::from_secs(1);
 /// Whether a pass while the server runs deletes now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Confirmation {
-    /// Two passes at least `ABSENCE_CONFIRMED_AFTER` apart proved the file absent.
+    /// Consecutive passes, the first and the last at least `ABSENCE_CONFIRMED_AFTER` apart,
+    /// proved the file absent.
     Confirmed,
     /// Record `since` as the time of the first proof and delete nothing yet.
     Pending { since: SystemTime },
@@ -341,8 +361,10 @@ pub(crate) enum Confirmation {
 /// Whether a pass at `now` that [`absent`] told to delete does so. While the server runs, a
 /// file can be missing for a moment, as when an editor or a sync tool replaces it by unlinking
 /// it and renaming another into its place, so a deletion waits for a second proof at least
-/// `ABSENCE_CONFIRMED_AFTER` after the first. A startup replay deletes on one proof: the file
-/// went missing while the server was stopped.
+/// `ABSENCE_CONFIRMED_AFTER` after the first. The proofs count only from consecutive passes: a
+/// pass in between that found an entry under the name, or could not tell, cleared the first
+/// ([`SeedRecord::found`]), so the next proof starts the wait again. A startup replay deletes on
+/// one proof: the file went missing while the server was stopped.
 #[cfg_attr(
     not(test),
     expect(
@@ -368,8 +390,9 @@ pub(crate) fn confirm_absence(record: &SeedRecord, now: SystemTime) -> Confirmat
 pub(crate) enum Unread<R> {
     /// Fail the whole replay with the reason, which then changes nothing.
     Fail(R),
-    /// Change nothing at the name, keep its record, and report the reason, so that a name that
-    /// could not be read never passes for one found unchanged.
+    /// Change nothing at the name, keep its record with any proof of absence cleared
+    /// ([`SeedRecord::found`]), and report the reason, so that a name that could not be read
+    /// never passes for one found unchanged, nor for one still missing.
     Report(R),
 }
 
