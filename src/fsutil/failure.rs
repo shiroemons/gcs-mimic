@@ -109,4 +109,12 @@ mod tests {
             assert_eq!(IoFailureClass::of(&io::Error::from(kind)), None, "{kind:?}");
         }
     }
+
+    /// 24 is EMFILE on Unix but ERROR_BAD_LENGTH on Windows, so a raw Windows error code is never
+    /// read as an exhausted errno.
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_error_code_is_no_errno() {
+        assert_eq!(IoFailureClass::of(&io::Error::from_raw_os_error(24)), None);
+    }
 }
