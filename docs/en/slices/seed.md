@@ -63,9 +63,9 @@ Test identifiers below are the exact integration test function names in
 | seed-retry | A failed replay emits no ready event, publishes no partial bucket/object and releases ownership; a repaired tree succeeds and project mismatch remains rejected | `interrupted_import_retries_without_overwrite_and_releases_lock` | See [atomic replay](atomic-seed-reseed.md) |
 | seed-invalid | Reject invalid bucket/object names, missing/overlapping configured roots and oversize files; accept zero bytes and the inclusive file-size cap | `invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive` | PASS |
 | seed-retired-sync | A seed root that holds synchronization's marker or workspace stops startup before the catalog opens, names them and leaves them unchanged; once they are removed, the root seeds | `a_seed_directory_that_synchronization_used_stops_startup_until_its_files_are_removed` | PASS |
-| seed-records | Schema 59 keeps seed records and bucket marks with their proofs of absence; the first start with records owns nothing it did not publish; a restart or reseed deletes the object seeding owns only for a removed file its walk never listed, keeps a file listed and then missing, warns about a name it cannot tell about only while seeding owns its object, keeps API writes and buckets, and changes nothing when a deletion fails | `seed::tests::records`, `seed_records::tests`, `replay::tests`, the three `a_file_back_*` replay tests, `restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects`, `a_restart_warns_about_an_unproven_removal_only_while_seeding_owns_the_object` | PASS |
-| seed-live-passes | Passes publish new and changed files, delete only after proofs from consecutive passes, keep API changes, protected objects and buckets, keep a bucket the API deleted or created again while its directory stays or cannot be read, leave out a directory named like a bucket of another project, report what they leave in words, delete nothing after an incomplete walk, emit no bucket notifications, and never write to the seed root | `seed::watch::tests` (21 tests), `the_seed_watch_interval_defaults_to_a_second_and_zero_stops_the_passes`, `a_running_server_replays_the_seed_directory_after_each_interval` | PASS |
-| seed-live-report | The status and wait routes, their bounds and refusals, a wait served by the first settled pass that started after it, the report of a pass that could not run, and readiness that drops while a panicked pass restarts | `seed_watch::tests` (5 tests), `a_wait_takes_only_a_bounded_timeout`, `admin_seed_watch` (3 tests) | PASS |
+| seed-records | Schema 59 keeps seed records with their proofs of absence, and bucket marks; the first start with records owns nothing it did not publish; a restart or reseed deletes the object seeding owns only for a removed file its walk never listed, keeps a file listed and then missing, warns about a name it cannot tell about only while seeding owns its object, keeps API writes and buckets, and changes nothing when a deletion fails | `seed::tests::records`, `seed_records::tests`, `replay::tests`, the three `a_file_back_*` replay tests, `restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects`, `a_restart_warns_about_an_unproven_removal_only_while_seeding_owns_the_object` | PASS |
+| seed-live-passes | Passes publish new and changed files, delete only after proofs from consecutive passes, keep API changes, protected objects and buckets, keep a bucket the API deleted or created again while its directory stays, cannot be read, or goes away and comes back, until a reseed replays it, leave out a directory named like a bucket of another project, report what they leave in words, delete nothing after an incomplete walk, emit no bucket notifications, and never write to the seed root | `seed::watch::tests` (22 tests), `the_seed_watch_interval_defaults_to_a_second_and_zero_stops_the_passes`, `a_running_server_replays_the_seed_directory_after_each_interval` | PASS |
+| seed-live-report | The status and wait routes, their bounds and refusals, a wait served by the first settled pass that started after it, the report and the `seed_pass_failed` warning of a pass that could not run, and readiness that drops while a panicked pass restarts | `seed_watch::tests` (5 tests), `a_wait_takes_only_a_bounded_timeout`, `admin_seed_watch` (3 tests), `a_pass_that_cannot_run_warns_with_its_cause_and_the_passes_go_on` | PASS |
 | seed-live-cli | `gcs-mimic seed status` and `seed wait`, their output, exit status and advice, and the server URL and CA they read as `healthcheck` does | `seed_cli::tests` (3 tests), `local_server::tests` (4 tests), `it_process::seed_cli` (2 tests), `helper_help_texts_keep_their_exact_bytes` | PASS |
 | seed-live-hosts | Passes on Linux and Windows hosts, container bind mounts, network and case-insensitive filesystems | none; only a macOS ARM64 host ran them | PENDING |
 | seed-walk | Accept a tree at a named limit; reject a deeper tree or more entries with a message that names the setting | `named_fixture_limits_are_inclusive_and_name_their_settings` | PASS |
@@ -245,13 +245,12 @@ pass:
 - creates the bucket of a new top-level directory, or takes over a bucket of
   `seed_project` with that name. A removed directory deletes the objects seeding
   published below it, never the bucket. A bucket an API request deleted stays
-  deleted while its directory remains, and one an API request created again
-  under that name keeps the objects it holds. A reseed or a restart replays the
-  directory again, and so does removing the directory for two passes at least a
-  second apart and adding it back. A directory a pass cannot read proves
-  nothing gone: the pass reports it and leaves its bucket as it is. On Windows,
-  where nothing proves a directory gone, only a reseed or a restart replays a
-  directory whose bucket an API request deleted.
+  deleted, and one an API request created again under that name keeps the
+  objects it holds, whatever happens to the directory meanwhile: passes never
+  forget the bucket they took for a directory, so a directory that goes away
+  and comes back is not new to them. Only a reseed or a restart replays such a
+  directory again. A directory a pass cannot read proves nothing gone: the pass
+  reports it and leaves its bucket as it is.
 - leaves an entry it cannot replay as it is and reports it: an unusable entry, a
   file past `max_object_bytes`, a directory past `max_buckets_per_batch`, an
   object a hold or retention period protects, and a directory whose name a
@@ -272,20 +271,24 @@ the browser and host checks of `/_internal/reseed`:
   `lastPass`, which is `null` until a pass completes.
 - `POST /_internal/seed/wait`, with an empty body and an optional `timeoutMs`
   from 1 to 600000 (default 60000), starts a pass at once and answers the report
-  of the first pass that started after the request and left no removed file or
-  directory waiting for its second proof. It answers 400 `invalid` when no
-  passes run, and 503 with `Retry-After: 1` when the time runs out first or the
-  server closes. `request_timeout_ms` ends a longer wait sooner.
+  of the first pass that started after the request and left no removed file
+  waiting for its second proof. It answers 400 `invalid` when no passes run,
+  and 503 with `Retry-After: 1` when the time runs out first or the server
+  closes. `request_timeout_ms` ends a longer wait sooner.
 
 A pass report has `startedAt`, `completedAt`, `complete` (the walk listed the
 whole tree), `clean` (complete, without problems or error), the counts
 `bucketsCreated`, `published`, `recorded`, `deleted`, `pendingDeletions`,
-`pendingDirectories` (removed directories waiting for their second proof),
 `tombstones` (names whose file the walk did not find where seeding owns nothing
 to delete; each is looked up on every pass until a file returns there) and
-`bucketsKeptDeleted`, the first 100 `problems` with their `path` and `reason`,
+`bucketsKeptDeleted` (directories whose bucket an API request deleted or created
+again), the first 100 `problems` with their `path` and `reason`,
 `problemsOmitted`, and `error` when the pass could not run, such as when the
-seed root went away.
+seed root went away. Such a pass also emits a `seed_pass_failed` warning event
+on stderr with the pass number as `pass` and the whole chain of causes as
+`cause`, down to the operating system's or the database's error, which `error`
+states only in words. Each pass that cannot run warns, so the warning repeats
+every `seed_watch_interval_ms` while the cause lasts.
 
 `gcs-mimic seed status` and `gcs-mimic seed wait` call these routes and print
 the answer as one line of JSON, with DEL and the C1 controls escaped as well.

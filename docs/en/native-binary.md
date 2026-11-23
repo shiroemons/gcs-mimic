@@ -439,7 +439,12 @@ it; on Windows, where nothing proves a file absent, the object stays, and
 startup warns about it and every pass reports it until the object is deleted
 through the API or a reset clears the catalog. While the server runs, a pass applies changed, added and removed seed files
 every `seed_watch_interval_ms` (1000 by default; 0 stops it), and with
-`--admin-enabled`, `gcs-mimic seed wait` returns once a pass applied them; see
+`--admin-enabled`, `gcs-mimic seed wait` returns once a pass applied them. A
+bucket an API request deleted or created again stays as that request left it
+while the server runs, even when its directory is removed and added back; a
+reseed or a restart replays the directory. A pass that cannot run, such as one
+whose `seed_dir` went away, emits a `seed_pass_failed` warning with its whole
+cause on every pass until the cause is gone; see
 [passes while the server runs](slices/seed.md#passes-while-the-server-runs).
 Since 0.8.0, an opt-in [reseed endpoint](slices/atomic-seed-reseed.md)
 (with `--admin-enabled`) offers disk merge and RAM replacement. The ready event's `seed` field reports `buckets` and
