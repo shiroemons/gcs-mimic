@@ -454,6 +454,7 @@ fn seed_stage_failed_copy_write_never_changes_the_source() {
         stage_file(
             &source,
             &dir.0.join("staging/value"),
+            None,
             ExpectedHashes::default(),
             1024
         )

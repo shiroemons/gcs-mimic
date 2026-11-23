@@ -221,7 +221,8 @@ impl SeedBatch {
     }
 
     /// Stages the fixture file `source`, whose handle reported `fingerprint` when the walk
-    /// opened it.
+    /// opened it. A file that changed since then fails with `SourceChanged`, so the fingerprint
+    /// describes the bytes staged; a pass while running takes that failure for an unknown name.
     pub(crate) async fn fixture(
         &mut self,
         bucket: BucketName,
@@ -240,7 +241,12 @@ impl SeedBatch {
         // The batch owns one activity/admission lease; individual 256-handle permits must not deadlock a larger tree.
         let staged = self
             .admin
-            .stage_from_file(source, request.expected, request.max_bytes)
+            .stage_observed_file(
+                source,
+                fingerprint.identity,
+                request.expected,
+                request.max_bytes,
+            )
             .await?
             .into_batch(self.request.clone());
         self.entries.push(SeedEntry {
