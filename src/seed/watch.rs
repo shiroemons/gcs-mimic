@@ -39,16 +39,22 @@ pub fn watch(catalog: &Catalog, config: &Config, clock: Arc<dyn Clock>) {
     let mut copy = config.clone();
     copy.buckets = None;
     let config = Arc::new(copy);
-    catalog.start_seed_watch(interval, move |catalog| {
+    catalog.start_seed_watch(interval, move |catalog, number| {
         let (config, clock) = (Arc::clone(&config), Arc::clone(&clock));
-        async move { pass(&catalog, &config, &clock).await }
+        async move { pass(&catalog, &config, &clock, number).await }
     });
 }
 
-/// Runs one pass and reports it.
-async fn pass(catalog: &Catalog, config: &Config, clock: &Arc<dyn Clock>) -> PassReport {
+/// Runs pass number `number` and reports it.
+async fn pass(
+    catalog: &Catalog,
+    config: &Config,
+    clock: &Arc<dyn Clock>,
+    number: u64,
+) -> PassReport {
     let started_at = clock.now();
-    let (complete, counts, problems, error) = match walk_and_commit(catalog, config, clock).await {
+    let walked = walk_and_commit(catalog, config, clock, number).await;
+    let (complete, counts, problems, error) = match walked {
         Ok((complete, outcome)) => (complete, outcome.counts, outcome.problems, None),
         Err(error) => (
             false,
@@ -60,12 +66,13 @@ async fn pass(catalog: &Catalog, config: &Config, clock: &Arc<dyn Clock>) -> Pas
     PassReport::new((started_at, clock.now()), complete, counts, problems, error)
 }
 
-/// Walks the tree, stages each file to read again, and commits what the pass found. Returns
-/// whether the walk was complete.
+/// Walks the tree, stages each file to read again, and commits what pass number `number` found.
+/// Returns whether the walk was complete.
 async fn walk_and_commit(
     catalog: &Catalog,
     config: &Config,
     clock: &Arc<dyn Clock>,
+    number: u64,
 ) -> Result<(bool, LiveOutcome), SeedError> {
     let root = config.seed_dir.as_ref().ok_or(SeedError::MissingRoot)?;
     let admin = catalog.admin(Origin::Seed);
@@ -100,7 +107,7 @@ async fn walk_and_commit(
     }
     let Pass { batch, walk, .. } = pass;
     let complete = walk.complete;
-    Ok((complete, batch.commit_live(walk).await?))
+    Ok((complete, batch.commit_live(walk, number).await?))
 }
 
 /// One pass while the server runs.

@@ -291,11 +291,12 @@ impl Catalog {
     }
 
     /// Runs `pass` every `interval` on the catalog's clock until the catalog closes, and at once
-    /// when a request waits for a pass. A pass that left a deletion waiting for its later proof
-    /// is followed after the wait that proof needs, if that is sooner. A panic restarts the task.
+    /// when a request waits for a pass, with the number the pass started as. A pass that left a
+    /// deletion waiting for its later proof is followed after the wait that proof needs, if that
+    /// is sooner. A panic restarts the task.
     pub(crate) fn start_seed_watch<P, F>(&self, interval: Duration, pass: P)
     where
-        P: Fn(Catalog) -> F + Send + Sync + 'static,
+        P: Fn(Catalog, u64) -> F + Send + Sync + 'static,
         F: Future<Output = PassReport> + Send + 'static,
     {
         let watch = &self.0.seed_watch;
@@ -323,7 +324,7 @@ impl Catalog {
 
 async fn watch_loop<P, F>(weak: Weak<Inner>, interval: Duration, pass: Arc<P>)
 where
-    P: Fn(Catalog) -> F + Send + Sync + 'static,
+    P: Fn(Catalog, u64) -> F + Send + Sync + 'static,
     F: Future<Output = PassReport> + Send + 'static,
 {
     // The startup replay just ran, so the first pass waits like any other.
@@ -346,7 +347,7 @@ where
             return;
         };
         let number = watch.begin();
-        let report = pass(Catalog(inner)).await;
+        let report = pass(Catalog(inner), number).await;
         delay = if report.counts.pending_deletions > 0 {
             interval.min(ABSENCE_CONFIRMED_AFTER)
         } else {

@@ -529,6 +529,7 @@ fn commit(
     let published = replay_files(&transaction, batch, now, &mut counts)?;
     if batch.records.is_some() {
         replay_absences(&transaction, batch, now)?;
+        seed_records::clear_absences(&transaction)?;
         mark_buckets(&transaction, batch)?;
     }
     sql::exec(

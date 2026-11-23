@@ -14,7 +14,7 @@
 //! the buckets they name; only a replay that listed the whole tree drops one, for a directory it
 //! no longer found.
 
-use super::replay::{Body, Fingerprint, SeedRecord, Version};
+use super::replay::{Absence, Body, Fingerprint, SeedRecord, Version};
 use crate::{
     bucket::CatalogError,
     fsutil::FileIdentity,
@@ -44,8 +44,10 @@ pub(in crate::storage::catalog) const SCHEMA: &str = "CREATE TABLE seed_objects 
     changed_ns BLOB NOT NULL CHECK(typeof(changed_ns) = 'blob' AND length(changed_ns) = 16),
     racy INTEGER NOT NULL CHECK(racy IN (0, 1)),
     absent_since INTEGER CHECK(absent_since IS NULL OR typeof(absent_since) = 'integer'),
+    absent_pass INTEGER CHECK(absent_pass IS NULL OR (typeof(absent_pass) = 'integer' AND absent_pass > 0)),
     CHECK((owned_generation IS NULL) = (owned_metageneration IS NULL)),
     CHECK((deleted_generation IS NULL) = (deleted_metageneration IS NULL)),
+    CHECK((absent_since IS NULL) = (absent_pass IS NULL)),
     PRIMARY KEY(bucket, name)
 ) WITHOUT ROWID;
 CREATE TABLE seed_buckets (
@@ -54,10 +56,11 @@ CREATE TABLE seed_buckets (
 ) WITHOUT ROWID;
 PRAGMA user_version = 59;";
 
-const SELECT_ALL: &str = "SELECT bucket, name, owned_generation, owned_metageneration, deleted_generation, deleted_metageneration, size, md5, crc32c, device, inode, file_size, modified_ns, changed_ns, racy, absent_since FROM seed_objects";
-const SELECT_ONE: &str = "SELECT bucket, name, owned_generation, owned_metageneration, deleted_generation, deleted_metageneration, size, md5, crc32c, device, inode, file_size, modified_ns, changed_ns, racy, absent_since FROM seed_objects WHERE bucket = ?1 AND name = ?2";
-const UPSERT: &str = "INSERT OR REPLACE INTO seed_objects (bucket, name, owned_generation, owned_metageneration, deleted_generation, deleted_metageneration, size, md5, crc32c, device, inode, file_size, modified_ns, changed_ns, racy, absent_since) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)";
-const FOUND: &str = "UPDATE seed_objects SET absent_since = NULL WHERE bucket = ?1 AND name = ?2 AND absent_since IS NOT NULL";
+const SELECT_ALL: &str = "SELECT bucket, name, owned_generation, owned_metageneration, deleted_generation, deleted_metageneration, size, md5, crc32c, device, inode, file_size, modified_ns, changed_ns, racy, absent_since, absent_pass FROM seed_objects";
+const SELECT_ONE: &str = "SELECT bucket, name, owned_generation, owned_metageneration, deleted_generation, deleted_metageneration, size, md5, crc32c, device, inode, file_size, modified_ns, changed_ns, racy, absent_since, absent_pass FROM seed_objects WHERE bucket = ?1 AND name = ?2";
+const UPSERT: &str = "INSERT OR REPLACE INTO seed_objects (bucket, name, owned_generation, owned_metageneration, deleted_generation, deleted_metageneration, size, md5, crc32c, device, inode, file_size, modified_ns, changed_ns, racy, absent_since, absent_pass) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)";
+const FOUND: &str = "UPDATE seed_objects SET absent_since = NULL, absent_pass = NULL WHERE bucket = ?1 AND name = ?2 AND absent_since IS NOT NULL";
+const CLEAR_ABSENCES: &str = "UPDATE seed_objects SET absent_since = NULL, absent_pass = NULL WHERE absent_since IS NOT NULL";
 const FORGET: &str = "DELETE FROM seed_objects WHERE bucket = ?1 AND name = ?2";
 const MARK: &str = "INSERT OR REPLACE INTO seed_buckets SELECT bucket, incarnation FROM bucket_incarnations WHERE bucket = ?1";
 const UNMARK: &str = "DELETE FROM seed_buckets WHERE bucket = ?1";
@@ -118,12 +121,37 @@ fn record(row: &Row<'_>) -> rusqlite::Result<(RecordKey, SeedRecord)> {
             },
         },
         fingerprint: Fingerprint::stored(identity, row.get(14)?),
-        absent_since: row
-            .get::<_, Option<i64>>(15)?
-            .map(system_time_micros)
-            .transpose()?,
+        absent: absence(row, 15)?,
     };
     Ok(((row.get(0)?, row.get(1)?), record))
+}
+
+/// The run of proofs of absence in the columns `since` and `since + 1` of `row`, which the
+/// table's checks keep both set or both null.
+fn absence(row: &Row<'_>, since: usize) -> rusqlite::Result<Option<Absence>> {
+    let Some((micros, pass)) = row
+        .get::<_, Option<i64>>(since)?
+        .zip(row.get::<_, Option<i64>>(since + 1)?)
+    else {
+        return Ok(None);
+    };
+    let pass = u64::try_from(pass)
+        .map_err(|error| sql::conversion_error(since + 1, rusqlite::types::Type::Integer, error))?;
+    Ok(Some(Absence {
+        since: system_time_micros(micros)?,
+        pass,
+    }))
+}
+
+/// The columns that keep `absence`.
+fn absence_columns(absence: Option<Absence>) -> Result<(Option<i64>, Option<i64>), CatalogError> {
+    let Some(Absence { since, pass }) = absence else {
+        return Ok((None, None));
+    };
+    Ok((
+        Some(unix_micros(since)?),
+        Some(i64::try_from(pass).map_err(crate::storage::catalog::unavailable)?),
+    ))
 }
 
 /// Every record, by bucket and name. A seed tree holds at most what its entry limit admits, and
@@ -162,7 +190,7 @@ pub(crate) fn save(
     };
     let (owned_generation, owned_metageneration) = pair(record.owned);
     let (deleted_generation, deleted_metageneration) = pair(record.deleted);
-    let absent_since = record.absent_since.map(unix_micros).transpose()?;
+    let (absent_since, absent_pass) = absence_columns(record.absent)?;
     sql::exec(
         connection,
         UPSERT,
@@ -183,6 +211,7 @@ pub(crate) fn save(
             identity.changed_ns.to_be_bytes(),
             record.fingerprint.racy(),
             absent_since,
+            absent_pass,
         ],
     )?;
     Ok(())
@@ -192,6 +221,14 @@ pub(crate) fn save(
 /// only where one was kept.
 pub(crate) fn found(connection: &Connection, bucket: &str, name: &str) -> Result<(), CatalogError> {
     sql::exec(connection, FOUND, [bucket, name])?;
+    Ok(())
+}
+
+/// Clears every proof of absence, as a startup replay and a reseed do: the passes after them
+/// start every wait over, and pass numbers, which start over with the server, never meet a
+/// proof an earlier server kept.
+pub(crate) fn clear_absences(connection: &Connection) -> Result<(), CatalogError> {
+    sql::exec(connection, CLEAR_ABSENCES, [])?;
     Ok(())
 }
 
