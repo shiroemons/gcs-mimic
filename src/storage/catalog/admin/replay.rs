@@ -11,6 +11,9 @@
 //!   or when its record already owned exactly that live version; it deletes only a version it
 //!   owns whose body is still the one it recorded, and only where a lookup proved the fixture
 //!   file gone. An API write of the body or of the metadata ends that ownership.
+//! - A file that goes missing while the server runs and returns with the body seeding read never
+//!   replays over an API write: unless seeding deleted its own object, the name keeps a record
+//!   that owns nothing but still knows that body.
 //! - A startup replay, which reseed shares, keeps the contract it had before any record existed:
 //!   the fixture tree wins over the catalog, and what cannot be replayed fails it.
 //!
@@ -112,6 +115,24 @@ pub(crate) struct SeedRecord {
     /// When a pass while the server runs first proved the file gone. A pass that finds the file
     /// clears it.
     pub(crate) absent_since: Option<SystemTime>,
+}
+
+impl SeedRecord {
+    /// The record kept for [`Vanished::Tombstone`]: it owns nothing, and keeps the body, the
+    /// fingerprint and `absent_since` it had.
+    #[cfg_attr(
+        any(not(test), not(unix)),
+        expect(
+            dead_code,
+            reason = "the pass that watches the seed directory while the server runs is not wired yet, and only a Unix lookup makes the proof of absence the tests pass"
+        )
+    )]
+    pub(crate) fn tombstone(self) -> Self {
+        Self {
+            owned: None,
+            ..self
+        }
+    }
 }
 
 /// What the catalog holds at a fixture name.
@@ -250,10 +271,20 @@ pub(crate) fn live_read(
 /// What a replay does at a recorded name whose fixture file a lookup proved absent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Vanished {
-    /// Delete the live object on the condition that it still is the version `owned`, and drop
-    /// the record. A pass while running deletes only once [`confirm_absence`] confirms it.
+    /// Delete the live object on the condition that it still is the version `owned`, then drop
+    /// the record, so that a file that returns later is published as a new one. A pass while
+    /// running deletes only once [`confirm_absence`] confirms it.
     Delete { owned: Version },
-    /// Change nothing and drop the record: seeding owns nothing that is still live at the name.
+    /// Change nothing in the catalog, and keep the record as a tombstone
+    /// ([`SeedRecord::tombstone`]) where seeding owns nothing purely at the name, as after an API
+    /// write replaced or edited what it published. The tombstone keeps the body, so a file that
+    /// returns with it, as after an editor's rename-save or a branch switch and back, only
+    /// refreshes the record and the API write stays; one that returns with another body is a
+    /// changed file. Only a pass while running keeps one.
+    Tombstone,
+    /// Change nothing and drop the record of a name where seeding owns nothing purely. Only a
+    /// startup replay does this: the fixture tree wins at startup, so a file that returns after
+    /// it is replayed as one the tree gained, as it would have been had it been there.
     Forget,
     /// Change nothing and keep the record: a hold or an unmet retention period refuses the
     /// deletion. Deleting is the one change seeding did not make before it kept records, so the
@@ -261,11 +292,11 @@ pub(crate) enum Vanished {
     Protected,
 }
 
-/// What a replay does at a name where seeding recorded `record` and the catalog holds `live`,
-/// once a lookup proved the fixture file absent. A name without a record owns nothing, so a
-/// caller only reports it. Seeding deletes only the version it owns, and only while its body is
-/// still the one the record read: an object whose body or metadata changed since is not purely
-/// what seeding wrote.
+/// What a `phase` replay does at a name where seeding recorded `record` and the catalog holds
+/// `live`, once a lookup proved the fixture file absent. A name without a record owns nothing,
+/// so a caller only reports it. Seeding deletes only the version it owns, and only while its body
+/// is still the one the record read: an object whose body or metadata changed since is not purely
+/// what seeding wrote, and its name keeps a tombstone while the server runs.
 #[cfg_attr(
     any(not(test), not(unix)),
     expect(
@@ -273,13 +304,21 @@ pub(crate) enum Vanished {
         reason = "the seed record table that names what a replay owns is not wired yet, and only a Unix lookup makes the proof of absence the tests pass"
     )
 )]
-pub(crate) fn absent(_proof: &Vacant, record: &SeedRecord, live: Option<&LiveObject>) -> Vanished {
+pub(crate) fn absent(
+    phase: Phase,
+    _proof: &Vacant,
+    record: &SeedRecord,
+    live: Option<&LiveObject>,
+) -> Vanished {
     let owned = record
         .owned
         .zip(live)
         .filter(|(owned, live)| live.version == *owned && live.body == record.body);
     let Some((owned, live)) = owned else {
-        return Vanished::Forget;
+        return match phase {
+            Phase::Startup => Vanished::Forget,
+            Phase::Live => Vanished::Tombstone,
+        };
     };
     match live.protection {
         Protection::Unprotected => Vanished::Delete { owned },

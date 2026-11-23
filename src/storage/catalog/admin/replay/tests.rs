@@ -314,52 +314,162 @@ fn vacant() -> Vacant {
     }
 }
 
+/// What an API edit of the metadata alone makes of the object seeding published.
+#[cfg(unix)]
+fn metadata_edit() -> LiveObject {
+    LiveObject {
+        attributes: Attributes::Edited,
+        ..live(METADATA_EDITED, recorded(), Protection::Unprotected)
+    }
+}
+
 /// A name proven absent deletes the live object only while it is the version seeding owns and
 /// still holds the body the record read, conditioned on that generation and metageneration;
 /// protection skips the deletion. Without ownership, with another generation live, after an API
-/// edit of the metadata, with a changed body or with nothing live, the record is only dropped.
+/// edit of the metadata, with a changed body or with nothing live, nothing is deleted: a pass
+/// while running keeps a tombstone, and a startup replay drops the record.
 #[cfg(unix)]
 #[test]
 fn an_absent_file_deletes_only_the_unchanged_version_seeding_owns() {
     let vacant = vacant();
     let owner = record(Some(SEEDED));
-    assert_eq!(
-        absent(
-            &vacant,
-            &owner,
-            Some(&live(SEEDED, recorded(), Protection::Unprotected))
-        ),
-        Vanished::Delete { owned: SEEDED }
-    );
-    assert_eq!(
-        absent(
-            &vacant,
-            &owner,
-            Some(&live(SEEDED, recorded(), Protection::Protected))
-        ),
-        Vanished::Protected
-    );
-    let metadata_edit = LiveObject {
-        attributes: Attributes::Edited,
-        ..live(METADATA_EDITED, recorded(), Protection::Unprotected)
-    };
-    let forgotten = [
-        (owner, Some(live(API, recorded(), Protection::Unprotected))),
-        (owner, Some(metadata_edit)),
-        (owner, Some(live(SEEDED, edited(), Protection::Unprotected))),
-        (owner, None),
-        (
-            record(None),
-            Some(live(SEEDED, recorded(), Protection::Unprotected)),
-        ),
-    ];
-    for (record, live) in forgotten {
+    for phase in [Phase::Startup, Phase::Live] {
         assert_eq!(
-            absent(&vacant, &record, live.as_ref()),
-            Vanished::Forget,
-            "{record:?} {live:?}"
+            absent(
+                phase,
+                &vacant,
+                &owner,
+                Some(&live(SEEDED, recorded(), Protection::Unprotected))
+            ),
+            Vanished::Delete { owned: SEEDED }
+        );
+        assert_eq!(
+            absent(
+                phase,
+                &vacant,
+                &owner,
+                Some(&live(SEEDED, recorded(), Protection::Protected))
+            ),
+            Vanished::Protected
+        );
+        let not_owned = [
+            (owner, Some(live(API, recorded(), Protection::Unprotected))),
+            (owner, Some(metadata_edit())),
+            (owner, Some(live(SEEDED, edited(), Protection::Unprotected))),
+            (owner, None),
+            (
+                record(None),
+                Some(live(SEEDED, recorded(), Protection::Unprotected)),
+            ),
+        ];
+        let expected = match phase {
+            Phase::Startup => Vanished::Forget,
+            Phase::Live => Vanished::Tombstone,
+        };
+        for (record, live) in not_owned {
+            assert_eq!(
+                absent(phase, &vacant, &record, live.as_ref()),
+                expected,
+                "{phase:?} {record:?} {live:?}"
+            );
+        }
+    }
+}
+
+/// An editor's rename-save unlinks the fixture file for a moment and renames a new one with the
+/// same content into its place. Where an API write replaced the object seeding published, the
+/// pass that finds the name empty keeps a tombstone, and the next one, finding the content the
+/// record read, only refreshes the record: the API write stays.
+#[cfg(unix)]
+#[test]
+fn a_file_back_with_its_body_after_a_rename_save_keeps_an_api_write() {
+    let api = live(API, edited(), Protection::Unprotected);
+    let owner = record(Some(SEEDED));
+    assert_eq!(
+        absent(Phase::Live, &vacant(), &owner, Some(&api)),
+        Vanished::Tombstone
+    );
+    let tombstone = owner.tombstone();
+    let renamed = settled(FileIdentity {
+        inode: 43,
+        ..identity()
+    });
+    assert_eq!(live_file(Some(&tombstone), &renamed), Look::Read);
+    assert_eq!(
+        live_read(&recorded(), Some(&tombstone), Some(&api)),
+        Reread::Refresh
+    );
+}
+
+/// `git checkout other && git checkout -` removes the fixture file for as many passes as the
+/// other branch stays checked out, then writes the same content back. Each pass in between keeps
+/// the tombstone, so an API write of a body or of the metadata stays, protected or not.
+#[cfg(unix)]
+#[test]
+fn a_file_back_with_its_body_after_a_branch_switch_keeps_an_api_write() {
+    let vacant = vacant();
+    let restored = settled(FileIdentity {
+        modified_ns: identity().modified_ns + 5_000_000_000,
+        changed_ns: identity().changed_ns + 5_000_000_000,
+        ..identity()
+    });
+    for api in [
+        live(API, edited(), Protection::Unprotected),
+        live(API, edited(), Protection::Protected),
+        metadata_edit(),
+    ] {
+        let mut kept = record(Some(SEEDED));
+        for _ in 0..3 {
+            assert_eq!(
+                absent(Phase::Live, &vacant, &kept, Some(&api)),
+                Vanished::Tombstone,
+                "{api:?}"
+            );
+            kept = kept.tombstone();
+        }
+        assert_eq!(live_file(Some(&kept), &restored), Look::Read);
+        assert_eq!(
+            live_read(&recorded(), Some(&kept), Some(&api)),
+            Reread::Refresh,
+            "{api:?}"
         );
     }
+}
+
+/// A file that returns to a tombstone with other content is a changed file, replayed over what
+/// is live as any changed file is.
+#[cfg(unix)]
+#[test]
+fn a_file_back_with_other_content_is_replayed_over_an_api_write() {
+    let api = live(API, edited(), Protection::Unprotected);
+    let owner = record(Some(SEEDED));
+    assert_eq!(
+        absent(Phase::Live, &vacant(), &owner, Some(&api)),
+        Vanished::Tombstone
+    );
+    assert_eq!(
+        live_read(&body(3), Some(&owner.tombstone()), Some(&api)),
+        Reread::Changed(Replay::Publish)
+    );
+}
+
+/// Seeding keeps no record once it deleted its own object for a file proven gone, so a file that
+/// returns afterwards is published again.
+#[cfg(unix)]
+#[test]
+fn a_file_back_after_seeding_deleted_its_object_is_published_again() {
+    let seeded = live(SEEDED, recorded(), Protection::Unprotected);
+    for phase in [Phase::Startup, Phase::Live] {
+        assert_eq!(
+            absent(phase, &vacant(), &record(Some(SEEDED)), Some(&seeded)),
+            Vanished::Delete { owned: SEEDED }
+        );
+    }
+    assert_eq!(live_file(None, &settled(identity())), Look::Read);
+    assert_eq!(
+        live_read(&recorded(), None, None),
+        Reread::Changed(Replay::Publish)
+    );
 }
 
 /// While the server runs, a deletion waits until a second proof comes at least a second after
