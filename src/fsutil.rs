@@ -451,6 +451,13 @@ impl From<&std::fs::Metadata> for FileIdentity {
 }
 
 #[cfg(unix)]
+impl From<&std::fs::Metadata> for NodeId {
+    fn from(metadata: &std::fs::Metadata) -> Self {
+        FileIdentity::from(metadata).node()
+    }
+}
+
+#[cfg(unix)]
 pub(crate) fn sync_dir(path: &std::path::Path) -> io::Result<()> {
     sync_ordered(&File::open(path)?)
 }

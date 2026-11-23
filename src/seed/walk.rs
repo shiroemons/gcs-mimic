@@ -23,6 +23,9 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+#[cfg(unix)]
+use crate::fsutil::NodeId;
+
 /// One message from the walk thread. The walk ends only with [`Walked::Done`]: a thread that
 /// panicked or stopped early drops its sender without one, and a closed channel alone would
 /// otherwise look like the end of a complete walk and mark a partial seed complete. The entry is
@@ -198,25 +201,6 @@ fn fingerprint(file: &File) -> io::Result<Fingerprint> {
     ))
 }
 
-/// A directory's device and inode numbers.
-#[cfg(unix)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct DirectoryId {
-    device: u64,
-    inode: u64,
-}
-
-#[cfg(unix)]
-impl From<&Metadata> for DirectoryId {
-    fn from(metadata: &Metadata) -> Self {
-        use std::os::unix::fs::MetadataExt;
-        Self {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-        }
-    }
-}
-
 /// The fixture tree below a canonical root, opened through the root's pinned descriptor on Unix.
 ///
 /// The walk lists directories by path, and a lookup proves a name absent in the directory its
@@ -236,7 +220,7 @@ pub(super) struct Tree {
     /// The directories above the entry being walked, outermost first, as the walk inspected
     /// them before listing them.
     #[cfg(unix)]
-    listed: Vec<DirectoryId>,
+    listed: Vec<NodeId>,
 }
 
 impl Tree {
@@ -305,7 +289,7 @@ impl Tree {
     fn check_root(&self) -> Result<(), Unknown> {
         let listed = std::fs::symlink_metadata(&self.root).map_err(Unknown::Io)?;
         let pinned = self.pinned.metadata().map_err(Unknown::Io)?;
-        if DirectoryId::from(&listed) == DirectoryId::from(&pinned) {
+        if NodeId::from(&listed) == NodeId::from(&pinned) {
             Ok(())
         } else {
             Err(Unknown::Replaced)
@@ -349,7 +333,7 @@ impl Tree {
                     .unwrap_or_else(Fixture::Unusable);
                 #[cfg(unix)]
                 if metadata.is_dir() {
-                    self.listed.push(DirectoryId::from(&metadata));
+                    self.listed.push(NodeId::from(&metadata));
                 }
                 fixture
             }
@@ -458,7 +442,7 @@ impl Tree {
     #[cfg(unix)]
     fn check_listed(&self, depth: usize, directory: &File) -> Result<(), Unopened> {
         let opened = directory.metadata().map_err(Unknown::Io)?;
-        if self.listed.get(depth) == Some(&DirectoryId::from(&opened)) {
+        if self.listed.get(depth) == Some(&NodeId::from(&opened)) {
             Ok(())
         } else {
             Err(Unknown::Replaced.into())
