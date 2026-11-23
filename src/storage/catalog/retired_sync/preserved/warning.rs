@@ -6,6 +6,7 @@
 
 use super::{CONFLICTS, Folder, MANIFEST, WORKSPACE, manifest_name};
 use crate::diagnostics::{LogLevel, emit};
+use crate::error::Report;
 use serde::{Deserialize, Serialize, de::IgnoredAny};
 use std::{
     collections::BTreeSet,
@@ -304,9 +305,11 @@ struct Unfinished {
     error: String,
 }
 
-/// Warns that the start could not check `path`, and goes on.
-pub(super) fn unreadable(path: &Path, error: &dyn Error) {
+/// Warns that the start could not check `path`, and goes on. The error is printed with its
+/// causes, such as the I/O error under a manifest that could not be parsed.
+pub(super) fn unreadable(path: &Path, error: &(dyn Error + 'static)) {
     let path = path.display().to_string();
+    let error = Report(error).to_string();
     emit(
         LogLevel::Warn,
         "sync_retired_files_unchecked",
@@ -316,15 +319,16 @@ pub(super) fn unreadable(path: &Path, error: &dyn Error) {
                  {error}; the start goes on"
             ),
             path,
-            error: error.to_string(),
+            error,
         },
     );
 }
 
 /// Warns that the staged manifest at `path`, which an attempt left, could not be removed yet. A
 /// later attempt removes it; this one stages under a name of its own.
-pub(super) fn staged_kept(path: &Path, error: &dyn Error) {
+pub(super) fn staged_kept(path: &Path, error: &(dyn Error + 'static)) {
     let path = path.display().to_string();
+    let error = Report(error).to_string();
     emit(
         LogLevel::Warn,
         "sync_retired_staged_kept",
@@ -334,7 +338,7 @@ pub(super) fn staged_kept(path: &Path, error: &dyn Error) {
                  a later start removes it"
             ),
             path,
-            error: error.to_string(),
+            error,
         },
     );
 }
