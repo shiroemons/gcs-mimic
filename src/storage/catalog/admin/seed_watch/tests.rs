@@ -9,7 +9,7 @@ fn running() -> Arc<SeedWatch> {
     let watch = Arc::new(SeedWatch::default());
     watch
         .state
-        .send_modify(|board| board.interval = Some(Duration::from_secs(1)));
+        .send_modify(|board| board.schedule = Schedule::Every(Duration::from_secs(1)));
     watch
 }
 
@@ -58,8 +58,16 @@ async fn a_wait_takes_the_first_settled_pass_that_started_after_it() {
     }
 }
 
+/// A wait ends at its deadline, or once the catalog closes, and a wait where no pass is
+/// configured ends at once and says so.
 #[tokio::test(start_paused = true)]
 async fn a_wait_ends_at_its_deadline_or_when_the_passes_stop() {
+    let off = SeedWatch::default();
+    assert_eq!(
+        off.wait(hang_deadline()).await.unwrap_err(),
+        WaitError::NotConfigured
+    );
+    assert!(!off.status().enabled);
     let watch = running();
     assert_eq!(
         watch.wait(hang_deadline()).await.unwrap_err(),
@@ -68,10 +76,10 @@ async fn a_wait_ends_at_its_deadline_or_when_the_passes_stop() {
     let wait = waiting(&watch);
     tokio::task::yield_now().await;
     watch.stop();
-    assert_eq!(wait.await.unwrap().unwrap_err(), WaitError::Disabled);
+    assert_eq!(wait.await.unwrap().unwrap_err(), WaitError::Closed);
     assert_eq!(
         watch.wait(hang_deadline()).await.unwrap_err(),
-        WaitError::Disabled
+        WaitError::Closed
     );
     assert!(!watch.status().enabled);
 }

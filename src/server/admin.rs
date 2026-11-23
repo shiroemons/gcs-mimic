@@ -55,7 +55,8 @@ impl Authorized {
     }
 }
 
-/// Tells a client to retry a reset, reseed or purge that answered 503 after one second.
+/// Tells a client to retry, after one second, an administrative request that answered 503: a
+/// reset, a reseed, a purge, or a seed wait that timed out or met a closing server.
 fn retry_soon(mut response: Response<Full<Bytes>>) -> Response<Full<Bytes>> {
     if response.status() == StatusCode::SERVICE_UNAVAILABLE {
         response
