@@ -60,9 +60,11 @@ struct SeedEntry {
     fingerprint: Fingerprint,
 }
 
-/// The publications of `entries`, for the cleanup that reclaims what they staged.
-fn publications(entries: Vec<SeedEntry>) -> Vec<BatchPublication> {
-    entries.into_iter().map(|entry| entry.publication).collect()
+/// The publication of a staged fixture, for the cleanup that reclaims what it staged.
+impl From<SeedEntry> for BatchPublication {
+    fn from(entry: SeedEntry) -> Self {
+        entry.publication
+    }
 }
 
 pub(crate) struct SeedBatch {
@@ -314,7 +316,10 @@ impl SeedBatch {
             .await
             .map_err(AdminError::backend)?;
         // Reference-aware cleanup also handles a commit whose caller was cancelled or whose result was ambiguous.
-        let entries = publications(std::mem::take(&mut batch.entries));
+        let entries: Vec<_> = std::mem::take(&mut batch.entries)
+            .into_iter()
+            .map(BatchPublication::from)
+            .collect();
         let ownership = batch.request.clone();
         let cleanup = crate::task::spawn_supervised("seed-batch-cleanup", async move {
             let _ownership = ownership;
@@ -341,7 +346,7 @@ impl Drop for SeedBatch {
         if entries.is_empty() {
             return;
         }
-        let entries = publications(entries);
+        let entries: Vec<_> = entries.into_iter().map(BatchPublication::from).collect();
         let ownership = self.request.clone();
         let activity = self.activity.take();
         crate::task::spawn_supervised_on(&self.runtime, "seed-batch-abort-cleanup", async move {
