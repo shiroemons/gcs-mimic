@@ -135,21 +135,18 @@ pub(crate) struct LiveCounts {
     pub(crate) deleted: usize,
     /// Objects whose files a pass proved gone, waiting for the later proof that deletes them.
     pub(crate) pending_deletions: usize,
-    /// Marked top-level directories a pass proved gone, waiting for the later proof after which
-    /// the directory, added again, gets its bucket as a new directory does.
-    pub(crate) pending_directories: usize,
     /// Recorded names proven gone where seeding owns nothing to delete. Each is looked up on
     /// every pass until a file returns there, so the count shows that cost.
     pub(crate) tombstones: usize,
-    /// Directories whose bucket was deleted after seeding took it, which stay deleted until the
-    /// directory is removed and added again, a reseed or a restart.
+    /// Directories whose bucket was deleted, or created again, after seeding took it, which
+    /// passes leave alone until a reseed or a restart.
     pub(crate) buckets_kept_deleted: usize,
 }
 
 impl LiveCounts {
     /// Whether the pass left a proof of absence waiting for the later proof that confirms it.
     pub(crate) fn waiting(&self) -> bool {
-        self.pending_deletions > 0 || self.pending_directories > 0
+        self.pending_deletions > 0
     }
 }
 

@@ -490,32 +490,89 @@ async fn a_bucket_the_api_deleted_stays_deleted_while_its_directory_stays() {
     watched.close().await;
 }
 
-/// A directory away for one pass keeps the bucket an API request deleted deleted; one removed
-/// for two passes a second apart and added back gets it again, as a new directory does.
+/// A directory removed for two passes a second apart and added back leaves the bucket an API
+/// request deleted deleted: no pass forgets the mark, so the directory is never new again while
+/// the server runs. A reseed replays the tree and creates the bucket again.
 #[cfg(unix)]
 #[tokio::test]
-async fn a_directory_removed_and_added_back_gets_the_bucket_the_api_deleted() {
+async fn a_directory_removed_and_added_back_leaves_the_bucket_the_api_deleted_until_a_reseed() {
     let watched = watched().await;
     watched.api_delete_bucket().await;
     let aside = watched.dir.0.join("aside");
     let directory = watched.seed.join("bucket");
     std::fs::rename(&directory, &aside).unwrap();
-    assert_eq!(watched.pass().await.counts.pending_directories, 1);
-    std::fs::rename(&aside, &directory).unwrap();
-    watched.clock.advance(Duration::from_secs(2));
-    let report = watched.pass().await;
-    assert_eq!(report.counts.buckets_kept_deleted, 1, "{report:?}");
-    assert!(!watched.bucket_exists("bucket").await);
-
-    std::fs::rename(&directory, &aside).unwrap();
-    assert_eq!(watched.pass().await.counts.pending_directories, 1);
+    assert_clean(&watched.pass().await);
     assert_clean(&watched.confirm().await);
     std::fs::rename(&aside, &directory).unwrap();
     watched.write("bucket/d", b"d");
     let report = watched.pass().await;
-    assert_eq!(report.counts.buckets_created, 1);
-    assert_eq!(report.counts.published, 4);
+    assert_clean(&report);
+    assert_eq!(report.counts.buckets_kept_deleted, 1, "{report:?}");
+    assert_eq!(
+        (report.counts.buckets_created, report.counts.published),
+        (0, 0)
+    );
+    assert!(!watched.bucket_exists("bucket").await);
+
+    let clock: Arc<dyn Clock> = watched.clock.clone();
+    crate::seed::reseed(
+        &watched.catalog.admin(Origin::Seed),
+        &watched.config,
+        &clock,
+        hang_deadline(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(watched.body("bucket", "a").await, b"a");
     assert_eq!(watched.body("bucket", "d").await, b"d");
+    watched.close().await;
+}
+
+/// A directory away for two passes a second apart, while an API request deletes its bucket,
+/// creates it again and writes an object there, comes back to a bucket the passes leave alone:
+/// the object the API request wrote keeps its bytes and generation, and no file is replayed there.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_directory_away_while_the_api_replaces_its_bucket_keeps_the_api_objects() {
+    let watched = watched().await;
+    let aside = watched.dir.0.join("aside");
+    let directory = watched.seed.join("bucket");
+    std::fs::rename(&directory, &aside).unwrap();
+    assert_eq!(watched.pass().await.counts.pending_deletions, 3);
+    assert_clean(&watched.confirm().await);
+    assert!(watched.live("bucket", "a").await.is_none());
+
+    watched
+        .catalog
+        .delete_bucket("bucket", BucketConditions::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    watched
+        .catalog
+        .admin(Origin::Seed)
+        .ensure_bucket(
+            BucketDefinition::default_for(
+                &BucketName::new("bucket").unwrap(),
+                &watched.config.seed_project,
+                &crate::clock::SystemClock,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let written = watched.api_write("bucket", "x", b"api").await;
+    std::fs::rename(&aside, &directory).unwrap();
+    watched.write("bucket/x", b"seed");
+    let report = watched.pass().await;
+    assert_clean(&report);
+    assert_eq!(report.counts.buckets_kept_deleted, 1, "{report:?}");
+    assert_eq!(
+        (report.counts.buckets_created, report.counts.published),
+        (0, 0)
+    );
+    assert_eq!(watched.generation("bucket", "x").await, written.generation);
+    assert_eq!(watched.body("bucket", "x").await, b"api");
+    assert!(watched.live("bucket", "a").await.is_none());
     watched.close().await;
 }
 
@@ -597,7 +654,7 @@ async fn an_unreadable_directory_keeps_the_bucket_the_api_deleted_or_created_aga
             return;
         }
         let report = watched.pass().await;
-        let confirmed = watched.confirm().await;
+        watched.confirm().await;
         mode(0o755).unwrap();
         assert!(
             report
@@ -607,7 +664,6 @@ async fn an_unreadable_directory_keeps_the_bucket_the_api_deleted_or_created_aga
                 .any(|problem| problem.path.as_deref() == Some("bucket")),
             "{report:?}"
         );
-        assert_eq!(confirmed.counts.pending_directories, 0, "{confirmed:?}");
         let report = watched.pass().await;
         assert_eq!(report.counts.buckets_created, 0, "{report:?}");
         assert_eq!(report.counts.published, 0, "{report:?}");
