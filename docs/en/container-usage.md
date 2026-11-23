@@ -546,6 +546,25 @@ The image healthcheck probes the main listener and needs no change. DESIGN-101
 records this local extension and stays PARTIAL; see the
 [evidence](evidence/trusted-listener.md).
 
+## Files left by directory synchronization
+
+Releases up to 0.27.0 could synchronize a folder with a bucket. That feature is
+gone, and the first start of a later release removes its records from the catalog
+(schema 58). When those records still name files that may hold your edits, the
+start first writes `sync-retired.json` to the data directory. It lists the copies
+of edits that synchronization kept in `sync-conflicts/` in the data directory, the
+files that may remain in `.gcs-mimic-sync-work/` inside a formerly synchronized
+folder, and every such folder, with paths as the old server saw them, for example
+inside its container. If a `sync-retired.json` with other content exists, the
+start writes `sync-retired.1.json`, and so on, instead.
+
+gcs-mimic never deletes these files. The upgrade logs the warning
+`sync_retired_files_listed` once, and every start logs `sync_retired_files` while
+a manifest remains or `sync-conflicts/` holds entries. Inspect the files, delete
+the ones you no longer need, and delete a manifest once you have checked it to
+acknowledge it; the copies stay until you delete them. `GCS_MIMIC_LOG_LEVEL=error`
+hides these warnings.
+
 ## Further setup
 
 - [HTTPS and custom certificates](local-https.md#local-https-with-an-explicit-development-ca)
