@@ -4,6 +4,7 @@ mod admin_fixture_metadata;
 mod admin_purge;
 mod admin_reseed;
 mod admin_reset;
+mod admin_seed_watch;
 use crate::common;
 use common::http::Body;
 
@@ -42,6 +43,8 @@ fn management_routes_refuse_page_initiated_requests_without_mutation() {
         ("POST", "/_internal/reset", br#"{"confirm":"gcs-mimic"}"#),
         ("POST", "/_internal/delete_all", b""),
         ("POST", "/_internal/reseed", b""),
+        ("GET", "/_internal/seed", b""),
+        ("POST", "/_internal/seed/wait", b""),
         ("DELETE", "/_internal/buckets/test-bucket", b""),
         ("POST", "/_internal/lifecycle/run", b""),
     ] {

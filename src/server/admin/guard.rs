@@ -207,6 +207,8 @@ mod tests {
             "/_internal/reset",
             "/_internal/delete_all",
             "/_internal/reseed",
+            "/_internal/seed",
+            "/_internal/seed/wait",
             "/_internal/buckets/test-bucket",
         ] {
             for (name, value) in [

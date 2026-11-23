@@ -99,6 +99,7 @@ detection. The
 | `default_seed_dir` | `--default-seed-dir PATH` | `GCS_MIMIC_DEFAULT_SEED_DIR` | Absent; the container image sets `/data` |
 | `seed_project` | `--seed-project ID` | `GCS_MIMIC_SEED_PROJECT` | `local-project` |
 | `seed_content_type` | `--seed-content-type MODE` | `GCS_MIMIC_SEED_CONTENT_TYPE` | `extension` |
+| `seed_watch_interval_ms` | `--seed-watch-interval-ms N` | `GCS_MIMIC_SEED_WATCH_INTERVAL_MS` | `1000`; `0` replays the tree only at startup; at most `86400000` |
 
 These are flat settings with the existing precedence. An explicitly empty path,
 including an empty `GCS_MIMIC_SEED_DIR` or `GCS_MIMIC_DEFAULT_SEED_DIR`, fails
@@ -189,6 +190,56 @@ survive the next replay: the bucket and the current fixture files reappear.
 An identical object keeps its generation instead of being rewritten.
 The opt-in [reseed endpoint](atomic-seed-reseed.md) also replays the configured
 source; disk merges while RAM reseed replaces its namespace.
+
+### Passes while the server runs
+
+While the server runs, a pass walks the seed root again after each
+`seed_watch_interval_ms` and commits what it found in one short transaction
+beside the requests the server serves. Passes never write to the seed root, and
+a pass, a reseed and a reset to the startup state never run at the same time. A
+pass:
+
+- reads a file again only where its identity, size or times differ from what
+  seeding recorded, and publishes a changed or new file as a startup replay
+  would. A file at a name an API request overwrote or deleted stays as the API
+  left it until the file changes again.
+- deletes the object seeding published for a removed file only after a second
+  pass, at least a second after the first, still finds the file gone, with the
+  generation and metageneration seeding published as conditions in the same
+  transaction. A version an API write made at that name stays.
+- creates the bucket of a new top-level directory, or takes over a bucket of
+  `seed_project` with that name. A removed directory deletes the objects seeding
+  published below it, never the bucket. A bucket an API request deleted stays
+  deleted while its directory remains; removing the directory and adding it
+  again, a reseed or a restart creates it again.
+- leaves an entry it cannot replay as it is and reports it: an unusable entry, a
+  file past `max_object_bytes`, a directory past `max_buckets_per_batch`, an
+  object a hold or retention period protects, and a directory whose name a bucket
+  of another project has. A walk that failed or stopped at `max_seed_entries` or
+  `max_seed_depth` proves nothing absent, so that pass deletes nothing.
+
+A pass that would change nothing opens no transaction. Objects a pass publishes
+or deletes are notified like those of a startup replay.
+
+With `admin_enabled`, two routes report the passes; they take the authority and
+the browser and host checks of `/_internal/reseed`:
+
+- `GET /_internal/seed` answers `enabled`, `intervalMs` while passes run, and
+  `lastPass`, which is `null` until a pass completes.
+- `POST /_internal/seed/wait`, with an empty body and an optional `timeoutMs`
+  from 1 to 600000 (default 60000), starts a pass at once and answers the report
+  of the first pass that started after the request and left no deletion waiting
+  for its second proof. It answers 400 `invalid` when no passes run, and 503 with
+  `Retry-After: 1` when the time runs out first or the server closes.
+  `request_timeout_ms` ends a longer wait sooner.
+
+A pass report has `startedAt`, `completedAt`, `complete` (the walk listed the
+whole tree), `clean` (complete, without problems or error), the counts
+`bucketsCreated`, `published`, `recorded`, `deleted`, `pendingDeletions`,
+`tombstones` (removed names where seeding owns nothing to delete; each is looked
+up on every pass until a file returns there) and `bucketsKeptDeleted`, the first
+100 `problems` with their `path` and `reason`, `problemsOmitted`, and `error`
+when the pass could not run, such as when the seed root went away.
 
 ### Durable initialization and recovery
 

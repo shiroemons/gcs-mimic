@@ -12,6 +12,7 @@ mod guard;
 mod purge;
 mod reseed;
 mod reset;
+mod seed_watch;
 
 /// Every management route shares the same browser and host checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,6 +22,8 @@ pub(super) enum AdminRoute {
     Reset,
     DeleteAll,
     Reseed,
+    SeedStatus,
+    SeedWait,
     Lifecycle,
     /// `/_internal/buckets/{bucket}`; the handler reads the name from the path.
     Bucket,
@@ -34,6 +37,8 @@ impl AdminRoute {
             "/_internal/reset" => Self::Reset,
             "/_internal/delete_all" => Self::DeleteAll,
             "/_internal/reseed" => Self::Reseed,
+            "/_internal/seed" => Self::SeedStatus,
+            "/_internal/seed/wait" => Self::SeedWait,
             "/_internal/lifecycle/run" => Self::Lifecycle,
             path if path.starts_with(purge::PREFIX) => Self::Bucket,
             _ => return None,
@@ -65,6 +70,8 @@ enum LocalRoute {
     Objects,
     Reset(reset::Form),
     Reseed,
+    SeedStatus,
+    SeedWait,
     Lifecycle,
     Bucket,
 }
@@ -77,6 +84,8 @@ impl From<AdminRoute> for LocalRoute {
             AdminRoute::Reset => Self::Reset(reset::Form::Confirmed),
             AdminRoute::DeleteAll => Self::Reset(reset::Form::SourceAlias),
             AdminRoute::Reseed => Self::Reseed,
+            AdminRoute::SeedStatus => Self::SeedStatus,
+            AdminRoute::SeedWait => Self::SeedWait,
             AdminRoute::Lifecycle => Self::Lifecycle,
             AdminRoute::Bucket => Self::Bucket,
         }
@@ -135,6 +144,10 @@ pub(super) async fn respond(
             .unwrap_or_else(ApiError::into_response),
         LocalRoute::Reset(form) => reset::respond(request, ctx, authorized, form).await,
         LocalRoute::Reseed => reseed::respond(request, ctx, authorized).await,
+        LocalRoute::SeedStatus => {
+            seed_watch::status(&request, ctx).unwrap_or_else(ApiError::into_response)
+        }
+        LocalRoute::SeedWait => seed_watch::respond_wait(request, ctx).await,
         LocalRoute::Lifecycle => run_lifecycle(request, ctx, authorized)
             .await
             .unwrap_or_else(ApiError::into_response),
