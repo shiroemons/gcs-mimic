@@ -4,7 +4,7 @@ use std::{error::Error, fmt, io, path::StripPrefixError};
 #[derive(Debug)]
 pub enum SeedError {
     Io(io::Error),
-    Unopenable(Unopenable),
+    Unopenable,
     Admin(AdminError),
     BucketName(AdminError),
     ObjectName(ApiError),
@@ -28,7 +28,7 @@ impl fmt::Display for SeedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(error) => error.fmt(f),
-            Self::Unopenable(_) => f.write_str("fixture could not be opened"),
+            Self::Unopenable => f.write_str("fixture could not be opened"),
             Self::Admin(error) | Self::BucketName(error) => error.fmt(f),
             Self::ObjectName(error) => f.write_str(&error.message),
             Self::RelativePath(error) => error.fmt(f),
@@ -66,7 +66,9 @@ impl Error for SeedError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io(error) => error.source(),
-            Self::Unopenable(error) => Some(error),
+            // The cause carries no data, so a static one keeps it in the chain without making
+            // the crate-private type part of this public error.
+            Self::Unopenable => Some(&Unopenable),
             Self::Admin(error) | Self::BucketName(error) => error.source(),
             Self::ObjectName(error) => Some(error),
             Self::RelativePath(error) => error.source(),
@@ -107,5 +109,12 @@ mod tests {
         let error = SeedError::ObjectName(crate::json::validate_object_name("").unwrap_err());
         let cause = error.source().unwrap().downcast_ref::<ApiError>().unwrap();
         assert_eq!(error.to_string(), cause.message);
+    }
+
+    #[test]
+    fn an_unopenable_fixture_keeps_why_in_the_cause_chain() {
+        let cause = SeedError::Unopenable.source().unwrap();
+        assert!(cause.is::<Unopenable>());
+        assert_eq!(cause.to_string(), Unopenable.to_string());
     }
 }

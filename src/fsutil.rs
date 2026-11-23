@@ -123,9 +123,9 @@ pub(crate) enum Opened<T> {
 /// ([`Opened::Unopenable`]), as the error of a step that fails rather than waits for a later read.
 /// Errors carry it as a variant of their own, never inside an `io::Error`: there it read as the
 /// kind the open failed with, which each caller judged its own way, and none as a failure that
-/// passes. It is public because the seed error that carries it is.
+/// passes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Unopenable;
+pub(crate) struct Unopenable;
 
 impl std::fmt::Display for Unopenable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
