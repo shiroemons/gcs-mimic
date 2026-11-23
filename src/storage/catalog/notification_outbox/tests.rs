@@ -301,6 +301,43 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
     }
 }
 
+/// An import reproduces its source, so it reports nothing, even over a version it retires and
+/// even when the grant was handed an emitting mode.
+#[tokio::test]
+async fn import_publications_report_no_notifications() {
+    use crate::{notification::NotificationMode, storage::admin::Origin};
+    for history in [VersionHistory::Discard, VersionHistory::Preserve] {
+        let dir = TestDir::new();
+        let catalog = setup(&dir, history).await;
+        for admin in [
+            catalog.admin(Origin::Import),
+            catalog
+                .admin(Origin::Import)
+                .with_notification_mode(NotificationMode::Emit),
+        ] {
+            initialization_put(&admin, None, Default::default())
+                .await
+                .unwrap();
+            initialization_put(&admin, None, Default::default())
+                .await
+                .unwrap();
+        }
+        assert!(
+            drain(&catalog).await.is_empty(),
+            "an import reported a notification"
+        );
+        initialization_put(&catalog.admin(Origin::BucketInit), None, Default::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            drain(&catalog).await.len(),
+            2,
+            "a non-import administrative write lost its notifications"
+        );
+        catalog.close().await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn finalize_archive_delete_snapshots_survive_restart_and_failed_mutations_emit_nothing() {
     let dir = TestDir::new();

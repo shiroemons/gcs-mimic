@@ -225,7 +225,6 @@ impl UploadCommit {
                 blob_id: self.blob_id,
                 assignment: self.identity.assignment(),
                 micros,
-                origin: super::super::admin::Origin::from(&self.access),
                 notification_mode: NotificationMode::for_access(&self.access),
                 owner_profile: self.principals.as_ref(),
                 acl: super::super::acl::PublicationAcl::requested(&self.metadata.acl),

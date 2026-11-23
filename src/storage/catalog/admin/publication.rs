@@ -1173,7 +1173,6 @@ fn publish_checked_entry(
                     objects::GenerationAssignment::Imported(generation)
                 }),
             micros,
-            origin: grant.origin(),
             notification_mode: grant.notification_mode(),
             owner_profile: None,
             acl: super::super::acl::PublicationAcl::InheritDefault,
