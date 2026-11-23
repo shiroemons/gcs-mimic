@@ -427,6 +427,65 @@ fn ready_event_preserves_the_symbolic_link_spelling_of_the_data_directory() {
     assert!(target.join("catalog.sqlite3").is_file());
 }
 
+/// Each start warns once while `sync-conflicts/` in the data directory holds the copies of
+/// edits that directory synchronization kept, names the manifest once one lists them, and
+/// leaves the copies in place.
+#[test]
+fn start_warns_once_while_the_data_directory_holds_synchronization_copies() {
+    let directory = TestDir::new();
+    let copies = directory.0.join("sync-conflicts");
+    let manifest = directory.0.join("sync-retired.json");
+    let warnings = || {
+        let (_, diagnostics) =
+            ready_with_diagnostics(&mut common::process::http_command(&directory.0));
+        diagnostics
+            .into_iter()
+            .filter(|event| event["event"] == "sync_conflicts_preserved")
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(warnings(), Vec::<serde_json::Value>::new());
+    fs::create_dir(&copies).unwrap();
+    assert_eq!(warnings(), Vec::<serde_json::Value>::new());
+
+    for (name, bytes) in [
+        ("1".repeat(32), b"edited".as_slice()),
+        ("2".repeat(32), b"edited again"),
+    ] {
+        fs::write(copies.join(name), bytes).unwrap();
+    }
+    let found = warnings();
+    assert_eq!(found.len(), 1, "{found:?}");
+    let warning = &found[0];
+    let shown = copies.to_string_lossy();
+    assert_eq!(warning["level"], "warn");
+    assert_eq!(warning["directory"], shown.as_ref());
+    assert_eq!(warning["entries"], 2);
+    assert!(warning.get("manifest").is_none(), "{warning}");
+    let message = warning["message"].as_str().unwrap();
+    for part in [
+        shown.as_ref(),
+        "2 entries",
+        "removed directory synchronization",
+        "never deletes them",
+    ] {
+        assert!(message.contains(part), "{message}");
+    }
+
+    fs::write(&manifest, b"{}\n").unwrap();
+    let found = warnings();
+    assert_eq!(found.len(), 1, "{found:?}");
+    let listed = manifest.to_string_lossy();
+    assert_eq!(found[0]["manifest"], listed.as_ref());
+    assert!(
+        found[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains(listed.as_ref())
+    );
+    assert_eq!(fs::read_dir(&copies).unwrap().count(), 2);
+    assert_eq!(fs::read(&manifest).unwrap(), b"{}\n");
+}
+
 #[test]
 fn ready_event_omits_data_directory_and_creation_diagnostic_for_memory() {
     let directory = TestDir::new();

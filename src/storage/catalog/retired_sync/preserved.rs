@@ -3,8 +3,8 @@
 //! write-back that stopped midway may have left the file it displaced, or its own copy, in the
 //! private workspace inside the synchronized folder. Once schema 58 drops the rows, only the
 //! manifest written here names those files, so it becomes durable before that transaction
-//! starts. Nothing here deletes, moves or changes the files, in the data directory or in a
-//! user's folder.
+//! starts. Each start warns while `sync-conflicts/` holds entries. Nothing here deletes, moves or
+//! changes the files, in the data directory or in a user's folder.
 
 #[cfg(test)]
 use super::super::fault::{self, Step};
@@ -279,4 +279,63 @@ fn workspace_entry(row: &Row<'_>) -> rusqlite::Result<WorkspaceEntry> {
         object: row.get(3)?,
         target: row.get(4)?,
     })
+}
+
+/// The start-up warning about the copies in `sync-conflicts/`.
+#[derive(Serialize)]
+struct PreservedCopies {
+    message: String,
+    directory: String,
+    entries: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    manifest: Option<String>,
+}
+
+/// What `sync-conflicts/` in `data_dir` holds, or `None` while it is missing or empty.
+fn preserved_copies(data_dir: &Path) -> io::Result<Option<PreservedCopies>> {
+    let directory = data_dir.join(CONFLICTS);
+    let listing = match fs::read_dir(&directory) {
+        Ok(listing) => listing,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let mut entries: u64 = 0;
+    for entry in listing {
+        entry?;
+        entries += 1;
+    }
+    if entries == 0 {
+        return Ok(None);
+    }
+    let path = data_dir.join(MANIFEST);
+    let manifest = path.try_exists()?.then(|| path.display().to_string());
+    let directory = directory.display().to_string();
+    let noun = if entries == 1 { "entry" } else { "entries" };
+    let listed = manifest
+        .as_ref()
+        .map_or_else(String::new, |manifest| format!(" {manifest} lists them."));
+    let message = format!(
+        "{directory} holds {entries} {noun}: copies of edits that the removed directory \
+         synchronization preserved. gcs-mimic never deletes them automatically.{listed} Inspect \
+         them, then remove the directory yourself once you no longer need them."
+    );
+    Ok(Some(PreservedCopies {
+        message,
+        directory,
+        entries,
+        manifest,
+    }))
+}
+
+/// Warns while `sync-conflicts/` in `data_dir` holds entries. Every open repeats it, so the
+/// copies stay visible until the operator removes them.
+pub(in crate::storage::catalog) fn warn_preserved_copies(data_dir: &Path) -> io::Result<()> {
+    if let Some(copies) = preserved_copies(data_dir)? {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Warn,
+            "sync_conflicts_preserved",
+            copies,
+        );
+    }
+    Ok(())
 }
