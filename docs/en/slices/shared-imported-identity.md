@@ -76,7 +76,7 @@ resumable commit/retry regression. Existing passing regressions include:
 
 - `publication_streaming_modes_preserve_patches_and_require_all_hash_fields`
 - `publication_inherits_metadata_patched_after_staging`
-- `publication_equal_hash_keeps_generation_metadata_and_journal`
+- `publication_equal_hash_keeps_generation_and_metadata`
 - `publication_batch_isolates_failed_elements_and_cleans_unused_blobs`
 - `callback_source_deletion_rolls_back_with_destination_and_checks_holds`
 - `retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation`

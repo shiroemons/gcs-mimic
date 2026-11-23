@@ -211,7 +211,7 @@ fn restore_in_transaction(
             blob_id: id,
             assignment: objects::GenerationAssignment::Automatic,
             micros: now.micros,
-            origin: super::change_journal::origin(&request.create),
+            origin: super::admin::Origin::from(&request.create),
             notification_mode: crate::notification::NotificationMode::for_access(&request.create),
             owner_profile: None,
             acl: super::acl::PublicationAcl::InheritDefault,

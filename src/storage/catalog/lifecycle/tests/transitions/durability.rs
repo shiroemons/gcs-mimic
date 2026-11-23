@@ -11,7 +11,6 @@ async fn failed_transition_update_rolls_back_the_page_and_retries() {
     let good = put(&catalog, "z-good").await;
     let failed = put(&catalog, "a-fails").await;
     notifications(&catalog).await;
-    let fence = catalog.enable_change_journal().await.unwrap();
     clock.advance(DAY);
     catalog.run::<_, CatalogError>(|connection| {
         sql::exec(connection, "CREATE TEMP TRIGGER fail_transition BEFORE UPDATE OF storage_class ON objects WHEN old.name = 'a-fails' BEGIN SELECT RAISE(ABORT, 'injected transition write failure'); END", [])?;
@@ -22,15 +21,6 @@ async fn failed_transition_update_rolls_back_the_page_and_retries() {
     assert_eq!(current(&catalog, "a-fails").await, failed);
     assert_eq!(
         count(&catalog, "SELECT count(*) FROM notification_outbox").await,
-        0
-    );
-    assert_eq!(
-        catalog
-            .read_changes(fence, None, 256)
-            .await
-            .unwrap()
-            .items()
-            .len(),
         0
     );
     assert_eq!(
@@ -53,7 +43,7 @@ async fn failed_transition_update_rolls_back_the_page_and_retries() {
 }
 
 #[tokio::test]
-async fn failed_transition_commit_preserves_metadata_events_and_journal_for_retry() {
+async fn failed_transition_commit_preserves_metadata_and_events_for_retry() {
     let data = TestDir::new();
     let (catalog, clock) = disk(&data).await;
     create(
@@ -64,7 +54,6 @@ async fn failed_transition_commit_preserves_metadata_events_and_journal_for_retr
     let original = put(&catalog, "object").await;
     let original_blob = blob(&catalog, "object").await;
     notifications(&catalog).await;
-    let fence = catalog.enable_change_journal().await.unwrap();
     clock.advance(DAY);
     fault::arm(
         &data.0,
@@ -81,15 +70,6 @@ async fn failed_transition_commit_preserves_metadata_events_and_journal_for_retr
         count(&catalog, "SELECT count(*) FROM notification_outbox").await,
         0
     );
-    assert_eq!(
-        catalog
-            .read_changes(fence, None, 256)
-            .await
-            .unwrap()
-            .items()
-            .len(),
-        0
-    );
     counts(
         execute(&catalog).await,
         1,
@@ -103,15 +83,6 @@ async fn failed_transition_commit_preserves_metadata_events_and_journal_for_retr
     );
     assert_eq!(
         count(&catalog, "SELECT count(*) FROM notification_outbox").await,
-        1
-    );
-    assert_eq!(
-        catalog
-            .read_changes(fence, None, 256)
-            .await
-            .unwrap()
-            .items()
-            .len(),
         1
     );
     catalog.close().await.unwrap();
@@ -132,7 +103,6 @@ async fn transition_crash_and_power_loss_restart_converge_without_rewriting_or_d
             let original = put(&catalog, "object").await;
             let original_blob = blob(&catalog, "object").await;
             notifications(&catalog).await;
-            let fence = catalog.enable_change_journal().await.unwrap();
             clock.advance(DAY);
             fault::arm(&data.0, step, 0, crash.fault(snapshot.0.clone()));
             assert_eq!(execute(&catalog).await.transitioned, 1);
@@ -142,14 +112,6 @@ async fn transition_crash_and_power_loss_restart_converge_without_rewriting_or_d
                 .await
                 .unwrap();
             recovered.configure_lifecycle(&Default::default());
-            assert!(
-                recovered
-                    .read_changes(fence, None, 256)
-                    .await
-                    .unwrap()
-                    .rescan_required()
-            );
-            let restarted = recovered.enable_change_journal().await.unwrap();
             assert_eq!(
                 execute(&recovered).await.transitioned,
                 u64::from(step == Step::LifecycleCommit)
@@ -164,20 +126,6 @@ async fn transition_crash_and_power_loss_restart_converge_without_rewriting_or_d
             assert_eq!(
                 count(&recovered, "SELECT count(*) FROM pending_blob_deletions").await,
                 0
-            );
-            let page = recovered.read_changes(restarted, None, 256).await.unwrap();
-            // Opening starts a new journal epoch; committed rows survive but need a rescan.
-            assert_eq!(
-                page.items().len(),
-                usize::from(step == Step::LifecycleCommit)
-            );
-            assert_eq!(
-                count(
-                    &recovered,
-                    "SELECT count(*) FROM change_journal WHERE kind = 'metadata'"
-                )
-                .await,
-                1
             );
             let pending = recovered.next_notification().await.unwrap().unwrap();
             let message: Value = serde_json::from_str(&pending.message).unwrap();

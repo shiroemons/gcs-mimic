@@ -115,6 +115,27 @@ pub(super) fn published(
     )
 }
 
+/// Reports a metadata change of `record` at its update time. An import reports nothing, as it
+/// does for a publication.
+pub(super) fn metadata_updated(
+    connection: &Connection,
+    origin: super::admin::Origin,
+    record: &crate::object::ObjectRecord,
+) -> Result<(), CatalogError> {
+    if origin == super::admin::Origin::Import {
+        return Ok(());
+    }
+    enqueue(
+        connection,
+        Message {
+            event: crate::notification::Event::MetadataUpdate,
+            object: record,
+            time: record.updated,
+            replacement: None,
+        },
+    )
+}
+
 /// Drops the oldest undelivered messages until one of `bytes` fits, in the transaction of the
 /// object write it reports, so a rejected write drops nothing. Cloud Storage does not fail an
 /// object write over its notifications, so an unreachable Pub/Sub costs the oldest events and not

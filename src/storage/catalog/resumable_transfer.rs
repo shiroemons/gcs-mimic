@@ -491,7 +491,7 @@ impl Catalog {
                         blob_id: session.blob_id,
                         assignment: objects::GenerationAssignment::Automatic,
                         micros,
-                        origin: super::change_journal::origin(&options.access),
+                        origin: super::admin::Origin::from(&options.access),
                         notification_mode: crate::notification::NotificationMode::for_access(
                             &options.access,
                         ),

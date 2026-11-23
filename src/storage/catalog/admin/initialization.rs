@@ -15,7 +15,7 @@ use crate::{
     storage::catalog::{
         BucketCreation, Catalog,
         bucket_update::{self, BucketChange},
-        change_journal, create_bucket_in_transaction,
+        create_bucket_in_transaction,
         policies::{self, Metageneration, PolicyWrite},
         principals::Profile,
         sql, unavailable, unix_micros,
@@ -390,7 +390,6 @@ impl Apply<'_> {
         if let Some(mut policy) = policy {
             let write = PolicyWrite {
                 bucket,
-                access: &self.access,
                 metageneration,
             };
             policies::replace_policy(self.transaction, write, &mut policy, self.principals)?;
@@ -433,7 +432,6 @@ impl Apply<'_> {
         // The plan has already refused a public policy under public access prevention; the
         // creation keeps the catalog's own rule as well.
         let creation = BucketCreation {
-            origin: change_journal::origin(&self.access),
             default_retention: self.default_retention,
             policy: policy.as_ref(),
             principals: self.principals,

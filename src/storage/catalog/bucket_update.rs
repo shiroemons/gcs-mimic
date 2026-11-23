@@ -189,13 +189,6 @@ pub(super) fn update_in_transaction(
             acl::replace_resource_acl(transaction, target, &entries, access, principals)?;
         }
     }
-    change_journal::append(
-        transaction,
-        change_journal::origin(access),
-        change_journal::ChangeKind::BucketUpdate,
-        name,
-        None,
-    )?;
     Ok(record)
 }
 

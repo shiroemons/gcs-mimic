@@ -37670,7 +37670,7 @@
           "result": "PASS",
           "test_ids": [
             "failed_transition_update_rolls_back_the_page_and_retries",
-            "failed_transition_commit_preserves_metadata_events_and_journal_for_retry",
+            "failed_transition_commit_preserves_metadata_and_events_for_retry",
             "transition_crash_and_power_loss_restart_converge_without_rewriting_or_duplicate_events",
             "malformed_class_timestamp_is_quarantined_while_healthy_transitions_finish"
           ]
@@ -37795,7 +37795,7 @@
         "enabling_or_replacing_rules_evaluates_current_class_candidates",
         "every_new_generation_starts_its_storage_class_time_at_creation",
         "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
-        "failed_transition_commit_preserves_metadata_events_and_journal_for_retry",
+        "failed_transition_commit_preserves_metadata_and_events_for_retry",
         "failed_transition_update_rolls_back_the_page_and_retries",
         "grpc_v1_outputs_the_stored_lifecycle_storage_class_timestamp",
         "grpc_v2_outputs_the_stored_lifecycle_storage_class_timestamp",
@@ -37858,7 +37858,7 @@
             "enabling_or_replacing_rules_evaluates_current_class_candidates",
             "every_new_generation_starts_its_storage_class_time_at_creation",
             "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
-            "failed_transition_commit_preserves_metadata_events_and_journal_for_retry",
+            "failed_transition_commit_preserves_metadata_and_events_for_retry",
             "failed_transition_update_rolls_back_the_page_and_retries",
             "grpc_v1_outputs_the_stored_lifecycle_storage_class_timestamp",
             "grpc_v2_outputs_the_stored_lifecycle_storage_class_timestamp",
@@ -60231,16 +60231,6 @@
           "test_ids": []
         },
         {
-          "id": "shared-change-journal",
-          "description": "Atomic origin-bearing publication, metadata/deletion including compose source deletion, bucket/IAM records; disabled logging, monotonic sequence, 65536-record retention, 256-record pages, stable fences, activation/restart/gap rescan and durable parent-PAP invalidation. Catalog API only; no runtime consumer configuration. Contract: docs/en/slices/onboarding-state-contract.md.",
-          "result": "PASS",
-          "test_ids": [
-            "journal_records_atomic_origins_mutations_and_stable_pages",
-            "journal_retention_activation_restart_and_pap_require_rescan",
-            "journal_bucket_iam_compose_and_resumable_share_mutation_transactions"
-          ]
-        },
-        {
           "id": "onboarding-state-ownership",
           "description": "Adapters use bounded typed administrative operations and transactional state hooks; Shared state alone owns SQL, conditions, hashes, generations and recovery. Contract: docs/en/slices/onboarding-state-contract.md.",
           "result": "PENDING",
@@ -60353,9 +60343,6 @@
         "recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry",
         "missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock",
         "onboarding-state-native-baseline",
-        "journal_records_atomic_origins_mutations_and_stable_pages",
-        "journal_retention_activation_restart_and_pap_require_rescan",
-        "journal_bucket_iam_compose_and_resumable_share_mutation_transactions",
         "startup-phases-native-startup",
         "import_journal_binding_pages_prefix_and_reopen_are_bounded",
         "import_journal_revalidation_is_atomic_without_advancing_progress",
@@ -60541,17 +60528,6 @@
             "compose_order_checksums_metadata_fields_and_restart",
             "rewrite_progress_retry_restart_and_completion_replay_publish_once",
             "retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation"
-          ]
-        },
-        {
-          "command": "just check",
-          "result": "PASS",
-          "verified_at": "2026-10-25",
-          "artifact": "docs/en/slices/onboarding-state-contract.md",
-          "test_ids": [
-            "journal_records_atomic_origins_mutations_and_stable_pages",
-            "journal_retention_activation_restart_and_pap_require_rescan",
-            "journal_bucket_iam_compose_and_resumable_share_mutation_transactions"
           ]
         },
         {
@@ -61130,11 +61106,11 @@
         },
         {
           "id": "publication-metadata-modes",
-          "description": "Transaction-local inheritance preserves patches after staging; equal size/MD5/CRC32C skips generations and journal entries while conditions/holds remain enforced. Contract: docs/en/slices/shared-publication-modes.md.",
+          "description": "Transaction-local inheritance preserves patches after staging; equal size/MD5/CRC32C skips generations while conditions/holds remain enforced. Contract: docs/en/slices/shared-publication-modes.md.",
           "result": "PASS",
           "test_ids": [
             "publication_inherits_metadata_patched_after_staging",
-            "publication_equal_hash_keeps_generation_metadata_and_journal",
+            "publication_equal_hash_keeps_generation_and_metadata",
             "publication_streaming_modes_preserve_patches_and_require_all_hash_fields"
           ]
         },
@@ -61146,7 +61122,7 @@
             "publication_batch_isolates_failed_elements_and_cleans_unused_blobs",
             "publication_batch_keeps_per_element_validation_and_rejects_foreign_handles",
             "publication_budget_returns_retryable_handles_and_releases_sql_lane",
-            "publication_disk_full_rolls_back_the_batch_and_journal",
+            "publication_disk_full_rolls_back_the_batch_and_its_generations",
             "publication_partial_batch_allows_staging_without_a_second_batch",
             "publication_past_the_active_batch_takes_turns_and_every_batch_commits",
             "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup"
@@ -61171,7 +61147,7 @@
             "publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation",
             "publication_file_checksums_caps_staging_visibility_and_discard",
             "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",
-            "publication_disk_full_rolls_back_the_batch_and_journal"
+            "publication_disk_full_rolls_back_the_batch_and_its_generations"
           ]
         },
         {
@@ -61247,12 +61223,12 @@
         "callback_reclamation_failure_preserves_success_and_maintenance_retries",
         "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
         "publication_inherits_metadata_patched_after_staging",
-        "publication_equal_hash_keeps_generation_metadata_and_journal",
+        "publication_equal_hash_keeps_generation_and_metadata",
         "publication_streaming_modes_preserve_patches_and_require_all_hash_fields",
         "publication_batch_isolates_failed_elements_and_cleans_unused_blobs",
         "publication_batch_keeps_per_element_validation_and_rejects_foreign_handles",
         "publication_budget_returns_retryable_handles_and_releases_sql_lane",
-        "publication_disk_full_rolls_back_the_batch_and_journal",
+        "publication_disk_full_rolls_back_the_batch_and_its_generations",
         "publication_partial_batch_allows_staging_without_a_second_batch",
         "publication_past_the_active_batch_takes_turns_and_every_batch_commits",
         "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",
@@ -61291,12 +61267,12 @@
           "artifact": "docs/en/slices/shared-publication-modes.md",
           "test_ids": [
             "publication_inherits_metadata_patched_after_staging",
-            "publication_equal_hash_keeps_generation_metadata_and_journal",
+            "publication_equal_hash_keeps_generation_and_metadata",
             "publication_streaming_modes_preserve_patches_and_require_all_hash_fields",
             "publication_batch_isolates_failed_elements_and_cleans_unused_blobs",
             "publication_batch_keeps_per_element_validation_and_rejects_foreign_handles",
             "publication_budget_returns_retryable_handles_and_releases_sql_lane",
-            "publication_disk_full_rolls_back_the_batch_and_journal",
+            "publication_disk_full_rolls_back_the_batch_and_its_generations",
             "publication_partial_batch_allows_staging_without_a_second_batch",
             "publication_past_the_active_batch_takes_turns_and_every_batch_commits",
             "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",
@@ -61314,12 +61290,12 @@
           "artifact": "docs/en/slices/shared-publication-modes.md",
           "test_ids": [
             "publication_inherits_metadata_patched_after_staging",
-            "publication_equal_hash_keeps_generation_metadata_and_journal",
+            "publication_equal_hash_keeps_generation_and_metadata",
             "publication_streaming_modes_preserve_patches_and_require_all_hash_fields",
             "publication_batch_isolates_failed_elements_and_cleans_unused_blobs",
             "publication_batch_keeps_per_element_validation_and_rejects_foreign_handles",
             "publication_budget_returns_retryable_handles_and_releases_sql_lane",
-            "publication_disk_full_rolls_back_the_batch_and_journal",
+            "publication_disk_full_rolls_back_the_batch_and_its_generations",
             "publication_partial_batch_allows_staging_without_a_second_batch",
             "publication_past_the_active_batch_takes_turns_and_every_batch_commits",
             "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",

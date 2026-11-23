@@ -237,7 +237,6 @@ impl Catalog {
                     [project],
                 )?;
             }
-            super::change_journal::parent_pap(&transaction, &projects)?;
             transaction.commit().map_err(unavailable)?;
             parent_policy.publish(&projects);
             Ok(())
@@ -354,7 +353,6 @@ impl Catalog {
                 &transaction,
                 PolicyWrite {
                     bucket: &bucket,
-                    access: &access,
                     metageneration: step,
                 },
                 &mut policy,
@@ -377,17 +375,16 @@ pub(super) enum Metageneration {
     Advanced,
 }
 
-/// Where a policy goes and on whose behalf.
+/// Where a policy goes and how it moves the bucket metageneration.
 #[derive(Clone, Copy)]
 pub(super) struct PolicyWrite<'a> {
     pub(super) bucket: &'a str,
-    pub(super) access: &'a BucketAccess,
     pub(super) metageneration: Metageneration,
 }
 
 /// Replaces the stored policy as setIamPolicy does once its preconditions hold: refuses public
-/// members under public access prevention, derives the bucket ACL, stores the policy with a new
-/// etag and journals the change. The caller authorizes and commits.
+/// members under public access prevention, derives the bucket ACL and stores the policy with a
+/// new etag. The caller authorizes and commits.
 pub(super) fn replace_policy(
     connection: &Connection,
     write: PolicyWrite<'_>,
@@ -396,7 +393,6 @@ pub(super) fn replace_policy(
 ) -> Result<(), CatalogError> {
     let PolicyWrite {
         bucket,
-        access,
         metageneration,
     } = write;
     if policy_public_access(connection, bucket)? == crate::auth::PublicAccess::Prevented
@@ -411,14 +407,7 @@ pub(super) fn replace_policy(
         Metageneration::Advance { updated } => advance_acl_revision(connection, bucket, updated)?,
         Metageneration::Advanced => {}
     }
-    store_policy(connection, bucket, policy)?;
-    super::change_journal::append(
-        connection,
-        super::change_journal::origin(access),
-        super::change_journal::ChangeKind::Iam,
-        bucket,
-        None,
-    )
+    store_policy(connection, bucket, policy)
 }
 
 /// Whether public members of the bucket's IAM policy may grant access: neither the bucket nor

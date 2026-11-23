@@ -826,13 +826,8 @@ fn transition_version(
             micros
         ],
     )?;
-    super::change_journal::object(
-        transaction,
-        super::admin::Origin::Api,
-        super::change_journal::ChangeKind::Metadata,
-        &record,
-    )?;
-    Ok(())
+    super::notification_outbox::metadata_updated(transaction, super::admin::Origin::Api, &record)
+        .map_err(ObjectError::from)
 }
 
 fn retire_version(

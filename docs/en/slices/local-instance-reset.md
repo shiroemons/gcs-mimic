@@ -117,16 +117,14 @@ Startup maintenance runs derived, resumable, rewrite, multipart and soft-deleted
 bucket sweeps even on a fresh catalog. Its SQL jobs can overlap the first bucket
 creation and reset after readiness. A configured notification publisher also
 holds activity while inspecting its outbox and sending/recording an attempt.
-Change-journal recording runs inside existing catalog jobs, rather than starting
-an independent worker. These short overlaps must not cause an otherwise idle
-reset to fail immediately.
+These short overlaps must not cause an otherwise idle reset to fail immediately.
 
 The short immediate transaction:
 
 1. Rejects an active import without changing its journal or objects.
 2. Inserts object, session, derived and appendable opaque file IDs into the existing deletion journal with `INSERT SELECT`; no whole catalog or object body is collected.
-3. Clears buckets, all object versions, IAM policies, ACLs, notification configurations, HMAC keys, resumable/rewrite/derived/appendable state, invocation replays, import records and change-journal records. Bucket and object ACL/notification rows use their existing foreign-key cascades.
-4. Clears seed completion and advances the change-journal epoch to invalidate old observations.
+3. Clears buckets, all object versions, IAM policies, ACLs, notification configurations, HMAC keys, resumable/rewrite/derived/appendable state, invocation replays, import records and any change-journal records an older release left. Bucket and object ACL/notification rows use their existing foreign-key cascades.
+4. Clears seed completion and advances the reset epoch that `change_journal_state` still holds.
 5. Preserves catalog identity, schema, object-generation and policy-revision high-water marks, the injected clock, authentication registry, parent-policy fixture, startup configuration and runtime endpoint settings.
 
 The epoch update commits with deletion and resolves an ambiguous commit result:

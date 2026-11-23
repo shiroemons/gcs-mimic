@@ -418,7 +418,7 @@ publication mode preserves those entries without first reading or validating
 the current default object ACL. This also preserves the virtual project-private
 ACL of a legacy object without a stored ACL row. Unknown historical owners stay
 unknown. Conditions, generation allocation, source deletion, destination
-replacement, ACL storage, change journal and notification enqueue roll back
+replacement, ACL storage and notification enqueue roll back
 together when publication fails.
 
 Appendable finalization now distinguishes reserved generation/timestamp metadata

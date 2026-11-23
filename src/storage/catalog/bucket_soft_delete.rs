@@ -9,8 +9,8 @@
 
 use super::{
     Catalog, UnixMicros, acl::reconcile_bucket_policy, bucket_columns, bucket_metadata_charge,
-    change_journal, policies::next_revision, principals::Profile, read_bucket, remove_objects,
-    select_bucket, system_time_micros, unavailable, unix_micros,
+    policies::next_revision, principals::Profile, read_bucket, remove_objects, select_bucket,
+    system_time_micros, unavailable, unix_micros,
 };
 use crate::bucket::{BucketAccess, BucketRecord, CatalogError, SoftDeletedBucket};
 use crate::storage::catalog::sql;
@@ -248,13 +248,6 @@ fn restore_in_transaction(
         connection,
         "DELETE FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2",
         params![name, generation],
-    )?;
-    change_journal::append(
-        connection,
-        change_journal::origin(access),
-        change_journal::ChangeKind::BucketCreate,
-        name,
-        None,
     )?;
     let record = select_bucket(connection, name)?.ok_or(CatalogError::NotFound)?;
     if !record.lifecycle.is_empty() {

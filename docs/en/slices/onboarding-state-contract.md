@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-This contract freezes the Shared state boundary for initialization and import. Directory synchronization was removed; `seed_dir` reads a folder at startup and never writes to it, so every synchronization requirement below is withdrawn, and the benchmark records keep describing the measured source as dated. DESIGN-062, DESIGN-072, DESIGN-074 and AUDIT-014 remain PARTIAL; UX-002 retains its implemented seed-before-ready scope. The [startup phase slice](startup-phases.md) supplies the runtime startup subset below; other runtime cases remain PENDING until their owning slices supply executable evidence.
+This contract freezes the Shared state boundary for initialization and import. Directory synchronization was removed; `seed_dir` reads a folder at startup and never writes to it, so every synchronization requirement below is withdrawn, and the benchmark records keep describing the measured source as dated. The change journal, whose only consumer was synchronization, was withdrawn with it: nothing records or reads changes, and only its schema remains. DESIGN-062, DESIGN-072, DESIGN-074 and AUDIT-014 remain PARTIAL; UX-002 retains its implemented seed-before-ready scope. The [startup phase slice](startup-phases.md) supplies the runtime startup subset below; other runtime cases remain PENDING until their owning slices supply executable evidence.
 
 ## Acceptance and scope
 
@@ -12,7 +12,6 @@ The first three rows map to the three original `onboarding-state-contract` deliv
 | --- | --- | --- |
 | onboarding-state-authority | DESIGN-062 | PASS: validated identity/authority and bounded management operations, unchanged strict API permissions, native seed 13/Linux seed 14 cases and permissive/strict SDK/container regressions. [Evidence](../evidence/shared-admin-interface.md). Initializer startup remains separate. |
 | onboarding-state-ownership | DESIGN-072 | Shared services own schema, conditions, hashes, generations and recovery; adapters use typed operations and transactional state hooks, never SQL/private blob paths; shared-admin-interface and shared-publication-modes. PENDING. |
-| shared-change-journal | DESIGN-072 | PASS: origin-bearing transactional mutations, bounded replay and retention, stable fences, rescan after activation/restart/gap/PAP change. Catalog API only; no runtime consumer configuration. See change journal evidence below. |
 | catalog-change-journal-migration | AUDIT-014 | PASS: atomic schema 14 to 15, partial-DDL rollback/retry, preserved objects/policies/active sessions, retained schema-14 catalog snapshot, complete bounded inventory and newer-format rejection. Full stopped-data restoration with older executables remains under catalog-upgrade-policy. |
 | onboarding-state-create-missing | DESIGN-062 | Preserve existing bucket settings/objects on restart, changed project and removed entries; initializer runs before seed, independent of synchronization/public URL settings; shared-startup-phases and init-create-missing. PENDING. |
 | onboarding-state-cancellation | DESIGN-074 | Interrupt every pre-bind phase; no ready event on failure, drain side effects before unlocking, remove definitely uncommitted files and retain possibly committed bodies; shared-startup-phases, shared-admin-interface and shared-publication-modes. PENDING. |
@@ -38,7 +37,7 @@ The first three rows map to the three original `onboarding-state-contract` deliv
 
 ### Administrative interface acceptance
 
-The shared-admin-interface slice preserves schema 14 and the existing publication/recovery protocol. Its executed acceptance cases cover validated bucket/object names and positive generations; create-missing batches preserve input order, stored projects, settings, policy and incarnation, and roll back together; Replace retains metadata, atomic conditions, holds, checksums and monotonically allocated generations; management reads use keyset pages of at most 256. API admission saturation does not block management admission, while management slot/execution waits time out after `catalog_wait_timeout_ms` (30 seconds for a catalog no server configured, such as an import). Shutdown closes management admission and drains accepted publication and cancellation cleanup before releasing the directory lock. Filesystem StorageFull and SQLite SQLITE_FULL reach AdminError::DiskFull without string parsing; SQLite/stored-value corruption remains Corrupt. Seed's fourteen Linux cases, strict API authorization and existing schema migration regressions pass as recorded in the linked evidence. Origin is carried by the grant; persistent origin records belong to shared-change-journal.
+The shared-admin-interface slice preserves schema 14 and the existing publication/recovery protocol. Its executed acceptance cases cover validated bucket/object names and positive generations; create-missing batches preserve input order, stored projects, settings, policy and incarnation, and roll back together; Replace retains metadata, atomic conditions, holds, checksums and monotonically allocated generations; management reads use keyset pages of at most 256. API admission saturation does not block management admission, while management slot/execution waits time out after `catalog_wait_timeout_ms` (30 seconds for a catalog no server configured, such as an import). Shutdown closes management admission and drains accepted publication and cancellation cleanup before releasing the directory lock. Filesystem StorageFull and SQLite SQLITE_FULL reach AdminError::DiskFull without string parsing; SQLite/stored-value corruption remains Corrupt. Seed's fourteen Linux cases, strict API authorization and existing schema migration regressions pass as recorded in the linked evidence. Origin is carried by the grant; nothing records it durably.
 
 Bucket identity is its validated global bucket name plus its stored owning project. Object identity is bucket/name/generation; project is not a second bucket namespace. `ensure_bucket(s)` returns `Created` or `Existing` with the stored record. It never patches existing settings or installs IAM grants. Callers decide whether an existing different project blocks their operation; the initializer must diagnose that mismatch without reassignment. Imported names/projects never create public permissions. Removing initialization entries never deletes resources.
 
@@ -68,7 +67,7 @@ The baseline still performs object-count-proportional recovery before bind. Movi
 | delete_object | Atomic generation condition; preserve versioning/holds and journal side effects. |
 | get/open/list | Bounded waiting management reads outside API admission; keyset pages, at most 256 records for adapter state. Open readers pin the selected immutable blob. |
 | adapter state | Typed state updates participate in the same transaction as successful object changes. Adapters never receive a SQL connection or supply arbitrary SQL callbacks. |
-| origin / changes | Typed api, seed, bucket-init, sync-ingest and import origins; ordered cursor reads with explicit gap/full-rescan signals. |
+| origin | Typed api, seed, bucket-init and import origins; an import publishes without notifications. No change feed is offered. |
 
 Management publication has **2 slots**, an admission deadline of **`catalog_wait_timeout_ms`** (30 seconds for a catalog no server configured) and no automatic retry. Requests past the slots wait for their turn. Batch publication is single-flight per catalog, and later batches take turns. Management reads also use their 32 slots and the same deadline, independently of the API's catalog and connection limits. CPU/body/walk work stays on bounded dedicated OS workers, not the two-worker shared blocking pool. A starting budget is two such workers and two page-channel slots, each page at most 256 records; slices must measure that budget rather than spawning per file.
 
@@ -117,18 +116,12 @@ Withdrawn with directory synchronization. The properties once accepted here (roo
 
 ## Schema and change journal decisions
 
-Schema changes ship in **separate monotonically increasing versions per schema-owning slice**, each with its own atomic migration. Do not reserve a speculative combined version or rerun schema 14 scaling. The next integrated schema owner selects the next actual version after checking main; parallel branches never assume the same number can be merged unchanged. shared-change-journal, shared-sync-state and shared-import-journal each own their migrations and AUDIT-014 cases. Raise/replace validate_schema's fixed inventory limit before adding tables beyond that bound.
+Schema changes ship in **separate monotonically increasing versions per schema-owning slice**, each with its own atomic migration. Do not reserve a speculative combined version or rerun schema 14 scaling. The next integrated schema owner selects the next actual version after checking main; parallel branches never assume the same number can be merged unchanged. The change journal's schema 15 and shared-import-journal each own their migrations and AUDIT-014 cases. Raise/replace validate_schema's fixed inventory limit before adding tables beyond that bound.
 
-Change-journal retention is at most **65,536 committed change records** per catalog. Write only when a configured consumer exists. Record every object publication, metadata update and deletion (including compose source deletion), bucket create/update/delete and IAM change in the mutation transaction. Retain a durable increasing sequence and oldest retained position; enabling a consumer later or reading before the retained position requires a full rescan. Trim in bounded pages, without an O(N) operation in one transaction. Changes larger than the cap produce a gap, never false complete delivery.
-
-PAP's parent fixture is configuration loaded at startup, not a durable bucket mutation. Do not append one entry per affected object. On a changed parent-policy configuration or new consumer, invalidate that consumer's authorization view and require a full rescan before reporting caught-up. Bucket-local PAP updates remain ordinary bucket changes. Consumers must reconcile permissions from current policy, not replay old authorizations. This is a local fixture contract, not Google propagation simulation. shared-change-journal owns the durable detection/invalidation representation and its restart/gap tests.
+The change journal is withdrawn. Directory synchronization was its only consumer, so nothing records object, bucket or IAM changes, nothing enables or reads the journal, and its retention, cursor, fence and parent-PAP invalidation contract no longer applies. Its tables stay so that older catalogs still upgrade and validate; reset still advances the epoch in `change_journal_state` to resolve an ambiguous commit.
 
 ### Change journal acceptance
 
-`shared-change-journal` (DESIGN-072) covers atomic origin-bearing publication,
-metadata/deletion (including compose source deletion), bucket and IAM records;
-disabled logging, monotonic sequences, bounded retention/pages, stable fences,
-late activation, restart/gap rescan and durable parent-PAP invalidation.
 `catalog-change-journal-migration` (AUDIT-014) covers atomic schema 14 to 15,
 rollback/retry, preserved existing data, complete schema inventory validation,
 and rejection of newer formats. Broader feature rows remain PARTIAL.
@@ -140,42 +133,6 @@ it does not rescale schema-14 timestamps. The schema inventory reads at most
 schema 15 is rejected by executables supporting only schema 14. Never downgrade
 in place. The migration tests retain an unchanged catalog-only snapshot for
 schema-14 validation; that snapshot alone is not a usable data-directory backup.
-
-`Catalog::enable_change_journal()` activates the aggregate consumer
-requirement and returns a baseline `JournalFence`. The consumer owner must keep
-logging enabled until its last reader stops. No CLI/environment/file setting is
-added. Reopening an enabled catalog disables logging and advances the durable
-revision; already disabled catalogs avoid an additional startup write. Restart
-therefore conservatively requires a full scan even for unchanged PAP.
-This avoids claiming continuity over an interval with no configured reader.
-Enabling/disabling advances revision only on a transition; repeated enable does
-not invalidate another reader. New readers pass `None` to `read_changes` and
-must scan current state before using the returned fence as their cursor.
-
-`read_changes(after, fence, limit)` accepts 1 through 256 records. Capture the
-first page's fence and reuse it for later pages; `next` advances only through
-that fence, excluding subsequent publications. Missing/invalid/future/reversed
-cursors, changed revisions, disabled logging and retention gaps return an empty
-page with `rescan_required=true` and a new baseline fence. A reader must never
-interpret that empty page as caught-up. Scan and reconcile current state, then
-consume changes after the captured baseline; if retention overtakes it, rescan
-again. Multiple readers retain independent cursors without per-reader SQL state.
-
-Records retain sequence, typed `Origin` and `ChangeKind`, bucket/project/incarnation,
-optional object/generation and metageneration. Deletion captures identity before
-the bucket is removed, so same-name recreation remains distinguishable. All
-publication protocols use the common commit function; compose source deletion
-shares the destination transaction. Rejected mutations roll back sequence and
-records together. Retention removes at most 256 oldest positions per append
-(normally zero or one), retaining at most 65,536 records even within a large
-transaction. The sequence is not reset on disable or restart. The shared feed
-can serve future EXT-BEH-032 consumers; provider event mapping, payload/filter
-semantics and delivery guarantees remain that feature's unimplemented scope.
-
-Parent PAP stores a canonical sorted/deduplicated project set and advances the
-same durable revision on change, in the transaction replacing the temporary
-effective fixture. Equal sets avoid a main-catalog write and do not invalidate readers. No object event is
-fabricated for a parent-policy change. Readers must consult current policy.
 
 ### Change journal evidence
 

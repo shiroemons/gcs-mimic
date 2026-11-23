@@ -15,8 +15,6 @@ mod memory;
 mod object_tests;
 pub use catalog::admin;
 #[cfg(test)]
-pub(crate) use catalog::change_journal;
-#[cfg(test)]
 pub(crate) use catalog::fault;
 pub(crate) use catalog::hmac_keys;
 pub use catalog::import_journal;

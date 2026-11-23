@@ -1,5 +1,7 @@
 use super::{
-    Activity, Catalog, UploadGuard, Work, micros_column,
+    Activity, Catalog, UploadGuard, Work,
+    admin::Origin,
+    micros_column,
     read_cache::{self, CachedDownload, CachedObject},
     system_time_micros, unavailable, unix_micros,
 };
@@ -306,10 +308,9 @@ impl Catalog {
                 .map_err(acl_update_error)?;
             }
             store_metadata_update(&transaction, &mut record, update, clock.as_ref())?;
-            super::change_journal::object(
+            super::notification_outbox::metadata_updated(
                 &transaction,
-                super::change_journal::origin(&access),
-                super::change_journal::ChangeKind::Metadata,
+                Origin::from(&access),
                 &record,
             )?;
             transaction.commit()?;
@@ -571,12 +572,6 @@ pub(super) fn delete_in_transaction(
     } else {
         record.check_retention(now)?;
     }
-    super::change_journal::object(
-        transaction,
-        super::change_journal::origin(access),
-        super::change_journal::ChangeKind::Delete,
-        &record,
-    )?;
     let retired = retire_previous(
         transaction,
         Some(&StoredObject { record, blob: id }),
@@ -584,7 +579,7 @@ pub(super) fn delete_in_transaction(
         &publication,
         RetirementContext {
             micros: unix_micros(now)?,
-            origin: super::change_journal::origin(access),
+            origin: Origin::from(access),
             replacement: None,
             notification_mode: NotificationMode::for_access(access),
         },

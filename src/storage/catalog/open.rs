@@ -251,10 +251,6 @@ fn open_memory(max_bytes: u64) -> Result<Connection, CatalogError> {
 }
 
 /// Resets volatile state and completes crash recovery before the catalog serves requests.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "crash recovery runs once at open"
-)]
 fn recover_on_open(
     connection: &mut Connection,
     backend: &BlobBackend,
@@ -263,18 +259,6 @@ fn recover_on_open(
     let BlobBackend::Disk(data_dir) = backend else {
         return Err(unavailable("disk recovery requires a disk backend"));
     };
-    let journal_enabled: bool = connection.query_row(
-        "SELECT enabled FROM change_journal_state WHERE singleton = 1",
-        [],
-        |row| row.get(0),
-    )?;
-    if journal_enabled {
-        // shortcut: restart requires a full rescan, add durable consumer checkpoints when restart continuity is needed.
-        connection.execute(
-            "UPDATE change_journal_state SET enabled = 0, epoch = epoch + 1 WHERE singleton = 1",
-            [],
-        )?;
-    }
     connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
     notification_outbox::open(connection)?;
     resumable::open(connection)?;
@@ -442,7 +426,6 @@ impl Catalog {
                 file_workers: admin::FileWorkers::new()?,
                 admin_shutdown: Notify::new(),
                 local_admin: admin::startup_grant(local_admin),
-                change_wake: Notify::new(),
                 notification_wake: Arc::new(Notify::new()),
                 notification_started: AtomicBool::new(false),
                 pubsub_endpoint: OnceLock::new(),

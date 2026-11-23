@@ -178,7 +178,7 @@ pub(super) fn clear_in_transaction(
     }
     sql::exec(
         transaction,
-        "UPDATE change_journal_state SET epoch = ?1, floor = sequence, enabled = 0 WHERE singleton = 1",
+        "UPDATE change_journal_state SET epoch = ?1, floor = sequence WHERE singleton = 1",
         [next],
     )?;
     Ok(Cleared {

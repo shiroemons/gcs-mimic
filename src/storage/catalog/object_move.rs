@@ -92,7 +92,6 @@ impl Catalog {
                     ));
                 }
                 let publication = super::objects::BucketPublication::load(&transaction, &bucket)?;
-                let origin = super::change_journal::origin(&destination_create);
                 super::notification_outbox::enqueue(
                     &transaction,
                     crate::notification::Message {
@@ -101,12 +100,6 @@ impl Catalog {
                         time: now.time,
                         replacement: None,
                     },
-                )?;
-                super::change_journal::object(
-                    &transaction,
-                    origin,
-                    super::change_journal::ChangeKind::Delete,
-                    &record,
                 )?;
                 // Remove only the live source generation; its blob becomes the destination's blob.
                 sql::exec(
@@ -129,7 +122,7 @@ impl Catalog {
                         blob_id,
                         assignment: GenerationAssignment::Automatic,
                         micros: now.micros,
-                        origin,
+                        origin: super::admin::Origin::from(&destination_create),
                         notification_mode: crate::notification::NotificationMode::for_access(
                             &destination_create,
                         ),

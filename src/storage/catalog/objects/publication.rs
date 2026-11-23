@@ -4,7 +4,7 @@ use crate::bucket::{ClassLocationConflict, Location};
 use std::num::NonZeroI64;
 
 /// The new version a publication transaction records: its blob, how its generation is
-/// assigned, the publication time and the origin the change journal reports.
+/// assigned, the publication time and the origin that decides whether it reports notifications.
 #[derive(Clone, Copy)]
 pub(in crate::storage::catalog) struct NewVersion<'a> {
     pub(in crate::storage::catalog) blob_id: BlobId,
@@ -471,12 +471,6 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
     if notification_mode == NotificationMode::Emit {
         super::super::notification_outbox::published(transaction, origin, &record, previous, now)?;
     }
-    super::super::change_journal::object(
-        transaction,
-        origin,
-        super::super::change_journal::ChangeKind::Publish,
-        &record,
-    )?;
     Ok(PublishedVersion {
         record,
         retired,
