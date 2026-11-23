@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-This contract freezes the Shared state boundary for initialization and import. Directory synchronization was removed; `seed_dir` reads a folder at startup and never writes to it, so every synchronization requirement below is withdrawn, and the benchmark records keep describing the measured source as dated. The change journal, whose only consumer was synchronization, was withdrawn with it: nothing records or reads changes, and only its schema remains. DESIGN-062, DESIGN-072, DESIGN-074 and AUDIT-014 remain PARTIAL; UX-002 retains its implemented seed-before-ready scope. The [startup phase slice](startup-phases.md) supplies the runtime startup subset below; other runtime cases remain PENDING until their owning slices supply executable evidence.
+This contract freezes the Shared state boundary for initialization and import. Directory synchronization was removed; `seed_dir` reads a folder at startup and never writes to it, so every synchronization requirement below is withdrawn, and the benchmark records keep describing the measured source as dated. The change journal, whose only consumer was synchronization, was withdrawn with it: nothing records or reads changes, and schema 58 drops its tables. DESIGN-062, DESIGN-072, DESIGN-074 and AUDIT-014 remain PARTIAL; UX-002 retains its implemented seed-before-ready scope. The [startup phase slice](startup-phases.md) supplies the runtime startup subset below; other runtime cases remain PENDING until their owning slices supply executable evidence.
 
 ## Acceptance and scope
 
@@ -116,7 +116,7 @@ Withdrawn with directory synchronization. The properties once accepted here (roo
 
 Schema changes ship in **separate monotonically increasing versions per schema-owning slice**, each with its own atomic migration. Do not reserve a speculative combined version or rerun schema 14 scaling. The next integrated schema owner selects the next actual version after checking main; parallel branches never assume the same number can be merged unchanged. The change journal's schema 15 and shared-import-journal each own their migrations and AUDIT-014 cases. Raise/replace validate_schema's fixed inventory limit before adding tables beyond that bound.
 
-The change journal is withdrawn. Directory synchronization was its only consumer, so nothing records object, bucket or IAM changes, nothing enables or reads the journal, and its retention, cursor, fence and parent-PAP invalidation contract no longer applies. Its tables stay so that older catalogs still upgrade and validate; reset still advances the epoch in `change_journal_state` to resolve an ambiguous commit.
+The change journal is withdrawn. Directory synchronization was its only consumer, so nothing records object, bucket or IAM changes, nothing enables or reads the journal, and its retention, cursor, fence and parent-PAP invalidation contract no longer applies. Schema 15 still creates its tables so that older catalogs upgrade and validate, and schema 58 drops them, moving the epoch that reset advances to resolve an ambiguous commit from `change_journal_state` into `reset_epoch` in the same transaction.
 
 ### Change journal acceptance
 

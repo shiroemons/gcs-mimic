@@ -402,7 +402,7 @@ async fn released() -> Released {
     }
 }
 
-/// Schema 58 with no synchronization object left.
+/// Schema 58 with no synchronization or change journal object left.
 #[track_caller]
 fn assert_retired(connection: &Connection) {
     assert_eq!(user_version(connection), RETIREMENT_SCHEMA_VERSION);
@@ -410,10 +410,65 @@ fn assert_retired(connection: &Connection) {
     assert_eq!(
         names(
             connection,
-            "SELECT name FROM sqlite_schema WHERE name GLOB 'sync_*' OR tbl_name GLOB 'sync_*' UNION ALL SELECT name FROM sqlite_sequence WHERE name GLOB 'sync_*'"
+            "SELECT name FROM sqlite_schema WHERE name GLOB 'sync_*' OR tbl_name GLOB 'sync_*' OR tbl_name GLOB 'change_journal*' UNION ALL SELECT name FROM sqlite_sequence WHERE name GLOB 'sync_*'"
         ),
         Vec::<String>::new()
     );
+}
+
+/// The reset epoch a catalog at schema 57 keeps in the change journal's state row.
+fn journal_epoch(connection: &Connection) -> i64 {
+    count(
+        connection,
+        "SELECT epoch FROM change_journal_state WHERE singleton = 1",
+    )
+}
+
+/// The reset epoch a catalog at schema 58 keeps.
+fn reset_epoch(connection: &Connection) -> i64 {
+    count(
+        connection,
+        "SELECT epoch FROM reset_epoch WHERE singleton = 1",
+    )
+}
+
+/// A data directory at schema 57 whose resets moved the epoch on keeps it through the upgrade,
+/// and the next reset counts on from it in the table that replaced the change journal.
+#[tokio::test]
+async fn the_reset_epoch_moves_out_of_the_change_journal_and_reset_counts_on_from_it() {
+    let dir = TestDir::new();
+    bucket_catalog(&dir.0).await.close().await.unwrap();
+    let connection = at_schema_57(&dir.0);
+    connection
+        .execute_batch("UPDATE change_journal_state SET epoch = 7 WHERE singleton = 1")
+        .unwrap();
+    drop(connection);
+    let open = || {
+        Catalog::open_for_server(
+            &dir.0,
+            std::sync::Arc::new(crate::clock::SystemClock),
+            crate::storage::admin::LocalAdmin::Enabled,
+        )
+    };
+
+    open().await.unwrap().close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    assert_retired(&connection);
+    assert_eq!(reset_epoch(&connection), 7);
+    drop(connection);
+
+    let catalog = open().await.unwrap();
+    catalog.local_admin().unwrap().reset().await.unwrap();
+    assert!(
+        catalog
+            .get_bucket(BUCKET, PERMISSIVE)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    assert_eq!(reset_epoch(&connection), 8);
 }
 
 #[tokio::test]
@@ -744,6 +799,9 @@ fn the_retirement_step_commits_whole() {
         .pragma_update(None, "foreign_keys", true)
         .unwrap();
     record_root(&connection, BUCKET, &[&"0".repeat(32)]);
+    connection
+        .execute_batch("UPDATE change_journal_state SET epoch = 5 WHERE singleton = 1")
+        .unwrap();
     // A reference the step does not know about keeps `sync_roots`, which goes last, from
     // losing its rows.
     connection
@@ -756,9 +814,19 @@ fn the_retirement_step_commits_whole() {
     assert_eq!(user_version(&connection), RETIREMENT_SCHEMA_VERSION - 1);
     assert_eq!(count(&connection, "SELECT count(*) FROM sync_findings"), 1);
     assert_eq!(count(&connection, "SELECT count(*) FROM sync_objects"), 1);
+    // The epoch moved and the change journal dropped first, and both rolled back.
+    assert_eq!(journal_epoch(&connection), 5);
+    assert_eq!(
+        names(
+            &connection,
+            "SELECT name FROM sqlite_schema WHERE name = 'reset_epoch'"
+        ),
+        Vec::<String>::new()
+    );
     connection.execute_batch("DROP TABLE blocker").unwrap();
     retire(&mut connection, None).unwrap();
     assert_retired(&connection);
+    assert_eq!(reset_epoch(&connection), 5);
     assert!(
         validate_schema_version(RETIREMENT_SCHEMA_VERSION, RETIREMENT_SCHEMA_VERSION - 1).is_err()
     );

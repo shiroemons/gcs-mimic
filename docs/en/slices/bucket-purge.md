@@ -46,9 +46,8 @@ One immediate transaction on the writer connection removes everything the catalo
 | Rewrite sessions that read from or write to the bucket | Deleted; their derived transfers are discarded after commit |
 | Upload replay records of the current incarnation | Deleted |
 | Queued notification events that name the bucket | Deleted from the outbox |
-| The change journal | Unchanged: nothing writes it any more, and the records an older release left keep the incarnation they observed |
 
-`purge_classifies_every_catalog_table` classifies every catalog table as deleted, cascaded, bound to an incarnation or instance-wide, so a later table must be classified before the test passes, and every deleted or cascaded table must have a check in the purge tests that its rows of the bucket are gone.
+`purge_classifies_every_catalog_table` classifies every catalog table as deleted, cascaded or instance-wide, so a later table must be classified before the test passes, and every deleted or cascaded table must have a check in the purge tests that its rows of the bucket are gone.
 
 Objects are deleted a page at a time before their blobs are journaled, so the journal reuses the pages the rows free. A RAM catalog at its page budget can therefore still be emptied, which journaling every blob first would refuse; `purge_empties_a_ram_catalog_at_its_page_budget` covers it.
 

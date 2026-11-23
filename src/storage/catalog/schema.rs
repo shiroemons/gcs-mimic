@@ -129,6 +129,9 @@ pub(super) struct Step {
     /// `None` for a version that changes only stored data.
     schema: Option<&'static str>,
     check: Option<StateCheck>,
+    /// The version whose upgrade replaced or dropped the state `check` reads, so catalogs from
+    /// it on are not checked; `None` while every later catalog holds that state.
+    checked_below: Option<i64>,
     /// `None` for a version an earlier step's migration writes itself.
     pub(super) migration: Option<Migration>,
 }
@@ -140,6 +143,7 @@ impl Step {
             version,
             schema: Some(schema),
             check,
+            checked_below: None,
             migration: Some(Migration::Statements(schema)),
         }
     }
@@ -155,6 +159,7 @@ impl Step {
             version,
             schema: Some(schema),
             check,
+            checked_below: None,
             migration: Some(Migration::Function(migrate)),
         }
     }
@@ -163,12 +168,14 @@ impl Step {
     const fn migrated_with_files(
         version: i64,
         schema: &'static str,
+        check: Option<StateCheck>,
         migrate: MigrateWithFiles,
     ) -> Self {
         Self {
             version,
             schema: Some(schema),
-            check: None,
+            check,
+            checked_below: None,
             migration: Some(Migration::WithFiles(migrate)),
         }
     }
@@ -180,6 +187,7 @@ impl Step {
             version,
             schema: Some(schema),
             check: None,
+            checked_below: None,
             migration: None,
         }
     }
@@ -190,8 +198,25 @@ impl Step {
             version,
             schema: None,
             check: None,
+            checked_below: None,
             migration: Some(Migration::Function(migrate)),
         }
+    }
+
+    /// Checks the state this step introduced only in catalogs older than `version`, whose
+    /// upgrade replaced or dropped it.
+    const fn checked_below(self, version: i64) -> Self {
+        Self {
+            checked_below: Some(version),
+            ..self
+        }
+    }
+
+    /// The check of this step that a catalog at `version` takes: none once an upgrade replaced or
+    /// dropped the state it reads.
+    fn checks(&self, version: i64) -> Option<StateCheck> {
+        self.check
+            .filter(|_| self.checked_below.is_none_or(|below| version < below))
     }
 }
 
@@ -221,8 +246,10 @@ pub(super) const STEPS: &[Step] = &[
     Step::statements(12, BUCKET_CORS_SCHEMA, None),
     Step::statements(13, BUCKET_PAP_SCHEMA, None),
     Step::data_only(TIMESTAMP_MICROS_SCHEMA_VERSION, migrate_timestamp_precision),
-    Step::statements(15, change_journal::SCHEMA, Some(change_journal::validate)),
-    Step::statements(16, import_journal::SCHEMA, None),
+    Step::statements(15, change_journal::SCHEMA, Some(change_journal::validate))
+        .checked_below(retired_sync::RETIREMENT_SCHEMA_VERSION),
+    // Version 18 replaced the import journal's check with the failure journal's.
+    Step::statements(16, import_journal::SCHEMA, Some(import_journal::validate)).checked_below(18),
     Step::migrated(
         17,
         retired_sync::IDENTITY_SCHEMA,
@@ -291,6 +318,7 @@ pub(super) const STEPS: &[Step] = &[
     Step::migrated_with_files(
         retired_sync::RETIREMENT_SCHEMA_VERSION,
         retired_sync::RETIREMENT_SCHEMA,
+        Some(retired_sync::validate_reset_epoch),
         retired_sync::retire,
     ),
 ];
@@ -326,12 +354,8 @@ pub(super) fn validate_schema(connection: &Connection, version: i64) -> Result<(
         if let Some(schema) = step.schema {
             expected.execute_batch(schema)?;
         }
-        if let Some(check) = step.check {
+        if let Some(check) = step.checks(version) {
             check(connection)?;
-        }
-        // Version 18 replaced the import journal's validation with the failure journal's.
-        if step.version == 16 && version < 18 {
-            import_journal::validate(connection)?;
         }
     }
     let inventory =
