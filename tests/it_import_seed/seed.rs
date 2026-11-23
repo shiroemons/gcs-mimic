@@ -572,11 +572,20 @@ fn restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects() {
     );
     server.stop();
 
-    // Removing a fixture file deletes the object seeding published for it at the next start.
+    // Removing a fixture file deletes the object seeding published for it at the next start,
+    // where a Unix walk proves the file absent. Elsewhere nothing proves it, and the object stays.
     fs::remove_file(seed.join("local-bucket/keep.txt")).unwrap();
     let server = Server::start(&mut command(&data, Some(&seed)), false);
     assert_eq!(server.ready["seed"], seed_counts(0, 0, 3, 0));
-    assert_eq!(server.media("/storage/v1/b/local-bucket/o/keep.txt").0, 404);
+    if cfg!(unix) {
+        assert_eq!(server.media("/storage/v1/b/local-bucket/o/keep.txt").0, 404);
+    } else {
+        assert_eq!(
+            server.media("/storage/v1/b/local-bucket/o/keep.txt"),
+            (200, b"keep".to_vec())
+        );
+        server.delete("/storage/v1/b/local-bucket/o/keep.txt");
+    }
     for object in ["hello.txt", "gone.txt", "untouched.txt", "created.txt"] {
         server.delete(&format!("/storage/v1/b/local-bucket/o/{object}"));
     }
@@ -1171,8 +1180,9 @@ fn seed_dir_added_after_disabled_startup_imports_and_removal_disables_again() {
 }
 
 /// A running server replays the tree after each `seed_watch_interval_ms`: a changed or new file
-/// publishes, a removed file deletes the object seeding published for it, and a new top-level
-/// directory gets its bucket. The tree holds only what the test wrote.
+/// publishes, a removed file deletes the object seeding published for it where a Unix walk proves
+/// it absent and keeps it elsewhere, and a new top-level directory gets its bucket. The tree
+/// holds only what the test wrote.
 #[test]
 fn a_running_server_replays_the_seed_directory_after_each_interval() {
     let dir = TestDir::new();
@@ -1186,11 +1196,12 @@ fn a_running_server_replays_the_seed_directory_after_each_interval() {
     fixture(&seed, "local-bucket/added.txt", b"added");
     fixture(&seed, "added-bucket/object", b"object");
     fs::remove_file(seed.join("local-bucket/removed.txt")).unwrap();
+    let removed = if cfg!(unix) { 404 } else { 200 };
     common::eventually("the passes to apply the changed tree", || {
         server.media("/storage/v1/b/local-bucket/o/changed.txt") == (200, b"after".to_vec())
             && server.media("/storage/v1/b/local-bucket/o/added.txt") == (200, b"added".to_vec())
             && server.media("/storage/v1/b/added-bucket/o/object") == (200, b"object".to_vec())
-            && server.media("/storage/v1/b/local-bucket/o/removed.txt").0 == 404
+            && server.media("/storage/v1/b/local-bucket/o/removed.txt").0 == removed
     });
     let mut files: Vec<_> = ["local-bucket", "added-bucket"]
         .iter()

@@ -63,7 +63,6 @@ fn remove(config: &Config, relative: &str) {
 
 /// A restart deletes the object seeding published for a file removed while the server was
 /// stopped, and keeps the others and the bucket.
-#[cfg(unix)]
 #[tokio::test]
 async fn a_restart_deletes_the_object_of_a_file_removed_while_stopped() {
     let (_dir, config) = fixture();
@@ -83,7 +82,6 @@ async fn a_restart_deletes_the_object_of_a_file_removed_while_stopped() {
 }
 
 /// A removed bucket directory deletes the objects seeding owns there but never the bucket.
-#[cfg(unix)]
 #[tokio::test]
 async fn a_removed_bucket_directory_keeps_its_bucket() {
     let (_dir, config) = fixture();
@@ -101,7 +99,6 @@ async fn a_removed_bucket_directory_keeps_its_bucket() {
 
 /// An object an API write replaced is never seeding's to delete, even with the body the file
 /// held; the restart forgets the name instead.
-#[cfg(unix)]
 #[tokio::test]
 async fn a_restart_keeps_an_api_write_at_the_name_of_a_removed_file() {
     let (_dir, config) = fixture();
@@ -126,7 +123,6 @@ async fn a_restart_keeps_an_api_write_at_the_name_of_a_removed_file() {
 
 /// The first start that keeps records takes no ownership of an identical object it did not
 /// publish, as of a catalog an older release seeded: removing the file later keeps the object.
-#[cfg(unix)]
 #[tokio::test]
 async fn the_first_start_with_records_claims_no_object_it_did_not_publish() {
     let (_dir, config) = fixture();
@@ -159,7 +155,6 @@ async fn the_first_start_with_records_claims_no_object_it_did_not_publish() {
 }
 
 /// A reseed on disk aligns with the folder as a restart does.
-#[cfg(unix)]
 #[tokio::test]
 async fn a_reseed_deletes_the_object_of_a_removed_file() {
     let (_dir, config) = fixture();

@@ -3,16 +3,19 @@
 //! deletion needs.
 
 use super::*;
+// Only a Unix walk proves a name absent, so the tests of deletions run there alone.
+#[cfg(unix)]
+use crate::object::MapPatch;
 use crate::{
     bucket::{BucketAccess, BucketConditions},
     clock::ManualClock,
-    object::{MapPatch, ObjectConditions, ObjectMetadataUpdate, ObjectRecord, ObjectTarget},
+    object::{ObjectConditions, ObjectMetadataUpdate, ObjectRecord, ObjectTarget},
     storage::admin::{ObjectName, seed_watch::WaitError},
     test_support::{TestDir, hang_deadline},
 };
+#[cfg(unix)]
+use std::{collections::BTreeMap, num::NonZeroUsize};
 use std::{
-    collections::BTreeMap,
-    num::NonZeroUsize,
     path::PathBuf,
     time::{Duration, SystemTime},
 };
@@ -25,6 +28,13 @@ struct Watched {
     dir: TestDir,
     seed: PathBuf,
     config: Config,
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only the deletions, which a Unix walk alone proves, wait for a second proof"
+        )
+    )]
     clock: Arc<ManualClock>,
     catalog: Catalog,
 }
@@ -88,6 +98,13 @@ impl Watched {
         std::fs::rename(&saved, path).unwrap();
     }
 
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "a removed file deletes an object only where a Unix walk proves it absent"
+        )
+    )]
     fn remove(&self, relative: &str) {
         let path = self.seed.join(relative);
         if path.is_dir() {
@@ -103,6 +120,13 @@ impl Watched {
 
     /// Moves the clock past the wait between the two proofs of a deletion, then waits for a
     /// pass that left no deletion waiting.
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only the deletions, which a Unix walk alone proves, wait for a second proof"
+        )
+    )]
     async fn confirm(&self) -> PassReport {
         self.clock.advance(Duration::from_secs(2));
         self.catalog

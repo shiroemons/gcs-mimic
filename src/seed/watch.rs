@@ -8,8 +8,10 @@
 //! it is. A pass that cannot run at all, such as one whose seed directory went away, changes
 //! nothing and reports why. No pass writes to the seed directory.
 
+#[cfg(unix)]
+use super::pin_root;
 use super::{
-    SeedError, pin_root, split_label,
+    SeedError, split_label,
     walk::{Fixture, Object, Opened, Seen, Source, Tree, Unlisted, Walked},
 };
 use crate::{
