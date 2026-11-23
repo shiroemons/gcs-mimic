@@ -608,6 +608,8 @@ pub(crate) async fn serve(
         Err(error) => return Ok(close_startup(&catalog, Err(error)).await?),
     };
     catalog.start_resumable_maintenance();
+    // The passes start with the listeners: the startup replay has just read the tree.
+    gcs_mimic::seed::watch(&catalog, &config, clock.clone());
     let state = Arc::new(State {
         pools: server::WorkPools::new(&config),
         xml_cors_warned_buckets: Default::default(),

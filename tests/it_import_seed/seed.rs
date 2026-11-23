@@ -1170,6 +1170,38 @@ fn seed_dir_added_after_disabled_startup_imports_and_removal_disables_again() {
     server.stop();
 }
 
+/// A running server replays the tree after each `seed_watch_interval_ms`: a changed or new file
+/// publishes, a removed file deletes the object seeding published for it, and a new top-level
+/// directory gets its bucket. The tree holds only what the test wrote.
+#[test]
+fn a_running_server_replays_the_seed_directory_after_each_interval() {
+    let dir = TestDir::new();
+    let seed = dir.0.join("fixtures");
+    fixture(&seed, "local-bucket/changed.txt", b"before");
+    fixture(&seed, "local-bucket/removed.txt", b"removed");
+    let mut serve = command(&dir.0.join("data"), Some(&seed));
+    serve.args(["--seed-watch-interval-ms", "50"]);
+    let server = Server::start(&mut serve, false);
+    fixture(&seed, "local-bucket/changed.txt", b"after");
+    fixture(&seed, "local-bucket/added.txt", b"added");
+    fixture(&seed, "added-bucket/object", b"object");
+    fs::remove_file(seed.join("local-bucket/removed.txt")).unwrap();
+    common::eventually("the passes to apply the changed tree", || {
+        server.media("/storage/v1/b/local-bucket/o/changed.txt") == (200, b"after".to_vec())
+            && server.media("/storage/v1/b/local-bucket/o/added.txt") == (200, b"added".to_vec())
+            && server.media("/storage/v1/b/added-bucket/o/object") == (200, b"object".to_vec())
+            && server.media("/storage/v1/b/local-bucket/o/removed.txt").0 == 404
+    });
+    let mut files: Vec<_> = ["local-bucket", "added-bucket"]
+        .iter()
+        .flat_map(|bucket| fs::read_dir(seed.join(bucket)).unwrap())
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    files.sort();
+    assert_eq!(files, ["added.txt", "changed.txt", "object"]);
+    server.stop();
+}
+
 #[test]
 fn explicit_project_and_empty_seed_directory_are_supported() {
     let dir = TestDir::new();
