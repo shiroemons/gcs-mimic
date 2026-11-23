@@ -820,6 +820,10 @@ fn apply_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(
         Setting::MaxRewriteSessions => config.max_rewrite_sessions = session_limit(setting, value)?,
         Setting::MaxSeedEntries => config.max_seed_entries = tree_limit(setting, value)?,
         Setting::MaxSeedDepth => config.max_seed_depth = tree_limit(setting, value)?,
+        Setting::SeedWatchIntervalMs => {
+            config.seed_watch_interval = NonZeroU64::new(setting.integer(value)?)
+                .map(|millis| std::time::Duration::from_millis(millis.get()));
+        }
         Setting::MaxBucketsPerBatch => config.max_buckets_per_batch = tree_limit(setting, value)?,
         Setting::WorkerThreads => config.worker_threads = count(setting, value)?,
         Setting::MaxBlockingThreads => config.max_blocking_threads = count(setting, value)?,
@@ -3607,6 +3611,34 @@ mod tests {
             "max_seed_depth",
             &["-1", "1025"],
             "max_seed_depth must be an integer in 0..=1024",
+        );
+    }
+
+    #[test]
+    fn the_seed_watch_interval_defaults_to_a_second_and_zero_stops_the_passes() {
+        use std::time::Duration;
+        let interval = |args: &[&str], env: &[(&str, &str)]| {
+            let args = args.iter().copied().map(str::to_owned).collect::<Vec<_>>();
+            let env = env
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect();
+            Config::load(&args, &env).unwrap().seed_watch_interval
+        };
+        assert_eq!(interval(&[], &[]), Some(Duration::from_secs(1)));
+        assert_eq!(
+            interval(&["--seed-watch-interval-ms", "250"], &[]),
+            Some(Duration::from_millis(250))
+        );
+        assert_eq!(
+            interval(&[], &[("GCS_MIMIC_SEED_WATCH_INTERVAL_MS", "86400000")]),
+            Some(Duration::from_secs(86_400))
+        );
+        assert_eq!(interval(&["--seed-watch-interval-ms", "0"], &[]), None);
+        assert_rejected(
+            "seed_watch_interval_ms",
+            &["-1", "86400001"],
+            "seed_watch_interval_ms must be an integer in 0..=86400000",
         );
     }
 

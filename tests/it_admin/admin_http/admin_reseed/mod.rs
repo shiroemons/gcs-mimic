@@ -1,5 +1,9 @@
 use super::*;
 
+/// Turns off the passes that replay the seed directory while the server runs, so that only the
+/// reseed under test applies what a test changes in the tree.
+const NO_WATCH: [&str; 2] = ["--seed-watch-interval-ms", "0"];
+
 fn fixture_server(data: &TestDir, source: &TestDir, catalog_wait_ms: &str) -> Server {
     std::fs::create_dir(source.0.join("test-bucket")).unwrap();
     std::fs::write(source.0.join("test-bucket/value"), b"seed").unwrap();
@@ -12,6 +16,8 @@ fn fixture_server(data: &TestDir, source: &TestDir, catalog_wait_ms: &str) -> Se
             source.0.to_str().unwrap(),
             "--catalog-wait-timeout-ms",
             catalog_wait_ms,
+            NO_WATCH[0],
+            NO_WATCH[1],
         ],
     )
 }
@@ -202,6 +208,8 @@ fn disk_reseed_suppresses_only_fixture_events_and_keeps_runtime_delivery_selecti
             "true",
             "--seed-dir",
             source.0.to_str().unwrap(),
+            NO_WATCH[0],
+            NO_WATCH[1],
         ],
     );
     server
@@ -257,6 +265,8 @@ fn configured_reseed_is_atomic_and_uses_disk_merge_or_ram_replacement() {
                 source.0.to_str().unwrap(),
                 "--api-base-url",
                 "http://fixture.invalid",
+                NO_WATCH[0],
+                NO_WATCH[1],
             ],
         );
         let old = server
@@ -407,6 +417,8 @@ fn reseed_past_a_configured_limit_answers_400_naming_the_setting() {
                 source.0.to_str().unwrap(),
                 &flag,
                 limit,
+                NO_WATCH[0],
+                NO_WATCH[1],
             ],
         );
         let before = server.request("GET", OBJECT, "", b"").json_ok();
@@ -451,6 +463,8 @@ fn reseed_of_an_unreadable_fixture_answers_400_without_retry_after() {
             "true",
             "--seed-dir",
             source.0.to_str().unwrap(),
+            NO_WATCH[0],
+            NO_WATCH[1],
         ],
     );
     let before = server.request("GET", OBJECT, "", b"").json_ok();
@@ -570,6 +584,8 @@ fn reseed_rejects_protection_without_changing_any_selected_objects() {
             "true",
             "--seed-dir",
             source.0.to_str().unwrap(),
+            NO_WATCH[0],
+            NO_WATCH[1],
         ],
     );
     let original = server

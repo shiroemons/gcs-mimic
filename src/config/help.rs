@@ -215,6 +215,10 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
             "N",
             "0 (0..1024; directory levels below a seed bucket; 0 is unlimited)",
         ),
+        Setting::SeedWatchIntervalMs => (
+            "N",
+            "1000 (0..86400000; replays seed_dir again after each wait while the server runs; 0 replays it only at startup)",
+        ),
         Setting::SeedContentType => (
             "MODE",
             "extension (extension|octet-stream; pinned MIME table)",
@@ -499,7 +503,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "1a16a8bb90ee3d36e065a77e230a524edbe6f95a584e5b18fcd2a1e721682b06"
+            "fdf3efdfd73d5d73c3fd3102031653417744020a397f7b513d4f1cbac2f89c2f"
         );
     }
 }

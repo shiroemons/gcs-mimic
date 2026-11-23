@@ -7,6 +7,8 @@ pub(crate) const MAX_OBJECT_BYTES: u64 = 5 * 1024_u64.pow(4);
 /// A 1024-byte object name cannot nest deeper than this, so a larger limit could admit nothing.
 /// A walk that holds a descriptor per level stops here even when no limit is set.
 pub(crate) const MAX_TREE_DEPTH: usize = 1024;
+/// One day, the longest wait between two passes over `seed_dir`.
+const MAX_SEED_WATCH_INTERVAL_MS: u64 = 86_400_000;
 
 super::string_enum! {
     no_default listed pub(crate) enum Setting {
@@ -36,6 +38,7 @@ super::string_enum! {
         SeedProject => "seed_project",
         MaxSeedEntries => "max_seed_entries",
         MaxSeedDepth => "max_seed_depth",
+        SeedWatchIntervalMs => "seed_watch_interval_ms",
         SeedContentType => "seed_content_type",
         BucketsFile => "buckets_file",
         Buckets => "buckets",
@@ -120,6 +123,9 @@ impl Setting {
             // 0 means unlimited here only; the config holds `Option<NonZeroU32>`.
             Self::MaxResumableSessions | Self::MaxRewriteSessions => Some((0, u32::MAX as u64)),
             Self::MaxSeedDepth => Some((0, MAX_TREE_DEPTH as u64)),
+            // 0 stops the passes. A day bounds the rest, so that every interval stays a time a
+            // clock can add without overflow.
+            Self::SeedWatchIntervalMs => Some((0, MAX_SEED_WATCH_INTERVAL_MS)),
             Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 1024)),
             Self::Config
             | Self::LogLevel

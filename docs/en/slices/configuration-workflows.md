@@ -88,6 +88,7 @@ The following existing defaults and validation remain unchanged:
 | `max_object_bytes` | `5497558138880` | `1..5497558138880` bytes |
 | `max_resumable_sessions`, `max_rewrite_sessions` | `0`, `0` | Each `0..4294967295`; 0 is unlimited |
 | `max_seed_entries`, `max_seed_depth` | `0`, `0` | `0..=2^64−1`, `0..=1024`; 0 is unlimited, so memory and time grow with the tree; a positive value stops there and names the setting; past 10,000 entries without a limit, `seed_tree_large` warns once per start |
+| `seed_watch_interval_ms` | `1000` | `0..=86400000`; the wait between passes that replay `seed_dir` while the server runs; 0 replays it only at startup |
 | `max_buckets_per_batch` | `0` | `0..=2^64−1`; 0 is unlimited; buckets one initialization file or one seed may declare, not all buckets of the server |
 | `worker_threads`, `max_blocking_threads` | Available CPUs from `2` to `8`, `8` | Each `1..1024` |
 | `memory_max_bytes`, `memory_catalog_max_bytes` | Half of the available memory less 32 MiB, within 64 MiB to 1 GiB; `16777216` | `1..1099511627776`, `1048576..1099511627776`; only with `backend=memory` |
