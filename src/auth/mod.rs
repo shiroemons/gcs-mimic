@@ -146,22 +146,10 @@ impl PermissionSet {
     }
 }
 
-/// Who wrote a project role. Local administration such as sync controls requires a
-/// `roles/storage.admin` that an operator wrote in the identity document; a role gcs-mimic gives
-/// a built-in identity on its own grants the same permissions but never that authority.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GrantSource {
-    /// An identity document entry's `project_roles`.
-    Declared,
-    /// A built-in identity's role in the projects the setup names, absent a declared entry.
-    Implicit,
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct ProjectGrant {
     permissions: PermissionSet,
     any_storage_permission: bool,
-    explicit_storage_admin: bool,
 }
 
 impl ProjectGrant {
@@ -171,7 +159,7 @@ impl ProjectGrant {
     }
 
     /// Adds what the predefined `role` grants.
-    fn add_role(&mut self, role: Role, source: GrantSource) {
+    fn add_role(&mut self, role: Role) {
         let expanded = role.permissions();
         self.any_storage_permission |= !expanded.is_empty();
         for permission in Permission::ALL {
@@ -179,10 +167,6 @@ impl ProjectGrant {
                 self.grant(*permission);
             }
         }
-        self.explicit_storage_admin |= match source {
-            GrantSource::Declared => role == Role::Admin,
-            GrantSource::Implicit => false,
-        };
     }
 }
 
@@ -480,15 +464,6 @@ impl Identity {
 
     pub fn id(&self) -> &str {
         &self.id
-    }
-
-    /// Whether the identity document grants `roles/storage.admin` in `project`. A built-in
-    /// identity's implicit role never counts, so only an operator's grant does.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
-    pub(crate) fn has_explicit_storage_admin(&self, project: &str) -> bool {
-        self.projects
-            .get(project)
-            .is_some_and(|grant| grant.explicit_storage_admin)
     }
 
     /// Whether any granted role in `project` contains `permission`.
@@ -1117,7 +1092,7 @@ fn parse_project_roles(
                     "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
                 ))
             })?;
-            granted.add_role(role, GrantSource::Declared);
+            granted.add_role(role);
         }
     }
     Ok(permissions)
@@ -1551,7 +1526,6 @@ mod tests {
         .unwrap();
         assert!(restored.allows(OBJECTS_CREATE, "project"));
         assert!(!restored.allows(OBJECTS_DELETE, "project"));
-        assert!(!restored.has_explicit_storage_admin("project"));
         assert_eq!(
             restored.upload_snapshot(),
             serde_json::json!({"id":"legacy","projects":{"project":["storage.objects.create"]}})
@@ -2109,19 +2083,16 @@ mod tests {
         )
     }
 
+    /// An upload snapshot keeps the permissions an identity's roles grant, and refuses a role
+    /// name written in their place.
     #[test]
-    fn sync_authority_requires_the_explicit_project_admin_role_and_is_not_in_upload_snapshots() {
-        let registry=Registry::parse(br#"{"identities":[{"id":"admin","tokens":["admin-token"],"project_roles":{"owned":["roles/storage.admin"],"other":["roles/storage.objectAdmin","roles/storage.objectViewer"]}},{"id":"reader","tokens":["reader-token"],"project_roles":{"owned":["roles/storage.objectViewer"]}}]}"#).unwrap();
+    fn upload_snapshots_keep_permissions_and_refuse_role_names() {
+        let registry=Registry::parse(br#"{"identities":[{"id":"admin","tokens":["admin-token"],"project_roles":{"owned":["roles/storage.admin"],"other":["roles/storage.objectAdmin","roles/storage.objectViewer"]}}]}"#).unwrap();
         let admin = &registry.identities[0];
-        assert!(admin.has_explicit_storage_admin("owned"));
-        assert!(!admin.has_explicit_storage_admin("other"));
-        assert!(!admin.has_explicit_storage_admin("missing"));
         assert!(admin.allows(OBJECTS_DELETE, "owned") && admin.allows(OBJECTS_DELETE, "other"));
-        assert!(!registry.identities[1].has_explicit_storage_admin("owned"));
         let restored = Identity::from_upload_snapshot(&admin.upload_snapshot()).unwrap();
         assert_eq!(restored.id(), admin.id());
         assert!(restored.allows(OBJECTS_CREATE, "owned"));
-        assert!(!restored.has_explicit_storage_admin("owned"));
         let mut forged = admin.upload_snapshot();
         forged["projects"]["owned"] = serde_json::json!(["roles/storage.admin"]);
         assert!(Identity::from_upload_snapshot(&forged).is_err());

@@ -1,8 +1,7 @@
-use super::{DirectoryOpen, FileOpen, clear_errno, component, open_at, validate_name};
+use super::{DirectoryOpen, FileOpen, clear_errno, component, open_at};
 mod spelling;
 pub(crate) use spelling::{
     child_directory, child_regular, directory_unconfirmed, regular_unconfirmed,
-    regular_writable_unconfirmed,
 };
 use std::{
     ffi::{CStr, OsStr, OsString},
@@ -216,47 +215,11 @@ pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> 
     })
 }
 
-/// The identity of `file` as `fstat` reports it. macOS has no request past a network mount's
-/// attribute cache and needs none: its directory observer accepts only a root on a local
-/// filesystem, which answers `fstat` from the filesystem itself.
+/// The identity of `file` as `fstat` reports it. Other Unix platforms have no request past a
+/// network mount's attribute cache, so a lookup there sees what that cache answers.
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
     Ok(super::stat_identity(file)?)
-}
-
-/// Removes one descriptor-relative name without following a symlink destination.
-#[expect(
-    unsafe_code,
-    reason = "unlinkat on a pinned descriptor has no safe std equivalent"
-)]
-pub(crate) fn unlink_file_at(directory: &File, name: &OsStr) -> io::Result<()> {
-    validate_name(name)?;
-    let name = component(name)?;
-    #[cfg(test)]
-    super::count_unlink();
-    // SAFETY: a validated single component is relative to the live directory descriptor.
-    if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    directory.sync_all()
-}
-
-/// Removes the empty directory `name` under the pinned directory. `unlinkat(AT_REMOVEDIR)` never
-/// follows a symlink: it fails with `ENOTDIR` on one, and with `ENOTEMPTY` or `EEXIST` on a
-/// directory that holds any entry, so it never removes what a directory holds. It does not sync
-/// the parent: the caller does, after the step the fault model checks between the two.
-#[expect(
-    unsafe_code,
-    reason = "unlinkat on a pinned descriptor has no safe std equivalent"
-)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
-pub(crate) fn remove_empty_directory_at(directory: &File, name: &OsStr) -> io::Result<()> {
-    let name = component(name)?;
-    // SAFETY: a validated single component is relative to the live directory descriptor.
-    if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
 }
 
 /// Pins the selected directory without following a replacement symlink.
@@ -276,51 +239,20 @@ pub fn open_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
     open_at(directory, &component(name)?, FileOpen::Existing)
 }
 
-/// Opens only an existing regular single-component entry under the pinned directory, for writing.
-pub(crate) fn open_regular_writable_at(directory: &File, name: &OsStr) -> io::Result<File> {
-    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    super::failing_open(directory, name)?;
-    open_at(directory, &component(name)?, FileOpen::ExistingWritable)
-}
-
-#[expect(dead_code, reason = "the seed watcher reuses this")]
-pub(crate) fn create_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
-    open_at(directory, &component(name)?, FileOpen::CreateNew)
-}
-
-/// Whether `file` is a regular file that no other name links, so changing its bytes changes
-/// what no other path shows.
-pub(crate) fn sole_regular_link(file: &File) -> io::Result<bool> {
-    use std::os::unix::fs::MetadataExt;
-    let metadata = file.metadata()?;
-    Ok(metadata.is_file() && metadata.nlink() == 1)
-}
-
-/// Opens a single directory component, creating it only when explicitly requested.
+/// Opens an existing single directory component without following a symlink.
 #[expect(
     unsafe_code,
-    reason = "mkdirat and openat on a pinned descriptor have no safe std equivalent"
+    reason = "openat on a pinned descriptor has no safe std equivalent"
 )]
 pub(crate) fn directory_at(
     directory: &File,
     name: &OsStr,
     open: DirectoryOpen,
 ) -> io::Result<File> {
+    let DirectoryOpen::Existing = open;
     let name = component(name)?;
-    if open == DirectoryOpen::CreateIfMissing {
-        // SAFETY: name is one validated component under the live directory descriptor.
-        let result = unsafe { libc::mkdirat(directory.as_raw_fd(), name.as_ptr(), 0o700) };
-        if result != 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() != io::ErrorKind::AlreadyExists {
-                return Err(error);
-            }
-        }
-    }
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    if open == DirectoryOpen::Existing {
-        super::failing_open(directory, OsStr::from_bytes(name.as_bytes()))?;
-    }
+    super::failing_open(directory, OsStr::from_bytes(name.as_bytes()))?;
     // SAFETY: name is terminated and the parent descriptor remains live.
     let fd = unsafe {
         libc::openat(

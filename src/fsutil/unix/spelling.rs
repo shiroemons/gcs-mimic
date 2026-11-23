@@ -1,5 +1,5 @@
 use super::*;
-use crate::fsutil::{Child, Created, ListedSpelling, Lookup, Opened, RegularChild, Vacant};
+use crate::fsutil::{Child, ListedSpelling, Lookup, Opened, RegularChild, Vacant};
 use std::time::Duration;
 
 /// The first wait before a name that failed to open is opened again; each later wait doubles.
@@ -77,16 +77,6 @@ pub(crate) fn regular_unconfirmed(
     open_entry(parent, name, lookup, || open_regular_at(parent, name))
 }
 
-pub(crate) fn regular_writable_unconfirmed(
-    parent: &File,
-    name: &OsStr,
-    lookup: &Lookup,
-) -> io::Result<Opened<File>> {
-    open_entry(parent, name, lookup, || {
-        open_regular_writable_at(parent, name)
-    })
-}
-
 pub(crate) fn directory_unconfirmed(
     parent: &File,
     name: &OsStr,
@@ -97,49 +87,17 @@ pub(crate) fn directory_unconfirmed(
     })
 }
 
-pub(crate) fn child_directory(
-    parent: &File,
-    name: &OsStr,
-    open: DirectoryOpen,
-    lookup: &Lookup,
-) -> io::Result<Child> {
-    let (file, created) = match directory_unconfirmed(parent, name, lookup)? {
-        Opened::Entry(file) => (file, Created::No),
-        Opened::Missing(vacant) => {
-            if open == DirectoryOpen::Existing {
-                return Ok(Child::Missing(vacant));
-            }
-            create_child(parent, name)?
-        }
+pub(crate) fn child_directory(parent: &File, name: &OsStr, lookup: &Lookup) -> io::Result<Child> {
+    let file = match directory_unconfirmed(parent, name, lookup)? {
+        Opened::Entry(file) => file,
+        Opened::Missing(vacant) => return Ok(Child::Missing(vacant)),
         Opened::Unopenable => return Ok(Child::Unopenable),
     };
     if spelled_as_opened(parent, name, &file, lookup)? {
-        Ok(Child::Directory { file, created })
+        Ok(Child::Directory(file))
     } else {
         Ok(Child::Alias)
     }
-}
-
-#[expect(
-    unsafe_code,
-    reason = "mkdirat reports whether this call created the pinned child entry"
-)]
-fn create_child(parent: &File, name: &OsStr) -> io::Result<(File, Created)> {
-    let component = component(name)?;
-    // SAFETY: the validated component and live parent descriptor remain valid for the call.
-    let created = if unsafe { libc::mkdirat(parent.as_raw_fd(), component.as_ptr(), 0o700) } == 0 {
-        Created::Yes
-    } else {
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::AlreadyExists {
-            return Err(error);
-        }
-        Created::No
-    };
-    Ok((
-        directory_at(parent, name, DirectoryOpen::Existing)?,
-        created,
-    ))
 }
 
 pub(crate) fn child_regular(
@@ -175,10 +133,10 @@ pub(crate) fn child_regular(
 /// file, and a spelling found elsewhere is still the file's one.
 fn listed_spelling(parent: &File, file: &File) -> io::Result<ListedSpelling> {
     use std::os::unix::fs::MetadataExt;
-    if !super::sole_regular_link(file)? {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.nlink() != 1 {
         return Ok(ListedSpelling::Unnamed);
     }
-    let metadata = file.metadata()?;
     let mut found: Option<OsString> = None;
     super::each_name(parent, |listed| {
         let Ok(component) = component(listed) else {

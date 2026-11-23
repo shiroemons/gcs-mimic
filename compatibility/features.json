@@ -57707,12 +57707,6 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
-          "id": "shared-sync-owner-inventory",
-          "description": "Bounded all-owner bucket pages include empty buckets, stored owner and incarnation, preserve binary keysets and metadata budgets across project/recreation boundaries. Storage-only scope: docs/en/slices/shared-sync-observation.md.",
-          "result": "PASS",
-          "test_ids": ["sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors","sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation","sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahead"]
-        },
-        {
           "id": "BUCKET-INIT-CONTRACT",
           "description": "Independent review with no major findings plus markdownlint and ledger validate/render/check verifies docs/en/slices/bucket-initialization.md: JSON v1, selectors/limits, project precedence, native closed schema, full diagnostics/ready, create-missing atomicity and Shared state requirements, local authority and API/profile differences. The integration owner runs just check after merge. Documentation or author checks alone do not pass independent review or runtime cases.",
           "result": "PENDING",
@@ -58111,9 +58105,6 @@
         "a_file_past_the_former_default_starts_again_after_a_restart_and_a_named_limit_stops_it",
         "the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor",
         "a_large_bucket_entry_starts_and_survives_a_restart",
-        "sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors",
-        "sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation",
-        "sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahead",
         "filesystem_import_preserves_source_identity_and_skips_later_seed",
         "filesystem_import_interrupt_resume_and_serve_gate",
         "bucket_initializer_selectors_follow_precedence_and_reject_empty_paths",
@@ -58214,13 +58205,6 @@
             "filesystem_import_preserves_source_identity_and_skips_later_seed",
             "filesystem_import_interrupt_resume_and_serve_gate"
           ]
-        },
-        {
-          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
-          "result": "PASS",
-          "verified_at": "2026-10-25",
-          "artifact": "docs/en/slices/shared-sync-observation.md",
-          "test_ids": ["sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors","sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation","sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahead"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --test import --test import_filesystem",
@@ -60106,12 +60090,6 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
-          "id": "shared-sync-change-observation",
-          "description": "Observe durable journal fence changes without lost wakeups or polling across all mutation/epoch paths, gap/future/restart cursors, multiple waiters and saturated API admission; preserve finite page fences. Scope: docs/en/slices/shared-sync-observation.md.",
-          "result": "PASS",
-          "test_ids": ["sync_observation_commits_before_during_and_after_registration_are_not_lost","sync_observation_every_committed_mutation_wakes_all_waiters","sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require_rescan"]
-        },
-        {
           "id": "shared-publication-paths",
           "description": "Unify media, multipart, XML PUT, copy, rewrite, compose and resumable generation allocation, retirement and insertion in the caller transaction while preserving metadata, hashes, component counts, authorization, conditions, holds and versioning; contract docs/en/slices/shared-publication-commit.md.",
           "result": "PASS",
@@ -60139,12 +60117,11 @@
         },
         {
           "id": "publication-io-bounds",
-          "description": "Flush blobs parent only when establishing a shard, serialize concurrent shard durability, and reclaim durably retired immutable IDs in bounded pages outside SQLite execution after a serialized reference decision; fixed-buffer descriptor clone/copy preserves source offsets. Contract: docs/en/slices/shared-publication-io.md.",
+          "description": "Flush blobs parent only when establishing a shard, serialize concurrent shard durability, and reclaim durably retired immutable IDs in bounded pages outside SQLite execution after a serialized reference decision. Contract: docs/en/slices/shared-publication-io.md.",
           "result": "PASS",
           "test_ids": [
             "publication_reclamation_is_paged_and_rejects_live_journal_entries",
             "publication_waits_for_reclamation_without_holding_catalog_execution",
-            "descriptor_copy_preserves_bytes_offsets_and_exclusive_names",
             "reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bodies"
           ]
         },
@@ -60371,16 +60348,11 @@
         "an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both",
         "the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it",
         "a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it",
-        "export_directory_walk_rejects_redirects_and_unsafe_components",
         "sync_bucket_schema_migration_preserves_existing_catalog",
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
         "unavailable_casefold_flags_fall_back_to_exact_directory_names",
         "healthcheck_usage_errors_come_before_any_probe",
-        "export_replace_between_directories_retains_displaced_entries",
-        "sync_observation_commits_before_during_and_after_registration_are_not_lost",
-        "sync_observation_every_committed_mutation_wakes_all_waiters",
-        "sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require_rescan",
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "indexed_listing_orders_filters_pages_and_limits",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
@@ -60452,7 +60424,6 @@
         "retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation",
         "publication_reclamation_is_paged_and_rejects_live_journal_entries",
         "publication_waits_for_reclamation_without_holding_catalog_execution",
-        "descriptor_copy_preserves_bytes_offsets_and_exclusive_names",
         "reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bodies",
         "imported_identity_rejects_lossy_precision",
         "imported_identity_preserves_times_hashes_history_and_allocator_after_restart",
@@ -60504,13 +60475,6 @@
           "test_ids": ["sync_bucket_schema_migration_preserves_existing_catalog"]
         },
         {
-          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- export sync_findings writeback sync_state sync_root sync_observation",
-          "result": "PASS",
-          "verified_at": "2026-10-25",
-          "artifact": "docs/en/slices/shared-sync-export-interfaces.md",
-          "test_ids": ["export_directory_walk_rejects_redirects_and_unsafe_components","export_replace_between_directories_retains_displaced_entries"]
-        },
-        {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --bin gcs-mimic -- the_healthcheck_fails_only_while_synchronization_starts healthcheck_usage_errors_come_before_any_probe healthcheck_falls_back_only_to_a_gcs_mimic_server_with_options --test-threads=4; CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- help_output_keeps_its_exact_bytes --test-threads=4; CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync -- the_healthcheck_waits_only_while_synchronization_starts --test-threads=4",
           "result": "PASS",
           "verified_at": "2026-11-19",
@@ -60523,13 +60487,6 @@
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/continuous-directory-observation.md",
           "test_ids": ["unavailable_casefold_flags_fall_back_to_exact_directory_names"]
-        },
-        {
-          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
-          "result": "PASS",
-          "verified_at": "2026-10-25",
-          "artifact": "docs/en/slices/shared-sync-observation.md",
-          "test_ids": ["sync_observation_commits_before_during_and_after_registration_are_not_lost","sync_observation_every_committed_mutation_wakes_all_waiters","sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require_rescan"]
         },
         {
           "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
@@ -60579,7 +60536,6 @@
           "test_ids": [
             "publication_reclamation_is_paged_and_rejects_live_journal_entries",
             "publication_waits_for_reclamation_without_holding_catalog_execution",
-            "descriptor_copy_preserves_bytes_offsets_and_exclusive_names",
             "reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bodies"
           ]
         },
@@ -61081,18 +61037,6 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
-          "id": "publication-io-exchange",
-          "description": "Descriptor-relative no-replace/exchange changes only names: an exchange keeps whatever the destination held, changed bytes or a symlink alike, under the staged name; a no-replace rename onto a taken name fails with AlreadyExists and an exchange with a missing destination fails with NotFound. PENDING until a dated verification records a run of this test. Contract: docs/en/slices/shared-publication-io.md.",
-          "result": "PENDING",
-          "test_ids": ["exchange_keeps_whatever_the_destination_held"]
-        },
-        {
-          "id": "shared-sync-observation-cancellation",
-          "description": "Effect-free waits retain no catalog permits while asleep, tolerate false/rollback signals without false changes or busy loops, cancel safely and return Closed on shutdown. Scope: docs/en/slices/shared-sync-observation.md.",
-          "result": "PASS",
-          "test_ids": ["sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits"]
-        },
-        {
           "id": "shared-import-terminal-publication",
           "description": "Retain independent successes with atomic terminal rejection, forbid hole-filling resume/finish, roll back DiskFull without progress and drain accepted/cancelled staged publication safely. Scope: docs/en/slices/shared-import-publication.md.",
           "result": "PASS",
@@ -61272,13 +61216,9 @@
       ],
       "test_ids": [
         "fatal_listener_failure_drains_background_work_before_catalog_close",
-        "copying_after_an_unsupported_clone_keeps_the_new_entry",
-        "refilling_an_emptied_file_keeps_its_inode",
         "exchanges_and_moves_between_directories_need_both_directory_syncs",
         "undoing_an_exchange_with_a_missing_name_fails_the_snapshot",
         "undoing_a_move_onto_a_taken_name_fails_the_snapshot",
-        "replacement_between_directories_is_durable_when_it_returns",
-        "sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits",
         "obj_http_restart_and_sigkill_mid_upload_clean_staging",
         "obj_http_sigkill_after_blob_rename_before_commit_and_after_success",
         "recovery_clears_staging_orphans_and_pending_deletions_preserving_live_objects",
@@ -61311,7 +61251,6 @@
         "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail",
         "resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object",
         "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot",
-        "exchange_keeps_whatever_the_destination_held",
         "identity_observes_nanosecond_metadata_changes",
         "cancelled_reclamation_retains_directory_ownership_until_sql_settles",
         "shared_reclamation_preserves_cancelled_session_cleanup_markers",
@@ -61339,25 +61278,11 @@
       ],
       "verification": [
         {
-          "command": "cargo test --locked --offline --lib -- --test-threads=4 fsutil:: sync_state::writeback::",
-          "result": "PASS",
-          "verified_at": "2026-11-19",
-          "artifact": "docs/en/slices/shared-sync-writeback.md",
-          "test_ids": ["copying_after_an_unsupported_clone_keeps_the_new_entry","refilling_an_emptied_file_keeps_its_inode"]
-        },
-        {
           "command": "cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::fault sync_state::writeback sync:: fsutil::",
           "result": "PASS",
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/native-writeback-recovery.md",
-          "test_ids": ["exchanges_and_moves_between_directories_need_both_directory_syncs","undoing_an_exchange_with_a_missing_name_fails_the_snapshot","undoing_a_move_onto_a_taken_name_fails_the_snapshot","replacement_between_directories_is_durable_when_it_returns"]
-        },
-        {
-          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
-          "result": "PASS",
-          "verified_at": "2026-10-25",
-          "artifact": "docs/en/slices/shared-sync-observation.md",
-          "test_ids": ["sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits"]
+          "test_ids": ["exchanges_and_moves_between_directories_need_both_directory_syncs","undoing_an_exchange_with_a_missing_name_fails_the_snapshot","undoing_a_move_onto_a_taken_name_fails_the_snapshot"]
         },
         {
           "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
@@ -64084,7 +64009,6 @@
             "auth::built_in::tests::every_implicit_role_is_in_the_pinned_snapshot",
             "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
             "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
-            "auth::built_in::tests::only_a_declared_storage_admin_is_explicit",
             "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity",
             "config::auth::tests::the_implicit_projects_come_from_the_parse_the_initializer_validates",
             "bucket_init::tests::a_parsed_document_names_the_projects_of_the_buckets_it_creates",
@@ -64222,7 +64146,6 @@
         "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
         "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
         "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity",
-        "auth::built_in::tests::only_a_declared_storage_admin_is_explicit",
         "config::auth::tests::the_implicit_projects_come_from_the_parse_the_initializer_validates",
         "bucket_init::tests::a_parsed_document_names_the_projects_of_the_buckets_it_creates",
         "bucket_init::tests::a_parsed_document_is_validated_without_reading_the_file_again",
@@ -64286,15 +64209,6 @@
             "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
             "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
             "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity"
-          ]
-        },
-        {
-          "command": "cargo test --locked --lib auth::; cargo test --locked --test it_sync",
-          "result": "PASS",
-          "verified_at": "2026-11-08",
-          "artifact": "docs/en/evidence/trusted-listener.md",
-          "test_ids": [
-            "auth::built_in::tests::only_a_declared_storage_admin_is_explicit"
           ]
         },
         {

@@ -8,8 +8,6 @@ use crate::{
 };
 use bytes::Bytes;
 
-mod observation;
-
 #[test]
 fn journal_sequences_preserve_sqlite_integer_bounds() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();

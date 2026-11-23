@@ -43,7 +43,6 @@ fn the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_list
         for permission in [BUCKETS_CREATE, BUCKETS_SET_IAM, OBJECTS_CREATE, OBJECTS_GET] {
             assert!(app.allows(permission, project), "{project}");
         }
-        assert!(!app.has_explicit_storage_admin(project), "{project}");
     }
     assert!(!app.allows(BUCKETS_CREATE, "other-project"));
     assert_eq!(
@@ -90,29 +89,6 @@ fn a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants() {
     );
     assert_eq!(registry.tokens["app-token"], 1);
     assert_eq!(registry.trusted, Some(1));
-}
-
-/// Only a role written in the identity document is explicit: the implicit roles of both built-in
-/// identities grant their permissions but never the authority of a declared storage.admin.
-#[test]
-fn only_a_declared_storage_admin_is_explicit() {
-    let mut registry = registry(json!([{
-        "id": TRUSTED_APP_ID,
-        "tokens": [],
-        "project_roles": {"declared-project": ["roles/storage.admin"]}
-    }]));
-    registry
-        .trust(&TrustedCaller::BuiltIn, &projects(&["local-project"]))
-        .unwrap();
-    let app = registry.identity(TRUSTED_APP_ID).unwrap();
-    assert!(app.has_explicit_storage_admin("declared-project"));
-    assert!(!app.has_explicit_storage_admin("local-project"));
-    for built_in in [BuiltIn::TestSigner, BuiltIn::TrustedApp] {
-        for grant in built_in.grants(&projects(&["p"])).values() {
-            assert!(!grant.explicit_storage_admin, "{built_in:?}");
-            assert!(grant.any_storage_permission, "{built_in:?}");
-        }
-    }
 }
 
 #[test]

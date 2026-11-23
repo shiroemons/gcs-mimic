@@ -9,13 +9,13 @@
 //! never looser: on a root that folds letter case or normalization, a clear casefold flag is not
 //! believed, because a mount that folds without that flag, such as a Docker Desktop bind mount,
 //! reports the same. On a root that folds neither, each directory still answers for itself. The
-//! probe measured one directory the mirror created, and a mount can fold names per directory
-//! without saying so: on a WSL2 `drvfs` mount with `case=dir`, a directory created from Windows
-//! folds case while one created from Linux does not, on one device.
+//! probe measured one directory, and a mount can fold names per directory without saying so: on
+//! a WSL2 `drvfs` mount with `case=dir`, a directory created from Windows folds case while one
+//! created from Linux does not, on one device.
 //!
 //! A listing is read in one pass over the directory and kept for the lookups that follow in the
-//! same pass of the synchronization, such as one ingestion rescan, one deletion inventory or one
-//! installation: a lookup and its clones share what they read. A kept listing answers only while
+//! same pass over a tree, such as one scan of a host directory: a lookup and its clones share
+//! what they read. A kept listing answers only while
 //! its directory reports the identity, size and timestamps it had before the listing was read.
 //! Creating, removing or renaming an entry changes the directory's modification and change
 //! times, so a directory that changed during the pass is read again rather than judged by its
@@ -29,7 +29,7 @@
 //! entry before it asks, so a kept listing that still answers was read from the namespace the
 //! entry was opened in.
 
-use super::{Child, DirectoryOpen, FileIdentity, Opened, RegularChild, imp};
+use super::{Child, FileIdentity, Opened, RegularChild, imp};
 use crate::clock::{Clock, SystemClock, signed_nanos};
 use std::{
     collections::{HashSet, VecDeque},
@@ -78,7 +78,7 @@ pub(crate) enum Matching {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Known {
     /// Nothing: only the directory's own answer tells, as below a root the probe found to fold
-    /// nothing, outside a synchronization root, or for the probe itself.
+    /// nothing, below a root that was never probed, or for the probe itself.
     Nothing,
     /// The directory lies below a root that folds letter case or normalization.
     Folding,
@@ -298,19 +298,14 @@ impl Lookup {
         Ok(found)
     }
 
-    /// Opens the directory `name` in `parent`, creating it when `open` allows, without following
-    /// a symlink. An entry reached under another spelling is [`Child::Alias`].
+    /// Opens the existing directory `name` in `parent` without following a symlink. An entry
+    /// reached under another spelling is [`Child::Alias`].
     #[cfg_attr(
         not(all(test, unix)),
         expect(dead_code, reason = "the seed watcher reuses this")
     )]
-    pub(crate) fn directory(
-        &self,
-        parent: &File,
-        name: &OsStr,
-        open: DirectoryOpen,
-    ) -> io::Result<Child> {
-        imp::child_directory(parent, name, open, self)
+    pub(crate) fn directory(&self, parent: &File, name: &OsStr) -> io::Result<Child> {
+        imp::child_directory(parent, name, self)
     }
 
     /// Opens the regular file `name` in `parent` without following a symlink. A file reached
@@ -325,8 +320,8 @@ impl Lookup {
     }
 
     /// Opens the regular file `name` in `parent` without following a symlink or confirming its
-    /// spelling, for a file the mirror names itself, under the rule [`Self::regular`] applies to
-    /// a name that fails to open ([`Opened`]).
+    /// spelling, for a name whose spelling the caller already knows, under the rule
+    /// [`Self::regular`] applies to a name that fails to open ([`Opened`]).
     #[cfg_attr(
         not(all(test, unix)),
         expect(dead_code, reason = "the seed watcher reuses this")
@@ -339,20 +334,9 @@ impl Lookup {
         imp::regular_unconfirmed(parent, name, self)
     }
 
-    /// Like [`Self::regular_unconfirmed`], open for writing, for a private file the mirror refills
-    /// in place.
-    #[expect(dead_code, reason = "the seed watcher reuses this")]
-    pub(crate) fn regular_writable_unconfirmed(
-        &self,
-        parent: &File,
-        name: &OsStr,
-    ) -> io::Result<Opened<File>> {
-        imp::regular_writable_unconfirmed(parent, name, self)
-    }
-
     /// Opens the existing directory `name` in `parent` without following a symlink or confirming
-    /// its spelling, for a name a listing gave or the mirror names itself, under the same rule
-    /// ([`Opened`]).
+    /// its spelling, for a name a listing gave or whose spelling the caller already knows, under
+    /// the same rule ([`Opened`]).
     #[expect(dead_code, reason = "the seed watcher reuses this")]
     pub(crate) fn directory_unconfirmed(
         &self,
@@ -616,13 +600,9 @@ mod open_failure_tests {
         assert!(matches!(
             entries
                 .lookup()
-                .directory(
-                    &entries.parent,
-                    "directory".as_ref(),
-                    DirectoryOpen::Existing
-                )
+                .directory(&entries.parent, "directory".as_ref())
                 .unwrap(),
-            Child::Directory { .. }
+            Child::Directory(_)
         ));
         assert_eq!(directory.left(), 0);
     }
@@ -641,11 +621,9 @@ mod open_failure_tests {
         ));
         assert!(entries.waited() >= Duration::from_secs(1));
         assert!(matches!(
-            entries.lookup().directory(
-                &entries.parent,
-                "directory".as_ref(),
-                DirectoryOpen::Existing
-            ),
+            entries
+                .lookup()
+                .directory(&entries.parent, "directory".as_ref()),
             Ok(Child::Unopenable)
         ));
         assert!(matches!(
@@ -682,11 +660,7 @@ mod open_failure_tests {
         let spent = entries.waited();
         assert!(spent <= Duration::from_secs(1), "{spent:?}");
         assert!(matches!(
-            lookup.directory(
-                &entries.parent,
-                "directory".as_ref(),
-                DirectoryOpen::Existing
-            ),
+            lookup.directory(&entries.parent, "directory".as_ref()),
             Ok(Child::Unopenable)
         ));
         assert!(matches!(

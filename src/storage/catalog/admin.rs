@@ -15,7 +15,7 @@
 //! }
 //! ```
 
-use super::{Catalog, Incarnation, Work, objects, read_bucket, select_bucket, unavailable};
+use super::{Catalog, Work, objects, read_bucket, select_bucket, unavailable};
 use crate::storage::catalog::sql;
 use crate::storage::failure::{BackendCause, IoCause, Link, TypedSource};
 use crate::{
@@ -438,16 +438,6 @@ pub struct Admin {
     grant: AdminGrant,
 }
 
-pub(crate) struct BucketEntry {
-    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
-    pub bucket: BucketRecord,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only unit tests read this field")
-    )]
-    pub incarnation: Incarnation,
-}
-
 /// Checks a management listing's page size, which every route reports in the same words.
 fn management_page_limit(limit: usize) -> Result<usize, AdminError> {
     super::PageLimit::<MAX_PAGE>::try_from(limit)
@@ -660,46 +650,6 @@ impl Admin {
         self.catalog
             .run_admin(move |connection| {
                 super::bucket_list_page(connection, Some(&[project]), "", after.as_deref(), limit)
-            })
-            .await
-    }
-
-    /// Binary keyset across every owner; continue after the last returned bucket name.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
-    pub(crate) async fn list_all_buckets(
-        &self,
-        after: Option<&str>,
-        limit: usize,
-    ) -> Result<super::Page<BucketEntry>, AdminError> {
-        let limit = management_page_limit(limit)?;
-        let after = after.unwrap_or("").to_owned();
-        self.catalog
-            .run_admin(move |connection| {
-                let mut statement = connection.prepare_cached(concat!(
-                    "SELECT ",
-                    super::bucket_columns!(),
-                    ", i.incarnation FROM buckets
-                 LEFT JOIN bucket_incarnations i ON i.bucket = buckets.name
-                 WHERE name > ?1 ORDER BY name LIMIT ?2"
-                ))?;
-                let mut rows = statement.query(rusqlite::params![after, limit + 1])?;
-                super::keyset::budgeted_page(
-                    &mut rows,
-                    limit,
-                    super::BUCKET_LIST_METADATA_BUDGET,
-                    |row| {
-                        let incarnation =
-                            row.get_ref("incarnation")?.as_str().map_err(unavailable)?;
-                        Ok(super::bucket_metadata_charge(row)?
-                            .saturating_add(incarnation.len().saturating_mul(8)))
-                    },
-                    |row| {
-                        Ok(BucketEntry {
-                            bucket: read_bucket(row)?,
-                            incarnation: row.get("incarnation")?,
-                        })
-                    },
-                )
             })
             .await
     }

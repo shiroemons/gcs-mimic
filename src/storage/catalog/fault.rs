@@ -15,8 +15,7 @@
 //!
 //! - File contents: a file is identified by device and inode, so the record follows it
 //!   through renames. Files that existed when the fault was armed count as durable at their
-//!   length then; [`file_synced`] records a file's current length as durable, and
-//!   [`file_synced_at`] does so for a seam that knows the file only by an open descriptor. The snapshot
+//!   length then; [`file_synced`] records a file's current length as durable. The snapshot
 //!   truncates every other copy to its durable length, or to empty when none was recorded.
 //!   Writes are modeled as appends: a rewrite in place below the durable length survives.
 //!   [`truncated`] lowers the durable length when a seamed path cuts a file back, so bytes
@@ -78,10 +77,6 @@ pub(crate) enum Step {
     RestorePinned,
     /// Before removing an unretained staging entry during startup recovery.
     RecoveryStagingUnlink,
-    /// After a durable replacement between directories renamed, exchanged or moved the target
-    /// and the parent syncs inside that call ran. Only the `fsutil` test of that call hits it.
-    #[cfg_attr(not(unix), expect(dead_code, reason = "the seed watcher reuses this"))]
-    SyncCopyRenamed,
     /// Before reclaiming one namespace entry after a committed reset.
     ResetReclaim,
     /// Before syncing a directory after a committed reset's unlink.
@@ -159,34 +154,6 @@ pub(crate) enum Step {
     AppendSync,
     /// After the appended bytes are durable, before the transaction that publishes their size.
     AppendCommit,
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-#[cfg_attr(
-    target_os = "macos",
-    expect(
-        unsafe_code,
-        reason = "test fault accounting resolves the pinned directory descriptor without changing production I/O"
-    )
-)]
-pub(crate) fn descriptor_path(file: &fs::File) -> io::Result<PathBuf> {
-    use std::os::fd::AsRawFd;
-    #[cfg(target_os = "linux")]
-    {
-        fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
-    }
-    #[cfg(target_os = "macos")]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        let mut bytes = [0u8; libc::PATH_MAX as usize];
-        // SAFETY: F_GETPATH writes at most PATH_MAX bytes into the live output allocation.
-        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, bytes.as_mut_ptr()) } < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let path = std::ffi::CStr::from_bytes_until_nul(&bytes)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        Ok(PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes())))
-    }
 }
 
 /// What an armed step does when it is reached.
@@ -570,15 +537,6 @@ pub(crate) fn file_synced(data_dir: &Path, metadata: &fs::Metadata) {
     }
     #[cfg(not(unix))]
     let _ = (data_dir, metadata);
-}
-
-/// Like [`file_synced`], for the file at `path` in whichever armed data directory holds it: a
-/// seam that sees only an open descriptor resolves its path instead of naming a data directory.
-#[cfg(unix)]
-pub(crate) fn file_synced_at(path: &Path, metadata: &fs::Metadata) {
-    record(path, |ledger, _| {
-        ledger.durable.insert(inode(metadata), metadata.len());
-    });
 }
 
 /// Records that a file in `data_dir` was cut back to its current length. Bytes written past

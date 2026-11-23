@@ -19,15 +19,10 @@ mod unsupported;
 #[cfg(not(unix))]
 use unsupported as imp;
 
+pub(crate) use imp::directory_at;
 use imp::directory_names_within;
-#[cfg_attr(
-    not(all(test, unix)),
-    expect(unused_imports, reason = "the seed watcher reuses this")
-)]
-pub(crate) use imp::remove_empty_directory_at;
 #[expect(unused_imports, reason = "the seed watcher reuses this")]
-pub(crate) use imp::{create_regular_at, name_max, sole_regular_link};
-pub(crate) use imp::{directory_at, unlink_file_at};
+pub(crate) use imp::name_max;
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };
@@ -37,14 +32,6 @@ pub(crate) use lookup::Lookup;
     expect(unused_imports, reason = "the seed watcher reuses this")
 )]
 pub(crate) use lookup::Matching;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CopyMethod {
-    Clone,
-    #[cfg(target_os = "linux")]
-    CopyFileRange,
-    ReadWrite,
-}
 
 /// `readdir` signals both the end of the stream and a failure with a null entry and sets
 /// errno only on failure, so errno must be cleared before each call; a stale value would
@@ -93,25 +80,11 @@ pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
     options.open(path)
 }
 
-/// Whether a directory helper may create a missing directory or must find an existing one.
+/// How a directory helper opens a name. Every caller reads a tree that already exists, so a
+/// helper only finds a directory and never creates one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DirectoryOpen {
     Existing,
-    #[cfg_attr(not(unix), expect(dead_code, reason = "the seed watcher reuses this"))]
-    CreateIfMissing,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(unix),
-    expect(
-        dead_code,
-        reason = "descriptor-relative directory creation is unsupported on this platform"
-    )
-)]
-pub(crate) enum Created {
-    Yes,
-    No,
 }
 
 #[cfg_attr(
@@ -123,10 +96,7 @@ pub(crate) enum Created {
 )]
 pub(crate) enum Child {
     #[cfg_attr(unix, expect(dead_code, reason = "the seed watcher reuses this"))]
-    Directory {
-        file: File,
-        created: Created,
-    },
+    Directory(File),
     Alias,
     Missing(Vacant),
     /// The name kept failing to open while an entry stood under it ([`Opened::Unopenable`]).
@@ -154,9 +124,9 @@ pub(crate) enum RegularChild {
 }
 
 /// What opening a name found, under the rule that only `fstatat` finding nothing shows that the
-/// name holds nothing. A name the mirror reads as empty makes a tracked file a deletion
-/// candidate, and a Docker Desktop bind mount fails an open with `ENOENT` for a moment after the
-/// host replaced a file while `fstatat` still finds it
+/// name holds nothing. A reader that takes a name for empty treats the file it held as removed,
+/// and a Docker Desktop bind mount fails an open with `ENOENT` for a moment after the host
+/// replaced a file while `fstatat` still finds it
 /// (`docs/en/evidence/sync-bind-mount-stale-reads.md`), so such an open is tried again rather
 /// than taken for an empty name.
 #[cfg_attr(
@@ -269,30 +239,6 @@ impl DirectoryNames {
     }
 }
 
-/// Walks an exact relative spelling without following redirects; creation syncs each parent.
-#[cfg(all(test, unix))]
-pub(crate) fn directory_path_at(
-    directory: &File,
-    path: &std::path::Path,
-    open: DirectoryOpen,
-) -> io::Result<File> {
-    let text = path.to_str().ok_or(io::ErrorKind::InvalidInput)?;
-    if text.is_empty() || text.split('/').any(|part| matches!(part, "" | "." | "..")) {
-        return Err(io::ErrorKind::InvalidInput.into());
-    }
-    let mut current = directory.try_clone()?;
-    for part in text.split('/') {
-        validate_name(part.as_ref())?;
-        let next = directory_at(&current, part.as_ref(), open)?;
-        if open == DirectoryOpen::CreateIfMissing {
-            next.sync_all()?;
-            current.sync_all()?;
-        }
-        current = next;
-    }
-    Ok(current)
-}
-
 #[derive(Debug)]
 pub(crate) enum FsError {
     Io(io::Error),
@@ -333,8 +279,8 @@ impl std::error::Error for FsError {
     }
 }
 
-// Windows write/change timestamps can repeat within a clock tick, so equality can miss
-// same-size rewrites. Directory synchronization, which needs this check, is unsupported there.
+// Windows write/change timestamps can repeat within a clock tick, so equality there can miss
+// same-size rewrites.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FileIdentity {
     pub device: u64,
@@ -465,7 +411,8 @@ pub(crate) struct NodeId {
 
 #[cfg_attr(not(test), expect(dead_code, reason = "the seed watcher reuses this"))]
 impl NodeId {
-    /// Big-endian bytes, the order the catalog's `device` and `inode` BLOB columns store.
+    /// Big-endian bytes, so a stored node compares byte by byte as the numbers do, as the
+    /// catalog's BLOB columns compare.
     pub(crate) fn to_be_bytes(self) -> ([u8; 8], [u8; 8]) {
         (self.device.to_be_bytes(), self.inode.to_be_bytes())
     }
@@ -501,22 +448,6 @@ impl From<&std::fs::Metadata> for FileIdentity {
                 + i128::from(metadata.ctime_nsec()),
         }
     }
-}
-
-/// How [`durable_replace_between`] gives the staged entry the destination name. Neither judges
-/// what the destination held: an exchange keeps it under the staged name, for the caller to
-/// compare with what it expected there.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(all(test, unix)),
-    expect(dead_code, reason = "the seed watcher reuses this")
-)]
-pub(crate) enum Replacement {
-    /// The destination name must be empty; an entry there fails the call with `AlreadyExists`.
-    NoReplace,
-    /// The staged and destination entries exchange names, so what the destination held stays
-    /// under the staged name. A missing destination fails the call with `NotFound`.
-    Exchange,
 }
 
 #[cfg(unix)]
@@ -600,17 +531,6 @@ thread_local! {
     static FAIL_CLONE_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Reports that the filesystem cannot clone, as ext4 and Docker Desktop's shared folders do.
     static CLONE_UNSUPPORTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-#[cfg(all(test, unix))]
-thread_local! {
-    /// The entries this thread asked this module to remove.
-    static UNLINKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-#[cfg(all(test, unix))]
-fn count_unlink() {
-    UNLINKS.set(UNLINKS.get() + 1);
 }
 
 #[cfg_attr(
@@ -706,13 +626,15 @@ fn component(name: &std::ffi::OsStr) -> io::Result<std::ffi::CString> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
 
-/// Whether `open_at` opens an existing regular file, read-only or for writing, or creates a new
-/// one.
+/// Whether `open_at` opens an existing regular file read-only or creates a new one.
 #[cfg(unix)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FileOpen {
     Existing,
-    ExistingWritable,
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(dead_code, reason = "only a Linux clone creates its entry first")
+    )]
     CreateNew,
 }
 
@@ -728,7 +650,6 @@ fn open_at(directory: &File, name: &std::ffi::CStr, open: FileOpen) -> io::Resul
         | libc::O_NONBLOCK
         | match open {
             FileOpen::Existing => libc::O_RDONLY,
-            FileOpen::ExistingWritable => libc::O_RDWR,
             FileOpen::CreateNew => libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
         };
     // SAFETY: directory is live and name is a validated terminated single component.
@@ -766,7 +687,7 @@ fn regular_source(src: &File) -> io::Result<()> {
 }
 
 /// Clones `src` into `dst`, an empty regular file open for writing, and syncs it. `Ok(false)`
-/// means the filesystem cannot clone; `dst` is then still empty and ready for a copy.
+/// means the filesystem cannot clone; `dst` is then still empty.
 #[cfg(target_os = "linux")]
 #[expect(unsafe_code, reason = "FICLONE has no safe std equivalent")]
 fn clone_onto(src: &File, dst: &File) -> io::Result<bool> {
@@ -846,8 +767,6 @@ pub(crate) fn clone_into(
             if clone_onto(src, &dst).map_err(|error| CloneFailure::Created(error.into()))? {
                 return Ok(());
             }
-            #[cfg(test)]
-            count_unlink();
             // SAFETY: only this call owns the newly created target; the component and directory are live.
             if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
                 return Err(CloneFailure::Created(io::Error::last_os_error().into()));
@@ -860,134 +779,6 @@ pub(crate) fn clone_into(
         let _ = directory;
         Err(CloneFailure::NotCreated(FsError::Unsupported))
     }
-}
-
-/// Copies an immutable open blob into the new entry `name`. Mutable-source staging must hash its
-/// own read/write pass. The source offset is unchanged; a failed clone removes its new entry, and
-/// a failed copy leaves it for caller cleanup.
-#[cfg_attr(
-    not(all(test, unix)),
-    expect(dead_code, reason = "the seed watcher reuses this")
-)]
-pub(crate) fn clone_or_copy_into(
-    src: &File,
-    directory: &File,
-    name: &std::ffi::OsStr,
-) -> Result<CopyMethod, FsError> {
-    #[cfg(not(target_os = "linux"))]
-    match clone_into(src, directory, name) {
-        Ok(()) => return Ok(CopyMethod::Clone),
-        Err(CloneFailure::NotCreated(FsError::Unsupported)) => (),
-        Err(CloneFailure::NotCreated(error)) => return Err(error),
-        Err(CloneFailure::Created(error)) => return Err(discard_clone(directory, name, error)),
-    }
-    #[cfg(unix)]
-    {
-        #[cfg(target_os = "linux")]
-        regular_source(src)?;
-        let dst = open_at(directory, &component(name)?, FileOpen::CreateNew)?;
-        // Linux has to create the entry before it can ask for a clone, so a filesystem that
-        // cannot clone gets the copy in that same file. Removing it and creating the name again
-        // would change the directory twice more, and Docker Desktop's shared folders can then
-        // report one inode number for the new file and another later, which write-back's check
-        // of its staged copy reads as an external change.
-        #[cfg(target_os = "linux")]
-        match clone_onto(src, &dst) {
-            Ok(true) => return Ok(CopyMethod::Clone),
-            Ok(false) => {}
-            Err(error) => return Err(discard_clone(directory, name, error.into())),
-        }
-        copy_into_empty(src, &dst)
-    }
-    #[cfg(windows)]
-    {
-        let path = directory_path(directory)?.join(name);
-        let dst = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)?;
-        copy_into_empty(src, &dst)
-    }
-}
-
-/// Fills `dst`, an empty regular file open for writing, with the immutable open blob `src` and
-/// syncs it, as `clone_or_copy_into` fills a new entry. Write-back refills its own private copy
-/// this way after a failed attempt instead of removing it and creating the name again.
-#[cfg_attr(
-    not(all(test, unix)),
-    expect(dead_code, reason = "the seed watcher reuses this")
-)]
-pub(crate) fn clone_or_copy_onto(src: &File, dst: &File) -> Result<CopyMethod, FsError> {
-    regular_source(src)?;
-    if dst.metadata()?.len() != 0 {
-        return Err(
-            io::Error::new(io::ErrorKind::InvalidInput, "expected an empty destination").into(),
-        );
-    }
-    #[cfg(target_os = "linux")]
-    if clone_onto(src, dst)? {
-        return Ok(CopyMethod::Clone);
-    }
-    copy_into_empty(src, dst)
-}
-
-/// Removes the entry a failed clone created and returns the clone's error; a failed removal is
-/// logged, since the clone's error is the one the caller acts on.
-fn discard_clone(directory: &File, name: &std::ffi::OsStr, error: FsError) -> FsError {
-    if let Err(cleanup) = unlink_file_at(directory, name) {
-        crate::diagnostics::emit(
-            crate::diagnostics::LogLevel::Error,
-            "clone_cleanup_failed",
-            serde_json::json!({"message": cleanup.to_string()}),
-        );
-    }
-    error
-}
-
-/// Copies `src` into `dst`, an empty regular file open for writing, and syncs it. Both offsets
-/// are explicit, so neither file's position matters or changes.
-#[cfg_attr(
-    target_os = "linux",
-    expect(unsafe_code, reason = "copy_file_range has no safe std equivalent")
-)]
-fn copy_into_empty(src: &File, dst: &File) -> Result<CopyMethod, FsError> {
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::fd::AsRawFd;
-        let mut offset: libc::loff_t = 0;
-        let mut written: libc::loff_t = 0;
-        loop {
-            // SAFETY: descriptors remain live, both offsets are writable, and no userspace buffer is passed.
-            let copied = unsafe {
-                libc::copy_file_range(
-                    src.as_raw_fd(),
-                    &mut offset,
-                    dst.as_raw_fd(),
-                    &mut written,
-                    1024 * 1024,
-                    0,
-                )
-            };
-            if copied == 0 {
-                dst.sync_all()?;
-                return Ok(CopyMethod::CopyFileRange);
-            }
-            if copied < 0 {
-                let error = io::Error::last_os_error();
-                if error.kind() == io::ErrorKind::Interrupted {
-                    continue;
-                }
-                if !copy_fallback(&error) {
-                    return Err(error.into());
-                }
-                dst.set_len(0)?;
-                break;
-            }
-        }
-    }
-    copy_read_write(src, dst)?;
-    dst.sync_all()?;
-    Ok(CopyMethod::ReadWrite)
 }
 
 #[cfg(unix)]
@@ -1047,70 +838,6 @@ pub(crate) fn read_cached_at(file: &File, bytes: &mut [u8], offset: u64) -> Opti
 pub(crate) fn read_cached_at(_file: &File, _bytes: &mut [u8], _offset: u64) -> Option<usize> {
     None
 }
-
-fn copy_read_write(src: &File, dst: &File) -> io::Result<()> {
-    #[cfg(unix)]
-    use std::os::unix::fs::FileExt;
-    #[cfg(windows)]
-    use std::os::windows::fs::FileExt;
-    let mut bytes = [0u8; 65_536];
-    let mut offset = 0;
-    loop {
-        let read = read_at(src, &mut bytes, offset);
-        let count = match read {
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            result => result?,
-        };
-        if count == 0 {
-            return Ok(());
-        }
-        let mut written = 0;
-        while written < count {
-            let remaining = bytes
-                .get(written..count)
-                .ok_or(io::ErrorKind::InvalidData)?;
-            #[cfg(unix)]
-            let result = dst.write_at(remaining, offset + written as u64);
-            #[cfg(windows)]
-            let result = dst.seek_write(remaining, offset + written as u64);
-            match result {
-                Ok(0) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "file copy made no progress",
-                    ));
-                }
-                Ok(count) => written += count,
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => (),
-                Err(error) => return Err(error),
-            }
-        }
-        offset += count as u64;
-    }
-}
-
-/// [`durable_replace_between`] within one directory.
-#[cfg(all(test, unix))]
-pub(crate) fn durable_replace(
-    directory: &File,
-    staged_name: &std::ffi::OsStr,
-    destination_name: &std::ffi::OsStr,
-    replacement: Replacement,
-) -> Result<(), FsError> {
-    durable_replace_between(
-        directory,
-        staged_name,
-        directory,
-        destination_name,
-        replacement,
-    )
-}
-
-/// The directories, by device and inode number, whose sync inside a replacement fails. Tests run
-/// in parallel, so each adds its own directory and removes only that one again.
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-pub(crate) static FAIL_REPLACE_SYNC: std::sync::Mutex<Vec<(u64, u64)>> =
-    std::sync::Mutex::new(Vec::new());
 
 /// The directories, by device and inode number, for which tests take the platform's answer to be
 /// that an opened entry is spelled the way it was opened, as a clear Linux casefold flag says. On
@@ -1331,29 +1058,11 @@ fn failing_open(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn sync_replace_parent(directory: &File) -> io::Result<()> {
-    #[cfg(test)]
-    {
-        let identity = stat_identity(directory)?;
-        if FAIL_REPLACE_SYNC
-            .lock()
-            .map_err(|_| io::Error::other("sync injection poisoned"))?
-            .contains(&(identity.device, identity.inode))
-        {
-            return Err(io::Error::other("injected replacement parent sync failure"));
-        }
-    }
-    directory.sync_all()?;
-    // The fault model learns of the sync only once it ran, so removing the sync removes this too.
-    #[cfg(test)]
-    crate::storage::fault::dir_synced(&crate::storage::fault::descriptor_path(directory)?);
-    Ok(())
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[derive(Clone, Copy)]
 enum RenameMode {
     NoReplace,
+    /// Only the fault model's undo of an exchange swaps two names ([`exchange_paths`]).
+    #[cfg(test)]
     Exchange,
 }
 
@@ -1382,6 +1091,7 @@ fn rename_at(
                 destination.as_ptr(),
                 match mode {
                     RenameMode::NoReplace => libc::RENAME_NOREPLACE,
+                    #[cfg(test)]
                     RenameMode::Exchange => libc::RENAME_EXCHANGE,
                 },
             )
@@ -1395,6 +1105,7 @@ fn rename_at(
                 destination.as_ptr(),
                 match mode {
                     RenameMode::NoReplace => libc::RENAME_EXCL,
+                    #[cfg(test)]
                     RenameMode::Exchange => libc::RENAME_SWAP,
                 },
             )
@@ -1466,134 +1177,6 @@ pub(crate) fn exchange_paths(left: &std::path::Path, right: &std::path::Path) ->
 fn link_then_unlink(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
     std::fs::hard_link(from, to)?;
     std::fs::remove_file(from)
-}
-
-/// Gives the staged entry the destination name as `replacement` says, and makes both names
-/// durable. Only the namespace changes: an exchange retains what the destination held under the
-/// staged name, whatever it is, and the caller decides what that is. An error after the rename
-/// may have applied it; callers must reconcile both names.
-#[cfg_attr(
-    not(all(test, unix)),
-    expect(dead_code, reason = "the seed watcher reuses this")
-)]
-pub(crate) fn durable_replace_between(
-    source_directory: &File,
-    staged_name: &std::ffi::OsStr,
-    destination_directory: &File,
-    destination_name: &std::ffi::OsStr,
-    replacement: Replacement,
-) -> Result<(), FsError> {
-    validate_name(staged_name)?;
-    validate_name(destination_name)?;
-    let source_identity = stat_identity(source_directory)?;
-    let destination_identity = stat_identity(destination_directory)?;
-    let same_directory = source_identity.node() == destination_identity.node();
-    if same_directory && staged_name == destination_name {
-        return Err(
-            io::Error::new(io::ErrorKind::InvalidInput, "replacement names must differ").into(),
-        );
-    }
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        let staged = component(staged_name)?;
-        let destination = component(destination_name)?;
-        let source = open_at(source_directory, &staged, FileOpen::Existing)?;
-        source.sync_all()?;
-        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-        crate::storage::fault::file_synced_at(
-            &crate::storage::fault::descriptor_path(&source)?,
-            &source.metadata()?,
-        );
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        {
-            rename_at(
-                source_directory.as_raw_fd(),
-                &staged,
-                destination_directory.as_raw_fd(),
-                &destination,
-                match replacement {
-                    Replacement::NoReplace => RenameMode::NoReplace,
-                    Replacement::Exchange => RenameMode::Exchange,
-                },
-            )?;
-            // Recorded before the parent syncs, so the power-loss model keeps the rename volatile
-            // until they run and a missing or failed one shows.
-            #[cfg(test)]
-            {
-                use crate::storage::fault;
-                let staged = fault::descriptor_path(source_directory)?.join(staged_name);
-                let destination =
-                    fault::descriptor_path(destination_directory)?.join(destination_name);
-                match replacement {
-                    Replacement::NoReplace => fault::moved(&staged, &destination),
-                    Replacement::Exchange => fault::exchanged(&staged, &destination),
-                }
-            }
-            sync_replace_parent(source_directory)?;
-            if !same_directory {
-                sync_replace_parent(destination_directory)?;
-            }
-            Ok(())
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        {
-            let _ = (destination, replacement);
-            Err(FsError::Unsupported)
-        }
-    }
-    #[cfg(windows)]
-    {
-        if !same_directory {
-            return Err(FsError::Unsupported);
-        }
-        let source = directory_path(source_directory)?.join(staged_name);
-        let target = directory_path(destination_directory)?.join(destination_name);
-        File::open(&source)?.sync_all()?;
-        match replacement {
-            Replacement::NoReplace => {
-                move_write_through(&source, &target)?;
-                Ok(())
-            }
-            // Windows has no rename that keeps the replaced entry under the staged name.
-            Replacement::Exchange => Err(FsError::Unsupported),
-        }
-    }
-}
-
-#[cfg(windows)]
-#[expect(
-    unsafe_code,
-    reason = "a handle's path comes only from GetFinalPathNameByHandleW"
-)]
-fn directory_path(directory: &File) -> io::Result<std::path::PathBuf> {
-    use std::os::windows::{ffi::OsStringExt, io::AsRawHandle};
-    use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
-    let mut buffer = vec![0u16; 32_768];
-    // SAFETY: the live handle and writable UTF-16 allocation cover the supplied length.
-    let count = unsafe {
-        GetFinalPathNameByHandleW(
-            directory.as_raw_handle(),
-            buffer.as_mut_ptr(),
-            u32::try_from(buffer.len()).map_err(io::Error::other)?,
-            0,
-        )
-    };
-    if count == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if count as usize >= buffer.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "directory path exceeds limit",
-        ));
-    }
-    Ok(std::ffi::OsString::from_wide(
-        buffer
-            .get(..count as usize)
-            .ok_or(io::ErrorKind::InvalidData)?,
-    )
-    .into())
 }
 
 #[cfg(windows)]
@@ -1852,7 +1435,7 @@ mod tests {
         assert!(unsupported.get_ref().is_none());
     }
 
-    /// The catalog stores a node as two big-endian BLOB columns; the full `u64` range survives.
+    /// A node survives its two big-endian byte arrays over the full `u64` range.
     #[test]
     fn node_ids_round_trip_through_their_stored_bytes() {
         for node in [
@@ -1943,9 +1526,12 @@ mod tests {
         }
     }
 
+    /// A clone that fails after it created its entry says so and leaves the entry for its caller.
+    /// A name that already holds an entry, and a filesystem that cannot clone, such as ext4 or
+    /// Docker Desktop's shared folders, create nothing and leave no entry behind.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn clone_failure_preserves_created_ownership_and_copy_wrapper_cleans_it() {
+    fn clone_failure_reports_whether_it_created_the_entry() {
         let directory = crate::test_support::TestDir::new();
         std::fs::write(directory.0.join("source"), b"source").unwrap();
         let source = File::open(directory.0.join("source")).unwrap();
@@ -1956,10 +1542,6 @@ mod tests {
             Err(CloneFailure::Created(_))
         ));
         assert!(directory.0.join("clone").exists());
-        unlink_file_at(&root, "clone".as_ref()).unwrap();
-        FAIL_CLONE_SYNC.set(true);
-        assert!(clone_or_copy_into(&source, &root, "copy".as_ref()).is_err());
-        assert!(!directory.0.join("copy").exists());
         std::fs::write(directory.0.join("existing"), b"other owner").unwrap();
         assert!(matches!(
             clone_into(&source, &root, "existing".as_ref()),
@@ -1969,108 +1551,14 @@ mod tests {
             std::fs::read(directory.0.join("existing")).unwrap(),
             b"other owner"
         );
-    }
-
-    /// A filesystem that cannot clone, such as ext4 or Docker Desktop's shared folders, gets the
-    /// copy in the entry already created for the clone, so nothing is removed. `clone_into`
-    /// still leaves no entry behind, as its callers expect.
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
-    fn copying_after_an_unsupported_clone_keeps_the_new_entry() {
-        let directory = crate::test_support::TestDir::new();
-        std::fs::write(directory.0.join("source"), b"source").unwrap();
-        let source = File::open(directory.0.join("source")).unwrap();
-        let root = File::open(&directory.0).unwrap();
         CLONE_UNSUPPORTED.set(true);
-        let unlinks = UNLINKS.get();
-        let copied = clone_or_copy_into(&source, &root, "copy".as_ref());
-        let unlinked = UNLINKS.get() - unlinks;
-        let refused = clone_into(&source, &root, "clone".as_ref());
+        let refused = clone_into(&source, &root, "unsupported".as_ref());
         CLONE_UNSUPPORTED.set(false);
-        assert_ne!(copied.unwrap(), CopyMethod::Clone);
-        assert_eq!(unlinked, 0);
-        assert_eq!(std::fs::read(directory.0.join("copy")).unwrap(), b"source");
         assert!(matches!(
             refused,
             Err(CloneFailure::NotCreated(FsError::Unsupported))
         ));
-        assert!(!directory.0.join("clone").exists());
-    }
-
-    /// Removing an empty directory never removes what a directory holds and never follows a
-    /// symlink: a directory with an entry, and a symlink to a directory or to nothing, all stay as
-    /// they were, with what they hold or point to.
-    #[cfg(unix)]
-    #[test]
-    fn removing_an_empty_directory_keeps_entries_and_symlinks() {
-        let tree = crate::test_support::TestDir::new();
-        let root = File::open(&tree.0).unwrap();
-        std::fs::create_dir(tree.0.join("empty")).unwrap();
-        std::fs::create_dir_all(tree.0.join("full/inner")).unwrap();
-        std::fs::create_dir(tree.0.join("pointed")).unwrap();
-        std::os::unix::fs::symlink(tree.0.join("pointed"), tree.0.join("link")).unwrap();
-        std::os::unix::fs::symlink(tree.0.join("gone"), tree.0.join("dangling")).unwrap();
-        remove_empty_directory_at(&root, "empty".as_ref()).unwrap();
-        assert!(!tree.0.join("empty").exists());
-        let full = remove_empty_directory_at(&root, "full".as_ref()).unwrap_err();
-        assert!(
-            matches!(
-                full.kind(),
-                io::ErrorKind::DirectoryNotEmpty | io::ErrorKind::AlreadyExists
-            ),
-            "{full:?}"
-        );
-        assert!(tree.0.join("full/inner").is_dir());
-        for link in ["link", "dangling"] {
-            let refused = remove_empty_directory_at(&root, link.as_ref()).unwrap_err();
-            assert_eq!(refused.kind(), io::ErrorKind::NotADirectory, "{link}");
-            assert!(
-                std::fs::symlink_metadata(tree.0.join(link))
-                    .unwrap()
-                    .is_symlink()
-            );
-        }
-        assert!(tree.0.join("pointed").is_dir());
-    }
-
-    /// Refilling an emptied file keeps its inode and position-independent bytes, whether or not
-    /// the filesystem clones; a file that is not empty is refused before anything is written.
-    #[cfg(unix)]
-    #[test]
-    fn refilling_an_emptied_file_keeps_its_inode() {
-        use std::io::Write as _;
-        let directory = crate::test_support::TestDir::new();
-        let bytes: Vec<u8> = (0..150_003).map(|i| (i % 251) as u8).collect();
-        std::fs::write(directory.0.join("source"), &bytes).unwrap();
-        let source = File::open(directory.0.join("source")).unwrap();
-        let mut copy = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(directory.0.join("copy"))
-            .unwrap();
-        copy.write_all(b"partial").unwrap();
-        let inode = stat_identity(&copy).unwrap().inode;
-        assert!(
-            matches!(clone_or_copy_onto(&source, &copy), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::InvalidInput)
-        );
-        assert_eq!(std::fs::read(directory.0.join("copy")).unwrap(), b"partial");
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let unsupported = [false, true];
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        let unsupported = [false];
-        for unsupported in unsupported {
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
-            CLONE_UNSUPPORTED.set(unsupported);
-            copy.set_len(0).unwrap();
-            let refilled = clone_or_copy_onto(&source, &copy);
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
-            CLONE_UNSUPPORTED.set(false);
-            let method = refilled.unwrap();
-            assert!(!unsupported || method != CopyMethod::Clone, "{method:?}");
-            assert_eq!(std::fs::read(directory.0.join("copy")).unwrap(), bytes);
-            assert_eq!(stat_identity(&copy).unwrap().inode, inode);
-        }
+        assert!(!directory.0.join("unsupported").exists());
     }
 
     #[test]
@@ -2086,244 +1574,6 @@ mod tests {
             SourceMetadataBuffer::default().0.len(),
             SOURCE_METADATA_CAP + 1
         );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn descriptor_copy_preserves_bytes_offsets_and_exclusive_names() {
-        use std::io::{Seek, SeekFrom};
-        let directory = crate::test_support::TestDir::new();
-        let bytes: Vec<u8> = (0..150_003).map(|i| (i % 251) as u8).collect();
-        std::fs::write(directory.0.join("source"), &bytes).unwrap();
-        let mut source = File::open(directory.0.join("source")).unwrap();
-        source.seek(SeekFrom::Start(17)).unwrap();
-        let root = File::open(&directory.0).unwrap();
-        clone_or_copy_into(&source, &root, "copy".as_ref()).unwrap();
-        assert_eq!(std::fs::read(directory.0.join("copy")).unwrap(), bytes);
-        assert_eq!(source.stream_position().unwrap(), 17);
-        assert!(
-            matches!(clone_or_copy_into(&source, &root, "copy".as_ref()), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists)
-        );
-        for name in [
-            "",
-            ".",
-            "..",
-            "../escape",
-            "nested/file",
-            "copy/",
-            "bad\0name",
-        ] {
-            assert!(
-                matches!(clone_or_copy_into(&source, &root, name.as_ref()), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::InvalidInput)
-            );
-        }
-        let fallback = File::create(directory.0.join("fallback")).unwrap();
-        copy_read_write(&source, &fallback).unwrap();
-        assert_eq!(std::fs::read(directory.0.join("fallback")).unwrap(), bytes);
-        assert_eq!(source.stream_position().unwrap(), 17);
-        let empty = File::create(directory.0.join("empty")).unwrap();
-        drop(empty);
-        clone_or_copy_into(
-            &File::open(directory.0.join("empty")).unwrap(),
-            &root,
-            "empty-copy".as_ref(),
-        )
-        .unwrap();
-        assert_eq!(
-            std::fs::metadata(directory.0.join("empty-copy"))
-                .unwrap()
-                .len(),
-            0
-        );
-    }
-
-    /// A replacement never judges what the destination held: an exchange keeps any entry there,
-    /// changed bytes or a symlink alike, under the staged name for its caller to compare.
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
-    fn exchange_keeps_whatever_the_destination_held() {
-        let directory = crate::test_support::TestDir::new();
-        let root = File::open(&directory.0).unwrap();
-        let replace =
-            |replacement| durable_replace(&root, "stage".as_ref(), "target".as_ref(), replacement);
-        std::fs::write(directory.0.join("stage"), b"first").unwrap();
-        replace(Replacement::NoReplace).unwrap();
-        std::fs::write(directory.0.join("stage"), b"second").unwrap();
-        assert!(
-            matches!(replace(Replacement::NoReplace), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists)
-        );
-        assert_eq!(std::fs::read(directory.0.join("target")).unwrap(), b"first");
-        replace(Replacement::Exchange).unwrap();
-        assert_eq!(std::fs::read(directory.0.join("stage")).unwrap(), b"first");
-        assert_eq!(
-            std::fs::read(directory.0.join("target")).unwrap(),
-            b"second"
-        );
-        std::fs::write(directory.0.join("stage"), b"third").unwrap();
-        replace(Replacement::Exchange).unwrap();
-        assert_eq!(std::fs::read(directory.0.join("stage")).unwrap(), b"second");
-        assert_eq!(std::fs::read(directory.0.join("target")).unwrap(), b"third");
-        std::fs::remove_file(directory.0.join("target")).unwrap();
-        assert!(
-            matches!(replace(Replacement::Exchange), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::NotFound)
-        );
-        assert_eq!(std::fs::read(directory.0.join("stage")).unwrap(), b"second");
-        std::os::unix::fs::symlink("missing", directory.0.join("target")).unwrap();
-        replace(Replacement::Exchange).unwrap();
-        assert!(
-            std::fs::symlink_metadata(directory.0.join("stage"))
-                .unwrap()
-                .is_symlink()
-        );
-        assert_eq!(
-            std::fs::read(directory.0.join("target")).unwrap(),
-            b"second"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn export_directory_walk_rejects_redirects_and_unsafe_components() {
-        let directory = crate::test_support::TestDir::new();
-        let root = open_directory_nofollow(&directory.0).unwrap();
-        let nested = directory_path_at(
-            &root,
-            "bucket/nested".as_ref(),
-            DirectoryOpen::CreateIfMissing,
-        )
-        .unwrap();
-        assert_eq!(
-            stat_identity(&nested).unwrap(),
-            stat_identity(&open_directory_nofollow(&directory.0.join("bucket/nested")).unwrap())
-                .unwrap()
-        );
-        std::os::unix::fs::symlink("bucket", directory.0.join("alias")).unwrap();
-        std::os::unix::fs::symlink("nested", directory.0.join("bucket/link")).unwrap();
-        std::fs::write(directory.0.join("regular"), b"not a directory").unwrap();
-        for path in [
-            "/absolute",
-            "../outside",
-            "bucket/./child",
-            "bucket//child",
-            "bucket/",
-            "alias/child",
-            "bucket/link/child",
-            "regular/child",
-        ] {
-            assert!(
-                directory_path_at(&root, path.as_ref(), DirectoryOpen::CreateIfMissing).is_err(),
-                "{path}"
-            );
-        }
-        assert!(!directory.0.join("bucket/nested/child").exists());
-        assert!(!directory.0.join("bucket/child").exists());
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
-    fn export_replace_between_directories_retains_displaced_entries() {
-        let directory = crate::test_support::TestDir::new();
-        let root = open_directory_nofollow(&directory.0).unwrap();
-        let workspace =
-            directory_path_at(&root, "work".as_ref(), DirectoryOpen::CreateIfMissing).unwrap();
-        let target = directory_path_at(
-            &root,
-            "bucket/nested".as_ref(),
-            DirectoryOpen::CreateIfMissing,
-        )
-        .unwrap();
-        let replace = |replacement| {
-            durable_replace_between(
-                &workspace,
-                "body".as_ref(),
-                &target,
-                "body".as_ref(),
-                replacement,
-            )
-        };
-        std::fs::write(directory.0.join("work/body"), b"first").unwrap();
-        replace(Replacement::NoReplace).unwrap();
-        assert!(!directory.0.join("work/body").exists());
-        std::fs::write(directory.0.join("work/body"), b"second").unwrap();
-        assert!(
-            matches!(replace(Replacement::NoReplace), Err(FsError::Io(e)) if e.kind()==io::ErrorKind::AlreadyExists)
-        );
-        replace(Replacement::Exchange).unwrap();
-        assert_eq!(
-            std::fs::read(directory.0.join("work/body")).unwrap(),
-            b"first"
-        );
-        assert_eq!(
-            std::fs::read(directory.0.join("bucket/nested/body")).unwrap(),
-            b"second"
-        );
-        std::fs::write(directory.0.join("work/body"), b"third").unwrap();
-        replace(Replacement::Exchange).unwrap();
-        assert_eq!(
-            std::fs::read(directory.0.join("work/body")).unwrap(),
-            b"second"
-        );
-        assert_eq!(
-            std::fs::read(directory.0.join("bucket/nested/body")).unwrap(),
-            b"third"
-        );
-    }
-
-    /// A power loss right after the replacement returns keeps the staged bytes under the
-    /// destination name, and an exchange keeps the displaced bytes under the staged name. The
-    /// call records its rename before its parent syncs, so only the syncs inside the call can
-    /// make it durable: dropping the staged file's sync or either parent's sync fails this test.
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
-    fn replacement_between_directories_is_durable_when_it_returns() {
-        use crate::storage::fault::{self, Fault, Step};
-        for replacement in [Replacement::NoReplace, Replacement::Exchange] {
-            let directory = crate::test_support::TestDir::new();
-            let snapshot = crate::test_support::TestDir::new();
-            let snapshot = snapshot.0.join("power-loss");
-            let root = open_directory_nofollow(&directory.0).unwrap();
-            let workspace =
-                directory_path_at(&root, "work".as_ref(), DirectoryOpen::CreateIfMissing).unwrap();
-            let target =
-                directory_path_at(&root, "bucket".as_ref(), DirectoryOpen::CreateIfMissing)
-                    .unwrap();
-            let staged = directory.0.join("work/body");
-            let destination = directory.0.join("bucket/body");
-            if replacement == Replacement::Exchange {
-                std::fs::write(&destination, b"displaced").unwrap();
-            }
-            fault::arm(
-                &directory.0,
-                Step::SyncCopyRenamed,
-                0,
-                Fault::PowerLoss(snapshot.clone()),
-            );
-            // Written after arming, so neither its bytes nor its entry are durable yet.
-            std::fs::write(&staged, b"staged").unwrap();
-            fault::file_created(&staged);
-            durable_replace_between(
-                &workspace,
-                "body".as_ref(),
-                &target,
-                "body".as_ref(),
-                replacement,
-            )
-            .unwrap();
-            fault::hit(&directory.0, Step::SyncCopyRenamed).unwrap();
-            assert_eq!(fault::pending(&directory.0), 0);
-            assert_eq!(
-                std::fs::read(snapshot.join("bucket/body")).unwrap(),
-                b"staged",
-                "{replacement:?}"
-            );
-            match replacement {
-                Replacement::Exchange => assert_eq!(
-                    std::fs::read(snapshot.join("work/body")).unwrap(),
-                    b"displaced"
-                ),
-                Replacement::NoReplace => assert!(!snapshot.join("work/body").exists()),
-            }
-        }
     }
 
     #[cfg(unix)]

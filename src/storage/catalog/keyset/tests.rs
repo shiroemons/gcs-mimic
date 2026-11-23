@@ -109,39 +109,10 @@ fn page_limits_accept_one_through_their_maximum() {
         PageLimit::<256>::try_from(usize::MAX),
         Err(InvalidPageLimit)
     );
-    assert_eq!(PageLimit::<257>::LARGEST.get(), 257);
-    assert_eq!(
-        PageLimit::<256>::LARGEST.with_lookahead::<257>(),
-        PageLimit::<257>::LARGEST
-    );
     let connection = Connection::open_in_memory().unwrap();
+    let largest = PageLimit::<256>::try_from(256).unwrap();
     let bound: i64 = connection
-        .query_row("SELECT ?1", [PageLimit::<256>::LARGEST], |row| row.get(0))
+        .query_row("SELECT ?1", [largest], |row| row.get(0))
         .unwrap();
     assert_eq!(bound, 256);
-}
-
-#[test]
-fn ordinals_are_non_negative_and_a_stored_negative_one_is_corrupt() {
-    assert_eq!(Ordinal::try_from(-1), Err(InvalidOrdinal));
-    assert_eq!(Ordinal::try_from(0), Ok(Ordinal::START));
-    assert_eq!(Ordinal::try_from(i64::MAX).map(Ordinal::get), Ok(i64::MAX));
-    assert_eq!(Ordinal::default(), Ordinal::START);
-    let connection = Connection::open_in_memory().unwrap();
-    let ordinal = Ordinal::try_from(7).unwrap();
-    let read: Ordinal = connection
-        .query_row("SELECT ?1", [ordinal], |row| row.get(0))
-        .unwrap();
-    assert_eq!(read, ordinal);
-    let error = connection
-        .query_row("SELECT -1", [], |row| row.get::<_, Ordinal>(0))
-        .unwrap_err();
-    assert!(matches!(
-        error,
-        rusqlite::Error::IntegralValueOutOfRange(0, -1)
-    ));
-    assert!(matches!(
-        super::super::unavailable(error),
-        CatalogError::Corrupt(_)
-    ));
 }
