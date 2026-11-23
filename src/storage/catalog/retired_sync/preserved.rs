@@ -3,8 +3,14 @@
 //! write-back that stopped midway may have left the file it displaced, or its own copy, in the
 //! private workspace inside the synchronized folder. Once schema 58 drops the rows, only the
 //! manifest written here names those files, so it becomes durable before that transaction
-//! starts. Each start warns while `sync-conflicts/` holds entries. Nothing here deletes, moves or
-//! changes the files, in the data directory or in a user's folder.
+//! starts. [`warning`] tells the operator about them when the transaction commits and at every
+//! start while a manifest or a copy remains. Nothing here deletes, moves or changes the files,
+//! in the data directory or in a user's folder.
+
+mod warning;
+
+pub(super) use warning::Listing;
+pub(in crate::storage::catalog) use warning::warn_retired_files;
 
 #[cfg(test)]
 use super::super::fault::{self, Step};
@@ -114,35 +120,40 @@ pub(super) fn named(connection: &Connection) -> Result<bool, CatalogError> {
     Ok(sql::scalar(connection, NAMES_FILES, [])?)
 }
 
-/// Writes the manifest durably into `data_dir` and returns where: a staged file written, flushed
-/// and synced, then renamed to the first manifest name that is free, then the directory synced.
-/// The rows it reads are the ones a later transaction drops, so writing it again from the same
-/// rows gives the same bytes, and a manifest an earlier attempt published with them is kept
-/// instead.
+/// Writes the manifest durably into `data_dir` and says where and what it lists: a staged file
+/// written, flushed and synced, then renamed to the first manifest name that is free, then the
+/// directory synced. The rows it reads are the ones a later transaction drops, so writing it
+/// again from the same rows gives the same bytes, and a manifest an earlier attempt published
+/// with them is kept instead.
 pub(super) fn write_manifest(
     connection: &Connection,
     data_dir: &Path,
-) -> Result<PathBuf, CatalogError> {
+) -> Result<Listing, CatalogError> {
     let mut manifest = Manifest::create(data_dir)?;
     manifest.put(b"{\n  \"description\": ")?;
     manifest.put(&serde_json::to_vec(DESCRIPTION).map_err(unavailable)?)?;
     manifest.list(connection, "folders", FOLDERS, |row| {
         row.get::<_, Folder>(0)
     })?;
-    manifest.list(
+    let conflict_copies = manifest.list(
         connection,
         "conflict_copies",
         CONFLICT_COPIES,
         conflict_copy,
     )?;
-    manifest.list(
-        connection,
-        "workspace_entries",
-        WORKSPACE_ENTRIES,
-        workspace_entry,
-    )?;
+    let mut workspace_entries = Vec::new();
+    manifest.list(connection, "workspace_entries", WORKSPACE_ENTRIES, |row| {
+        let entry = workspace_entry(row)?;
+        warning::FolderEntries::count(&mut workspace_entries, &entry.folder);
+        Ok(entry)
+    })?;
     manifest.put(b"\n}\n")?;
-    manifest.publish()
+    Ok(Listing {
+        manifest: manifest.publish()?,
+        conflicts: data_dir.join(CONFLICTS),
+        conflict_copies,
+        workspace_entries,
+    })
 }
 
 /// The error of a manifest step, naming the step and the file it worked on.
@@ -196,27 +207,28 @@ impl<'a> Manifest<'a> {
     }
 
     /// Writes `key`, which needs no JSON escape, and one compact JSON object per row `query`
-    /// selects, a line each.
+    /// selects, a line each, and returns how many it wrote.
     fn list<T: Serialize>(
         &mut self,
         connection: &Connection,
         key: &'static str,
         query: &'static str,
-        read: fn(&Row<'_>) -> rusqlite::Result<T>,
-    ) -> Result<(), CatalogError> {
+        mut read: impl FnMut(&Row<'_>) -> rusqlite::Result<T>,
+    ) -> Result<u64, CatalogError> {
         self.put(format!(",\n  \"{key}\": [").as_bytes())?;
         let mut statement = connection.prepare_cached(query)?;
         let mut rows = statement.query([])?;
-        let mut written = false;
+        let mut written = 0;
         while let Some(row) = rows.next()? {
-            let separator: &[u8] = if written { b",\n    " } else { b"\n    " };
+            let separator: &[u8] = if written == 0 { b"\n    " } else { b",\n    " };
             let mut line = separator.to_vec();
             serde_json::to_writer(&mut line, &read(row)?).map_err(unavailable)?;
             self.put(&line)?;
-            written = true;
+            written += 1;
         }
-        let close: &[u8] = if written { b"\n  ]" } else { b"]" };
-        self.put(close)
+        let close: &[u8] = if written == 0 { b"]" } else { b"\n  ]" };
+        self.put(close)?;
+        Ok(written)
     }
 
     fn publish(self) -> Result<PathBuf, CatalogError> {
@@ -342,7 +354,7 @@ enum CopyState {
 sql::integer_enum!(CopyState, { Capturing => 0, Registered => 1 });
 
 /// A formerly synchronized folder, as the process that synchronized it saw its path.
-#[derive(Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 struct Folder {
     folder: String,
     /// The path's bytes, when they are not UTF-8 and `folder` replaces some of them.
@@ -509,63 +521,4 @@ fn workspace_entry(row: &Row<'_>) -> rusqlite::Result<WorkspaceEntry> {
         path,
         operation,
     })
-}
-
-/// The start-up warning about the copies in `sync-conflicts/`.
-#[derive(Serialize)]
-struct PreservedCopies {
-    message: String,
-    directory: String,
-    entries: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    manifest: Option<String>,
-}
-
-/// What `sync-conflicts/` in `data_dir` holds, or `None` while it is missing or empty.
-fn preserved_copies(data_dir: &Path) -> io::Result<Option<PreservedCopies>> {
-    let directory = data_dir.join(CONFLICTS);
-    let listing = match fs::read_dir(&directory) {
-        Ok(listing) => listing,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    let mut entries: u64 = 0;
-    for entry in listing {
-        entry?;
-        entries += 1;
-    }
-    if entries == 0 {
-        return Ok(None);
-    }
-    let path = data_dir.join(MANIFEST);
-    let manifest = path.try_exists()?.then(|| path.display().to_string());
-    let directory = directory.display().to_string();
-    let noun = if entries == 1 { "entry" } else { "entries" };
-    let listed = manifest
-        .as_ref()
-        .map_or_else(String::new, |manifest| format!(" {manifest} lists them."));
-    let message = format!(
-        "{directory} holds {entries} {noun}: copies of edits that the removed directory \
-         synchronization preserved. gcs-mimic never deletes them automatically.{listed} Inspect \
-         them, then remove the directory yourself once you no longer need them."
-    );
-    Ok(Some(PreservedCopies {
-        message,
-        directory,
-        entries,
-        manifest,
-    }))
-}
-
-/// Warns while `sync-conflicts/` in `data_dir` holds entries. Every open repeats it, so the
-/// copies stay visible until the operator removes them.
-pub(in crate::storage::catalog) fn warn_preserved_copies(data_dir: &Path) -> io::Result<()> {
-    if let Some(copies) = preserved_copies(data_dir)? {
-        crate::diagnostics::emit(
-            crate::diagnostics::LogLevel::Warn,
-            "sync_conflicts_preserved",
-            copies,
-        );
-    }
-    Ok(())
 }
