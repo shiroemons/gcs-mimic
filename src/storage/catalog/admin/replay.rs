@@ -7,9 +7,10 @@
 //! - Content, not attributes, decides whether a file changed. A fingerprint that differs from the
 //!   record's, or a record that could have missed a change, only gets the file read and hashed
 //!   again, and a file whose hashes equal the record's changes nothing in the catalog.
-//! - Seeding owns a generation only when it published it, or when its record already owned
-//!   exactly that live generation; it deletes only a generation it owns whose body is still the
-//!   one it recorded, and only where a lookup proved the fixture file gone.
+//! - Seeding owns a [`Version`], a generation at one metageneration, only when it published it,
+//!   or when its record already owned exactly that live version; it deletes only a version it
+//!   owns whose body is still the one it recorded, and only where a lookup proved the fixture
+//!   file gone. An API write of the body or of the metadata ends that ownership.
 //! - A startup replay, which reseed shares, keeps the contract it had before any record existed:
 //!   the fixture tree wins over the catalog, and what cannot be replayed fails it.
 //!
@@ -18,9 +19,13 @@
 //! [`absent`], then [`confirm_absence`] while the server runs; and [`unread`].
 //!
 //! No record is kept yet, and no pass runs while the server does. The step that adds them keeps a
-//! [`SeedRecord`] per replayed name in the transaction that publishes it, looks up the recorded
-//! names a pass did not list, since a walk lists only what is there, and treats every record a
-//! pass did not observe as unknown, not absent, once the walk failed or stopped at a limit.
+//! [`SeedRecord`] per replayed name in the transaction that publishes it, with the version that
+//! publication assigned; looks up the recorded names a pass did not list, since a walk lists only
+//! what is there; treats every record a pass did not observe as unknown, not absent, once the walk
+//! failed or stopped at a limit; and deletes for [`Vanished::Delete`] with both the
+//! `ifGenerationMatch` and the `ifMetagenerationMatch` condition of the owned version, checked
+//! atomically with the delete. A failed condition deletes nothing and keeps the record, and the
+//! next pass decides again from what is then live.
 
 use crate::{
     fsutil::{FileIdentity, Vacant},
@@ -84,13 +89,21 @@ pub(crate) struct Body {
     pub(crate) hashes: Hashes,
 }
 
+/// A generation of an object at one metageneration. Every API write changes one of the two: a
+/// new body makes a new generation, and a metadata edit a new metageneration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Version {
+    pub(crate) generation: i64,
+    pub(crate) metageneration: i64,
+}
+
 /// What seeding recorded at a name when a replay last read its fixture file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SeedRecord {
-    /// The generation seeding owns at the name: one it published, or one the record already
+    /// The version seeding owns at the name: the one it published, or one the record already
     /// owned when a replay found it live and holding the file's body. An API write never passes
-    /// ownership to seeding, even of an identical body.
-    pub(crate) owned: Option<i64>,
+    /// ownership to seeding, even of an identical body or of the metadata seeding wrote.
+    pub(crate) owned: Option<Version>,
     /// What the file held when a replay last read it.
     pub(crate) body: Body,
     /// The fingerprint of the read that last hashed the file, or of a later stat that found it
@@ -104,8 +117,8 @@ pub(crate) struct SeedRecord {
 /// What the catalog holds at a fixture name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LiveObject {
-    /// The live generation.
-    pub(crate) generation: i64,
+    /// The live generation, at its current metageneration.
+    pub(crate) version: Version,
     pub(crate) body: Body,
     pub(crate) attributes: Attributes,
     pub(crate) protection: Protection,
@@ -131,11 +144,11 @@ pub(crate) enum Protection {
 /// What a replay that read a fixture file does at its name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Replay {
-    /// Publish the file as the name's new live generation, which seeding then owns.
+    /// Publish the file as the name's new live generation, whose version seeding then owns.
     Publish,
     /// Write nothing, since the live object already is what the file would write, and record the
-    /// file with `owned` as the generation seeding owns.
-    Record { owned: Option<i64> },
+    /// file with `owned` as the version seeding owns.
+    Record { owned: Option<Version> },
     /// A hold or an unmet retention period refuses replacing the live object. A startup replay
     /// fails. A pass while running records the file's fingerprint and body but keeps the
     /// generation the record owned, so that the change it made is not replayed later: once the
@@ -157,10 +170,11 @@ pub(crate) fn startup_file(
     };
     if live.body == *file && live.attributes == Attributes::AsSeeded {
         // Nothing would change, so protection refuses nothing. An identical object that an API
-        // write made, or that seeding wrote before it kept records, stays unowned.
+        // write made, or that seeding wrote before it kept records, stays unowned, and so does
+        // one whose metadata an API write edited and then restored.
         let owned = record
             .and_then(|record| record.owned)
-            .filter(|owned| *owned == live.generation);
+            .filter(|owned| *owned == live.version);
         return Replay::Record { owned };
     }
     match live.protection {
@@ -236,9 +250,9 @@ pub(crate) fn live_read(
 /// What a replay does at a recorded name whose fixture file a lookup proved absent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Vanished {
-    /// Delete the live object only while `generation` is still live, and drop the record. A pass
-    /// while running deletes only once [`confirm_absence`] confirms it.
-    Delete { generation: i64 },
+    /// Delete the live object on the condition that it still is the version `owned`, and drop
+    /// the record. A pass while running deletes only once [`confirm_absence`] confirms it.
+    Delete { owned: Version },
     /// Change nothing and drop the record: seeding owns nothing that is still live at the name.
     Forget,
     /// Change nothing and keep the record: a hold or an unmet retention period refuses the
@@ -249,8 +263,9 @@ pub(crate) enum Vanished {
 
 /// What a replay does at a name where seeding recorded `record` and the catalog holds `live`,
 /// once a lookup proved the fixture file absent. A name without a record owns nothing, so a
-/// caller only reports it. Seeding deletes only the generation it owns, and only while its body
-/// is still the one the record read: an object that changed since is not the one seeding wrote.
+/// caller only reports it. Seeding deletes only the version it owns, and only while its body is
+/// still the one the record read: an object whose body or metadata changed since is not purely
+/// what seeding wrote.
 #[cfg_attr(
     any(not(test), not(unix)),
     expect(
@@ -262,12 +277,12 @@ pub(crate) fn absent(_proof: &Vacant, record: &SeedRecord, live: Option<&LiveObj
     let owned = record
         .owned
         .zip(live)
-        .filter(|(owned, live)| live.generation == *owned && live.body == record.body);
-    let Some((generation, live)) = owned else {
+        .filter(|(owned, live)| live.version == *owned && live.body == record.body);
+    let Some((owned, live)) = owned else {
         return Vanished::Forget;
     };
     match live.protection {
-        Protection::Unprotected => Vanished::Delete { generation },
+        Protection::Unprotected => Vanished::Delete { owned },
         Protection::Protected => Vanished::Protected,
     }
 }

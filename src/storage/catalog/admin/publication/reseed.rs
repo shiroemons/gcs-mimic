@@ -4,7 +4,7 @@ use super::*;
 use crate::storage::catalog::{
     admin::{
         initialization::Initialization,
-        replay::{self, Attributes, Body, Fingerprint, LiveObject, Protection, Replay},
+        replay::{self, Attributes, Body, Fingerprint, LiveObject, Protection, Replay, Version},
     },
     sql,
 };
@@ -600,7 +600,10 @@ fn live_object(
         objects::BucketPublication::load(transaction, entry.bucket.as_str())?.versioning;
     let protected = objects::check_replaceable(live, versioning, now).is_err();
     Ok(LiveObject {
-        generation: live.generation,
+        version: Version {
+            generation: live.generation,
+            metageneration: live.metageneration,
+        },
         body: Body {
             size: live.size,
             hashes: crate::hashing::Hashes {
