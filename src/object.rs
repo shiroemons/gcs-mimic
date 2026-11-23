@@ -973,7 +973,8 @@ pub(crate) enum ObjectError {
     /// current owning project is not one the caller was authorized for.
     Denied(Box<crate::auth::Denied>),
     /// Refused for a reason no Cloud Storage permission names: an upload session whose bucket
-    /// was recreated, administrative access through upload replay, or a refused sync control.
+    /// was recreated, administrative access through upload replay, or a bucket refusal of that
+    /// kind ([`CatalogError::Forbidden`](crate::bucket::CatalogError::Forbidden)).
     Forbidden,
     NotModified,
     /// A write's `ifGenerationNotMatch` or `ifMetagenerationNotMatch` named the current value of
