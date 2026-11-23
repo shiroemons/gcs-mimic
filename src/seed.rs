@@ -16,7 +16,7 @@ use crate::{
     },
 };
 use serde::Serialize;
-use std::{io, path::Path};
+use std::{io, path::Path, sync::Arc};
 use walk::{Fixture, Object, Opened, Seen, Source, Tree, Walked};
 
 mod error;
@@ -39,10 +39,14 @@ pub enum SeedOutcome {
 
 /// Replays the seed tree on every startup, like fake-gcs-server's `-data`: fixture files win
 /// over API changes at the same name, while unrelated objects are never deleted.
+///
+/// `clock` dates the buckets the tree creates and paces the bounded wait for a fixture that
+/// fails to open for a moment. A fixture's fingerprint is timed by the system wall clock
+/// instead, because it is compared with the timestamps the filesystem wrote.
 pub async fn import(
     catalog: &Catalog,
     config: &Config,
-    clock: &dyn Clock,
+    clock: &Arc<dyn Clock>,
 ) -> Result<SeedOutcome, SeedError> {
     let admin = catalog.admin(Origin::Seed);
     let Some(root) = &config.seed_dir else {
@@ -66,7 +70,7 @@ pub async fn import(
 pub(crate) async fn reseed(
     admin: &Admin,
     config: &Config,
-    clock: &dyn Clock,
+    clock: &Arc<dyn Clock>,
     request_deadline: tokio::time::Instant,
 ) -> Result<SeedOutcome, SeedError> {
     let root = config.seed_dir.as_ref().ok_or(SeedError::MissingRoot)?;
@@ -106,7 +110,7 @@ struct Republished {
 pub(crate) async fn restore(
     admin: &Admin,
     config: &Config,
-    clock: &dyn Clock,
+    clock: &Arc<dyn Clock>,
     request_deadline: tokio::time::Instant,
     initialization: Option<Initialization>,
 ) -> Result<Restored, SeedError> {
@@ -218,7 +222,7 @@ impl Staged {
 async fn stage_directory(
     catalog: &Admin,
     config: &Config,
-    clock: &dyn Clock,
+    clock: &Arc<dyn Clock>,
     root: &Path,
     request_deadline: Option<tokio::time::Instant>,
 ) -> Result<Staged, SeedError> {
@@ -248,14 +252,14 @@ async fn stage_directory(
         depth: config.max_seed_depth,
     };
     #[cfg(unix)]
-    let tree = Tree::new(root, source_root);
+    let tree = Tree::new(root, source_root, Arc::clone(clock));
     #[cfg(not(unix))]
     let tree = Tree::new(root);
     let mut entries = tree.walk(limits)?;
     let mut seed = Seed {
         batch,
         config,
-        clock,
+        clock: clock.as_ref(),
         buckets: 0,
         skipped_os_metadata: 0,
     };

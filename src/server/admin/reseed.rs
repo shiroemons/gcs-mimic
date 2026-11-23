@@ -51,7 +51,7 @@ async fn reseed(
         ));
     }
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
-    let clock = ctx.state.clock.as_ref();
+    let clock = &ctx.state.clock;
     let config = ctx.config;
     let ctx = ctx.object(None, deadline);
     let outcome = ctx
@@ -420,7 +420,7 @@ mod tests {
         let error = crate::seed::reseed(
             &admin,
             &config,
-            &SystemClock,
+            &(std::sync::Arc::new(SystemClock) as std::sync::Arc<dyn crate::clock::Clock>),
             tokio::time::Instant::now() + std::time::Duration::from_secs(1),
         )
         .await

@@ -502,7 +502,7 @@ async fn prepare_startup(
     ))?;
     // Seed drops only source reads/request waits; publication and cleanup own upload permits.
     let seed = complete!(async {
-        gcs_mimic::seed::import(catalog, config, clock.as_ref())
+        gcs_mimic::seed::import(catalog, config, &clock)
             .await
             .map_err(|error| {
                 Diagnostics::error(DiagnosticSource::Seed, "seed_dir", seed_failure(&error))

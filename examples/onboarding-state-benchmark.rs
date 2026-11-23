@@ -270,7 +270,9 @@ fn prepare(path: &Path, count: usize) {
                 data_dir: path.into(),
                 ..Default::default()
             };
-            gcs_mimic::seed::import(&catalog, &config, &gcs_mimic::clock::SystemClock)
+            let clock: std::sync::Arc<dyn gcs_mimic::clock::Clock> =
+                std::sync::Arc::new(gcs_mimic::clock::SystemClock);
+            gcs_mimic::seed::import(&catalog, &config, &clock)
                 .await
                 .unwrap();
             catalog.close().await.unwrap();

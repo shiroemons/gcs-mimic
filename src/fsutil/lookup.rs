@@ -153,11 +153,8 @@ impl Listings {
 impl Lookup {
     /// Lookups that know nothing about the filesystem: each directory's own answer decides.
     #[cfg_attr(
-        not(unix),
-        expect(
-            dead_code,
-            reason = "only the Unix seed walk opens fixtures through a lookup"
-        )
+        not(all(test, unix)),
+        expect(dead_code, reason = "the seed watcher reuses this")
     )]
     pub(crate) fn unprobed() -> Self {
         Self::unprobed_on(Arc::new(SystemClock))
