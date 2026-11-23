@@ -141,8 +141,11 @@ pub(super) fn tree_failure(error: &SeedError, operation: Operation) -> ApiError 
         }
         SeedError::Io(error) => io_failure(error.kind(), operation),
         // A walk stops early only on shutdown or a panic. A path outside the root is an invariant
-        // the walker keeps, so it is a server fault, not the fixture's.
-        SeedError::WalkStopped | SeedError::RelativePath(_) => retry(operation),
+        // the walker keeps, so it is a server fault, not the fixture's. A fixture that kept
+        // failing to open may open once the host that replaced it settles.
+        SeedError::WalkStopped | SeedError::RelativePath(_) | SeedError::Unopenable(_) => {
+            retry(operation)
+        }
     }
 }
 

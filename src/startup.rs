@@ -781,6 +781,7 @@ fn seed_advice(error: &SeedError) -> SeedAdvice {
         SeedError::NotDirectory => SeedAdvice::Reason("not a symlink"),
         SeedError::NonUtf8Name => SeedAdvice::Reason("must be UTF-8"),
         SeedError::Io(_)
+        | SeedError::Unopenable(_)
         | SeedError::RelativePath(_)
         | SeedError::WalkStopped
         | SeedError::MissingRoot => SeedAdvice::Reason(UNREADABLE_FIXTURE),

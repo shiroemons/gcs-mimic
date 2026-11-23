@@ -1,9 +1,10 @@
-use crate::{api_error::ApiError, storage::admin::AdminError};
+use crate::{api_error::ApiError, fsutil::Unopenable, storage::admin::AdminError};
 use std::{error::Error, fmt, io, path::StripPrefixError};
 
 #[derive(Debug)]
 pub enum SeedError {
     Io(io::Error),
+    Unopenable(Unopenable),
     Admin(AdminError),
     BucketName(AdminError),
     ObjectName(ApiError),
@@ -26,6 +27,7 @@ impl fmt::Display for SeedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(error) => error.fmt(f),
+            Self::Unopenable(_) => f.write_str("fixture could not be opened"),
             Self::Admin(error) | Self::BucketName(error) => error.fmt(f),
             Self::ObjectName(error) => f.write_str(&error.message),
             Self::RelativePath(error) => error.fmt(f),
@@ -60,6 +62,7 @@ impl Error for SeedError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io(error) => error.source(),
+            Self::Unopenable(error) => Some(error),
             Self::Admin(error) | Self::BucketName(error) => error.source(),
             Self::ObjectName(error) => Some(error),
             Self::RelativePath(error) => error.source(),
