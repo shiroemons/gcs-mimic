@@ -4,13 +4,12 @@ use crate::bucket::{ClassLocationConflict, Location};
 use std::num::NonZeroI64;
 
 /// The new version a publication transaction records: its blob, how its generation is
-/// assigned, the publication time and the origin that decides whether it reports notifications.
+/// assigned, the publication time and the mode that decides whether it reports notifications.
 #[derive(Clone, Copy)]
 pub(in crate::storage::catalog) struct NewVersion<'a> {
     pub(in crate::storage::catalog) blob_id: BlobId,
     pub(in crate::storage::catalog) assignment: GenerationAssignment,
     pub(in crate::storage::catalog) micros: i64,
-    pub(in crate::storage::catalog) origin: super::super::admin::Origin,
     pub(in crate::storage::catalog) notification_mode: NotificationMode,
     pub(in crate::storage::catalog) owner_profile: Option<&'a super::super::principals::Profile>,
     pub(in crate::storage::catalog) acl: super::super::acl::PublicationAcl<'a>,
@@ -378,7 +377,6 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
         blob_id,
         assignment,
         micros,
-        origin,
         notification_mode,
         owner_profile,
         acl,
@@ -438,7 +436,6 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
         bucket,
         RetirementContext {
             micros,
-            origin,
             replacement: Some(generation),
             notification_mode,
         },
@@ -469,7 +466,7 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
             retention.sub_micro, temporary.released, event.released, class_updated]))?;
     super::super::acl::publish_object_acl(transaction, &record, acl)?;
     if notification_mode == NotificationMode::Emit {
-        super::super::notification_outbox::published(transaction, origin, &record, previous, now)?;
+        super::super::notification_outbox::published(transaction, &record, previous, now)?;
     }
     Ok(PublishedVersion {
         record,
@@ -512,7 +509,6 @@ pub(super) fn validate_timestamps(record: &ObjectRecord) -> Result<(), ObjectErr
 #[derive(Clone, Copy)]
 pub(super) struct RetirementContext {
     pub(super) micros: i64,
-    pub(super) origin: super::super::admin::Origin,
     pub(super) replacement: Option<i64>,
     pub(super) notification_mode: NotificationMode,
 }
@@ -526,15 +522,13 @@ pub(super) fn retire_previous(
 ) -> Result<Retired, ObjectError> {
     let RetirementContext {
         micros,
-        origin,
         replacement,
         notification_mode,
     } = context;
     let Some(StoredObject { record, blob: id }) = previous else {
         return Ok(Retired::Nothing);
     };
-    if origin != super::super::admin::Origin::Import && notification_mode == NotificationMode::Emit
-    {
+    if notification_mode == NotificationMode::Emit {
         super::super::notification_outbox::enqueue(
             connection,
             crate::notification::Message {

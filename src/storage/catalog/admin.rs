@@ -54,16 +54,6 @@ pub enum Origin {
     Import,
 }
 
-/// An administrative access acts for its grant's origin; every other access is an API request.
-impl From<&BucketAccess> for Origin {
-    fn from(access: &BucketAccess) -> Self {
-        match access {
-            BucketAccess::Admin(grant) => grant.origin(),
-            BucketAccess::Permissive | BucketAccess::Policy { .. } => Self::Api,
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AdminGrant {
     origin: Origin,
@@ -98,8 +88,13 @@ impl AdminGrant {
     pub(crate) fn origin(&self) -> Origin {
         self.origin
     }
+    /// What the grant's operations report. An import reproduces its source and reports nothing,
+    /// whatever mode was stored.
     pub(crate) fn notification_mode(&self) -> crate::notification::NotificationMode {
-        self.notification_mode
+        match self.origin {
+            Origin::Import => crate::notification::NotificationMode::Suppress,
+            Origin::Api | Origin::Seed | Origin::BucketInit => self.notification_mode,
+        }
     }
     /// The bucket access every administrative operation of this grant checks.
     pub(crate) fn access(&self) -> BucketAccess {

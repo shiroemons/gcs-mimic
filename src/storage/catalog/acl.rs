@@ -7,9 +7,7 @@
 //! Foreign keys remove ACL rows together with their bucket or object generation.
 
 use super::{
-    Catalog,
-    admin::Origin,
-    notification_outbox,
+    Catalog, notification_outbox,
     objects::{object_unavailable, selected},
     policies::{check_access, policy_public_access},
     unavailable, unix_micros,
@@ -1009,7 +1007,7 @@ impl Catalog {
                     record.updated = super::system_time_micros(micros).map_err(unavailable)?;
                     notification_outbox::metadata_updated(
                         &transaction,
-                        Origin::from(&access),
+                        crate::notification::NotificationMode::for_access(&access),
                         &record,
                     )?;
                 }

@@ -1,7 +1,5 @@
 use super::{
-    Activity, Catalog, UploadGuard, Work,
-    admin::Origin,
-    micros_column,
+    Activity, Catalog, UploadGuard, Work, micros_column,
     read_cache::{self, CachedDownload, CachedObject},
     system_time_micros, unavailable, unix_micros,
 };
@@ -310,7 +308,7 @@ impl Catalog {
             store_metadata_update(&transaction, &mut record, update, clock.as_ref())?;
             super::notification_outbox::metadata_updated(
                 &transaction,
-                Origin::from(&access),
+                NotificationMode::for_access(&access),
                 &record,
             )?;
             transaction.commit()?;
@@ -579,7 +577,6 @@ pub(super) fn delete_in_transaction(
         &publication,
         RetirementContext {
             micros: unix_micros(now)?,
-            origin: Origin::from(access),
             replacement: None,
             notification_mode: NotificationMode::for_access(access),
         },

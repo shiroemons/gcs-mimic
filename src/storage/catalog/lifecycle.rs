@@ -826,8 +826,12 @@ fn transition_version(
             micros
         ],
     )?;
-    super::notification_outbox::metadata_updated(transaction, super::admin::Origin::Api, &record)
-        .map_err(ObjectError::from)
+    super::notification_outbox::metadata_updated(
+        transaction,
+        crate::notification::NotificationMode::Emit,
+        &record,
+    )
+    .map_err(ObjectError::from)
 }
 
 fn retire_version(

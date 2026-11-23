@@ -1,4 +1,4 @@
-//! Payload snapshots belong to the object mutation transaction, independently of sync replay.
+//! Payload snapshots belong to the object mutation transaction that they report.
 
 use super::{Catalog, unavailable, unix_micros};
 use crate::storage::catalog::sql;
@@ -96,14 +96,10 @@ pub(super) fn enqueue(connection: &Connection, message: Message<'_>) -> Result<(
 
 pub(super) fn published(
     connection: &Connection,
-    origin: super::admin::Origin,
     record: &crate::object::ObjectRecord,
     previous: Option<&super::objects::StoredObject>,
     time: std::time::SystemTime,
 ) -> Result<(), CatalogError> {
-    if origin == super::admin::Origin::Import {
-        return Ok(());
-    }
     enqueue(
         connection,
         Message {
@@ -115,14 +111,13 @@ pub(super) fn published(
     )
 }
 
-/// Reports a metadata change of `record` at its update time. An import reports nothing, as it
-/// does for a publication.
+/// Reports a metadata change of `record` at its update time, unless `mode` suppresses it.
 pub(super) fn metadata_updated(
     connection: &Connection,
-    origin: super::admin::Origin,
+    mode: crate::notification::NotificationMode,
     record: &crate::object::ObjectRecord,
 ) -> Result<(), CatalogError> {
-    if origin == super::admin::Origin::Import {
+    if mode == crate::notification::NotificationMode::Suppress {
         return Ok(());
     }
     enqueue(

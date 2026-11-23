@@ -186,7 +186,6 @@ where
         blob_id: id,
         assignment: objects::GenerationAssignment::Automatic,
         micros,
-        origin: super::super::admin::Origin::from(&destination.access),
         notification_mode: crate::notification::NotificationMode::Emit,
         owner_profile: principals.as_ref(),
         acl: super::super::acl::PublicationAcl::requested(&destination.metadata.acl),
