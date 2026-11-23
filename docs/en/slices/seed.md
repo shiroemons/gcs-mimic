@@ -259,11 +259,11 @@ pass:
   `max_seed_entries` or `max_seed_depth` proves nothing absent, so that pass
   deletes nothing.
 
-A pass that would change nothing opens no transaction. Objects a pass publishes
-or deletes are notified like those of a startup replay. A pass that panics
-restarts the passes, and the next one starts at once; until it completes,
-`/_internal/healthcheck` reports the server not ready, as it does for the other
-background tasks.
+A pass with nothing to check against the catalog opens no transaction. Like a
+startup replay, a pass emits no bucket notifications for the objects it
+publishes or deletes. A pass that panics restarts the passes, and the next one
+starts at once; until it completes, `/_internal/healthcheck` reports the server
+not ready, as it does for the other background tasks.
 
 With `admin_enabled`, two routes report the passes; they take the authority and
 the browser and host checks of `/_internal/reseed`:

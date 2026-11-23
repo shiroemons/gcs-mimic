@@ -646,6 +646,40 @@ async fn a_name_the_lookup_cannot_tell_about_is_reported_only_while_seeding_owns
     watched.close().await;
 }
 
+/// Like a startup replay, a pass emits no bucket notification for what it publishes or deletes,
+/// while an API request in the same bucket still emits one.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_pass_emits_no_bucket_notifications() {
+    let watched = watched().await;
+    watched
+        .catalog
+        .insert_notification(
+            "bucket",
+            crate::notification::NotificationConfig {
+                topic: "//pubsub.googleapis.com/projects/p/topics/topic"
+                    .parse()
+                    .unwrap(),
+                payload_format: crate::notification::PayloadFormat::JsonApiV1,
+                event_types: crate::notification::EventTypes::default(),
+                custom_attributes: std::collections::BTreeMap::new(),
+                object_name_prefix: String::new(),
+            },
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    watched.write("bucket/a", b"changed");
+    watched.write("bucket/new", b"new");
+    watched.remove("bucket/b");
+    assert_eq!(watched.pass().await.counts.published, 2);
+    assert_eq!(watched.confirm().await.counts.deleted, 1);
+    assert!(watched.catalog.next_notification().await.unwrap().is_none());
+    watched.api_delete("bucket", "c").await;
+    assert!(watched.catalog.next_notification().await.unwrap().is_some());
+    watched.close().await;
+}
+
 /// An entry seeding cannot use is reported, and the object of the file it replaced stays.
 #[cfg(unix)]
 #[tokio::test]
