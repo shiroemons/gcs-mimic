@@ -384,7 +384,7 @@ async fn prepare_entry(catalog: Catalog, mut entry: SeedEntry) -> Result<SeedEnt
 fn check_guards(
     transaction: &rusqlite::Transaction<'_>,
     mode: SeedMode,
-    clock: &dyn Clock,
+    now: SystemTime,
 ) -> Result<(), AdminError> {
     let importing: bool = sql::scalar(
         transaction,
@@ -400,7 +400,7 @@ fn check_guards(
     }
     match mode {
         SeedMode::Replace => {
-            let now = crate::storage::catalog::unix_micros(clock.now())?;
+            let now = crate::storage::catalog::unix_micros(now)?;
             let held: bool = sql::scalar(
                 transaction,
                 concat!(
@@ -429,8 +429,11 @@ fn commit(
 ) -> Result<Counts, AdminError> {
     let transaction = sql::immediate(connection).map_err(objects_error)?;
     let catalog = &batch.admin.catalog;
-    let clock = catalog.0.clock.as_ref();
-    check_guards(&transaction, mode, clock)?;
+    // One instant for the whole commit, at the microsecond that publication records: the
+    // guards, the replay's protection decisions and each publication's own check then all
+    // judge protection at the time the published records keep.
+    let now = super::recorded_instant(catalog.0.clock.now())?;
+    check_guards(&transaction, mode, now)?;
     let mut counts = Counts::default();
     let epoch = if mode.clears() {
         let reclamation = super::super::reset::Reclamation::for_backend(&catalog.0.backend);
@@ -474,8 +477,6 @@ fn commit(
     } in &batch.entries
     {
         validate_staged_entry(entry)?;
-        // The replay decides protection at the instant it publishes, so the two cannot disagree.
-        let now = clock.now();
         let previous = objects::lookup(&transaction, entry.bucket.as_str(), entry.name.as_str())?;
         let live = previous
             .as_ref()
