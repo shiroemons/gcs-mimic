@@ -1,6 +1,59 @@
 use super::*;
 use std::cell::RefCell;
 
+/// Every command that reaches the server reads a URL the same way: an explicit port, no user
+/// information, query or fragment, and the host TLS verifies without IPv6 brackets.
+#[test]
+fn a_server_url_names_an_origin_with_a_port_and_nothing_else() {
+    let (origin, path) = Origin::split("https://[::1]:4443/_internal/ready").unwrap();
+    assert_eq!(
+        origin,
+        Origin {
+            scheme: Scheme::Https,
+            authority: "[::1]:4443".to_owned(),
+            host: "::1".to_owned(),
+        }
+    );
+    assert_eq!(path, "/_internal/ready");
+    assert_eq!(origin.to_string(), "https://[::1]:4443");
+    assert_eq!(
+        "http://localhost:9000/".parse::<Origin>().unwrap().host,
+        "localhost"
+    );
+    for url in [
+        "http://localhost",
+        "ftp://localhost:9000",
+        "http://user@localhost:9000",
+        "http://localhost:9000/?a=1",
+        "http://localhost:9000/#a",
+        "localhost:9000",
+    ] {
+        assert_eq!(Origin::split(url).unwrap_err(), InvalidOrigin, "{url}");
+    }
+    assert_eq!(
+        "http://localhost:9000/_internal/seed".parse::<Origin>(),
+        Err(InvalidOrigin)
+    );
+}
+
+/// HTTPS trusts the given CA or else the development CA, and plain HTTP takes no CA at all.
+#[test]
+fn a_tls_client_verifies_https_and_plain_http_takes_no_ca() {
+    let http = "http://127.0.0.1:1".parse::<Origin>().unwrap();
+    let https = "https://127.0.0.1:1".parse::<Origin>().unwrap();
+    assert!(http.tls_client(None).unwrap().is_none());
+    assert!(matches!(
+        http.tls_client(Some(Path::new("ca.pem"))),
+        Err(Untrusted::CaCertOverHttp)
+    ));
+    assert!(https.tls_client(None).unwrap().is_some());
+    let missing = std::env::temp_dir().join("gcs-mimic-no-such-ca.pem");
+    assert!(matches!(
+        https.tls_client(Some(&missing)),
+        Err(Untrusted::Load(error)) if error.kind() == io::ErrorKind::NotFound
+    ));
+}
+
 #[test]
 fn only_a_gcs_mimic_server_with_options_gives_a_fallback() {
     let options = |args: &[&str]| Some(args.iter().map(|arg| (*arg).to_owned()).collect());

@@ -1,11 +1,14 @@
 //! `gcs-mimic seed status|wait`: what the passes that replay the seed directory while the server
 //! runs report, read through the local administration routes as a script reads it.
 
-use crate::{CliError, ProbeScheme, local_server};
+use crate::{
+    CliError,
+    local_server::{self, InvalidOrigin, Origin, Scheme, Untrusted},
+};
 use gcs_mimic::{
     config_input::{DurationError, duration},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
-    tls,
+    seed::{DEFAULT_WAIT, MAX_WAIT},
 };
 use http_body_util::{BodyExt, Empty};
 use hyper::{Method, Request, StatusCode, body::Bytes, header};
@@ -14,7 +17,6 @@ use serde_json::Value;
 use std::{
     io::{self, Write},
     path::{Path, PathBuf},
-    str::FromStr,
     time::Duration,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -51,9 +53,6 @@ const WAIT_PATH: &str = "/_internal/seed/wait";
 const RESPONSE_LIMIT: usize = 4 * 1024 * 1024;
 /// How long `seed status` waits for its answer.
 const STATUS_DEADLINE: Duration = Duration::from_secs(10);
-/// The wait a server takes at most, and `--timeout` with it.
-const MAX_WAIT: Duration = Duration::from_secs(600);
-const DEFAULT_WAIT: Duration = Duration::from_secs(60);
 /// How much longer than its wait `seed wait` waits for the answer, which the server sends once
 /// that wait ends.
 const ANSWER_MARGIN: Duration = Duration::from_secs(5);
@@ -149,7 +148,7 @@ impl TryFrom<&[String]> for Options {
         if ca_cert.is_some()
             && endpoint
                 .as_ref()
-                .is_some_and(|origin| origin.scheme == ProbeScheme::Http)
+                .is_some_and(|origin| origin.scheme == Scheme::Http)
         {
             return Err(Usage::CaCertNeedsHttps);
         }
@@ -214,57 +213,6 @@ impl std::error::Error for Usage {}
 impl From<Usage> for Diagnostics {
     fn from(usage: Usage) -> Self {
         fail(format!("Invalid seed command: {usage}. Usage: {USAGE}"))
-    }
-}
-
-/// A server origin, `http(s)://HOST:PORT`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Origin {
-    scheme: ProbeScheme,
-    authority: String,
-    /// The host without IPv6 brackets, as TLS names it.
-    host: String,
-}
-
-/// Text that names no server origin.
-#[derive(Debug, PartialEq, Eq)]
-struct InvalidOrigin;
-
-impl FromStr for Origin {
-    type Err = InvalidOrigin;
-
-    fn from_str(origin: &str) -> Result<Self, Self::Err> {
-        let uri: hyper::Uri = origin.parse().map_err(|_| InvalidOrigin)?;
-        let scheme = match uri.scheme_str() {
-            Some("http") => ProbeScheme::Http,
-            Some("https") => ProbeScheme::Https,
-            _ => return Err(InvalidOrigin),
-        };
-        let (Some(authority), Some(host)) = (uri.authority(), uri.host()) else {
-            return Err(InvalidOrigin);
-        };
-        if uri.port_u16().is_none()
-            || !matches!(uri.path(), "" | "/")
-            || uri.query().is_some()
-            || origin.contains('#')
-            || authority.as_str().contains(['@', '\r', '\n'])
-        {
-            return Err(InvalidOrigin);
-        }
-        Ok(Self {
-            scheme,
-            authority: authority.as_str().to_owned(),
-            host: host
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .to_owned(),
-        })
-    }
-}
-
-impl std::fmt::Display for Origin {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}://{}", self.scheme.as_str(), self.authority)
     }
 }
 
@@ -529,17 +477,12 @@ async fn exchange(
     ca_cert: Option<&Path>,
     command: &Command,
 ) -> Result<Reply, ExchangeFailure> {
-    let client = match (origin.scheme, ca_cert) {
-        (ProbeScheme::Https, Some(path)) => {
-            Some(tls::client_config(path).map_err(ExchangeFailure::Trust)?)
-        }
-        (ProbeScheme::Https, None) => {
-            Some(tls::development_client_config().map_err(ExchangeFailure::Trust)?)
-        }
-        // Only an endpoint from the configuration gets here: a given one was refused as usage.
-        (ProbeScheme::Http, Some(_)) => return Err(ExchangeFailure::CaCertOverHttp),
-        (ProbeScheme::Http, None) => None,
-    };
+    let client = origin
+        .tls_client(ca_cert)
+        .map_err(|untrusted| match untrusted {
+            Untrusted::Load(error) => ExchangeFailure::Trust(error),
+            Untrusted::CaCertOverHttp => ExchangeFailure::CaCertOverHttp,
+        })?;
     let deadline = command.deadline();
     tokio::time::timeout(deadline, async {
         let stream = crate::connect(&origin.authority)
@@ -706,7 +649,7 @@ mod tests {
                     require: Require::Clean,
                 },
                 endpoint: Some(Origin {
-                    scheme: ProbeScheme::Https,
+                    scheme: Scheme::Https,
                     authority: "[::1]:4443".to_owned(),
                     host: "::1".to_owned(),
                 }),

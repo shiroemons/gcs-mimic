@@ -5,17 +5,13 @@
 use crate::json::JsonErrorResponse;
 use crate::{
     api_error::ApiError,
+    seed::{DEFAULT_WAIT, MAX_WAIT},
     server::{RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::seed_watch::WaitError,
 };
 use http_body_util::Full;
 use hyper::{Method, Request, Response, body::Bytes};
 use std::time::Duration;
-
-/// How long a wait lasts unless the request names `timeoutMs`.
-const DEFAULT_WAIT_MS: u64 = 60_000;
-/// The longest wait a request may name. `request_timeout_ms` ends a longer request sooner.
-const MAX_WAIT_MS: u64 = 600_000;
 
 /// `GET /_internal/seed`: whether passes run, how often, and what the last one found.
 pub(super) fn status(
@@ -88,15 +84,17 @@ async fn wait(
 /// The wait the query names in `timeoutMs`, its only parameter.
 fn wait_timeout(query: Option<&str>) -> Result<Duration, ApiError> {
     let mut query = crate::percent::parse_query(query.unwrap_or_default())?;
-    let millis = match query.remove("timeoutMs") {
-        None => DEFAULT_WAIT_MS,
+    let timeout = match query.remove("timeoutMs") {
+        None => DEFAULT_WAIT,
         Some(value) => value
             .parse::<u64>()
             .ok()
-            .filter(|millis| (1..=MAX_WAIT_MS).contains(millis))
+            .map(Duration::from_millis)
+            .filter(|timeout| (Duration::from_millis(1)..=MAX_WAIT).contains(timeout))
             .ok_or_else(|| {
                 ApiError::invalid_argument(format!(
-                    "timeoutMs must be an integer in 1..={MAX_WAIT_MS}"
+                    "timeoutMs must be an integer in 1..={}",
+                    MAX_WAIT.as_millis()
                 ))
             })?,
     };
@@ -105,7 +103,7 @@ fn wait_timeout(query: Option<&str>) -> Result<Duration, ApiError> {
             "The seed wait accepts only the timeoutMs query parameter, not {name}"
         )));
     }
-    Ok(Duration::from_millis(millis))
+    Ok(timeout)
 }
 
 #[cfg(test)]
