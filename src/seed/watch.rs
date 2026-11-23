@@ -21,7 +21,7 @@ use crate::{
         admin::{
             AdminError, BucketDefinition, BucketName, LiveOutcome, LiveWalk, Origin, Publication,
             PublishMode, SeedBatch,
-            replay::{self, Look},
+            replay::{self, Look, Phase, Unread},
             seed_records::Mark,
             seed_watch::{LiveCounts, PassReport, Problems},
         },
@@ -97,7 +97,7 @@ async fn walk_and_commit(
                 Err(error) => pass.incomplete(&error),
             },
             Some(Walked::Unlisted(unlisted)) => pass.unlisted(*unlisted),
-            Some(Walked::UnlistedDirectory(unlisted)) => pass.unlisted_directory(unlisted),
+            Some(Walked::UnlistedDirectory(unlisted)) => pass.unlisted_directory(unlisted)?,
             Some(Walked::Done) => break,
             None => {
                 pass.incomplete(&SeedError::WalkStopped);
@@ -132,7 +132,7 @@ impl Pass<'_> {
     /// an entry the pass cannot replay is reported and left as it is.
     async fn entry(&mut self, label: &str, fixture: Fixture) -> Result<(), SeedError> {
         match fixture {
-            Fixture::Unknown(unknown) => self.report(label, &SeedError::from(unknown)),
+            Fixture::Unknown(unknown) => self.unread(label, unknown)?,
             Fixture::Absent(proof) => match split_label(label) {
                 Some((bucket, name)) if !self.skipped.contains(bucket) => {
                     self.batch.absent(bucket, name, proof);
@@ -141,7 +141,7 @@ impl Pass<'_> {
                 // A top-level name the walk listed and then found empty.
                 None => self.batch.directory_absent(label, proof),
             },
-            Fixture::Unusable(rejected) => self.report(label, &SeedError::from(rejected)),
+            Fixture::Unusable(rejected) => self.unread(label, rejected)?,
             // Skipped as at startup, without a report on every pass: fake-gcs-server ignores a
             // top-level file, and a mounted directory often holds a README.
             Fixture::OsMetadata | Fixture::TopLevelFile | Fixture::Directory => {}
@@ -153,6 +153,18 @@ impl Pass<'_> {
 
     fn report(&mut self, label: &str, reason: &SeedError) {
         self.walk.problems.report(Some(label), reason);
+    }
+
+    /// Applies a pass's decision at the entry `label`, which the walk could not read or seeding
+    /// cannot use for `reason`.
+    fn unread(&mut self, label: &str, reason: impl Into<SeedError>) -> Result<(), SeedError> {
+        match replay::unread(Phase::Live, reason.into()) {
+            Unread::Report(reason) => {
+                self.report(label, &reason);
+                Ok(())
+            }
+            Unread::Fail(reason) => Err(reason),
+        }
     }
 
     /// Takes what a lookup found at a recorded name the walk did not list. Only a proof of
@@ -182,13 +194,14 @@ impl Pass<'_> {
     /// Takes what a lookup found at the name of a marked top-level directory the walk did not
     /// list. Only a proof that the name is empty counts toward forgetting the mark; a name the
     /// lookup could not tell is reported, and the directory keeps its mark.
-    fn unlisted_directory(&mut self, unlisted: UnlistedDirectory) {
+    fn unlisted_directory(&mut self, unlisted: UnlistedDirectory) -> Result<(), SeedError> {
         let UnlistedDirectory { bucket, found } = unlisted;
         match found {
             Presence::Absent(proof) => self.batch.directory_absent(&bucket, proof),
             Presence::Present => {}
-            Presence::Unknown(unknown) => self.report(&bucket, &SeedError::from(unknown)),
+            Presence::Unknown(unknown) => self.unread(&bucket, unknown)?,
         }
+        Ok(())
     }
 
     /// Takes a top-level directory: a directory past `max_buckets_per_batch` is left out with
@@ -216,7 +229,7 @@ impl Pass<'_> {
                 let definition =
                     BucketDefinition::default_for(name, &self.config.seed_project, self.clock)?;
                 if let Err(error) = self.batch.bucket(definition) {
-                    self.report(name.as_str(), &staging_problem(error)?);
+                    self.unread(name.as_str(), staging_problem(error)?)?;
                     self.skipped.insert(name.as_str().to_owned());
                 }
             }
@@ -246,15 +259,11 @@ impl Pass<'_> {
                 self.batch.absent(bucket.as_str(), name.as_str(), proof);
                 return Ok(());
             }
-            Source::Unknown(unknown) => {
-                self.report(label, &SeedError::from(unknown));
-                return Ok(());
-            }
+            Source::Unknown(unknown) => return self.unread(label, unknown),
         };
         let config = self.config;
         if !metadata.is_file() || metadata.len() > config.max_object_bytes {
-            self.report(label, &SeedError::FileLimit);
-            return Ok(());
+            return self.unread(label, SeedError::FileLimit);
         }
         let record = self.batch.record(bucket.as_str(), name.as_str());
         if replay::live_file(record, &fingerprint) == Look::Unchanged {
@@ -268,10 +277,10 @@ impl Pass<'_> {
             max_bytes: config.max_object_bytes,
             mode: PublishMode::Replace,
         };
-        if let Err(error) = self.batch.fixture(bucket, name, request, file).await {
-            self.report(label, &staging_problem(error)?);
+        match self.batch.fixture(bucket, name, request, file).await {
+            Ok(()) => Ok(()),
+            Err(error) => self.unread(label, staging_problem(error)?),
         }
-        Ok(())
     }
 }
 
