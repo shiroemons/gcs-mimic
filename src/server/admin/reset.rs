@@ -131,7 +131,7 @@ async fn restore(
     let ctx = ctx.object(None, deadline);
     let outcome = ctx
         .await_requested_work(async {
-            crate::seed::restore(&admin, config, clock.as_ref(), deadline, initialization)
+            crate::seed::restore(&admin, config, &clock, deadline, initialization)
                 .await
                 .map_err(|error| {
                     super::reseed::tree_failure(&error, super::reseed::Operation::Reset)

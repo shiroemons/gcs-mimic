@@ -48,7 +48,7 @@ use std::{
 #[cfg(all(test, unix))]
 use {
     super::{Child, FileIdentity, RegularChild},
-    crate::clock::signed_nanos,
+    crate::clock::{SystemClock, signed_nanos},
     std::{
         collections::{HashSet, VecDeque},
         ffi::OsString,
@@ -189,9 +189,9 @@ impl Lookup {
     }
 
     /// Like [`Self::unprobed_on`], on the system clock.
-    #[cfg(unix)]
+    #[cfg(all(test, unix))]
     pub(crate) fn unprobed() -> Self {
-        Self::unprobed_on(Arc::new(crate::clock::SystemClock))
+        Self::unprobed_on(Arc::new(SystemClock))
     }
 
     /// Lookups below a root whose probe matched names as `matching` says, telling the time of a

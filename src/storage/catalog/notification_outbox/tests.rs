@@ -195,7 +195,8 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
                 seed_dir: Some(seed_directory.0.clone()),
                 ..Default::default()
             };
-            crate::seed::import(&catalog, &config, &SystemClock)
+            let clock: std::sync::Arc<dyn crate::clock::Clock> = std::sync::Arc::new(SystemClock);
+            crate::seed::import(&catalog, &config, &clock)
                 .await
                 .unwrap();
             assert!(

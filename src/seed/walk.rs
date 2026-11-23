@@ -230,12 +230,17 @@ pub(super) struct Tree {
 }
 
 impl Tree {
+    /// A tree whose lookups wait on `clock` for a name that fails to open for a moment.
     #[cfg(unix)]
-    pub(super) fn new(root: PathBuf, pinned: std::sync::Arc<File>) -> Self {
+    pub(super) fn new(
+        root: PathBuf,
+        pinned: std::sync::Arc<File>,
+        clock: std::sync::Arc<dyn crate::clock::Clock>,
+    ) -> Self {
         Self {
             root,
             pinned,
-            lookup: crate::fsutil::Lookup::unprobed(),
+            lookup: crate::fsutil::Lookup::unprobed_on(clock),
             listed: Vec::new(),
         }
     }

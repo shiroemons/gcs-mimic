@@ -167,8 +167,10 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
         let empty_fixture = options.destination.parent().unwrap().join("empty-seed");
         fs::create_dir(&empty_fixture).unwrap();
         config.seed_dir = Some(empty_fixture);
+        let clock: std::sync::Arc<dyn gcs_mimic::clock::Clock> =
+            std::sync::Arc::new(gcs_mimic::clock::SystemClock);
         assert!(matches!(
-            gcs_mimic::seed::import(&catalog, &config, &gcs_mimic::clock::SystemClock)
+            gcs_mimic::seed::import(&catalog, &config, &clock)
                 .await
                 .unwrap(),
             gcs_mimic::seed::SeedOutcome::Imported {
@@ -197,7 +199,7 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
         );
         config.seed_dir = Some(options.source.join("does-not-exist"));
         assert!(
-            gcs_mimic::seed::import(&catalog, &config, &gcs_mimic::clock::SystemClock)
+            gcs_mimic::seed::import(&catalog, &config, &clock)
                 .await
                 .is_err(),
             "a configured but missing seed root is an error, not a silent skip"

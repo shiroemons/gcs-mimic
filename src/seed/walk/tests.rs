@@ -12,9 +12,11 @@ fn tree() -> (TestDir, Tree) {
     let root = fs::canonicalize(root).unwrap();
     #[cfg(unix)]
     let tree = {
+        // A lookup's bounded wait passes at once on this clock, so it takes no real time.
         let mut tree = Tree::new(
             root.clone(),
             std::sync::Arc::new(File::open(&root).unwrap()),
+            std::sync::Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now())),
         );
         tree.listed.push(DirectoryId::from(
             &fs::symlink_metadata(root.join("bucket")).unwrap(),
