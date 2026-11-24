@@ -777,19 +777,19 @@ pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
     let _wait = super::begin_catalog_wait(activity).await;
     tokio::pin!(operation);
     loop {
-        let waiting = *progress.borrow_and_update() == ChunkWait::Catalog;
-        let wait_deadline = if waiting {
-            deadline.min(timeout.deadline())
+        // Only a catalog wait has a budget; a transfer runs until the request deadline.
+        let budget = if *progress.borrow_and_update() == ChunkWait::Catalog {
+            timeout
         } else {
-            deadline
+            TimeLimit::DISABLED
         };
+        let limit = super::CatalogWaitLimit::starting_now(budget, deadline);
         tokio::select! {
             biased;
             result = &mut operation => break result,
             Ok(()) = progress.changed() => {},
-            _ = tokio::time::sleep_until(wait_deadline) => {
-                let failure = if waiting { BackendFailure::UploadWaitTimeout } else { BackendFailure::FinalizationTimeout };
-                break Err(object_unavailable(failure).into());
+            _ = tokio::time::sleep_until(limit.deadline()) => {
+                break Err(object_unavailable(limit.expired()).into());
             }
         }
     }
@@ -804,17 +804,21 @@ mod tests {
     const BUDGET: Duration = Duration::from_millis(200);
     const REQUEST: Duration = Duration::from_secs(10);
 
-    // Returns once the task is waiting, so its deadlines start before any advance.
-    async fn wait(
-        waiting: ChunkWait,
-    ) -> (
+    type Waiting = (
         JoinHandle<Result<(), ApiError>>,
         watch::Sender<ChunkWait>,
         oneshot::Sender<()>,
-    ) {
+    );
+
+    async fn wait(waiting: ChunkWait) -> Waiting {
+        wait_within(waiting, REQUEST).await
+    }
+
+    // Returns once the task is waiting, so its deadlines start before any advance.
+    async fn wait_within(waiting: ChunkWait, request: Duration) -> Waiting {
         let (progress, updates) = watch::channel(waiting);
         let (finish, finished) = oneshot::channel();
-        let deadline = tokio::time::Instant::now() + REQUEST;
+        let deadline = tokio::time::Instant::now() + request;
         let task = tokio::spawn(async move {
             let (activity, _updates) = watch::channel(ObjectActivity::default());
             let operation = async {
@@ -875,6 +879,20 @@ mod tests {
         assert!(matches!(
             timed_out(task).await,
             crate::api_error::ErrorKind::Backend(BackendFailure::UploadWaitTimeout)
+        ));
+    }
+
+    /// A larger catalog budget would not have helped, so the reply advises the request deadline.
+    #[tokio::test(start_paused = true)]
+    async fn a_catalog_wait_the_request_deadline_ends_reports_finalization() {
+        let (task, _progress, _finish) = wait_within(ChunkWait::Catalog, BUDGET / 2).await;
+        advance(BUDGET / 2 - Duration::from_millis(1)).await;
+        settle().await;
+        assert!(!task.is_finished());
+        advance(Duration::from_millis(1)).await;
+        assert!(matches!(
+            timed_out(task).await,
+            crate::api_error::ErrorKind::Backend(BackendFailure::FinalizationTimeout)
         ));
     }
 

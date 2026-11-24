@@ -33376,7 +33376,8 @@
           "test_ids": [
             "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
             "retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation",
-            "finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout"
+            "finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout",
+            "server::resumable::tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"
           ]
         },
         {
@@ -33455,7 +33456,8 @@
         "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes",
         "resumable_sigkill_after_final_checkpoint_restores_active_staging",
         "resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object",
-        "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot"
+        "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot",
+        "server::resumable::tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"
       ],
       "verification": [
         {
@@ -33516,6 +33518,15 @@
             "resumable_sigkill_after_final_checkpoint_restores_active_staging",
             "resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object",
             "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib -- server::catalog_wait_tests server::resumable::tests",
+          "result": "PASS",
+          "verified_at": "2026-11-25",
+          "artifact": "tests/evidence/catalog-wait-timeout-remedy.txt",
+          "test_ids": [
+            "server::resumable::tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"
           ]
         }
       ],
@@ -60101,7 +60112,9 @@
         "a_disconnected_client_stops_waiting_and_its_change_never_runs",
         "capacity_settings_accept_their_raised_bounds_only",
         "startup_raises_a_low_soft_open_file_limit_for_its_connections",
-        "startup_warns_when_the_hard_limit_keeps_connections_short_of_descriptors"
+        "startup_warns_when_the_hard_limit_keeps_connections_short_of_descriptors",
+        "server::catalog_wait_tests::a_wait_its_budget_ends_advises_the_catalog_budget",
+        "server::catalog_wait_tests::a_wait_the_request_deadline_ends_advises_the_request_deadline"
       ],
       "verification": [
         {"command":"cargo test --locked --lib -- catalog::connection::tests resumable_http_tests config:: ; cargo test --locked --test it_process -- foundation","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["callers_past_the_queue_wait_and_every_read_and_write_completes","a_dropped_caller_gives_up_its_place_without_running_or_consuming_a_slot","closing_fails_waiters_at_once_and_runs_the_calls_already_admitted","requests_past_the_catalog_slots_wait_and_all_succeed","a_disconnected_client_stops_waiting_and_its_change_never_runs","capacity_settings_accept_their_raised_bounds_only","startup_raises_a_low_soft_open_file_limit_for_its_connections","startup_warns_when_the_hard_limit_keeps_connections_short_of_descriptors"]},
@@ -60154,6 +60167,16 @@
           "test_ids": [
             "TestObjectResumableWriter",
             "sdk-tests/ruby/https.rb"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib -- server::catalog_wait_tests server::resumable::tests",
+          "result": "PASS",
+          "verified_at": "2026-11-25",
+          "artifact": "tests/evidence/catalog-wait-timeout-remedy.txt",
+          "test_ids": [
+            "server::catalog_wait_tests::a_wait_its_budget_ends_advises_the_catalog_budget",
+            "server::catalog_wait_tests::a_wait_the_request_deadline_ends_advises_the_request_deadline"
           ]
         }
       ],

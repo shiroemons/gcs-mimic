@@ -1,0 +1,21 @@
+Verified on 2026-11-25 (Asia/Tokyo).
+
+Command:
+cargo test --locked --lib -- server::catalog_wait_tests server::resumable::tests
+
+Result: PASS (exit 0); 6 passed, 0 failed, 0 ignored.
+
+The run included:
+test server::catalog_wait_tests::a_wait_its_budget_ends_advises_the_catalog_budget ... ok
+test server::catalog_wait_tests::a_wait_the_request_deadline_ends_advises_the_request_deadline ... ok
+test server::resumable::tests::catalog_wait_times_out_after_its_budget ... ok
+test server::resumable::tests::a_catalog_wait_the_request_deadline_ends_reports_finalization ... ok
+test server::resumable::tests::each_catalog_wait_starts_a_new_budget ... ok
+test server::resumable::tests::work_outside_catalog_waits_uses_the_request_deadline ... ok
+
+A catalog wait is bounded by catalog_wait_timeout_ms and by the object request deadline. When
+the request deadline ends the wait first, the 503 names the upload finalization timeout and
+advises object_request_timeout_ms, because raising catalog_wait_timeout_ms cannot outlast it.
+Before this change a single-request upload or a resumable catalog wait cut short by the request
+deadline advised catalog_wait_timeout_ms. With the selection forced back to the catalog budget,
+the two request-deadline tests fail.

@@ -1456,6 +1456,8 @@ async fn drain_connections(connections: &mut JoinSet<()>, limit: TimeLimit) -> i
 }
 
 #[cfg(test)]
+mod catalog_wait_tests;
+#[cfg(test)]
 mod deadline_claim_tests;
 #[cfg(test)]
 mod drain_tests;
@@ -2125,6 +2127,38 @@ impl Sha256Check {
     }
 }
 
+/// The two limits on one catalog wait: its own budget and the object request deadline. They
+/// are raised by different settings, so a timeout names the one that ended the wait; raising
+/// `catalog_wait_timeout_ms` cannot outlast the request deadline.
+#[derive(Clone, Copy)]
+struct CatalogWaitLimit {
+    budget: tokio::time::Instant,
+    request: tokio::time::Instant,
+}
+
+impl CatalogWaitLimit {
+    /// A wait that starts now. A disabled `budget` leaves only the request deadline.
+    fn starting_now(budget: TimeLimit, request: tokio::time::Instant) -> Self {
+        Self {
+            budget: budget.deadline(),
+            request,
+        }
+    }
+
+    fn deadline(self) -> tokio::time::Instant {
+        self.budget.min(self.request)
+    }
+
+    /// The failure of a wait that reached [`Self::deadline`].
+    fn expired(self) -> BackendFailure {
+        if self.budget < self.request {
+            BackendFailure::UploadWaitTimeout
+        } else {
+            BackendFailure::FinalizationTimeout
+        }
+    }
+}
+
 pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(
     operation: impl Future<Output = Result<T, E>>,
     timeout: TimeLimit,
@@ -2132,10 +2166,11 @@ pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(
     activity: &watch::Sender<ObjectActivity>,
 ) -> Result<T, E> {
     let _wait = begin_catalog_wait(activity).await;
+    let limit = CatalogWaitLimit::starting_now(timeout, request_deadline);
     // A completed body may commit after this wait expires; only an observed commit is success.
-    tokio::time::timeout_at(request_deadline.min(timeout.deadline()), operation)
+    tokio::time::timeout_at(limit.deadline(), operation)
         .await
-        .unwrap_or_else(|_| Err(object_unavailable(BackendFailure::UploadWaitTimeout).into()))
+        .unwrap_or_else(|_| Err(object_unavailable(limit.expired()).into()))
 }
 
 /// Rejects headers that do not apply to a derived write (copy, compose or rewrite), naming the

@@ -185,7 +185,7 @@ the route alone cannot tell a silent client from a slow server. A request body s
 ready within `request_timeout_ms`, receives 503 `backendError`. Once a response head has been sent, expiry
 can only truncate the body, as for a media download after its headers.
 The catalog wait is capped by any remaining `object_request_timeout_ms` budget; expiry returns
-503 `backendError`. Timeout settings use CLI > environment > JSON > default precedence.
+503 `backendError`, whose message advises the setting that ended the wait. Timeout settings use CLI > environment > JSON > default precedence.
 Writing a reply that closes its connection, such as a timeout reply or an error response to a
 request that carried a body, and closing stay bounded at five seconds even with every setting
 disabled; such a connection never waits in the idle line. `shutdown_timeout_ms` of 0 waits for unfinished requests without a limit.

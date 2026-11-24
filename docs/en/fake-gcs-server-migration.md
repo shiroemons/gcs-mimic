@@ -451,8 +451,10 @@ Disconnecting before EOF aborts publication and cleans staging. New uploads
 after catalog shutdown starts fail with a `catalog is closed` cause.
 JSON object 503 messages also identify the catalog wait timeout, a busy session,
 I/O failure or corruption when safely known; private backend details are hidden.
-For wait timeouts, retry with generation preconditions or raise
-`catalog_wait_timeout_ms`. A completed-body upload can still commit after
+For wait timeouts, retry with generation preconditions or raise the limit the
+message names: `catalog_wait_timeout_ms` when the wait outlasted its own budget,
+`object_request_timeout_ms` when the object request deadline ended it first.
+A completed-body upload can still commit after
 the response times out: read state before retrying an unconditional write.
 
 Retry and notification records are windows, so a full one drops its oldest entry and the
