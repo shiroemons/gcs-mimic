@@ -60340,6 +60340,7 @@
         "sync_bucket_schema_migration_preserves_existing_catalog",
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
+        "healthcheck_usage_errors_come_before_any_probe",
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "indexed_listing_orders_filters_pages_and_limits",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
@@ -60427,6 +60428,8 @@
         "filesystem_import_rejects_destination_records_outside_its_prefix",
         "filesystem_import_source_replacement_during_publication_stays_unservable",
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit",
+        "only_a_gcs_mimic_server_with_options_gives_a_fallback",
+        "a_failure_tries_the_server_pid_1_gives_once",
         "scripts/smoke-containers.sh:sync-volume:linux/arm64",
         "scripts/smoke-containers.sh:sync-compose:linux/arm64",
         "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64",
@@ -60452,6 +60455,13 @@
           "verified_at": "2026-10-27",
           "artifact": "docs/en/native-binary.md",
           "test_ids": ["sync_bucket_schema_migration_preserves_existing_catalog"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --bin gcs-mimic -- the_healthcheck_fails_only_while_synchronization_starts healthcheck_usage_errors_come_before_any_probe healthcheck_falls_back_only_to_a_gcs_mimic_server_with_options --test-threads=4; CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- help_output_keeps_its_exact_bytes --test-threads=4; CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync -- the_healthcheck_waits_only_while_synchronization_starts --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/container-usage.md",
+          "test_ids": ["healthcheck_usage_errors_come_before_any_probe"]
         },
         {
           "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
@@ -60688,6 +60698,13 @@
           "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/ledger-test-ids.md",
           "test_ids": ["v1_migration_is_transactional_and_current_schema_reopens_idempotently"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --bin gcs-mimic -- --test-threads=4 sync_cli:: local_server:: healthcheck",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/container-usage.md",
+          "test_ids": ["only_a_gcs_mimic_server_with_options_gives_a_fallback", "a_failure_tries_the_server_pid_1_gives_once", "healthcheck_usage_errors_come_before_any_probe"]
         },
         {
           "command": "docker buildx build --platform linux/arm64 --load --tag gcs-mimic:smoke-bind-arm64 .; bash target/smoke-sync-stages.sh --image gcs-mimic:smoke-bind-arm64 linux/arm64; GCSM_SMOKE_AS_HOST_USER=1 bash target/smoke-compose-stage.sh --image gcs-mimic:smoke-bind-arm64 linux/arm64 (the volume and Compose synchronization stages of scripts/smoke-containers.sh, extracted unchanged with the sed commands the record shows; Docker Desktop 29.9.3 and Docker Compose v5.6.1 on an arm64 macOS host)",

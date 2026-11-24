@@ -14,6 +14,7 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 mod buckets_cli;
+mod local_server;
 mod startup;
 // Binary tests cannot access the library's cfg(test) module.
 #[cfg(test)]
@@ -591,7 +592,19 @@ fn signing_credentials<'a>(
     }
 }
 
+const HEALTHCHECK_USAGE: &str = "gcs-mimic healthcheck [--url URL] [--ca-cert PATH]";
+
 fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
+    // Options are checked before anything is probed or PID 1 is read, and a mistake in them is
+    // reported as one: the advice for an unreachable server would only mislead.
+    let options = HealthcheckArgs::try_from(args).map_err(|error| {
+        Diagnostics::error(
+            DiagnosticSource::Cli,
+            "healthcheck",
+            format!("Invalid healthcheck options: {error}. Usage: {HEALTHCHECK_USAGE}"),
+        )
+    })?;
+    let ca_cert = options.ca_cert.as_deref();
     let repair = |url: &str| {
         format!(
             "Verify the server settings and retry with healthcheck --url {url}{}.",
@@ -602,140 +615,242 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
             }
         )
     };
-    let failed = |url: &str, error: io::Error| {
+    let failed = |url: &ProbeUrl, error: io::Error| {
         Diagnostics::error(
             DiagnosticSource::Cli,
             "healthcheck",
             format!(
                 "Healthcheck {url} failed: {error}; require HTTP 200 and verify CA trust (including 403 access denial). {}",
-                repair(url)
+                repair(&url.to_string())
             ),
         )
     };
-    let explicit_url = option_pairs(args)
-        .filter_map(Result::ok)
-        .find_map(|(name, value)| (name == "--url").then(|| value.to_owned()));
-    if let Some(url) = explicit_url {
-        return probe(args, &url).map_err(|error| failed(&url, error));
+    if let Some(url) = &options.url {
+        return probe(url, ca_cert).map_err(|error| failed(url, error));
     }
-    let url = probe_url(&[], &repair)?;
-    let Err(error) = probe(args, &url) else {
-        return Ok(());
-    };
-    // Only a failed probe consults PID 1: Rosetta emulates /proc/<pid>/cmdline with a temporary
-    // file, which crashes the probe on a read-only root, so ordinary setups never read it.
-    let Some(server_args) = std::fs::read("/proc/1/cmdline")
-        .ok()
-        .and_then(|cmdline| container_server_args(&cmdline))
-    else {
-        return Err(failed(&url, error));
-    };
-    let fallback = probe_url(&server_args, &repair)?;
-    if fallback == url {
-        return Err(failed(&url, error));
-    }
-    probe(args, &fallback).map_err(|error| failed(&fallback, error))
+    local_server::with_container_fallback(
+        &probe_url(&[], &repair)?,
+        |url| probe(url, ca_cert).map_err(|error| failed(url, error)),
+        |server_args| probe_url(server_args, &repair),
+    )
 }
 
-/// The probe URL for the environment, JSON file and the given server options.
+/// The options of `gcs-mimic healthcheck`.
+#[derive(Debug)]
+struct HealthcheckArgs {
+    /// The probe; without it, the configuration and then PID 1 select one.
+    url: Option<ProbeUrl>,
+    ca_cert: Option<std::path::PathBuf>,
+}
+
+impl TryFrom<&[String]> for HealthcheckArgs {
+    type Error = HealthcheckUsage;
+
+    fn try_from(args: &[String]) -> Result<Self, Self::Error> {
+        let mut url = None;
+        let mut ca_cert = None;
+        for pair in option_pairs(args) {
+            let (name, value) = pair.map_err(|_| HealthcheckUsage::Pairs)?;
+            let slot = match name {
+                "--url" => &mut url,
+                "--ca-cert" => &mut ca_cert,
+                _ => return Err(HealthcheckUsage::Unknown(name.to_owned())),
+            };
+            if value.is_empty() {
+                return Err(HealthcheckUsage::Empty(name.to_owned()));
+            }
+            if slot.replace(value).is_some() {
+                return Err(HealthcheckUsage::Duplicate(name.to_owned()));
+            }
+        }
+        let url = url
+            .map(str::parse::<ProbeUrl>)
+            .transpose()
+            .map_err(HealthcheckUsage::Url)?;
+        // A URL from the configuration may still turn out to be HTTPS, so only an explicit one
+        // settles this before probing.
+        if ca_cert.is_some()
+            && url
+                .as_ref()
+                .is_some_and(|url| url.scheme == ProbeScheme::Http)
+        {
+            return Err(HealthcheckUsage::CaCertNeedsHttps);
+        }
+        Ok(Self {
+            url,
+            ca_cert: ca_cert.map(std::path::PathBuf::from),
+        })
+    }
+}
+
+/// Healthcheck options that cannot run.
+#[derive(Debug, PartialEq, Eq)]
+enum HealthcheckUsage {
+    Pairs,
+    Unknown(String),
+    Empty(String),
+    Duplicate(String),
+    Url(InvalidProbeUrl),
+    CaCertNeedsHttps,
+}
+
+impl std::fmt::Display for HealthcheckUsage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pairs => f.write_str("options require --name VALUE pairs"),
+            Self::Unknown(name) => write!(f, "unknown option {name}"),
+            Self::Empty(name) => write!(f, "{name} needs a value"),
+            Self::Duplicate(name) => write!(f, "{name} is given more than once"),
+            Self::Url(error) => write!(f, "--url {error}"),
+            Self::CaCertNeedsHttps => f.write_str("--ca-cert requires an HTTPS healthcheck URL"),
+        }
+    }
+}
+
+impl std::error::Error for HealthcheckUsage {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProbeScheme {
+    Http,
+    Https,
+}
+
+impl ProbeScheme {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Https => "https",
+        }
+    }
+}
+
+/// A probe of this server: an HTTP(S) origin with an explicit port and a probe path.
+#[derive(Debug, PartialEq, Eq)]
+struct ProbeUrl {
+    scheme: ProbeScheme,
+    authority: String,
+    /// The host without IPv6 brackets, as TLS names it.
+    host: String,
+    /// The probe path without its leading slash.
+    path: &'static str,
+}
+
+impl ProbeUrl {
+    fn origin(&self) -> String {
+        format!("{}://{}", self.scheme.as_str(), self.authority)
+    }
+}
+
+impl std::fmt::Display for ProbeUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.origin(), self.path)
+    }
+}
+
+/// A URL that names no probe of this server.
+#[derive(Debug, PartialEq, Eq)]
+struct InvalidProbeUrl;
+
+impl std::fmt::Display for InvalidProbeUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("expected http(s)://HOST:PORT/_internal/health, /_internal/ready or /_internal/healthcheck")
+    }
+}
+
+impl std::error::Error for InvalidProbeUrl {}
+
+impl std::str::FromStr for ProbeUrl {
+    type Err = InvalidProbeUrl;
+
+    fn from_str(url: &str) -> Result<Self, Self::Err> {
+        let uri: hyper::Uri = url.parse().map_err(|_| InvalidProbeUrl)?;
+        let scheme = match uri.scheme_str() {
+            Some("http") => ProbeScheme::Http,
+            Some("https") => ProbeScheme::Https,
+            _ => return Err(InvalidProbeUrl),
+        };
+        let (Some(authority), Some(host)) = (uri.authority(), uri.host()) else {
+            return Err(InvalidProbeUrl);
+        };
+        let path = match uri.path() {
+            "/_internal/health" => "_internal/health",
+            "/_internal/ready" => "_internal/ready",
+            "/_internal/healthcheck" => "_internal/healthcheck",
+            _ => return Err(InvalidProbeUrl),
+        };
+        if uri.port_u16().is_none()
+            || uri.query().is_some()
+            || url.contains('#')
+            || authority.as_str().contains(['@', '\r', '\n'])
+        {
+            return Err(InvalidProbeUrl);
+        }
+        Ok(Self {
+            scheme,
+            authority: authority.as_str().to_owned(),
+            host: host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .to_owned(),
+            path,
+        })
+    }
+}
+
+/// The probe URL of the server the environment, the config file it selects and the given server
+/// options configure, found as [`local_server::origin`] finds it.
 fn probe_url(
     server_args: &[String],
     repair: &dyn Fn(&str) -> String,
-) -> Result<String, Diagnostics> {
-    let mut report = Config::preflight_os(server_args, std::env::vars_os());
-    let url = report.config.healthcheck_url();
-    if report.diagnostics.is_err() {
-        report.diagnostics.errors.push(Diagnostic::new(
-            DiagnosticSource::Cli,
-            "healthcheck",
-            format!(
-                "Cannot derive a reliable probe URL (candidate {url}); fix configuration. {}",
-                repair(&url)
-            ),
-        ));
-        return Err(report.diagnostics);
-    }
-    Ok(url)
+) -> Result<ProbeUrl, Diagnostics> {
+    let (url, mut diagnostics) = match local_server::origin(server_args, std::env::vars_os()) {
+        Ok(origin) => {
+            let url = format!("{origin}{}", Config::HEALTHCHECK_PATH);
+            match url.parse() {
+                Ok(probe) => return Ok(probe),
+                Err(InvalidProbeUrl) => (url, Diagnostics::default()),
+            }
+        }
+        Err(unreliable) => (
+            format!("{}{}", unreliable.origin, Config::HEALTHCHECK_PATH),
+            unreliable.diagnostics,
+        ),
+    };
+    diagnostics.errors.push(Diagnostic::new(
+        DiagnosticSource::Cli,
+        "healthcheck",
+        format!(
+            "Cannot derive a reliable probe URL (candidate {url}); fix configuration. {}",
+            repair(&url)
+        ),
+    ));
+    Err(diagnostics)
 }
 
-/// The server options in `cmdline`, the NUL-separated `/proc/1/cmdline` of a container's PID 1,
-/// when that process is gcs-mimic running the server with at least one option, as in the
-/// container image. A Compose `command` such as `--scheme http` reaches only that process, so
-/// the healthcheck falls back to them when the environment's defaults do not answer.
-fn container_server_args(cmdline: &[u8]) -> Option<Vec<String>> {
-    let cmdline = cmdline.strip_suffix(b"\0").unwrap_or(cmdline);
-    let args = cmdline
-        .split(|byte| *byte == 0)
-        .map(|arg| String::from_utf8(arg.to_vec()))
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
-    let (program, args) = args.split_first()?;
-    if Path::new(program).file_name() != Some("gcs-mimic".as_ref()) {
-        return None;
-    }
-    gcs_mimic::config_input::server_arguments(args)
-        .filter(|options| !options.is_empty())
-        .map(<[String]>::to_vec)
-}
-
-fn probe(args: &[String], url: &str) -> io::Result<()> {
-    let mut options = BTreeMap::new();
-    let syntax = || {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "healthcheck accepts [--url URL] [--ca-cert PATH]",
-        )
-    };
-    for pair in option_pairs(args) {
-        let (name, value) = pair.map_err(|_| syntax())?;
-        if !matches!(name, "--url" | "--ca-cert") {
-            return Err(syntax());
-        }
-        if value.is_empty() || options.insert(name, value).is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "empty or duplicate healthcheck option",
-            ));
-        }
-    }
-    let invalid = || {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "expected http(s)://HOST:PORT/_internal/health, /_internal/ready or /_internal/healthcheck",
-        )
-    };
-    let uri: hyper::Uri = url.parse().map_err(|_| invalid())?;
-    let authority = uri.authority().ok_or_else(invalid)?.as_str();
-    let path = uri.path().strip_prefix('/').ok_or_else(invalid)?;
-    if !matches!(
-        path,
-        "_internal/health" | "_internal/ready" | "_internal/healthcheck"
-    ) || !matches!(uri.scheme_str(), Some("http" | "https"))
-        || uri.port_u16().is_none()
-        || uri.query().is_some()
-        || url.contains('#')
-        || authority.contains(['@', '\r', '\n'])
-    {
-        return Err(invalid());
-    }
-    let client = match (uri.scheme_str(), options.get("--ca-cert")) {
-        (Some("https"), Some(path)) => Some(tls::client_config(Path::new(path))?),
-        (Some("https"), None) => Some(tls::development_client_config()?),
-        (_, Some(_)) => {
+/// Passes when `url` answers HTTP 200 with a complete body.
+fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> io::Result<()> {
+    let client = match (url.scheme, ca_cert) {
+        (ProbeScheme::Https, Some(path)) => Some(tls::client_config(path)?),
+        (ProbeScheme::Https, None) => Some(tls::development_client_config()?),
+        // Only a URL from the configuration gets here: an explicit one was refused as usage.
+        (ProbeScheme::Http, Some(_)) => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "--ca-cert requires an HTTPS healthcheck URL",
             ));
         }
-        _ => None,
+        (ProbeScheme::Http, None) => None,
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     let result = runtime.block_on(async {
         tokio::time::timeout(Duration::from_secs(2), async {
-            let addresses = tokio::net::lookup_host(authority).await?;
-            let mut connected = Err(invalid());
+            let addresses = tokio::net::lookup_host(url.authority.as_str()).await?;
+            let mut connected = Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "the probe host resolved to no address",
+            ));
             for address in addresses.take(8) {
                 connected = tokio::net::TcpStream::connect(address).await;
                 if connected.is_ok() {
@@ -744,19 +859,19 @@ fn probe(args: &[String], url: &str) -> io::Result<()> {
             }
             let stream = connected?;
             if let Some(client) = client {
-                let host = uri
-                    .host()
-                    .ok_or_else(invalid)?
-                    .trim_start_matches('[')
-                    .trim_end_matches(']');
-                let name = tokio_rustls::rustls::pki_types::ServerName::try_from(host.to_owned())
-                    .map_err(|_| invalid())?;
+                let name = tokio_rustls::rustls::pki_types::ServerName::try_from(url.host.clone())
+                    .map_err(|_| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "the probe host is not a valid TLS server name",
+                        )
+                    })?;
                 let stream = tokio_rustls::TlsConnector::from(client)
                     .connect(name, stream)
                     .await?;
-                probe_response(stream, authority, path).await
+                probe_response(stream, &url.authority, url.path).await
             } else {
-                probe_response(stream, authority, path).await
+                probe_response(stream, &url.authority, url.path).await
             }
         })
         .await
@@ -767,6 +882,8 @@ fn probe(args: &[String], url: &str) -> io::Result<()> {
     result
 }
 
+/// Passes when `GET /{path}` answers HTTP 200 with as many body bytes as its Content-Length
+/// gives.
 async fn probe_response(
     mut stream: impl AsyncRead + AsyncWrite + Unpin,
     authority: &str,
@@ -839,32 +956,68 @@ async fn probe_response(
 mod tests {
     use super::*;
 
+    /// Options that cannot run are reported as usage before anything is probed or PID 1 is read,
+    /// without the advice for an unreachable server, which only a failed probe gets.
     #[test]
-    fn healthcheck_falls_back_only_to_a_gcs_mimic_server_with_options() {
-        let options = |args: &[&str]| Some(args.iter().map(|arg| (*arg).to_owned()).collect());
-        for (cmdline, expected) in [
+    fn healthcheck_usage_errors_come_before_any_probe() {
+        let args = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+        let ready = "http://127.0.0.1:1/_internal/ready";
+        for (given, usage) in [
             (
-                b"/usr/local/bin/gcs-mimic\0--scheme\0http\0".as_slice(),
-                options(&["--scheme", "http"]),
+                args(&["--require-sync", "true"]),
+                HealthcheckUsage::Unknown("--require-sync".to_owned()),
+            ),
+            (args(&["--url"]), HealthcheckUsage::Pairs),
+            (
+                args(&["--url", ""]),
+                HealthcheckUsage::Empty("--url".to_owned()),
             ),
             (
-                b"gcs-mimic\0serve\0--listen\x000.0.0.0:9000\0",
-                options(&["--listen", "0.0.0.0:9000"]),
+                args(&["--url", ready, "--url", ready]),
+                HealthcheckUsage::Duplicate("--url".to_owned()),
             ),
-            // The image's own command carries no option, so the first probe already covered it.
-            (b"/usr/local/bin/gcs-mimic\0serve\0", None),
-            (b"/usr/local/bin/gcs-mimic\0healthcheck\0", None),
-            (b"/bin/sh\0-c\0gcs-mimic --scheme http\0", None),
-            (b"/usr/local/bin/gcs-mimic\0--scheme\0\xff\0", None),
-            (b"", None),
+            (
+                args(&["--url", "http://127.0.0.1:1/anything"]),
+                HealthcheckUsage::Url(InvalidProbeUrl),
+            ),
+            (
+                args(&["--url", "http://127.0.0.1/_internal/ready"]),
+                HealthcheckUsage::Url(InvalidProbeUrl),
+            ),
+            (
+                args(&["--url", ready, "--ca-cert", "ca.pem"]),
+                HealthcheckUsage::CaCertNeedsHttps,
+            ),
         ] {
             assert_eq!(
-                container_server_args(cmdline),
-                expected,
-                "{}",
-                String::from_utf8_lossy(cmdline)
+                HealthcheckArgs::try_from(given.as_slice()).unwrap_err(),
+                usage
+            );
+            let diagnostics = healthcheck(&given).unwrap_err();
+            let [error] = diagnostics.errors.as_slice() else {
+                panic!("{diagnostics:?}");
+            };
+            assert_eq!(
+                error.fix,
+                format!("Invalid healthcheck options: {usage}. Usage: {HEALTHCHECK_USAGE}")
             );
         }
+        let closed = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let url = format!("http://{closed}/_internal/ready");
+        let diagnostics = healthcheck(&args(&["--url", &url])).unwrap_err();
+        let [error] = diagnostics.errors.as_slice() else {
+            panic!("{diagnostics:?}");
+        };
+        assert!(
+            error
+                .fix
+                .starts_with(&format!("Healthcheck {url} failed: ")),
+            "{}",
+            error.fix
+        );
     }
 
     #[test]

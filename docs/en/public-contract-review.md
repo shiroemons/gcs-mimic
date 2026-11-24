@@ -178,7 +178,7 @@ The native-equivalent block is one `info` diagnostic with key `native_equivalent
 
 ### Healthcheck URL selection
 
-Without `--url`, `healthcheck` chooses its target as follows (`src/main.rs` `healthcheck`, `probe_url`, `container_server_args`; `src/config.rs` `healthcheck_url`). C and S `option-aliases.md` describe it; H does not (disagreement 17).
+Without `--url`, `healthcheck` chooses its target as follows (`src/main.rs` `healthcheck`, `probe_url`; `src/local_server.rs` `origin`, `with_container_fallback`, `container_server_args`; `src/config.rs` `healthcheck_url`). C and S `option-aliases.md` describe it; H does not (disagreement 17).
 
 1. It runs the server's configuration validation over the environment and the selected JSON file. An invalid configuration exits 1 without any probe, which is why an unknown `GCS_MIMIC_*` name fails it.
 2. It probes `/_internal/healthcheck` at the configured listener. A wildcard address becomes loopback, `scheme=both` selects the HTTP listener, and every scheme but `https` is probed over plain HTTP.
