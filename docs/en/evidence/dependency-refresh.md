@@ -1442,3 +1442,29 @@ The new genproto revision changes no file under `googleapis/storage`, which hold
 Both freshness checks ran with `GITHUB_TOKEN` set.
 
 Later that day the check began to apply recorded exceptions. The full check at `2026-11-19T05:05:09Z` exited 0 with 142 `CURRENT` lines: both Temurin lines read `DEFERRED` with `review_by=2026-11-26`, and the run ended with the `DEFERRED` summary that dependencies are not all current. See [dependency freshness exceptions](dependency-exceptions.md).
+
+## Refresh: 2026-11-24, before 0.28.0
+
+Before the 0.28.0 dry run, the release-scoped check reported three release inputs published since the 2026-11-19 refresh. All three are adopted.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| hyper | 1.12.0 | 1.13.0 (released 2026-11-23T21:22:31Z; 176,883-byte crate, SHA-256 `229c6ff5584df4c6becbfe00567128bac768c8cd32ebc8a8366bd81ed072e8f3`) | `Cargo.toml`, `Cargo.lock` |
+| moby/buildkit | v0.35.0, index `sha256:aa632b921ef07411d2cb77292cd34213d4f7b384001d6fceef1e1f25bf9752bb` | v0.35.1 (released 2026-11-19T20:35:45Z), index `sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c`; linux/amd64 `sha256:7583a0667093d941826bcd1d2878d6a360dfd08a82c93e6d6a6f6cce78801e12`, linux/arm64 `sha256:dcd3c9ec3a20b8a38ef81bd2cc09e7e89d47d48b6dc29145755e18cc2c9cca26` | `.github/workflows/ghcr.yaml` |
+| docker/dockerfile:1 | `sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e` (the 1.27.1 index) | `sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183` (the 1.29.0 index, released 2026-11-11T20:12:32Z) | `Dockerfile`, `examples/cpp/Dockerfile`, `sdk-scorecard/cpp/Dockerfile` |
+
+[hyper 1.13.0](https://github.com/hyperium/hyper/blob/v1.13.0/CHANGELOG.md) fixes HTTP/1 framing and shutdown: a final body chunk shorter than `content-length` is an error, a response with `Transfer-Encoding` drops `Content-Length`, a 101 response gets no `connection: close`, and in-flight requests drain before the dispatcher shuts down. For HTTP/2 it strips every header that a `Connection` header names, reports a zero size hint for HEAD responses, keeps the connection open after it rejects CONNECT and fixes a hang during concurrent connection shutdown. It also fixes client readiness and parked HTTP/2 requests and adds an executor getter. It keeps the MIT license and minimum Rust 1.63, and the lockfile changes no other package.
+
+[BuildKit v0.35.1](https://github.com/moby/buildkit/releases/tag/v0.35.1) skips empty attestation manifests, allows snapshot key names shared with `docker pull` again and fixes errors from large filesync pattern lists; it has no dependency changes. The `1` tag of the [Dockerfile frontend](https://github.com/moby/buildkit/releases/tag/dockerfile%2F1.29.0) now selects 1.29.0, which adds Git command tracing and the `BUILDKIT_DISABLE_ONBUILD` build argument for every stage, recognizes `PSW` tokens in secret checks, and fixes `COPY --chown` with numeric IDs above 2147483647, `EXPOSE` history entries and unknown flags on `ARG` and `STOPSIGNAL` that were silently ignored.
+
+The full check also reported development-only updates, which are not adopted before the release: the composer:2.11.2 index rebuilt on PHP 8.5.13, Debian's chromium 156.0.8078.79 for the strict recipe check, `url` 2.5.9 in the Rust SDK suite and scorecard, Maven 3.10.2 in the Java SDK suite and scorecard, google-cloud-cpp v3.14.1 and CMake v4.5.1 in the C++ scorecard probe, Testcontainers 12.2.2 in the Node.js Testcontainers check, Python google-cloud-storage 3.17.2 in the SDK suite and scorecard, and genproto 20261123 in the Go SDK suite. Temurin 27.0.1.1+4 stays deferred under its recorded exception.
+
+### Validation performed on 2026-11-24, before 0.28.0
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask dependencies check --scope release` at `2026-11-24T05:21:23Z` | Exit 0 with 42 `CURRENT` lines |
+| `cargo xtask dependencies check` at `2026-11-24T05:21:46Z` | Exit 1 with 129 `CURRENT` lines and no check errors; only the development-only updates above report `UPDATE_AVAILABLE`, both Temurin lines stay `DEFERRED` with `review_by=2026-11-26`, and fake-gcs-server v1.56.1 stays `PINNED_REFERENCE` |
+| `cargo check --locked --all-targets` | Passed |
+
+Both checks ran with `GITHUB_TOKEN` set. The complete gates for the release source are recorded with the 0.28.0 release.
