@@ -699,6 +699,8 @@ async fn sqlite_settings_are_explicit() {
                 ("foreign_keys", 1),
                 ("cache_size", -2048),
                 ("mmap_size", 0),
+                // MEMORY: no temporary file, which a read-only root has no directory for.
+                ("temp_store", 2),
                 ("busy_timeout", 5000),
                 ("user_version", CATALOG_SCHEMA_VERSION),
             ] {

@@ -197,7 +197,6 @@ An explicit `--url` skips all three steps. Step 3 is what lets the image's `HEAL
 | `GCSM_DOWNLOAD` | `off` stops the Go packages from downloading their release when neither `GCSM_BINARY` nor a supported `gcs-mimic` on `PATH` is found; unset or `on` allows it, and any other value fails the start | `go/internal/mimicproc/download.go` | `go/README.md` | Yes |
 | `GCSM_PORT`, `GCSM_IMAGE`, `GCSM_TLS_DIR` | Compose interpolation in `compose*.yaml` and `examples/` | `compose.yaml`, `compose.tls.yaml`, `examples/*/compose.yaml` | N, F | Yes |
 | `GCS_MIMIC_ENDPOINT`, `GCS_MIMIC_GRPC_ENDPOINT`, `GCS_MIMIC_SYNC_TOKEN`, `GCS_MIMIC_BINARY`, `GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE`, `GCS_MIMIC_TLS_DIR` | Withdrawn in `0.18.0`. `serve` and `healthcheck` without `--url` stop and name the `GCSM_*` replacement; `gcs-mimic sync` stops on the old token name even when a new token or `--token-file` is given; the Go packages and the examples stop on their old name when nothing else supplies the value; the shipped Compose files pass the three Compose names into the server only when set, so it stops | `src/config_input/environment.rs` `RenamedEnvironmentVariable`, `src/sync_cli.rs`, `go/internal/mimicproc/args.go`, `examples/*` | Release notes 0.18.0 | Yes |
-| `SQLITE_TMPDIR` | Set by the image; read by SQLite, not by gcs-mimic | `Dockerfile` | C | Yes |
 
 `FAKE_GCS_*` variables are not read (`src/config_input.rs` test `fake_gcs_server_variables_are_not_read`; L, F). `STORAGE_EMULATOR_HOST` and similar variables belong to clients.
 
@@ -264,7 +263,7 @@ Management routes refuse browser-initiated requests with 403 and unapproved DNS 
 | Tags | `X.Y.Z` immutable; `X.Y` and `latest` advance only; no major alias; digest references | `xtask/src/container.rs` `tags`, `scripts/container-release.sh` | `docs/en/container-distribution.md` | 14 |
 | Platforms | `linux/amd64`, `linux/arm64` | `.github/workflows/ghcr.yaml` | L, C | Yes |
 | Entrypoint and command | `ENTRYPOINT ["gcs-mimic"]`, `CMD ["serve"]` | `Dockerfile` | L, S `option-aliases.md` | Yes |
-| Image environment | `PATH=/usr/local/bin`, `GCS_MIMIC_LISTEN=0.0.0.0:4443`, `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`, `GCS_MIMIC_DEFAULT_SEED_DIR=/data`, `SQLITE_TMPDIR=/var/lib/gcs-mimic` | `Dockerfile` | C, F | Yes |
+| Image environment | `PATH=/usr/local/bin`, `GCS_MIMIC_LISTEN=0.0.0.0:4443`, `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`, `GCS_MIMIC_DEFAULT_SEED_DIR=/data` | `Dockerfile` | C, F | Yes |
 | Paths | `/usr/local/bin/gcs-mimic`, `/var/lib/gcs-mimic`, `/data`, `/usr/share/licenses/gcs-mimic/`, `/tmp`, working directory `/app` | `Dockerfile` | C, L; `/app` is undocumented | Yes |
 | User and port | `USER 10001:10001`, `EXPOSE 4443`, `STOPSIGNAL SIGTERM` | `Dockerfile` | L, C | Yes |
 | Healthcheck | `gcs-mimic healthcheck`, interval 2 s, timeout 2 s, start period 2 s, retries 15 | `Dockerfile` | C, partly | Yes |
@@ -577,7 +576,7 @@ Found on 2026-11-12 while checking candidate 12; the inventory above does not li
 
 ## Contract areas without a test guarding them
 
-- Image metadata other than the user and data paths. `scripts/smoke-containers.sh` does not check `EXPOSE`, the `HEALTHCHECK` parameters, `SQLITE_TMPDIR` or the licenses path.
+- Image metadata other than the user and data paths. `scripts/smoke-containers.sh` does not check `EXPOSE`, the `HEALTHCHECK` parameters or the licenses path.
 - The healthcheck's fallback inside a container. `container_server_args` parses PID 1's command line in a unit-tested function since `0.20.0`, but the only probe without `--url` in `scripts/smoke-containers.sh` runs against a container with no server options.
 
 Guarded since `0.20.0`, each with the tests named under its candidate: the helper help texts of `url public`, `url sign`, `test-signer` and `import fake-gcs-server`, by digest (the `sync` help is outside the contract); underscore spellings; `backend=filesystem` from the environment and JSON; the complete ready field set of each start the inventory names; and the exit status value 1. `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` with an empty value was already covered by its own case in `settings_that_define_an_empty_environment_value_start_with_it`.
