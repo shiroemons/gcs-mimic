@@ -69299,7 +69299,7 @@
         },
         {
           "id": "client_paced_request_bodies",
-          "description": "Waiting for request body bytes on any route (JSON and XML resource bodies, batch envelopes, uploads) never counts against request_timeout_ms; body_inactivity_timeout_ms (default 0, disabled) bounds it and every received frame renews it. Its expiry answers JSON 408 uploadBrokenConnection or XML 400 RequestTimeout naming the setting, with Connection: close and no mutation.",
+          "description": "Waiting for request body bytes on any route (JSON and XML resource bodies, batch envelopes, uploads) never counts against request_timeout_ms; body_inactivity_timeout_ms (default 0, disabled) bounds it and every received frame renews it. The server's own work on a received frame, such as a write that waits for the disk, is handler time, not body silence. Its expiry answers JSON 408 uploadBrokenConnection or XML 400 RequestTimeout naming the setting, with Connection: close and no mutation.",
           "result": "PASS",
           "test_ids": [
             "obj_http_stalled_resource_bodies_outlive_header_and_request_deadlines",
@@ -69307,7 +69307,9 @@
             "obj_http_trickled_resource_body_renews_body_inactivity",
             "bkt_http_silent_body_meets_body_inactivity_not_the_request_deadline",
             "a_pending_request_body_moves_any_request_to_the_inactivity_limit",
-            "the_timeout_reply_names_the_limit_that_expired"
+            "the_timeout_reply_names_the_limit_that_expired",
+            "only_a_wait_on_the_client_counts_as_its_silence",
+            "direct_fixture_progress_renews_inactivity_without_disabling_the_deadline"
           ]
         },
         {
@@ -69359,7 +69361,7 @@
             "obj_http_disabled_and_largest_timeouts_never_cut_any_phase",
             "connections_stand_in_line_in_the_order_their_responses_ended",
             "a_connection_whose_next_request_started_passes_its_wake_on",
-            "a_request_end_takes_a_place_unless_the_request_expired"
+            "only_a_response_that_keeps_the_connection_open_takes_a_place_in_line"
           ]
         },
         {
@@ -69414,10 +69416,12 @@
         "the_timeout_reply_names_the_limit_that_expired",
         "connections_stand_in_line_in_the_order_their_responses_ended",
         "a_connection_whose_next_request_started_passes_its_wake_on",
-        "a_request_end_takes_a_place_unless_the_request_expired"
+        "only_a_response_that_keeps_the_connection_open_takes_a_place_in_line",
+        "only_a_wait_on_the_client_counts_as_its_silence",
+        "direct_fixture_progress_renews_inactivity_without_disabling_the_deadline"
       ],
       "verification": [
-        {"command":"cargo test --locked --lib -- reclaim_tests; cargo test --locked --test it_process -- foundation","result":"PASS","verified_at":"2026-11-24","artifact":"docs/en/evidence/http-connection-semantics.md","test_ids":["connections_stand_in_line_in_the_order_their_responses_ended","a_connection_whose_next_request_started_passes_its_wake_on","a_request_end_takes_a_place_unless_the_request_expired","a_request_wakes_only_the_connection_that_turned_idle_first","a_stored_wake_taken_by_a_connection_that_leaves_reaches_the_next_in_line","full_server_closes_only_the_oldest_idle_connection_per_waiting_client","full_server_without_a_waiting_client_keeps_its_idle_connections","full_server_reclaims_idle_keep_alive_slots_for_waiting_clients"]},
+        {"command":"cargo test --locked --lib -- reclaim_tests server::ingress; cargo test --locked --test it_process -- foundation; cargo test --locked --test it_admin -- direct_fixture_progress_renews_inactivity_without_disabling_the_deadline; cargo test --locked --test it_protocol -- obj_http_trickle_upload_deadline_releases_permits_without_publication","result":"PASS","verified_at":"2026-11-24","artifact":"docs/en/evidence/http-connection-semantics.md","test_ids":["connections_stand_in_line_in_the_order_their_responses_ended","a_connection_whose_next_request_started_passes_its_wake_on","only_a_response_that_keeps_the_connection_open_takes_a_place_in_line","a_request_wakes_only_the_connection_that_turned_idle_first","a_stored_wake_taken_by_a_connection_that_leaves_reaches_the_next_in_line","full_server_closes_only_the_oldest_idle_connection_per_waiting_client","full_server_without_a_waiting_client_keeps_its_idle_connections","full_server_reclaims_idle_keep_alive_slots_for_waiting_clients","only_a_wait_on_the_client_counts_as_its_silence","direct_fixture_progress_renews_inactivity_without_disabling_the_deadline","obj_http_trickle_upload_deadline_releases_permits_without_publication"]},
         {"command":"cargo test --locked --lib server::; cargo test --locked --lib xml::; cargo test --locked --test it_protocol; cargo test --locked --test it_json; cargo test --locked --test it_xml_auth; cargo test --locked --test it_process tls_streaming_progress_and_upload_deadlines_preserve_existing_object","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/evidence/http-connection-semantics.md","test_ids":["obj_http_stalled_resource_bodies_outlive_header_and_request_deadlines","obj_http_explicit_body_inactivity_answers_silent_resource_bodies","obj_http_trickled_resource_body_renews_body_inactivity","bkt_http_silent_body_meets_body_inactivity_not_the_request_deadline","a_pending_request_body_moves_any_request_to_the_inactivity_limit","the_timeout_reply_names_the_limit_that_expired","bkt_http_deadline_before_response_returns_backend_error","xml_put_chunked_trailers_and_body_deadlines_cannot_publish","obj_http_trickle_upload_deadline_releases_permits_without_publication","obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out","obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots","tls_streaming_progress_and_upload_deadlines_preserve_existing_object"]},
         {"command":"cargo test --locked --lib -- reclaim_tests server::transport; cargo test --locked --test it_protocol -- phase_deadlines; cargo test --locked --test it_process -- foundation","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["full_server_closes_only_the_oldest_idle_connection_per_waiting_client","full_server_without_a_waiting_client_keeps_its_idle_connections","each_request_renews_the_keep_alive_deadline","a_request_wakes_only_the_connection_that_turned_idle_first","accepted_tcp_connections_enable_keepalive","obj_http_stalled_upload_body_outlives_header_and_request_deadlines","obj_http_stalled_download_outlives_header_and_request_deadlines","obj_http_stalled_resumable_chunk_outlives_header_and_request_deadlines","obj_http_explicit_body_inactivity_answers_a_stalled_upload_with_408","obj_http_explicit_body_inactivity_cuts_a_stalled_download","obj_http_disabled_and_largest_timeouts_never_cut_any_phase"]},
         {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_retains_strict_authentication_and_upload_permissions"]},
