@@ -82,6 +82,9 @@ async fn pass(
             }
             Ok(outcome)
         }
+        // Shutdown closing the catalog ends a pass that was running. The server is stopping, and
+        // nothing failed, so the pass neither warns nor counts toward a run of failed passes.
+        Err(error) if catalog.is_closing() => Err(error.reason().to_string()),
         Err(error) => {
             let reason = error.reason().to_string();
             if failures.failed(&reason) {

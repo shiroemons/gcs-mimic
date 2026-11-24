@@ -300,6 +300,8 @@ stderr tells of a lasting failure once:
   `seed_pass_recovered` event with its number as `pass` and the number of
   passes in a row that could not run as `failed_passes`. With `log_level` set
   to `warn` or `error`, it is left out like the other informational events.
+- A pass that shutdown ends by closing the catalog did not fail: it emits no
+  event and does not count toward a run of passes that could not run.
 
 `gcs-mimic seed status` and `gcs-mimic seed wait` call these routes and print
 the answer as one line of JSON, with DEL and the C1 controls escaped as well.

@@ -374,6 +374,12 @@ impl Catalog {
         fault::pending(&self.0.data_dir)
     }
 
+    /// Whether shutdown started closing the catalog. An unhealthy catalog also refuses work, so
+    /// only this tells a stopping server from a failing one.
+    pub(crate) fn is_closing(&self) -> bool {
+        self.0.admission.is_closed()
+    }
+
     pub fn is_healthy(&self) -> bool {
         !self.0.resources.is_poisoned()
             && self.0.backend.is_healthy()

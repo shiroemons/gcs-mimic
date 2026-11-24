@@ -838,6 +838,19 @@ async fn no_pass_runs_with_a_zero_interval() {
     watched.close().await;
 }
 
+/// The pass that shutdown ends by closing the catalog did not fail, so it neither warns with
+/// `seed_pass_failed` nor counts toward a run of passes that could not run.
+#[tokio::test]
+async fn a_pass_that_shutdown_ends_is_not_a_failed_pass() {
+    let watched = watched().await;
+    watched.catalog.close().await.unwrap();
+    let failures = FailedPasses::default();
+    let clock: Arc<dyn Clock> = Arc::new(ManualClock::new(SystemTime::now()));
+    let report = pass(&watched.catalog, &watched.config, &clock, &failures, 1).await;
+    assert!(report.error.is_some(), "{report:?}");
+    assert_eq!(failures.ran(), None);
+}
+
 /// A run of passes that could not run warns on its first pass and again only when the reason
 /// changes, even back to an earlier one; the pass that ends it tells how many passes the run
 /// held, and the first failure after it warns again.
