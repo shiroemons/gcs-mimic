@@ -41,7 +41,7 @@ use std::{
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
-    sync::{Notify, Semaphore, futures::Notified, watch},
+    sync::{Notify, Semaphore, futures::OwnedNotified, watch},
     task::JoinSet,
 };
 
@@ -372,6 +372,56 @@ impl DeadlineReply {
 struct RequestFinished {
     activity: watch::Sender<ObjectActivity>,
     reads: Arc<ReadActivity>,
+    place: Arc<IdlePlace>,
+}
+
+/// The place in the idle line that a request's end takes for its connection, until the
+/// connection's watch moves it into the idle phase.
+///
+/// hyper drops a response body once its last bytes are buffered and before it flushes them, so a
+/// connection takes its place before its client can see the response end, and connections whose
+/// clients finished one after another stand in that order. Joining the line only when the watch
+/// next ran let a busy runtime queue a connection that finished later ahead of an older one, so a
+/// waiting client closed the younger connection while the older one kept its slot.
+struct IdlePlace {
+    slots: Arc<SlotReclaim>,
+    taken: std::sync::Mutex<Option<IdleTurn>>,
+}
+
+impl IdlePlace {
+    fn new(slots: Arc<SlotReclaim>) -> Self {
+        Self {
+            slots,
+            taken: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Takes a place at the back of the line, giving up one that an earlier request took.
+    fn join(&self) {
+        let turn = self.slots.join_line();
+        let earlier = self.lock().replace(turn);
+        drop(earlier);
+    }
+
+    /// The place the last request's end took, or a new one at the back of the line.
+    fn take(&self) -> IdleTurn {
+        let taken = self.lock().take();
+        taken.unwrap_or_else(|| self.slots.join_line())
+    }
+
+    /// Gives up the place that a request's end took once the next request has started, so a busy
+    /// connection holds no place and passes on any wake it received.
+    fn clear(&self) {
+        let taken = self.lock().take();
+        drop(taken);
+    }
+
+    /// Every use replaces the whole value, so a panic while it was held left nothing half done.
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<IdleTurn>> {
+        self.taken
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 /// Counts bytes read from a connection, so the idle wait between keep-alive
@@ -497,6 +547,11 @@ impl Drop for RequestFinished {
     fn drop(&mut self) {
         // Bytes read after this point begin the next request head.
         self.reads.mark_idle();
+        // An expired request ends its connection, which never turns idle. The place is taken
+        // before the watch can see the end, so it never joins the line a second time.
+        if !matches!(self.activity.borrow().stage, RequestStage::Expired(_)) {
+            self.place.join();
+        }
         self.activity.send_replace(ObjectActivity {
             stage: RequestStage::Finished,
             ..ObjectActivity::default()
@@ -1161,8 +1216,9 @@ pub(crate) struct SlotReclaim {
     /// True while a `SlotRequest` lives and no connection has taken it.
     wanted: AtomicBool,
     /// Idle connections wait here in the order they became idle; `notify_one` wakes the oldest.
-    /// With nobody waiting it stores a wake for the next connection to become idle.
-    idle_line: Notify,
+    /// With nobody waiting it stores a wake for the next connection to become idle. Shared so
+    /// that a response body, which owns everything it holds, can take a place in line.
+    idle_line: Arc<Notify>,
 }
 
 /// A client accepted while every slot is taken.
@@ -1187,11 +1243,14 @@ impl SlotReclaim {
         SlotRequest(self)
     }
 
-    pub(crate) fn join_line(&self) -> IdleTurn<'_> {
-        let mut turn = Box::pin(self.idle_line.notified());
+    pub(crate) fn join_line(self: &Arc<Self>) -> IdleTurn {
+        let mut turn = Box::pin(Arc::clone(&self.idle_line).notified_owned());
         // An unpolled `Notified` is not in line yet, and the line's order is the point.
         turn.as_mut().enable();
-        IdleTurn { slots: self, turn }
+        IdleTurn {
+            slots: Arc::clone(self),
+            turn,
+        }
     }
 
     /// A wake can outlive the request that sent it, when another connection ended first and
@@ -1206,12 +1265,12 @@ impl SlotReclaim {
 }
 
 /// A place in the idle line, which a connection holds for as long as it stays idle.
-pub(crate) struct IdleTurn<'a> {
-    slots: &'a SlotReclaim,
-    turn: std::pin::Pin<Box<Notified<'a>>>,
+pub(crate) struct IdleTurn {
+    slots: Arc<SlotReclaim>,
+    turn: std::pin::Pin<Box<OwnedNotified>>,
 }
 
-impl IdleTurn<'_> {
+impl IdleTurn {
     /// Resolves at the front of the idle line. The place in line outlives this future, so
     /// `select!` can drop it at any time.
     pub(crate) async fn reached(&mut self) {
@@ -1219,7 +1278,7 @@ impl IdleTurn<'_> {
     }
 }
 
-impl Drop for IdleTurn<'_> {
+impl Drop for IdleTurn {
     /// Hands a waiting client's wake to the next connection in line on every way out of the idle
     /// phase. A `Notified` forwards a wake it received while queued, but not the stored one it
     /// took when enabled, so a connection leaving before its next poll would lose that one and
@@ -1382,6 +1441,7 @@ async fn serve_connection(
     let limits = ConnectionLimits::new(&config);
     let (activity, progress) = watch::channel(ObjectActivity::default());
     let reads = Arc::new(ReadActivity::default());
+    let place = Arc::new(IdlePlace::new(Arc::clone(&slots)));
     let builder = http1_builder();
     let service = ConnectionService {
         listening,
@@ -1389,6 +1449,7 @@ async fn serve_connection(
         config,
         activity: activity.clone(),
         reads: reads.clone(),
+        place: Arc::clone(&place),
     };
     let mut connection = builder.serve_connection(
         TokioIo::new(CountingIo {
@@ -1404,6 +1465,7 @@ async fn serve_connection(
         limits,
         first_head_from,
         slots,
+        place,
     };
     let unread = watch.run(&mut connection, &mut stopping).await;
     // Send FIN after the response, then read and discard what the client still sends,
@@ -1431,6 +1493,7 @@ struct ConnectionService {
     config: Arc<Config>,
     activity: watch::Sender<ObjectActivity>,
     reads: Arc<ReadActivity>,
+    place: Arc<IdlePlace>,
 }
 
 type ServiceFuture =
@@ -1457,6 +1520,7 @@ impl ConnectionService {
             config,
             activity,
             reads,
+            place,
         } = self;
         injected_handler_panic();
         // Each request starts its own deadline without an earlier transfer's state.
@@ -1464,6 +1528,7 @@ impl ConnectionService {
         let finished = RequestFinished {
             activity: activity.clone(),
             reads,
+            place,
         };
         let sent_body = has_body(request.headers());
         let endpoints = if let Ok(endpoints) = config
@@ -1561,12 +1626,12 @@ impl ConnectionLimits {
 }
 
 /// What a connection is waiting for, which selects the limit on how long that may take.
-enum ConnectionPhase<'a> {
+enum ConnectionPhase {
     /// A new connection's first request head.
     FirstHead,
     /// The next request, between keep-alive requests. The place in the idle line lives here, so
     /// leaving this phase gives it up, and passes on any wake it received, on every path.
-    Idle { turn: IdleTurn<'a> },
+    Idle { turn: IdleTurn },
     /// The rest of a next request's head, which has started arriving.
     NextHead,
     /// A request's handler, or its bodies.
@@ -1575,7 +1640,7 @@ enum ConnectionPhase<'a> {
     TimeoutReply,
 }
 
-impl ConnectionPhase<'_> {
+impl ConnectionPhase {
     /// Resolves when an idle connection reaches the front of the idle line, and never in other
     /// phases.
     async fn idle_turn(&mut self) {
@@ -1614,6 +1679,8 @@ struct ConnectionWatch {
     /// Where the header read limit of the first request head starts.
     first_head_from: tokio::time::Instant,
     slots: Arc<SlotReclaim>,
+    /// Where each request's end leaves the connection's place in the idle line.
+    place: Arc<IdlePlace>,
 }
 
 impl ConnectionWatch {
@@ -1630,6 +1697,7 @@ impl ConnectionWatch {
             limits,
             first_head_from,
             slots,
+            place,
         } = self;
         let deadline = tokio::time::sleep_until(limits.header_read.deadline_from(first_head_from));
         // Waited on only after a request sets its deadline, which resets this first.
@@ -1648,13 +1716,16 @@ impl ConnectionWatch {
                     current = next;
                     match current.stage {
                         RequestStage::Running | RequestStage::AwaitingCatalog | RequestStage::Expired(_) | RequestStage::Responded => {
+                            // The next request can start before this watch sees the last one end,
+                            // and a busy connection gives up the place that end took.
+                            place.clear();
                             phase = ConnectionPhase::Request;
                             deadline.as_mut().reset(limits.during_request(&current).deadline());
                         }
                         // A whole request can run within one poll, so this phase can already be
-                        // `Idle` and this is still a new idle period, at the back of the line.
+                        // `Idle` and this is still a new idle period, in the place its end took.
                         RequestStage::Finished => {
-                            phase = ConnectionPhase::Idle { turn: slots.join_line() };
+                            phase = ConnectionPhase::Idle { turn: place.take() };
                             deadline.as_mut().reset(limits.keep_alive.deadline());
                         }
                     }

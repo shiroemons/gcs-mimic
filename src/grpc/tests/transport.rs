@@ -21,7 +21,7 @@ async fn start_tls(config: Config) -> (TlsStream<TcpStream>, JoinHandle<()>) {
             stream,
             &config,
             stopping,
-            &SlotReclaim::default(),
+            &Arc::<SlotReclaim>::default(),
             pending_stream,
         )
         .await;

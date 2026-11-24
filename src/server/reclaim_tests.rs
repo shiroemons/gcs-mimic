@@ -5,7 +5,7 @@ use crate::test_support::TestDir;
 use http_body_util::Empty;
 use std::task::{Context, Waker};
 
-fn woken(turn: &mut IdleTurn<'_>) -> bool {
+fn woken(turn: &mut IdleTurn) -> bool {
     turn.turn
         .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()))
@@ -15,7 +15,7 @@ fn woken(turn: &mut IdleTurn<'_>) -> bool {
 /// Enabling takes a stored wake, and dropping the `Notified` afterwards would lose it.
 #[test]
 fn a_stored_wake_taken_by_a_connection_that_leaves_reaches_the_next_in_line() {
-    let slots = SlotReclaim::default();
+    let slots = Arc::<SlotReclaim>::default();
     let _request = slots.request();
     drop(slots.join_line());
     let mut next = slots.join_line();
@@ -25,7 +25,7 @@ fn a_stored_wake_taken_by_a_connection_that_leaves_reaches_the_next_in_line() {
 
 #[test]
 fn a_request_wakes_only_the_connection_that_turned_idle_first() {
-    let slots = SlotReclaim::default();
+    let slots = Arc::<SlotReclaim>::default();
     let mut oldest = slots.join_line();
     let mut younger = slots.join_line();
     let _request = slots.request();
@@ -36,7 +36,7 @@ fn a_request_wakes_only_the_connection_that_turned_idle_first() {
 
 #[test]
 fn a_full_server_without_a_waiting_client_wakes_nobody() {
-    let slots = SlotReclaim::default();
+    let slots = Arc::<SlotReclaim>::default();
     let mut idle = slots.join_line();
     assert!(!woken(&mut idle));
     assert!(!slots.is_wanted());
@@ -44,7 +44,7 @@ fn a_full_server_without_a_waiting_client_wakes_nobody() {
 
 #[test]
 fn a_request_with_nobody_idle_reaches_the_next_connection_to_turn_idle() {
-    let slots = SlotReclaim::default();
+    let slots = Arc::<SlotReclaim>::default();
     let _request = slots.request();
     let mut idle = slots.join_line();
     assert!(woken(&mut idle));
@@ -53,7 +53,7 @@ fn a_request_with_nobody_idle_reaches_the_next_connection_to_turn_idle() {
 
 #[test]
 fn a_connection_leaving_the_line_passes_its_wake_on() {
-    let slots = SlotReclaim::default();
+    let slots = Arc::<SlotReclaim>::default();
     let oldest = slots.join_line();
     let mut younger = slots.join_line();
     let _request = slots.request();
@@ -63,7 +63,7 @@ fn a_connection_leaving_the_line_passes_its_wake_on() {
 
 #[test]
 fn a_busy_connection_can_hand_its_wake_to_the_next_in_line() {
-    let slots = SlotReclaim::default();
+    let slots = Arc::<SlotReclaim>::default();
     let mut oldest = slots.join_line();
     let mut younger = slots.join_line();
     let _request = slots.request();
@@ -75,7 +75,7 @@ fn a_busy_connection_can_hand_its_wake_to_the_next_in_line() {
 
 #[test]
 fn a_wake_that_outlives_its_request_closes_nothing() {
-    let slots = SlotReclaim::default();
+    let slots = Arc::<SlotReclaim>::default();
     drop(slots.request());
     let mut idle = slots.join_line();
     assert!(woken(&mut idle));
@@ -85,7 +85,7 @@ fn a_wake_that_outlives_its_request_closes_nothing() {
 
 #[test]
 fn only_one_connection_takes_a_request() {
-    let slots = SlotReclaim::default();
+    let slots = Arc::<SlotReclaim>::default();
     let _request = slots.request();
     assert!(slots.take_request());
     assert!(!slots.take_request());
@@ -94,7 +94,7 @@ fn only_one_connection_takes_a_request() {
 /// A place in line belongs to the idle phase, so leaving it passes on a wake in any direction.
 #[test]
 fn leaving_the_idle_phase_gives_up_the_place_in_line() {
-    let slots = SlotReclaim::default();
+    let slots = Arc::<SlotReclaim>::default();
     let oldest = ConnectionPhase::Idle {
         turn: slots.join_line(),
     };
@@ -103,6 +103,58 @@ fn leaving_the_idle_phase_gives_up_the_place_in_line() {
     assert!(!woken(&mut younger));
     drop(oldest);
     assert!(woken(&mut younger));
+}
+
+/// A connection's place is fixed when its response ends, before its client can read that end,
+/// so a watch that runs late cannot put a connection that finished later ahead of it.
+#[test]
+fn connections_stand_in_line_in_the_order_their_responses_ended() {
+    let slots = Arc::<SlotReclaim>::default();
+    let first = IdlePlace::new(Arc::clone(&slots));
+    let second = IdlePlace::new(Arc::clone(&slots));
+    first.join();
+    second.join();
+    let mut younger = second.take();
+    let mut oldest = first.take();
+    let _request = slots.request();
+    assert!(woken(&mut oldest));
+    assert!(!woken(&mut younger));
+}
+
+/// A request that starts before the watch sees the last one end gives up that end's place, so a
+/// waiting client goes to a connection that is still idle.
+#[test]
+fn a_connection_whose_next_request_started_passes_its_wake_on() {
+    let slots = Arc::<SlotReclaim>::default();
+    let busy = IdlePlace::new(Arc::clone(&slots));
+    busy.join();
+    let mut idle = slots.join_line();
+    let _request = slots.request();
+    assert!(!woken(&mut idle));
+    busy.clear();
+    assert!(woken(&mut idle));
+}
+
+/// An expired request closes its connection, so its end takes no place in line.
+#[test]
+fn a_request_end_takes_a_place_unless_the_request_expired() {
+    for (stage, placed) in [
+        (RequestStage::Responded, true),
+        (RequestStage::Expired(Expiry::Request), false),
+    ] {
+        let place = Arc::new(IdlePlace::new(Arc::<SlotReclaim>::default()));
+        let (activity, progress) = watch::channel(ObjectActivity {
+            stage,
+            ..ObjectActivity::default()
+        });
+        drop(RequestFinished {
+            activity,
+            reads: Arc::default(),
+            place: Arc::clone(&place),
+        });
+        assert_eq!(place.lock().is_some(), placed, "{stage:?}");
+        assert_eq!(progress.borrow().stage, RequestStage::Finished);
+    }
 }
 
 /// Far beyond what a healthy reclaim takes, and far below the keep-alive limit it replaces.

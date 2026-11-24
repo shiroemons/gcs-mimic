@@ -87,7 +87,7 @@ async fn serve_accepted<S, F>(
     stream: impl Transport,
     config: &Config,
     stopping: watch::Receiver<bool>,
-    slots: &SlotReclaim,
+    slots: &Arc<SlotReclaim>,
     service: S,
 ) where
     S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
@@ -725,7 +725,7 @@ async fn grpc_stream_start_leaves_the_idle_line_for_the_next_connection() {
 
 #[tokio::test]
 async fn grpc_stream_start_passes_a_received_wake_to_the_next_in_line() {
-    let slots = SlotReclaim::default();
+    let slots = Arc::<SlotReclaim>::default();
     let mut oldest = ConnectionPhase::Idle {
         turn: slots.join_line(),
     };

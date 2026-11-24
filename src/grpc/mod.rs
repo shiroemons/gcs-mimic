@@ -80,7 +80,7 @@ pub(crate) async fn serve_connection(
     config: &Config,
     state: Arc<State>,
     stopping: watch::Receiver<bool>,
-    slots: &SlotReclaim,
+    slots: &Arc<SlotReclaim>,
 ) {
     let router = StorageRouter::new(config, state);
     serve_with_service(stream, since, config, stopping, slots, move |request| {
@@ -170,7 +170,7 @@ impl hyper::body::Body for ResponseBody {
 }
 
 /// How far a connection has come, which selects the limit on its silence.
-enum ConnectionPhase<'a> {
+enum ConnectionPhase {
     /// Waiting for the client preface.
     Handshake,
     /// The preface arrived and no stream has opened yet. A client calls right after connecting,
@@ -180,7 +180,7 @@ enum ConnectionPhase<'a> {
     AwaitingFirstStream { since: Instant },
     /// No stream is open. The place in the idle line lives here, so leaving this phase gives it
     /// up, and passes on any wake it received, on every path.
-    Idle { turn: IdleTurn<'a> },
+    Idle { turn: IdleTurn },
     /// At least one stream is open.
     Streaming,
     /// GOAWAY went out with no stream open. HTTP/2 serves a stream the peer opened before reading
@@ -192,7 +192,7 @@ enum ConnectionPhase<'a> {
     Stopping,
 }
 
-impl<'a> ConnectionPhase<'a> {
+impl ConnectionPhase {
     /// Resolves when an idle connection reaches the front of the idle line, and never in other
     /// phases.
     async fn idle_turn(&mut self) {
@@ -209,7 +209,7 @@ impl<'a> ConnectionPhase<'a> {
 
     /// Moves to the phase that `streams`, the open stream count after some stream activity, puts
     /// the connection in.
-    fn after_stream_activity(&mut self, streams: usize, slots: &'a SlotReclaim) {
+    fn after_stream_activity(&mut self, streams: usize, slots: &Arc<SlotReclaim>) {
         match (&*self, streams) {
             (Self::ClosingIdle | Self::Draining | Self::Stopping, _) => {}
             // Activity with no stream left means one just ended, even when a whole stream ran
@@ -333,7 +333,7 @@ async fn serve_with_service<S, F>(
     since: Instant,
     config: &Config,
     mut stopping: watch::Receiver<bool>,
-    slots: &SlotReclaim,
+    slots: &Arc<SlotReclaim>,
     service: S,
 ) where
     S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,

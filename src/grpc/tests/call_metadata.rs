@@ -68,7 +68,7 @@ impl Server {
         let (stop, stopping) = watch::channel(false);
         let router = StorageRouter::new(&config, state.clone());
         tokio::spawn(async move {
-            let slots = SlotReclaim::default();
+            let slots = Arc::<SlotReclaim>::default();
             let service = move |request| router.clone().route(request);
             serve_accepted(accepted, &config, stopping, &slots, service).await;
         });
