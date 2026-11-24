@@ -21,11 +21,12 @@
 //!   [`truncated`] lowers the durable length when a seamed path cuts a file back, so bytes
 //!   written again past the cut stay volatile until the next recorded sync. Whether the cut
 //!   itself survives is not modeled: the snapshot cannot bring back bytes already gone.
-//! - Directory entries: [`dir_created`], [`file_created`], [`unlinked`] and [`renamed`] record entries that stay volatile
-//!   until [`dir_synced`] syncs their parent. The snapshot undoes them, newest first: a
-//!   volatile rename moves the file back to its old name, a volatile new entry vanishes,
-//!   and a volatile unlink restores bytes from its retained test descriptor. Entries made
-//!   by paths outside these seams are not modeled; they survive as they are on disk.
+//! - Directory entries: [`dir_created`], [`file_created`], [`unlinked`] and [`renamed`] record
+//!   entries that stay volatile until [`dir_synced`] syncs their parent. The snapshot undoes
+//!   them, newest first: a volatile rename moves the file back to its old name, a volatile new
+//!   entry vanishes, and a volatile unlink restores bytes from its retained test descriptor.
+//!   Entries made by paths outside these seams are not modeled; they survive as they are on
+//!   disk.
 //! - SQLite files keep their on-disk state: SQLite syncs them itself, and its WAL commit
 //!   protocol is not what these tests check.
 //! - Unix only, because directory fsync is the unix publication protocol.
@@ -512,7 +513,7 @@ pub(crate) fn dir_created(path: &Path) {
 #[cfg(unix)]
 pub(crate) fn file_created(path: &Path) {
     record(path, |ledger, path| {
-        ledger.volatile.push(Entry::CreatedFile(path))
+        ledger.volatile.push(Entry::CreatedFile(path));
     });
 }
 
@@ -606,56 +607,72 @@ impl Ledger {
                 .map_err(|_| io::Error::other("volatile entry outside the data directory"))
         };
         for entry in self.volatile.iter().rev() {
-            match entry {
-                Entry::Created(path) => {
-                    let path = relocate(path)?;
-                    if path.exists() {
-                        fs::remove_dir_all(path)?;
-                    }
+            self.undo(entry, &relocate)?;
+        }
+        Ok(())
+    }
+
+    /// Undoes one volatile entry in the snapshot, whose paths `relocate` maps.
+    fn undo(
+        &self,
+        entry: &Entry,
+        relocate: &impl Fn(&Path) -> io::Result<PathBuf>,
+    ) -> io::Result<()> {
+        match entry {
+            Entry::Created(path) => {
+                let path = relocate(path)?;
+                if path.exists() {
+                    fs::remove_dir_all(path)?;
                 }
-                Entry::CreatedFile(path) => {
-                    let path = relocate(path)?;
-                    if path.exists() {
-                        fs::remove_file(path)?;
-                    }
+            }
+            Entry::CreatedFile(path) => {
+                let path = relocate(path)?;
+                if path.exists() {
+                    fs::remove_file(path)?;
                 }
-                Entry::Unlinked { path, file } => {
-                    let path = relocate(path)?;
-                    if !path.exists() {
-                        let mut target = fs::OpenOptions::new()
-                            .create_new(true)
-                            .write(true)
-                            .open(path)?;
-                        let length = self
-                            .durable
-                            .get(&inode(&file.metadata()?))
-                            .copied()
-                            .unwrap_or(0);
-                        let mut buffer = [0; 65_536];
-                        let mut offset = 0;
-                        while offset < length {
-                            let count = crate::fsutil::read_at(
-                                file,
-                                &mut buffer[..(length - offset).min(65_536) as usize],
-                                offset,
-                            )?;
-                            if count == 0 {
-                                return Err(io::Error::other("short retained unlink snapshot"));
-                            }
-                            std::io::Write::write_all(&mut target, &buffer[..count])?;
-                            offset += count as u64;
-                        }
-                    }
+            }
+            Entry::Unlinked { path, file } => {
+                let path = relocate(path)?;
+                if !path.exists() {
+                    self.restore_unlinked(&path, file)?;
                 }
-                Entry::Renamed { from, to } => {
-                    let to = relocate(to)?;
-                    if to.exists() {
-                        fs::rename(to, relocate(from)?)?;
-                    }
+            }
+            Entry::Renamed { from, to } => {
+                let to = relocate(to)?;
+                if to.exists() {
+                    fs::rename(to, relocate(from)?)?;
                 }
             }
         }
         Ok(())
+    }
+
+    /// Writes back the durable bytes of an unlinked file from its retained descriptor.
+    fn restore_unlinked(&self, path: &Path, file: &fs::File) -> io::Result<()> {
+        let mut target = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(path)?;
+        let length = self
+            .durable
+            .get(&inode(&file.metadata()?))
+            .copied()
+            .unwrap_or(0);
+        let mut buffer = [0; 65_536];
+        let mut offset = 0;
+        while offset < length {
+            let count = crate::fsutil::read_at(
+                file,
+                &mut buffer[..(length - offset).min(65_536) as usize],
+                offset,
+            )?;
+            if count == 0 {
+                return Err(io::Error::other("short retained unlink snapshot"));
+            }
+            std::io::Write::write_all(&mut target, &buffer[..count])?;
+            offset += count as u64;
+        }
+        target.set_times(times(&file.metadata()?)?)
     }
 
     /// Cuts each copied file in `target` back to the durable length of its source.
@@ -677,8 +694,9 @@ impl Ledger {
                     }
                     fs::OpenOptions::new()
                         .write(true)
-                        .open(path)?
+                        .open(&path)?
                         .set_len(durable)?;
+                    keep_times(&path, &metadata)?;
                 }
             }
         }
@@ -734,8 +752,40 @@ fn copy_tree(source: &Path, target: &Path) -> io::Result<()> {
         if entry.file_type()?.is_dir() {
             copy_tree(&entry.path(), &path)?;
         } else {
-            fs::copy(entry.path(), path)?;
+            copy_with_times(&entry.path(), &path)?;
         }
     }
     Ok(())
+}
+
+/// Copies the file at `source` to `target` with its access and modification times. A snapshot
+/// stands for the same file, and a tracked fingerprint records the modification time, which a
+/// plain copy replaces on Linux; only the inode number and the change time differ.
+pub(crate) fn copy_with_times(source: &Path, target: &Path) -> io::Result<()> {
+    fs::copy(source, target)?;
+    keep_times(target, &fs::metadata(source)?)
+}
+
+/// Gives the file at `target` the access and modification times `source` records. The handle asks
+/// only for what setting them needs, so a read-only copy needs no write permission: reading on
+/// Unix, and the attribute-writing right on Windows, where a handle opened for reading is
+/// refused.
+fn keep_times(target: &Path, source: &fs::Metadata) -> io::Result<()> {
+    #[cfg(windows)]
+    let file = {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_WRITE_ATTRIBUTES;
+        fs::OpenOptions::new()
+            .access_mode(FILE_WRITE_ATTRIBUTES)
+            .open(target)?
+    };
+    #[cfg(not(windows))]
+    let file = fs::File::open(target)?;
+    file.set_times(times(source)?)
+}
+
+fn times(source: &fs::Metadata) -> io::Result<fs::FileTimes> {
+    Ok(fs::FileTimes::new()
+        .set_accessed(source.accessed()?)
+        .set_modified(source.modified()?))
 }
