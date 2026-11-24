@@ -44,7 +44,7 @@ JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書�
 カタログはSQLiteの一時領域をメモリに置きます。そのため、ルートが読み取り専用でも、
 データディレクトリをどこに置いても、SQLite用に書き込める一時ディレクトリは不要です。
 それでもリクエストが503 `disk I/O error`などのストレージ障害になる場合は、ログイベント
-`object_backend_failure`の`sqlite_extended_code`を確認してください。
+`object_backend_failure`と`upload_batch_retried`の`sqlite_extended_code`を確認してください。
 これはSQLiteの拡張結果コードで、番号の名前はSQLiteの
 [結果コード一覧](https://www.sqlite.org/rescode.html)で引けます。例えば`6410`は
 `SQLITE_IOERR_GETTEMPPATH`で、SQLiteが一時ファイルを置くディレクトリを見つけられなかったことを

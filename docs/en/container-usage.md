@@ -46,7 +46,7 @@ override the image environment.
 The catalog keeps SQLite's temporary storage in memory, so a read-only root needs
 no writable temporary directory for it, wherever the data directory is mounted.
 When a request still fails with a storage error such as 503 `disk I/O error`, the
-`object_backend_failure` log event carries
+`object_backend_failure` and `upload_batch_retried` log events carry
 `sqlite_extended_code`, SQLite's extended result code, and SQLite's
 [result code list](https://www.sqlite.org/rescode.html) names each number:
 `6410`, for instance, is `SQLITE_IOERR_GETTEMPPATH`, meaning SQLite found no

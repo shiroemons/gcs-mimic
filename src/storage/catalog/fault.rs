@@ -158,6 +158,11 @@ pub(crate) enum Fault {
     Corrupt,
     /// Fails the step with the error SQLite reports when another writer holds the lock.
     Busy,
+    /// Fails the step with an I/O error after rolling back the whole open transaction, as SQLite
+    /// may after an I/O, full-disk or out-of-memory error. Only a step reached through
+    /// [`hit_transaction`] has a transaction to roll back; any other step panics, so a test
+    /// that arms it in the wrong place cannot pass on a plain I/O error.
+    RollBack,
     /// Panics at the step, as a bug in the code there would.
     Panic,
     /// Copies the data directory to this path, as a process abort leaves it, and lets the
@@ -293,24 +298,50 @@ pub(crate) fn database_dir(connection: &rusqlite::Connection) -> PathBuf {
 /// Returns the armed failure unclassified, so each call site maps it with the same
 /// function as the real operation beside it and a test observes that site's mapping.
 pub(crate) fn hit(data_dir: &Path, step: Step) -> Result<(), Injected> {
-    let fired = {
-        let mut armed = armed();
-        if armed.is_empty() {
-            return Ok(());
-        }
-        let data_dir = key(data_dir);
-        let Some(index) = armed
-            .iter()
-            .position(|armed| armed.step == step && armed.data_dir == data_dir)
-        else {
-            return Ok(());
-        };
-        if armed[index].skip > 0 {
-            armed[index].skip -= 1;
-            return Ok(());
-        }
-        armed.remove(index)
+    take(data_dir, step).map_or(Ok(()), |fired| fire(fired, step))
+}
+
+/// [`hit`] at a step inside the open transaction of `connection`, where a [`Fault::RollBack`]
+/// rolls that transaction back before it fails the step.
+pub(crate) fn hit_transaction(
+    connection: &rusqlite::Connection,
+    step: Step,
+) -> Result<(), Injected> {
+    let Some(fired) = take(&database_dir(connection), step) else {
+        return Ok(());
     };
+    let Fault::RollBack = fired.fault else {
+        return fire(fired, step);
+    };
+    // A rollback that failed leaves the transaction open, and the test sees that instead.
+    connection
+        .execute_batch("ROLLBACK")
+        .map_err(Injected::Sqlite)?;
+    // A failed statement carries SQLite's message, which the log allowlist reads.
+    Err(Injected::Sqlite(rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_IOERR),
+        Some("disk I/O error".into()),
+    )))
+}
+
+/// Removes and returns the fault armed for this reach of `step`, counting down its skips.
+fn take(data_dir: &Path, step: Step) -> Option<Armed> {
+    let mut armed = armed();
+    if armed.is_empty() {
+        return None;
+    }
+    let data_dir = key(data_dir);
+    let index = armed
+        .iter()
+        .position(|armed| armed.step == step && armed.data_dir == data_dir)?;
+    if armed[index].skip > 0 {
+        armed[index].skip -= 1;
+        return None;
+    }
+    Some(armed.remove(index))
+}
+
+fn fire(fired: Armed, step: Step) -> Result<(), Injected> {
     match fired.fault {
         Fault::Block { entered, release } => {
             if let Some(entered) = entered
@@ -332,6 +363,7 @@ pub(crate) fn hit(data_dir: &Path, step: Step) -> Result<(), Injected> {
         ))),
         Fault::Corrupt => Err(Injected::Sqlite(sqlite(rusqlite::ffi::SQLITE_CORRUPT))),
         Fault::Busy => Err(Injected::Sqlite(sqlite(rusqlite::ffi::SQLITE_BUSY))),
+        Fault::RollBack => panic!("{step:?} holds no transaction to roll back"),
         Fault::Panic => panic!("injected {step:?} panic"),
         Fault::Snapshot(target) => {
             // A snapshot that cannot be taken must fail the test, not pass as a fault.
