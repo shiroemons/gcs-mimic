@@ -38,10 +38,11 @@ image_for() {
     0.25.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:552a118fa4440b15dff8599f9d36ec94fbd17afffb74f3dcbbf0ce03b4823c64 ;;
     0.26.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:a4f77830eb9972bb22c2e4b3fc6cabdc2816abfe3d7f8304f702329ea57ada87 ;;
     0.27.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:fead45b0097eb5b296232446676554b536445c7d0fc185a2b43d2be2b55ed101 ;;
+    0.28.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:278366f4eb123a96e32d0c61d4c3fb70df09cac024ca1aee49e69036e82cd251 ;;
     *) return 1 ;;
   esac
 }
-if [[ $# == 0 ]]; then set -- 0.8.0 0.9.0 0.10.0 0.11.0 0.12.0 0.13.0 0.14.0 0.15.0 0.16.0 0.17.0 0.17.1 0.18.0 0.19.0 0.19.1 0.20.0 0.20.1 0.21.0 0.22.0 0.23.0 0.24.0 0.25.0 0.26.0 0.27.0; fi
+if [[ $# == 0 ]]; then set -- 0.8.0 0.9.0 0.10.0 0.11.0 0.12.0 0.13.0 0.14.0 0.15.0 0.16.0 0.17.0 0.17.1 0.18.0 0.19.0 0.19.1 0.20.0 0.20.1 0.21.0 0.22.0 0.23.0 0.24.0 0.25.0 0.26.0 0.27.0 0.28.0; fi
 for version in "$@"; do
   bash "$(dirname "$0")/release-version.sh" "$version" >/dev/null
   if ! image_for "$version" >/dev/null; then echo "No pinned image for $version" >&2; exit 2; fi

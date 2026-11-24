@@ -22,7 +22,7 @@ use std::{
 const SUPPORTED_RELEASES: &[&str] = &[
     "0.8.0", "0.9.0", "0.10.0", "0.11.0", "0.12.0", "0.13.0", "0.14.0", "0.15.0", "0.16.0",
     "0.17.0", "0.17.1", "0.18.0", "0.19.0", "0.19.1", "0.20.0", "0.20.1", "0.21.0", "0.22.0",
-    "0.23.0", "0.24.0", "0.25.0", "0.26.0", "0.27.0",
+    "0.23.0", "0.24.0", "0.25.0", "0.26.0", "0.27.0", "0.28.0",
 ];
 
 /// Link fields embed the advertised base URL of whichever server answered.
@@ -150,10 +150,7 @@ fn check_release(release: &str) {
     let dir = TestDir::new();
     let data = dir.0.join("data");
     copy_tree(&fixture.join("data"), &data);
-    let epoch = reset_epoch(
-        &data,
-        "SELECT epoch FROM change_journal_state WHERE singleton = 1",
-    );
+    let epoch = reset_epoch(&data, released_epoch_query(release));
 
     // A second start proves the upgraded directory reopens, not just that it migrated once.
     for _ in 0..2 {
@@ -199,6 +196,26 @@ fn check_release(release: &str) {
     assert_synchronization_retired(release, &data, epoch);
 }
 
+const RESET_EPOCH_QUERY: &str = "SELECT epoch FROM reset_epoch WHERE singleton = 1";
+
+/// Where `release` recorded the reset epoch: releases before 0.28.0 kept it in the change
+/// journal's state row, and 0.28.0 retired the journal and keeps it in `reset_epoch`.
+fn released_epoch_query(release: &str) -> &'static str {
+    if version(release) < (0, 28, 0) {
+        "SELECT epoch FROM change_journal_state WHERE singleton = 1"
+    } else {
+        RESET_EPOCH_QUERY
+    }
+}
+
+fn version(release: &str) -> (u32, u32, u32) {
+    let mut parts = release
+        .split('.')
+        .map(|part| part.parse().unwrap_or_else(|_| panic!("{release}")));
+    let mut next = || parts.next().unwrap_or_else(|| panic!("{release}"));
+    (next(), next(), next())
+}
+
 /// The reset epoch that `query` reads from the catalog in `data`.
 fn reset_epoch(data: &Path, query: &str) -> i64 {
     rusqlite::Connection::open(data.join("catalog.sqlite3"))
@@ -208,9 +225,9 @@ fn reset_epoch(data: &Path, query: &str) -> i64 {
 }
 
 /// Every release up to 0.27.0 created the directory-synchronization tables and the change
-/// journal; the upgraded catalog holds none of them but keeps the `epoch` the journal's state
-/// row held, and the fixtures, which never synchronized a folder, leave no files for a manifest
-/// to list.
+/// journal; the upgraded catalog of every release holds none of them but keeps the `epoch` the
+/// release recorded, and the fixtures, which never synchronized a folder, leave no files for a
+/// manifest to list.
 fn assert_synchronization_retired(release: &str, data: &Path, epoch: i64) {
     let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
     let names = |query: &str| -> Vec<String> {
@@ -229,11 +246,7 @@ fn assert_synchronization_retired(release: &str, data: &Path, epoch: i64) {
         Vec::<String>::new(),
         "{release}"
     );
-    assert_eq!(
-        reset_epoch(data, "SELECT epoch FROM reset_epoch WHERE singleton = 1"),
-        epoch,
-        "{release}"
-    );
+    assert_eq!(reset_epoch(data, RESET_EPOCH_QUERY), epoch, "{release}");
     assert!(!data.join("sync-retired.json").exists(), "{release}");
 }
 
