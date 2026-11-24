@@ -3,7 +3,7 @@
 # context: docker build -f sdk-scorecard/cpp/Dockerfile sdk-scorecard
 # The official gcc image already carries the libcurl and OpenSSL development packages, so the
 # only OS package pinned here is socat; every library is a checksum-verified source archive.
-FROM gcc:16.2.0-trixie@sha256:5c2f83335c97e233c80d2bc754bd5c46b2d9c32f236a765a4ac40a59f216c064
+FROM gcc:16.2.0-trixie@sha256:e39cfa939c18b4dcb1bcf77cdae11a2d8b2dcfbee0eb531c24694334047509f8
 ARG TARGETARCH
 # GCC 16 defaults to C++20; the SDK documents and tests C++17.
 ARG CXX_STD=17

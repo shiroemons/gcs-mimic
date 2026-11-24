@@ -247,7 +247,7 @@
       {
         "repository": "library/node", "reference": "node:24.22.3-trixie-slim", "release_input": false,
         "tag": "24.22.3-trixie-slim", "latest_tag": "24-trixie-slim",
-        "digest": "sha256:e50d187fecf517dca835935aa69788d79a2e737b8801c616c6da87423896ddc5",
+        "digest": "sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4",
         "platforms": {
           "linux/amd64": "sha256:6709bf854652e2d21610e952df82ff9c0b98cc7315acdce75236bbb66bd8aa06",
           "linux/arm64": "sha256:629460a37a6998cb0c884021fee010c4af081115a2af984c85a09cd9e3de572e"
@@ -275,8 +275,8 @@
         "tag": "1.100.0-slim-trixie", "latest_tag": "slim-trixie", "stable_codename": "trixie",
         "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
         "stable_codename_note": "The scratch runtime has no Debian base, so this build image carries the Debian stable codename check: a newer stable generation is detected even though the slim-trixie alias stays on Debian 13.",
-        "digest": "sha256:86993c97389ebb5487eb09e88168e2a00b0de29aa08dff9ae896049b9be96ed9",
-        "latest_verified_digest": "sha256:86993c97389ebb5487eb09e88168e2a00b0de29aa08dff9ae896049b9be96ed9",
+        "digest": "sha256:3b199fd6db7d709274df56565b8f4003f9e30d7bfcff9d53148c86053b7855e2",
+        "latest_verified_digest": "sha256:3b199fd6db7d709274df56565b8f4003f9e30d7bfcff9d53148c86053b7855e2",
         "verification_status": "ADOPTED",
         "update_scope": "Registry inspection on 2026-11-24 found the 1.100.0-slim-trixie index rebuilt on Debian 13.8: its new linux/amd64 and linux/arm64 images, created at 05:04Z and 05:19Z, still carry Rust 1.100.0 and record the Debian snapshot 20261123T000000Z, so the musl, socat and chromium snapshot timestamps advance to it. That snapshot keeps musl 1.2.5-3.1~deb13u1 and socat 1.8.0.3-1+deb13u1, and its trixie suite carries chromium 156.0.8078.79-1~deb13u1, which the browser check adopts. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-24-after-0280. Earlier: registry inspection on 2026-11-18 found the 1.100.0-slim-trixie index rebuilt to add a linux/riscv64 image and its attestation; the linux/amd64 and linux/arm64 platform digests below and every other platform manifest are unchanged, so the musl and socat snapshot timestamps stay the same. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-18-before-0260. Earlier: registry inspection on 2026-11-13 found rust:1.100.0-slim-trixie, whose linux/amd64 and linux/arm64 images are also those of slim-trixie, and both report rustc 1.100.0 (0ef1bc386 2026-11-09). Both platform images still record the Debian snapshot 20261104T212339Z, so the musl and socat pins are unchanged. Rust 1.100.0 builds its musl targets with musl 1.2.5, as 1.99.1 did, so the bundled musl notice and source archive stay the same. See docs/en/evidence/dependency-refresh.md#rust-11000. Earlier: registry inspection on 2026-11-06 found the 1.99.1-slim-trixie and slim-trixie index rebuilt with new linux/amd64 and linux/arm64 platform digests (images created 2026-11-05). Rust stays 1.99.1; both platform images record the Debian snapshot 20261104T212339Z, so the musl and socat snapshot timestamps advance to it while the package versions stay the same. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-06. Earlier: registry inspection on 2026-11-05 found the 1.99.1-slim-trixie and slim-trixie index rebuilt again with only the linux/riscv64 image and its attestation changed; the linux/amd64 and linux/arm64 platform digests below are unchanged, so the musl and socat snapshot timestamps stay the same. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-05. Earlier: registry inspection on 2026-11-04 found a rebuilt index for both 1.99.1-slim-trixie and slim-trixie (created 2026-11-03, docker-rust revision f6c59bee4a6e34a154c2122895ecd7833507f705) with new linux/amd64 and linux/arm64 platform digests. Rust stays 1.99.1 and both platform images still record the Debian snapshot 20261027T000000Z, so the socat snapshot timestamp is unchanged. The Foundation checks container jobs build and smoke-test both platforms from this digest.",
         "platforms": {
@@ -300,10 +300,10 @@
       {
         "repository": "library/gcc", "reference": "gcc:16.2.0-trixie", "release_input": false,
         "tag": "16.2.0-trixie", "latest_tag": "trixie",
-        "digest": "sha256:5c2f83335c97e233c80d2bc754bd5c46b2d9c32f236a765a4ac40a59f216c064",
+        "digest": "sha256:e39cfa939c18b4dcb1bcf77cdae11a2d8b2dcfbee0eb531c24694334047509f8",
         "platforms": {
-          "linux/amd64": "sha256:531d94a9eb84cb69df20050ddde80d308bf8650c83f4cb0accf4ef39bb543ed4",
-          "linux/arm64": "sha256:7f965c5da19c3e91a5a534f85919ea9ed2af4f0383445f75973ec3980efea563"
+          "linux/amd64": "sha256:9af0ba1a5281cac2a79aa718b6d21af8670322cf4378198ee306efd5acc1955f",
+          "linux/arm64": "sha256:637f514ad9995c33a0901e2bfb842e6071fb201ab6070b32fc730b4f677db661"
         },
         "source_url": "https://github.com/docker-library/gcc",
         "purpose": "Development-only build and run image of the official C++ SDK scorecard probe in sdk-scorecard/cpp/Dockerfile, whose source-archive pins are a separate sdk_ecosystems entry; its libcurl and OpenSSL development packages satisfy the SDK, so socat is the only apt package installed on top. Not shipped in the runtime image.",

@@ -73,7 +73,7 @@ export GCSM_IMAGE=${GCSM_IMAGE:-gcs-mimic:local}
 export GCSM_PORT=0
 # Below the Linux ephemeral range, which Docker uses for the published port.
 export FRONTEND_PORT=${FRONTEND_PORT:-$((20000 + RANDOM % 12000))}
-browser_image=node:24.22.3-trixie-slim@sha256:e50d187fecf517dca835935aa69788d79a2e737b8801c616c6da87423896ddc5
+browser_image=node:24.22.3-trixie-slim@sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4
 peer_image=curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
 project=gcs-mimic-strict-browser-$$
 container=$project-browser

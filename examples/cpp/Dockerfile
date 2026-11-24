@@ -2,7 +2,7 @@
 # Builds the C++ example with the official Cloud Storage SDK. The SDK has no binary package, so
 # it is built here from checksum-verified source archives, with the versions and steps of
 # sdk-scorecard/cpp/Dockerfile; identical steps share Docker's build cache with the scorecard.
-FROM gcc:16.2.0-trixie@sha256:5c2f83335c97e233c80d2bc754bd5c46b2d9c32f236a765a4ac40a59f216c064
+FROM gcc:16.2.0-trixie@sha256:e39cfa939c18b4dcb1bcf77cdae11a2d8b2dcfbee0eb531c24694334047509f8
 ARG TARGETARCH
 # GCC 16 defaults to C++20; the SDK documents and tests C++17.
 ARG CXX_STD=17

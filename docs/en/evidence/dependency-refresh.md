@@ -1521,3 +1521,13 @@ The `node:24-trixie-slim` rebuild arrived in two steps. At the 08:03Z check its 
 | `markdownlint-cli2` on the changed Markdown files | 0 issues in 11 files |
 
 All four freshness checks ran with `GITHUB_TOKEN` set.
+
+## Image digest refresh: 2026-11-24T13:50:04Z
+
+`cargo xtask dependencies update-images` found these images rebuilt under an unchanged version tag. The checks of the pull request that adopts them are the validation; this record does not establish a result by itself.
+
+| Input | Previous | Proposed | Changed manifests |
+| --- | --- | --- | --- |
+| node:24.22.3-trixie-slim | `sha256:e50d187fecf517dca835935aa69788d79a2e737b8801c616c6da87423896ddc5` | `sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4` | None on the declared platforms |
+| rust:1.100.0-slim-trixie | `sha256:86993c97389ebb5487eb09e88168e2a00b0de29aa08dff9ae896049b9be96ed9` | `sha256:3b199fd6db7d709274df56565b8f4003f9e30d7bfcff9d53148c86053b7855e2` | None on the declared platforms |
+| gcc:16.2.0-trixie | `sha256:5c2f83335c97e233c80d2bc754bd5c46b2d9c32f236a765a4ac40a59f216c064` | `sha256:e39cfa939c18b4dcb1bcf77cdae11a2d8b2dcfbee0eb531c24694334047509f8` | linux/amd64, linux/arm64 |
