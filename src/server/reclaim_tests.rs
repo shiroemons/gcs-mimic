@@ -147,7 +147,8 @@ fn closing_response(connection: &'static str) -> Response<ResponseBody> {
 /// A connection waits in the idle line only after a response that keeps it open: hyper closes
 /// it after a response that says `connection: close`, such as a timeout reply, and drops a
 /// request without a response only as the connection ends. A closing connection in line would
-/// take a waiting client's wake from one that is idle.
+/// take a waiting client's wake from one that is idle, so its end also gives up a place that an
+/// earlier request's end took, and its watch does not put it back in line.
 #[test]
 fn only_a_response_that_keeps_the_connection_open_takes_a_place_in_line() {
     let timeout_reply = DeadlineReply {
@@ -155,32 +156,45 @@ fn only_a_response_that_keeps_the_connection_open_takes_a_place_in_line() {
         payload: Payload::Other,
     }
     .response(Expiry::Request);
-    for (case, response, kept_open) in [
+    for (case, response, after) in [
         (
             "an answered request",
             Some(boxed(Response::new(Full::new(Bytes::new())))),
-            true,
+            AfterResponse::KeepAlive,
         ),
-        ("a timeout reply", Some(timeout_reply), false),
+        (
+            "a timeout reply",
+            Some(timeout_reply),
+            AfterResponse::Closes,
+        ),
         (
             "close among other tokens",
             Some(closing_response("keep-alive, Close")),
-            false,
+            AfterResponse::Closes,
         ),
-        ("a request dropped before its response", None, false),
+        (
+            "a request dropped before its response",
+            None,
+            AfterResponse::Closes,
+        ),
     ] {
         let slots = Arc::<SlotReclaim>::default();
         let place = Arc::new(IdlePlace::new(Arc::clone(&slots)));
+        // The end of an earlier request on the connection, which its watch has yet to see.
+        place.join();
         let (activity, progress) = watch::channel(ObjectActivity::default());
         let finished = RequestFinished::new(activity, Arc::default(), Arc::clone(&place));
         match response {
             Some(response) => drop(finished.attach(response)),
             None => drop(finished),
         }
-        assert_eq!(progress.borrow().stage, RequestStage::Finished, "{case}");
+        let stage = progress.borrow().stage;
+        assert_eq!(stage, RequestStage::Finished(after), "{case}");
+        let (_phase, _) =
+            ConnectionPhase::after_request(after, &place, TimeLimit::from_millis(600_000));
         let mut later = slots.join_line();
         let _request = slots.request();
-        assert_eq!(woken(&mut later), !kept_open, "{case}");
+        assert_eq!(woken(&mut later), after == AfterResponse::Closes, "{case}");
     }
 }
 

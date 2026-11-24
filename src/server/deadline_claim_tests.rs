@@ -92,7 +92,7 @@ async fn ending_a_wait_leaves_later_stages_alone() {
     for stage in [
         RequestStage::Expired(Expiry::BodyInactivity),
         RequestStage::Responded,
-        RequestStage::Finished,
+        RequestStage::Finished(AfterResponse::KeepAlive),
     ] {
         activity.send_modify(|progress| progress.stage = stage);
         record_progress(&activity);
@@ -116,7 +116,7 @@ fn a_started_response_refuses_a_timeout_reply() {
 #[test]
 fn a_finished_request_refuses_an_expiry() {
     let (activity, _progress) = watch::channel(ObjectActivity {
-        stage: RequestStage::Finished,
+        stage: RequestStage::Finished(AfterResponse::KeepAlive),
         ..ObjectActivity::default()
     });
     assert_eq!(

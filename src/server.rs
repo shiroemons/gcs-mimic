@@ -385,9 +385,10 @@ enum AfterResponse {
 }
 
 impl AfterResponse {
-    /// Reads the response's `Connection` header as hyper does when it decides to close: a
-    /// `close` token in any of its fields. A timeout reply and an early rejection of a request
-    /// body announce the close there.
+    /// Reads the close that the response itself announces, as hyper reads it: a `close` token in
+    /// any `Connection` field. A timeout reply and an early rejection of a request body announce
+    /// the close there. hyper also closes for reasons on the request side, such as a request that
+    /// asks to close; such a connection stays in line only until hyper finishes the close.
     fn declared_by(headers: &hyper::HeaderMap) -> Self {
         let closes = headers
             .get_all(hyper::header::CONNECTION)
@@ -595,14 +596,15 @@ impl Drop for RequestFinished {
     fn drop(&mut self) {
         // Bytes read after this point begin the next request head.
         self.reads.mark_idle();
-        // A connection that closes never turns idle, so its end takes no place in line. The place
-        // is taken before the watch can see the end, so it never joins the line a second time.
+        // A connection that closes never turns idle, so its end takes no place in line and gives
+        // up one that an earlier request's end took. The place is taken before the watch can see
+        // the end, so it never joins the line a second time.
         match self.after {
             AfterResponse::KeepAlive => self.place.join(),
-            AfterResponse::Closes => {}
+            AfterResponse::Closes => self.place.clear(),
         }
         self.activity.send_replace(ObjectActivity {
-            stage: RequestStage::Finished,
+            stage: RequestStage::Finished(self.after),
             ..ObjectActivity::default()
         });
     }
@@ -624,8 +626,9 @@ enum RequestStage {
     /// The handler returned, so hyper may have sent the response head and no timeout reply can
     /// follow.
     Responded,
-    /// Hyper dropped the response body, after its last byte or a connection failure.
-    Finished,
+    /// Hyper dropped the response body, after its last byte or a connection failure, and whether
+    /// the connection stays open for another request.
+    Finished(AfterResponse),
 }
 
 /// Whether the handler is waiting for request body bytes that the client has yet to send. A body
@@ -694,9 +697,9 @@ impl ObjectActivity {
                 BodyRead::Pending => RequestStep::ClientPaced,
                 BodyRead::NotPending => RequestStep::ServerPaced,
             },
-            RequestStage::AwaitingCatalog | RequestStage::Expired(_) | RequestStage::Finished => {
-                RequestStep::ServerPaced
-            }
+            RequestStage::AwaitingCatalog
+            | RequestStage::Expired(_)
+            | RequestStage::Finished(_) => RequestStep::ServerPaced,
         }
     }
 
@@ -721,7 +724,7 @@ impl ObjectActivity {
             RequestStage::Running
             | RequestStage::AwaitingCatalog
             | RequestStage::Responded
-            | RequestStage::Finished => RequestStage::Running,
+            | RequestStage::Finished(_) => RequestStage::Running,
         };
         *self = Self {
             stage,
@@ -749,7 +752,9 @@ fn claim_expiry(activity: &watch::Sender<ObjectActivity>, expiry: Expiry) -> Exp
             claim = ExpiryClaim::Granted;
             true
         }
-        RequestStage::AwaitingCatalog | RequestStage::Expired(_) | RequestStage::Finished => false,
+        RequestStage::AwaitingCatalog | RequestStage::Expired(_) | RequestStage::Finished(_) => {
+            false
+        }
         RequestStage::Responded => {
             claim = ExpiryClaim::ResponseStarted;
             false
@@ -772,7 +777,7 @@ async fn expiry_claimed(activity: &watch::Sender<ObjectActivity>) -> Expiry {
             RequestStage::Running
             | RequestStage::AwaitingCatalog
             | RequestStage::Responded
-            | RequestStage::Finished => None,
+            | RequestStage::Finished(_) => None,
         });
     match claimed {
         Some(expiry) => expiry,
@@ -880,7 +885,7 @@ async fn claim_catalog_wait(activity: &watch::Sender<ObjectActivity>) {
             false
         }
         // No handler is running in these stages, so there is nothing to pause.
-        RequestStage::Responded | RequestStage::Finished => false,
+        RequestStage::Responded | RequestStage::Finished(_) => false,
     });
     if expired {
         // The connection already answers with a timeout. Detached catalog work started
@@ -1681,17 +1686,36 @@ enum ConnectionPhase {
     NextHead,
     /// A request's handler, or its bodies.
     Request,
-    /// The write of a timeout reply, bounded by `CLOSE_BUDGET` because the client may not read.
-    TimeoutReply,
+    /// The write of a reply after which hyper closes the connection, such as a timeout reply,
+    /// bounded by `CLOSE_BUDGET` because the client may not read.
+    ClosingReply,
 }
 
 impl ConnectionPhase {
+    /// The phase a connection enters when its request ends, and when that phase expires. Only a
+    /// connection that stays open turns idle: one that closes waits for its reply to be written
+    /// outside the idle line, so a waiting client's wake cannot reach it and close it before the
+    /// lingering close, and the rest of a rejected body cannot pass for a next request head.
+    fn after_request(
+        end: AfterResponse,
+        place: &IdlePlace,
+        keep_alive: TimeLimit,
+    ) -> (Self, tokio::time::Instant) {
+        match end {
+            AfterResponse::KeepAlive => (Self::Idle { turn: place.take() }, keep_alive.deadline()),
+            AfterResponse::Closes => (
+                Self::ClosingReply,
+                tokio::time::Instant::now() + CLOSE_BUDGET,
+            ),
+        }
+    }
+
     /// Resolves when an idle connection reaches the front of the idle line, and never in other
     /// phases.
     async fn idle_turn(&mut self) {
         match self {
             Self::Idle { turn } => turn.reached().await,
-            Self::FirstHead | Self::NextHead | Self::Request | Self::TimeoutReply => {
+            Self::FirstHead | Self::NextHead | Self::Request | Self::ClosingReply => {
                 std::future::pending().await
             }
         }
@@ -1753,7 +1777,7 @@ impl ConnectionWatch {
         loop {
             tokio::select! {
                 biased;
-                Ok(()) = progress.changed(), if !matches!(phase, ConnectionPhase::TimeoutReply) => {
+                Ok(()) = progress.changed(), if !matches!(phase, ConnectionPhase::ClosingReply) => {
                     let next = *progress.borrow_and_update();
                     if next.deadline != current.deadline && let Some(at) = next.deadline {
                         object_deadline.as_mut().reset(at);
@@ -1769,9 +1793,10 @@ impl ConnectionWatch {
                         }
                         // A whole request can run within one poll, so this phase can already be
                         // `Idle` and this is still a new idle period, in the place its end took.
-                        RequestStage::Finished => {
-                            phase = ConnectionPhase::Idle { turn: place.take() };
-                            deadline.as_mut().reset(limits.keep_alive.deadline());
+                        RequestStage::Finished(end) => {
+                            let (next, expires) = ConnectionPhase::after_request(end, &place, limits.keep_alive);
+                            phase = next;
+                            deadline.as_mut().reset(expires);
                         }
                     }
                 },
@@ -1786,7 +1811,7 @@ impl ConnectionWatch {
                         ExpiryClaim::Granted => {
                             crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
                             deadline.as_mut().reset(tokio::time::Instant::now() + CLOSE_BUDGET);
-                            phase = ConnectionPhase::TimeoutReply;
+                            phase = ConnectionPhase::ClosingReply;
                         }
                         // A catalog wait that started after this branch was chosen pauses the deadline.
                         ExpiryClaim::Refused => {}
@@ -1800,7 +1825,7 @@ impl ConnectionWatch {
                 }
                 _ = &mut deadline, if current.stage != RequestStage::AwaitingCatalog && current.response_work == ResponseWork::Idle => {
                     match &phase {
-                        ConnectionPhase::TimeoutReply => break UnreadInput::MayRemain,
+                        ConnectionPhase::ClosingReply => break UnreadInput::MayRemain,
                         // The connection polled just above can have moved the request on, which
                         // decides first and renews this deadline.
                         _ if matches!(progress.has_changed(), Ok(true)) => {}
@@ -1815,7 +1840,7 @@ impl ConnectionWatch {
                             ExpiryClaim::Granted => {
                                 warn_connection_timeout(current.step().timeout_message());
                                 deadline.as_mut().reset(tokio::time::Instant::now() + CLOSE_BUDGET);
-                                phase = ConnectionPhase::TimeoutReply;
+                                phase = ConnectionPhase::ClosingReply;
                             }
                             ExpiryClaim::Refused => {}
                             ExpiryClaim::ResponseStarted => {
