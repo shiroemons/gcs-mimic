@@ -1,6 +1,6 @@
 # Use the Docker image
 
-The image `ghcr.io/shiroemons/gcs-mimic:0.27.0` is published for `linux/amd64` and `linux/arm64`; pulling it needs no registry login. Docker Hub serves the same image digest as `shiroemons/gcs-mimic:0.27.0`, so either name works in the commands below. Pin this exact version in CI. To test unreleased source instead, build a local image from a checkout and use its tag in the commands below:
+The image `ghcr.io/shiroemons/gcs-mimic:0.28.0` is published for `linux/amd64` and `linux/arm64`; pulling it needs no registry login. Docker Hub serves the same image digest as `shiroemons/gcs-mimic:0.28.0`, so either name works in the commands below. Pin this exact version in CI. To test unreleased source instead, build a local image from a checkout and use its tag in the commands below:
 
 ```sh
 docker build -t gcs-mimic:local .
@@ -10,7 +10,7 @@ The [Compose migration walkthrough](fake-gcs-server-migration.md#replace-a-fake-
 replaces a fake-gcs-server service with the published image and initializes
 empty buckets. It covers UX-012, DESIGN-061 and UX-001.
 
-The [README quick start](../../README.md#quick-start) is the shortest start: one `docker run` serves plain HTTP and, on the same port, HTTPS with a built-in development certificate. Add `--scheme https` after the image name to refuse plain HTTP. List every option with `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.27.0 --help`.
+The [README quick start](../../README.md#quick-start) is the shortest start: one `docker run` serves plain HTTP and, on the same port, HTTPS with a built-in development certificate. Add `--scheme https` after the image name to refuse plain HTTP. List every option with `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.28.0 --help`.
 
 ## Docker run
 
@@ -18,7 +18,7 @@ The [README quick start](../../README.md#quick-start) is the shortest start: one
 docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
-  ghcr.io/shiroemons/gcs-mimic:0.27.0
+  ghcr.io/shiroemons/gcs-mimic:0.28.0
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -153,7 +153,7 @@ Mount it read-only at `/data`:
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.27.0
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.28.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -278,7 +278,7 @@ source directory.
 `GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_SIGNED_URLS` need 0.14.0 or later. Up
 to 0.13.0, `GCS_MIMIC_CORS_FALLBACK` defaults to `none` in both modes. Releases
 up to 0.11.0 return one fixed address in links, so with them set
-`GCS_MIMIC_API_BASE_URL` too. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.27.0 --help`
+`GCS_MIMIC_API_BASE_URL` too. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.28.0 --help`
 lists every option.
 
 ## Configure the server and buckets

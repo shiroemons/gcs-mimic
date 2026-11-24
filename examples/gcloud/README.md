@@ -6,7 +6,7 @@ Creates a bucket, uploads (a file, stdin, a resumable upload, a parallel composi
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.27.0
+  ghcr.io/shiroemons/gcs-mimic:0.28.0
 ```
 
 ## Run
