@@ -211,34 +211,24 @@ async fn the_same_part_number_waits_and_the_last_to_finish_wins() {
     catalog.close().await.unwrap();
 }
 
-#[derive(Clone, Copy)]
-enum WholeRequest {
-    Complete,
-    Abort,
+/// Completes an upload in a task of its own, as a request that waits for its lease does.
+fn spawn_completion(
+    catalog: &Catalog,
+    target: &Target,
+    etag: String,
+) -> JoinHandle<Result<ObjectRecord, Error>> {
+    let (catalog, target) = (catalog.clone(), target.clone());
+    tokio::spawn(async move { complete(&catalog, &target, &etag).await })
 }
 
-impl WholeRequest {
-    async fn run(self, catalog: Catalog, target: Target, etag: String) -> Result<(), Error> {
-        match self {
-            Self::Complete => complete(&catalog, &target, &etag).await.map(|_| ()),
-            Self::Abort => {
-                let lease = catalog
-                    .lease_xml_multipart(target, BucketAccess::Permissive)
-                    .await?;
-                catalog.abort_xml_multipart(lease).await
-            }
-        }
-    }
-}
-
-/// A later part must not overtake the waiting request, or steady part traffic could postpone it
-/// past its budget. The later part ends with `NoSuchUpload` only if the request went first.
-async fn whole_request_waits_for_the_part_in_flight(request: WholeRequest) -> (TestDir, Catalog) {
+/// A later part must not overtake the waiting completion, or steady part traffic could postpone
+/// it past its budget. The later part ends with `NoSuchUpload` only if the completion went first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it() {
     let (dir, catalog) = patient(Arc::new(SystemClock)).await;
     let target = begin(&catalog).await;
     let open = OpenPart::start(&catalog, &target, 1, &b"in flight "[..]).await;
-    let whole =
-        tokio::spawn(request.run(catalog.clone(), target.clone(), etag_of(b"in flight body")));
+    let whole = spawn_completion(&catalog, &target, etag_of(b"in flight body"));
     eventually_async("the request to take its place in line", || async {
         catalog.multipart_whole_waiters(&target.id) == 1
     })
@@ -272,32 +262,54 @@ async fn whole_request_waits_for_the_part_in_flight(request: WholeRequest) -> (T
         Err(Error::NoSuchUpload)
     ));
     assert!(!catalog.has_session_writers());
-    (dir, catalog)
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it() {
-    let (dir, catalog) = whole_request_waits_for_the_part_in_flight(WholeRequest::Complete).await;
     assert_eq!(bytes(&catalog).await, b"in flight body");
     assert_eq!(staged_files(&dir.0), 0);
     catalog.close().await.unwrap();
 }
 
+/// Cloud Storage fails the parts in flight of an aborted upload rather than making the abort
+/// wait for them. The patient budget outlasts `HANG_GUARD`, so an abort that waited for the
+/// stalled body would fail the guard here.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_abort_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it() {
-    let (dir, catalog) = whole_request_waits_for_the_part_in_flight(WholeRequest::Abort).await;
+async fn an_abort_answers_while_a_part_is_in_flight_and_the_part_then_fails() {
+    let (dir, catalog) = patient(Arc::new(SystemClock)).await;
+    let target = begin(&catalog).await;
+    put(&catalog, &target, 2, b"stored").await.unwrap();
+    let open = OpenPart::start(&catalog, &target, 1, &b"in flight "[..]).await;
+
+    let lease = tokio::time::timeout(
+        HANG_GUARD,
+        catalog.lease_xml_abort(target.clone(), BucketAccess::Permissive),
+    )
+    .await
+    .expect("the part in flight must not hold the abort back")
+    .unwrap();
+    catalog.abort_xml_multipart(lease).await.unwrap();
+    assert!(!open.request.is_finished());
+    assert!(matches!(
+        catalog
+            .list_xml_parts(target.clone(), BucketAccess::Permissive, 0, 1000)
+            .await,
+        Err(Error::NoSuchUpload)
+    ));
+    let late = put(&catalog, &target, 3, b"late").await;
+    assert!(matches!(late, Err(Error::NoSuchUpload)), "{late:?}");
+
+    // The body ends after the abort: its commit finds the upload gone and reclaims the bytes.
+    let failed = open.finish(&b"body"[..]).await;
+    assert!(matches!(failed, Err(Error::NoSuchUpload)), "{failed:?}");
     assert_eq!(deletion_count(&catalog).await, 0);
     assert_eq!(staged_files(&dir.0), 0);
+    assert!(!catalog.has_session_writers());
     catalog.close().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_cancelled_whole_request_lets_the_parts_it_held_back_continue() {
+async fn a_cancelled_completion_lets_the_parts_it_held_back_continue() {
     let (_dir, catalog) = patient(Arc::new(SystemClock)).await;
     let target = begin(&catalog).await;
     let open = OpenPart::start(&catalog, &target, 1, &b"stalled "[..]).await;
-    let waiting =
-        tokio::spawn(WholeRequest::Abort.run(catalog.clone(), target.clone(), String::new()));
+    let waiting = spawn_completion(&catalog, &target, String::new());
     eventually_async("the request to take its place in line", || async {
         catalog.multipart_whole_waiters(&target.id) == 1
     })
@@ -328,6 +340,7 @@ async fn a_cancelled_whole_request_lets_the_parts_it_held_back_continue() {
 enum Claim {
     Part(u16),
     Whole,
+    Abort,
 }
 
 impl Claim {
@@ -341,12 +354,17 @@ impl Claim {
                 .lease_xml_multipart(target, BucketAccess::Permissive)
                 .await
                 .map(|lease| Box::new(lease) as Box<dyn Any + Send>),
+            Self::Abort => catalog
+                .lease_xml_abort(target, BucketAccess::Permissive)
+                .await
+                .map(|lease| Box::new(lease) as Box<dyn Any + Send>),
         }
     }
 }
 
 /// A conflicting request waits for the holder and takes over; one that outlasts its budget fails
-/// retryably, and a whole-upload request gives up its place in line when it does.
+/// retryably, and a whole-upload request gives up its place in line when it does. A part in
+/// flight is the one holder an abort does not wait for.
 #[tokio::test]
 async fn a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget() {
     for (holder, contender) in [
@@ -354,6 +372,10 @@ async fn a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget
         (Claim::Part(1), Claim::Whole),
         (Claim::Whole, Claim::Part(1)),
         (Claim::Whole, Claim::Whole),
+        (Claim::Whole, Claim::Abort),
+        (Claim::Abort, Claim::Whole),
+        (Claim::Abort, Claim::Abort),
+        (Claim::Abort, Claim::Part(1)),
     ] {
         for (budget, expected_busy) in [(60_000, false), (20, true)] {
             let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
@@ -407,6 +429,15 @@ async fn parts_of_different_numbers_and_uploads_do_not_exclude_each_other() {
         Claim::Part(1).lease(catalog.clone(), other).await,
         Err(Error::Busy)
     ));
+    // This catalog fails a wait at once, so the abort lease shows that parts in flight do not
+    // hold an abort back, and that they keep their numbers once it ends.
+    drop(
+        Claim::Abort
+            .lease(catalog.clone(), target.clone())
+            .await
+            .unwrap(),
+    );
+    assert_eq!(catalog.multipart_parts_writing(&target.id), 2);
     // One part leaving is not enough for the whole upload.
     drop(first);
     assert!(matches!(

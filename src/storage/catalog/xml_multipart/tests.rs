@@ -229,7 +229,7 @@ async fn cancelled_abort_reclaims_every_batch_without_another_request() {
         },
     );
     let lease = catalog
-        .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+        .lease_xml_abort(target.clone(), BucketAccess::Permissive)
         .await
         .unwrap();
     let worker = catalog.clone();
@@ -296,7 +296,7 @@ async fn multipart_reclamation_leaves_catalog_available_and_syncs_the_batch_once
         },
     );
     let lease = catalog
-        .lease_xml_multipart(target, BucketAccess::Permissive)
+        .lease_xml_abort(target, BucketAccess::Permissive)
         .await
         .unwrap();
     let worker = catalog.clone();
@@ -321,7 +321,7 @@ async fn multipart_reclamation_leaves_catalog_available_and_syncs_the_batch_once
     let target = begin(&catalog).await;
     put(&catalog, &target, 1, b"next").await.unwrap();
     let lease = catalog
-        .lease_xml_multipart(target, BucketAccess::Permissive)
+        .lease_xml_abort(target, BucketAccess::Permissive)
         .await
         .unwrap();
     catalog.abort_xml_multipart(lease).await.unwrap();
@@ -387,7 +387,7 @@ async fn part_eof_lease_serialization_and_reset_busy_preserve_state() {
         .parts;
     assert_eq!(parts[0].etag, original.etag);
     let lease = catalog
-        .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+        .lease_xml_abort(target.clone(), BucketAccess::Permissive)
         .await
         .unwrap();
     catalog.abort_xml_multipart(lease).await.unwrap();
@@ -455,7 +455,7 @@ async fn abort_commits_before_deferred_cleanup_and_recovery_retries_its_journal(
         put(&catalog, &target, 1, b"retired").await.unwrap();
         catalog.inject(step, 0, Fault::Io(io::ErrorKind::PermissionDenied));
         let lease = catalog
-            .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+            .lease_xml_abort(target.clone(), BucketAccess::Permissive)
             .await
             .unwrap();
         catalog.abort_xml_multipart(lease).await.unwrap();
@@ -501,7 +501,7 @@ async fn abort_commit_and_reclaim_crash_snapshots_never_resurrect_retired_parts(
                 },
             );
             let lease = catalog
-                .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+                .lease_xml_abort(target.clone(), BucketAccess::Permissive)
                 .await
                 .unwrap();
             catalog.abort_xml_multipart(lease).await.unwrap();

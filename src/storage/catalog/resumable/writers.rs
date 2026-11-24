@@ -15,6 +15,10 @@ pub(in crate::storage::catalog) enum WriterKey {
     Resumable(super::SessionId),
     /// A whole XML multipart upload, exclusive of every part of it.
     Multipart(String),
+    /// A client abort of an XML multipart upload. It excludes the whole-upload holders and new
+    /// parts, but not the parts already writing: Cloud Storage fails parts in flight when their
+    /// upload is aborted, and here they fail at their commit, which finds the upload gone.
+    MultipartAbort(String),
     /// One part of an XML multipart upload, exclusive of its own number and the whole upload.
     MultipartPart(String, u16),
     Rewrite(BlobId),
@@ -71,8 +75,12 @@ enum UploadHolders {
     /// Bodies of these part numbers are streaming. Each number has its own row and staging file,
     /// so different numbers write side by side, as Cloud Storage lets clients do.
     Parts(HashSet<u16>),
-    /// Completion and abort read or retire every part, so they need the upload to themselves.
+    /// Completion, and retirement by maintenance, lifecycle or a bucket purge, read or retire
+    /// every part, so they need the upload to themselves.
     Whole,
+    /// A client abort retires the upload while the bodies of these part numbers keep streaming.
+    /// Each fails at its commit, which rechecks the upload in the same transaction.
+    Aborting(HashSet<u16>),
 }
 
 impl Default for UploadHolders {
@@ -93,7 +101,7 @@ impl UploadWriters {
     fn claim_part(&mut self, number: u16) -> bool {
         match &mut self.holders {
             UploadHolders::Parts(writing) if self.whole_waiting == 0 => writing.insert(number),
-            UploadHolders::Parts(_) | UploadHolders::Whole => false,
+            UploadHolders::Parts(_) | UploadHolders::Whole | UploadHolders::Aborting(_) => false,
         }
     }
 
@@ -103,7 +111,34 @@ impl UploadWriters {
                 self.holders = UploadHolders::Whole;
                 true
             }
-            UploadHolders::Parts(_) | UploadHolders::Whole => false,
+            UploadHolders::Parts(_) | UploadHolders::Whole | UploadHolders::Aborting(_) => false,
+        }
+    }
+
+    /// An abort takes the upload from the parts in flight without waiting for them, and hands
+    /// them back when it ends.
+    fn claim_abort(&mut self) -> bool {
+        match &mut self.holders {
+            UploadHolders::Parts(writing) => {
+                self.holders = UploadHolders::Aborting(std::mem::take(writing));
+                true
+            }
+            UploadHolders::Whole | UploadHolders::Aborting(_) => false,
+        }
+    }
+
+    fn release_abort(&mut self) {
+        if let UploadHolders::Aborting(writing) = &mut self.holders {
+            self.holders = UploadHolders::Parts(std::mem::take(writing));
+        }
+    }
+
+    fn release_part(&mut self, number: u16) {
+        match &mut self.holders {
+            UploadHolders::Parts(writing) | UploadHolders::Aborting(writing) => {
+                writing.remove(&number);
+            }
+            UploadHolders::Whole => {}
         }
     }
 
@@ -133,6 +168,7 @@ impl SessionWriters {
     fn claim(&mut self, key: &WriterKey) -> Result<(), ClaimError> {
         let claimed = match key {
             WriterKey::Multipart(id) => self.upload(id).claim_whole(),
+            WriterKey::MultipartAbort(id) => self.upload(id).claim_abort(),
             WriterKey::MultipartPart(id, number) => self.upload(id).claim_part(*number),
             WriterKey::Resumable(_) | WriterKey::Rewrite(_) | WriterKey::Derived(_) => {
                 self.held.insert(key.clone())
@@ -150,11 +186,10 @@ impl SessionWriters {
             WriterKey::Multipart(id) => {
                 self.settle_upload(id, |upload| upload.holders = UploadHolders::default());
             }
-            WriterKey::MultipartPart(id, number) => self.settle_upload(id, |upload| {
-                if let UploadHolders::Parts(writing) = &mut upload.holders {
-                    writing.remove(number);
-                }
-            }),
+            WriterKey::MultipartAbort(id) => self.settle_upload(id, UploadWriters::release_abort),
+            WriterKey::MultipartPart(id, number) => {
+                self.settle_upload(id, |upload| upload.release_part(*number));
+            }
             WriterKey::Resumable(_) | WriterKey::Rewrite(_) | WriterKey::Derived(_) => {
                 self.held.remove(key);
             }
@@ -199,7 +234,9 @@ impl WriterGuard {
     pub(in crate::storage::catalog) fn multipart_id(&self) -> Option<&str> {
         match &self.key {
             WriterKey::Multipart(id) => Some(id),
+            // Parts may still be writing under an abort, so it is not a whole-upload lease.
             WriterKey::Resumable(_)
+            | WriterKey::MultipartAbort(_)
             | WriterKey::MultipartPart(..)
             | WriterKey::Rewrite(_)
             | WriterKey::Derived(_) => None,
@@ -214,7 +251,9 @@ impl Drop for WriterGuard {
         if matches!(self.origin, KeyOrigin::Client)
             && matches!(
                 self.key,
-                WriterKey::Multipart(_) | WriterKey::MultipartPart(..)
+                WriterKey::Multipart(_)
+                    | WriterKey::MultipartAbort(_)
+                    | WriterKey::MultipartPart(..)
             )
         {
             self.catalog
@@ -227,7 +266,13 @@ impl Drop for WriterGuard {
                 self.catalog.0.derived_wake.notify_waiters();
                 self.catalog.0.maintenance_wake.notify_one();
             }
-            (WriterKey::Rewrite(_) | WriterKey::Multipart(_) | WriterKey::MultipartPart(..), _)
+            (
+                WriterKey::Rewrite(_)
+                | WriterKey::Multipart(_)
+                | WriterKey::MultipartAbort(_)
+                | WriterKey::MultipartPart(..),
+                _,
+            )
             | (WriterKey::Resumable(_), KeyOrigin::Client) => {
                 self.catalog.0.maintenance_wake.notify_one()
             }
@@ -267,7 +312,7 @@ impl Catalog {
     pub(crate) fn multipart_parts_writing(&self, id: &str) -> usize {
         match self.0.session_writers.lock().unwrap().uploads.get(id) {
             Some(UploadWriters {
-                holders: UploadHolders::Parts(writing),
+                holders: UploadHolders::Parts(writing) | UploadHolders::Aborting(writing),
                 ..
             }) => writing.len(),
             Some(_) | None => 0,
@@ -437,6 +482,49 @@ mod tests {
         assert_eq!(writers.claim(&session), Err(ClaimError::Busy));
         writers.release(&session);
         writers.claim(&session).unwrap();
+    }
+
+    #[test]
+    fn an_abort_takes_an_upload_from_its_parts_in_flight_and_holds_back_everything_else() {
+        let mut writers = SessionWriters::default();
+        let id = "upload".to_owned();
+        let (whole, abort) = (
+            WriterKey::Multipart(id.clone()),
+            WriterKey::MultipartAbort(id.clone()),
+        );
+        let part = |number| WriterKey::MultipartPart(id.clone(), number);
+        writers.claim(&part(1)).unwrap();
+        writers.claim(&abort).unwrap();
+        for contender in [&abort, &whole, &part(1), &part(2)] {
+            assert_eq!(
+                writers.claim(contender),
+                Err(ClaimError::Busy),
+                "{contender:?}"
+            );
+        }
+        // The part in flight keeps its number after the abort, and the upload until it ends.
+        writers.release(&abort);
+        assert_eq!(writers.claim(&part(1)), Err(ClaimError::Busy));
+        assert_eq!(writers.claim(&whole), Err(ClaimError::Busy));
+        writers.claim(&part(2)).unwrap();
+        writers.release(&part(1));
+        writers.release(&part(2));
+        assert!(writers.is_empty());
+
+        // A part that ends during the abort leaves nothing behind once the abort ends.
+        writers.claim(&part(1)).unwrap();
+        writers.claim(&abort).unwrap();
+        writers.release(&part(1));
+        writers.release(&abort);
+        assert!(writers.is_empty());
+
+        // Completion and catalog retirement hold an abort back.
+        writers.claim(&whole).unwrap();
+        assert_eq!(writers.claim(&abort), Err(ClaimError::Busy));
+        writers.release(&whole);
+        writers.claim(&abort).unwrap();
+        writers.release(&abort);
+        assert!(writers.is_empty());
     }
 
     async fn open(wait_ms: u64) -> (Catalog, String) {

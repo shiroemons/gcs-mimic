@@ -417,7 +417,14 @@ async fn write_upload(
             complete(request, lease, headers, ctx).await
         }
         Write::Abort { upload_id } => {
-            let lease = whole_upload(upload_target(path, upload_id), access, ctx).await?;
+            let lease = ctx
+                .await_session_writer(
+                    ctx.state
+                        .catalog
+                        .lease_xml_abort(upload_target(path, upload_id), access),
+                )
+                .await
+                .map_err(|error| storage_error(error, ctx))?;
             empty_body(request, headers.sha256).await?;
             ctx.await_catalog(ctx.state.catalog.abort_xml_multipart(lease))
                 .await

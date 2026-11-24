@@ -155,9 +155,19 @@ pub(crate) struct PartLease {
     _guard: resumable::WriterGuard,
 }
 
-/// Owns a whole upload: no part is writing, and none starts until this lease drops.
+/// Owns a whole upload for completion: no part is writing, and none starts until this lease
+/// drops.
 pub(crate) struct UploadLease {
     pub upload: Upload,
+    access: BucketAccess,
+    _guard: resumable::WriterGuard,
+}
+
+/// Aborts an upload. No completion or other abort runs and no part starts until this lease
+/// drops, but the parts already writing go on and fail at their commit once the abort retires
+/// the upload, as Cloud Storage fails the parts in flight of an aborted upload.
+pub(crate) struct AbortLease {
+    upload: Upload,
     access: BucketAccess,
     _guard: resumable::WriterGuard,
 }
@@ -332,7 +342,7 @@ impl Catalog {
         })
     }
 
-    /// Leases a whole upload for completion or abort, once the parts in flight have finished.
+    /// Leases a whole upload for completion, once the parts in flight have finished.
     pub(crate) async fn lease_xml_multipart(
         &self,
         target: Target,
@@ -344,6 +354,28 @@ impl Catalog {
             .map_err(claim_failure)?;
         let upload = self.active_upload(target, &access).await?;
         Ok(UploadLease {
+            upload,
+            access,
+            _guard: guard,
+        })
+    }
+
+    /// Leases an upload for an abort. Only a completion or another abort holds it back; a stalled
+    /// part does not, since the abort fails it instead of waiting for it.
+    pub(crate) async fn lease_xml_abort(
+        &self,
+        target: Target,
+        access: BucketAccess,
+    ) -> Result<AbortLease, Error> {
+        let guard = self
+            .wait_for_writer(
+                WriterKey::MultipartAbort(target.id.clone()),
+                KeyOrigin::Client,
+            )
+            .await
+            .map_err(claim_failure)?;
+        let upload = self.active_upload(target, &access).await?;
+        Ok(AbortLease {
             upload,
             access,
             _guard: guard,
@@ -378,7 +410,9 @@ impl Catalog {
         }).await
     }
 
-    pub(crate) async fn abort_xml_multipart(&self, lease: UploadLease) -> Result<(), Error> {
+    /// Retires the upload and its stored parts in one transaction. A part still writing finds
+    /// the upload gone at its commit and reclaims its own staged bytes.
+    pub(crate) async fn abort_xml_multipart(&self, lease: AbortLease) -> Result<(), Error> {
         let permit = self.admit_object_upload()?;
         let catalog = self.clone();
         crate::task::spawn_supervised("xml-multipart-abort", async move {

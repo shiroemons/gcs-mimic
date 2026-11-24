@@ -1,0 +1,29 @@
+Verified on 2026-11-25 (Asia/Tokyo).
+
+Command:
+cargo test --locked --lib -- storage::catalog::xml_multipart storage::catalog::resumable::writers storage::catalog::memory_tests::xml_multipart storage::resumable_http_tests::catalog_wait
+
+Result: PASS (exit 0); 58 passed, 0 failed, 0 ignored.
+
+The run included:
+test storage::catalog::resumable::writers::tests::an_abort_takes_an_upload_from_its_parts_in_flight_and_holds_back_everything_else ... ok
+test storage::catalog::xml_multipart::tests::parallel::an_abort_answers_while_a_part_is_in_flight_and_the_part_then_fails ... ok
+test storage::catalog::xml_multipart::tests::parallel::a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget ... ok
+test storage::catalog::xml_multipart::tests::parallel::parts_of_different_numbers_and_uploads_do_not_exclude_each_other ... ok
+test storage::catalog::xml_multipart::tests::parallel::a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it ... ok
+test storage::catalog::xml_multipart::tests::parallel::a_cancelled_completion_lets_the_parts_it_held_back_continue ... ok
+test storage::resumable_http_tests::catalog_wait::an_abort_answers_while_a_part_stays_stalled_on_the_wire_and_the_part_then_fails ... ok
+
+Command:
+cargo test --locked --test it_xml_auth
+
+Result: PASS (exit 0); 327 passed, 0 failed, 0 ignored.
+
+Cloud Storage documents that "once a multipart upload is aborted, any parts in the process of
+being uploaded fail" (https://docs.cloud.google.com/storage/docs/multipart-uploads). An abort no
+longer waits up to catalog_wait_timeout_ms for a part whose body is still streaming. It answers
+204 at once; the part fails with 404 NoSuchUpload when its commit finds the upload gone and
+reclaims its staged bytes, and a part sent after the abort fails with NoSuchUpload. A completion
+and an abort still wait for each other, and a completion still waits for the parts in flight.
+With the abort lease forced back to waiting for the parts in flight, the registry test and
+parts_of_different_numbers_and_uploads_do_not_exclude_each_other fail.

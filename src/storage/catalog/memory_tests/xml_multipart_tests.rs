@@ -194,7 +194,7 @@ async fn ram_xml_multipart_abort_expiry_and_reset_release_owned_hidden_parts() {
     let target = begin(&catalog).await;
     part(&catalog, &target, b"hidden", Complete).await.unwrap();
     let lease = catalog
-        .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+        .lease_xml_abort(target.clone(), BucketAccess::Permissive)
         .await
         .unwrap();
     assert!(matches!(

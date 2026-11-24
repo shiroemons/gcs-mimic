@@ -185,6 +185,45 @@ async fn only_a_conflicting_request_answers_503_past_the_catalog_wait() {
     h.stop().await;
 }
 
+/// Cloud Storage fails the parts in flight of an aborted upload rather than making the abort wait
+/// for them. The default catalog wait outlasts `HANG_GUARD`, so an abort that waited for the
+/// stalled body would fail the guard here.
+#[tokio::test]
+async fn an_abort_answers_while_a_part_stays_stalled_on_the_wire_and_the_part_then_fails() {
+    let h = Harness::start_with_config(Permissive, None, Config::default()).await;
+    let id = upload_id(h.request("POST", "/bucket/aborted?uploads", "", b"").await);
+    let part = |number: u16| format!("/bucket/aborted?partNumber={number}&uploadId={id}");
+    assert_eq!(h.request("PUT", &part(2), "", b"stored").await.status, 200);
+    let mut stalled = stalled_part(&h, &part(1), b"one", 4).await;
+    eventually_async("the part to lease its number", || async {
+        h.state.catalog.multipart_parts_writing(&id) == 1
+    })
+    .await;
+
+    let upload = format!("/bucket/aborted?uploadId={id}");
+    let abort = h.request("DELETE", &upload, "", b"");
+    let aborted = tokio::time::timeout(crate::test_support::HANG_GUARD, abort)
+        .await
+        .expect("the stalled part must not hold the abort back");
+    assert_eq!(aborted.status, 204);
+    assert_eq!(h.request("PUT", &part(3), "", b"late").await.status, 404);
+
+    stalled.write_all(b"-end").await.unwrap();
+    let failed = Harness::read_response(stalled).await;
+    assert_eq!(failed.status, 404);
+    let body = String::from_utf8(failed.body).unwrap();
+    assert!(body.contains("<Code>NoSuchUpload</Code>"), "{body}");
+    eventually_async("the failed part to release its number", || async {
+        !h.state.catalog.has_session_writers()
+    })
+    .await;
+    assert_eq!(
+        std::fs::read_dir(h.dir.0.join("staging")).unwrap().count(),
+        0
+    );
+    h.stop().await;
+}
+
 #[tokio::test]
 async fn a_part_disconnected_on_the_wire_gives_back_its_number_and_staged_bytes() {
     let h = Harness::start_with_config(Permissive, None, Config::default()).await;
