@@ -707,7 +707,26 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
     let original = before_short_deadline(&dir, |setup| {
         setup.upload("name=held-0", "", b"original").json()
     });
-    let server = Server::with_timeouts(&dir, 1000, 300, 900, 5000);
+    // The trickle must renew the short body inactivity limit until the object deadline ends it.
+    // The server's own work on each chunk counts against the request limit instead, so that
+    // limit stays far above the deadline under test: a write held up on a loaded runner answers
+    // 503 under a short one.
+    let server = Server::launch(http_command(&dir.0).args([
+        "--api-base-url",
+        "https://advertised.invalid/api",
+        "--max-object-bytes",
+        "1000",
+        "--header-read-timeout-ms",
+        "300",
+        "--body-inactivity-timeout-ms",
+        "300",
+        "--request-timeout-ms",
+        "30000",
+        "--object-request-timeout-ms",
+        "900",
+        "--catalog-wait-timeout-ms",
+        "5000",
+    ]));
     let started = Instant::now();
     let mut uploads: Vec<_> = (0..8).map(|index| {
         let mut stream = server.stream();

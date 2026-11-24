@@ -347,7 +347,7 @@ mod tests {
             let _ = Pin::new(&mut body).poll_frame(&mut cx);
             assert!(
                 progress.has_changed().unwrap(),
-                "poll {poll} renews the limit"
+                "poll {poll} restarts the watch's count"
             );
             progress.mark_unchanged();
             assert_eq!(client_paced(&progress), waits_on_client, "poll {poll}");
