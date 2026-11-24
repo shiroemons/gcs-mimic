@@ -45,6 +45,13 @@ the persistent location; setting only `listen` or `data_dir` in JSON does not
 override the image environment.
 The catalog keeps SQLite's temporary storage in memory, so a read-only root needs
 no writable temporary directory for it, wherever the data directory is mounted.
+When a request still fails with a storage error such as 503 `disk I/O error`, the
+`object_backend_failure` log event carries
+`sqlite_extended_code`, SQLite's extended result code, and SQLite's
+[result code list](https://www.sqlite.org/rescode.html) names each number:
+`6410`, for instance, is `SQLITE_IOERR_GETTEMPPATH`, meaning SQLite found no
+directory for a temporary file. That caused the 503 before the catalog kept its
+temporary storage in memory.
 Stop with `docker stop gcs-mimic` and resume with `docker start gcs-mimic`.
 The named volume keeps data when a stopped container is removed.
 

@@ -43,6 +43,12 @@ nativeと同じく、環境変数はJSON設定より優先します。
 JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書きできません。
 カタログはSQLiteの一時領域をメモリに置きます。そのため、ルートが読み取り専用でも、
 データディレクトリをどこに置いても、SQLite用に書き込める一時ディレクトリは不要です。
+それでもリクエストが503 `disk I/O error`などのストレージ障害になる場合は、ログイベント
+`object_backend_failure`の`sqlite_extended_code`を確認してください。
+これはSQLiteの拡張結果コードで、番号の名前はSQLiteの
+[結果コード一覧](https://www.sqlite.org/rescode.html)で引けます。例えば`6410`は
+`SQLITE_IOERR_GETTEMPPATH`で、SQLiteが一時ファイルを置くディレクトリを見つけられなかったことを
+表します。カタログが一時領域をメモリに置く前は、これがその503の原因でした。
 
 移行時のバケット一覧では、`fake-gcs-server`はprojectを省略すると
 `seed_project`を使います。nativeは400を返し、`?project=local-project`の例を示します。

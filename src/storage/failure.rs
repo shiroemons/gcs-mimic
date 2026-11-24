@@ -72,6 +72,11 @@ impl BackendCause {
         chain(Link::Context(self)).find_map(Link::failure)
     }
 
+    /// SQLite's extended result code, when an SQLite failure caused this one.
+    pub(crate) fn sqlite_extended_code(&self) -> Option<std::ffi::c_int> {
+        chain(Link::Context(self)).find_map(Link::sqlite_extended_code)
+    }
+
     pub(crate) fn source(&self) -> Option<&(dyn Error + 'static)> {
         self.typed_source().map(Link::as_error)
     }

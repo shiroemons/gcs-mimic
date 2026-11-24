@@ -131,6 +131,15 @@ impl<'a> Link<'a> {
         }
     }
 
+    /// SQLite's extended result code, if this link is an SQLite failure.
+    pub(crate) fn sqlite_extended_code(self) -> Option<std::ffi::c_int> {
+        if let Self::Sqlite(rusqlite::Error::SqliteFailure(failure, _)) = self {
+            Some(failure.extended_code)
+        } else {
+            None
+        }
+    }
+
     /// The `backend=memory` budget this link reports exhausted, if it is one.
     pub(crate) fn memory_budget(self) -> Option<MemoryBudget> {
         if let Self::Exhausted(exhausted) = self {
