@@ -4,7 +4,7 @@ use crate::bucket::{
     BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError, LabelPart,
     UNIFORM_ACCESS_LOCK_PERIOD, cors_from_value, cors_value, valid_label, validate_cors,
 };
-use crate::clock::{Clock, SystemClock};
+use crate::clock::{Clock, SystemClock, signed_nanos};
 use crate::storage::failure::{BackendCause, BackendFailure, unavailable};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, types::Type};
 use std::{
@@ -462,14 +462,6 @@ fn unix_micros(time: SystemTime) -> Result<i64, CatalogError> {
 
 fn unix_timestamp(time: SystemTime, nanos_per_unit: i128) -> Result<i64, CatalogError> {
     i64::try_from(signed_nanos(time).div_euclid(nanos_per_unit)).map_err(unavailable)
-}
-
-/// `time` as signed nanoseconds since the Unix epoch.
-fn signed_nanos(time: SystemTime) -> i128 {
-    match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration.as_nanos() as i128,
-        Err(error) => -(error.duration().as_nanos() as i128),
-    }
 }
 
 fn system_time_micros(micros: i64) -> rusqlite::Result<SystemTime> {
