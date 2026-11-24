@@ -108,7 +108,7 @@ nothing locally.
 
 ## Python
 
-`google-cloud-storage` 3.17.1 ([tests](../../sdk-tests/python/README.md)).
+`google-cloud-storage` 3.17.2 ([tests](../../sdk-tests/python/README.md)).
 Pass `api_endpoint` and anonymous credentials, so that the SDK does not look
 for Application Default Credentials. The tests also set
 `STORAGE_EMULATOR_HOST=http://localhost:4443`, with the scheme.
@@ -150,7 +150,7 @@ test READMEs.
 
 ## C++
 
-The scorecard runs google-cloud-cpp 3.14.0, built from source with GCC 16.2.0
+The scorecard runs google-cloud-cpp 3.14.1, built from source with GCC 16.2.0
 for its REST transport only, so no gRPC listener is needed. The
 [C++ example](../../examples/cpp/README.md) builds the same SDK in Docker and
 shows the client options; `CLOUD_STORAGE_EMULATOR_ENDPOINT`, when set,

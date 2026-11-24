@@ -12,8 +12,8 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-snapshot=20261104T212339Z
-chromium_version=150.0.7871.181-1~deb13u1
+snapshot=20261123T000000Z
+chromium_version=156.0.8078.79-1~deb13u1
 
 install_from() {
   cat >/etc/apt/sources.list.d/debian.sources <<SOURCES

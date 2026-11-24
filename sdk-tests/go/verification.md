@@ -2,9 +2,17 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+## genproto update: 2026-11-24
+
+Current pins are Go 1.27.4, Storage v1.71.0, API v0.316.0, OAuth2 v0.38.0 and genproto v0.0.0-20261123191846-1e707ab9fbc2.
+`go get google.golang.org/genproto@v0.0.0-20261123191846-1e707ab9fbc2` and `go mod tidy` also raise genproto/googleapis/api and rpc to v0.0.0-20261118221215-c8830f628b3f, which the new revision requires; the revision changes no file under `googleapis/storage`, which holds the legacy v1 stubs the suite uses.
+`bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-clients --with-python --with-php` ran `go vet ./...` and the suite with 95 top-level tests passing and the HTTPS-only V2 signing test skipped.
+No harness migration was required.
+See the [dependency refresh evidence](../../docs/en/evidence/dependency-refresh.md#refresh-2026-11-24-after-0280).
+
 ## genproto update: 2026-11-19
 
-Current pins are Go 1.27.4, Storage v1.71.0, API v0.316.0, OAuth2 v0.38.0 and genproto v0.0.0-20261118221215-c8830f628b3f.
+The 2026-11-19 pins were Go 1.27.4, Storage v1.71.0, API v0.316.0, OAuth2 v0.38.0 and genproto v0.0.0-20261118221215-c8830f628b3f.
 `go get google.golang.org/genproto@v0.0.0-20261118221215-c8830f628b3f` and `go mod tidy` change only the genproto requirement and its `go.sum` lines; the new revision changes no file under `googleapis/storage`, which holds the legacy v1 stubs the suite uses.
 `bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby` ran `go vet ./...` and the suite with 95 top-level tests passing and the HTTPS-only V2 signing test skipped.
 No harness migration was required.

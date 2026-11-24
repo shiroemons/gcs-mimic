@@ -10,8 +10,8 @@ ARG CXX_STD=17
 
 # Both archives are verified even though only the build architecture's one is unpacked, so a
 # changed upstream file fails every build instead of only the other architecture's.
-ADD --checksum=sha256:0c8447e7bba9701467b5ac6155d157aa9e309e71af4981f78bd4b9176107f553 https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-linux-aarch64.tar.gz /dl/cmake-arm64.tar.gz
-ADD --checksum=sha256:81f0d5b0960fb6adc8197030ffc827fba937640d51e73e39e0e9e40d88c66f6f https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-linux-x86_64.tar.gz /dl/cmake-amd64.tar.gz
+ADD --checksum=sha256:3bec208f11ed96c173032eeaf97937c54dd246acefee22acd7794a6b4e70d536 https://github.com/Kitware/CMake/releases/download/v4.5.1/cmake-4.5.1-linux-aarch64.tar.gz /dl/cmake-arm64.tar.gz
+ADD --checksum=sha256:83b71181fb62b4fe8f26067a9321448572e7a43bd04ff6c7f54a24c33698f16d https://github.com/Kitware/CMake/releases/download/v4.5.1/cmake-4.5.1-linux-x86_64.tar.gz /dl/cmake-amd64.tar.gz
 RUN mkdir -p /opt/cmake \
  && tar -xzf "/dl/cmake-${TARGETARCH}.tar.gz" -C /opt/cmake --strip-components=1 \
  && rm /dl/cmake-*.tar.gz
@@ -31,7 +31,7 @@ RUN mkdir /src && tar -xJf /dl/nlohmann-json.tar.xz -C /src --strip-components=1
  && cmake --build /build && cmake --install /build \
  && rm -rf /src /build /dl/nlohmann-json.tar.xz
 
-# google_cloud_cpp_common 3.14.0 includes <opentelemetry/...> headers unconditionally, even with
+# google_cloud_cpp_common 3.14.1 includes <opentelemetry/...> headers unconditionally, even with
 # the opentelemetry feature disabled; the header-only API satisfies them without the SDK.
 ADD --checksum=sha256:85aae7a42d7b71d17e510ddebc85db622d9078cc6d29cf9fb7373014b063859f https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.30.0.tar.gz /dl/opentelemetry-cpp.tar.gz
 RUN mkdir /src && tar -xzf /dl/opentelemetry-cpp.tar.gz -C /src --strip-components=1 \
@@ -42,7 +42,7 @@ RUN mkdir /src && tar -xzf /dl/opentelemetry-cpp.tar.gz -C /src --strip-componen
 
 # "storage" alone also enables monitoring, trace, opentelemetry and universe_domain
 # (cmake/GoogleCloudCppFeatures.cmake), which require gRPC and Protobuf; the REST client does not.
-ADD --checksum=sha256:2f5648f6c1c57532d9146b2c22b649f5f68bdcb50932e3610d6885d5a8b6efc8 https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v3.14.0.tar.gz /dl/google-cloud-cpp.tar.gz
+ADD --checksum=sha256:e8ed19ddb68755332262b613dea3f98d2a044fceecd7a60d862523b6eba84daf https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v3.14.1.tar.gz /dl/google-cloud-cpp.tar.gz
 RUN mkdir /src && tar -xzf /dl/google-cloud-cpp.tar.gz -C /src --strip-components=1 \
  && cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=${CXX_STD} \
       -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \

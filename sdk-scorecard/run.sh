@@ -59,11 +59,11 @@ cpp_base=$(sed -n 's/^FROM \(gcc:[^ ]*@sha256:[0-9a-f]\{64\}\)$/\1/p' "$cpp_dock
 fake_image=fsouza/fake-gcs-server:1.56.1
 gcp_image=oittaa/gcp-storage-emulator:v2026.07.19
 floci_image=floci/floci-gcp:0.13.0
-php_image=composer:2.11.2@sha256:0c8e663f14c94d07b3c45b175c51f5a14718508f21fe4dd7e54f09488dd0ed71
+php_image=composer:2.11.2@sha256:cd3a90dc5624c59a2f9ddf80dad08569f06416db31de519024f249d63bca554b
 # The Rust SDK trusts only the operating system's roots. On macOS that is the Keychain, which
 # ignores SSL_CERT_FILE, so the probe cannot trust the scorecard CA there; it runs in this
 # Linux image on every host instead. The pin matches the Dockerfile's build image.
-rust_image=rust:1.100.0-slim-trixie@sha256:6f14b2b4b278ec0d50aa1d69541c304ce0f95e0f6268487aa9924af1c2e9aebe
+rust_image=rust:1.100.0-slim-trixie@sha256:86993c97389ebb5487eb09e88168e2a00b0de29aa08dff9ae896049b9be96ed9
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/sdk-scorecard.XXXXXX")
 server_pid=''

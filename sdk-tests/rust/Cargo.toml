@@ -14,7 +14,7 @@ google-cloud-auth = "=1.19.0"
 object_store = { version = "=0.14.2", default-features = false, features = ["gcp-base", "reqwest", "ring"] }
 futures-util = "=0.3.34"
 tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread"] }
-url = "=2.5.8"
+url = "=2.5.9"
 
 [lints.rust]
 unsafe_code = "deny"

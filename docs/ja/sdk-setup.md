@@ -99,7 +99,7 @@ Cloud Storageはこれを無視し、0.20.1以降のgcs-mimicも無視します�
 
 ## Python
 
-`google-cloud-storage` 3.17.1（[テスト（英語）](../../sdk-tests/python/README.md)）。
+`google-cloud-storage` 3.17.2（[テスト（英語）](../../sdk-tests/python/README.md)）。
 SDKがApplication Default Credentialsを探さないよう、`api_endpoint`と匿名の認証情報を渡します。
 テストでは`STORAGE_EMULATOR_HOST=http://localhost:4443`（スキーム付き）も設定しています。
 
