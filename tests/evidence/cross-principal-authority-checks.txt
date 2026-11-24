@@ -1,0 +1,19 @@
+Verified on 2026-11-24 (Asia/Tokyo).
+
+Command:
+cargo test --locked --test it_protocol --test it_objects -- upload_replay_token_reused_with_reordered_query_is_rejected_without_a_second_generation resumable_session_uri_is_bound_to_its_bucket_and_name rewrite_tokens_do_not_carry_authority_across_principals
+
+Result: PASS (exit 0); 3 passed, 0 failed, 0 ignored.
+Per-binary results:
+it_objects: 2 passed, 0 failed, 0 ignored.
+it_protocol: 1 passed, 0 failed, 0 ignored.
+
+The run included:
+test it_objects::cross_principal_authority_http::resumable_session_uri_is_bound_to_its_bucket_and_name ... ok
+test it_objects::cross_principal_authority_http::rewrite_tokens_do_not_carry_authority_across_principals ... ok
+test it_protocol::object_http::upload_replay::upload_replay_token_reused_with_reordered_query_is_rejected_without_a_second_generation ... ok
+
+These tests pin behavior that was first checked by hand against a running server: a resumable
+session URI is bound to its bucket and name, a rewrite token carries no authority across
+principals, and an idempotency token reused with another query spelling is rejected without a
+second publication.

@@ -4,6 +4,7 @@ mod it_objects {
     mod api_key_http;
     mod basic_contract_http;
     mod collection_validators_http;
+    mod cross_principal_authority_http;
     mod custom_metadata_values_http;
     mod object_compose_http;
     mod object_copy_http;

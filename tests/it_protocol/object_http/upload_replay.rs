@@ -105,3 +105,48 @@ fn upload_replay_lost_response_and_recreated_bucket_do_not_duplicate_mutations()
         .json_error(400, "invalid");
     server.get("lost").json_error(404, "notFound");
 }
+
+#[test]
+fn upload_replay_token_reused_with_reordered_query_is_rejected_without_a_second_generation() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 5000);
+    server.bucket();
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/test-bucket",
+            "Content-Type: application/json\r\n",
+            br#"{"versioning":{"enabled":true}}"#,
+        )
+        .expect(200);
+    let token = "X-Goog-Gcs-Idempotency-Token: spelling\r\n";
+    let upload = |query: &str| {
+        server.request(
+            "POST",
+            &format!("/upload/storage/v1/b/test-bucket/o?{query}"),
+            token,
+            b"payload",
+        )
+    };
+    let first = upload("uploadType=media&name=x");
+    first.expect(200);
+    // An exact retry replays the recorded response.
+    assert_eq!(
+        upload("uploadType=media&name=x").json()["generation"],
+        first.json()["generation"]
+    );
+    // The same parameters in another order are a different spelling of the request, so the
+    // token is rejected instead of being treated as a retry or as a new publication.
+    let reordered = upload("name=x&uploadType=media");
+    reordered.json_error(400, "invalid");
+    assert_eq!(
+        reordered.json()["error"]["message"],
+        "Idempotency token was reused for a different upload"
+    );
+    let versions = server
+        .request("GET", "/storage/v1/b/test-bucket/o?versions=true", "", b"")
+        .json();
+    let items = versions["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{versions}");
+    assert_eq!(items[0]["generation"], first.json()["generation"]);
+}

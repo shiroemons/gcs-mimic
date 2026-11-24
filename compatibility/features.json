@@ -16757,7 +16757,9 @@
         "acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication",
         "acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings",
         "acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values",
-        "xml::uniform_access_metadata_and_predefined_acl_rejections"
+        "xml::uniform_access_metadata_and_predefined_acl_rejections",
+        "upload_replay_token_reused_with_reordered_query_is_rejected_without_a_second_generation",
+        "resumable_session_uri_is_bound_to_its_bucket_and_name"
       ],
       "verification": [
         {
@@ -17173,6 +17175,13 @@
           "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/ledger-test-ids.md",
           "test_ids": ["v1_migration_is_transactional_and_current_schema_reopens_idempotently"]
+        },
+        {
+          "command": "cargo test --locked --test it_protocol --test it_objects -- upload_replay_token_reused_with_reordered_query_is_rejected_without_a_second_generation resumable_session_uri_is_bound_to_its_bucket_and_name rewrite_tokens_do_not_carry_authority_across_principals",
+          "result": "PASS",
+          "verified_at": "2026-11-24",
+          "artifact": "tests/evidence/cross-principal-authority-checks.txt",
+          "test_ids": ["upload_replay_token_reused_with_reordered_query_is_rejected_without_a_second_generation", "resumable_session_uri_is_bound_to_its_bucket_and_name"]
         }
       ],
       "sdk_evidence": [
@@ -19088,7 +19097,8 @@
         "getting-started:copy-rewrite-compose:native",
         "getting-started:copy-rewrite-compose:docker",
         "a_configured_rewrite_limit_preserves_copy_and_compose_capacity_after_restart",
-        "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
+        "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them",
+        "rewrite_tokens_do_not_carry_authority_across_principals"
       ],
       "verification": [
         {
@@ -19166,6 +19176,13 @@
             "a_configured_rewrite_limit_preserves_copy_and_compose_capacity_after_restart",
             "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
           ]
+        },
+        {
+          "command": "cargo test --locked --test it_protocol --test it_objects -- upload_replay_token_reused_with_reordered_query_is_rejected_without_a_second_generation resumable_session_uri_is_bound_to_its_bucket_and_name rewrite_tokens_do_not_carry_authority_across_principals",
+          "result": "PASS",
+          "verified_at": "2026-11-24",
+          "artifact": "tests/evidence/cross-principal-authority-checks.txt",
+          "test_ids": ["rewrite_tokens_do_not_carry_authority_across_principals"]
         }
       ],
       "sdk_evidence": [
