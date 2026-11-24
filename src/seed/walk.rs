@@ -279,7 +279,13 @@ impl Tree {
     /// Walks the tree on a thread of its own, sending each entry over a two-slot channel.
     pub(super) fn walk(self, limits: TreeLimits) -> io::Result<mpsc::Receiver<Walked>> {
         let (send, receive) = mpsc::channel(2);
-        crate::task::spawn_thread("seed-walk", move || self.send_entries(limits, &send))?;
+        crate::task::spawn_thread("seed-walk", move || {
+            // The job only borrows the sender, so a panicking walk is reported before the
+            // channel closes and the import fails on it. A sender the job owned would close during
+            // the unwind, before the report, and a seed that fails at startup could exit the
+            // process without it.
+            let _ = crate::task::catch_job("seed-walk", || self.send_entries(limits, &send));
+        })?;
         Ok(receive)
     }
 
