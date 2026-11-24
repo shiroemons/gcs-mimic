@@ -28,12 +28,12 @@ pub(crate) enum RequestBody {
 /// A request body arriving from the client. Every adapter reads through here, so the
 /// connection's watchdog learns from one place when a request is waiting on the client:
 /// a stalled body on any route is then bounded by body inactivity, not by the request deadline.
-pub(crate) struct TransportBody {
-    body: Incoming,
+pub(crate) struct TransportBody<B = Incoming> {
+    body: B,
     activity: watch::Sender<ObjectActivity>,
 }
 
-impl TransportBody {
+impl<B> TransportBody<B> {
     fn report(&self, read: BodyRead) {
         self.activity.send_if_modified(|progress| {
             let changed = progress.body_read != read;
@@ -43,13 +43,17 @@ impl TransportBody {
     }
 }
 
-impl Drop for TransportBody {
+impl<B> Drop for TransportBody<B> {
     fn drop(&mut self) {
         self.report(BodyRead::NotPending);
     }
 }
 
-impl Body for TransportBody {
+impl<B> Body for TransportBody<B>
+where
+    B: Body<Data = Bytes> + Unpin,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
     type Data = Bytes;
     type Error = io::Error;
 
@@ -60,16 +64,15 @@ impl Body for TransportBody {
         let this = self.get_mut();
         let polled = Pin::new(&mut this.body).poll_frame(cx);
         match &polled {
+            // Only here does the request wait on the client, so only this starts its silence.
             Poll::Pending => this.report(BodyRead::Pending),
             Poll::Ready(Some(Ok(_))) => {
-                let read = if this.body.is_end_stream() {
-                    BodyRead::NotPending
-                } else {
-                    BodyRead::Pending
-                };
-                // Notifying even when the state is unchanged makes every frame renew the limit.
+                // A delivered frame is the server's until it asks for the next one, so work
+                // between frames, such as a write that waits for the disk, counts against the
+                // request deadline instead of the client's silence. Notifying even when the
+                // state is unchanged makes every frame renew the limit.
                 this.activity
-                    .send_modify(|progress| progress.body_read = read);
+                    .send_modify(|progress| progress.body_read = BodyRead::NotPending);
             }
             Poll::Ready(Some(Err(_)) | None) => this.report(BodyRead::NotPending),
         }
@@ -306,7 +309,50 @@ mod tests {
         server::{ObjectActivity, State, WorkPools},
         storage::Catalog,
     };
-    use std::{io::Write, sync::Arc, time::Duration};
+    use std::{collections::VecDeque, convert::Infallible, io::Write, sync::Arc, time::Duration};
+
+    type Polled = Poll<Option<Result<Frame<Bytes>, Infallible>>>;
+
+    /// Answers each poll with the next scripted result.
+    struct Scripted(VecDeque<Polled>);
+
+    impl Body for Scripted {
+        type Data = Bytes;
+        type Error = Infallible;
+
+        fn poll_frame(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Polled {
+            self.0.pop_front().unwrap_or(Poll::Ready(None))
+        }
+    }
+
+    fn client_paced(progress: &watch::Receiver<ObjectActivity>) -> bool {
+        matches!(
+            progress.borrow().step(),
+            super::super::RequestStep::ClientPaced
+        )
+    }
+
+    /// A slow write between frames is the server's work, so only a wait on the client counts as
+    /// the client's silence, and every delivered frame still renews the limit.
+    #[test]
+    fn only_a_wait_on_the_client_counts_as_its_silence() {
+        let frame = || Poll::Ready(Some(Ok(Frame::data(Bytes::from_static(b"chunk")))));
+        let (activity, mut progress) = watch::channel(ObjectActivity::default());
+        let mut body = TransportBody {
+            body: Scripted(VecDeque::from([frame(), frame(), Poll::Pending, frame()])),
+            activity,
+        };
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        for (poll, waits_on_client) in [(1, false), (2, false), (3, true), (4, false)] {
+            let _ = Pin::new(&mut body).poll_frame(&mut cx);
+            assert!(
+                progress.has_changed().unwrap(),
+                "poll {poll} renews the limit"
+            );
+            progress.mark_unchanged();
+            assert_eq!(client_paced(&progress), waits_on_client, "poll {poll}");
+        }
+    }
 
     #[test]
     fn work_pools_scale_with_blocking_threads_and_do_not_share_permits() {

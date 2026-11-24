@@ -147,8 +147,8 @@ has no upper bound.
 | Setting | Default | What it bounds |
 | --- | --- | --- |
 | `header_read_timeout_ms` | 30000 | A request head on a new connection, or once a next request has started; warns when it stalls. Also the gRPC handshake and the HTTP/2 ping wait. |
-| `body_inactivity_timeout_ms` | 0 (disabled) | Silence while a request body on any route or a response body is in flight, and silence on an open gRPC stream. Each progressing chunk renews it. Every JSON document may reach 16 MiB, so no request body counts as one that arrives at once. |
-| `request_timeout_ms` | 180000 | The handler's time before its response starts. Time spent waiting for request body bytes never counts against it. |
+| `body_inactivity_timeout_ms` | 0 (disabled) | Silence while a request body on any route or a response body is in flight, and silence on an open gRPC stream. Each progressing chunk renews it. For a request body only the time the server waits for the next chunk counts: its own work on a chunk, such as a write that waits for the disk, is the handler's time. Every JSON document may reach 16 MiB, so no request body counts as one that arrives at once. |
+| `request_timeout_ms` | 180000 | The handler's time before its response starts; each request body chunk it takes starts the count again. Time spent waiting for request body bytes never counts against it. |
 | `keep_alive_timeout_ms` | 120000 | Idle time between requests on one connection, longer than the Go SDK's 90-second idle pool; the connection then closes without a warning or lingering. Also idle gRPC connections. |
 | `object_request_timeout_ms` | 0 (disabled) | A whole object upload or media request from dispatch; never renews on chunks. Accepting 5 TiB objects rules out a fixed bound on a transfer. |
 | `catalog_wait_timeout_ms` | 120000 | Each upload advisory or post-EOF catalog wait, the wait for a busy session, and the wait of a reset, reseed, publication or management call for its turn. It bounds waiting only: a reseed may then take as long as its tree needs. |
