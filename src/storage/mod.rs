@@ -14,13 +14,13 @@ mod memory;
 #[cfg(test)]
 mod object_tests;
 pub use catalog::admin;
+#[cfg(test)]
 pub(crate) use catalog::change_journal;
 #[cfg(test)]
 pub(crate) use catalog::fault;
 pub(crate) use catalog::hmac_keys;
 pub use catalog::import_journal;
 pub(crate) use catalog::rewrite;
-pub use catalog::sync_state;
 pub(crate) use catalog::xml_multipart;
 
 pub(crate) use catalog::CopyReplay;

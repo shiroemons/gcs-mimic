@@ -67,7 +67,6 @@ impl Admin {
                             },
                             entries,
                             &BucketAccess::Admin(AdminGrant {
-                                control: None,
                                 origin,
                                 notification_mode: crate::notification::NotificationMode::Suppress,
                             }),

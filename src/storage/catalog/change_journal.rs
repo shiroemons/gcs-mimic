@@ -6,6 +6,7 @@ use super::{
     admin::{AdminError, Origin},
     unavailable,
 };
+#[cfg(test)]
 use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
@@ -16,30 +17,6 @@ use rusqlite::{
     Connection, ToSql, params,
     types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
 };
-
-#[cfg(test)]
-struct WaitHook {
-    phase: &'static str,
-    entered: tokio::sync::Notify,
-    release: tokio::sync::Notify,
-    used: std::sync::atomic::AtomicBool,
-    checks: std::sync::atomic::AtomicUsize,
-}
-#[cfg(test)]
-tokio::task_local! { static WAIT_HOOK: std::sync::Arc<WaitHook>; }
-#[cfg(test)]
-async fn wait_checkpoint(phase: &str) {
-    if let Ok(hook) = WAIT_HOOK.try_with(std::sync::Arc::clone)
-        && hook.phase == phase
-    {
-        hook.checks
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if !hook.used.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            hook.entered.notify_one();
-            hook.release.notified().await;
-        }
-    }
-}
 
 pub(super) fn notify_on_write<T, E>(
     connection: &mut Connection,
@@ -64,6 +41,7 @@ macro_rules! journal_capacity {
 }
 #[cfg(test)]
 pub(crate) const MAX_RECORDS: i64 = journal_capacity!();
+#[cfg(test)]
 pub(crate) const MAX_PAGE: usize = 256;
 pub(super) const SCHEMA: &str = "CREATE TABLE change_journal_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -133,10 +111,11 @@ sql::text_enum!(pub(crate) ChangeKind, "invalid change kind", {
 });
 
 sql::text_enum!(pub(crate) Origin, "invalid journal origin", {
-    Api => "api", Seed => "seed", BucketInit => "bucket-init",
-    SyncIngest => "sync-ingest", Import => "import",
+    Api => "api", Seed => "seed", BucketInit => "bucket-init", Import => "import",
 });
 
+/// One journal record as the tests read it back; production code only writes the journal.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Change {
     pub sequence: JournalSeq,
@@ -150,18 +129,16 @@ pub(crate) struct Change {
     pub metageneration: Option<i64>,
 }
 
+#[cfg(test)]
 pub(crate) struct ChangePage {
     pub items: Vec<Change>,
     pub next: JournalFence,
     pub fence: JournalFence,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only unit tests read this field")
-    )]
     pub has_more: bool,
 }
 
 /// One read of the change journal after a cursor.
+#[cfg(test)]
 pub(crate) enum ChangeRead {
     /// The cursor no longer continues this journal: rescan from `fence`.
     Rescan {
@@ -201,12 +178,7 @@ impl ChangeRead {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ChangeObservation {
-    pub fence: JournalFence,
-    pub rescan_required: bool,
-}
-
+#[cfg(test)]
 fn valid_cursor(cursor: JournalFence, current: JournalFence, floor: JournalSeq) -> bool {
     cursor.revision == current.revision
         && cursor.sequence >= floor
@@ -329,7 +301,24 @@ pub(super) fn parent_pap(connection: &Connection, projects: &[String]) -> Result
     Ok(())
 }
 
+/// The journal's current position.
+fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
+    sql::row(
+        connection,
+        "SELECT sequence, epoch FROM change_journal_state WHERE singleton = 1",
+        [],
+        |r| {
+            Ok(JournalFence {
+                sequence: r.get(0)?,
+                revision: r.get(1)?,
+            })
+        },
+    )
+    .map_err(unavailable)
+}
+
 /// The journal's position and whether it records changes.
+#[cfg(test)]
 struct JournalState {
     current: JournalFence,
     /// The oldest sequence a cursor can still continue from.
@@ -337,6 +326,7 @@ struct JournalState {
     enabled: bool,
 }
 
+#[cfg(test)]
 fn state(connection: &Connection) -> Result<JournalState, CatalogError> {
     sql::row(
         connection,
@@ -357,50 +347,6 @@ fn state(connection: &Connection) -> Result<JournalState, CatalogError> {
 }
 
 impl Catalog {
-    /// Effect-free and cancellable; no catalog permits are retained while asleep.
-    pub(crate) async fn wait_for_changes(
-        &self,
-        after: JournalFence,
-    ) -> Result<ChangeObservation, AdminError> {
-        loop {
-            #[cfg(test)]
-            wait_checkpoint("before-register").await;
-            let changed = self.0.change_wake.notified();
-            let shutdown = self.0.admin_shutdown.notified();
-            tokio::pin!(changed, shutdown);
-            changed.as_mut().enable();
-            shutdown.as_mut().enable();
-            #[cfg(test)]
-            wait_checkpoint("registered").await;
-            let observation = self
-                .run_admin(move |connection| {
-                    let JournalState {
-                        current,
-                        floor,
-                        enabled,
-                    } = state(connection)?;
-                    Ok(ChangeObservation {
-                        fence: current,
-                        rescan_required: !enabled || !valid_cursor(after, current, floor),
-                    })
-                })
-                .await?;
-            #[cfg(test)]
-            wait_checkpoint("checked").await;
-            if !self.is_healthy() {
-                return Err(AdminError::Closed);
-            }
-            if observation.rescan_required || observation.fence != after {
-                return Ok(observation);
-            }
-            tokio::select! {
-                biased;
-                _ = shutdown => return Err(AdminError::Closed),
-                _ = changed => {},
-            }
-        }
-    }
-
     /// Startup configuration belongs to consumers; activation always requires a fresh scan.
     /// Starts recording changes; returns the fence a consumer starts reading after.
     pub async fn enable_change_journal(&self) -> Result<JournalFence, AdminError> {
@@ -420,18 +366,19 @@ impl Catalog {
     async fn set_change_journal(&self, enabled: bool) -> Result<JournalFence, AdminError> {
         self.run_admin(move |connection| {
             sql::exec(connection, "UPDATE change_journal_state SET enabled = ?1, epoch = epoch + (enabled != ?1) WHERE singleton = 1", [enabled])?;
-            Ok(state(connection)?.current)
+            fence(connection)
         }).await
     }
 
-    /// The journal's current fence, the baseline a reader scans catalog state at and then
-    /// resumes from.
+    /// The journal's current fence, the baseline a test reads the journal back from.
+    #[cfg(test)]
     pub(crate) async fn current_fence(&self) -> Result<JournalFence, AdminError> {
-        self.run_admin(|connection| Ok(state(connection)?.current))
-            .await
+        self.run_admin(|connection| fence(connection)).await
     }
 
-    /// One read after `after`, up to `until` (the current fence when `None`).
+    /// One read after `after`, up to `until` (the current fence when `None`). Only tests read
+    /// the journal back, to check what each writer recorded.
+    #[cfg(test)]
     pub(crate) async fn read_changes(
         &self,
         after: JournalFence,

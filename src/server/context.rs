@@ -104,11 +104,8 @@ impl<'a> RequestCtx<'a> {
             DeadlineWatch::Enforced => Some(deadline),
             DeadlineWatch::CatalogOnly => None,
         };
-        // An expiry the connection already claimed stays visible to later catalog waits.
-        self.activity.send_modify(|progress| {
-            progress.end_catalog_wait();
-            progress.deadline = watched;
-        });
+        self.activity
+            .send_modify(|progress| progress.start_object(watched));
         deadline
     }
 

@@ -208,7 +208,6 @@ mod tests {
             "/_internal/delete_all",
             "/_internal/reseed",
             "/_internal/buckets/test-bucket",
-            "/_internal/sync/approve",
         ] {
             for (name, value) in [
                 ("origin", "null"),

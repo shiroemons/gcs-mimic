@@ -159,7 +159,7 @@ No environment variable is needed.
 
 The image sets `GCS_MIMIC_DEFAULT_SEED_DIR=/data` (`--default-seed-dir`, JSON
 `default_seed_dir`; native default none). It applies only when `seed_dir` is
-unset, the directory exists, and it does not overlap the data or sync directory;
+unset, the directory exists, and it does not overlap the data directory;
 otherwise it is silently ignored. An explicit `GCS_MIMIC_SEED_DIR`
 (`--seed-dir`, JSON `seed_dir`) always wins, for example to read another path.
 
@@ -200,10 +200,8 @@ attempt can finish answers 503 with `Retry-After: 1`.
 
 Content-Type comes from the filename extension through a pinned table, for
 example `.png` becomes `image/png`. Set `GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`
-to store every file as `application/octet-stream`, the previous default. The
-same setting applies to files ingested from a
-[sync directory](#mirror-objects-to-a-host-directory). macOS metadata files such
-as `.DS_Store` and `._*` are skipped.
+to store every file as `application/octet-stream`, the previous default. macOS
+metadata files such as `.DS_Store` and `._*` are skipped.
 
 The ready event reports the result in its `seed` field, for example
 `{"outcome":"imported","buckets":1,"objects":2,"replaced":0,"unchanged":3,"blocked":0,"skipped_os_metadata":0}`,
@@ -218,106 +216,12 @@ generation even for an exactly identical object, which gcs-mimic keeps, and
 gcs-mimic's `/_internal/reseed` route is off until local administration is
 enabled. Seeding does not import fake-gcs-server's
 runtime xattrs/sidecars or preserve their metadata. The seed directory stays
-read-only input: API writes do not appear under `/data`. To browse API-written
-objects as files, use a separate [sync directory](#mirror-objects-to-a-host-directory).
-To create buckets with CORS or versioning settings, use a
+read-only input: API writes do not appear under `/data`. Directory
+synchronization was removed; `seed_dir` reads a folder at startup and never
+writes to it. To create buckets with CORS or versioning settings, use a
 [buckets file](#initialize-bucket-settings); it runs before seed. See the
 [storage comparison](fake-gcs-server-storage.md) before reusing a persistent
 source directory.
-
-## Mirror objects to a host directory
-
-`GCS_MIMIC_SYNC_DIR` (`--sync-dir`, JSON `sync_dir`) writes every bucket and live
-object to `BUCKET/OBJECT` files under an existing writable directory. Add these
-entries to the README's service, retaining its other environment variables and
-persistent volume:
-
-```yaml
-    environment:
-      GCS_MIMIC_SYNC_DIR: /sync
-    volumes:
-      - ./sync:/sync
-```
-
-Create `./sync` before starting, then use the API as usual:
-
-```sh
-mkdir -p sync
-docker compose up -d --wait
-curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
-  'http://localhost:4443/storage/v1/b?project=demo-project'
-curl --fail --data-binary 'hello' \
-  'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=docs%2Fhello.txt'
-cat sync/demo-bucket/docs/hello.txt
-```
-
-After readiness, the server exports existing buckets and objects, including empty
-buckets. API create, overwrite, copy, compose and delete then update the files
-shortly after each response; poll rather than expecting the file at response time.
-The SQLite catalog and internal blobs remain the stored state, so the directory
-is a mirror. Data persistence still requires the `/var/lib/gcs-mimic` volume.
-
-Since 0.8.0 the server also watches the directory
-([continuous observation](slices/continuous-directory-observation.md)), applies
-file deletions behind a guard, and offers live status, findings, wait and
-approval controls through `gcs-mimic sync`; 0.7.0 imported files only at
-startup and never deleted objects. Use the
-[synchronization contract](slices/directory-synchronization.md) for the exact
-supported platform/auth/recovery subset. Ready precedes initial reconciliation
-and is not a synchronization-complete signal; `gcs-mimic sync wait` waits for it.
-
-Files created or edited outside the server are imported as new object
-generations, with hashes, shortly after the change; no restart is needed.
-Deleting a file deletes its live object, subject to holds and retention. When at
-least 100 objects would go and they are more than half of the tree, the deletion
-guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until the exact
-set is approved with `gcs-mimic sync approve`. Recent automatic deletions also
-count toward this threshold across split scans. Deleting a bucket directory
-keeps the bucket, and deleting a bucket through the API keeps its directory.
-When both the API and a file changed the same object, the API's version wins:
-the file is replaced with the API's bytes and the edit is retained as a
-conflict, listed by `gcs-mimic sync conflicts` for explicit resolution;
-restoring it publishes the edit. Object names containing `\` or `:`, such as
-`logs/2026-10-28T12:00:00.log`, and other names that cannot be mapped to host
-file names are skipped without stopping the mirror; they stay available through
-the API.
-
-The directory holds `.gcs-mimic-sync.json` and `.gcs-mimic-sync-work`, which tie
-it to one data directory; add both and `.gcs-mimic-sync.json.staging` to
-`.gitignore`. Marker creation writes and syncs the staging file before atomic
-publication. The staging marker component is reserved at every object depth;
-existing API objects using it remain stored but cannot be mapped to the tree.
-Restart can recover a complete staged marker belonging to the same
-catalog/root; foreign or malformed published markers still fail closed. After
-`docker compose down --volumes` or another new data volume, startup rejects the
-old directory with a `ForeignMarker` diagnostic. Move it aside and create a fresh
-empty directory instead. The directory must not overlap the data or seed
-directory. In strict mode, sync controls require project-owner authority through
-the local identity registry. Sync runs on Linux and macOS; on other platforms the
-directory cannot be watched, so the server reports the failure and does not
-become ready.
-
-Directory metadata, ownership and extended-attribute changes revalidate read and
-search access. An inaccessible subtree keeps synchronization readiness down until
-access is repaired and observation recovers.
-
-Exported files and directories are private to the server user (modes `0600` and
-`0700`). Docker Desktop maps ownership on bind mounts, so the files are readable
-on macOS hosts. On a Linux host, the image's UID `10001` would own them; run the
-container as your user and keep the data directory on a bind mount owned by the
-same user:
-
-```sh
-mkdir -p data sync
-docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
-  -p 127.0.0.1:4443:4443 \
-  -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
-  -e GCS_MIMIC_DATA_DIR=/data -e GCS_MIMIC_SYNC_DIR=/sync \
-  ghcr.io/shiroemons/gcs-mimic:0.27.0
-```
-
-See the [synchronization contract](slices/directory-synchronization.md) for the
-verified subset, recovery behavior and pending work.
 
 ## Common settings
 
@@ -568,9 +472,6 @@ It holds `roles/storage.admin` on the project of every bucket the bucket documen
 (`GCS_MIMIC_BUCKETS` or `GCS_MIMIC_BUCKETS_FILE`) creates and on the effective
 `seed_project`, so the application's servers can do what a project owner's
 service account does, and strict mode then starts without an identity document.
-These roles are implicit, so they are not the explicit `roles/storage.admin`
-grant that directory synchronization controls require: those answer 403 on the
-trusted listener until the identity document grants it.
 An entry for `trusted-app@gcs-mimic.invalid` in the identity document
 (`GCS_MIMIC_IDENTITIES` or `GCS_MIMIC_IDENTITY_FILE`) replaces those roles. Set
 `GCS_MIMIC_TRUSTED_PRINCIPAL` to act as another identity of the identity document,

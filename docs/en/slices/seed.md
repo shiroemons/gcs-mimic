@@ -106,13 +106,11 @@ configuration validation. Projects use the same nonempty identifier,
 256-byte maximum and whitespace/control-character rejection as bucket insertion.
 There is no project registry or Google project lookup. `seed_content_type` accepts
 only `extension` and `octet-stream`; empty or unknown values fail validation.
-The same setting also selects the content type of files ingested from a
-synchronized directory.
 
 `default_seed_dir` is a fallback for images that want fake-gcs-server's
 `-data /data` behavior without another variable. At `serve` startup it becomes the
 seed root only when `seed_dir` is unset, the path exists as a directory (not a
-symlink), and it does not overlap `data_dir` or `sync_dir` in either direction.
+symlink), and it does not overlap `data_dir` in either direction.
 Otherwise it is ignored silently and the ready event reports `disabled`. If the
 path cannot be inspected, startup reports a warning diagnostic with key
 `default_seed_dir` and does not seed from it. A configured `seed_dir` is never
@@ -319,6 +317,6 @@ read-only input contract.
 **UX-002 is PARTIAL** with achieved fidelity `PROJECT`: every native acceptance
 case above passes, while `seed-compose` is PENDING until the container smoke
 script asserts replay and is rerun. **DESIGN-062** remains PARTIAL for its
-separate manifest-metadata and synchronization scope; **DESIGN-068** (test admin
+separate manifest-metadata scope; **DESIGN-068** (test admin
 commands such as reset/reseed) remains NOT_STARTED because restart replay adds no
 admin endpoint.

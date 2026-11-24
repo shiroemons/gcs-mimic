@@ -46,16 +46,6 @@ mod tests;
 /// A durable step boundary on a blob write path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
-    #[cfg(unix)]
-    SyncDirectorySync,
-    #[cfg(unix)]
-    SyncDirectoryDurable,
-    SyncMarkerWrite,
-    SyncMarkerSync,
-    SyncMarkerPrepared,
-    SyncMarkerRename,
-    SyncMarkerParentSync,
-    SyncMarkerPublished,
     /// Before probing a failed or rolled-back publication's reference.
     DiscardProbe,
     /// Before committing an expired soft-deleted batch and its deletion journal rows together.
@@ -75,42 +65,6 @@ pub(crate) enum Step {
     RestorePinned,
     /// Before removing an unretained staging entry during startup recovery.
     RecoveryStagingUnlink,
-    TransferAccepted,
-    TransferComplete,
-    TransferCompleted,
-    SyncRecoveryUnlink,
-    SyncRecoveryUnlinked,
-    SyncRecoveryParentSync,
-    SyncRecoveryParentDurable,
-    SyncRecoveryComplete,
-    SyncRecoveryCompleted,
-    SyncRecoveryProtected,
-    ConflictReserved,
-    ConflictWrite,
-    ConflictFlush,
-    ConflictFileSync,
-    ConflictDirectorySync,
-    ConflictRegister,
-    ConflictRegistered,
-    ConflictRestoreCommit,
-    ConflictRestorePublished,
-    ConflictAccept,
-    ConflictAccepted,
-    ConflictUnlink,
-    ConflictUnlinked,
-    ConflictParentSync,
-    ConflictComplete,
-    ConflictCompleted,
-    /// Before copying immutable API bytes into a sync workspace.
-    SyncCopyWrite,
-    /// Before syncing the copied workspace file.
-    SyncCopySync,
-    /// After the copied file and workspace are synced, before installation.
-    SyncCopyDurable,
-    /// After checked installation and the existing namespace syncs.
-    SyncCopyInstalled,
-    /// After the sync fingerprint and completion transaction commits.
-    SyncCopyCommit,
     /// Before reclaiming one namespace entry after a committed reset.
     ResetReclaim,
     /// Before syncing a directory after a committed reset's unlink.
@@ -188,34 +142,6 @@ pub(crate) enum Step {
     AppendSync,
     /// After the appended bytes are durable, before the transaction that publishes their size.
     AppendCommit,
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-#[cfg_attr(
-    target_os = "macos",
-    expect(
-        unsafe_code,
-        reason = "test fault accounting resolves the pinned directory descriptor without changing production I/O"
-    )
-)]
-pub(crate) fn descriptor_path(file: &fs::File) -> io::Result<PathBuf> {
-    use std::os::fd::AsRawFd;
-    #[cfg(target_os = "linux")]
-    {
-        fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
-    }
-    #[cfg(target_os = "macos")]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        let mut bytes = [0u8; libc::PATH_MAX as usize];
-        // SAFETY: F_GETPATH writes at most PATH_MAX bytes into the live output allocation.
-        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, bytes.as_mut_ptr()) } < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let path = std::ffi::CStr::from_bytes_until_nul(&bytes)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        Ok(PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes())))
-    }
 }
 
 /// What an armed step does when it is reached.

@@ -4,9 +4,7 @@
 //! An identity document entry with a built-in's ID replaces it, so an explicit declaration
 //! always wins over the implicit grants.
 
-use super::{
-    GrantSource, Identity, ProjectGrant, Registry, RegistryError, Role, acl_identity, test_signer,
-};
+use super::{Identity, ProjectGrant, Registry, RegistryError, Role, acl_identity, test_signer};
 use crate::config::TrustedCaller;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -58,15 +56,13 @@ impl BuiltIn {
         )
     }
 
-    /// The implicit grants: the role in every project. They carry the role's permissions but no
-    /// explicit `roles/storage.admin`, so they never open sync controls, which the identity
-    /// document alone can grant.
+    /// The implicit grants: the role in every project, with the permissions it carries.
     fn grants(self, projects: &BTreeSet<String>) -> BTreeMap<String, ProjectGrant> {
         projects
             .iter()
             .map(|project| {
                 let mut grant = ProjectGrant::default();
-                grant.add_role(self.role(), GrantSource::Implicit);
+                grant.add_role(self.role());
                 (project.clone(), grant)
             })
             .collect()

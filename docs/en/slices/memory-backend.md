@@ -111,7 +111,6 @@ specific contract and resource accounting are described below.
 
 Appendable storage uses the shared state machine described below.
 The existing gRPC listener can use the same RAM catalog.
-Directory synchronization continues to fail configuration validation.
 Import targets remain disk catalogs. These operations require later RAM slices;
 their disk implementations and existing compatibility claims are unchanged.
 
@@ -468,8 +467,7 @@ the six existing disk adapter cases. Heavy SDK tests are deferred to integration
 Storage v2 adapter and pinned legacy v1 migration subset with the same catalog as
 JSON and XML. Listener address and advertised API/public endpoints retain their
 existing meanings. UNIX-listener combination restrictions, strict authentication
-and unsupported authentication fields are unchanged. Directory synchronization
-remains explicitly unsupported on RAM.
+and unsupported authentication fields are unchanged.
 
 The supported fields, masks, preconditions, response shapes, checksum behavior,
 errors and exclusions are those of the existing [v2 object I/O](grpc-v2-object-io.md),

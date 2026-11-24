@@ -16,8 +16,6 @@ Foundation checks. Publication requires all three to pass. Foundation covers fmt
 and OS/ABI Clippy checks; release builds restore no Cargo cache.
 
 Every published release ships all eight targets.
-Directory synchronization remains unsupported on Windows;
-`sync_dir` is rejected there with a diagnostic.
 
 | OS / ABI | CPU | Rust target | Native runner | Archive |
 | --- | --- | --- | --- | --- |

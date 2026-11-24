@@ -1,6 +1,5 @@
 //! Helper-command help texts are documented commands and options, so their bytes are pinned as
-//! `--help` is. `gcs-mimic sync` is left out: its options are outside the 1.0 contract until
-//! directory synchronization is complete.
+//! `--help` is.
 use crate::common;
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -38,5 +37,32 @@ fn helper_help_texts_keep_their_exact_bytes() {
         let output = common::server_command().args(args).output().unwrap();
         assert_eq!(output.status.code(), Some(0), "{args:?}");
         assert_eq!(sha256_hex(&output.stdout), expected, "{args:?}");
+    }
+}
+
+/// `gcs-mimic sync` went with directory synchronization. A script that still runs it, even for
+/// its help, stops before any option is read and learns that `--seed-dir` reads a folder.
+#[test]
+fn the_removed_sync_command_fails_with_its_replacement() {
+    for args in [
+        ["sync"].as_slice(),
+        &["sync", "--help"],
+        &["sync", "status", "--endpoint", "http://127.0.0.1:1"],
+    ] {
+        let output = common::server_command()
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(output.stdout.is_empty(), "{args:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let report = serde_json::from_str::<serde_json::Value>(stderr.trim()).unwrap();
+        let diagnostic = &report["diagnostics"][0];
+        assert_eq!(diagnostic["key"], "command", "{args:?}");
+        assert_eq!(
+            diagnostic["fix"],
+            "gcs-mimic sync was removed with directory synchronization. seed_dir reads a folder without writing to it; start the server with --seed-dir DIRECTORY instead."
+        );
     }
 }

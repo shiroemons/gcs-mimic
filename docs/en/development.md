@@ -88,9 +88,8 @@ docker run --rm -v "$PWD":/w -v gcs-target:/t -v gcs-cargo:/usr/local/cargo/regi
   -e CARGO_TARGET_DIR=/t -w /w "$RUST_IMAGE" sh /linux-lib-tests.sh
 ```
 
-Do not run the tests as root: three permission-denied sync tests
-(`ingest_unreadable_file_is_deferred_while_other_files_progress` and the two
-`sync::mirror` permission tests) fail there, and CI does not run as root. Windows
+Do not run the tests as root: the tests that take away a file's read
+permission fail there, and CI does not run as root. Windows
 tests cannot run locally; keep timestamp tests to values every platform holds exactly.
 
 The local Rust check ignores an inherited `RUSTUP_TOOLCHAIN` and uses the
@@ -542,8 +541,7 @@ A function that runs only at open carries the reason itself:
 fn recover_on_open(connection: &mut Connection) -> Result<(), CatalogError> {
 ```
 
-A module that no request path calls, such as the sync mirror's write-back
-state, uses one inner `#![expect(...)]` whose reason names what makes it
+A module that no request path calls, such as a startup-only importer, uses one inner `#![expect(...)]` whose reason names what makes it
 request-free. Module scope also hides a request-path statement added later,
 so trace the callers before adding a statement to such a module, and move
 the expectation to its functions once any caller is request-driven.

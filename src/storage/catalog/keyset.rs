@@ -91,22 +91,8 @@ impl fmt::Display for InvalidPageLimit {
 impl std::error::Error for InvalidPageLimit {}
 
 impl<const MAX: usize> PageLimit<MAX> {
-    /// The largest page, for internal callers that read as much as one call allows.
-    pub(crate) const LARGEST: Self = match NonZeroUsize::new(MAX) {
-        Some(max) => Self(max),
-        // A listing returns at least one item per page; `MAX` 0 would be a declaration error.
-        None => Self(NonZeroUsize::MIN),
-    };
-
     pub(crate) const fn get(self) -> usize {
         self.0.get()
-    }
-
-    /// This size plus the one item a caller reads past the page to learn whether the listing
-    /// continues. The compiler rejects a `WIDER` listing that cannot hold that extra item.
-    pub(crate) const fn with_lookahead<const WIDER: usize>(self) -> PageLimit<WIDER> {
-        const { assert!(WIDER > MAX, "a look-ahead listing holds one item more") };
-        PageLimit(self.0.saturating_add(1))
     }
 }
 
@@ -125,58 +111,6 @@ impl<const MAX: usize> TryFrom<usize> for PageLimit<MAX> {
 impl<const MAX: usize> rusqlite::ToSql for PageLimit<MAX> {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
         self.0.to_sql()
-    }
-}
-
-/// A keyset position over a non-negative INTEGER ordinal column: rows after it have a larger
-/// ordinal, and [`Ordinal::START`] precedes every row. It serializes as its integer.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
-#[serde(transparent)]
-pub(crate) struct Ordinal(i64);
-
-/// A negative keyset position.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct InvalidOrdinal;
-
-impl fmt::Display for InvalidOrdinal {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("keyset position is negative")
-    }
-}
-
-impl std::error::Error for InvalidOrdinal {}
-
-impl Ordinal {
-    pub(crate) const START: Self = Self(0);
-
-    pub(crate) const fn get(self) -> i64 {
-        self.0
-    }
-}
-
-impl TryFrom<i64> for Ordinal {
-    type Error = InvalidOrdinal;
-
-    fn try_from(value: i64) -> Result<Self, InvalidOrdinal> {
-        if value < 0 {
-            Err(InvalidOrdinal)
-        } else {
-            Ok(Self(value))
-        }
-    }
-}
-
-impl rusqlite::ToSql for Ordinal {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        self.0.to_sql()
-    }
-}
-
-/// A stored negative ordinal is catalog corruption (`IntegralValueOutOfRange`, classified corrupt).
-impl rusqlite::types::FromSql for Ordinal {
-    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
-        let value = i64::column_result(value)?;
-        Self::try_from(value).map_err(|_| rusqlite::types::FromSqlError::OutOfRange(value))
     }
 }
 

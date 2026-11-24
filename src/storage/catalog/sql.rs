@@ -134,9 +134,9 @@ integer_enum!(crate::bucket::PublicAccessPrevention, { Inherited => 0, Enforced 
 // The effective access a bucket query computes from its own setting and its parent project's.
 integer_enum!(crate::auth::PublicAccess, { Allowed => 0, Prevented => 1 });
 
-// Only sync_state columns decode into these types: those rows are written from them. Catalog
-// tables (`objects`, `buckets`, ...) may hold names the fake-gcs-server profile or an older
-// transport accepted, so their rows decode as `String`.
+// Only columns written from these types decode into them. Catalog tables (`objects`,
+// `buckets`, ...) may hold names the fake-gcs-server profile or an older transport accepted, so
+// their rows decode as `String`.
 macro_rules! name_column {
     ($name:ty) => {
         impl rusqlite::ToSql for $name {
@@ -472,15 +472,8 @@ mod tests {
     fn stored_enum_values_keep_the_catalog_format() {
         use crate::bucket::{Location, LocationKind, StorageClass};
         use crate::storage::catalog::{
-            admin::Origin,
-            change_journal::ChangeKind,
-            hmac_keys::HmacKeyState,
-            sync_state::{
-                observation::PathStop,
-                writeback::{Kind, Phase},
-            },
+            admin::Origin, change_journal::ChangeKind, hmac_keys::HmacKeyState,
         };
-        use crate::sync::mapping::Reason;
         text_values(&[
             (StorageClass::Standard, "STANDARD"),
             (StorageClass::Nearline, "NEARLINE"),
@@ -506,7 +499,6 @@ mod tests {
             (Origin::Api, "api"),
             (Origin::Seed, "seed"),
             (Origin::BucketInit, "bucket-init"),
-            (Origin::SyncIngest, "sync-ingest"),
             (Origin::Import, "import"),
         ]);
         text_values(&[
@@ -531,20 +523,6 @@ mod tests {
                 (StoredState::Cancelled, "CANCELLED"),
             ]);
         }
-        text_values(&[
-            (Reason::InvalidName, "invalid-name"),
-            (Reason::HostRestriction, "host-restriction"),
-            (Reason::Reserved, "reserved"),
-            (Reason::Ignored, "ignored"),
-            (Reason::Collision, "collision"),
-            (Reason::UnsafeEntry, "unsafe-entry"),
-        ]);
-        text_values(&[
-            (PathStop::ProtectedDeletion, "ProtectedDeletion"),
-            (PathStop::SourceChanging, "SourceChanging"),
-            (PathStop::IoFailure, "IoFailure"),
-        ]);
-        integer_values(&[(Kind::Publish, 0), (Kind::Remove, 1)], 2);
         integer_values(
             &[
                 (crate::bucket::PublicAccessPrevention::Inherited, 0),
@@ -559,35 +537,12 @@ mod tests {
             ],
             2,
         );
-        integer_values(
-            &[
-                (Phase::Prepared, 0),
-                (Phase::Armed, 1),
-                (Phase::Protected, 2),
-                (Phase::Durable, 3),
-                (Phase::Complete, 4),
-            ],
-            5,
-        );
-        integer_values(
-            &[
-                (
-                    crate::storage::catalog::sync_state::conflicts::Action::Restore,
-                    0,
-                ),
-                (
-                    crate::storage::catalog::sync_state::conflicts::Action::Discard,
-                    1,
-                ),
-            ],
-            2,
-        );
     }
 
-    /// sync_state rows are written only from these types, so a value outside their rules is a
-    /// corrupt catalog.
+    /// A column written from these types holds only values their rules accept, so a value
+    /// outside them is a corrupt catalog.
     #[test]
-    fn sync_state_name_and_generation_columns_reject_invalid_values_as_corruption() {
+    fn typed_name_and_generation_columns_reject_invalid_values_as_corruption() {
         use crate::bucket::name::BucketName;
         use crate::object::{generation::Generation, name::ObjectName};
         let connection = Connection::open_in_memory().unwrap();

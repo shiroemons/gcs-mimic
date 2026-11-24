@@ -1,0 +1,132 @@
+The temporary path prefix is replaced with <temp>, and the space each listing line ended with is
+removed; other output is unchanged.
+Run on 2026-11-20 on an arm64 macOS host, whose directories lie on APFS, with Docker Desktop
+29.9.3. The gcs-mimic image was built from the sources of the commit before this record; the
+build output is not included.
+
+1. One rescan and wait over 1,000 files on a bind mount
+
+The root probe finds the bind mount folding letter case and Unicode normalization, so every
+lookup below it confirms a spelling from a listing of its parent. One measurement, not a gate.
+
+$ docker build --platform linux/arm64 --build-arg CARGO_BUILD_JOBS=8 -t gcs-mimic-listing-fallback:fixed .
+$ cat <temp>/listing-bench.sh
+#!/bin/zsh
+# One measurement of `sync rescan` followed by `sync wait` on a Docker Desktop bind mount.
+# Usage: listing-bench.sh TAG RUN   (TAG is the image tag: before or after; RUN names a fresh directory)
+set -u
+zmodload zsh/datetime
+tag=$1
+scratch=<temp>
+base=$scratch/listing-bench/$tag-$2
+name=gcs-mimic-listing-$tag
+image=gcs-mimic-listing-fallback:$tag
+
+mkdir -p "$base/sync/bench-bucket"
+for i in $(seq -w 1 1000); do
+  printf 'object %s\n' "$i" > "$base/sync/bench-bucket/file-$i.txt"
+done
+echo "files: $(ls "$base/sync/bench-bucket" | wc -l)"
+
+# Health turns healthy once the first pass has ingested and exported the tree. Reading the event
+# stream blocks until Docker reports it, so nothing polls.
+since=$(date +%s)
+coproc docker events --since "$since" --filter "container=$name" --filter event=health_status --format '{{.Action}}'
+events=$!
+t0=$EPOCHREALTIME
+docker run -d --name "$name" --platform linux/arm64 \
+  -e GCS_MIMIC_SYNC_DIR=/sync -v "$base/sync:/sync" "$image" >/dev/null || exit 1
+while read -p line; do
+  echo "  event: $line"
+  [[ $line == *": healthy" ]] && break
+done
+t1=$EPOCHREALTIME
+kill $events 2>/dev/null
+printf 'start to healthy: %.2fs\n' $(( t1 - t0 ))
+
+for round in 1 2; do
+  rescan_status=0
+  wait_status=0
+  t0=$EPOCHREALTIME
+  docker exec "$name" gcs-mimic sync rescan --timeout 60s >"$base/rescan-$round.out" 2>&1 || rescan_status=$?
+  t1=$EPOCHREALTIME
+  docker exec "$name" gcs-mimic sync wait --timeout 60m >"$base/wait-$round.out" 2>&1 || wait_status=$?
+  t2=$EPOCHREALTIME
+  printf 'round %s: rescan exit=%s %.2fs, wait exit=%s %.2fs, total %.2fs\n' \
+    "$round" "$rescan_status" $(( t1 - t0 )) "$wait_status" $(( t2 - t1 )) $(( t2 - t0 ))
+done
+
+docker logs "$name" >"$base/server.log" 2>&1
+docker rm -f "$name" >/dev/null
+echo "server log lines: $(wc -l <"$base/server.log")"
+$ zsh <temp>/listing-bench.sh fixed run1
+files:     1000
+  event: health_status: healthy
+start to healthy: 38.59s
+round 1: rescan exit=0 1.96s, wait exit=0 1.48s, total 3.44s
+round 2: rescan exit=0 1.38s, wait exit=0 1.26s, total 2.64s
+server log lines:       11
+
+The server log named the probed rules:
+{"event":"sync_root_naming","level":"info","colon":"accepted","case":"insensitive","normalization":"insensitive","name_max":255}
+
+2. A directory's attributes after a case-only rename on the host
+
+GNU coreutils stat asks with AT_STATX_DONT_SYNC under --cached=always, with
+AT_STATX_SYNC_AS_STAT, which is what fstat answers, by default, and with AT_STATX_FORCE_SYNC
+under --cached=never. The container mounts a host directory as the mirror's bind mount does.
+
+$ docker pull --platform linux/arm64 debian:trixie-slim
+$ docker image inspect debian:trixie-slim --format '{{index .RepoDigests 0}}'
+debian@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
+$ cat <temp>/cache-check.sh
+#!/bin/zsh
+# Whether a Docker Desktop bind mount answers a directory's attributes from a cache after a
+# case-only rename made on the host, and whether AT_STATX_FORCE_SYNC sees past it.
+# coreutils stat: --cached=always is AT_STATX_DONT_SYNC, --cached=never is AT_STATX_FORCE_SYNC,
+# and the default is AT_STATX_SYNC_AS_STAT, what fstat answers.
+set -u
+scratch=<temp>
+base=$scratch/cache-check-run
+name=gcsm-cache-check
+image=debian:trixie-slim
+mkdir -p "$base/dir"
+: > "$base/dir/Actual"
+docker run -d --name "$name" --platform linux/arm64 -v "$base:/m" "$image" sleep 600 >/dev/null || exit 1
+show() {
+  local label=$1
+  for mode in always default never; do
+    if [[ $mode == default ]]; then
+      line=$(docker exec "$name" stat -c '%y | %z' /m/dir)
+    else
+      line=$(docker exec "$name" stat --cached=$mode -c '%y | %z' /m/dir)
+    fi
+    printf '%-14s %-8s %s\n' "$label" "$mode" "$line"
+  done
+  printf '%-14s listing  %s\n' "$label" "$(docker exec "$name" ls /m/dir | tr '\n' ' ')"
+}
+show before
+mv "$base/dir/Actual" "$base/dir/actual"
+printf 'host renamed Actual -> actual; host stat: %s\n' "$(stat -f '%Sm | %Sc' -t '%Y-%m-%d %H:%M:%S' "$base/dir")"
+show after
+docker rm -f "$name" >/dev/null
+$ zsh <temp>/cache-check.sh
+before         always   2026-11-19 22:44:53.500787403 +0000 | 2026-11-19 22:44:53.500787403 +0000
+before         default  2026-11-19 22:44:53.500787403 +0000 | 2026-11-19 22:44:53.500787403 +0000
+before         never    2026-11-19 22:44:53.500787403 +0000 | 2026-11-19 22:44:53.500787403 +0000
+before         listing  Actual
+host renamed Actual -> actual; host stat: 2026-11-20 07:44:54 | 2026-11-20 07:44:54
+after          always   2026-11-19 22:44:53.500787403 +0000 | 2026-11-19 22:44:53.500787403 +0000
+after          default  2026-11-19 22:44:53.500787403 +0000 | 2026-11-19 22:44:53.500787403 +0000
+after          never    2026-11-19 22:44:54.148865271 +0000 | 2026-11-19 22:44:54.148865271 +0000
+after          listing  actual
+
+The host's stat prints local time (UTC+9). After the rename, what fstat answers still carries the
+directory's modification and change times from before it, while the listing already shows the
+new spelling; AT_STATX_FORCE_SYNC returns the new times. A listing kept against the fstat answer
+would have kept answering with the old name. The mirror matches and keeps listings against the
+AT_STATX_FORCE_SYNC answer on Linux, so this rename makes its next lookup read the directory again.
+
+Not reproduced: a case-only rename on the host timed to fall between two lookups of one gcs-mimic
+pass. The run above shows the attribute cache that such a rename would meet and the request that
+sees past it, not the mirror's own pass.

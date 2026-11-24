@@ -215,8 +215,8 @@ where
 /// Whether a background task is doing its work, as readiness reports it.
 ///
 /// A task is down while it waits to restart after a panic and until a pass of the replacement
-/// succeeds, while [`FAILED_PASSES_BEFORE_DOWN`] or more consecutive passes have failed, and
-/// after it stopped for good with an error. A successful pass clears the first two.
+/// succeeds, and while [`FAILED_PASSES_BEFORE_DOWN`] or more consecutive passes have failed. A
+/// successful pass clears both.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct TaskHealth(Arc<HealthState>);
 
@@ -224,19 +224,12 @@ pub(crate) struct TaskHealth(Arc<HealthState>);
 struct HealthState {
     restarting: AtomicBool,
     failed_passes: AtomicU32,
-    stopped: AtomicBool,
 }
 
 impl TaskHealth {
     pub(crate) fn is_down(&self) -> bool {
         self.0.restarting.load(Ordering::Acquire)
-            || self.0.stopped.load(Ordering::Acquire)
             || self.0.failed_passes.load(Ordering::Acquire) >= FAILED_PASSES_BEFORE_DOWN
-    }
-
-    /// Records that the task stopped with an error and will not run again.
-    pub(crate) fn mark_stopped(&self) {
-        self.0.stopped.store(true, Ordering::Release);
     }
 
     /// Records a pass that did its work; it ends a restart gap and a run of failed passes.
@@ -648,14 +641,6 @@ pub(crate) mod tests {
             !health.is_down(),
             "the failure count restarts after a success"
         );
-    }
-
-    #[test]
-    fn a_stopped_task_stays_down() {
-        let health = TaskHealth::default();
-        health.mark_stopped();
-        health.pass_succeeded();
-        assert!(health.is_down());
     }
 
     #[test]

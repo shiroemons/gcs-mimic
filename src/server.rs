@@ -602,6 +602,13 @@ impl ObjectActivity {
         }
     }
 
+    /// Starts an object request whose connection enforces `deadline`, or none. An expiry the
+    /// connection already claimed stays visible to later catalog waits.
+    fn start_object(&mut self, deadline: Option<tokio::time::Instant>) {
+        self.end_catalog_wait();
+        self.deadline = deadline;
+    }
+
     /// Forgets the object request, keeping only a claimed expiry: a batch can go on to its next
     /// part, whose catalog wait must not start behind the timeout reply.
     fn finish_object(&mut self) {
@@ -753,28 +760,15 @@ impl Drop for CatalogWaitGuard<'_> {
 pub(crate) async fn begin_catalog_wait(
     activity: &watch::Sender<ObjectActivity>,
 ) -> CatalogWaitGuard<'_> {
-    claim_catalog_wait(activity, |_| {}).await;
+    claim_catalog_wait(activity).await;
     CatalogWaitGuard(activity)
 }
 
-/// Starts a catalog wait bounded by `deadline` instead of the request deadline, which lasts until
-/// the handler finishes its object request.
-pub(crate) async fn begin_catalog_wait_until(
-    activity: &watch::Sender<ObjectActivity>,
-    deadline: Option<tokio::time::Instant>,
-) {
-    claim_catalog_wait(activity, |progress| progress.deadline = deadline).await;
-}
-
-async fn claim_catalog_wait(
-    activity: &watch::Sender<ObjectActivity>,
-    update: impl FnOnce(&mut ObjectActivity),
-) {
+async fn claim_catalog_wait(activity: &watch::Sender<ObjectActivity>) {
     let mut expired = false;
     activity.send_if_modified(|progress| match progress.stage {
         RequestStage::Running | RequestStage::AwaitingCatalog => {
             progress.stage = RequestStage::AwaitingCatalog;
-            update(progress);
             true
         }
         RequestStage::Expired(_) => {
@@ -868,8 +862,7 @@ impl TcpListeners {
 pub struct Stop<S, D> {
     /// Resolves when the server should stop accepting; its error becomes the server's result.
     pub signal: S,
-    /// Work outside the server, such as directory synchronization, that ends before the catalog
-    /// closes.
+    /// Work outside the server that ends before the catalog closes.
     pub background: D,
 }
 

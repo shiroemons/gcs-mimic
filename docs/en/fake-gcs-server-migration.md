@@ -602,7 +602,7 @@ for new configurations.
 | `-port-http` | Native `--port-http`, `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; default primary IP:8000. Other schemes fail instead of discarding the port |
 | `-external-url` | Refused; choose `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Source fixes selfLink/mediaLink only; native fixes resumable URLs too. Choose an address every client can reach, or omit the fixed origin |
 | `-public-host` | Accepted as `--public-base-url` with the effective scheme | Its subdomains select virtual-host buckets; JSON API callers must use another host or set `--api-base-url` explicitly. Existing explicit API-origin conflicts still fail |
-| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup. Exactly identical objects keep their generation. Since 0.8.0, seeding publishes the complete tree atomically, fails the entire replay on a differing protected object, and adds opt-in reseed; live synchronization uses a separate `--sync-dir`. 0.7.0 and earlier lack those additions. |
+| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup. Exactly identical objects keep their generation. Since 0.8.0, seeding publishes the complete tree atomically, fails the entire replay on a differing protected object, and adds opt-in reseed. 0.7.0 and earlier lack those additions. |
 | `-filesystem-root` | Refused; choose `--data-dir` or `GCS_MIMIC_DATA_DIR` | Image path `/var/lib/gcs-mimic`; convert a stopped source snapshot with `gcs-mimic import fake-gcs-server` instead of reusing its format |
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
 | `-log-level` | Native `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr and informational diagnostic severity; validation warnings/errors and stdout lifecycle remain unfiltered |
@@ -709,24 +709,12 @@ required conflict blocks the full compatibility claim.
 
 ## Editable directory requirement
 
-Replacement also requires a visible bucket/object directory with bidirectional
-synchronization: external additions, changes and deletions reach the API, and API
-mutations appear in that directory. Since 0.8.0, gcs-mimic provides bounded
-observation, shared create/edit ingestion, API write-back and revision-bound
-deletion controls. Complete conflict/recovery/strict/platform acceptance is
-still being integrated. Seed/import alone does not satisfy this requirement.
-
-SQLite may remain the metadata/index catalog. A synchronized working tree can
-feed the existing bounded publication engine while preserving immutable internal
-blobs. Conflict behavior, synchronization delay and unusual-name representation
-remain explicit in the [sync contract](slices/directory-synchronization.md).
-Use the [live CLI](slices/sync-cli.md) for supported status/findings/deletion,
-rescan, approval and fixed-fence waits without opening another catalog process.
-The planning contract is
-`delivery_plan.migration.filesystem_sync_contract` in the feature ledger.
+Directory synchronization was removed: `seed_dir` reads a folder at startup and
+never writes to it ([seed contract](slices/seed.md)), so API writes do not appear
+as files. SQLite remains the metadata/index catalog with opaque immutable blobs.
+The ledger entry `delivery_plan.migration.filesystem_sync_contract` records the
+withdrawn requirement.
 See the [source investigation and executed file-edit cases](fake-gcs-server-storage.md).
-Safe reconciliation must update hashes and generations; copying the source's
-stale-metadata behavior is not a sufficient editing contract.
 
 ## Data movement without coupling internal formats
 

@@ -26,12 +26,11 @@ The ledger's order is a selection preference; only `depends_on` blocks a track.
 | First | Configuration | CLI/env validation, advertised/public endpoints and host routing | Freeze each affected source configuration contract |
 | Next | Shared state integration | Bucket identity, initialization authority, readiness and mutation interface | Existing runtime and bucket update behavior |
 | Next | Bucket initializer | File parser, create-missing orchestration, initial IAM policy and opt-in reconcile mode | Shared state contract and initialization schema |
-| Next | Directory synchronization | Watch/rescan adapter and API write-back | Shared state contract and sync conflict/name/recovery design |
 | Next | Seed and source import | Read-only source readers, manifests and preservation reports | Scoped source storage contract and existing ingestion |
-| Then | Rails and reference coverage | Isolated client/protocol/profile slices | Their own ledger prerequisites; no blanket initializer/sync gate |
+| Then | Rails and reference coverage | Isolated client/protocol/profile slices | Their own ledger prerequisites; no blanket initializer gate |
 | Final gate | Release integration | All baseline capabilities, migration and named additions | Every required scope and public distribution evidence |
 
-Distribution must not wait for Rails, initializer or sync completion. The current
+Distribution must not wait for Rails or initializer completion. The current
 workflow still requires its native release/platform gates before publishing an
 image. Local images do not satisfy registry publication. Likewise, source-format
 research, seed metadata and import readers do not wait for a watcher.
@@ -63,12 +62,6 @@ coding. Validate the entire file, including duplicate names and unsupported
 settings, before mutation. Create only missing buckets. Test two different CORS
 and versioning configurations, API edits, repeated startup, removed entries and
 interruption/retry without resetting existing settings or objects.
-
-**Directory sync:** decide conflicts, portable names, metadata ownership and
-synchronization delay before coding. Verify create/edit/delete/rename in both
-directions, partial/editor writes, self-events, missed notifications, bounded
-rescans and disk-full/interruption recovery. Preserve immutable generations and
-report conflicts visibly. Watching files without coherent metadata is incomplete.
 
 **Seed/import:** freeze `/data` versus runtime `/storage`, MIME rules, bucket
 metadata and xattr/sidecar decoding in a scoped storage contract. Reader/manifest
@@ -396,14 +389,10 @@ capabilities. Literal option spelling and configuration structure need not
 match. The acceptance contract is [the migration contract](fake-gcs-server-migration.md);
 its milestones live in `delivery_plan.migration`. They add no implementation status.
 
-The migration track also requires bidirectional synchronization with an
-inspectable bucket/object directory. Seed import and one-time conversion do not
-satisfy it. The [filesystem investigation](fake-gcs-server-storage.md) records
-the accepted requirement. A scoped implementation exports API changes and
-ingests external creates/edits with revision-bound deletion; conflict/recovery
-controls and platform guarantees remain open (DESIGN-062, DESIGN-072 and
-DESIGN-074 stay PARTIAL). See the
-[sync contract](slices/directory-synchronization.md).
+Directory synchronization was removed from the migration track: `seed_dir` reads
+a folder at startup and never writes to it ([seed contract](slices/seed.md)). The
+[filesystem investigation](fake-gcs-server-storage.md) records the original
+source behavior.
 
 Before each capability slice, reconcile only its affected contracts and profile
 conflicts. The complete source inventory is a full-replacement verification
@@ -468,11 +457,9 @@ flowchart TD
   G --> V
   E --> H[Shared state contract]
   H --> N[Bucket initializer]
-  H --> Y[Directory synchronization]
   E --> K[Configuration workflows]
   E --> Z[Release verification]
   N --> V
-  Y --> V
   K --> V
   Z --> V
 ```

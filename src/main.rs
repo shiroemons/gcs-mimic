@@ -15,7 +15,6 @@ use std::{
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 mod buckets_cli;
 mod startup;
-mod sync_cli;
 // Binary tests cannot access the library's cfg(test) module.
 #[cfg(test)]
 #[expect(
@@ -81,6 +80,8 @@ Style defaults to path; virtual-hosted prepends the bucket to a DNS base with no
 Enable that base in --xml-virtual-host-domains; HTTPS requires a matching supplied certificate.
 No config file is read unless --config PATH is explicit; its public_base_url supplies the default
 base, overridden by --base-url. No environment, Google IAM call or permission change occurs.";
+
+const REMOVED_SYNC: &str = "gcs-mimic sync was removed with directory synchronization. seed_dir reads a folder without writing to it; start the server with --seed-dir DIRECTORY instead.";
 
 const TEST_SIGNER_HELP: &str = "Usage: gcs-mimic test-signer credentials
 
@@ -209,8 +210,9 @@ fn cli_args() -> Result<Vec<String>, Diagnostics> {
 fn run() -> Result<(), CliError> {
     let args = cli_args()?;
     match args.as_slice() {
-        [command, rest @ ..] if command == "sync" => {
-            return sync_cli::run(rest);
+        // A script written for an older release fails with what replaced the command.
+        [command, ..] if command == "sync" => {
+            return Err(Diagnostics::error(DiagnosticSource::Cli, "command", REMOVED_SYNC).into());
         }
         [command, kind, rest @ ..] if command == "import" && kind == "fake-gcs-server" => {
             return gcs_mimic::import::cli(rest).map_err(CliError::from);

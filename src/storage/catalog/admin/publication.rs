@@ -153,10 +153,6 @@ enum StagedLease {
 enum Tracking {
     /// An ordinary administrative publication.
     Plain,
-    /// Sync ingest records the tree fingerprint in the same transaction.
-    Sync(super::super::sync_state::SyncUpdate),
-    /// An operator restore completes its conflict resolution in the same transaction.
-    Restore(super::super::sync_state::conflicts::ResolutionBinding),
     /// Offline import keeps the source's generation and timestamps.
     Imported(ImportedIdentity),
 }
@@ -181,18 +177,6 @@ impl StagedObject {
             tracking: Tracking::Plain,
         }
     }
-    pub(crate) fn with_sync_resolution(
-        mut self,
-        binding: super::super::sync_state::conflicts::ResolutionBinding,
-    ) -> Self {
-        self.tracking = Tracking::Restore(binding);
-        self
-    }
-    /// A later call replaces the state an earlier one set.
-    pub(crate) fn with_sync_state(mut self, update: super::super::sync_state::SyncUpdate) -> Self {
-        self.tracking = Tracking::Sync(update);
-        self
-    }
     /// Seed batches share one admission so that 256 handle permits cannot deadlock a larger tree.
     pub(super) fn into_batch(mut self, admission: Arc<OwnedSemaphorePermit>) -> Self {
         if let Some(owned) = &mut self.owned {
@@ -215,7 +199,7 @@ impl StagedObject {
     fn import_identity(&self) -> Option<ImportedIdentity> {
         match &self.tracking {
             Tracking::Imported(identity) => Some(*identity),
-            Tracking::Plain | Tracking::Sync(_) | Tracking::Restore(_) => None,
+            Tracking::Plain => None,
         }
     }
     pub(crate) async fn discard(self) -> Result<(), AdminError> {
@@ -227,6 +211,7 @@ impl StagedObject {
     pub(crate) fn size(&self) -> u64 {
         self.size
     }
+    #[cfg(test)]
     pub(crate) fn hashes(&self) -> crate::hashing::Hashes {
         self.hashes
     }
@@ -662,11 +647,6 @@ impl Admin {
             entry
                 .identity
                 .validate_publication(&entry.publication.request)?;
-            if !matches!(entry.publication.staged.tracking, Tracking::Plain) {
-                return Err(AdminError::Invalid(
-                    "imported publications cannot carry synchronization state".into(),
-                ));
-            }
         }
         let sources = entries
             .iter()
@@ -1040,7 +1020,7 @@ fn publication_record(
 }
 
 /// Publishes one element. Its failure says whether only this element fails or the batch stops,
-/// so it is an administrative failure; a restore's check of its original answers in those terms.
+/// so it is an administrative failure.
 fn publish_entry(
     transaction: &rusqlite::Transaction<'_>,
     entry: &BatchPublication,
@@ -1050,9 +1030,6 @@ fn publish_entry(
     let now = clock.now();
     let micros = checked_entry_micros(entry, now)?;
     check_import_requirements(entry)?;
-    if let Tracking::Restore(binding) = &entry.staged.tracking {
-        super::super::sync_state::conflicts::validate_restore(transaction, binding)?;
-    }
     Ok(publish_checked_entry(
         transaction,
         entry,
@@ -1120,11 +1097,9 @@ fn publish_checked_entry(
         staged.hashes.md5,
         staged.hashes.crc32c,
     ) {
-        let record = previous
+        return previous
             .map(|stored| stored.record)
-            .ok_or(ObjectError::ObjectNotFound)?;
-        record_staged_state(transaction, staged, &record)?;
-        return Ok(record);
+            .ok_or(ObjectError::ObjectNotFound);
     }
     let time = super::super::system_time_micros(micros)?;
     let defaults = objects::PublicationDefaults {
@@ -1194,25 +1169,7 @@ fn record_publication_metadata(
         entry.request.metadata.acl.entries(),
         access,
         record,
-    )?;
-    record_staged_state(transaction, &entry.staged, record)
-}
-
-fn record_staged_state(
-    transaction: &rusqlite::Transaction<'_>,
-    staged: &StagedObject,
-    record: &ObjectRecord,
-) -> Result<(), ObjectError> {
-    match &staged.tracking {
-        Tracking::Sync(update) => {
-            super::super::sync_state::record_in_transaction(transaction, update, record)?;
-        }
-        Tracking::Restore(binding) => {
-            super::super::sync_state::conflicts::complete_restore(transaction, binding, record)?;
-        }
-        Tracking::Plain | Tracking::Imported(_) => {}
-    }
-    Ok(())
+    )
 }
 
 pub(in crate::storage::catalog) fn apply_acl(

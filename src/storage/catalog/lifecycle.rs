@@ -86,8 +86,6 @@ pub(super) struct LifecycleSchedule {
     armed: AtomicBool,
     dirty: AtomicBool,
     enabled: AtomicBool,
-    sync_disabled: AtomicBool,
-    sync_notice: AtomicBool,
     state: Mutex<ScheduleState>,
     pass: tokio::sync::Semaphore,
 }
@@ -113,8 +111,6 @@ impl LifecycleSchedule {
             armed: AtomicBool::new(armed),
             dirty: AtomicBool::new(armed),
             enabled: AtomicBool::new(false),
-            sync_disabled: AtomicBool::new(false),
-            sync_notice: AtomicBool::new(false),
             state: Mutex::new(ScheduleState::default()),
             pass: tokio::sync::Semaphore::new(1),
         })
@@ -132,25 +128,12 @@ impl LifecycleSchedule {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
-
-    fn notify_sync_disabled(&self) {
-        if self.sync_disabled.load(Ordering::Acquire)
-            && !self.sync_notice.swap(true, Ordering::AcqRel)
-        {
-            crate::diagnostics::emit(
-                crate::diagnostics::LogLevel::Info,
-                "lifecycle_sync_disabled",
-                serde_json::json!({"message":"Stored lifecycle rules are not executed while directory synchronization is configured by default. Set lifecycle_execution=enabled to execute lifecycle actions; like API deletions, Delete also removes synchronized host files."}),
-            );
-        }
-    }
 }
 
 impl Inner {
     /// Called on the writer after a transaction stores rules, even if a prior scan disarmed us.
     pub(super) fn lifecycle_rules_changed(&self) {
         self.lifecycle.armed.store(true, Ordering::Release);
-        self.lifecycle.notify_sync_disabled();
         self.lifecycle.on_write(&self.maintenance_wake);
     }
 }
@@ -240,15 +223,7 @@ pub(super) enum Pass {
 impl Catalog {
     /// Applied before maintenance starts; stored rules still round trip while execution is off.
     pub fn configure_lifecycle(&self, config: &crate::config::Config) {
-        let schedule = &self.0.lifecycle;
-        schedule.sync_disabled.store(
-            config.sync_dir.is_some() && config.lifecycle_execution.is_none(),
-            Ordering::Release,
-        );
-        if schedule.armed.load(Ordering::Acquire) {
-            schedule.notify_sync_disabled();
-        }
-        schedule.enabled.store(
+        self.0.lifecycle.enabled.store(
             config.effective_lifecycle_execution() == crate::config::LifecycleExecution::Enabled,
             Ordering::Release,
         );
@@ -879,7 +854,6 @@ fn retire_version(
             now,
             conditions: Default::default(),
             access: &BucketAccess::Permissive,
-            sync_binding: None,
         },
     )?;
     let archived = deleted.retirement == objects::Retirement::Noncurrent;

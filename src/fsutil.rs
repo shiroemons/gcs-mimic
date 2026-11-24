@@ -2,8 +2,6 @@
 //! Descriptor-based filesystem operations; OS-specific unsafe stays in this module.
 
 use std::{collections::VecDeque, ffi::OsString, fs::File, io};
-mod hash;
-pub(crate) use hash::{HashOutcome, hash_exact};
 
 #[cfg(unix)]
 mod unix;
@@ -14,20 +12,11 @@ mod unsupported;
 #[cfg(not(unix))]
 use unsupported as imp;
 
+pub(crate) use imp::directory_at;
 use imp::directory_names_within;
-pub(crate) use imp::{child_directory, child_regular};
-pub(crate) use imp::{create_regular_at, directory_at, unlink_file_at};
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CopyMethod {
-    Clone,
-    #[cfg(target_os = "linux")]
-    CopyFileRange,
-    ReadWrite,
-}
 
 /// `readdir` signals both the end of the stream and a failure with a null entry and sets
 /// errno only on failure, so errno must be cleared before each call; a stale value would
@@ -76,52 +65,6 @@ pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
     options.open(path)
 }
 
-/// Whether a directory helper may create a missing directory or must find an existing one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DirectoryOpen {
-    Existing,
-    CreateIfMissing,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(unix),
-    expect(
-        dead_code,
-        reason = "descriptor-relative directory creation is unsupported on this platform"
-    )
-)]
-pub(crate) enum Created {
-    Yes,
-    No,
-}
-
-#[cfg_attr(
-    not(unix),
-    expect(
-        dead_code,
-        reason = "descriptor-relative child lookup is unsupported on this platform"
-    )
-)]
-pub(crate) enum Child {
-    Directory { file: File, created: Created },
-    Alias,
-    Missing,
-}
-
-#[cfg_attr(
-    not(unix),
-    expect(
-        dead_code,
-        reason = "descriptor-relative regular-file lookup is unsupported on this platform"
-    )
-)]
-pub(crate) enum RegularChild {
-    File(File),
-    Alias,
-    Missing,
-}
-
 /// The names of one directory in sorted pages, so a large directory never holds more than one
 /// page in memory and a walk can stop between pages. A walker keeps one per open level.
 #[derive(Debug, Default)]
@@ -156,30 +99,6 @@ impl DirectoryNames {
         }
         Ok(self.buffered.pop_front())
     }
-}
-
-/// Walks an exact relative spelling without following redirects; creation syncs each parent.
-#[cfg(all(test, unix))]
-pub(crate) fn directory_path_at(
-    directory: &File,
-    path: &std::path::Path,
-    open: DirectoryOpen,
-) -> io::Result<File> {
-    let text = path.to_str().ok_or(io::ErrorKind::InvalidInput)?;
-    if text.is_empty() || text.split('/').any(|part| matches!(part, "" | "." | "..")) {
-        return Err(io::ErrorKind::InvalidInput.into());
-    }
-    let mut current = directory.try_clone()?;
-    for part in text.split('/') {
-        validate_name(part.as_ref())?;
-        let next = directory_at(&current, part.as_ref(), open)?;
-        if open == DirectoryOpen::CreateIfMissing {
-            next.sync_all()?;
-            current.sync_all()?;
-        }
-        current = next;
-    }
-    Ok(current)
 }
 
 #[derive(Debug)]
@@ -281,33 +200,11 @@ impl std::fmt::Debug for IdentityField {
 
 /// The file-system object a path or handle resolved to: equal values name the same inode on the
 /// same device, whatever its size or times.
+#[cfg(unix)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct NodeId {
     pub(crate) device: u64,
     pub(crate) inode: u64,
-}
-
-impl NodeId {
-    /// Big-endian bytes, the order the catalog's `device` and `inode` BLOB columns store.
-    pub(crate) fn to_be_bytes(self) -> ([u8; 8], [u8; 8]) {
-        (self.device.to_be_bytes(), self.inode.to_be_bytes())
-    }
-
-    pub(crate) fn from_be_bytes(device: [u8; 8], inode: [u8; 8]) -> Self {
-        Self {
-            device: u64::from_be_bytes(device),
-            inode: u64::from_be_bytes(inode),
-        }
-    }
-}
-
-impl FileIdentity {
-    pub(crate) fn node(&self) -> NodeId {
-        NodeId {
-            device: self.device,
-            inode: self.inode,
-        }
-    }
 }
 
 #[cfg(unix)]
@@ -324,35 +221,6 @@ impl From<&std::fs::Metadata> for FileIdentity {
                 + i128::from(metadata.ctime_nsec()),
         }
     }
-}
-
-#[cfg(unix)]
-impl FileIdentity {
-    fn same_displaced_file(&self, other: &Self) -> bool {
-        // Rename may change ctime, so compare the displaced inode and content observation.
-        self.device == other.device
-            && self.inode == other.inode
-            && self.size == other.size
-            && self.modified_ns == other.modified_ns
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum ReplaceOutcome {
-    Created,
-    #[cfg_attr(
-        not(any(target_os = "linux", target_os = "macos")),
-        expect(
-            dead_code,
-            reason = "only Linux and macOS renames can verify a displaced file"
-        )
-    )]
-    Replaced {
-        displaced: FileIdentity,
-    },
-    Conflict {
-        displaced: Option<FileIdentity>,
-    },
 }
 
 #[cfg(unix)]
@@ -656,86 +524,6 @@ pub(crate) fn clone_into(
     }
 }
 
-/// Copies an immutable open blob. Mutable-source staging must hash its own read/write pass.
-/// The source offset is unchanged; a failed copy leaves its new entry for caller cleanup.
-#[cfg_attr(
-    target_os = "linux",
-    expect(unsafe_code, reason = "copy_file_range has no safe std equivalent")
-)]
-pub(crate) fn clone_or_copy_into(
-    src: &File,
-    directory: &File,
-    name: &std::ffi::OsStr,
-) -> Result<CopyMethod, FsError> {
-    match clone_into(src, directory, name) {
-        Ok(()) => return Ok(CopyMethod::Clone),
-        Err(CloneFailure::NotCreated(FsError::Unsupported)) => (),
-        Err(CloneFailure::NotCreated(error)) => return Err(error),
-        Err(CloneFailure::Created(error)) => {
-            if let Err(cleanup) = unlink_file_at(directory, name) {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Error,
-                    "clone_cleanup_failed",
-                    serde_json::json!({"message": cleanup.to_string()}),
-                );
-            }
-            return Err(error);
-        }
-    }
-    #[cfg(unix)]
-    {
-        let name = component(name)?;
-        let dst = open_at(directory, &name, FileOpen::CreateNew)?;
-        #[cfg(target_os = "linux")]
-        {
-            use std::os::fd::AsRawFd;
-            let mut offset: libc::loff_t = 0;
-            loop {
-                // SAFETY: descriptors remain live, input offset is writable, and no userspace buffer is passed.
-                let copied = unsafe {
-                    libc::copy_file_range(
-                        src.as_raw_fd(),
-                        &mut offset,
-                        dst.as_raw_fd(),
-                        std::ptr::null_mut(),
-                        1024 * 1024,
-                        0,
-                    )
-                };
-                if copied == 0 {
-                    dst.sync_all()?;
-                    return Ok(CopyMethod::CopyFileRange);
-                }
-                if copied < 0 {
-                    let error = io::Error::last_os_error();
-                    if error.kind() == io::ErrorKind::Interrupted {
-                        continue;
-                    }
-                    if !copy_fallback(&error) {
-                        return Err(error.into());
-                    }
-                    dst.set_len(0)?;
-                    break;
-                }
-            }
-        }
-        copy_read_write(src, &dst)?;
-        dst.sync_all()?;
-        Ok(CopyMethod::ReadWrite)
-    }
-    #[cfg(windows)]
-    {
-        let path = directory_path(directory)?.join(name);
-        let dst = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)?;
-        copy_read_write(src, &dst)?;
-        dst.sync_all()?;
-        Ok(CopyMethod::ReadWrite)
-    }
-}
-
 #[cfg(unix)]
 fn copy_fallback(error: &io::Error) -> bool {
     matches!(
@@ -794,107 +582,10 @@ pub(crate) fn read_cached_at(_file: &File, _bytes: &mut [u8], _offset: u64) -> O
     None
 }
 
-fn copy_read_write(src: &File, dst: &File) -> io::Result<()> {
-    #[cfg(unix)]
-    use std::os::unix::fs::FileExt;
-    #[cfg(windows)]
-    use std::os::windows::fs::FileExt;
-    let mut bytes = [0u8; 65_536];
-    let mut offset = 0;
-    loop {
-        let read = read_at(src, &mut bytes, offset);
-        let count = match read {
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            result => result?,
-        };
-        if count == 0 {
-            return Ok(());
-        }
-        let mut written = 0;
-        while written < count {
-            let remaining = bytes
-                .get(written..count)
-                .ok_or(io::ErrorKind::InvalidData)?;
-            #[cfg(unix)]
-            let result = dst.write_at(remaining, offset + written as u64);
-            #[cfg(windows)]
-            let result = dst.seek_write(remaining, offset + written as u64);
-            match result {
-                Ok(0) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "file copy made no progress",
-                    ));
-                }
-                Ok(count) => written += count,
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => (),
-                Err(error) => return Err(error),
-            }
-        }
-        offset += count as u64;
-    }
-}
-
-#[cfg(unix)]
-fn identity_at(directory: &File, name: &std::ffi::CStr) -> Result<Option<FileIdentity>, FsError> {
-    match open_at(directory, name, FileOpen::Existing) {
-        Ok(file) => Ok(Some(stat_identity(&file)?)),
-        Err(error)
-            if matches!(error.raw_os_error(), Some(libc::ELOOP))
-                || matches!(
-                    error.kind(),
-                    io::ErrorKind::InvalidInput | io::ErrorKind::NotFound
-                ) =>
-        {
-            Ok(None)
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
-/// Leaves the displaced entry at staged_name, including on an identity conflict.
-/// An error after rename may have applied the operation; callers must reconcile both names.
-#[cfg(all(test, unix))]
-pub(crate) fn durable_replace(
-    directory: &File,
-    staged_name: &std::ffi::OsStr,
-    destination_name: &std::ffi::OsStr,
-    expected: Option<&FileIdentity>,
-) -> Result<ReplaceOutcome, FsError> {
-    durable_replace_between(
-        directory,
-        staged_name,
-        directory,
-        destination_name,
-        expected,
-    )
-}
-
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-pub(crate) static FAIL_REPLACE_SYNC: std::sync::Mutex<Option<(u64, u64)>> =
-    std::sync::Mutex::new(None);
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn sync_replace_parent(directory: &File) -> io::Result<()> {
-    #[cfg(test)]
-    {
-        let identity = stat_identity(directory)?;
-        if *FAIL_REPLACE_SYNC
-            .lock()
-            .map_err(|_| io::Error::other("sync injection poisoned"))?
-            == Some((identity.device, identity.inode))
-        {
-            return Err(io::Error::other("injected replacement parent sync failure"));
-        }
-    }
-    directory.sync_all()
-}
-
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[derive(Clone, Copy)]
 enum RenameMode {
     NoReplace,
-    Exchange,
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -922,7 +613,6 @@ fn rename_at(
                 destination.as_ptr(),
                 match mode {
                     RenameMode::NoReplace => libc::RENAME_NOREPLACE,
-                    RenameMode::Exchange => libc::RENAME_EXCHANGE,
                 },
             )
         }
@@ -935,7 +625,6 @@ fn rename_at(
                 destination.as_ptr(),
                 match mode {
                     RenameMode::NoReplace => libc::RENAME_EXCL,
-                    RenameMode::Exchange => libc::RENAME_SWAP,
                 },
             )
         }
@@ -981,126 +670,6 @@ pub(crate) fn rename_noreplace(from: &std::path::Path, to: &std::path::Path) -> 
 fn link_then_unlink(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
     std::fs::hard_link(from, to)?;
     std::fs::remove_file(from)
-}
-
-/// Retains displaced bytes under the source name; errors after rename require reconciliation.
-pub(crate) fn durable_replace_between(
-    source_directory: &File,
-    staged_name: &std::ffi::OsStr,
-    destination_directory: &File,
-    destination_name: &std::ffi::OsStr,
-    expected: Option<&FileIdentity>,
-) -> Result<ReplaceOutcome, FsError> {
-    validate_name(staged_name)?;
-    validate_name(destination_name)?;
-    let source_identity = stat_identity(source_directory)?;
-    let destination_identity = stat_identity(destination_directory)?;
-    let same_directory = source_identity.node() == destination_identity.node();
-    if same_directory && staged_name == destination_name {
-        return Err(
-            io::Error::new(io::ErrorKind::InvalidInput, "replacement names must differ").into(),
-        );
-    }
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        let staged = component(staged_name)?;
-        let destination = component(destination_name)?;
-        open_at(source_directory, &staged, FileOpen::Existing)?.sync_all()?;
-        let before = if expected.is_some() {
-            identity_at(destination_directory, &destination)?
-        } else {
-            None
-        };
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        {
-            rename_at(
-                source_directory.as_raw_fd(),
-                &staged,
-                destination_directory.as_raw_fd(),
-                &destination,
-                if expected.is_some() {
-                    RenameMode::Exchange
-                } else {
-                    RenameMode::NoReplace
-                },
-            )?;
-            sync_replace_parent(source_directory)?;
-            if !same_directory {
-                sync_replace_parent(destination_directory)?;
-            }
-            let Some(expected) = expected else {
-                return Ok(ReplaceOutcome::Created);
-            };
-            let displaced = identity_at(source_directory, &staged)?;
-            if let Some(displaced) = displaced
-                && before.as_ref() == Some(expected)
-                && expected.same_displaced_file(&displaced)
-            {
-                return Ok(ReplaceOutcome::Replaced { displaced });
-            }
-            Ok(ReplaceOutcome::Conflict { displaced })
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        {
-            let _ = (destination, expected);
-            Err(FsError::Unsupported)
-        }
-    }
-    #[cfg(windows)]
-    {
-        if !same_directory {
-            return Err(FsError::Unsupported);
-        }
-        let source = directory_path(source_directory)?.join(staged_name);
-        let target = directory_path(destination_directory)?.join(destination_name);
-        File::open(&source)?.sync_all()?;
-        if let Some(expected) = expected {
-            let observed = stat_identity(&File::open(&target)?)?;
-            if expected != &observed {
-                return Ok(ReplaceOutcome::Conflict { displaced: None });
-            }
-            // Sync must preserve the old target before selecting its checked-replace fallback.
-            return Err(FsError::Unsupported);
-        }
-        move_write_through(&source, &target)?;
-        Ok(ReplaceOutcome::Created)
-    }
-}
-
-#[cfg(windows)]
-#[expect(
-    unsafe_code,
-    reason = "a handle's path comes only from GetFinalPathNameByHandleW"
-)]
-fn directory_path(directory: &File) -> io::Result<std::path::PathBuf> {
-    use std::os::windows::{ffi::OsStringExt, io::AsRawHandle};
-    use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
-    let mut buffer = vec![0u16; 32_768];
-    // SAFETY: the live handle and writable UTF-16 allocation cover the supplied length.
-    let count = unsafe {
-        GetFinalPathNameByHandleW(
-            directory.as_raw_handle(),
-            buffer.as_mut_ptr(),
-            u32::try_from(buffer.len()).map_err(io::Error::other)?,
-            0,
-        )
-    };
-    if count == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if count as usize >= buffer.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "directory path exceeds limit",
-        ));
-    }
-    Ok(std::ffi::OsString::from_wide(
-        buffer
-            .get(..count as usize)
-            .ok_or(io::ErrorKind::InvalidData)?,
-    )
-    .into())
 }
 
 #[cfg(windows)]
@@ -1311,30 +880,6 @@ mod tests {
         assert!(unsupported.get_ref().is_none());
     }
 
-    /// The catalog stores a node as two big-endian BLOB columns; the full `u64` range survives.
-    #[test]
-    fn node_ids_round_trip_through_their_stored_bytes() {
-        for node in [
-            NodeId {
-                device: 0,
-                inode: 0,
-            },
-            NodeId {
-                device: u64::MAX,
-                inode: 1,
-            },
-            NodeId {
-                device: 1,
-                inode: u64::MAX,
-            },
-        ] {
-            let (device, inode) = node.to_be_bytes();
-            assert_eq!(device, node.device.to_be_bytes());
-            assert_eq!(inode, node.inode.to_be_bytes());
-            assert_eq!(NodeId::from_be_bytes(device, inode), node);
-        }
-    }
-
     /// A paged listing returns every name of a directory that fills one or more pages exactly
     /// once and in order, and refuses a directory past its inspection limit.
     #[cfg(unix)]
@@ -1402,9 +947,11 @@ mod tests {
         }
     }
 
+    /// A clone that fails after it created its entry says so and leaves the entry for its caller;
+    /// a name that already holds an entry creates nothing.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn clone_failure_preserves_created_ownership_and_copy_wrapper_cleans_it() {
+    fn clone_failure_reports_whether_it_created_the_entry() {
         let directory = crate::test_support::TestDir::new();
         std::fs::write(directory.0.join("source"), b"source").unwrap();
         let source = File::open(directory.0.join("source")).unwrap();
@@ -1415,10 +962,6 @@ mod tests {
             Err(CloneFailure::Created(_))
         ));
         assert!(directory.0.join("clone").exists());
-        unlink_file_at(&root, "clone".as_ref()).unwrap();
-        FAIL_CLONE_SYNC.set(true);
-        assert!(clone_or_copy_into(&source, &root, "copy".as_ref()).is_err());
-        assert!(!directory.0.join("copy").exists());
         std::fs::write(directory.0.join("existing"), b"other owner").unwrap();
         assert!(matches!(
             clone_into(&source, &root, "existing".as_ref()),
@@ -1442,204 +985,6 @@ mod tests {
         assert_eq!(
             SourceMetadataBuffer::default().0.len(),
             SOURCE_METADATA_CAP + 1
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn descriptor_copy_preserves_bytes_offsets_and_exclusive_names() {
-        use std::io::{Seek, SeekFrom};
-        let directory = crate::test_support::TestDir::new();
-        let bytes: Vec<u8> = (0..150_003).map(|i| (i % 251) as u8).collect();
-        std::fs::write(directory.0.join("source"), &bytes).unwrap();
-        let mut source = File::open(directory.0.join("source")).unwrap();
-        source.seek(SeekFrom::Start(17)).unwrap();
-        let root = File::open(&directory.0).unwrap();
-        clone_or_copy_into(&source, &root, "copy".as_ref()).unwrap();
-        assert_eq!(std::fs::read(directory.0.join("copy")).unwrap(), bytes);
-        assert_eq!(source.stream_position().unwrap(), 17);
-        assert!(
-            matches!(clone_or_copy_into(&source, &root, "copy".as_ref()), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists)
-        );
-        for name in [
-            "",
-            ".",
-            "..",
-            "../escape",
-            "nested/file",
-            "copy/",
-            "bad\0name",
-        ] {
-            assert!(
-                matches!(clone_or_copy_into(&source, &root, name.as_ref()), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::InvalidInput)
-            );
-        }
-        let fallback = File::create(directory.0.join("fallback")).unwrap();
-        copy_read_write(&source, &fallback).unwrap();
-        assert_eq!(std::fs::read(directory.0.join("fallback")).unwrap(), bytes);
-        assert_eq!(source.stream_position().unwrap(), 17);
-        let empty = File::create(directory.0.join("empty")).unwrap();
-        drop(empty);
-        clone_or_copy_into(
-            &File::open(directory.0.join("empty")).unwrap(),
-            &root,
-            "empty-copy".as_ref(),
-        )
-        .unwrap();
-        assert_eq!(
-            std::fs::metadata(directory.0.join("empty-copy"))
-                .unwrap()
-                .len(),
-            0
-        );
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
-    fn conditional_replace_preserves_displaced_and_conflicting_bytes() {
-        let directory = crate::test_support::TestDir::new();
-        let root = File::open(&directory.0).unwrap();
-        std::fs::write(directory.0.join("stage"), b"first").unwrap();
-        assert_eq!(
-            durable_replace(&root, "stage".as_ref(), "target".as_ref(), None).unwrap(),
-            ReplaceOutcome::Created
-        );
-        std::fs::write(directory.0.join("stage"), b"second").unwrap();
-        assert!(
-            matches!(durable_replace(&root, "stage".as_ref(), "target".as_ref(), None), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists)
-        );
-        assert_eq!(std::fs::read(directory.0.join("target")).unwrap(), b"first");
-        let expected = stat_identity(&File::open(directory.0.join("target")).unwrap()).unwrap();
-        assert!(matches!(
-            durable_replace(&root, "stage".as_ref(), "target".as_ref(), Some(&expected)).unwrap(),
-            ReplaceOutcome::Replaced { .. }
-        ));
-        assert_eq!(std::fs::read(directory.0.join("stage")).unwrap(), b"first");
-        assert_eq!(
-            std::fs::read(directory.0.join("target")).unwrap(),
-            b"second"
-        );
-        std::fs::write(directory.0.join("stage"), b"third").unwrap();
-        assert!(matches!(
-            durable_replace(&root, "stage".as_ref(), "target".as_ref(), Some(&expected)).unwrap(),
-            ReplaceOutcome::Conflict { displaced: Some(_) }
-        ));
-        assert_eq!(std::fs::read(directory.0.join("stage")).unwrap(), b"second");
-        assert_eq!(std::fs::read(directory.0.join("target")).unwrap(), b"third");
-        std::fs::remove_file(directory.0.join("target")).unwrap();
-        std::os::unix::fs::symlink("missing", directory.0.join("target")).unwrap();
-        assert_eq!(
-            durable_replace(&root, "stage".as_ref(), "target".as_ref(), Some(&expected)).unwrap(),
-            ReplaceOutcome::Conflict { displaced: None }
-        );
-        assert!(
-            std::fs::symlink_metadata(directory.0.join("stage"))
-                .unwrap()
-                .is_symlink()
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn export_directory_walk_rejects_redirects_and_unsafe_components() {
-        let directory = crate::test_support::TestDir::new();
-        let root = open_directory_nofollow(&directory.0).unwrap();
-        let nested = directory_path_at(
-            &root,
-            "bucket/nested".as_ref(),
-            DirectoryOpen::CreateIfMissing,
-        )
-        .unwrap();
-        assert_eq!(
-            stat_identity(&nested).unwrap(),
-            stat_identity(&open_directory_nofollow(&directory.0.join("bucket/nested")).unwrap())
-                .unwrap()
-        );
-        std::os::unix::fs::symlink("bucket", directory.0.join("alias")).unwrap();
-        std::os::unix::fs::symlink("nested", directory.0.join("bucket/link")).unwrap();
-        std::fs::write(directory.0.join("regular"), b"not a directory").unwrap();
-        for path in [
-            "/absolute",
-            "../outside",
-            "bucket/./child",
-            "bucket//child",
-            "bucket/",
-            "alias/child",
-            "bucket/link/child",
-            "regular/child",
-        ] {
-            assert!(
-                directory_path_at(&root, path.as_ref(), DirectoryOpen::CreateIfMissing).is_err(),
-                "{path}"
-            );
-        }
-        assert!(!directory.0.join("bucket/nested/child").exists());
-        assert!(!directory.0.join("bucket/child").exists());
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
-    fn export_replace_between_directories_retains_displaced_entries() {
-        let directory = crate::test_support::TestDir::new();
-        let root = open_directory_nofollow(&directory.0).unwrap();
-        let workspace =
-            directory_path_at(&root, "work".as_ref(), DirectoryOpen::CreateIfMissing).unwrap();
-        let target = directory_path_at(
-            &root,
-            "bucket/nested".as_ref(),
-            DirectoryOpen::CreateIfMissing,
-        )
-        .unwrap();
-        std::fs::write(directory.0.join("work/body"), b"first").unwrap();
-        assert_eq!(
-            durable_replace_between(&workspace, "body".as_ref(), &target, "body".as_ref(), None)
-                .unwrap(),
-            ReplaceOutcome::Created
-        );
-        assert!(!directory.0.join("work/body").exists());
-        std::fs::write(directory.0.join("work/body"), b"second").unwrap();
-        assert!(
-            matches!(durable_replace_between(&workspace, "body".as_ref(), &target, "body".as_ref(), None), Err(FsError::Io(e)) if e.kind()==io::ErrorKind::AlreadyExists)
-        );
-        let expected = stat_identity(&open_regular_at(&target, "body".as_ref()).unwrap()).unwrap();
-        assert!(matches!(
-            durable_replace_between(
-                &workspace,
-                "body".as_ref(),
-                &target,
-                "body".as_ref(),
-                Some(&expected)
-            )
-            .unwrap(),
-            ReplaceOutcome::Replaced { .. }
-        ));
-        assert_eq!(
-            std::fs::read(directory.0.join("work/body")).unwrap(),
-            b"first"
-        );
-        assert_eq!(
-            std::fs::read(directory.0.join("bucket/nested/body")).unwrap(),
-            b"second"
-        );
-        std::fs::write(directory.0.join("work/body"), b"third").unwrap();
-        assert!(matches!(
-            durable_replace_between(
-                &workspace,
-                "body".as_ref(),
-                &target,
-                "body".as_ref(),
-                Some(&expected)
-            )
-            .unwrap(),
-            ReplaceOutcome::Conflict { displaced: Some(_) }
-        ));
-        assert_eq!(
-            std::fs::read(directory.0.join("work/body")).unwrap(),
-            b"second"
-        );
-        assert_eq!(
-            std::fs::read(directory.0.join("bucket/nested/body")).unwrap(),
-            b"third"
         );
     }
 

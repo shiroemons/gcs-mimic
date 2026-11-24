@@ -79,7 +79,6 @@ RAMの既定値は本文が使えるメモリの約半分（64 MiB〜1 GiB）、
 seedは毎回起動時に反映します。0.8.0以降は全体を準備して一括公開し、変更した保護対象があれば全体を戻します。
 管理APIのreseedは明示的な有効化が必要で、diskはmerge、RAMは置換です。
 `.metadata`という末尾のseedファイルも通常の本文であり、移行用sidecarとして自動判定しません。
-稼働中の同期操作は[同期CLI](sync-cli.md)を参照してください。
 
 ## gRPCの待受
 
@@ -232,7 +231,7 @@ native設定の文字コード不正は、独立したCLIやファイルの不�
 旧`GCS_MIMIC_*`名は移行先を示すエラーになります。
 
 イメージは`GCS_MIMIC_DEFAULT_SEED_DIR=/data`を設定します。
-`seed_dir`が未指定なら、存在してデータ・同期ディレクトリと重ならない`/data`を読み込み、
+`seed_dir`が未指定なら、存在してデータディレクトリと重ならない`/data`を読み込み、
 それ以外は何も表示せずに無視します。[初期ファイルの読み込み](container-usage.md#初期ファイルを読み込む)を参照してください。
 0.2.1以前は明示した`GCS_MIMIC_SEED_DIR`からだけ、初期ファイルを一度だけ読み込んでいました。
 [0.3.0のリリースノート（英語）](../en/releases/0.3.0.md)を参照してください。
@@ -259,12 +258,12 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | バケットCORS | JSONバケットAPI | XML用・JSONは別の固定ルール |
 | ルールのないバケットのCORS（`-cors-headers`の代わり） | `GCS_MIMIC_CORS_FALLBACK`・`--cors-fallback`・JSONの`cors_fallback` | CORSルールのないバケットのXML・公開URLだけに適用。正しい形式のリクエストヘッダーはすべて許可。既定はpermissiveでは移行元と同じく全オリジンを許可する`allow-all`、strictではCloud Storageと同じく`none`で、明示した値が優先される。permissiveの既定が許可したリクエストは、Cloud Storageなら拒否されることをバケットごとに1回だけinfoで記録する。全体のCORSルールは設定できない |
 | バケットlocation | JSONバケットAPI | 公式のregional・predefined dual-region名と`US`・`EU`・`ASIA`。大文字小文字を区別せず、大文字のlocationと対応するlocationTypeを返す |
-| ライフサイクル実行 | `GCS_MIMIC_LIFECYCLE_EXECUTION`・`--lifecycle-execution`・JSONの`lifecycle_execution` | `enabled`か`disabled`を指定します。未指定では`sync_dir`があれば無効、それ以外は有効です。明示的に有効化すると、同期先のホスト上のファイルも削除します。無効時はルールを保存するだけで、手動実行も無効になります。同期に使っていたデータディレクトリでも、`sync_dir`なしで起動すると既定では有効になります。その間の削除は、同期を再開したときに追跡済みのホストファイルへ反映され得ます。readyに実効値を出します。[実行契約（英語）](../en/slices/lifecycle-execution.md)を参照 |
+| ライフサイクル実行 | `GCS_MIMIC_LIFECYCLE_EXECUTION`・`--lifecycle-execution`・JSONの`lifecycle_execution` | `enabled`か`disabled`を指定します。未指定では有効です。無効時はルールを保存するだけで、手動実行も無効になります。readyに実効値を出します。[実行契約（英語）](../en/slices/lifecycle-execution.md)を参照 |
 | メモリ保存モード | `GCS_MIMIC_BACKEND=memory`・`--backend memory`・JSONの`backend` | 揮発するチャンクとメモリ上のSQLite。既定は本文が使えるメモリの約半分（64 MiB〜1 GiB）・ページ16 MiBで設定でき、プロセスRSSとは別。既存のディスクデータには触れない。[RAM契約（英語）](../en/slices/memory-backend.md) |
 | イベント通知先・絞り込み | `GCS_MIMIC_PUBSUB_EMULATOR_HOST`・`PUBSUB_EMULATOR_HOST`とnative・旧イベント設定 | 明示したローカルのHTTPエミュレーターと用意済みのtopic、上限付きの永続outboxで少なくとも1回配信する。通知設定の作成時にtopicの存在を確かめる。接続先がなければGoogleへは接続せず失敗する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md) |
 | 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`。JSONバケットAPIと同じ名前に対応。空文字・JSONのnullは`US` |
-| 新規バケットのsoft delete既定の保持期間 | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`・`--default-soft-delete-retention-seconds`・JSONの`default_soft_delete_retention_seconds` | `softDeletePolicy`を指定せずに作ったバケットに与える保持期間。既定はすべての保存方式で`0`で、ポリシーを保存しません。オブジェクトの削除や上書きで本文をすぐに解放します（fake-gcs-serverと同じ）。`0`または`1`～`7776000`（90日）を指定でき、`604800`がCloud Storageの既定の7日です。Cloud Storageが受け付けるのは0または7～90日だけなので、既定と7日未満の範囲はローカル独自の仕様です。90日の上限とそのエラーメッセージはCloud Storageに合わせています。既存のバケットは保存済みのポリシーを保ちます（0.11.0までが付けた7日も同じです）。`import`とディレクトリ同期で作るバケットは変わりません。リクエストで明示したポリシー（0を含む）が優先されます。fake-gcs-serverプロファイルは既定を適用せず、正の値を拒否します |
-| 接続・セッション・初期ファイル・同期の上限 | `GCS_MIMIC_MAX_CONNECTIONS`、`GCS_MIMIC_MAX_GRPC_STREAMS`、`GCS_MIMIC_MAX_OBJECT_BYTES`、`GCS_MIMIC_MAX_RESUMABLE_SESSIONS`、`GCS_MIMIC_MAX_REWRITE_SESSIONS`、`GCS_MIMIC_MAX_SEED_ENTRIES`、`GCS_MIMIC_MAX_SEED_DEPTH`、`GCS_MIMIC_MAX_BUCKETS_PER_BATCH`、`GCS_MIMIC_MAX_SYNC_ENTRIES`、`GCS_MIMIC_MAX_SYNC_DEPTH` | 移行元に同等の設定はありません。既定（接続1024、ストリーム100、5 TiB、ほかは無制限。`0`が無制限です）は通常の移行では変更不要です。共有環境や公開するサーバーでは`max_object_bytes`を下げてください。[すべての設定（英語）](../en/native-binary.md#native-binary-and-configuration) |
+| 新規バケットのsoft delete既定の保持期間 | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`・`--default-soft-delete-retention-seconds`・JSONの`default_soft_delete_retention_seconds` | `softDeletePolicy`を指定せずに作ったバケットに与える保持期間。既定はすべての保存方式で`0`で、ポリシーを保存しません。オブジェクトの削除や上書きで本文をすぐに解放します（fake-gcs-serverと同じ）。`0`または`1`～`7776000`（90日）を指定でき、`604800`がCloud Storageの既定の7日です。Cloud Storageが受け付けるのは0または7～90日だけなので、既定と7日未満の範囲はローカル独自の仕様です。90日の上限とそのエラーメッセージはCloud Storageに合わせています。既存のバケットは保存済みのポリシーを保ちます（0.11.0までが付けた7日も同じです）。`import`で作るバケットは変わりません。リクエストで明示したポリシー（0を含む）が優先されます。fake-gcs-serverプロファイルは既定を適用せず、正の値を拒否します |
+| 接続・セッション・初期ファイルの上限 | `GCS_MIMIC_MAX_CONNECTIONS`、`GCS_MIMIC_MAX_GRPC_STREAMS`、`GCS_MIMIC_MAX_OBJECT_BYTES`、`GCS_MIMIC_MAX_RESUMABLE_SESSIONS`、`GCS_MIMIC_MAX_REWRITE_SESSIONS`、`GCS_MIMIC_MAX_SEED_ENTRIES`、`GCS_MIMIC_MAX_SEED_DEPTH`、`GCS_MIMIC_MAX_BUCKETS_PER_BATCH` | 移行元に同等の設定はありません。既定（接続1024、ストリーム100、5 TiB、ほかは無制限。`0`が無制限です）は通常の移行では変更不要です。共有環境や公開するサーバーでは`max_object_bytes`を下げてください。[すべての設定（英語）](../en/native-binary.md#native-binary-and-configuration) |
 | 接続とリクエストのタイムアウト | `GCS_MIMIC_HEADER_READ_TIMEOUT_MS`、`GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`、`GCS_MIMIC_REQUEST_TIMEOUT_MS`、`GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS`、`GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS`、`GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 既定は30000、無効、180000、120000、無効、120000ミリ秒です。Cloud Storageはこれらの秒数を公開していないので、[ローカルの判断（英語）](../en/sources.md#timeouts-and-limits-behind-the-local-defaults)です。それぞれ`0`で無効になります。0.20.0まで最初の3つの別名だった`GCS_MIMIC_CONNECTION_TIMEOUT_MS`は、起動を止めてその3つを示します |
 | 作成者として扱うローカル主体 | `GCS_MIMIC_LOCAL_CREATOR_EMAIL`・`--local-creator-email`・JSONの`local_creator_email` | nativeのpermissiveのみ。認証なしで書いたオブジェクトの`owner`と、ACLの`user-`のOWNERエントリに記録するメールアドレス（Cloud Storageが呼び出し元を記録するのと同じ）。既定は`local-user@gcs-mimic.invalid`（予約ドメイン）。空にすると無効になり`project-owners-N`に戻る。作成者の記録だけに使い、権限は与えない。値を変えると次の起動で既存オブジェクトの作成者名も変わる。strictでは登録した呼び出し元が、legacyでは何も記録されないため、どちらでも空でない値を明示すると拒否される |
 | 署名付きURLの検証 | `GCS_MIMIC_SIGNED_URLS`・`--signed-urls`・JSONの`signed_urls`、`GCS_MIMIC_TEST_SIGNER` | 移行元に同じ設定はない。permissiveの既定`ignore`は、署名を検証せずに署名付きURLを受け付ける。`verify`は署名付きXMLリクエストをstrictと同じく検証し（リクエストを変えると403 `SignatureDoesNotMatch`、期限切れは400 `ExpiredToken`）、組み込みのテスト署名者の公開鍵、JSON APIで作ったHMACキー、ID文書（`GCS_MIMIC_IDENTITY_FILE`、または文書をそのまま書く`GCS_MIMIC_IDENTITIES`）の公開鍵を使う。検証後は権限を確認せず、permissiveとして処理する。`GCS_MIMIC_TEST_SIGNER`の既定が`enabled`になるのは、`verify`のときと、strictでID文書が`test-signer@gcs-mimic.invalid`を宣言しているときで、署名を検証しない設定で`enabled`を明示すると起動に失敗する。strictで宣言していない署名者は、初期バケットのprojectと、バケット文書が作るバケットのprojectで`roles/storage.objectUser`を持つ。テスト署名者が有効なときは、その署名者自身の署名に限って`GCS_MIMIC_SIGNED_HOST_PORT`の既定が`lenient`になり、Go storageのようにポートを除いて署名したV4 URLも検証を通る。ほかの鍵は、`lenient`を明示しない限りポートも署名する必要がある。`exact`を明示すればそちらが優先される。`verify`は署名付きURLのほか、V2/V4/AWS4の`Authorization`ヘッダー署名とPOSTポリシーも検証するため、適当なHMACキーで署名するS3互換クライアントは拒否される。そうしたクライアントにはJSON APIでHMACキーを作る。strictは常に検証する。[permissiveでの署名検証（英語）](../en/signed-urls.md#verifying-signed-requests-in-permissive-mode)を参照 |

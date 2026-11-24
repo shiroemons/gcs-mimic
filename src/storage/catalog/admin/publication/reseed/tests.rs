@@ -211,7 +211,7 @@ async fn atomic_seed_readers_identity_unrelated_objects_and_commit_recovery() {
         )
         .await
         .unwrap();
-    let identity = catalog.sync_state().catalog_id().await.unwrap();
+    let identity = catalog.identity().await.unwrap();
     let (_, mut reader) = admin.open_object(&bucket, &name, None).await.unwrap();
     let mut batch = admin.seed_batch().await.unwrap();
     batch.bucket(super::tests::bucket()).unwrap();
@@ -233,7 +233,7 @@ async fn atomic_seed_readers_identity_unrelated_objects_and_commit_recovery() {
     );
     catalog.close().await.unwrap();
     let reopened = Catalog::open(&dir.0).await.unwrap();
-    assert_eq!(reopened.sync_state().catalog_id().await.unwrap(), identity);
+    assert_eq!(reopened.identity().await.unwrap(), identity);
     assert_eq!(bytes(&reopened.admin(Origin::Seed), "object").await, b"new");
     reopened.close().await.unwrap();
 }
@@ -391,7 +391,7 @@ async fn atomic_ram_reseed_reserves_old_and_new_and_keeps_open_readers() {
         .publish_object(&target, &name, request(None), body(b"old"))
         .await
         .unwrap();
-    let identity = catalog.sync_state().catalog_id().await.unwrap();
+    let identity = catalog.identity().await.unwrap();
     let (_, mut reader) = admin.open_object(&target, &name, None).await.unwrap();
     let mut batch = admin.seed_batch().await.unwrap();
     batch.bucket(bucket()).unwrap();
@@ -400,7 +400,7 @@ async fn atomic_ram_reseed_reserves_old_and_new_and_keeps_open_readers() {
     assert_eq!(counts.objects, 1);
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"old"[..]);
     drop(reader);
-    assert_eq!(catalog.sync_state().catalog_id().await.unwrap(), identity);
+    assert_eq!(catalog.identity().await.unwrap(), identity);
     assert_eq!(
         admin.get_object(&target, &name, None).await,
         Err(AdminError::NotFound)

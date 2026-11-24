@@ -182,9 +182,6 @@ pub(super) fn check_access<'a>(
     project: &str,
     access: &'a BucketAccess,
 ) -> Result<DeletePermission<'a>, CatalogError> {
-    if let BucketAccess::Admin(grant) = access {
-        grant.authorize(connection)?;
-    }
     if let BucketAccess::Policy {
         identity,
         permission,

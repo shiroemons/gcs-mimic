@@ -12,9 +12,9 @@ An idle instance may be reset atomically. Reset waits up to
 `catalog_wait_timeout_ms` and the request deadline for in-flight catalog work and
 unpublished-body leases to drain, and for a seed commit under way; work that remains
 active past that deadline returns 503 without mutation. Requests that arrive
-meanwhile wait, then run against the cleared state. Active directory
-synchronization and incomplete import return 409. The operation never follows
-or modifies a seed, import-source or sync directory. An already opened immutable
+meanwhile wait, then run against the cleared state. An incomplete import
+returns 409. The operation never follows or modifies a seed or import-source
+directory. An already opened immutable
 reader may finish with its selected bytes.
 
 The reference is fake-gcs-server v1.56.1, commit
@@ -66,7 +66,7 @@ An optional `state` member chooses what the reset leaves. `empty`, the default, 
 {"confirm":"gcs-mimic","state":"startup"}
 ```
 
-In one transaction it clears the catalog with the reset's clearing rules, applies the startup buckets document with startup's planning and `buckets_mode`, then publishes the configured `seed_dir` tree into those buckets, as startup orders them. No reader sees the startup buckets missing, and a failure at any step commits nothing. As with an empty reset, holds, retention and object retention do not refuse it; unfinished imports and synchronization state do, and `sync_dir` still answers 409. It uses the reseed's admission and staging: the tree may take as long as its size needs, notifications are suppressed, waits for other catalog work end as a retryable 503 that made no changes, and a tree that can no longer be published answers 400 `Reset made no changes because ...` without `Retry-After`.
+In one transaction it clears the catalog with the reset's clearing rules, applies the startup buckets document with startup's planning and `buckets_mode`, then publishes the configured `seed_dir` tree into those buckets, as startup orders them. No reader sees the startup buckets missing, and a failure at any step commits nothing. As with an empty reset, holds, retention and object retention do not refuse it; unfinished imports do. It uses the reseed's admission and staging: the tree may take as long as its size needs, notifications are suppressed, waits for other catalog work end as a retryable 503 that made no changes, and a tree that can no longer be published answers 400 `Reset made no changes because ...` without `Retry-After`.
 
 When local management is enabled, the server keeps the buckets document it read at startup, so a `buckets_file` edited or removed later does not change what this restores. The seed tree is read again, as a reseed reads it. Without a buckets document or seed tree the startup state is empty.
 
@@ -125,7 +125,7 @@ The short immediate transaction:
 
 1. Rejects an active import without changing its journal or objects.
 2. Inserts object, session, derived and appendable opaque file IDs into the existing deletion journal with `INSERT SELECT`; no whole catalog or object body is collected.
-3. Clears buckets, all object versions, IAM policies, ACLs, notification configurations, HMAC keys, resumable/rewrite/derived/appendable state, invocation replays, import records, sync bindings/work-back state/findings and change-journal records. Bucket and object ACL/notification rows use their existing foreign-key cascades.
+3. Clears buckets, all object versions, IAM policies, ACLs, notification configurations, HMAC keys, resumable/rewrite/derived/appendable state, invocation replays, import records and change-journal records. Bucket and object ACL/notification rows use their existing foreign-key cascades.
 4. Clears seed completion and advances the change-journal epoch to invalidate old observations.
 5. Preserves catalog identity, schema, object-generation and policy-revision high-water marks, the injected clock, authentication registry, parent-policy fixture, startup configuration and runtime endpoint settings.
 
@@ -143,7 +143,7 @@ leave an unknown client outcome; inspect instance state before retrying.
 After commit, reset removes journaled opaque entries from blob, staging and
 appendable namespaces and syncs their parent directories. It processes at most
 128 IDs per page on the existing bounded catalog worker. It never constructs a
-path from a bucket or object name and never traverses external source/sync paths.
+path from a bucket or object name and never traverses external source paths.
 
 Failures before commit preserve the previous metadata and bytes. A physical
 reclamation failure after commit cannot undo the reset: success reports
@@ -180,8 +180,7 @@ complete power-loss namespace durability.
 
 Wire tests in `tests/it_admin/admin_http/admin_reset/mod.rs` cover default-off/confirmation errors,
 session invalidation, stale generation and policy identity after recreation,
-restart, an active `100 Continue` upload, strict manager/IAM separation and active
-sync refusal with preserved external bytes. The active-upload case also runs with
+restart, an active `100 Continue` upload and strict manager/IAM separation. The active-upload case also runs with
 a 500 ms catalog wait budget, preserving the no-changes message, `Retry-After: 1`,
 existing bytes and the upload's ability to finish.
 `requests_during_a_reset_wait_and_then_see_the_cleared_state` and
@@ -226,8 +225,7 @@ parts and deferred part deletions: reset journals their opaque staging IDs befor
 clearing parts, sessions and cleanup records. Multipart stream/completion leases
 hold reset back until their owned work finishes or its wait budget ends. The multipart wire and storage
 tests exercise session invalidation, staging reclamation, restart and the busy
-boundary. Current reset also clears notification outboxes and the later shared
-synchronization state. [Atomic reseed](atomic-seed-reseed.md) reuses the same
+boundary. Current reset also clears notification outboxes. [Atomic reseed](atomic-seed-reseed.md) reuses the same
 transaction clearing rules, while validating and staging input before any clear.
 Such a table must also be classified for the [bucket purge](bucket-purge.md), whose
 test fails until every catalog table is.

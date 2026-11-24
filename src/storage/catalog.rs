@@ -99,14 +99,12 @@ mod bucket_timestamps;
 mod notification_outbox;
 mod notifications;
 mod policies;
-mod sync_control;
+mod retired_sync;
 use policies::{check_access, insert_policy};
 
 pub(crate) mod change_journal;
 
 pub mod import_journal;
-
-pub mod sync_state;
 
 pub(crate) mod hmac_keys;
 
@@ -229,10 +227,8 @@ struct Inner {
     /// Held by a publication request until its batch and every staged cleanup it left are done,
     /// which is what `close` waits for. Callers past the permits wait for one like any other slot.
     publication_requests: Arc<Semaphore>,
-    writeback_execution: Arc<Semaphore>,
     file_workers: admin::FileWorkers,
     admin_shutdown: Notify,
-    sync_control: Mutex<Option<crate::sync::control::Registration>>,
     local_admin: Option<admin::AdminGrant>,
     change_wake: Notify,
     notification_wake: Arc<Notify>,
@@ -261,9 +257,8 @@ struct Inner {
     maintenance_started: AtomicBool,
     maintenance_health: crate::task::TaskHealth,
     /// Workers started beside the catalog whose health readiness also reports. Each worker
-    /// registers once and is never removed: a worker that stops for good must keep readiness
-    /// off for the catalog's lifetime, and the server starts each such worker once per catalog,
-    /// so the list stays as short as the set of workers.
+    /// registers once and is never removed; the server starts each such worker once per
+    /// catalog, so the list stays as short as the set of workers.
     background_health: Mutex<Vec<crate::task::TaskHealth>>,
     #[cfg(test)]
     fail_rollback: AtomicBool,

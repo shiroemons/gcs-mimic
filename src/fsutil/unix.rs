@@ -1,6 +1,4 @@
-use super::{DirectoryOpen, FileOpen, clear_errno, component, open_at, validate_name};
-mod spelling;
-pub(crate) use spelling::{child_directory, child_regular};
+use super::{FileOpen, clear_errno, component, open_at};
 use std::{
     ffi::{CStr, OsStr, OsString},
     fs::File,
@@ -122,21 +120,6 @@ pub fn directory_writable(directory: &File) -> io::Result<()> {
     Ok(())
 }
 
-/// Removes one descriptor-relative name without following a symlink destination.
-#[expect(
-    unsafe_code,
-    reason = "unlinkat on a pinned descriptor has no safe std equivalent"
-)]
-pub(crate) fn unlink_file_at(directory: &File, name: &OsStr) -> io::Result<()> {
-    validate_name(name)?;
-    let name = component(name)?;
-    // SAFETY: a validated single component is relative to the live directory descriptor.
-    if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    directory.sync_all()
-}
-
 /// Pins the selected directory without following a replacement symlink.
 pub fn open_directory_nofollow(path: &Path) -> io::Result<File> {
     // Trailing separators/dots otherwise make the OS follow a final symlink.
@@ -152,31 +135,13 @@ pub fn open_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
     open_at(directory, &component(name)?, FileOpen::Existing)
 }
 
-pub(crate) fn create_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
-    open_at(directory, &component(name)?, FileOpen::CreateNew)
-}
-
-/// Opens a single directory component, creating it only when explicitly requested.
+/// Opens an existing single directory component without following a symlink.
 #[expect(
     unsafe_code,
-    reason = "mkdirat and openat on a pinned descriptor have no safe std equivalent"
+    reason = "openat on a pinned descriptor has no safe std equivalent"
 )]
-pub(crate) fn directory_at(
-    directory: &File,
-    name: &OsStr,
-    open: DirectoryOpen,
-) -> io::Result<File> {
+pub(crate) fn directory_at(directory: &File, name: &OsStr) -> io::Result<File> {
     let name = component(name)?;
-    if open == DirectoryOpen::CreateIfMissing {
-        // SAFETY: name is one validated component under the live directory descriptor.
-        let result = unsafe { libc::mkdirat(directory.as_raw_fd(), name.as_ptr(), 0o700) };
-        if result != 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() != io::ErrorKind::AlreadyExists {
-                return Err(error);
-            }
-        }
-    }
     // SAFETY: name is terminated and the parent descriptor remains live.
     let fd = unsafe {
         libc::openat(

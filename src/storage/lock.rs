@@ -21,10 +21,6 @@ impl DirectoryLock {
         }
         Ok(())
     }
-
-    pub(super) fn file(&self) -> &File {
-        &self.file
-    }
 }
 
 impl Drop for DirectoryLock {
@@ -45,14 +41,7 @@ impl Drop for DirectoryLock {
     }
 }
 
-pub(super) fn acquire_directory(path: &Path) -> io::Result<DirectoryLock> {
-    Ok(DirectoryLock {
-        directory: None,
-        file: acquire_directory_file(path)?,
-        released: false,
-    })
-}
-
+#[cfg(unix)]
 fn acquire_directory_file(path: &Path) -> io::Result<File> {
     let file = crate::fsutil::open_directory_nofollow(path)?;
     file.try_lock().map_err(|error| match error {

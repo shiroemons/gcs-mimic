@@ -155,7 +155,7 @@ Composeでは、サービスの既存の`volumes`へ`- ./data:/data:ro`を追記
 
 イメージは`GCS_MIMIC_DEFAULT_SEED_DIR=/data`（`--default-seed-dir`、JSONでは`default_seed_dir`。
 nativeの既定値はなし）を設定します。`seed_dir`が未指定で、ディレクトリが存在し、
-データディレクトリや同期ディレクトリと重ならない場合だけ使い、それ以外は何も表示せずに無視します。
+データディレクトリと重ならない場合だけ使い、それ以外は何も表示せずに無視します。
 明示した`GCS_MIMIC_SEED_DIR`（`--seed-dir`、JSONでは`seed_dir`）が常に優先するため、別のパスも指定できます。
 
 ### 起動のたびに行うこと
@@ -190,7 +190,6 @@ APIで削除したオブジェクトは次回の起動時に再作成し、初�
 
 Content-Typeは、固定の対応表を使ってファイルの拡張子から決めます（例: `.png`は`image/png`）。
 以前の既定値どおりすべて`application/octet-stream`にするには、`GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`を指定します。
-この設定は[同期ディレクトリ](#オブジェクトをホストのディレクトリへ書き出す)から取り込むファイルにも適用します。
 `.DS_Store`や`._*`などのmacOSのメタデータファイルは読み飛ばします。
 
 結果はready通知の`seed`に出ます。例えば
@@ -204,87 +203,9 @@ fake-gcs-serverと同じく、再起動すると内容が異なる初期オブ�
 gcs-mimicはそのまま残します。また、gcs-mimicの`/_internal/reseed`は、管理APIを明示的に有効にした場合だけ使えます。
 fake-gcs-serverの実行用ストレージにあるxattrやサイドカーのメタデータは移行しません。
 初期ファイルのディレクトリは読み込み専用の入力で、APIで保存しても`/data`へは書き戻しません。
-APIで保存したオブジェクトをファイルとして見るには、別の[同期ディレクトリ](#オブジェクトをホストのディレクトリへ書き出す)を使います。
+ディレクトリ同期は削除されました。`seed_dir`は起動時にフォルダを読み込み、フォルダへは書き込みません。
 CORSやバージョニングの設定付きでバケットを作るには[バケット設定ファイル](#初期バケット設定ファイルを使う)を使います。
 こちらは初期ファイルより先に動きます。既存の永続データを使う前に[保存方式の違い](storage-backends.md)を確認してください。
-
-## オブジェクトをホストのディレクトリへ書き出す
-
-`GCS_MIMIC_SYNC_DIR`（`--sync-dir`、JSONでは`sync_dir`）を指定すると、既存の書き込み可能な
-ディレクトリへ、すべてのバケットと現行オブジェクトを`BUCKET/OBJECT`のファイルとして書き出します。
-READMEのサービスへ次の項目を追加します。既存の環境変数と永続ボリュームは残してください。
-
-```yaml
-    environment:
-      GCS_MIMIC_SYNC_DIR: /sync
-    volumes:
-      - ./sync:/sync
-```
-
-起動前に`./sync`を作り、あとは通常どおりAPIを使います。
-
-```sh
-mkdir -p sync
-docker compose up -d --wait
-curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
-  'http://localhost:4443/storage/v1/b?project=demo-project'
-curl --fail --data-binary 'hello' \
-  'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=docs%2Fhello.txt'
-cat sync/demo-bucket/docs/hello.txt
-```
-
-readinessの成功後、既存のバケット（空のバケットを含む）とオブジェクトを書き出します。
-以後はAPIでの作成・上書き・コピー・compose・削除が、応答の少し後にファイルへ反映されます。
-応答した時点でファイルがあるとは限らないため、必要ならポーリングしてください。
-保存状態の本体はSQLiteのカタログと内部ファイルで、このディレクトリは写しです。
-データの永続化には、引き続き`/var/lib/gcs-mimic`のボリュームが必要です。
-
-サーバーの外で作成・編集したファイルは、新しい世代としてhash付きで取り込みます。
-0.8.0以降は、LinuxのinotifyとmacOSのFSEventsでディレクトリを[継続して監視（英語）](../en/slices/continuous-directory-observation.md)し、
-再起動しなくても編集を反映します。0.7.0以前は起動時だけ取り込んでいました。
-readyは最初の照合より前に出るため、同期の完了を示す合図ではありません。
-ファイルを消すと、holdやretentionで保護されていないliveオブジェクトも削除します。
-削除数が100件以上かつツリーの半数を超える場合は、削除ガード（`GCS_MIMIC_SYNC_DELETE_GUARD`、既定`true`）で停止し、
-revisionを固定した削除一覧を[`gcs-mimic sync`](sync-cli.md)で確認して承認するまで削除しません。
-分割された走査でも、直前までの自動削除数を累積してこの閾値に数えます。
-APIでバケットを削除してもディレクトリは残ります。同じオブジェクトをAPIとファイルの両方で
-変更した場合は、APIの版が優先されます。ファイルはAPIの内容に置き換わり、編集は競合として保持されます。
-競合を復元すると、その編集が公開されます。
-`sync_ingested`・`sync_reconciled`ログイベントでは、こうしたファイルを`conflicting`として数え、
-`gcs-mimic sync conflicts`で一覧・解決できます。
-`logs/2026-10-28T12:00:00.log`のように`\`や`:`を含む名前と、ホストのファイル名に
-対応付けられないオブジェクト名は書き出さずに飛ばします。書き出し自体は止まらず、APIからは使えます。
-
-ディレクトリには、1つのデータディレクトリと結び付ける`.gcs-mimic-sync.json`と
-`.gcs-mimic-sync-work`が作られます。作成途中の`.gcs-mimic-sync.json.staging`も含めて
-`.gitignore`に追加してください。マーカーは一時ファイルへの書き込みと同期を終えてから原子的に公開します。
-一時マーカーの成分名はオブジェクトのすべての階層で予約されます。
-この名前を使う既存のAPIオブジェクトは保持されますが、作業ツリーには対応付けられません。
-同じカタログとrootに属する完成済みの一時マーカーは、再起動時に回収します。
-公開済みのマーカーが別のカタログに属する場合や壊れている場合は、従来どおり起動を拒否します。
-`docker compose down --volumes`などでデータボリュームを新しくすると、古いディレクトリは
-`ForeignMarker`の診断で起動時に拒否されます。古いディレクトリは退避し、新しい空のディレクトリを
-使ってください。データや初期ファイルのディレクトリと重ねることはできません。
-同期はLinuxとmacOSで動作し、Windowsでは拒否します。
-0.8.0以降はstrictでも使え、起動にはローカルのID登録が、同期の操作にはプロジェクト所有者の権限が必要です。
-ディレクトリのメタデータ・所有者・拡張属性が変わると、読み取り・検索権限を検査し直します。
-アクセスできない間は同期のreadinessを下げ、権限を直して観測処理が復旧するまで戻しません。
-
-書き出したファイルとディレクトリは、サーバーのユーザーだけが読めるモード（`0600`・`0700`）です。
-Docker Desktopはbind mountの所有者を対応付けるため、macOSのホストでは読めます。
-Linuxのホストでは、イメージのUID `10001`の所有になります。コンテナを自分のユーザーで実行し、
-データディレクトリも同じユーザーが所有するbind mountにしてください。
-
-```sh
-mkdir -p data sync
-docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
-  -p 127.0.0.1:4443:4443 \
-  -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
-  -e GCS_MIMIC_DATA_DIR=/data -e GCS_MIMIC_SYNC_DIR=/sync \
-  ghcr.io/shiroemons/gcs-mimic:0.27.0
-```
-
-検証済みの範囲、復旧の挙動、未実装の作業は[同期の契約（英語）](../en/slices/directory-synchronization.md)を参照してください。
 
 ## よく使う設定
 
@@ -466,7 +387,6 @@ strictモードでは、認証情報のないリクエストは匿名になり�
 `GCS_MIMIC_TRUSTED_LISTEN`（`--trusted-listen`、JSONの`trusted_listen`）を設定すると開きます。
 `GCS_MIMIC_TRUSTED_PRINCIPAL`（`--trusted-principal`、JSONの`trusted_principal`）を省略すると、信頼済みプリンシパルは組み込みの`trusted-app@gcs-mimic.invalid`です。
 このIDは、バケットの文書（`GCS_MIMIC_BUCKETS`か`GCS_MIMIC_BUCKETS_FILE`）が作るすべてのバケットのproject（項目の`project`、なければ文書の`project`）と、実際に使う`seed_project`で`roles/storage.admin`を持ちます。アプリのサーバーはプロジェクト所有者のサービスアカウントと同じ操作ができ、strictモードはIDの文書なしで起動できます。
-このロールは暗黙の付与なので、ディレクトリ同期の制御に必要な明示的な`roles/storage.admin`にはなりません。IDの文書でそのロールを付与するまで、信頼済みリスナーからの同期の制御は403になります。
 IDの文書（`GCS_MIMIC_IDENTITIES`か`GCS_MIMIC_IDENTITY_FILE`）に`trusted-app@gcs-mimic.invalid`の項目を書くと、そのロールに置き換わります。
 ほかのIDとして扱うには、`GCS_MIMIC_TRUSTED_PRINCIPAL`にIDの文書のIDか、有効にした組み込みテスト署名者を指定します。
 待受なしでのプリンシパルの指定、permissiveモード（すべてのリクエストがすでに許可されるため）、`unix_socket`との併用、ほかのリスナーと同じアドレス、IDの文書にも有効な組み込みテスト署名者にも当たらないプリンシパルの指定のいずれかでは、起動が止まります。

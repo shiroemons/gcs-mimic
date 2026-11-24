@@ -25,7 +25,7 @@ claims or exact reproduction of the reference's unrestricted handler.
 `GET` and `HEAD /_internal/healthcheck` use the same readiness test as
 its compatibility alias `/_internal/ready`: recovery and seeding must have completed, the catalog must
 remain healthy, background tasks must be running, and shutdown must not have
-revoked readiness. `/_internal/health` keeps its existing liveness behavior.
+revoked readiness. `/_internal/health` keeps its existing liveness behavior and carries no state.
 Probe bodies return 413 and unsupported methods return 405 with `Allow`.
 The CLI accepts the old healthcheck path with an explicit `--url`.
 

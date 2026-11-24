@@ -1,4 +1,4 @@
-//! Explicit instance reset never follows or modifies an external source/sync tree.
+//! Explicit instance reset never follows or modifies an external source tree.
 
 use crate::json::JsonErrorResponse;
 use crate::{
@@ -64,13 +64,6 @@ async fn reset(
     if request.uri().query().is_some() {
         return Err(ApiError::invalid_argument(
             "Reset does not accept query parameters",
-        ));
-    }
-    if ctx.config.sync_dir.is_some() {
-        return Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "conflict",
-            "Stop directory synchronization and restart without sync_dir before resetting; external files are never reset",
         ));
     }
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;

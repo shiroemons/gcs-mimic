@@ -6,7 +6,9 @@ While the project is in `0.x`, a minor release may make breaking changes, so the
 
 Reviewed source: version `0.17.1`, commit `a53a1f8c`, on 2026-11-10. The decisions of 2026-11-11 were checked against version `0.17.1`, commit `10266125`. The inventory rows that `0.18.0` changes (environment variables, alias flags, catalog schema and ready event) were reconciled with the `0.18.0` source on 2026-11-11, and the rows that the decisions of 2026-11-12 change (spelling rules, `backend`, `buckets_mode`, `connection_timeout_ms`, `compat_profile`, the `backend` flag and the ready event) with the `0.20.0` source on 2026-11-13; the other rows still describe the reviewed source.
 
-Lifecycle Delete execution uses the `lifecycle_execution` option below. It defaults to disabled with directory synchronization and enabled otherwise; an explicit choice overrides that default.
+Lifecycle Delete execution uses the `lifecycle_execution` option below. It defaults to enabled; an explicit choice overrides that default.
+
+Directory synchronization was removed after this review: `seed_dir` reads a folder at startup and never writes to it. The inventory tables below no longer list the `sync_*` settings, the `gcs-mimic sync` command, the `/_internal/sync` routes or the sync directory layout. The dated candidates, decisions and verification records further down keep describing the surface as it was reviewed.
 
 ## How to read this document
 
@@ -49,11 +51,10 @@ The inventory and the "Reason" and "Cost" entries of each candidate describe the
 | `gcs-mimic url public`, `gcs-mimic url public --help` | `src/main.rs` `url_public`, `URL_PUBLIC_HELP` | H, N, F | Yes |
 | `gcs-mimic url sign`, `gcs-mimic url sign --help` | `src/main.rs` `url_sign`, `URL_SIGN_HELP` | H, L, `docs/en/signed-urls.md` | 12 |
 | `gcs-mimic test-signer credentials`, `gcs-mimic test-signer --help` | `src/main.rs` `run`, `src/auth/test_signer.rs` | H, L, C | Yes |
-| `gcs-mimic sync status`, `findings`, `deletions`, `conflicts`, `rescan`, `approve`, `resolve`, `wait`; `gcs-mimic sync --help` | `src/sync_cli.rs` | H, S `sync-cli.md`, `docs/ja/sync-cli.md` | 11 |
 | `gcs-mimic import fake-gcs-server`, `--help` | `src/import/mod.rs` `cli`, `HELP` | H, S `import-filesystem.md`, `docs/en/migrate-from-fake-gcs-server.md` | Yes |
 | `gcs-mimic buckets new`, `--help` | `src/buckets_cli.rs` `run`, `HELP`; `src/bucket_init/generate.rs` | H, S `bucket-initialization.md` | Yes |
 
-A bare `gcs-mimic` exits 1 and names `serve`. `gcs-mimic serve --version`, `healthcheck --help`, `tls --help`, `tls ca --help`, `url --help`, `sync status --help` and `test-signer credentials --help` all exit 1 (observed).
+A bare `gcs-mimic` exits 1 and names `serve`. `gcs-mimic serve --version`, `healthcheck --help`, `tls --help`, `tls ca --help`, `url --help` and `test-signer credentials --help` all exit 1 (observed).
 
 ### Spelling rules
 
@@ -65,13 +66,13 @@ A bare `gcs-mimic` exits 1 and names `serve`. `gcs-mimic serve --version`, `heal
 | Precedence | CLI, then environment, then JSON file, then default | `src/config.rs` `collect_settings` |
 | Duplicates | A repeated native option is an error. A repeated alias flag takes the last value (observed) | `src/config.rs` `collect_settings`; `src/config_input.rs` `translate_aliases` |
 | Limits | At most 1024 supplied settings across sources; keys at most 256 bytes | `src/config_input.rs` `Inputs::push` |
-| Helper commands | Each has its own grammar; see [helper options](#helper-command-options) | `src/main.rs`, `src/sync_cli.rs`, `src/import/mod.rs` |
+| Helper commands | Each has its own grammar; see [helper options](#helper-command-options) | `src/main.rs`, `src/import/mod.rs` |
 
 Any `GCS_MIMIC_*` name that is not a setting stops `serve` and makes `healthcheck` without `--url` fail. Since `0.18.0`, the seven names withdrawn by candidate 2 stop it with advice that names their `GCSM_*` replacement; see [environment variables outside the option table](#environment-variables-outside-the-option-table).
 
 ### Server options
 
-Every name below is declared in `src/config/setting.rs`, and its default is in `Config::default` in `src/config.rs`. The table gives the JSON key; the flag and variable follow the spelling rules. "Code" is the file that parses the value. Exceptions: `config` has no JSON key, and `sync_reinitialize` is accepted only on the command line.
+Every name below is declared in `src/config/setting.rs`, and its default is in `Config::default` in `src/config.rs`. The table gives the JSON key; the flag and variable follow the spelling rules. "Code" is the file that parses the value. Exception: `config` has no JSON key.
 
 | Setting | Default | Accepted | Code | Documents | Agree |
 | --- | --- | --- | --- | --- | --- |
@@ -97,14 +98,9 @@ Every name below is declared in `src/config/setting.rs`, and its default is in `
 | `seed_content_type` | `extension` | `extension`, `octet-stream` | `src/mime.rs` | H, L, N, C, F | Yes |
 | `max_seed_entries` | 0 (unlimited) | 0 to 2^64-1 | `src/config.rs` | H, L, N, F | Yes |
 | `max_seed_depth` | 0 (unlimited) | 0 to 1024 | `src/config.rs` | H, L, N, F | Yes |
-| `sync_dir` | none | Existing writable directory; disk backend; Linux and macOS | `src/config.rs`, `src/sync/mod.rs` | H, L, N, C | Yes |
-| `sync_delete_guard` | `true` | `true`, `false`; needs `sync_dir` | `src/config.rs` | H, L, C | 1 |
-| `sync_reinitialize` | none | Catalog ID; command line only; needs `sync_dir` | `src/config.rs` | H, L, S `directory-synchronization.md` | Yes |
-| `max_sync_entries` | 0 (unlimited) | 0 to 2^64-1; needs `sync_dir` | `src/config.rs` | H, L, N, F | Yes |
-| `max_sync_depth` | 0 (unlimited) | 0 to 1024; needs `sync_dir` | `src/config.rs` | H, L, N, F | Yes |
 | `default_location` | `US` | Names in `src/bucket.rs`, case-insensitive; native profile only | `src/config.rs`, `src/bucket.rs` | H, L, C, F | 3 |
 | `default_soft_delete_retention_seconds` | 0 (off) | 0 to 7776000; a positive value needs the native profile | `src/config.rs`, `src/bucket.rs` | H, L, N, C, F | Yes |
-| `lifecycle_execution` | `disabled` with `sync_dir`, `enabled` otherwise | `enabled` or `disabled`; explicit enabled also deletes synchronized host files. CLI `--lifecycle-execution`, environment `GCS_MIMIC_LIFECYCLE_EXECUTION`, JSON `lifecycle_execution` | `src/config.rs`, `src/storage/catalog/lifecycle.rs` | H, N, F, S `lifecycle-execution.md` | Yes |
+| `lifecycle_execution` | `enabled` | `enabled` or `disabled`. CLI `--lifecycle-execution`, environment `GCS_MIMIC_LIFECYCLE_EXECUTION`, JSON `lifecycle_execution` | `src/config.rs`, `src/storage/catalog/lifecycle.rs` | H, N, F, S `lifecycle-execution.md` | Yes |
 | `buckets_file` | none | Path; not with `buckets` | `src/config/document.rs` | H, L, N, C, F, S `bucket-initialization.md` | Yes |
 | `buckets` | none | The document inline, or comma-separated bucket names (a value not starting with `{`) that expand to a document creating each with default settings; not with `buckets_file` | `src/config/document.rs`, `src/bucket_init/shorthand.rs` | H, L, N, C, F, R, S `bucket-initialization.md` | 7 |
 | `buckets_mode` | `reconcile` | `create`, `reconcile`; needs a document. `buckets_file_mode`, its name before `0.20.0`, stops startup | `src/config.rs` | H, L, N, C, F | Yes |
@@ -177,7 +173,6 @@ The native-equivalent block is one `info` diagnostic with key `native_equivalent
 | `healthcheck` | `--url`, `--ca-cert` | Two hyphens, space-separated. A 2-second deadline; requires HTTP 200 | `src/main.rs` | H, C | 17 |
 | `url public` | `--base-url`, `--config`, `--bucket`, `--object`, `--style` | Two hyphens, space-separated | `src/main.rs` | H, F, N | Yes |
 | `url sign` | The `url public` options, `--method`, `--expires`, `--signer`, `--private-key`, `--header` (repeats), `--query` (repeats), `--timestamp` | Two hyphens, space-separated | `src/main.rs`, `src/auth/signature.rs` | H, `docs/en/signed-urls.md` | 12 |
-| `sync` | `--endpoint`, `--ca-cert`, `--token-file`, `--timeout`, `--timeout-ms`, `--revision`, `--cursor`, `--limit`, `--conflict`, `--recovery`, `--action`, `--expected-generation`, `--target-identity`, `--operation-id`, `--confirm-backup-verified`, `--confirm-discard-without-backup`, `--deletion-set`, `--view` | Two hyphens, space-separated, values 1 to 8192 bytes | `src/sync_cli.rs` | H, S `sync-cli.md` | 11 |
 | `import fake-gcs-server` | `--source`, `--data-dir`, `--metadata-mode`, `--source-platform`, `--source-format`, `--max-object-bytes`, `--max-entries`, `--max-depth`, `--dry-run`, `--verify-bodies` | Two hyphens, space-separated; a value cannot start with `--` | `src/import/mod.rs` | H, S `import-filesystem.md` | Yes |
 | `buckets new` | `--name` (repeats, one per bucket), `--format`, `--auth-mode`, `--output`, and bucket settings after a `--name`: `--project`, `--location`, `--storage-class`, `--public-access-prevention`, `--soft-delete-retention-seconds`, `--cors-max-age-seconds`, valueless `--versioning`, `--default-event-based-hold`, `--public-read`, `--browser-uploads`, `--browser-downloads`, and repeating `--label`, `--cors-origin`, `--cors-method`, `--cors-response-header`, `--iam-binding` | Two hyphens, space-separated. The first helper grammar in which a setting belongs to the preceding `--name`; a setting before any `--name` fails, and so does a bucket whose CORS settings lack a `--cors-origin` or a method. The contract is the command and option names, exit code 1 with diagnostics on stderr, and a `json` output that startup validation accepts; the exact layout of `env` and `compose`, the questions, and the advice written to stderr only when it is a terminal are not | `src/buckets_cli.rs` | H, S `bucket-initialization.md` | Yes |
 
@@ -196,7 +191,6 @@ An explicit `--url` skips all three steps. Step 3 is what lets the image's `HEAL
 | Variable | Effect | Defined in | Documented in | Agree |
 | --- | --- | --- | --- | --- |
 | `PUBSUB_EMULATOR_HOST` | Same as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`, which wins when both are set | `src/config_input.rs`, `src/config.rs` | H, L, F | Yes |
-| `GCSM_SYNC_TOKEN` | Bearer token for `gcs-mimic sync`; `--token-file` wins. The server ignores it | `src/sync_cli.rs` | `sync --help`, S `sync-cli.md` | Yes |
 | `GCSM_ENDPOINT` | Address for the client programs in `examples/`. The server ignores it | `examples/*`, for example `examples/go/main.go` | `examples/README.md` and each example's README, `docs/en/getting-started.md` | Yes |
 | `GCSM_GRPC_ENDPOINT` | gRPC address for `examples/rust`. The server ignores it | `examples/rust/src/main.rs` | `examples/rust/README.md` | Yes |
 | `GCSM_BINARY` | Executable that the Go packages start, used as given; they still remove every `GCS_MIMIC_*` name from the child they start | `go/internal/mimicproc/download.go` | `go/README.md` | Yes |
@@ -213,11 +207,10 @@ On the reviewed source, every `GCS_MIMIC_[A-Z0-9_]+` name in the repository was 
 
 | Format | Version | Fields and limits | Defined in | Documented in | Agree |
 | --- | --- | --- | --- | --- | --- |
-| Server JSON (`config`) | None; a `version` key is an unknown setting (observed) | Flat object of setting keys, at most 64 KiB. Values are strings or unsigned integers. `admin_enabled` and `sync_delete_guard` also take booleans, `default_location` also takes null, and `buckets` and `identities` also take an object. `buckets_file` takes only a string | `src/config.rs` `read_config`, `member_text` | N, S `configuration-workflows.md`, `config/development.json` | 7 |
+| Server JSON (`config`) | None; a `version` key is an unknown setting (observed) | Flat object of setting keys, at most 64 KiB. Values are strings or unsigned integers. `admin_enabled` also takes booleans, `default_location` also takes null, and `buckets` and `identities` also take an object. `buckets_file` takes only a string | `src/config.rs` `read_config`, `member_text` | N, S `configuration-workflows.md`, `config/development.json` | 7 |
 | Bucket document (`buckets_file`, `buckets`) | Required integer `version: 1` | Top: `version`, `project`, `buckets`. Entry: `name`, `project`, `location`, `storageClass`, `labels`, `cors` (`origin`, `method`, `responseHeader`, `maxAgeSeconds`), `versioning.enabled`, `defaultEventBasedHold`, `iamConfiguration.publicAccessPrevention`, `softDeletePolicy.retentionDurationSeconds`, `iamPolicy.bindings`. Unknown fields and fields such as `lifecycle` and `acl` fail. File at most 1 GiB, or 1 KiB per allowed bucket and at least 32 MiB with a limit; entry at most 16 MiB | `src/bucket_init.rs`, `src/bucket_init/policy.rs` | N, C, S `bucket-initialization.md`, `config/buckets.json` | 7, 10 |
 | Identity registry (`identity_file`, `identities`) | None | Top: `identities` (required, nonempty), `public_access_prevention_projects`. Entry: `id`, `tokens`, `project_roles`, `public_keys`, `acl_entity`. At most 16 MiB. With permissive `signed_urls=verify`, only `id` and `public_keys` | `src/auth/mod.rs` | N, C, S `strict-auth.md`, `config/identities.json` | 7 |
 | Seed directory | None | Top-level directories are buckets; nested regular files are objects; root files are skipped with `seed_skipped` | `src/seed.rs` | N, C, S `seed.md` | Yes |
-| Sync directory | None | `BUCKET/OBJECT` files, plus `.gcs-mimic-sync.json`, `.gcs-mimic-sync-work` and `.gcs-mimic-sync.json.staging` | `src/sync/mod.rs`, `src/sync/mapping.rs` | C, S `directory-synchronization.md` | Yes |
 | TLS material | PEM | Certificate chain and key, each at most 1 MiB | `src/tls.rs` | N, `docs/en/local-https.md` | Yes |
 
 ### Data directory access contract
@@ -238,7 +231,7 @@ All are under `/_internal`, which is outside the Google namespaces. Defined in `
 | Route | Methods | Availability | Documented in | Agree |
 | --- | --- | --- | --- | --- |
 | `/_internal/health` | GET, HEAD | Always; liveness | H, S `runtime-admin-endpoints.md` | Yes |
-| `/_internal/ready`, `/_internal/healthcheck` | GET, HEAD | Always; readiness | H, L, S `runtime-admin-endpoints.md` | Yes |
+| `/_internal/ready`, `/_internal/healthcheck` | GET, HEAD | Always; API readiness | H, L, S `runtime-admin-endpoints.md` | Yes |
 | `/_internal/config` | PUT, JSON `externalUrl`, `publicHost` | `admin_enabled` | S `runtime-admin-endpoints.md` | 16 |
 | `/_internal/objects` | POST, `multipart/related` | `admin_enabled` | S `local-fixture-administration.md` | Yes |
 | `/_internal/reset` | POST, body `{"confirm":"gcs-mimic"}` | `admin_enabled` | S `local-instance-reset.md` | 16 |
@@ -246,8 +239,6 @@ All are under `/_internal`, which is outside the Google namespaces. Defined in `
 | `/_internal/reseed` | POST or PUT, empty body | `admin_enabled` and `seed_dir` | C, S `atomic-seed-reseed.md` | Yes |
 | `/_internal/lifecycle/run` | POST, empty body; counts and effective `enabled` | `admin_enabled`; obeys `lifecycle_execution` | S `lifecycle-execution.md` | Yes |
 | `/_internal/buckets/{bucket}` | DELETE, empty body; `objects`, `cleanupPending` | `admin_enabled` | S `bucket-purge.md` | Yes |
-| `/_internal/sync`, `/_internal/sync/conflicts` | GET | `sync_dir`, not `admin_enabled`; its own control authorization | S `sync-cli.md`, `external-deletion-controls.md` | Yes |
-| `/_internal/sync/approve`, `rescan`, `resolve`, `wait` | POST | `sync_dir`, not `admin_enabled`; its own control authorization | S `sync-cli.md`, `external-deletion-controls.md` | Yes |
 
 Management routes refuse browser-initiated requests with 403 and unapproved DNS hosts with 421 (`src/server/admin/guard.rs`; S `http-adapter-boundaries.md`).
 
@@ -255,16 +246,15 @@ Management routes refuse browser-initiated requests with 403 and unapproved DNS 
 
 | Item | Current behavior | Defined in | Documented in | Agree |
 | --- | --- | --- | --- | --- |
-| Exit status | 0 on success, including graceful shutdown on a signal; 1 on any failure | `src/main.rs` `main` | F ("nonzero"), S `sync-cli.md` ("nonzero") | Yes |
+| Exit status | 0 on success, including graceful shutdown on a signal; 1 on any failure | `src/main.rs` `main` | F ("nonzero") | Yes |
 | Diagnostics | One JSON line per batch on stderr: `event: "diagnostics"`, `level` (`warn` or `error`), `diagnostics` of `source`, `key`, `fix`; warnings first, sorted by source then key | `src/diagnostics.rs` | N, F | Yes |
-| Diagnostic sources | `cli`, `environment`, `config`, `tls`, `identity`, `filesystem`, `catalog`, `initializer`, `seed`, `sync`, `import`, `listener`, `runtime` | `src/diagnostics.rs` | Partly, F | Yes |
+| Diagnostic sources | `cli`, `environment`, `config`, `tls`, `identity`, `filesystem`, `catalog`, `initializer`, `seed`, `import`, `listener`, `runtime` | `src/diagnostics.rs` | Partly, F | Yes |
 | Fix wording | Not stable, by policy | `docs/en/release-policy.md` | `docs/en/release-policy.md` | Yes |
 | Ready event | One JSON line on stdout with `event: "ready"`, `executable`, `version`, `healthcheck_path`, `admin_enabled`, effective `lifecycle_execution` (`enabled` or `disabled`), `message`, `listen`, `listeners`, optional `trusted_listen` and `trusted_principal`, `transport`, optional `unix_socket`, with disk storage `data_dir` (absolute, symbolic links not resolved) and `data_dir_state` (`created` or `opened`), the limits and timeouts, `backend`, `auth_mode`, optional `identities`, `test_signer`, `signed_urls`, `seed`, `buckets` (`buckets_file` before `0.20.0`), `scheme`, optional `grpc_scheme` with a gRPC listener (added in `0.27.0`), `public_base_url`, `public_virtual_host_enabled`, `cors_fallback`, `signed_host_port`, optional `signed_host_port_signers`, `api_base_url`. `protocol` and `gcs_api` were removed in `0.18.0` | `src/startup.rs` `ReadyEvent`, `ReadyDataDirectory` | N, C, S `runtime-admin-endpoints.md`, S `lifecycle-execution.md`, S `startup-phases.md` | Yes |
 | Data directory notice | One `info` runtime event `data_dir_created` on stderr with the absolute `data_dir`, only when this start initialized the catalog | `src/startup.rs` | S `startup-phases.md`, N | Yes |
 | Stopped event | `{"event":"stopped"}` on stdout | `src/startup.rs` `report_stopped` | N | Yes |
 | Runtime events | JSON lines on stderr with `event`, `level` and fields, filtered by `log_level`. About 80 names, written as string literals at each call site; no list exists in code or documents | `src/diagnostics.rs` `emit` | N | Yes |
 | Import output | JSON lines on stdout (`import_page`, `import_summary` from a dry run, `import_complete`); diagnostics on stderr. The help promises JSON Lines, not the names or fields | `src/import/mod.rs`, `src/import/filesystem.rs` | `import fake-gcs-server --help` | Yes |
-| Sync output | One JSON document on stdout, also on a non-success HTTP status | `src/sync_cli.rs` | S `sync-cli.md` | Yes |
 
 ### Images, tags, paths and archives
 
@@ -444,6 +434,7 @@ Changing any of these changes behavior for everyone who left the setting unset, 
   | `/_internal/lifecycle/run` | Empty body | `aborted`, `enabled`, `scanned`, `deleted`, `archived`, `transitioned`, `blocked`, `skipped` (`LifecycleResponse` in `src/storage/catalog/lifecycle.rs`) |
 
   The frozen keys therefore keep both styles: `unix_time` is snake_case, and `externalUrl`, `publicHost` and `cleanupPending` are camelCase.
+  A ready answer later gained a `sync` object while directory synchronization is enabled; it is not frozen and stays outside the contract until the directory synchronization feature is complete ([release policy](release-policy.md)).
 - **Required change:** None in code; the decision keeps every key and the current limits.
   - [Release policy](release-policy.md): names the contract routes and the sync exclusion. That statement is true today.
   - Documents: `docs/en/slices/runtime-admin-endpoints.md` and `docs/en/slices/local-instance-reset.md` call 64 KiB a bound or cap; they must call it the guaranteed size, without promising that larger bodies are refused or accepted ([disagreement 16](#disagreements-between-code-and-documents)). `docs/en/slices/sync-cli.md`, `docs/ja/sync-cli.md` and `docs/en/slices/external-deletion-controls.md` say the sync routes are an internal protocol tied to the server's version, and direct users to `gcs-mimic sync`.

@@ -46,8 +46,8 @@ async fn a_new_request_deadline_keeps_an_earlier_expiry() {
     );
 
     let deadline = Some(tokio::time::Instant::now() + Duration::from_secs(60));
-    let started =
-        tokio::time::timeout(BLOCKED, begin_catalog_wait_until(&activity, deadline)).await;
+    activity.send_modify(|progress| progress.start_object(deadline));
+    let started = tokio::time::timeout(BLOCKED, begin_catalog_wait(&activity)).await;
 
     assert!(
         started.is_err(),

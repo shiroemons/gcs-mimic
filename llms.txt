@@ -63,7 +63,7 @@ Start it with `docker compose up -d --wait`, which returns once the emulator is 
 
 - `docker run --rm -it ghcr.io/shiroemons/gcs-mimic:0.27.0 buckets new` asks for the buckets on a terminal and prints this block; with `--name NAME` and settings as flags it asks nothing and needs no `-it`. It asks whether each bucket is public or private; a private bucket, or `--auth-mode strict`, adds strict mode's settings to the block and public read to the public buckets: `GCS_MIMIC_AUTH_MODE: strict`, a trusted listener on port 4444 for your servers, never published, and the built-in test signer for signed URLs. Buckets without settings need only their names, as in `GCS_MIMIC_BUCKETS: "uploads,exports"`.
 - Each bucket needs `name`. Optional fields are `cors`, `iamPolicy`, `versioning` (`{"enabled": true}`), `softDeletePolicy`, `project`, `location`, `storageClass`, `labels`, `defaultEventBasedHold` and `iamConfiguration`. In a `cors` rule, `origin` and `method` are enough; `responseHeader` and `maxAgeSeconds` are optional. Unknown fields and `lifecycle` make startup fail; set lifecycle rules through the API instead.
-- Stored lifecycle Delete rules execute by default without directory synchronization. With `sync_dir`, they stay inactive unless `--lifecycle-execution enabled`, `GCS_MIMIC_LIFECYCLE_EXECUTION=enabled`, or JSON `"lifecycle_execution":"enabled"` explicitly enables them; execution also deletes synchronized host files. Set `disabled` to keep rules inactive in either mode. Starting previously synchronized data without `sync_dir` enables execution by default, and its deletions can remove tracked host files when synchronization resumes. Ready reports the effective `lifecycle_execution` value.
+- Stored lifecycle Delete rules execute by default. Set `--lifecycle-execution disabled`, `GCS_MIMIC_LIFECYCLE_EXECUTION=disabled` or JSON `"lifecycle_execution":"disabled"` to keep stored rules inactive. Ready reports the effective `lifecycle_execution` value.
 - The default project is `local-project`. A top-level `"project": "NAME"` changes it.
 - Edits to this setting reach existing buckets at the next start. Removing an entry never deletes a bucket.
 - Compose expands `${VAR}` inside the value, so write a literal `$` as `$$`.
@@ -136,10 +136,10 @@ curl -sS --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' 
 | `--backend memory` | Keep everything in RAM. Objects can use about half of the memory by default, from 64 MiB to 1 GiB, and 1 GiB on every system but Linux, where the memory cannot be read | `GCS_MIMIC_BACKEND: memory` |
 | `--log-level debug` | `debug`, `info`, `warn` or `error` | `GCS_MIMIC_LOG_LEVEL: debug` |
 
-**Every server option.** Each `--foo-bar` below also exists as the variable `GCS_MIMIC_FOO_BAR` and the JSON config key `foo_bar`. A flag wins over a variable, a variable over the JSON file, and the file over the default. An unknown `GCS_MIMIC_*` name stops startup. Exceptions: `--sync-reinitialize` is a flag only, `--config` has no JSON key, and `--port`, `--port-http` and `--host` are flags only. `PUBSUB_EMULATOR_HOST` is accepted as well as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.27.0 --help` gives the default and range of each.
+**Every server option.** Each `--foo-bar` below also exists as the variable `GCS_MIMIC_FOO_BAR` and the JSON config key `foo_bar`. A flag wins over a variable, a variable over the JSON file, and the file over the default. An unknown `GCS_MIMIC_*` name stops startup. Exceptions: `--config` has no JSON key, and `--port`, `--port-http` and `--host` are flags only. `PUBSUB_EMULATOR_HOST` is accepted as well as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.27.0 --help` gives the default and range of each.
 
 The server reads `GCS_MIMIC_*`; every other program in this project reads `GCSM_*`.
-Use `GCSM_ENDPOINT`, `GCSM_GRPC_ENDPOINT`, `GCSM_SYNC_TOKEN`, `GCSM_BINARY`,
+Use `GCSM_ENDPOINT`, `GCSM_GRPC_ENDPOINT`, `GCSM_BINARY`,
 `GCSM_PORT`, `GCSM_IMAGE` and `GCSM_TLS_DIR` for examples, helpers and Compose.
 Their old prefix fails with replacement advice. The server ignores `GCSM_*`.
 
@@ -148,7 +148,6 @@ Their old prefix fails with replacement advice. The server ignores `GCSM_*`.
 - TLS: `--tls-cert`, `--tls-key`, `--tls-handshake-timeout-ms`
 - Storage: `--data-dir`, `--backend`, `--memory-max-bytes`, `--memory-catalog-max-bytes`
 - Seed: `--seed-dir`, `--default-seed-dir`, `--seed-project`, `--seed-content-type`, `--max-seed-entries`, `--max-seed-depth`
-- Sync: `--sync-dir`, `--sync-delete-guard`, `--sync-reinitialize`, `--max-sync-entries`, `--max-sync-depth`
 - Buckets: `--buckets`, `--buckets-file`, `--buckets-mode`, `--max-buckets-per-batch`, `--default-location`, `--default-soft-delete-retention-seconds`, `--lifecycle-execution`
 - URLs: `--api-base-url`, `--public-base-url`, `--xml-virtual-host-domains`
 - Admin: `--admin-enabled`, `--admin-principal`, `--admin-allowed-hosts`
@@ -214,7 +213,7 @@ Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.2, Node.
 - Location and storage class are metadata. Nothing is physically placed.
 - Customer-supplied keys are required to read an object, but the data is not encrypted on disk.
 - The RAM backend (`GCS_MIMIC_BACKEND: memory`) holds about half of the memory in object bytes by default, from 64 MiB to 1 GiB, and 1 GiB on every system but Linux, where the memory cannot be read. Data is lost at exit.
-- A sync directory mirrors objects as files. Its conflict and recovery handling is partial.
+- Directory synchronization was removed. `seed_dir` reads a folder at startup and never writes to it.
 - Soft delete is off unless a bucket policy or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` turns it on, unlike Cloud Storage.
 - V2 signed URLs are a subset. Unsupported gRPC fields and methods return `UNIMPLEMENTED`.
 
@@ -244,7 +243,7 @@ Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.2, Node.
 - Publish port 4443 on 127.0.0.1 only. The default mode accepts unauthenticated requests.
 - Tests that pass in default mode prove nothing about authorization or signed URLs.
 - The image has no shell and runs as UID/GID 10001. Do not write shell healthchecks or entrypoints. Files under `/data` must be readable by that user.
-- Files in `/var/lib/gcs-mimic` are opaque. Use the API, a `/data` mount or a sync directory.
+- Files in `/var/lib/gcs-mimic` are opaque. Use the API or a `/data` mount.
 - A `/data` mount is applied on every startup and replaces API changes to the same object names.
 - Other settings are `GCS_MIMIC_SIGNED_URLS` (`verify` checks signatures in default mode), `GCS_MIMIC_GRPC_LISTEN` and `GCS_MIMIC_LOG_LEVEL`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.27.0 --help` lists every option.
 - A passing SDK scorecard means ordinary workflows work, not that the API is complete.
@@ -268,7 +267,7 @@ docker run --rm -v OLD_VOLUME:/storage:ro -v "$PWD/data:/out" busybox:1 \
 - [Strict local recipe](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/examples/strict-local/README.md): read for signing in other languages, roles, or changing buckets later
 - [SDK setup](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/sdk-setup.md): read for HTTPS, gRPC or SDK-specific signed URL options
 - [Rails Active Storage](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/rails-active-storage.md): read for any Rails project
-- [Docker usage](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/container-usage.md): long; search it for a setting, seed files or the sync directory
+- [Docker usage](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/container-usage.md): long; search it for a setting or seed files
 
 ## Examples
 

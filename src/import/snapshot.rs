@@ -407,7 +407,7 @@ fn open(options: &Options) -> Result<Snapshot, ImportFailure> {
         ));
     }
     let rows = PinnedSource::pin(fsutil::open_regular_at(&root, "snapshot.jsonl".as_ref())?)?;
-    let blobs = fsutil::directory_at(&root, "blobs".as_ref(), fsutil::DirectoryOpen::Existing)?;
+    let blobs = fsutil::directory_at(&root, "blobs".as_ref())?;
     Ok(Snapshot { root, rows, blobs })
 }
 

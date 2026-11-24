@@ -266,13 +266,3 @@ pub(crate) async fn lifecycle_transitioned_object() -> (ObjectRecord, ObjectReco
     catalog.close().await.unwrap();
     (original, stored)
 }
-
-/// The failure an administrative operation reports when an abandoned transaction could not be
-/// rolled back because the database was busy. Sync decisions read the busy code through the
-/// connection and rollback types, which only the catalog can build.
-pub(crate) fn unrecovered_busy_connection() -> super::admin::AdminError {
-    super::ConnectionUnavailable::Unrecovered(super::connection::RollbackError::Rollback(
-        rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY), None),
-    ))
-    .into()
-}

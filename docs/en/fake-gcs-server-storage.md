@@ -142,36 +142,13 @@ Source: [global middleware and routes](https://github.com/fsouza/fake-gcs-server
 
 ## Required gcs-mimic follow-up
 
-The agreed usability requirement is **bidirectional synchronization**: users can
-inspect and edit a configured bucket/object directory, and API changes appear
-in that same directory. gcs-mimic's `--sync-dir` provides bounded
-bidirectional synchronization; complete conflict, recovery and platform
-acceptance remains pending. See the
-[sync contract](slices/directory-synchronization.md). Seed import and a
-one-time migration converter do not satisfy it.
-The planning requirement is recorded in
-`compatibility/features.json` under `delivery_plan.migration.filesystem_sync_contract`.
+Directory synchronization was removed. gcs-mimic keeps SQLite as the
+metadata/index catalog with opaque immutable blobs, and `seed_dir` reads a folder
+at startup and never writes to it ([seed contract](slices/seed.md)). Seed import
+and the one-time migration converter are the supported ways to bring a directory
+of files in.
 
-Keeping SQLite is compatible with this requirement. The implementation keeps
-SQLite as the metadata/index catalog and treats the visible directory as a
-synchronized working tree. External changes enter the existing streaming,
-hashing, generation and publication path; committed internal blobs stay immutable.
-Updating only a SQLite size or pathname would leave inconsistent object state.
-
-The sync contract settles and verifies, within its recorded scope:
-
-- API/external create, overwrite, delete and rename behavior in both directions.
-- Editor temporary files, incomplete writes and atomic replacement.
-- Conflicts between an API write and an external edit, with visible failure or
-  recovery instead of silent data loss.
-- Event deduplication, self-generated write events, overflow and bounded rescan
-  after restart or a missed-event signal.
-- Name mapping for file/directory collisions, platform restrictions and symlinks.
-- Metadata ownership, checksum/ETag/generation updates and preservation of history,
-  bucket rules and permissions.
-- Consistent restart/recovery across visible files, immutable blobs and SQLite.
-
-The conflict policy, synchronization delay and unusual-name representation are
-explicit in the sync contract, with its remaining boundaries. Safe external-edit
-reconciliation goes beyond what the inspected fake-gcs-server filesystem path
-guarantees.
+Editing a file under a store, as in the cases above, still cannot reconcile
+hashes and generations: updating only a SQLite size or pathname would leave
+inconsistent object state, which is why gcs-mimic does not copy the inspected
+fake-gcs-server filesystem path.

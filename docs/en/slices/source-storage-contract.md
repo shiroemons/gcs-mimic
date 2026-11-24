@@ -656,7 +656,7 @@ implementation is implied by the remaining Import requests.
   shared-imported-identity and shared-import-journal; validates recovery,
   serve/seed guards, unchanged source and preserved client identities.
 - `go-adapter-live-export`: separate memory exporter/history work. No claim of
-  complete source inventory, live directory synchronization or legacy reseed.
+  complete source inventory or legacy reseed.
 
 DESIGN-062, DESIGN-072, DESIGN-073 and AUDIT-014 remain PARTIAL. The reader,
 integrity-report and normalized-name cases are the only promoted acceptance

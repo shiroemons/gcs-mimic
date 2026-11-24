@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Comparison baseline: **2026-10-23** (filesystem follow-up: **2026-10-24**; sync directory follow-up: **2026-10-28**): gcs-mimic, with its column updated for `0.8.0` (**2026-11-01**),
+Comparison baseline: **2026-10-23** (filesystem follow-up: **2026-10-24**): gcs-mimic, with its column updated for `0.8.0` (**2026-11-01**),
 compared with fake-gcs-server `v1.56.1` and gcp-storage-emulator `v2026.07.19`.
 The production-like access follow-up (**2026-11-08**) adds gcs-mimic capabilities
 that need 0.14.0 or later; each such cell says so.
@@ -258,8 +258,8 @@ not imply complete XML semantics or authenticated-only public access.
 | --- | --- | --- | --- |
 | Runtime / embedded use | Rust binary | Go binary or Go test library | Python CLI or Python test server |
 | Preserve API-created bytes across normal restart | ✅ SQLite catalog and opaque files | ✅ Filesystem backend | ✅ Files and JSON metadata |
-| API-created objects appear as bucket/object files | ✅ `--sync-dir` mirror beside opaque storage | ✅ Filesystem backend | ✅ Disk backend |
-| Reconcile external edits with hashes and generation metadata | 🚧 Bounded live observation, create/edit ingestion and approved external deletion; complete conflict/recovery/platform acceptance pending | ❌ Direct reads can expose stale metadata | ❌ No reconciliation contract |
+| API-created objects appear as bucket/object files | ❌ Opaque storage; `seed_dir` reads a folder at startup and never writes to it | ✅ Filesystem backend | ✅ Disk backend |
+| Reconcile external edits with hashes and generation metadata | ❌ | ❌ Direct reads can expose stale metadata | ❌ No reconciliation contract |
 | Optional in-memory backend | 🚧 `--backend memory` with explicit storage budgets; [contract](slices/memory-backend.md) | ✅ | ✅ |
 | Import a bucket/object seed directory | ✅ Every startup and opt-in atomic reseed; an exactly identical object keeps its generation | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
 | Create buckets with their settings (CORS, versioning, project, IAM policy) from a startup document | 🚧 A JSON document from `buckets_file`, or inline in `GCS_MIMIC_BUCKETS`; entries may set an initial `iamPolicy`, and `buckets_mode=reconcile`, the default, writes edited fields to existing buckets, while `create` keeps them and warns about unapplied edits. Inline documents, `iamPolicy` and reconcile need 0.14.0 or later; the name `buckets_mode` and its default for a file need 0.20.0. Crash-boundary and review cases remain pending (DESIGN-062 `PARTIAL`); [contract](slices/bucket-initialization.md) | ❌ No startup bucket document; seed directories create buckets without settings | ❌ No startup bucket document |
@@ -278,15 +278,10 @@ local administration route ([contract](slices/atomic-seed-reseed.md)); neither
 has a seed watcher. Neither product deletes
 objects whose seed file was removed.
 
-gcs-mimic's sync directory is a mirror beside its catalog, not a second storage
-backend: API writes appear shortly after each response, and external creates and
-edits become new generations with recomputed hashes. Bounded live observation,
-approved external deletion and the live `sync` CLI are available; complete
-conflict, recovery and platform acceptance remains pending
-([sync contract](slices/directory-synchronization.md)).
-The follow-up ran the container smoke's sync stage on `linux/arm64` and
-`linux/amd64`; see [sync directory evidence](evidence/sync-dir-containers.txt)
-and [Docker usage](container-usage.md#mirror-objects-to-a-host-directory).
+Directory synchronization was removed: `seed_dir` reads a folder at startup and
+never writes to it. The earlier
+[sync directory evidence](evidence/sync-dir-containers.txt) is kept as a dated
+record.
 Disk persistence does not imply equivalent crash or power-loss guarantees.
 CPU, memory, throughput and image size are not ranked across products in general. One equivalent
 comparison with fake-gcs-server, limited to object reads at local scale, is recorded in the

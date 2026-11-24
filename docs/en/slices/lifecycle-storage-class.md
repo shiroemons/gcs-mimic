@@ -34,7 +34,7 @@ Holds and retention permit class transitions. A selected protected independent D
 
 Class updates, metadata journal entries and `OBJECT_METADATA_UPDATE` payloads commit together. Failed UPDATE or commit rolls back the page without partial events and remains retryable. Process-abort and power-loss snapshots restart without duplicate transition events. No new filesystem write, rename or synchronization step is introduced. Malformed stored class timestamps use the existing version quarantine while healthy versions continue.
 
-Execution is enabled by default without `sync_dir`, disabled by default with it, and explicit `enabled`/`disabled` overrides either default. With synchronization enabled, class-only journal entries do not re-export body bytes or change the host file's inode, modification time or contents. A matching Delete can still remove the file. The guarded run route reports `transitioned`; `scanned` counts a visited generation once even when several actions run.
+Execution is enabled by default, and explicit `enabled`/`disabled` overrides the default. The guarded run route reports `transitioned`; `scanned` counts a visited generation once even when several actions run.
 
 ## Delayed-pass differences
 
@@ -81,7 +81,7 @@ Metageneration increment, class timestamps and metadata notifications follow gen
 | Independent priority oracle and explicit safety domain | `delayed_deletion_safety_has_an_explicit_class_independent_transition_domain` |
 | Monotonic class times, new-generation resets and Autoclass | `transitions_never_backdate_creation_or_a_newer_metadata_update`, `every_new_generation_starts_its_storage_class_time_at_creation`, `enabling_autoclass_updates_the_class_time_only_for_changed_live_and_noncurrent_versions` |
 | UPDATE/commit rollback, crash and power-loss recovery | `failed_transition_update_rolls_back_the_page_and_retries`, `failed_transition_commit_preserves_metadata_events_and_journal_for_retry`, `transition_crash_and_power_loss_restart_converge_without_rewriting_or_duplicate_events` |
-| Quarantine, synchronization and execution settings | `malformed_class_timestamp_is_quarantined_while_healthy_transitions_finish`, `synchronized_transitions_follow_execution_settings_without_exporting_body_bytes` |
+| Quarantine | `malformed_class_timestamp_is_quarantined_while_healthy_transitions_finish` |
 | Schema 52 migration, late stored rules and old serialized records | `schema_52_migrates_null_class_times_and_executes_stored_rules`, `upgrading_stored_rules_after_their_deadlines_transitions_before_old_class_delete` |
 | Protocol timestamps | `json_outputs_the_stored_lifecycle_storage_class_timestamp`, `grpc_v1_outputs_the_stored_lifecycle_storage_class_timestamp`, `grpc_v2_outputs_the_stored_lifecycle_storage_class_timestamp` |
 

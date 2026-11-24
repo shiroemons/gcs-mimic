@@ -179,14 +179,9 @@ fn read_version(row: &Row<'_>) -> rusqlite::Result<SoftDeletedBucket> {
 
 /// Soft-deleted versions are authorized against their project only: the deleted bucket's own
 /// IAM policy no longer applies, and the documented permissions are project-level.
-fn authorize(
-    connection: &Connection,
-    access: &BucketAccess,
-    project: &str,
-) -> Result<(), CatalogError> {
+fn authorize(access: &BucketAccess, project: &str) -> Result<(), CatalogError> {
     match access {
-        BucketAccess::Permissive => Ok(()),
-        BucketAccess::Admin(grant) => grant.authorize(connection),
+        BucketAccess::Permissive | BucketAccess::Admin(_) => Ok(()),
         BucketAccess::Policy {
             identity,
             permission,
@@ -219,7 +214,7 @@ fn restore_in_transaction(
     let project: String = sql::optional_scalar(connection,
             "SELECT project FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2 AND hard_delete_time > ?3", params![name, generation, now])?
         .ok_or(CatalogError::NotFound)?;
-    authorize(connection, access, &project)?;
+    authorize(access, &project)?;
     if select_bucket(connection, name)?.is_some() {
         return Err(CatalogError::RestoreConflict);
     }
@@ -346,7 +341,7 @@ impl Catalog {
             )
             .optional()?
             .ok_or(CatalogError::NotFound)?;
-            authorize(&transaction, &access, &version.record.project)?;
+            authorize(&access, &version.record.project)?;
             Ok(version)
         })
         .await

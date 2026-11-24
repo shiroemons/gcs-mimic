@@ -20,9 +20,8 @@ and reconcile mode, the default for the inline document, writes edited entries
 to existing buckets. Seed files replay on every startup with extension-derived MIME types. Since
 0.8.0 the replay prepares the complete tree and publishes it atomically; a
 changed protected fixture fails the replay instead of skipping that file.
-Identical objects keep their generation. A sync directory mirrors API changes
-and ingests external creates/edits; continuous observation, revision-bound
-deletion and recovery controls extend that path with explicit limits.
+Identical objects keep their generation. Directory synchronization was removed:
+`seed_dir` reads a folder at startup and never writes to it.
 The importer converts scoped filesystem snapshots, while a separate Go capture
 and snapshot reader preserve declared memory history and original names.
 See [container usage](container-usage.md) and the
@@ -72,8 +71,7 @@ blocks another track; a higher-priority row does not make every later row wait.
 
 | Priority | User outcome | Prerequisite | Can run alongside |
 | --- | --- | --- | --- |
-| First | Complete safe bidirectional synchronization | Conflict/recovery controls, strict authorization and final platform evidence | Independent client/protocol work |
-| Next | Verify migration and local adapters together | Quiesced source, explicit cutover and final SDK/container runs | Directory sync |
+| First | Verify migration and local adapters together | Quiesced source, explicit cutover and final SDK/container runs | Independent client/protocol work |
 | Then | Close reference behavior and ordinary Rails setup | Scoped API/profile and credential contracts | Independent reference capabilities |
 | Every release | Reconcile evidence and pass distribution gates | Platform, dependency and artifact verification | All implementation tracks |
 | Stable contract | Release the frozen public contract as 1.0.0 | Contract review, release-data upgrades, candidate soak and final verification | Superset work continues in later minors |
@@ -82,18 +80,6 @@ blocks another track; a higher-priority row does not make every later row wait.
 Current work closes remaining acceptance cases in small increments.
 The recorded migration checkpoint does not validate subsequent XML, ACL or
 authentication changes; final combined verification remains an integration gate.
-Continuous observation and guarded deletion are scoped
-implementations, not merely future proposals. Findings/status paging, bounded
-waits have native scoped checks; conflict/recovery controls, supported strict
-startup and the combined final runs still require their own acceptance.
-DESIGN-062, DESIGN-072 and DESIGN-074 remain `PARTIAL`.
-
-The [sync contract](slices/directory-synchronization.md) and
-[deletion controls](slices/external-deletion-controls.md) separate tested
-revision-bound deletion from remaining conflict/control/recovery and platform
-guarantees. A live CLI talks to the running server rather than opening its data
-directory from another process.
-
 Import is no longer an unimplemented track. The source-state and memory-snapshot
 contracts add scoped class, metadata, names and history preservation. Remaining
 limits include information already lost by filesystem normalization, quiescence,
@@ -136,14 +122,12 @@ for this migration work. Its existing statuses and pending cases remain intact.
 
 ## Parallel development boundaries
 
-Watcher, import and reference work can proceed independently where their own
+Import and reference work can proceed independently where their own
 prerequisites are satisfied. Preserve the existing bucket identity, local
-administrative authority and startup/readiness ordering. Sync starts after ready;
-ready does not mean that its initial reconciliation has finished.
+administrative authority and startup/readiness ordering.
 
-The initializer owns file parsing and create-missing orchestration. The sync
-adapter owns watching, rescans and write-back. The importer owns read-only source
-decoding and preservation reports. Shared catalog/publication changes have one
+The initializer owns file parsing and create-missing orchestration. The importer
+owns read-only source decoding and preservation reports. Shared catalog/publication changes have one
 integration owner; adapters must not bypass conditions, hashes or generations.
 Existing SDK/browser checks can run throughout, without waiting for these adapters.
 
@@ -163,24 +147,15 @@ its existing bucket at startup, except its location and owner, because an edit
 to the document is meant to apply at the next start; reconcile never resets a field that
 an entry stops writing.
 
-Directory sync must handle API/file conflicts, unusual names, partial writes,
-missed events and recovery. 0.8.0 includes bounded conflict retention,
-revision-bound resolution and guarded deletion. Both authentication profiles
-support startup; strict controls require explicit project administrator grants
-covering current buckets and retained original owners. Background filesystem
-work uses separate startup administrative authority. Scoped native, SDK,
-container and browser checks pass; remaining platform and broader workflow
-acceptance stays explicit in the feature ledger. A permanent
-write-back I/O error can delay graceful shutdown until space or permissions
-are repaired.
-SQLite remains the catalog; monitoring files and updating only their sizes is
-not sufficient. See the [filesystem requirements](fake-gcs-server-storage.md#required-gcs-mimic-follow-up).
+Directory synchronization was removed: `seed_dir` reads a folder at startup and
+never writes to it. SQLite remains the catalog. See the
+[filesystem requirements](fake-gcs-server-storage.md#required-gcs-mimic-follow-up).
 
 ## Releases
 
 Publish feature additions as successive `0.x` minor releases and compatible
 fixes as patches. Do not wait for complete parity while staying at `0.1.0`.
-Initializer, sync and import can ship separately; version numbers are assigned
+Initializer and import can ship separately; version numbers are assigned
 to actual release scopes rather than reserved for tracks.
 
 `1.0.0` freezes the public contract, upgrades data directories from every supported release (`0.8.0` and later) and follows a release-candidate soak.
