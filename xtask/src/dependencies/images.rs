@@ -15,11 +15,13 @@ const SNAPSHOT_IMAGE: &str = "library/rust";
 const SOURCES_FILE: &str = "/etc/apt/sources.list.d/debian.sources";
 const SNAPSHOT_URL: &str = "http://snapshot.debian.org/archive/debian/";
 /// These files record what a past run actually used, so a new digest must not rewrite them.
-const HISTORY_EXCLUDES: [&str; 4] = [
+const HISTORY_EXCLUDES: [&str; 5] = [
     ":(exclude,glob)docs/*/evidence/**",
     ":(exclude,glob)docs/*/slices/**",
     ":(exclude,glob)docs/*/releases/**",
     ":(exclude,glob)**/verification.md",
+    // Each dated scorecard result names the images its own run pulled.
+    ":(exclude,glob)sdk-scorecard/results/**",
 ];
 
 #[derive(Debug, PartialEq)]
@@ -452,6 +454,7 @@ mod tests {
             "docs/en/slices/image.md",
             "docs/en/releases/1.0.0.md",
             "sdk-tests/go/verification.md",
+            "sdk-scorecard/results/2026-01-01/gcs-mimic.meta.json",
         ];
         let files: Vec<(&str, &str)> = live.iter().chain(&history).map(|p| (*p, pin)).collect();
         let checkout = Checkout::new("history", &files);
