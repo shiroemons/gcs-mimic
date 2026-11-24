@@ -122,6 +122,7 @@ fn typed_chains_visit_every_source_node() {
         AdminError::BodyAborted(closed()).into(),
         AdminError::Io(io_cause()).into(),
         AdminError::DiskFull(io::Error::from(io::ErrorKind::StorageFull).into()).into(),
+        crate::fsutil::Unopenable.into(),
         ConnectionUnavailable::Closed.into(),
         ConnectionUnavailable::Unrecovered(RollbackError::Rollback(sqlite_busy())).into(),
         ExecutorError::Closed.into(),

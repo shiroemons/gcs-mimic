@@ -1,3 +1,17 @@
+pub(crate) fn regular_unconfirmed(
+    _: &File,
+    _: &OsStr,
+    _: &super::Lookup,
+) -> io::Result<super::Opened<File>> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+pub(crate) fn directory_unconfirmed(
+    _: &File,
+    _: &OsStr,
+    _: &super::Lookup,
+) -> io::Result<super::Opened<File>> {
+    Err(io::ErrorKind::Unsupported.into())
+}
 use std::{
     ffi::{OsStr, OsString},
     fs::File,
@@ -23,6 +37,11 @@ pub(crate) fn directory_names_within(
     _: usize,
 ) -> io::Result<Vec<OsString>> {
     directory_names_after(directory, after, limit)
+}
+
+#[expect(dead_code, reason = "only Unix tests use the lookup so far")]
+pub(crate) fn uncached_identity(_: &File) -> io::Result<super::FileIdentity> {
+    Err(io::ErrorKind::Unsupported.into())
 }
 
 pub fn directory_writable(_: &File) -> io::Result<()> {

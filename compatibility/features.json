@@ -60340,6 +60340,7 @@
         "sync_bucket_schema_migration_preserves_existing_catalog",
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
+        "unavailable_casefold_flags_fall_back_to_exact_directory_names",
         "healthcheck_usage_errors_come_before_any_probe",
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "indexed_listing_orders_filters_pages_and_limits",
@@ -60430,6 +60431,12 @@
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit",
         "only_a_gcs_mimic_server_with_options_gives_a_fallback",
         "a_failure_tries_the_server_pid_1_gives_once",
+        "root_rules_decide_only_what_the_casefold_flag_leaves_open",
+        "a_pass_reads_an_unchanged_directory_once",
+        "a_directory_changed_during_a_pass_is_read_again",
+        "a_directory_that_just_changed_is_read_for_each_lookup",
+        "a_directory_beyond_the_kept_names_is_read_for_each_lookup",
+        "a_directory_reports_its_uncached_identity_as_fstat_does",
         "scripts/smoke-containers.sh:sync-volume:linux/arm64",
         "scripts/smoke-containers.sh:sync-compose:linux/arm64",
         "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64",
@@ -60462,6 +60469,13 @@
           "verified_at": "2026-11-19",
           "artifact": "docs/en/container-usage.md",
           "test_ids": ["healthcheck_usage_errors_come_before_any_probe"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- quiet_ racy_exported ingest_initial_baseline_runtime ingest_unchanged_files external_inventory source_recheck descriptor_pressure unavailable_casefold_flags rescan_during_native_quiet --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/seed.md",
+          "test_ids": ["unavailable_casefold_flags_fall_back_to_exact_directory_names"]
         },
         {
           "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
@@ -60698,6 +60712,13 @@
           "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/ledger-test-ids.md",
           "test_ids": ["v1_migration_is_transactional_and_current_schema_reopens_idempotently"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 fsutil:: sync::tree:: sync::naming:: empty_directory:: path_reuse::",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/seed.md",
+          "test_ids": ["a_pass_reads_an_unchanged_directory_once", "a_directory_changed_during_a_pass_is_read_again", "a_directory_that_just_changed_is_read_for_each_lookup", "a_directory_beyond_the_kept_names_is_read_for_each_lookup", "a_directory_reports_its_uncached_identity_as_fstat_does", "root_rules_decide_only_what_the_casefold_flag_leaves_open", "unavailable_casefold_flags_fall_back_to_exact_directory_names"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --bin gcs-mimic -- --test-threads=4 sync_cli:: local_server:: healthcheck",

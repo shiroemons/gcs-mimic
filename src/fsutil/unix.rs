@@ -1,8 +1,13 @@
 use super::{FileOpen, clear_errno, component, open_at};
+mod spelling;
+#[cfg(test)]
+pub(crate) use spelling::{child_directory, child_regular};
+pub(crate) use spelling::{directory_unconfirmed, regular_unconfirmed};
 use std::{
     ffi::{CStr, OsStr, OsString},
     fs::File,
     io,
+    ops::ControlFlow,
     os::{
         fd::{AsRawFd, FromRawFd},
         unix::{ffi::OsStrExt, fs::OpenOptionsExt},
@@ -22,10 +27,6 @@ pub fn directory_names_after(
 /// Like [`directory_names_after`], but fails with `InvalidData` past `max_inspected` names. Each
 /// page reads the whole directory, so a tree limit stops an oversized directory on its first page
 /// instead of after all the pages the limit admits.
-#[expect(
-    unsafe_code,
-    reason = "openat, fdopendir and readdir have no safe std equivalent for a pinned descriptor"
-)]
 pub(crate) fn directory_names_within(
     directory: &File,
     after: Option<&OsStr>,
@@ -35,6 +36,34 @@ pub(crate) fn directory_names_within(
     if !(1..=256).contains(&limit) {
         return Err(io::ErrorKind::InvalidInput.into());
     }
+    let mut names = std::collections::BTreeSet::new();
+    let mut inspected = 0;
+    each_name(directory, |name| {
+        inspected += 1;
+        if inspected > max_inspected || name.len() > 4096 {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        if after.is_none_or(|after| name > after) {
+            names.insert(OsString::from(name));
+            if names.len() > limit {
+                names.pop_last();
+            }
+        }
+        Ok(ControlFlow::Continue(()))
+    })?;
+    Ok(names.into_iter().collect())
+}
+
+/// Reads the names of `directory` in one pass, in the order the filesystem returns them, without
+/// `.` and `..`, and hands each to `visit` until it breaks or fails.
+#[expect(
+    unsafe_code,
+    reason = "openat, fdopendir and readdir have no safe std equivalent for a pinned descriptor"
+)]
+pub(crate) fn each_name(
+    directory: &File,
+    mut visit: impl FnMut(&OsStr) -> io::Result<ControlFlow<()>>,
+) -> io::Result<()> {
     // SAFETY: the descriptor is live and the literal is a terminated relative directory name.
     let fd = unsafe {
         libc::openat(
@@ -66,8 +95,6 @@ pub(crate) fn directory_names_within(
         }
     }
     let stream = Directory(stream);
-    let mut names = std::collections::BTreeSet::new();
-    let mut inspected = 0;
     loop {
         clear_errno();
         // SAFETY: stream remains live and iteration is confined to this thread.
@@ -77,26 +104,18 @@ pub(crate) fn directory_names_within(
             if error.raw_os_error().is_some_and(|code| code != 0) {
                 return Err(error);
             }
-            break;
+            return Ok(());
         }
         // SAFETY: readdir returned a live entry with a NUL-terminated name until the next call.
         let bytes = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
         if matches!(bytes, b"." | b"..") {
             continue;
         }
-        inspected += 1;
-        if inspected > max_inspected || bytes.len() > 4096 {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
-        let name = OsStr::from_bytes(bytes);
-        if after.is_none_or(|after| name > after) {
-            names.insert(OsString::from(name));
-            if names.len() > limit {
-                names.pop_last();
-            }
+        match visit(OsStr::from_bytes(bytes))? {
+            ControlFlow::Continue(()) => {}
+            ControlFlow::Break(()) => return Ok(()),
         }
     }
-    Ok(names.into_iter().collect())
 }
 
 /// Checks effective write access to the pinned directory without creating an entry.
@@ -120,6 +139,71 @@ pub fn directory_writable(directory: &File) -> io::Result<()> {
     Ok(())
 }
 
+/// The identity of `file` as its filesystem reports it now. A Linux FUSE mount, virtiofs and
+/// therefore Docker Desktop's bind mounts included, and an NFS mount answer `fstat` from an
+/// attribute cache for a while, which a rename made on the host or another client does not
+/// invalidate; `AT_STATX_FORCE_SYNC` asks the filesystem instead, at the cost of one attribute
+/// request. A kernel or seccomp profile without `statx` (`ENOSYS`, `EPERM`), or a filesystem
+/// that leaves a field out of its answer, is answered by `fstat` as before.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "statx with AT_STATX_FORCE_SYNC has no safe std equivalent"
+)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "only tests use the lookup so far")
+)]
+pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
+    const NEEDED: libc::c_uint =
+        libc::STATX_INO | libc::STATX_SIZE | libc::STATX_MTIME | libc::STATX_CTIME;
+    let mut buffer = std::mem::MaybeUninit::<libc::statx>::zeroed();
+    // SAFETY: the live descriptor, the terminated empty path that AT_EMPTY_PATH names it by, and
+    // the writable buffer are valid for the call, which keeps none of them.
+    let result = unsafe {
+        libc::statx(
+            file.as_raw_fd(),
+            c"".as_ptr(),
+            libc::AT_EMPTY_PATH | libc::AT_STATX_FORCE_SYNC,
+            libc::STATX_BASIC_STATS,
+            buffer.as_mut_ptr(),
+        )
+    };
+    if result != 0 {
+        let error = io::Error::last_os_error();
+        return match error.raw_os_error() {
+            Some(libc::ENOSYS | libc::EPERM) => Ok(super::stat_identity(file)?),
+            Some(_) | None => Err(error),
+        };
+    }
+    // SAFETY: statx succeeded, and the zeroed buffer was valid for every field before it wrote.
+    let status = unsafe { buffer.assume_init() };
+    if status.stx_mask & NEEDED != NEEDED {
+        return Ok(super::stat_identity(file)?);
+    }
+    let nanos = |time: libc::statx_timestamp| {
+        i128::from(time.tv_sec) * 1_000_000_000 + i128::from(time.tv_nsec)
+    };
+    Ok(super::FileIdentity {
+        device: libc::makedev(status.stx_dev_major, status.stx_dev_minor),
+        inode: status.stx_ino,
+        size: status.stx_size,
+        modified_ns: nanos(status.stx_mtime),
+        changed_ns: nanos(status.stx_ctime),
+    })
+}
+
+/// The identity of `file` as `fstat` reports it. Other Unix platforms have no request past a
+/// network mount's attribute cache, so a lookup there sees what that cache answers.
+#[cfg(not(target_os = "linux"))]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "only tests use the lookup so far")
+)]
+pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
+    Ok(super::stat_identity(file)?)
+}
+
 /// Pins the selected directory without following a replacement symlink.
 pub fn open_directory_nofollow(path: &Path) -> io::Result<File> {
     // Trailing separators/dots otherwise make the OS follow a final symlink.
@@ -132,6 +216,8 @@ pub fn open_directory_nofollow(path: &Path) -> io::Result<File> {
 
 /// Opens only a regular single-component entry under the pinned directory.
 pub fn open_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    super::failing_open(directory, name)?;
     open_at(directory, &component(name)?, FileOpen::Existing)
 }
 
@@ -142,6 +228,8 @@ pub fn open_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
 )]
 pub(crate) fn directory_at(directory: &File, name: &OsStr) -> io::Result<File> {
     let name = component(name)?;
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    super::failing_open(directory, OsStr::from_bytes(name.as_bytes()))?;
     // SAFETY: name is terminated and the parent descriptor remains live.
     let fd = unsafe {
         libc::openat(

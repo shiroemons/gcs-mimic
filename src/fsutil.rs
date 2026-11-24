@@ -2,6 +2,7 @@
 //! Descriptor-based filesystem operations; OS-specific unsafe stays in this module.
 
 use std::{collections::VecDeque, ffi::OsString, fs::File, io};
+mod lookup;
 
 #[cfg(unix)]
 mod unix;
@@ -17,6 +18,9 @@ use imp::directory_names_within;
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };
+pub(crate) use lookup::Lookup;
+#[cfg(all(test, unix))]
+pub(crate) use lookup::Matching;
 
 /// `readdir` signals both the end of the stream and a failure with a null entry and sets
 /// errno only on failure, so errno must be cleared before each call; a stale value would
@@ -63,6 +67,104 @@ pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
         options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS);
     }
     options.open(path)
+}
+
+/// What a spelling-checked lookup of a directory found. Only tests ask it, and only which answer
+/// it gave, so the opened directory is not handed back.
+#[cfg(all(test, unix))]
+pub(crate) enum Child {
+    Directory,
+    Alias,
+    Missing(Vacant),
+    /// The name kept failing to open while an entry stood under it ([`Opened::Unopenable`]).
+    Unopenable,
+}
+
+/// What a spelling-checked lookup of a regular file found, as [`Child`] says for a directory.
+#[cfg(all(test, unix))]
+pub(crate) enum RegularChild {
+    File,
+    /// A regular file that the name reached under another letter case or normalization of it. A
+    /// listing that fails to tell the spelling the directory lists it under does not fail the
+    /// lookup: the spelling still differs.
+    Respelled,
+    Missing(Vacant),
+    /// The name kept failing to open while an entry stood under it ([`Opened::Unopenable`]).
+    Unopenable,
+}
+
+/// What opening a name found, under the rule that only `fstatat` finding nothing shows that the
+/// name holds nothing. A reader that takes a name for empty treats the file it held as removed,
+/// and a Docker Desktop bind mount fails an open with `ENOENT` for a moment after the host
+/// replaced a file while `fstatat` still finds it
+/// (`docs/en/evidence/sync-bind-mount-stale-reads.md`), so such an open is tried again rather
+/// than taken for an empty name.
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "descriptor-relative lookup is unsupported on this platform"
+    )
+)]
+pub(crate) enum Opened<T> {
+    /// The entry the name holds.
+    Entry(T),
+    /// Nothing: `fstatat`, not following a symlink, found nothing under the name.
+    Missing(Vacant),
+    /// The open kept failing with `ENOENT` while `fstatat` still found an entry under the name,
+    /// until the retries ran out. Whether the name holds anything is unknown, and a later read
+    /// decides. No error comes with it: the answer is made only that way, so the open's error
+    /// tells nothing the variant does not, and a caller that must fail uses [`Unopenable`].
+    Unopenable,
+}
+
+/// A name that kept failing to open while `fstatat` still found an entry under it
+/// ([`Opened::Unopenable`]), as the error of a step that fails rather than waits for a later read.
+/// Errors carry it as a variant of their own, never inside an `io::Error`: there it read as the
+/// kind the open failed with, which each caller judged its own way, and none as a failure that
+/// passes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Unopenable;
+
+impl std::fmt::Display for Unopenable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the entry kept failing to open while its name still held one")
+    }
+}
+
+impl std::error::Error for Unopenable {}
+
+/// Proof that `fstatat`, not following a symlink, found nothing under a name. Only a lookup
+/// makes one, so no other answer of a failed open passes for an empty name.
+#[derive(Debug)]
+pub(crate) struct Vacant {
+    _proven: (),
+}
+
+impl Vacant {
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "descriptor-relative lookup is unsupported on this platform"
+        )
+    )]
+    fn proven() -> Self {
+        Self { _proven: () }
+    }
+}
+
+/// The spelling under which a directory lists a regular file that a name reached under another
+/// one. Only a listing tells it, by matching each entry's device and inode with the opened
+/// file's.
+#[derive(Debug, PartialEq, Eq)]
+#[cfg(all(test, unix))]
+pub(crate) enum ListedSpelling {
+    /// The one name the directory lists the file under.
+    Listed(String),
+    /// No one name: other names link the file, the listed name is not UTF-8, or the file left the
+    /// directory before the listing reached it.
+    Unnamed,
 }
 
 /// The names of one directory in sorted pages, so a large directory never holds more than one
@@ -141,8 +243,8 @@ impl std::error::Error for FsError {
     }
 }
 
-// Windows write/change timestamps can repeat within a clock tick, so equality can miss
-// same-size rewrites. Directory synchronization, which needs this check, is unsupported there.
+// Windows write/change timestamps can repeat within a clock tick, so equality there can miss
+// same-size rewrites.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FileIdentity {
     pub device: u64,
@@ -153,18 +255,30 @@ pub(crate) struct FileIdentity {
 }
 
 impl FileIdentity {
-    /// The fields that differ in `after`, in declaration order.
-    pub(crate) fn changed_fields(&self, after: &Self) -> Vec<IdentityField> {
-        [
-            (IdentityField::Device, self.device != after.device),
-            (IdentityField::Inode, self.inode != after.inode),
-            (IdentityField::Size, self.size != after.size),
-            (IdentityField::Mtime, self.modified_ns != after.modified_ns),
-            (IdentityField::Ctime, self.changed_ns != after.changed_ns),
-        ]
-        .into_iter()
-        .filter_map(|(field, changed)| changed.then_some(field))
-        .collect()
+    /// Whether these timestamps, observed at `observed_ns`, would show any later change: the last
+    /// change lies two seconds or more before the observation, which covers the coarsest supported
+    /// HFS+/FAT timestamp granularity. Closer to it, a change in the same tick can leave every
+    /// timestamp as it was, so the observation is racy.
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(dead_code, reason = "only tests use the lookup so far")
+    )]
+    pub(crate) fn settled_at(&self, observed_ns: i128) -> bool {
+        observed_ns.saturating_sub(self.modified_ns.max(self.changed_ns)) >= 2_000_000_000
+    }
+
+    /// The fields that differ in `after`.
+    pub(crate) fn changed_fields(&self, after: &Self) -> IdentityChanges {
+        IdentityField::ALL
+            .into_iter()
+            .filter(|field| match field {
+                IdentityField::Device => self.device != after.device,
+                IdentityField::Inode => self.inode != after.inode,
+                IdentityField::Size => self.size != after.size,
+                IdentityField::Mtime => self.modified_ns != after.modified_ns,
+                IdentityField::Ctime => self.changed_ns != after.changed_ns,
+            })
+            .collect()
     }
 }
 
@@ -179,6 +293,15 @@ pub enum IdentityField {
 }
 
 impl IdentityField {
+    /// Every field, in declaration order.
+    const ALL: [Self; 5] = [
+        Self::Device,
+        Self::Inode,
+        Self::Size,
+        Self::Mtime,
+        Self::Ctime,
+    ];
+
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Device => "device",
@@ -187,6 +310,46 @@ impl IdentityField {
             Self::Mtime => "mtime_ns",
             Self::Ctime => "ctime_ns",
         }
+    }
+
+    fn bit(self) -> u8 {
+        match self {
+            Self::Device => 1,
+            Self::Inode => 2,
+            Self::Size => 4,
+            Self::Mtime => 8,
+            Self::Ctime => 16,
+        }
+    }
+}
+
+/// The set of `FileIdentity` fields that differ between two observations of a file.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct IdentityChanges(u8);
+
+impl IdentityChanges {
+    pub(crate) fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The changed fields, in declaration order.
+    pub(crate) fn iter(self) -> impl Iterator<Item = IdentityField> {
+        IdentityField::ALL
+            .into_iter()
+            .filter(move |field| self.0 & field.bit() != 0)
+    }
+}
+
+impl FromIterator<IdentityField> for IdentityChanges {
+    fn from_iter<I: IntoIterator<Item = IdentityField>>(fields: I) -> Self {
+        Self(fields.into_iter().fold(0, |bits, field| bits | field.bit()))
+    }
+}
+
+/// Lists the quoted field names, as a `Vec<IdentityField>` would.
+impl std::fmt::Debug for IdentityChanges {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 
@@ -200,11 +363,25 @@ impl std::fmt::Debug for IdentityField {
 
 /// The file-system object a path or handle resolved to: equal values name the same inode on the
 /// same device, whatever its size or times.
-#[cfg(unix)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg(unix)]
 pub(crate) struct NodeId {
     pub(crate) device: u64,
     pub(crate) inode: u64,
+}
+
+#[cfg(unix)]
+impl FileIdentity {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "only tests use the lookup so far")
+    )]
+    pub(crate) fn node(&self) -> NodeId {
+        NodeId {
+            device: self.device,
+            inode: self.inode,
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -302,6 +479,8 @@ impl std::error::Error for CloneFailure {
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 thread_local! {
     static FAIL_CLONE_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Reports that the filesystem cannot clone, as ext4 and Docker Desktop's shared folders do.
+    static CLONE_UNSUPPORTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 #[cfg_attr(
@@ -402,6 +581,10 @@ fn component(name: &std::ffi::OsStr) -> io::Result<std::ffi::CString> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FileOpen {
     Existing,
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(dead_code, reason = "only a Linux clone creates its entry first")
+    )]
     CreateNew,
 }
 
@@ -415,10 +598,9 @@ fn open_at(directory: &File, name: &std::ffi::CStr, open: FileOpen) -> io::Resul
     let flags = libc::O_CLOEXEC
         | libc::O_NOFOLLOW
         | libc::O_NONBLOCK
-        | if open == FileOpen::CreateNew {
-            libc::O_RDWR | libc::O_CREAT | libc::O_EXCL
-        } else {
-            libc::O_RDONLY
+        | match open {
+            FileOpen::Existing => libc::O_RDONLY,
+            FileOpen::CreateNew => libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
         };
     // SAFETY: directory is live and name is a validated terminated single component.
     let fd = unsafe {
@@ -443,13 +625,51 @@ fn open_at(directory: &File, name: &std::ffi::CStr, open: FileOpen) -> io::Resul
     Ok(file)
 }
 
+fn regular_source(src: &File) -> io::Result<()> {
+    if src.metadata()?.is_file() {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "expected a regular source",
+        ))
+    }
+}
+
+/// Clones `src` into `dst`, an empty regular file open for writing, and syncs it. `Ok(false)`
+/// means the filesystem cannot clone; `dst` is then still empty.
+#[cfg(target_os = "linux")]
+#[expect(unsafe_code, reason = "FICLONE has no safe std equivalent")]
+fn clone_onto(src: &File, dst: &File) -> io::Result<bool> {
+    use std::os::fd::AsRawFd;
+    #[cfg(test)]
+    if FAIL_CLONE_SYNC.replace(false) {
+        return Err(io::ErrorKind::Other.into());
+    }
+    #[cfg(test)]
+    if CLONE_UNSUPPORTED.get() {
+        return Ok(false);
+    }
+    // SAFETY: FICLONE receives the two live regular-file descriptors, with an empty target.
+    if unsafe { libc::ioctl(dst.as_raw_fd(), libc::FICLONE as _, src.as_raw_fd()) } == 0 {
+        dst.sync_all()?;
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    if copy_fallback(&error) {
+        Ok(false)
+    } else {
+        Err(error)
+    }
+}
+
 /// Creates a clone without copying; Unsupported leaves no new entry.
 /// Mutable-source staging can then fall back to its own single-pass copy and hash.
 #[cfg_attr(
     any(target_os = "linux", target_os = "macos"),
     expect(
         unsafe_code,
-        reason = "fclonefileat, FICLONE and unlinkat have no safe std equivalent"
+        reason = "fclonefileat and unlinkat have no safe std equivalent"
     )
 )]
 pub(crate) fn clone_into(
@@ -458,17 +678,17 @@ pub(crate) fn clone_into(
     name: &std::ffi::OsStr,
 ) -> Result<(), CloneFailure> {
     validate_name(name)?;
-    if !src.metadata()?.is_file() {
-        return Err(
-            io::Error::new(io::ErrorKind::InvalidInput, "expected a regular source").into(),
-        );
-    }
+    regular_source(src)?;
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::os::fd::AsRawFd;
         let name = component(name)?;
         #[cfg(target_os = "macos")]
         {
+            #[cfg(test)]
+            if CLONE_UNSUPPORTED.get() {
+                return Err(CloneFailure::NotCreated(FsError::Unsupported));
+            }
             // SAFETY: live descriptors and a validated destination component; clone creates a new entry.
             if unsafe {
                 libc::fclonefileat(src.as_raw_fd(), directory.as_raw_fd(), name.as_ptr(), 0)
@@ -494,21 +714,8 @@ pub(crate) fn clone_into(
         #[cfg(target_os = "linux")]
         {
             let dst = open_at(directory, &name, FileOpen::CreateNew)?;
-            #[cfg(test)]
-            if FAIL_CLONE_SYNC.replace(false) {
-                return Err(CloneFailure::Created(
-                    io::Error::from(io::ErrorKind::Other).into(),
-                ));
-            }
-            // SAFETY: FICLONE receives the two live regular-file descriptors, with a new empty target.
-            if unsafe { libc::ioctl(dst.as_raw_fd(), libc::FICLONE as _, src.as_raw_fd()) } == 0 {
-                dst.sync_all()
-                    .map_err(|error| CloneFailure::Created(error.into()))?;
+            if clone_onto(src, &dst).map_err(|error| CloneFailure::Created(error.into()))? {
                 return Ok(());
-            }
-            let error = io::Error::last_os_error();
-            if !copy_fallback(&error) {
-                return Err(CloneFailure::Created(error.into()));
             }
             // SAFETY: only this call owns the newly created target; the component and directory are live.
             if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
@@ -582,23 +789,154 @@ pub(crate) fn read_cached_at(_file: &File, _bytes: &mut [u8], _offset: u64) -> O
     None
 }
 
+/// The directories, by device and inode number, for which tests take the platform's answer to be
+/// that an opened entry is spelled the way it was opened, as a clear Linux casefold flag says. On
+/// a test filesystem that folds letter case, such a directory stands in for a Linux mount that
+/// folds case without the casefold flag; a lookup below a root the probe found to fold names
+/// does not believe that answer. Tests run in parallel, so each adds its own directory and
+/// removes only that one again.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) static UNCHECKED_SPELLING: std::sync::Mutex<Vec<(u64, u64)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Takes the entries of a directory as spelled the way they were opened while it lives
+/// ([`UNCHECKED_SPELLING`]).
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) struct UncheckedSpelling((u64, u64));
+
+// A separate `cfg(test)` lets Clippy see test code here and allow its unwraps.
+#[cfg(test)]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-#[derive(Clone, Copy)]
-enum RenameMode {
-    NoReplace,
+impl UncheckedSpelling {
+    pub(crate) fn of(directory: &std::path::Path) -> Self {
+        let identity = stat_identity(&File::open(directory).unwrap()).unwrap();
+        let unchecked = (identity.device, identity.inode);
+        UNCHECKED_SPELLING.lock().unwrap().push(unchecked);
+        Self(unchecked)
+    }
 }
 
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+impl Drop for UncheckedSpelling {
+    fn drop(&mut self) {
+        if let Ok(mut unchecked) = UNCHECKED_SPELLING.lock() {
+            unchecked.retain(|directory| *directory != self.0);
+        }
+    }
+}
+
+/// Names whose opens fail with `ENOENT` while the entry stays, as a Docker Desktop bind mount
+/// answers for a file it is still bringing over from the host ([`Opened::Unopenable`]): by the
+/// device and inode number of the directory, the name, how many opens succeed first and how many
+/// fail after them. Opening an existing regular file or directory by name fails that way;
+/// `fstatat` still finds the entry. Tests run in parallel, so each adds its own name and removes
+/// only that one again.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+static FAILING_OPENS: std::sync::Mutex<Vec<FailingOpen>> = std::sync::Mutex::new(Vec::new());
+
+/// A name in [`FAILING_OPENS`].
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+struct FailingOpen {
+    directory: (u64, u64),
+    name: OsString,
+    skip: usize,
+    left: usize,
+}
+
+/// Fails opens of a name while it lives ([`FAILING_OPENS`]).
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) struct FailingOpens {
+    directory: (u64, u64),
+    name: OsString,
+}
+
+// A separate `cfg(test)` lets Clippy see test code here and allow its unwraps.
+#[cfg(test)]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-#[expect(
-    unsafe_code,
-    reason = "exclusive and exchange renames have no safe std equivalent"
-)]
+impl FailingOpens {
+    /// Fails the next `opens` opens of `name` in `directory` with `ENOENT`.
+    pub(crate) fn vanishing(directory: &std::path::Path, name: &str, opens: usize) -> Self {
+        Self::vanishing_after(directory, name, 0, opens)
+    }
+
+    /// Lets the next `skip` opens of `name` in `directory` succeed, and fails the `opens` after
+    /// them with `ENOENT`.
+    pub(crate) fn vanishing_after(
+        directory: &std::path::Path,
+        name: &str,
+        skip: usize,
+        opens: usize,
+    ) -> Self {
+        let identity = stat_identity(&File::open(directory).unwrap()).unwrap();
+        let directory = (identity.device, identity.inode);
+        FAILING_OPENS.lock().unwrap().push(FailingOpen {
+            directory,
+            name: name.into(),
+            skip,
+            left: opens,
+        });
+        Self {
+            directory,
+            name: name.into(),
+        }
+    }
+
+    /// How many of the failures are left.
+    pub(crate) fn left(&self) -> usize {
+        FAILING_OPENS
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|open| self.names(open))
+            .map_or(0, |open| open.left)
+    }
+
+    fn names(&self, open: &FailingOpen) -> bool {
+        open.directory == self.directory && open.name == self.name
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+impl Drop for FailingOpens {
+    fn drop(&mut self) {
+        if let Ok(mut failing) = FAILING_OPENS.lock() {
+            failing.retain(|open| open.directory != self.directory || open.name != self.name);
+        }
+    }
+}
+
+/// Fails when an open of `name` in `directory` is due to fail ([`FAILING_OPENS`]), using that
+/// failure up.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+fn failing_open(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
+    let mut failing = FAILING_OPENS
+        .lock()
+        .map_err(|_| io::Error::other("open failure injection poisoned"))?;
+    if failing.is_empty() {
+        return Ok(());
+    }
+    let identity = stat_identity(directory)?;
+    let Some(open) = failing.iter_mut().find(|open| {
+        open.directory == (identity.device, identity.inode) && open.name == name && open.left > 0
+    }) else {
+        return Ok(());
+    };
+    if open.skip > 0 {
+        open.skip -= 1;
+        return Ok(());
+    }
+    open.left -= 1;
+    Err(io::ErrorKind::NotFound.into())
+}
+
+/// Renames `source` to `destination` unless an entry already has that name.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[expect(unsafe_code, reason = "an exclusive rename has no safe std equivalent")]
 fn rename_at(
     source_directory: libc::c_int,
     source: &std::ffi::CStr,
     destination_directory: libc::c_int,
     destination: &std::ffi::CStr,
-    mode: RenameMode,
 ) -> Result<(), FsError> {
     // SAFETY: the C strings remain live and the descriptors belong to the caller or AT_FDCWD.
     let result = unsafe {
@@ -611,9 +949,7 @@ fn rename_at(
                 source.as_ptr(),
                 destination_directory,
                 destination.as_ptr(),
-                match mode {
-                    RenameMode::NoReplace => libc::RENAME_NOREPLACE,
-                },
+                libc::RENAME_NOREPLACE,
             )
         }
         #[cfg(target_os = "macos")]
@@ -623,9 +959,7 @@ fn rename_at(
                 source.as_ptr(),
                 destination_directory,
                 destination.as_ptr(),
-                match mode {
-                    RenameMode::NoReplace => libc::RENAME_EXCL,
-                },
+                libc::RENAME_EXCL,
             )
         }
     };
@@ -651,13 +985,7 @@ pub(crate) fn rename_noreplace(from: &std::path::Path, to: &std::path::Path) -> 
         use std::os::unix::ffi::OsStrExt;
         let source = std::ffi::CString::new(from.as_os_str().as_bytes())?;
         let destination = std::ffi::CString::new(to.as_os_str().as_bytes())?;
-        match rename_at(
-            libc::AT_FDCWD,
-            &source,
-            libc::AT_FDCWD,
-            &destination,
-            RenameMode::NoReplace,
-        ) {
+        match rename_at(libc::AT_FDCWD, &source, libc::AT_FDCWD, &destination) {
             Ok(()) => return Ok(()),
             Err(FsError::Unsupported) => {}
             Err(FsError::Io(error)) => return Err(error),
@@ -858,7 +1186,10 @@ mod tests {
             r#"["device", "inode", "size", "mtime_ns", "ctime_ns"]"#
         );
         assert_eq!(
-            before.changed_fields(&FileIdentity { size: 9, ..before }),
+            before
+                .changed_fields(&FileIdentity { size: 9, ..before })
+                .iter()
+                .collect::<Vec<_>>(),
             [IdentityField::Size]
         );
     }
@@ -947,8 +1278,9 @@ mod tests {
         }
     }
 
-    /// A clone that fails after it created its entry says so and leaves the entry for its caller;
-    /// a name that already holds an entry creates nothing.
+    /// A clone that fails after it created its entry says so and leaves the entry for its caller.
+    /// A name that already holds an entry, and a filesystem that cannot clone, such as ext4 or
+    /// Docker Desktop's shared folders, create nothing and leave no entry behind.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn clone_failure_reports_whether_it_created_the_entry() {
@@ -971,6 +1303,14 @@ mod tests {
             std::fs::read(directory.0.join("existing")).unwrap(),
             b"other owner"
         );
+        CLONE_UNSUPPORTED.set(true);
+        let refused = clone_into(&source, &root, "unsupported".as_ref());
+        CLONE_UNSUPPORTED.set(false);
+        assert!(matches!(
+            refused,
+            Err(CloneFailure::NotCreated(FsError::Unsupported))
+        ));
+        assert!(!directory.0.join("unsupported").exists());
     }
 
     #[test]
