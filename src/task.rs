@@ -98,6 +98,11 @@ where
 /// A dedicated thread is for work that would otherwise hold a bounded blocking-pool slot for
 /// its whole life, such as the catalog executor or a directory walk feeding a channel. Like
 /// [`spawn_supervised`], the panic is resumed afterwards, so `join` still returns it.
+///
+/// The unwind drops what `body` captured before the report, so a captured channel sender closes
+/// first and its receiver can act on the failure, or let the process exit, before the panic is
+/// logged. A thread that signals its end that way keeps the signal outside a [`catch_job`] that
+/// borrows it.
 #[expect(
     clippy::disallowed_methods,
     reason = "the supervised wrapper that every other OS thread goes through"

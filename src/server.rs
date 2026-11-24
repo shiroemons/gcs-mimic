@@ -373,6 +373,34 @@ struct RequestFinished {
     activity: watch::Sender<ObjectActivity>,
     reads: Arc<ReadActivity>,
     place: Arc<IdlePlace>,
+    after: AfterResponse,
+}
+
+/// Whether a connection waits for another request once its response ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AfterResponse {
+    KeepAlive,
+    /// hyper closes the connection after the response, or the request ended without one.
+    Closes,
+}
+
+impl AfterResponse {
+    /// Reads the response's `Connection` header as hyper does when it decides to close: a
+    /// `close` token in any of its fields. A timeout reply and an early rejection of a request
+    /// body announce the close there.
+    fn declared_by(headers: &hyper::HeaderMap) -> Self {
+        let closes = headers
+            .get_all(hyper::header::CONNECTION)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .any(|token| token.trim().eq_ignore_ascii_case("close"));
+        if closes {
+            Self::Closes
+        } else {
+            Self::KeepAlive
+        }
+    }
 }
 
 /// The place in the idle line that a request's end takes for its connection, until the
@@ -507,12 +535,32 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for CountingIo<S> {
 }
 
 impl RequestFinished {
-    fn track(self, body: ResponseBody) -> ResponseBody {
-        TrackedBody {
-            body,
-            _finished: self,
+    fn new(
+        activity: watch::Sender<ObjectActivity>,
+        reads: Arc<ReadActivity>,
+        place: Arc<IdlePlace>,
+    ) -> Self {
+        Self {
+            activity,
+            reads,
+            place,
+            // Until a response is attached: hyper drops a request without one only as its
+            // connection ends.
+            after: AfterResponse::Closes,
         }
-        .boxed_unsync()
+    }
+
+    /// Puts the request's end into the response body, where hyper drops it, and records whether
+    /// the response keeps the connection open.
+    fn attach(mut self, response: Response<ResponseBody>) -> Response<ResponseBody> {
+        self.after = AfterResponse::declared_by(response.headers());
+        response.map(|body| {
+            TrackedBody {
+                body,
+                _finished: self,
+            }
+            .boxed_unsync()
+        })
     }
 }
 
@@ -547,10 +595,11 @@ impl Drop for RequestFinished {
     fn drop(&mut self) {
         // Bytes read after this point begin the next request head.
         self.reads.mark_idle();
-        // An expired request ends its connection, which never turns idle. The place is taken
-        // before the watch can see the end, so it never joins the line a second time.
-        if !matches!(self.activity.borrow().stage, RequestStage::Expired(_)) {
-            self.place.join();
+        // A connection that closes never turns idle, so its end takes no place in line. The place
+        // is taken before the watch can see the end, so it never joins the line a second time.
+        match self.after {
+            AfterResponse::KeepAlive => self.place.join(),
+            AfterResponse::Closes => {}
         }
         self.activity.send_replace(ObjectActivity {
             stage: RequestStage::Finished,
@@ -1525,11 +1574,7 @@ impl ConnectionService {
         injected_handler_panic();
         // Each request starts its own deadline without an earlier transfer's state.
         activity.send_replace(ObjectActivity::default());
-        let finished = RequestFinished {
-            activity: activity.clone(),
-            reads,
-            place,
-        };
+        let finished = RequestFinished::new(activity.clone(), reads, place);
         let sent_body = has_body(request.headers());
         let endpoints = if let Ok(endpoints) = config
             .runtime_endpoints
@@ -1544,7 +1589,7 @@ impl ConnectionService {
                 .into_response(),
             );
             listening.mark_response(response.headers_mut());
-            return Ok(response.map(|body| finished.track(body)));
+            return Ok(finished.attach(response));
         };
         let mut request = request;
         let target = routing::Target::classify(&mut request, &config, endpoints.snapshot());
@@ -1594,7 +1639,7 @@ impl ConnectionService {
         }
         listening.mark_response(response.headers_mut());
         activity.send_modify(|progress| progress.stage = RequestStage::Responded);
-        Ok(response.map(|body| finished.track(body)))
+        Ok(finished.attach(response))
     }
 }
 
