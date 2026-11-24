@@ -91,3 +91,15 @@ close from `89d9e9a` and the TLS trickle test fix from `c794ad8`.
   `keep_alive_timeout_ms` instead of `connection_timeout_ms`.
 - HTTP/2 flow control and the remaining body framing matrix are not part of
   this verification.
+
+## Idle line order, verified 2026-11-24
+
+The scheduled stress run failed `full_server_closes_only_the_oldest_idle_connection_per_waiting_client` with "oldest stays": the waiting client closed a younger idle connection while the oldest kept its slot. A connection joined the idle line only when its watch task next saw the request finish, and on a busy runtime that task could run later for the connection whose response ended first. hyper drops a response body once its last bytes are buffered and before it flushes them, so since code commit `e04bddca` the body's drop takes the connection's place in line before its client can see the response end. The watch moves that place into the idle phase, a request that starts before the watch runs gives it up, and an expired request, which closes its connection, takes none.
+
+| Command | Result | Evidence |
+| --- | --- | --- |
+| `just check` on the source of `e04bddca` | PASS in 670 s: fmt, workspace and cross-target Clippy, `cargo xtask lint`, 3934 tests with 0 failed and 1 ignored, and the documentation and script checks | Local macOS ARM64 run |
+| `cargo test --locked --lib -- reclaim_tests` | PASS, 18 tests, including `connections_stand_in_line_in_the_order_their_responses_ended`, `a_connection_whose_next_request_started_passes_its_wake_on` and `a_request_end_takes_a_place_unless_the_request_expired` | Local macOS ARM64 run |
+| `cargo test --locked --test it_process -- foundation` | PASS, 58 tests | Local macOS ARM64 run |
+| A 300 ms sleep injected once into the watch's handling of a finished request, with the fix, full-server test run three times | PASS 3 of 3 | Local negative check; source restored afterward |
+| The same sleep with the watch joining the line itself, as before the fix | FAIL as intended 3 of 3, with "oldest stays" | Local negative check; source restored afterward |
