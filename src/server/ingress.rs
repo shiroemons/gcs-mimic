@@ -424,6 +424,11 @@ mod tests {
 
     type Polled = Poll<Option<Result<Frame<Bytes>, Infallible>>>;
 
+    /// Bounds an answer that must not wait for a decoder permit. A wait for a held permit never
+    /// ends, while a loaded runner can take seconds over an answer that waits for none, so only a
+    /// limit far beyond that tells the two apart.
+    const HANG_GUARD: Duration = Duration::from_secs(20);
+
     /// Answers each poll with the next scripted result.
     struct Scripted(VecDeque<Polled>);
 
@@ -511,7 +516,7 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            tokio::time::timeout(Duration::from_secs(1), expand(request(), ctx))
+            tokio::time::timeout(HANG_GUARD, expand(request(), ctx))
                 .await
                 .unwrap()
                 .is_ok()
@@ -532,7 +537,7 @@ mod tests {
         );
         drop(second);
         assert!(
-            tokio::time::timeout(Duration::from_secs(1), pending)
+            tokio::time::timeout(HANG_GUARD, pending)
                 .await
                 .unwrap()
                 .is_ok()
@@ -646,14 +651,14 @@ mod tests {
         let labels = gzip(br#"{"labels":{"k":"v"}}"#);
         for (method, uri) in [("GET", bucket), ("PATCH", bucket)] {
             let response = respond(coded(method, uri, None, Bytes::new()));
-            let response = tokio::time::timeout(Duration::from_secs(1), response)
+            let response = tokio::time::timeout(HANG_GUARD, response)
                 .await
                 .unwrap_or_else(|_| panic!("{method} without a body waited for a decoder"));
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{method}");
         }
         let media = format!("{upload}?uploadType=media&name=x");
         let not_gzip = respond(coded("POST", &media, None, Bytes::from_static(b"not gzip")));
-        let not_gzip = tokio::time::timeout(Duration::from_secs(1), not_gzip)
+        let not_gzip = tokio::time::timeout(HANG_GUARD, not_gzip)
             .await
             .expect("the first bytes of an upload are checked without a decoder");
         assert_eq!(not_gzip.status(), StatusCode::BAD_REQUEST);
@@ -713,7 +718,7 @@ mod tests {
             );
         }
         let viewer = respond(coded("PATCH", bucket, Some("viewer"), labels.clone()));
-        let viewer = tokio::time::timeout(Duration::from_secs(1), viewer)
+        let viewer = tokio::time::timeout(HANG_GUARD, viewer)
             .await
             .expect("a caller who authenticates does not wait for the unauthenticated permit");
         assert_eq!(viewer.status(), StatusCode::FORBIDDEN);
@@ -736,7 +741,7 @@ mod tests {
             ),
         ] {
             let response = respond(coded("PATCH", bucket, token, body));
-            let response = tokio::time::timeout(Duration::from_secs(1), response)
+            let response = tokio::time::timeout(HANG_GUARD, response)
                 .await
                 .unwrap_or_else(|_| panic!("{token:?} waited for an authenticated permit"));
             assert_eq!(response.status(), expected, "{token:?}");
