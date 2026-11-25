@@ -77,11 +77,13 @@ expect_cors() {
 }
 
 # A port that nothing on the host loopback answers, for files whose host and container ports
-# must be equal, so that Docker cannot pick one.
+# must be equal, so that Docker cannot pick one. Candidates stay below the Linux ephemeral
+# range: the probe cannot see a port held as the source of an outbound connection, such as
+# a curl in TIME_WAIT, yet Docker cannot bind it.
 free_port() {
   local attempt candidate
   for ((attempt = 0; attempt < 50; attempt++)); do
-    candidate=$((20000 + RANDOM % 20000))
+    candidate=$((20000 + RANDOM % 12000))
     if ! (exec 3<>"/dev/tcp/127.0.0.1/$candidate") 2>/dev/null; then
       echo "$candidate"
       return 0
