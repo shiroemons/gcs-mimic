@@ -747,16 +747,8 @@ pub(crate) fn select_object_with_endpoints(
     }))
 }
 
+/// Parses the object operation on a selected XML target.
 pub(crate) fn route(
-    method: &Method,
-    config: &Config,
-    selected: Option<ObjectPath>,
-    headers: &HeaderMap,
-) -> Option<Result<ReadRequest, Error>> {
-    selected.map(|path| route_object(method, config, path, headers))
-}
-
-fn route_object(
     method: &Method,
     config: &Config,
     path: ObjectPath,

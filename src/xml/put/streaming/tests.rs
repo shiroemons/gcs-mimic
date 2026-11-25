@@ -89,13 +89,15 @@ impl Fixture {
                 listener: ctx.listener,
             })
             .await?;
+        let selected =
+            super::super::super::select_object(request.uri(), request.headers(), &self.config)?
+                .expect("the test request names an XML object");
         let operation = super::super::super::route(
             request.method(),
             &self.config,
-            super::super::super::select_object(request.uri(), request.headers(), &self.config)?,
+            selected,
             request.headers(),
-        )
-        .unwrap()?;
+        )?;
         super::super::respond(
             request,
             operation,

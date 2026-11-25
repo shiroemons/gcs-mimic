@@ -1,14 +1,15 @@
 //! Dispatch from a request to the API family that serves it.
 //!
-//! The order of the checks in `respond_routed` is part of the wire contract: earlier routes
-//! claim overlapping paths, so the routes are tried in a fixed sequence.
+//! The order of the checks in `respond_selected`, `respond_unselected` and
+//! [`JsonRoute::parse`] is part of the wire contract: earlier routes claim overlapping paths, so
+//! the routes are tried in a fixed sequence.
 
 use super::RequestBody as Incoming;
 use super::admin::AdminRoute;
+use super::json_route::JsonRoute;
 use super::{
     DeadlineWatch, RequestCtx, ResponseBody, acl, anonymous_error, boxed, buckets, empty_response,
-    notifications, objects, probe, project_resources, resumable, rewrite, unknown_route,
-    unsupported, xml_read,
+    notifications, objects, probe, project_resources, resumable, rewrite, unknown_route, xml_read,
 };
 use crate::json::JsonErrorResponse;
 use crate::{
@@ -290,7 +291,8 @@ async fn route_json(mut request: Request<Incoming>, ctx: RequestCtx<'_>) -> Resp
     // Other upload types answer before a method override or upload Content-Encoding is read,
     // as JSON with CORS.
     if is_unsupported_protocol_upload(&request) {
-        return respond_json_cors(request, ctx).await;
+        let route = JsonRoute::parse(request.method(), request.uri(), ctx.config);
+        return respond_json_cors(request, ctx, route).await;
     }
     if let Err(error) = super::ingress::override_method(&mut request) {
         return boxed(error.into_response());
@@ -299,15 +301,18 @@ async fn route_json(mut request: Request<Incoming>, ctx: RequestCtx<'_>) -> Resp
         Ok(request) => request,
         Err(error) => return boxed(error.into_response()),
     };
+    // Parsed after the method override, which changes the route.
+    let route = JsonRoute::parse(request.method(), request.uri(), ctx.config);
     if json::cors::is_route(request.uri()) {
-        return respond_json_cors(request, ctx).await;
+        return respond_json_cors(request, ctx, route).await;
     }
-    respond_routed(request, ctx, None).await
+    respond_unselected(request, ctx, route).await
 }
 
 async fn respond_json_cors(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
+    route: Option<JsonRoute>,
 ) -> Response<ResponseBody> {
     let kind = json::cors::request_kind(request.method(), request.headers());
     let mut headers = match json::cors::response_headers(request.headers(), kind) {
@@ -333,7 +338,7 @@ async fn respond_json_cors(
             boxed(empty_response(StatusCode::OK))
         }
     } else {
-        respond_routed(request, ctx, None).await
+        respond_unselected(request, ctx, route).await
     };
     apply_cors(response.headers_mut(), headers, None);
     response
@@ -538,79 +543,90 @@ async fn respond_routed(
     ctx: RequestCtx<'_>,
     selected: Option<xml::ObjectPath>,
 ) -> Response<ResponseBody> {
+    let Some(object) = selected else {
+        let route = JsonRoute::parse(request.method(), request.uri(), ctx.config);
+        return respond_unselected(request, ctx, route).await;
+    };
+    respond_selected(request, ctx, object).await
+}
+
+/// Dispatches a request that names an XML bucket or object. The XML API answers every such
+/// request, so no JSON route is consulted.
+async fn respond_selected(
+    request: Request<Incoming>,
+    ctx: RequestCtx<'_>,
+    object: xml::ObjectPath,
+) -> Response<ResponseBody> {
     if is_unsupported_protocol_upload(&request) {
         return refuse_authenticated(&request, ctx, json::unsupported_upload_type()).await;
     }
-    let (method, uri, profile) = (request.method(), request.uri(), ctx.config.compat_profile);
-    if xml::buckets::matches(method, uri, selected.as_ref()) {
-        return xml::buckets::respond(request, selected.as_ref(), ctx).await;
-    }
-    if selected.is_none()
-        && let Some(parsed) = json::acl::route_acl(method, uri, profile)
-    {
-        return respond_acl(request, ctx, parsed).await;
-    }
-    if selected.is_none()
-        && let Some(route) = unsupported::route(method, uri)
-    {
-        return respond_unsupported(&request, ctx, route).await;
+    let (method, uri) = (request.method(), request.uri());
+    if xml::buckets::matches(method, uri, Some(&object)) {
+        return xml::buckets::respond(request, Some(&object), ctx).await;
     }
     // POST Object targets the bucket itself and authenticates from form fields in the body.
-    if let Some(object) = selected.as_ref().filter(|object| {
-        method == Method::POST && object.name().is_empty() && !xml::multipart::matches(uri)
-    }) {
+    if method == Method::POST && object.name().is_empty() && !xml::multipart::matches(uri) {
         let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
-        let result = xml::post::respond(request, object, ctx, deadline).await;
+        let result = xml::post::respond(request, &object, ctx, deadline).await;
         ctx.finish_object_request();
         return result.unwrap_or_else(|error| boxed(error.response(xml::ErrorBody::Include)));
     }
-    if selected.is_none()
-        && let Some(parsed) = json::notifications::route(method, uri, profile)
-    {
-        return respond_notifications(request, ctx, parsed).await;
+    let signature_resource = object.signature_resource();
+    if let Some(route) = xml::resumable::route(method, uri, request.headers()) {
+        return respond_xml_resumable(request, ctx, &object, route, &signature_resource).await;
     }
-    let signature_resource = selected.as_ref().map_or(
-        crate::auth::signature::Resource::PathStyle,
-        xml::ObjectPath::signature_resource,
-    );
-    if let Some(object) = selected.as_ref()
-        && let Some(route) = xml::resumable::route(method, uri, request.headers())
-    {
-        return respond_xml_resumable(request, ctx, object, route, &signature_resource).await;
+    let parsed = xml::route(method, ctx.config, object, request.headers());
+    respond_xml_object(request, ctx, parsed, signature_resource).await
+}
+
+/// Dispatches a request that names no XML object: an XML service or bucket-creation request,
+/// or the JSON API `route` that was parsed for it.
+async fn respond_unselected(
+    request: Request<Incoming>,
+    ctx: RequestCtx<'_>,
+    route: Option<JsonRoute>,
+) -> Response<ResponseBody> {
+    if is_unsupported_protocol_upload(&request) {
+        return refuse_authenticated(&request, ctx, json::unsupported_upload_type()).await;
     }
-    if let Some(parsed) = xml::route(method, ctx.config, selected, request.headers()) {
-        return respond_xml_object(request, ctx, parsed, signature_resource).await;
+    if xml::buckets::matches(request.method(), request.uri(), None) {
+        return xml::buckets::respond(request, None, ctx).await;
     }
-    if let Some(parsed) = json::resumable::session_route(method, uri, profile) {
-        let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
-        let result = match parsed {
-            Ok(json::resumable::UploadSession { bucket, upload_id }) => {
-                resumable::session_response(
-                    request,
-                    &bucket,
-                    &upload_id,
-                    ctx.object(None, deadline),
-                )
+    let Some(route) = route else {
+        return boxed(
+            probe(&request, ctx.state).unwrap_or_else(|| unknown_route().into_response()),
+        );
+    };
+    match route {
+        JsonRoute::Acl(parsed) => respond_acl(request, ctx, parsed).await,
+        JsonRoute::Unsupported(route) => respond_unsupported(&request, ctx, route).await,
+        JsonRoute::Notifications(parsed) => respond_notifications(request, ctx, parsed).await,
+        JsonRoute::Session(parsed) => respond_session(request, ctx, parsed).await,
+        JsonRoute::Rewrite(parsed) => respond_rewrite(request, ctx, parsed).await,
+        JsonRoute::Object(parsed) => respond_json_object(request, ctx, parsed).await,
+        JsonRoute::Project(parsed) => respond_project(request, ctx, parsed).await,
+        JsonRoute::Bucket(parsed) => {
+            respond_bucket(request, ctx, ctx.config.compat_profile, parsed).await
+        }
+    }
+}
+
+/// The session URI is its own capability, so the request carries no caller.
+async fn respond_session(
+    request: Request<Incoming>,
+    ctx: RequestCtx<'_>,
+    parsed: Result<json::resumable::UploadSession, ApiError>,
+) -> Response<ResponseBody> {
+    let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
+    let result = match parsed {
+        Ok(json::resumable::UploadSession { bucket, upload_id }) => {
+            resumable::session_response(request, &bucket, &upload_id, ctx.object(None, deadline))
                 .await
-            }
-            Err(error) => Err(error),
-        };
-        ctx.finish_object_request();
-        return result.unwrap_or_else(|error| boxed(error.into_response()));
-    }
-    if let Some(parsed) = json::rewrite::route(method, uri, profile) {
-        return respond_rewrite(request, ctx, parsed).await;
-    }
-    if let Some(parsed) = json::route_object_with_profile(method, uri, profile) {
-        return respond_json_object(request, ctx, parsed).await;
-    }
-    if let Some(parsed) = json::route_project(method, uri, profile) {
-        return respond_project(request, ctx, parsed).await;
-    }
-    if let Some(parsed) = json::route_with_profile(method, uri, profile, &ctx.config.seed_project) {
-        return respond_bucket(request, ctx, profile, parsed).await;
-    }
-    boxed(probe(&request, ctx.state).unwrap_or_else(|| unknown_route().into_response()))
+        }
+        Err(error) => Err(error),
+    };
+    ctx.finish_object_request();
+    result.unwrap_or_else(|error| boxed(error.into_response()))
 }
 
 /// Authenticates the request, then takes its parsed operation. Authentication answers first,

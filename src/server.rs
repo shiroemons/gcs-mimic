@@ -118,6 +118,7 @@ mod context;
 mod handshake;
 mod host;
 mod ingress;
+mod json_route;
 mod objects;
 mod routing;
 mod transport;
