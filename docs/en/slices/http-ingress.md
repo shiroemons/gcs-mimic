@@ -9,10 +9,15 @@ the server. `accept_failed` logs the first resource failure and
 
 ## Contract and scope
 
-Gzip metadata and upload jobs share a per-server decoder pool sized to
-`ceil(max_blocking_threads / 4)`, at least one. The default eight blocking
-threads allow two decoder jobs while leaving capacity for file/catalog I/O.
-Separate State instances do not share permits. No performance gain is claimed.
+Gzip metadata and upload jobs from callers who authenticate share a per-server
+decoder pool sized to `ceil(max_blocking_threads / 4)`, at least one. The
+default eight blocking threads allow two decoder jobs while leaving capacity
+for file/catalog I/O. Callers who do not authenticate, anonymous on the public
+listener or with credentials that fail, share one more permit of their own.
+A body is expanded before its caller is authorized, so a common pool would
+let an anonymous client keep every decoder busy and hold back the callers
+who authenticate. Separate State instances do not share permits. No
+performance gain is claimed.
 
 The JSON API accepts transport gzip on metadata requests under /storage/v1/.
 It also decodes the JSON metadata of a resumable initiation, a POST to
@@ -37,8 +42,11 @@ and gcs-mimic does the same: a body that does not decode answers 400 with the
 sends it and whatever route it names, with the CORS headers of a CORS route. A
 body that decodes then meets the same checks, in the same order, as the same
 body sent plain. An empty body is not decoded and takes no decoder permit.
-Every caller's compressed JSON body therefore waits for a decoder permit, and
-the 16 MiB limits bound what any caller can make the server expand.
+Every caller's compressed JSON body therefore waits for a decoder permit, from
+the pool its authentication selects, and the 16 MiB limits bound what any
+caller can make the server expand. The request is authenticated once more to
+select the pool; authentication reads only the headers and the query, and the
+answer does not change.
 
 A media or multipart upload body streams to its handler instead of being
 expanded first. Its first bytes are checked before dispatch, so a body that does
@@ -61,7 +69,7 @@ through the same decoder and store the decoded bytes, matching Cloud Storage
 contentEncoding query parameter still sets the stored metadata independently.
 
 Multipart decoding consumes and produces at most 64 KiB per blocking step,
-with one output channel slot and the same single decoder permit as metadata.
+with one output channel slot and a permit from the same pool as metadata.
 Expanded input is bounded by max_object_bytes plus two 16 MiB JSON parts and
 256 KiB of MIME overhead; compressed input allows that budget plus one eighth and 64 KiB for deflate
 overhead. These are local resource limits, not Google API limits. With the default
@@ -140,6 +148,11 @@ bomb and 400 for a body that does not decode from callers who would be refused.
 `server::ingress::tests::a_gzip_body_is_expanded_before_the_caller_is_checked` holds every
 decoder permit: requests without a body and an upload whose first bytes are not gzip answer at
 once, while refused, unknown-route and initiation requests with a compressed body wait.
+`server::ingress::tests::an_unauthenticated_gzip_body_cannot_hold_back_an_authenticated_one`
+holds the unauthenticated permit, under which anonymous and invalid-token bodies wait while a
+viewer's body is decoded and refused at once, and then every authenticated permit, under which
+the viewer waits while anonymous and invalid-token callers still get 401, or 400 for a body that
+does not decode.
 `server::ingress::members::tests` cover optional header fields, concatenated members, ignored
 trailer fields, each refusal and a read resumed after its input runs dry.
 

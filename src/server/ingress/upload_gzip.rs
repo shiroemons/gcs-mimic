@@ -88,7 +88,7 @@ pub(super) async fn request(
             .saturating_add(64 * 1024),
         expanded,
     };
-    let decoders = ctx.state.pools.gzip_decoders.clone();
+    let decoders = super::decoders_for(&parts, ctx).await;
     crate::task::spawn_supervised("gzip-upload-input", async move {
         let result = tokio::select! {
             result = stream(compressed, prefix, &sender, budget, decoders, &decoding) => result,

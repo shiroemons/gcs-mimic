@@ -3,7 +3,7 @@
 //! removes before it routes a JSON API request.
 
 use super::{BodyRead, ObjectActivity, RESOURCE_BODY_LIMIT, RequestCtx, ResponseBody, boxed};
-use crate::{api_error::ApiError, json::JsonErrorResponse};
+use crate::{api_error::ApiError, auth::Caller, json::JsonErrorResponse};
 use http_body_util::{BodyExt, Full};
 use hyper::{
     Method, Request, Response, StatusCode,
@@ -16,7 +16,7 @@ use std::{
     sync::{Arc, OnceLock},
     task::{Context, Poll},
 };
-use tokio::sync::watch;
+use tokio::sync::{Semaphore, watch};
 
 mod members;
 mod upload_gzip;
@@ -255,11 +255,8 @@ async fn expand_metadata(
     if compressed.is_empty() {
         return Ok(without_coding(parts, Bytes::new()));
     }
-    let permit = ctx
-        .state
-        .pools
-        .gzip_decoders
-        .clone()
+    let permit = decoders_for(&parts, ctx)
+        .await
         .acquire_owned()
         .await
         .map_err(|_| decoder_unavailable())?;
@@ -274,6 +271,19 @@ async fn expand_metadata(
         DecodeError::Invalid(_) => ApiError::undecodable_body(),
     })?;
     Ok(without_coding(parts, Bytes::from(decoded)))
+}
+
+/// The decoder permits that the compressed body of `parts` takes. The body is expanded before its
+/// caller is authorized, so a caller who does not authenticate, anonymous on the public listener
+/// or with credentials that fail, shares one permit of its own and cannot hold back a caller who
+/// does. Authentication reads only the headers and the query, and the handler authenticates the
+/// request again, so the answer does not change.
+async fn decoders_for(parts: &hyper::http::request::Parts, ctx: RequestCtx<'_>) -> Arc<Semaphore> {
+    let pools = &ctx.state.pools;
+    match ctx.authenticate(&parts.headers, parts.uri.query()).await {
+        Ok(None | Some(Caller::Principal(_))) => Arc::clone(&pools.gzip_decoders),
+        Ok(Some(Caller::Anonymous)) | Err(_) => Arc::clone(&pools.unauthenticated_gzip_decoders),
+    }
 }
 
 /// The request with `decoded` as its body and the headers that described the coded body removed.
@@ -464,34 +474,22 @@ mod tests {
             };
             let pools = WorkPools::new(&config);
             assert_eq!(pools.gzip_decoders.available_permits(), expected);
+            assert_eq!(pools.unauthenticated_gzip_decoders.available_permits(), 1);
             assert_eq!(pools.batches.available_permits(), 2);
             let other = WorkPools::new(&config);
             assert!(!Arc::ptr_eq(&pools.gzip_decoders, &other.gzip_decoders));
+            assert!(!Arc::ptr_eq(
+                &pools.unauthenticated_gzip_decoders,
+                &other.unauthenticated_gzip_decoders
+            ));
             assert!(!Arc::ptr_eq(&pools.batches, &other.batches));
         }
     }
 
     #[tokio::test]
     async fn gzip_metadata_admission_uses_the_server_pool() {
-        let dir = crate::test_support::TestDir::new();
-        let state = std::sync::Arc::new(State::for_test(
-            Catalog::open(&dir.0).await.unwrap(),
-            Auth::permissive(),
-        ));
-        let config = std::sync::Arc::new(Config::default());
-        let endpoints = config
-            .runtime_endpoints
-            .snapshot(&config, "http://localhost")
-            .unwrap()
-            .without_request();
-        let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
-        let ctx = RequestCtx {
-            state: &state,
-            config: &config,
-            endpoints: &endpoints,
-            activity: &activity,
-            listener: crate::auth::ListenerRole::Public,
-        };
+        let fixture = Fixture::new(Auth::permissive()).await;
+        let (state, ctx) = (&fixture.state, fixture.ctx());
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         encoder.write_all(b"{}").unwrap();
         let compressed = encoder.finish().unwrap();
@@ -549,78 +547,112 @@ mod tests {
         Bytes::from(encoder.finish().unwrap())
     }
 
+    /// One server's state and the context its public listener gives a request.
+    struct Fixture {
+        _dir: crate::test_support::TestDir,
+        state: Arc<State>,
+        config: Arc<Config>,
+        endpoints: crate::config::RequestEndpoints,
+        activity: watch::Sender<ObjectActivity>,
+    }
+
+    impl Fixture {
+        async fn new(auth: Auth) -> Self {
+            let dir = crate::test_support::TestDir::new();
+            let state = Arc::new(State::for_test(Catalog::open(&dir.0).await.unwrap(), auth));
+            let config = Arc::new(Config::default());
+            let endpoints = config
+                .runtime_endpoints
+                .snapshot(&config, "http://localhost")
+                .unwrap()
+                .without_request();
+            let (activity, _) = watch::channel(ObjectActivity::default());
+            Self {
+                _dir: dir,
+                state,
+                config,
+                endpoints,
+                activity,
+            }
+        }
+
+        /// A strict server whose token `viewer` reads objects of `project-a`, which owns
+        /// `private-bucket`.
+        async fn strict() -> Self {
+            let registry = crate::auth::Registry::parse(
+                br#"{"identities":[
+                    {"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"project-a":["roles/storage.objectViewer"]}}
+                ]}"#,
+            )
+            .unwrap();
+            let fixture = Self::new(Auth::strict(registry)).await;
+            let bucket = br#"{"name":"private-bucket"}"#;
+            let record =
+                crate::json::parse_insert(bucket, "project-a", std::time::UNIX_EPOCH).unwrap();
+            fixture.state.catalog.insert_bucket(record).await.unwrap();
+            fixture
+        }
+
+        fn ctx(&self) -> RequestCtx<'_> {
+            RequestCtx {
+                state: &self.state,
+                config: &self.config,
+                endpoints: &self.endpoints,
+                activity: &self.activity,
+                listener: crate::auth::ListenerRole::Public,
+            }
+        }
+    }
+
+    /// Takes every permit `pool` has left.
+    async fn hold(pool: &Arc<Semaphore>) -> tokio::sync::OwnedSemaphorePermit {
+        let permits = u32::try_from(pool.available_permits()).unwrap();
+        Arc::clone(pool).acquire_many_owned(permits).await.unwrap()
+    }
+
+    /// A JSON request whose body is sent with `Content-Encoding: gzip`, from the caller of
+    /// `token` or from an anonymous one.
+    fn coded(method: &str, uri: &str, token: Option<&str>, body: Bytes) -> Request<RequestBody> {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json")
+            .header("content-encoding", "gzip");
+        if let Some(token) = token {
+            builder = builder.header("authorization", format!("Bearer {token}"));
+        }
+        builder
+            .body(RequestBody::Buffered(Full::new(body)))
+            .unwrap()
+    }
+
     /// Cloud Storage's front end decodes a gzip body before it routes or authenticates the
     /// request (recorded 2026-11-25). Every caller's compressed body therefore waits for a
     /// decoder, while a request without a body answers without one; and a body that does not
     /// decode answers 400 to an anonymous caller, who gets 401 for the same body compressed well.
     #[tokio::test]
     async fn a_gzip_body_is_expanded_before_the_caller_is_checked() {
-        let dir = crate::test_support::TestDir::new();
-        let registry = crate::auth::Registry::parse(
-            br#"{"identities":[
-                {"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"project-a":["roles/storage.objectViewer"]}}
-            ]}"#,
-        )
-        .unwrap();
-        let state = Arc::new(State::for_test(
-            Catalog::open(&dir.0).await.unwrap(),
-            Auth::strict(registry),
-        ));
-        let bucket = br#"{"name":"private-bucket"}"#;
-        let record = crate::json::parse_insert(bucket, "project-a", std::time::UNIX_EPOCH).unwrap();
-        state.catalog.insert_bucket(record).await.unwrap();
-        let config = Arc::new(Config::default());
-        let endpoints = config
-            .runtime_endpoints
-            .snapshot(&config, "http://localhost")
-            .unwrap()
-            .without_request();
-        let (activity, _) = watch::channel(ObjectActivity::default());
-        let ctx = RequestCtx {
-            state: &state,
-            config: &config,
-            endpoints: &endpoints,
-            activity: &activity,
-            listener: crate::auth::ListenerRole::Public,
-        };
-        let request = |method: &str, uri: &str, token: Option<&str>, body: Bytes| {
-            let mut builder = Request::builder()
-                .method(method)
-                .uri(uri)
-                .header("content-type", "application/json")
-                .header("content-encoding", "gzip");
-            if let Some(token) = token {
-                builder = builder.header("authorization", format!("Bearer {token}"));
-            }
-            builder
-                .body(RequestBody::Buffered(Full::new(body)))
-                .unwrap()
-        };
-        let respond = |request| super::super::routing::respond(request, ctx);
-        let decoders = state.pools.gzip_decoders.available_permits();
-        let held = (state.pools.gzip_decoders.clone())
-            .acquire_many_owned(u32::try_from(decoders).unwrap())
-            .await
-            .unwrap();
+        let fixture = Fixture::strict().await;
+        let respond = |request| super::super::routing::respond(request, fixture.ctx());
+        let pools = &fixture.state.pools;
+        let held = (
+            hold(&pools.gzip_decoders).await,
+            hold(&pools.unauthenticated_gzip_decoders).await,
+        );
         let (bucket, upload) = (
             "/storage/v1/b/private-bucket",
             "/upload/storage/v1/b/private-bucket/o",
         );
         let labels = gzip(br#"{"labels":{"k":"v"}}"#);
         for (method, uri) in [("GET", bucket), ("PATCH", bucket)] {
-            let response = respond(request(method, uri, None, Bytes::new()));
+            let response = respond(coded(method, uri, None, Bytes::new()));
             let response = tokio::time::timeout(Duration::from_secs(1), response)
                 .await
                 .unwrap_or_else(|_| panic!("{method} without a body waited for a decoder"));
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{method}");
         }
         let media = format!("{upload}?uploadType=media&name=x");
-        let not_gzip = respond(request(
-            "POST",
-            &media,
-            None,
-            Bytes::from_static(b"not gzip"),
-        ));
+        let not_gzip = respond(coded("POST", &media, None, Bytes::from_static(b"not gzip")));
         let not_gzip = tokio::time::timeout(Duration::from_secs(1), not_gzip)
             .await
             .expect("the first bytes of an upload are checked without a decoder");
@@ -632,7 +664,7 @@ mod tests {
             ("POST", "/storage/v1/unknown", None),
             ("POST", initiation.as_str(), None),
         ] {
-            let pending = respond(request(method, uri, token, labels.clone()));
+            let pending = respond(coded(method, uri, token, labels.clone()));
             assert!(
                 tokio::time::timeout(Duration::from_millis(20), pending)
                     .await
@@ -641,9 +673,9 @@ mod tests {
             );
         }
         drop(held);
-        let refused = respond(request("PATCH", bucket, None, labels)).await;
+        let refused = respond(coded("PATCH", bucket, None, labels)).await;
         assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
-        let undecodable = respond(request(
+        let undecodable = respond(coded(
             "PATCH",
             bucket,
             None,
@@ -657,6 +689,59 @@ mod tests {
         );
         let text = undecodable.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(text, "Could not decompress request body.");
-        state.catalog.close().await.unwrap();
+        fixture.state.catalog.close().await.unwrap();
+    }
+
+    /// A compressed body is expanded before its caller is authorized, so the callers who do not
+    /// authenticate share a decoder permit of their own. Holding it holds back none of the callers
+    /// who authenticate, and holding every other permit still leaves them their answer.
+    #[tokio::test]
+    async fn an_unauthenticated_gzip_body_cannot_hold_back_an_authenticated_one() {
+        let fixture = Fixture::strict().await;
+        let respond = |request| super::super::routing::respond(request, fixture.ctx());
+        let pools = &fixture.state.pools;
+        let bucket = "/storage/v1/b/private-bucket";
+        let labels = gzip(br#"{"labels":{"k":"v"}}"#);
+        let unauthenticated = hold(&pools.unauthenticated_gzip_decoders).await;
+        for token in [None, Some("unknown")] {
+            let pending = respond(coded("PATCH", bucket, token, labels.clone()));
+            assert!(
+                tokio::time::timeout(Duration::from_millis(20), pending)
+                    .await
+                    .is_err(),
+                "{token:?} waits for the unauthenticated permit"
+            );
+        }
+        let viewer = respond(coded("PATCH", bucket, Some("viewer"), labels.clone()));
+        let viewer = tokio::time::timeout(Duration::from_secs(1), viewer)
+            .await
+            .expect("a caller who authenticates does not wait for the unauthenticated permit");
+        assert_eq!(viewer.status(), StatusCode::FORBIDDEN);
+        drop(unauthenticated);
+        let authenticated = hold(&pools.gzip_decoders).await;
+        let pending = respond(coded("PATCH", bucket, Some("viewer"), labels.clone()));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), pending)
+                .await
+                .is_err(),
+            "the viewer waits for an authenticated permit"
+        );
+        for (token, body, expected) in [
+            (None, labels.clone(), StatusCode::UNAUTHORIZED),
+            (Some("unknown"), labels, StatusCode::UNAUTHORIZED),
+            (
+                None,
+                Bytes::from_static(b"not gzip"),
+                StatusCode::BAD_REQUEST,
+            ),
+        ] {
+            let response = respond(coded("PATCH", bucket, token, body));
+            let response = tokio::time::timeout(Duration::from_secs(1), response)
+                .await
+                .unwrap_or_else(|_| panic!("{token:?} waited for an authenticated permit"));
+            assert_eq!(response.status(), expected, "{token:?}");
+        }
+        drop(authenticated);
+        fixture.state.catalog.close().await.unwrap();
     }
 }

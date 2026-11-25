@@ -88,7 +88,12 @@ impl State {
 /// Per-server admission for CPU work and buffered batch envelopes.
 #[derive(Clone)]
 pub struct WorkPools {
+    /// Decoder permits for the compressed bodies of callers who authenticate.
     pub(crate) gzip_decoders: Arc<Semaphore>,
+    /// The one decoder permit that callers who do not authenticate share. A compressed body is
+    /// expanded before its caller is authorized, as Cloud Storage does, so with a common pool an
+    /// anonymous client could keep every decoder busy and hold back the callers who authenticate.
+    pub(crate) unauthenticated_gzip_decoders: Arc<Semaphore>,
     pub(crate) batches: Arc<Semaphore>,
 }
 
@@ -98,6 +103,7 @@ impl WorkPools {
             gzip_decoders: Arc::new(Semaphore::new(
                 config.max_blocking_threads.div_ceil(4).max(1),
             )),
+            unauthenticated_gzip_decoders: Arc::new(Semaphore::new(1)),
             batches: Arc::new(Semaphore::new(batch::BATCH_CONCURRENCY)),
         }
     }
