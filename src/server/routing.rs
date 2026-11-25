@@ -292,27 +292,47 @@ async fn route_json(mut request: Request<Incoming>, ctx: RequestCtx<'_>) -> Resp
     // as JSON with CORS.
     if is_unsupported_protocol_upload(&request) {
         let route = JsonRoute::parse(request.method(), request.uri(), ctx.config);
-        return respond_json_cors(request, ctx, route).await;
+        return respond_json_cors(request, ctx, route, Coding::Unread).await;
     }
     if let Err(error) = super::ingress::override_method(&mut request) {
         return boxed(error.into_response());
     }
-    let request = match super::ingress::decode_metadata(request, ctx).await {
-        Ok(request) => request,
-        Err(error) => return boxed(error.into_response()),
-    };
     // Parsed after the method override, which changes the route.
     let route = JsonRoute::parse(request.method(), request.uri(), ctx.config);
     if json::cors::is_route(request.uri()) {
-        return respond_json_cors(request, ctx, route).await;
+        return respond_json_cors(request, ctx, route, Coding::Expand).await;
     }
-    respond_unselected(request, ctx, route).await
+    respond_expanded(request, ctx, route).await
+}
+
+/// What dispatch does with a JSON API request's transport coding.
+#[derive(Clone, Copy)]
+enum Coding {
+    /// Expands the body before the route is consulted, as Cloud Storage's front end does.
+    Expand,
+    /// Leaves it: the request is refused before its coding is read.
+    Unread,
+}
+
+/// Dispatches `request` once its transport coding is removed. A body that does not decode
+/// answers before the route or the caller is checked; see [`super::ingress::expand`].
+async fn respond_expanded(
+    request: Request<Incoming>,
+    ctx: RequestCtx<'_>,
+    route: Option<JsonRoute>,
+) -> Response<ResponseBody> {
+    let (request, decoder) = match super::ingress::expand(request, ctx).await {
+        Ok(expanded) => expanded,
+        Err(error) => return boxed(error.into_response()),
+    };
+    decoder.settle(respond_unselected(request, ctx, route).await)
 }
 
 async fn respond_json_cors(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
     route: Option<JsonRoute>,
+    coding: Coding,
 ) -> Response<ResponseBody> {
     let kind = json::cors::request_kind(request.method(), request.headers());
     let mut headers = match json::cors::response_headers(request.headers(), kind) {
@@ -338,7 +358,10 @@ async fn respond_json_cors(
             boxed(empty_response(StatusCode::OK))
         }
     } else {
-        respond_unselected(request, ctx, route).await
+        match coding {
+            Coding::Expand => respond_expanded(request, ctx, route).await,
+            Coding::Unread => respond_unselected(request, ctx, route).await,
+        }
     };
     apply_cors(response.headers_mut(), headers, None);
     response

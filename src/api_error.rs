@@ -118,6 +118,14 @@ pub(crate) const MISSING_END_BOUNDARY_TEXT: PlainText = PlainText {
     cache: PlainCache::Unspecified,
 };
 
+/// A transport-compressed request body that does not decode, which Cloud Storage's front end
+/// refuses before routing or authenticating the request (recorded 2026-11-25).
+pub(crate) const DECOMPRESS_TEXT: PlainText = PlainText {
+    content_type: "text/plain; charset=utf-8",
+    body: Some("Could not decompress request body."),
+    cache: PlainCache::Unspecified,
+};
+
 /// A session-protocol failure that has no recorded text of its own. The recorded failures
 /// of a continuation (an unusable `Content-Range`, an unknown session) are bare `text/plain`
 /// pages without cache fields, so the other protocol errors (an inconsistent total, a gap in
@@ -358,6 +366,16 @@ impl ApiError {
 
     pub(crate) fn invalid_parameter(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalidParameter", message)
+    }
+
+    /// A transport-compressed request body that does not decode; see [`DECOMPRESS_TEXT`].
+    pub(crate) fn undecodable_body() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "badRequest",
+            "Could not decompress request body.",
+        )
+        .with_plain(&DECOMPRESS_TEXT)
     }
 
     /// A body `name` or `bucket` that disagrees with the resource the path names, worded as

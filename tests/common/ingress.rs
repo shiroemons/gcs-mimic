@@ -34,6 +34,19 @@ impl Reply {
         self.expect(expected);
         assert!(self.headers.contains("content-type:"));
     }
+
+    /// Asserts that this is the bare text page Cloud Storage's front end answers for a
+    /// transport-compressed body that does not decode (recorded 2026-11-25).
+    pub(crate) fn undecodable(&self) {
+        self.expect(400);
+        assert!(
+            self.headers
+                .contains("content-type: text/plain; charset=utf-8"),
+            "{}",
+            self.headers
+        );
+        assert_eq!(self.body, "Could not decompress request body.");
+    }
 }
 
 pub(crate) fn gzip(bytes: &[u8]) -> Vec<u8> {

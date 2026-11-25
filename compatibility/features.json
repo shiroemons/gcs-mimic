@@ -16024,15 +16024,15 @@
         },
         {
           "id": "resumable-init-transport-gzip",
-          "description": "Decode only POST JSON resumable initiation without upload_id through the existing single-permit decoder, whose compressed and expanded input share the 16 MiB JSON limit. Verify successful chunk completion and malformed/member/CRC/ISIZE/trailer/boundary/strict-denial/no-session-on-failure cases, then the official .NET SDK with compression unchanged. Media/chunks/XML retain their contract; SPEC-RESUMABLE-INIT-GZIP.",
+          "description": "Decode only POST JSON resumable initiation without upload_id through the existing single-permit decoder, whose compressed and expanded input share the 16 MiB JSON limit. Verify successful chunk completion and malformed/member/trailer/boundary/strict-denial/no-session-on-failure cases, with a CRC-32 or ISIZE mismatch accepted as Cloud Storage accepts it (observed 2026-11-25), then the official .NET SDK with compression unchanged. Media/chunks/XML retain their contract; SPEC-RESUMABLE-INIT-GZIP.",
           "result": "PASS",
-          "test_ids": ["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate", "invalid_gzip_initiations_never_create_sessions", "gzip_initiation_bounds_compressed_and_expanded_metadata", "gzip_initiation_retains_strict_authentication_and_upload_permissions"]
+          "test_ids": ["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate", "invalid_gzip_initiations_never_create_sessions", "gzip_initiation_bounds_compressed_and_expanded_metadata", "gzip_initiation_expands_before_strict_authentication_and_upload_permissions"]
         },
         {
           "id": "resumable-escaped-session-key",
-          "description": "A resumable upload request whose query spells upload_id with an escape, such as upload%5Fid, names that session once its keys are decoded, so an initiation that carries one answers 404 Not Found for an unknown session, as on Cloud Storage (observed 2026-11-25, docs/en/evidence/transport-gzip-provider-observations.md); a key that does not decode names no session.",
+          "description": "A resumable upload request whose query spells upload_id with an escape, such as upload%5Fid, names that session once its keys are decoded, so an initiation that carries one answers 404 Not Found for an unknown session, plain or gzip, as on Cloud Storage (observed 2026-11-25, docs/en/evidence/transport-gzip-provider-observations.md); a key that does not decode names no session.",
           "result": "PASS",
-          "test_ids": ["an_escaped_upload_id_key_names_the_session"]
+          "test_ids": ["an_escaped_upload_id_key_names_the_session", "gzip_and_plain_bodies_meet_the_same_refusal"]
         },
         {
           "id": "RSM-INSERT-001",
@@ -16758,7 +16758,7 @@
         "gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate",
         "invalid_gzip_initiations_never_create_sessions",
         "gzip_initiation_bounds_compressed_and_expanded_metadata",
-        "gzip_initiation_retains_strict_authentication_and_upload_permissions",
+        "gzip_initiation_expands_before_strict_authentication_and_upload_permissions",
         "acl_permission_effects::predefined_upload::media_upload_predefined_acls_replace_the_default_object_acl",
         "acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication",
         "acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings",
@@ -16766,9 +16766,11 @@
         "xml::uniform_access_metadata_and_predefined_acl_rejections",
         "upload_replay_token_reused_with_reordered_query_is_rejected_without_a_second_generation",
         "resumable_session_uri_is_bound_to_its_bucket_and_name",
-        "an_escaped_upload_id_key_names_the_session"
+        "an_escaped_upload_id_key_names_the_session",
+        "gzip_and_plain_bodies_meet_the_same_refusal"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib -- server::ingress json::resumable (12 passed); cargo test --locked --test it_protocol -- http_ingress http_multipart_gzip http_resumable_gzip (19 passed)","result":"PASS","verified_at":"2026-11-25","artifact":"docs/en/evidence/transport-gzip-provider-observations.md","test_ids":["an_escaped_upload_id_key_names_the_session","gzip_and_plain_bodies_meet_the_same_refusal","gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_expands_before_strict_authentication_and_upload_permissions"]},
         {"command":"cargo test --locked --lib -- json::resumable (2 passed)","result":"PASS","verified_at":"2026-11-25","artifact":"docs/en/evidence/transport-gzip-provider-observations.md","test_ids":["an_escaped_upload_id_key_names_the_session"]},
         {
           "command": "cargo test --all-targets --no-fail-fast",
@@ -16802,7 +16804,7 @@
         {"command":"cargo +1.99.1 test --locked --offline --lib json::multipart && cargo +1.99.1 test --locked --offline --test object_multipart_http","result":"PASS","verified_at":"2026-11-02","artifact":"docs/en/slices/json-object-multipart.md","test_ids":["multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary","multipart::tests::related_uploads_read_lf_framing_at_every_chunk_split","multipart::tests::related_uploads_keep_lf_boundary_text_in_crlf_media_at_every_chunk_split","obj_multipart_http_accepts_the_gcloud_request_shape","obj_multipart_http_crlf_media_keeps_lf_boundary_text"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["storage::resumable_http_tests::cloud_storage_parity::media_upload_ignores_declared_hashes_and_stores_the_computed_ones","storage::resumable_http_tests::cloud_storage_parity::multipart_metadata_hash_mismatch_names_both_digests","storage::resumable_http_tests::cloud_storage_parity::multipart_upload_content_types_must_agree_and_plain_bodies_are_media","storage::resumable_http_tests::cloud_storage_parity::metadata_writes_ignore_unknown_members_and_release_holds_on_put","media_upload_stores_computed_hashes_whatever_the_declared_md5"]},
         {"command":"cargo test --locked --test acl_permission_effects predefined_upload && cargo test --locked --lib acl::tests && cargo test --locked --test auth_http uniform_access","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/upload-predefined-acl.md","test_ids":["acl_permission_effects::predefined_upload::media_upload_predefined_acls_replace_the_default_object_acl","acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication","acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings","acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values","xml::uniform_access_metadata_and_predefined_acl_rejections"]},
-        {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_retains_strict_authentication_and_upload_permissions"]},
+        {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_expands_before_strict_authentication_and_upload_permissions"]},
         {"command":"cargo test --locked --test sdk_object_wire_http --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/media-read-provider-observations.md","test_ids":["json_media_upload_content_encoding_query_sets_stored_encoding","multipart_content_encoding_query_matches_resumable_declaration_rules"]},
         {
           "command": "cargo test --locked --offline --test sdk_ruby_defaults_http",
@@ -33869,7 +33871,7 @@
         },
         {
           "id": "MEDIA-UPLOAD-TRANSPORT-GZIP",
-          "description": "A JSON media upload sent with Content-Encoding: gzip is decoded through the bounded streaming upload decoder and the decoded bytes are stored, as Cloud Storage stores them (observed 2026-10-31); a contentEncoding=gzip query still sets the stored metadata over the decoded bytes. Concatenated members decode; non-gzip, truncated and CRC-corrupt bodies fail 400, a decoded body above max_object_bytes (default 5 TiB, so a small body can expand that far unless the setting is lowered) fails 413, other codings fail 400, all without changing the previous object or leaving staging files. Limit: a plain body uploaded with a contentEncoding=gzip query or metadata declaration is accepted as stored, as on Cloud Storage; the later gunzipping read fails 400 (see GZIP-PLAIN-BODY-REJECTION).",
+          "description": "A JSON media upload sent with Content-Encoding: gzip is decoded through the bounded streaming upload decoder and the decoded bytes are stored, as Cloud Storage stores them (observed 2026-10-31); a contentEncoding=gzip query still sets the stored metadata over the decoded bytes. Concatenated members decode; non-gzip and truncated bodies fail 400 with Cloud Storage's text/plain 'Could not decompress request body.', while a CRC-32 mismatch in the trailer stores the decoded bytes as Cloud Storage stored them (observed 2026-11-25, docs/en/evidence/transport-gzip-provider-observations.md); an empty body stores an empty object; a decoded body above max_object_bytes (default 5 TiB, so a small body can expand that far unless the setting is lowered) fails 413, other codings fail 400, all without changing the previous object or leaving staging files. Limit: a plain body uploaded with a contentEncoding=gzip query or metadata declaration is accepted as stored, as on Cloud Storage; the later gunzipping read fails 400 (see GZIP-PLAIN-BODY-REJECTION).",
           "result": "PASS",
           "test_ids": ["media_transport_gzip_stores_the_decoded_body"]
         },
@@ -33951,6 +33953,7 @@
         "xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range"
       ],
       "verification": [
+        {"command":"cargo test --locked --test it_protocol -- http_ingress http_multipart_gzip http_resumable_gzip (19 passed)","result":"PASS","verified_at":"2026-11-25","artifact":"docs/en/evidence/transport-gzip-provider-observations.md","test_ids":["media_transport_gzip_stores_the_decoded_body"]},
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -34029,7 +34032,7 @@
         "Expansion is limited by max_object_bytes and can abort after 200 headers; stored hashes do not describe expanded bytes, as on Cloud Storage. A doubly compressed object (application/gzip stored with contentEncoding gzip) is gunzipped for every client, as recorded 2026-11-13 (case obj-gzip-double); provider exactness beyond the observed headers is unverified."
       ],
       "implemented_in": "b894ed0",
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-25"
     },
     {
       "id": "BEHAVIOR-OBJECT-018",
@@ -69417,9 +69420,15 @@
         },
         {
           "id": "resumable-init-transport-gzip",
-          "description": "Bounded gzip transport decoding for exact POST JSON resumable initiation only, with member/trailer/EOF/limit/strict-auth checks before session creation; media/chunks/XML are unchanged. Four dedicated wire tests pass, and the unchanged official .NET SDK completes initiation/chunks/read before a separate metadata If-Match issue. SPEC-RESUMABLE-INIT-GZIP.",
+          "description": "Bounded gzip transport decoding for exact POST JSON resumable initiation only, with member/trailer/EOF/limit checks and then strict-auth checks before session creation; chunks/XML are unchanged. Four dedicated wire tests pass, and the unchanged official .NET SDK completes initiation/chunks/read before a separate metadata If-Match issue. SPEC-RESUMABLE-INIT-GZIP.",
           "result": "PASS",
-          "test_ids": ["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate", "invalid_gzip_initiations_never_create_sessions", "gzip_initiation_bounds_compressed_and_expanded_metadata", "gzip_initiation_retains_strict_authentication_and_upload_permissions"]
+          "test_ids": ["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate", "invalid_gzip_initiations_never_create_sessions", "gzip_initiation_bounds_compressed_and_expanded_metadata", "gzip_initiation_expands_before_strict_authentication_and_upload_permissions"]
+        },
+        {
+          "id": "transport-gzip-before-routing",
+          "description": "A transport-gzip JSON body or initiation is expanded before the request is routed or authenticated, as Cloud Storage's front end expands it (observed 2026-11-25, docs/en/evidence/transport-gzip-provider-observations.md). A body that does not decode (not gzip, a member cut short or missing its trailer, bytes after the last member) answers 400 text/plain; charset=utf-8 'Could not decompress request body.' to every caller on every route, with the CORS headers of a CORS route; a body that decodes meets the same status, error body and CORS headers as the same body sent plain; a bomb answers 413 whoever sends it; an empty body is not decoded and takes no decoder permit. The trailer's CRC-32 and ISIZE are read but not compared. A media or multipart upload checks its first bytes before dispatch and answers the same 400 for a later decode failure that its handler reads.",
+          "result": "PASS",
+          "test_ids": ["a_gzip_body_is_expanded_before_the_caller_is_checked", "gzip_metadata_admission_uses_the_server_pool", "concatenated_members_with_every_optional_field_decode_as_one_body", "a_trailer_that_disagrees_with_the_data_still_decodes", "a_body_that_ends_inside_a_member_or_continues_past_it_fails", "a_read_that_runs_out_of_input_continues_where_it_stopped", "gzip_bodies_that_do_not_decode_never_mutate_metadata", "gzip_expands_before_authentication_and_override_uses_patch_permissions", "gzip_and_plain_bodies_meet_the_same_refusal", "multipart_gzip_checks_truncation_and_trailers_after_the_mime_close_but_not_checksums", "multipart_gzip_strict_permissions_precede_publication", "invalid_gzip_initiations_never_create_sessions", "gzip_initiation_expands_before_strict_authentication_and_upload_permissions"]
         },
         {
           "id": "framing_matrix",
@@ -69447,7 +69456,7 @@
         "gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate",
         "invalid_gzip_initiations_never_create_sessions",
         "gzip_initiation_bounds_compressed_and_expanded_metadata",
-        "gzip_initiation_retains_strict_authentication_and_upload_permissions",
+        "gzip_initiation_expands_before_strict_authentication_and_upload_permissions",
         "full_server_closes_only_the_oldest_idle_connection_per_waiting_client",
         "full_server_without_a_waiting_client_keeps_its_idle_connections",
         "each_request_renews_the_keep_alive_deadline",
@@ -69469,13 +69478,25 @@
         "a_connection_whose_next_request_started_passes_its_wake_on",
         "only_a_response_that_keeps_the_connection_open_takes_a_place_in_line",
         "only_a_wait_on_the_client_counts_as_its_silence",
-        "direct_fixture_progress_renews_inactivity_without_disabling_the_deadline"
+        "direct_fixture_progress_renews_inactivity_without_disabling_the_deadline",
+        "a_gzip_body_is_expanded_before_the_caller_is_checked",
+        "gzip_metadata_admission_uses_the_server_pool",
+        "concatenated_members_with_every_optional_field_decode_as_one_body",
+        "a_trailer_that_disagrees_with_the_data_still_decodes",
+        "a_body_that_ends_inside_a_member_or_continues_past_it_fails",
+        "a_read_that_runs_out_of_input_continues_where_it_stopped",
+        "gzip_bodies_that_do_not_decode_never_mutate_metadata",
+        "gzip_expands_before_authentication_and_override_uses_patch_permissions",
+        "gzip_and_plain_bodies_meet_the_same_refusal",
+        "multipart_gzip_checks_truncation_and_trailers_after_the_mime_close_but_not_checksums",
+        "multipart_gzip_strict_permissions_precede_publication"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib -- server::ingress json::resumable (12 passed); cargo test --locked --test it_protocol -- http_ingress http_multipart_gzip http_resumable_gzip (19 passed)","result":"PASS","verified_at":"2026-11-25","artifact":"docs/en/evidence/transport-gzip-provider-observations.md","test_ids":["a_gzip_body_is_expanded_before_the_caller_is_checked","gzip_metadata_admission_uses_the_server_pool","concatenated_members_with_every_optional_field_decode_as_one_body","a_trailer_that_disagrees_with_the_data_still_decodes","a_body_that_ends_inside_a_member_or_continues_past_it_fails","a_read_that_runs_out_of_input_continues_where_it_stopped","only_a_wait_on_the_client_counts_as_its_silence","gzip_bodies_that_do_not_decode_never_mutate_metadata","gzip_expands_before_authentication_and_override_uses_patch_permissions","gzip_and_plain_bodies_meet_the_same_refusal","multipart_gzip_checks_truncation_and_trailers_after_the_mime_close_but_not_checksums","multipart_gzip_strict_permissions_precede_publication","gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_expands_before_strict_authentication_and_upload_permissions"]},
         {"command":"cargo test --locked --lib -- reclaim_tests server::ingress; cargo test --locked --test it_process -- foundation; cargo test --locked --test it_admin -- direct_fixture_progress_renews_inactivity_without_disabling_the_deadline; cargo test --locked --test it_protocol -- obj_http_trickle_upload_deadline_releases_permits_without_publication","result":"PASS","verified_at":"2026-11-24","artifact":"docs/en/evidence/http-connection-semantics.md","test_ids":["connections_stand_in_line_in_the_order_their_responses_ended","a_connection_whose_next_request_started_passes_its_wake_on","only_a_response_that_keeps_the_connection_open_takes_a_place_in_line","a_request_wakes_only_the_connection_that_turned_idle_first","a_stored_wake_taken_by_a_connection_that_leaves_reaches_the_next_in_line","full_server_closes_only_the_oldest_idle_connection_per_waiting_client","full_server_without_a_waiting_client_keeps_its_idle_connections","full_server_reclaims_idle_keep_alive_slots_for_waiting_clients","only_a_wait_on_the_client_counts_as_its_silence","direct_fixture_progress_renews_inactivity_without_disabling_the_deadline","obj_http_trickle_upload_deadline_releases_permits_without_publication"]},
         {"command":"cargo test --locked --lib server::; cargo test --locked --lib xml::; cargo test --locked --test it_protocol; cargo test --locked --test it_json; cargo test --locked --test it_xml_auth; cargo test --locked --test it_process tls_streaming_progress_and_upload_deadlines_preserve_existing_object","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/evidence/http-connection-semantics.md","test_ids":["obj_http_stalled_resource_bodies_outlive_header_and_request_deadlines","obj_http_explicit_body_inactivity_answers_silent_resource_bodies","obj_http_trickled_resource_body_renews_body_inactivity","bkt_http_silent_body_meets_body_inactivity_not_the_request_deadline","a_pending_request_body_moves_any_request_to_the_inactivity_limit","the_timeout_reply_names_the_limit_that_expired","bkt_http_deadline_before_response_returns_backend_error","xml_put_chunked_trailers_and_body_deadlines_cannot_publish","obj_http_trickle_upload_deadline_releases_permits_without_publication","obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out","obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots","tls_streaming_progress_and_upload_deadlines_preserve_existing_object"]},
         {"command":"cargo test --locked --lib -- reclaim_tests server::transport; cargo test --locked --test it_protocol -- phase_deadlines; cargo test --locked --test it_process -- foundation","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["full_server_closes_only_the_oldest_idle_connection_per_waiting_client","full_server_without_a_waiting_client_keeps_its_idle_connections","each_request_renews_the_keep_alive_deadline","a_request_wakes_only_the_connection_that_turned_idle_first","accepted_tcp_connections_enable_keepalive","obj_http_stalled_upload_body_outlives_header_and_request_deadlines","obj_http_stalled_download_outlives_header_and_request_deadlines","obj_http_stalled_resumable_chunk_outlives_header_and_request_deadlines","obj_http_explicit_body_inactivity_answers_a_stalled_upload_with_408","obj_http_explicit_body_inactivity_cuts_a_stalled_download","obj_http_disabled_and_largest_timeouts_never_cut_any_phase"]},
-        {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_retains_strict_authentication_and_upload_permissions"]},
+        {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_expands_before_strict_authentication_and_upload_permissions"]},
         {
           "command": "env -u RUSTUP_TOOLCHAIN bash scripts/with-test-tmpdir.sh bash scripts/check.sh; GitHub Actions Foundation checks run 40646838968",
           "result": "PASS",
@@ -69504,10 +69525,11 @@
       "known_deviations": [
         "A waiting client at a full server closes the connection that turned idle first, so max_connections of 1 closes after a response when a client waits; a partial next request head that arrives with the previous body waits for keep_alive_timeout_ms; HTTP/2 flow control and the remaining framing matrix stay pending.",
         "Timeout statuses follow the documented status/reason pairs without a real-cloud differential; which limit maps to which documented code is a local choice. With body_inactivity_timeout_ms at its default of 0, a client that stops sending a request body on any route holds its connection until it disconnects.",
-        "Lingering close waits at most one second of client silence instead of nginx's five seconds, and a client that keeps sending can hold its connection slot for up to 30 seconds."
+        "Lingering close waits at most one second of client silence instead of nginx's five seconds, and a client that keeps sending can hold its connection slot for up to 30 seconds.",
+        "A media or multipart upload streams its body to its handler, so a caller the handler refuses before reading the body keeps its 401 or 403 when the body starts a gzip member but is cut short or followed by other bytes later; Cloud Storage answered such anonymous uploads 400 'Could not decompress request body.' (observed 2026-11-25). JSON bodies keep the local 16 MiB compressed and expanded limits (413), and a gzip body on a resumable session request keeps its refusal; neither was probed."
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-24"
+      "last_verified": "2026-11-25"
     },
     {
       "id": "AUDIT-011",

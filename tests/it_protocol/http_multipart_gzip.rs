@@ -67,8 +67,11 @@ fn multipart_transport_gzip_streams_large_bodies_members_and_chunk_splits() {
     );
 }
 
+/// The MIME close does not end the body: a member that is cut short or followed by other bytes
+/// still fails the upload. Cloud Storage does not compare a member's trailer with its data
+/// (recorded 2026-11-25), so a wrong CRC-32 or size stores the data it carries.
 #[test]
-fn multipart_gzip_checks_crc_size_truncation_and_trailers_after_the_mime_close() {
+fn multipart_gzip_checks_truncation_and_trailers_after_the_mime_close_but_not_checksums() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     bucket(&server, "");
@@ -88,19 +91,13 @@ fn multipart_gzip_checks_crc_size_truncation_and_trailers_after_the_mime_close()
         r#"{"name":"object","metadata":{"new":"no"}}"#,
         b"new content",
     ));
-    let mut crc = valid.clone();
-    crc[valid.len() - 8] ^= 1;
-    let mut size = valid.clone();
-    size[valid.len() - 4] ^= 1;
     for invalid in [
-        crc,
-        size,
         valid[..valid.len() - 1].to_vec(),
         valid[..valid.len() - 8].to_vec(),
         [valid.as_slice(), b"garbage"].concat(),
         b"invalid".to_vec(),
     ] {
-        server.request("POST", PATH, TYPE, &invalid).status(400);
+        server.request("POST", PATH, TYPE, &invalid).undecodable();
         assert_eq!(server.request("GET", OBJECT, "", b"").json(), before);
         assert_eq!(
             server
@@ -118,6 +115,18 @@ fn multipart_gzip_checks_crc_size_truncation_and_trailers_after_the_mime_close()
     server.raw(&format!("POST {PATH} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\nTrailer: x-bad\r\n{TYPE}\r\n"), &chunks).status(400);
     assert_eq!(server.request("GET", OBJECT, "", b"").json(), before);
     assert_eq!(common::process::staging_count(&dir), 0);
+    for (field, content) in [(8, "crc content"), (4, "size content")] {
+        let mut body = gzip(&multipart(r#"{"name":"object"}"#, content.as_bytes()));
+        let trailer = body.len() - field;
+        body[trailer] ^= 1;
+        server.request("POST", PATH, TYPE, &body).status(200);
+        assert_eq!(
+            server
+                .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
+                .body,
+            content
+        );
+    }
 }
 
 #[test]
@@ -190,17 +199,16 @@ fn media_transport_gzip_stores_the_decoded_body() {
         .request("GET", "/storage/v1/b/gzip-bucket/o/plain", "", b"")
         .json();
     let valid = gzip(b"replacement");
-    let mut bad_crc = valid.clone();
-    bad_crc[valid.len() - 8] ^= 1;
     for (body, status) in [
         (b"raw media is not transport gzip".to_vec(), 400),
         (valid[..valid.len() - 1].to_vec(), 400),
-        (bad_crc, 400),
         (gzip(&[b'x'; 65]), 413),
     ] {
-        server
-            .request("POST", &format!("{media}&name=plain"), gzip_type, &body)
-            .status(status);
+        let reply = server.request("POST", &format!("{media}&name=plain"), gzip_type, &body);
+        if status == 400 {
+            reply.undecodable();
+        }
+        reply.status(status);
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/gzip-bucket/o/plain", "", b"")
@@ -208,6 +216,17 @@ fn media_transport_gzip_stores_the_decoded_body() {
             before
         );
     }
+    // Cloud Storage does not compare the trailer with the data (recorded 2026-11-25).
+    let mut bad_crc = valid.clone();
+    bad_crc[valid.len() - 8] ^= 1;
+    server
+        .request("POST", &format!("{media}&name=plain"), gzip_type, &bad_crc)
+        .status(200);
+    assert_eq!(server.request("GET", path, "", b"").body, "replacement");
+    // An empty body has nothing to decode and stores an empty object.
+    let empty = server.request("POST", &format!("{media}&name=empty"), gzip_type, b"");
+    empty.status(200);
+    assert_eq!(empty.json()["size"], "0");
     server
         .request(
             "POST",
@@ -319,6 +338,65 @@ fn multipart_gzip_strict_permissions_precede_publication() {
             )
             .status(status);
     }
+    let media_path = "/upload/storage/v1/b/gzip-bucket/o?uploadType=media&name=object";
+    let media_gzip = "Content-Type: text/plain\r\nContent-Encoding: gzip\r\n";
+    let truncated = &envelope[..envelope.len() - 1];
+    for (path, headers, status) in [
+        (PATH, TYPE.to_owned(), 401),
+        (PATH, format!("{TYPE}Authorization: Bearer viewer\r\n"), 403),
+        (media_path, media_gzip.to_owned(), 401),
+        (
+            media_path,
+            format!("{media_gzip}Authorization: Bearer viewer\r\n"),
+            403,
+        ),
+    ] {
+        // Cloud Storage checks the body before the caller (recorded 2026-11-25), and so does
+        // the emulator for a body whose first bytes do not start a gzip member.
+        server
+            .request("POST", path, &headers, b"not valid gzip")
+            .undecodable();
+        // A refused caller is answered before the rest of an upload is read, so a member cut
+        // short later in the body is never found; Cloud Storage would read the whole body and
+        // answer 400 here.
+        server
+            .request("POST", path, &headers, truncated)
+            .status(status);
+    }
+    // Public allUsers objectCreator grants still allow anonymous transport-gzip uploads until
+    // public access prevention suppresses them.
+    server
+        .request(
+            "PUT",
+            "/storage/v1/b/gzip-bucket/iam",
+            "Content-Type: application/json\r\nAuthorization: Bearer admin\r\n",
+            br#"{"bindings":[{"role":"roles/storage.objectCreator","members":["allUsers"]}]}"#,
+        )
+        .status(200);
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/gzip-bucket/o?uploadType=media&name=public-gzip",
+            media_gzip,
+            &gzip(b"public anonymous upload"),
+        )
+        .status(200);
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/gzip-bucket",
+            "Content-Type: application/json\r\nAuthorization: Bearer admin\r\n",
+            br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
+        )
+        .status(200);
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/gzip-bucket/o?uploadType=media&name=blocked-after-pap",
+            media_gzip,
+            &gzip(b"blocked anonymous upload"),
+        )
+        .status(401);
     server
         .request("GET", OBJECT, "Authorization: Bearer admin\r\n", b"")
         .status(404);

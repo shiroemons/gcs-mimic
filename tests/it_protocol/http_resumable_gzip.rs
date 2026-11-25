@@ -94,24 +94,21 @@ fn gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate() {
     );
 }
 
+/// Cloud Storage does not compare a member's trailer with its data (recorded 2026-11-25), so an
+/// initiation whose CRC-32 or size is wrong starts a session for the metadata it carries.
 #[test]
 fn invalid_gzip_initiations_never_create_sessions() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     bucket(&server, "");
     let valid = gzip(br#"{"name":"object"}"#);
-    let mut crc = valid.clone();
-    crc[valid.len() - 8] ^= 1;
-    let mut size = valid.clone();
-    size[valid.len() - 4] ^= 1;
     for invalid in [
         b"invalid".to_vec(),
         valid[..valid.len() - 1].to_vec(),
-        crc,
-        size,
+        valid[..valid.len() - 8].to_vec(),
         [valid.as_slice(), b"garbage"].concat(),
     ] {
-        server.request("POST", PATH, GZIP, &invalid).status(400);
+        server.request("POST", PATH, GZIP, &invalid).undecodable();
         assert_eq!(sessions(&dir), 0);
     }
     for encoding in ["br", "gzip, gzip", "gzip\r\nContent-Encoding: gzip"] {
@@ -126,13 +123,19 @@ fn invalid_gzip_initiations_never_create_sessions() {
     }
     let body = [
         format!("{:x}\r\n", valid.len()).into_bytes(),
-        valid,
+        valid.clone(),
         b"\r\n0\r\nx-unexpected: trailer\r\n\r\n".to_vec(),
     ]
     .concat();
     server.raw(&format!("POST {PATH} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\nTrailer: x-unexpected\r\n{GZIP}\r\n"), &body).status(400);
     assert_eq!(sessions(&dir), 0);
     assert_eq!(common::process::staging_count(&dir), 0);
+    for field in [8, 4] {
+        let mut body = valid.clone();
+        body[valid.len() - field] ^= 1;
+        server.request("POST", PATH, GZIP, &body).expect(200);
+    }
+    assert_eq!(sessions(&dir), 2);
 }
 
 #[test]
@@ -158,8 +161,11 @@ fn gzip_initiation_bounds_compressed_and_expanded_metadata() {
     assert_eq!(sessions(&dir), 1);
 }
 
+/// Cloud Storage expands the initiation's metadata before it checks the caller (recorded
+/// 2026-11-25): a body that expands past the limit or does not decode answers 413 or 400 to a
+/// caller who would be refused, and a body that decodes meets the caller's refusal.
 #[test]
-fn gzip_initiation_retains_strict_authentication_and_upload_permissions() {
+fn gzip_initiation_expands_before_strict_authentication_and_upload_permissions() {
     let dir = TestDir::new();
     let registry = common::process::write_identities(
         &dir.0,
@@ -178,18 +184,21 @@ fn gzip_initiation_retains_strict_authentication_and_upload_permissions() {
         ],
     );
     bucket(&server, "Authorization: Bearer admin\r\n");
-    for (token, body, expected) in [
-        ("invalid", b"invalid gzip".to_vec(), 401),
-        ("viewer", gzip(br#"{"name":"object"}"#), 403),
+    let bomb = gzip(&vec![b' '; 16 * 1024 * 1024 + 1]);
+    let metadata = gzip(br#"{"name":"object"}"#);
+    for (auth, refusal) in [
+        ("", 401),
+        ("Authorization: Bearer invalid\r\n", 401),
+        ("Authorization: Bearer viewer\r\n", 403),
     ] {
+        let headers = format!("{GZIP}{auth}");
+        server.request("POST", PATH, &headers, &bomb).status(413);
         server
-            .request(
-                "POST",
-                PATH,
-                &format!("{GZIP}Authorization: Bearer {token}\r\n"),
-                &body,
-            )
-            .status(expected);
+            .request("POST", PATH, &headers, b"invalid gzip")
+            .undecodable();
+        server
+            .request("POST", PATH, &headers, &metadata)
+            .status(refusal);
         assert_eq!(sessions(&dir), 0);
     }
     let initiated = server.request(

@@ -446,30 +446,35 @@ mod tests {
         }
     }
 
-    fn envelope(parts: &[String]) -> Request<Full<Bytes>> {
-        let parts: String = parts
-            .iter()
-            .map(|part| {
-                format!(
-                    "--test\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n{part}\r\n"
-                )
-            })
-            .collect();
+    fn envelope(parts: &[Vec<u8>]) -> Request<Full<Bytes>> {
+        let mut body = Vec::new();
+        for part in parts {
+            body.extend_from_slice(
+                b"--test\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n",
+            );
+            body.extend_from_slice(part);
+            body.extend_from_slice(b"\r\n");
+        }
+        body.extend_from_slice(b"--test--\r\n");
         Request::builder()
             .method("POST")
             .uri("/batch/storage/v1")
             .header("content-type", "multipart/mixed; boundary=test")
-            .body(Full::new(Bytes::from(format!("{parts}--test--\r\n"))))
+            .body(Full::new(Bytes::from(body)))
             .unwrap()
     }
 
-    fn delete(name: &str) -> String {
-        format!("DELETE /storage/v1/b/bucket/o/{name} HTTP/1.1\r\n\r\n")
+    fn delete(name: &str) -> Vec<u8> {
+        format!("DELETE /storage/v1/b/bucket/o/{name} HTTP/1.1\r\n\r\n").into_bytes()
     }
 
-    /// A gzip-encoded part, which waits for a decoder a test can keep busy.
-    fn gzip_patch() -> String {
-        "PATCH /storage/v1/b/bucket HTTP/1.1\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\n\r\n".into()
+    /// A gzip-encoded part, which waits for a decoder a test can keep busy. Its body is not
+    /// empty, because an empty body is not decoded.
+    fn gzip_patch() -> Vec<u8> {
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        std::io::Write::write_all(&mut encoder, b"{}").unwrap();
+        let head = b"PATCH /storage/v1/b/bucket HTTP/1.1\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\n\r\n";
+        [head.as_slice(), &encoder.finish().unwrap()].concat()
     }
 
     async fn next_text(body: &mut BatchBody) -> String {

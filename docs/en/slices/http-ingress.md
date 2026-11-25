@@ -22,10 +22,33 @@ Session chunk requests retain their existing Content-Encoding rejection and
 invalid-session behavior; transport compression never sets stored contentEncoding.
 Compressed input and expanded input each have the 16 MiB JSON limit, so a small
 compressed body cannot grow past it. Concatenated gzip
-members are decoded as one representation. Invalid headers, deflate data, CRC32,
-ISIZE, truncated members, trailing garbage and HTTP trailers fail before routing
-any metadata mutation. Expansion runs as one bounded blocking job at a time;
-the existing connection admission bounds waiting requests.
+members are decoded as one representation. Invalid headers or deflate data,
+truncated members (including a missing 8-byte trailer), trailing garbage and
+HTTP trailers fail before routing any metadata mutation. The trailer's CRC-32
+and ISIZE are read but not compared with the decoded data, as on Cloud Storage.
+Expansion runs as one bounded blocking job at a time; the existing connection
+admission bounds waiting requests.
+
+Cloud Storage's front end expands a compressed body before it routes or
+authenticates the request (observed 2026-11-25, see
+[transport gzip observations](../evidence/transport-gzip-provider-observations.md)),
+and gcs-mimic does the same: a body that does not decode answers 400 with the
+`text/plain; charset=utf-8` text `Could not decompress request body.`, whoever
+sends it and whatever route it names, with the CORS headers of a CORS route. A
+body that decodes then meets the same checks, in the same order, as the same
+body sent plain. An empty body is not decoded and takes no decoder permit.
+Every caller's compressed JSON body therefore waits for a decoder permit, and
+the 16 MiB limits bound what any caller can make the server expand.
+
+A media or multipart upload body streams to its handler instead of being
+expanded first. Its first bytes are checked before dispatch, so a body that does
+not start a gzip member answers 400 before the caller is checked. A failure
+later in the body replaces the handler's answer with the same 400 once the
+handler reads it. A handler that refuses the caller before it reads the body
+keeps its refusal, where Cloud Storage reads the body to its end and answers 400
+for a member cut short; reading an upload of up to max_object_bytes from a
+refused caller only to report its encoding is the difference gcs-mimic does not
+reproduce.
 
 This is request transport decoding. Object contentEncoding, download
 transcoding and XML signed-request canonicalization retain their existing
@@ -47,11 +70,11 @@ shared server or one listening on `0.0.0.0`. Media itself
 retains the configured max_object_bytes cap and incremental checksum checks.
 The complete media or envelope is never buffered in memory.
 
-The request body reports clean EOF only after the gzip decoder validates all
-members, trailers and transport EOF. A dropped or panicking producer reports an
+The request body reports clean EOF only after the gzip decoder has read every
+member's complete trailer and transport EOF. A dropped or panicking producer reports an
 error even if it already sent the closing MIME boundary. The existing multipart
 finish/EndWithHashes protocol withholds publication until that validated EOF.
-CRC/ISIZE failures, trailing garbage, HTTP trailers, disconnect and deadlines
+Truncated members, trailing garbage, HTTP trailers, disconnect and deadlines
 therefore preserve an existing object and reclaim staging. Receiver cancellation
 stops the producer; a blocking step can finish independently but has bounded work.
 Stored contentEncoding=gzip is metadata for the media part and remains distinct
@@ -105,20 +128,32 @@ Checked on 2026-10-30:
 
 The tests in tests/it_protocol/http_ingress.rs cover compressed bucket creation, compressed
 object PATCH, POST override, preserved object bytes, stale atomic conditions,
-strict denial, malformed/truncated/CRC/ISIZE/trailing input, concatenated members,
-HTTP trailers and compressed/expanded boundaries. Uncompressed media and
-metadata are exercised in the same workflow.
+strict denial, malformed/truncated/trailing input, accepted CRC/ISIZE mismatches,
+concatenated members, HTTP trailers and compressed/expanded boundaries. Uncompressed media and
+metadata are exercised in the same workflow. `gzip_and_plain_bodies_meet_the_same_refusal`
+sends a CORS bucket PATCH, a rewrite and an object PATCH by callers without permission, a
+media upload with an unparsable condition, an initiation whose query spells `upload_id` with an
+escape and an unknown route, plain and compressed, and requires the same status, body and CORS
+headers; an anonymous body that does not decode answers 400 with CORS headers.
+`gzip_expands_before_authentication_and_override_uses_patch_permissions` requires 413 for a
+bomb and 400 for a body that does not decode from callers who would be refused.
+`server::ingress::tests::a_gzip_body_is_expanded_before_the_caller_is_checked` holds every
+decoder permit: requests without a body and an upload whose first bytes are not gzip answer at
+once, while refused, unknown-route and initiation requests with a compressed body wait.
+`server::ingress::members::tests` cover optional header fields, concatenated members, ignored
+trailer fields, each refusal and a read resumed after its input runs dry.
 
 tests/it_protocol/http_multipart_gzip.rs additionally covers a media stream over 2 MiB, one-byte
 HTTP chunks and concatenated gzip members, stored gzip within transport gzip,
-invalid CRC/ISIZE/truncation/garbage after the complete MIME boundary, HTTP
+truncation and garbage after the complete MIME boundary, accepted CRC/ISIZE mismatches, HTTP
 trailers, object limits, checksum mismatch, strict denials, disconnect,
-absolute 408 deadlines and staging cleanup. Raw media with Content-Encoding
-retains its explicit unsupported error instead of being silently decoded.
+absolute 408 deadlines and staging cleanup. A media or multipart body that is not gzip
+answers 400 before the caller is checked, and a refused caller whose body is cut short later
+keeps its refusal.
 
 tests/it_protocol/http_resumable_gzip.rs covers compressed and concatenated initiation
 metadata, ordinary chunk bytes, separate stored encoding, existing chunk-error
-invalidation, CRC/ISIZE/truncation/garbage, duplicate and non-gzip codings,
+invalidation, truncation/garbage, accepted CRC/ISIZE mismatches, duplicate and non-gzip codings,
 HTTP trailers, compressed/expanded 64 KiB boundaries and strict permissions.
 Rejected initiations leave the session catalog and staging unchanged. The four
 tests pass, as do the four existing ingress and six multipart-gzip wire tests.
