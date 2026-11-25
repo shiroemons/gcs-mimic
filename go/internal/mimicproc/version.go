@@ -11,7 +11,7 @@ import (
 
 // ModuleVersion is the gcs-mimic release this module belongs to. It equals the package
 // version in the repository's Cargo.toml, which scripts/check-release-recipes.sh enforces.
-const ModuleVersion = "0.28.0"
+const ModuleVersion = "0.28.1"
 
 // UnsupportedBinaryError reports a gcs-mimic executable outside the releases this module
 // supports. The packages pass options and read ready fields of their own release, so another
