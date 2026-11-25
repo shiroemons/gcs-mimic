@@ -71,7 +71,8 @@ pub(crate) enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoSuchUpload => f.write_str("The multipart upload does not exist"),
+            // Cloud Storage's wording (recorded 2026-11-25).
+            Self::NoSuchUpload => f.write_str("The requested upload was not found."),
             Self::InvalidPart => f.write_str("A requested part or its ETag does not match"),
             Self::InvalidPartOrder => f.write_str("Parts must be in strictly ascending order"),
             Self::PartTooSmall => f.write_str("Every part except the last must be at least 5 MiB"),

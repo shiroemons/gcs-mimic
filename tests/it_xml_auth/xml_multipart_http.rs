@@ -69,6 +69,11 @@ fn multipart_bodyless_operations_accept_omitted_framing() {
     let missing = without_framing(&server, "GET", &path);
     missing.status(404);
     assert_eq!(tag(&missing.body, "Code"), "NoSuchUpload");
+    // Cloud Storage's wording (recorded 2026-11-25).
+    assert_eq!(
+        tag(&missing.body, "Message"),
+        "The requested upload was not found."
+    );
 }
 
 #[test]

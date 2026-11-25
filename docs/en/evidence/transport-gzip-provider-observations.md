@@ -74,3 +74,4 @@ part was still on the wire.
 | Observation | Local behavior | Test |
 | --- | --- | --- |
 | `upload%5Fid` names a session | `json::resumable::session_route` decodes query keys | `json::resumable::an_escaped_upload_id_key_names_the_session` |
+| `NoSuchUpload` wording | `The requested upload was not found.` | `multipart_bodyless_operations_accept_omitted_framing` |
