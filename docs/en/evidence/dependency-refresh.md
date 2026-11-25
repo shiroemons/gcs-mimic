@@ -1558,5 +1558,6 @@ The full check on 2026-11-25 reported only development-only inputs behind their 
 | `bash sdk-scorecard/test-tls.sh` on the final checkout | Passed in 153 s: every probe, the Rust and C++ probes among them, rejects the wrong-host certificate, and 32 client CA, SAN and origin transport cases pass |
 | `bash scripts/check-docs.sh` | Passed |
 | `just check-markdown` | 427 Markdown files and 2 generated views have no lint issues |
+| `GCSM_DOCKER_NETWORK=container:<emulator> bash examples/cpp/run.sh` against the `ghcr.io/shiroemons/gcs-mimic:0.28.0` image, after the refresh was merged | The example image built google-cloud-cpp 3.13.0 for linux/arm64 on the adopted gcc index in 110 s, and the example created a bucket, uploaded, listed, downloaded and deleted an object and deleted the bucket |
 
 All freshness checks ran with `GITHUB_TOKEN` set.
