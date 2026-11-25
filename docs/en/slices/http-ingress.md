@@ -15,8 +15,9 @@ threads allow two decoder jobs while leaving capacity for file/catalog I/O.
 Separate State instances do not share permits. No performance gain is claimed.
 
 The JSON API accepts transport gzip on metadata requests under /storage/v1/.
-It also decodes JSON metadata for exact POST requests to
-/upload/storage/v1/b/{bucket}/o with uploadType=resumable and no upload_id.
+It also decodes the JSON metadata of a resumable initiation, a POST to
+/upload/storage/v1/b/{bucket}/o with uploadType=resumable that names no session
+once its query keys are decoded (`upload%5Fid` names one, as on Cloud Storage).
 Session chunk requests retain their existing Content-Encoding rejection and
 invalid-session behavior; transport compression never sets stored contentEncoding.
 Compressed input and expanded input each have the 16 MiB JSON limit, so a small

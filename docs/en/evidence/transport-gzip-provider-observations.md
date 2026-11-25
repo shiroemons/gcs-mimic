@@ -68,3 +68,9 @@ part was still on the wire.
 | The part in flight, once its body was sent | 404 | `NoSuchUpload`, `The requested upload was not found.` |
 | A part sent after the abort, and the parts listing | 404 | `NoSuchUpload` |
 | The object | 404 | never created |
+
+## gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| `upload%5Fid` names a session | `json::resumable::session_route` decodes query keys | `json::resumable::an_escaped_upload_id_key_names_the_session` |

@@ -16029,6 +16029,12 @@
           "test_ids": ["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate", "invalid_gzip_initiations_never_create_sessions", "gzip_initiation_bounds_compressed_and_expanded_metadata", "gzip_initiation_retains_strict_authentication_and_upload_permissions"]
         },
         {
+          "id": "resumable-escaped-session-key",
+          "description": "A resumable upload request whose query spells upload_id with an escape, such as upload%5Fid, names that session once its keys are decoded, so an initiation that carries one answers 404 Not Found for an unknown session, as on Cloud Storage (observed 2026-11-25, docs/en/evidence/transport-gzip-provider-observations.md); a key that does not decode names no session.",
+          "result": "PASS",
+          "test_ids": ["an_escaped_upload_id_key_names_the_session"]
+        },
+        {
           "id": "RSM-INSERT-001",
           "description": "positive/negative: Initiation/chunk/status/cancel/finalization subset passes with existing media/multipart regression coverage; advanced fields and replay remain pending. Contract: docs/en/slices/resumable-upload.md.",
           "result": "PASS",
@@ -16759,9 +16765,11 @@
         "acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values",
         "xml::uniform_access_metadata_and_predefined_acl_rejections",
         "upload_replay_token_reused_with_reordered_query_is_rejected_without_a_second_generation",
-        "resumable_session_uri_is_bound_to_its_bucket_and_name"
+        "resumable_session_uri_is_bound_to_its_bucket_and_name",
+        "an_escaped_upload_id_key_names_the_session"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib -- json::resumable (2 passed)","result":"PASS","verified_at":"2026-11-25","artifact":"docs/en/evidence/transport-gzip-provider-observations.md","test_ids":["an_escaped_upload_id_key_names_the_session"]},
         {
           "command": "cargo test --all-targets --no-fail-fast",
           "result": "PASS",
@@ -17318,7 +17326,7 @@
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-11-13",
+      "last_verified": "2026-11-25",
       "http_method": "POST",
       "path": "b/{bucket}/o",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",

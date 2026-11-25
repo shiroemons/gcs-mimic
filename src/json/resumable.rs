@@ -28,15 +28,21 @@ pub(crate) fn session_route(
 ) -> Option<Result<UploadSession, ApiError>> {
     let path = uri.path().strip_prefix("/upload/storage/v1/b/")?;
     let (bucket, rest) = path.split_once('/')?;
-    if rest != "o"
-        || !uri.query().is_some_and(|q| {
-            q.split('&')
-                .any(|p| p.split('=').next() == Some("upload_id"))
-        })
-    {
+    if rest != "o" || !uri.query().is_some_and(names_upload_id) {
         return None;
     }
     Some(parse_session(method, bucket, uri, profile))
+}
+
+/// Whether `query` has an `upload_id` key once its escapes are decoded: Cloud Storage answers an
+/// initiation that spells it `upload%5Fid` as a request on that session (recorded 2026-11-25).
+/// A key that does not decode names no session; parsing the query then reports it.
+fn names_upload_id(query: &str) -> bool {
+    query.split('&').any(|pair| {
+        let key = pair.split('=').next().unwrap_or_default();
+        crate::percent::decode(key, crate::percent::Decoding::Form)
+            .is_ok_and(|key| key == "upload_id")
+    })
 }
 
 /// `bucket` is the raw path segment the route matched.
@@ -214,6 +220,33 @@ pub(crate) fn options(
             response_fields: None,
         },
     ))
+}
+
+#[cfg(test)]
+#[test]
+fn an_escaped_upload_id_key_names_the_session() {
+    let route = |query: &str| {
+        let uri: Uri = format!("/upload/storage/v1/b/bucket/o?{query}")
+            .parse()
+            .unwrap();
+        session_route(&Method::PUT, &uri, CompatProfile::Native)
+            .map(|session| session.unwrap().upload_id)
+    };
+    for query in [
+        "upload_id=abc",
+        "uploadType=resumable&upload%5Fid=abc",
+        "upload%5fid=abc",
+        "upload%5F%69d=abc",
+    ] {
+        assert_eq!(route(query).as_deref(), Some("abc"), "{query}");
+    }
+    for query in [
+        "uploadType=resumable&name=upload_id",
+        "upload_identity=abc",
+        "upload%ZZid=abc",
+    ] {
+        assert_eq!(route(query), None, "{query}");
+    }
 }
 
 #[cfg(test)]
