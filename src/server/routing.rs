@@ -288,11 +288,14 @@ async fn route_xml(
 /// Wraps CORS headers around the routed JSON response. CORS never authorizes a request.
 async fn route_json(mut request: Request<Incoming>, ctx: RequestCtx<'_>) -> Response<ResponseBody> {
     // Only resumable initiations and their sessions are served on the Discovery protocol path.
-    // Other upload types answer before a method override or upload Content-Encoding is read,
-    // as JSON with CORS.
+    // Other upload types answer before a method override, route or upload Content-Encoding is
+    // read, as JSON with CORS. The rewritten path is reserved for the JSON API, so this is the
+    // one place that refuses them.
     if is_unsupported_protocol_upload(&request) {
-        let route = JsonRoute::parse(request.method(), request.uri(), ctx.config);
-        return respond_json_cors(request, ctx, route, Coding::Unread).await;
+        return respond_json_cors(request, |request| async move {
+            refuse_authenticated(&request, ctx, json::unsupported_upload_type()).await
+        })
+        .await;
     }
     if let Err(error) = super::ingress::override_method(&mut request) {
         return boxed(error.into_response());
@@ -300,18 +303,9 @@ async fn route_json(mut request: Request<Incoming>, ctx: RequestCtx<'_>) -> Resp
     // Parsed after the method override, which changes the route.
     let route = JsonRoute::parse(request.method(), request.uri(), ctx.config);
     if json::cors::is_route(request.uri()) {
-        return respond_json_cors(request, ctx, route, Coding::Expand).await;
+        return respond_json_cors(request, |request| respond_expanded(request, ctx, route)).await;
     }
     respond_expanded(request, ctx, route).await
-}
-
-/// What dispatch does with a JSON API request's transport coding.
-#[derive(Clone, Copy)]
-enum Coding {
-    /// Expands the body before the route is consulted, as Cloud Storage's front end does.
-    Expand,
-    /// Leaves it: the request is refused before its coding is read.
-    Unread,
 }
 
 /// Dispatches `request` once its transport coding is removed. A body that does not decode
@@ -328,12 +322,15 @@ async fn respond_expanded(
     decoder.settle(respond_unselected(request, ctx, route).await)
 }
 
-async fn respond_json_cors(
+/// Wraps the JSON API's CORS headers around the response of `respond`, which a preflight never
+/// reaches.
+async fn respond_json_cors<F>(
     request: Request<Incoming>,
-    ctx: RequestCtx<'_>,
-    route: Option<JsonRoute>,
-    coding: Coding,
-) -> Response<ResponseBody> {
+    respond: impl FnOnce(Request<Incoming>) -> F,
+) -> Response<ResponseBody>
+where
+    F: Future<Output = Response<ResponseBody>>,
+{
     let kind = json::cors::request_kind(request.method(), request.headers());
     let mut headers = match json::cors::response_headers(request.headers(), kind) {
         Ok(headers) => headers,
@@ -358,10 +355,7 @@ async fn respond_json_cors(
             boxed(empty_response(StatusCode::OK))
         }
     } else {
-        match coding {
-            Coding::Expand => respond_expanded(request, ctx, route).await,
-            Coding::Unread => respond_unselected(request, ctx, route).await,
-        }
+        respond(request).await
     };
     apply_cors(response.headers_mut(), headers, None);
     response
@@ -580,9 +574,6 @@ async fn respond_selected(
     ctx: RequestCtx<'_>,
     object: xml::ObjectPath,
 ) -> Response<ResponseBody> {
-    if is_unsupported_protocol_upload(&request) {
-        return refuse_authenticated(&request, ctx, json::unsupported_upload_type()).await;
-    }
     let (method, uri) = (request.method(), request.uri());
     if xml::buckets::matches(method, uri, Some(&object)) {
         return xml::buckets::respond(request, Some(&object), ctx).await;
@@ -609,9 +600,6 @@ async fn respond_unselected(
     ctx: RequestCtx<'_>,
     route: Option<JsonRoute>,
 ) -> Response<ResponseBody> {
-    if is_unsupported_protocol_upload(&request) {
-        return refuse_authenticated(&request, ctx, json::unsupported_upload_type()).await;
-    }
     if xml::buckets::matches(request.method(), request.uri(), None) {
         return xml::buckets::respond(request, None, ctx).await;
     }
