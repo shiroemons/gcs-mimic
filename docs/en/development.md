@@ -632,8 +632,11 @@ review the diff: only lower counts are expected.
 
 `just stress-tests` (`scripts/stress-tests.sh`) runs the Rust tests repeatedly
 with parallel test binaries while busy loops occupy every CPU;
-`GCSM_STRESS_ROUNDS` (default 2) and `GCSM_STRESS_JOBS` (default: CPU count)
-adjust it. The daily **Timing stress** workflow runs it on Linux and macOS. A
+`GCSM_STRESS_ROUNDS` (default 2) and `GCSM_STRESS_JOBS` (default: the CPU
+count, at most 4) adjust it. Each binary runs one test per CPU, so N binaries
+put about N + 1 runnable threads on every CPU; the cap keeps a workstation with
+many CPUs at the Linux CI runner's load instead of a multiple of it. The daily
+**Timing stress** workflow runs it on Linux and macOS. A
 failure there names a timing-dependent test to make deterministic, not a product
 regression.
 

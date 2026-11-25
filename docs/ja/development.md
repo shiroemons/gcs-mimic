@@ -97,7 +97,9 @@ RAMディスクを作れなかった場合は警告を出し、逐次実行で�
 一覧は`cargo xtask lint --test-clock-baseline > xtask/test-clock-baseline.txt`で作り直し、差分が減少だけであることを確かめてください。
 
 `just stress-tests`（`scripts/stress-tests.sh`）は、テストバイナリを並列に動かし、全CPUを空回りのループで埋めた状態で
-Rustのテストを繰り返し実行します。回数は`GCSM_STRESS_ROUNDS`（既定は2）、並列数は`GCSM_STRESS_JOBS`（既定はCPU数）で変えられます。
+Rustのテストを繰り返し実行します。回数は`GCSM_STRESS_ROUNDS`（既定は2）、並列数は`GCSM_STRESS_JOBS`（既定はCPU数で、上限は4）で変えられます。
+各バイナリはCPUの数だけテストを同時に動かすため、N個のバイナリを並列に動かすと、CPU 1個あたりおよそN + 1本のスレッドが実行を待ちます。
+上限を設けているのは、CPUの多い開発機でも、LinuxのCIランナーと同じ負荷にとどめるためです。
 毎日動く**Timing stress**ワークフローが、LinuxとmacOSでこれを実行します。
 ここでの失敗は製品の不具合ではなく、決定的に直すべき時間依存のテストを示します。
 
