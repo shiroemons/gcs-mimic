@@ -50,7 +50,7 @@ origin, no redirects, the scorecard CA.
 | Go | `cloud.google.com/go/storage v1.70.0 has no public API for soft-deleted buckets (BucketHandle has no SoftDeleted or Restore)` |
 | Java | `google-cloud-storage 2.79.0 has no public API for restoring a soft-deleted bucket (Storage.restore takes only a BlobId)` |
 | Rust | `google-cloud-storage 1.22.0 has no public API for restoring a soft-deleted bucket (StorageControl has restore_object only)` |
-| C++ | `google-cloud-cpp 3.14.1 has no public API for restoring a soft-deleted bucket (Client has RestoreObject only)` |
+| C++ | `google-cloud-cpp 3.14.2 has no public API for restoring a soft-deleted bucket (Client has RestoreObject only)` |
 
 Each reason was checked against the pinned release: `go doc` of
 `BucketHandle`, `javap` of `Storage` and its option classes, and the sources

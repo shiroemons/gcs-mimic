@@ -1067,7 +1067,7 @@ endpoint from the repository root:
 ```
 
 The harness pins `cloud.google.com/go/storage` v1.71.0 and `google.golang.org/api`
-v0.316.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
+v0.317.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
 and redirects, and confines requests to the explicit emulator. It exercises
 bucket CRUD/paging and BucketHandle.Update with SetLabel/DeleteLabel, default
 class/settings, metageneration conditions and strict update denial, plus object

@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Probes the official `google-cloud-cpp` Cloud Storage client 3.14.1 over its
+Probes the official `google-cloud-cpp` Cloud Storage client 3.14.2 over its
 JSON/REST transport against an emulator. It emits one JSONL line per case, 62
 in all: the 56 shared bucket, object and signed cases, with the same IDs, areas
 and order as the Python probe, then the six `sdk` cases the catalog lists for
@@ -14,7 +14,7 @@ C++, in catalog order. It does not use the SDK's gRPC transport, so
 ## Pins
 
 Every input is a checksum-verified archive or a digest-pinned image in the
-[Dockerfile](Dockerfile): google-cloud-cpp v3.14.1, Abseil 20260817.0,
+[Dockerfile](Dockerfile): google-cloud-cpp v3.14.2, Abseil 20260817.0,
 nlohmann/json v3.12.0, opentelemetry-cpp v1.30.0 (API headers only, which the
 SDK includes unconditionally), CMake 4.5.1 and the `gcc:16.2.0-trixie` image
 (libcurl 8.14.1, OpenSSL 3.5.7). The libraries are static and built as C++17,
@@ -151,7 +151,7 @@ excluded from the C++ denominator.
 
 | Case | Reason |
 | --- | --- |
-| `bucket.soft_delete_restore` | 3.14.1 has no public API for restoring a soft-deleted bucket: `Client` has `RestoreObject` only. |
+| `bucket.soft_delete_restore` | 3.14.2 has no public API for restoring a soft-deleted bucket: `Client` has `RestoreObject` only. |
 
 ## Signature verification
 

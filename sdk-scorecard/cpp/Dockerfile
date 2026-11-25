@@ -3,7 +3,7 @@
 # context: docker build -f sdk-scorecard/cpp/Dockerfile sdk-scorecard
 # The official gcc image already carries the libcurl and OpenSSL development packages, so the
 # only OS package pinned here is socat; every library is a checksum-verified source archive.
-FROM gcc:16.2.0-trixie@sha256:5c2f83335c97e233c80d2bc754bd5c46b2d9c32f236a765a4ac40a59f216c064
+FROM gcc:16.2.0-trixie@sha256:b560ecf8f694944afa8137ba7462a73f75bb799880535fcd7e0dfc890ba8b27a
 ARG TARGETARCH
 # GCC 16 defaults to C++20; the SDK documents and tests C++17.
 ARG CXX_STD=17
@@ -31,7 +31,7 @@ RUN mkdir /src && tar -xJf /dl/nlohmann-json.tar.xz -C /src --strip-components=1
  && cmake --build /build && cmake --install /build \
  && rm -rf /src /build /dl/nlohmann-json.tar.xz
 
-# google_cloud_cpp_common 3.14.1 includes <opentelemetry/...> headers unconditionally, even with
+# google_cloud_cpp_common 3.14.2 includes <opentelemetry/...> headers unconditionally, even with
 # the opentelemetry feature disabled; the header-only API satisfies them without the SDK.
 ADD --checksum=sha256:85aae7a42d7b71d17e510ddebc85db622d9078cc6d29cf9fb7373014b063859f https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.30.0.tar.gz /dl/opentelemetry-cpp.tar.gz
 RUN mkdir /src && tar -xzf /dl/opentelemetry-cpp.tar.gz -C /src --strip-components=1 \
@@ -42,7 +42,7 @@ RUN mkdir /src && tar -xzf /dl/opentelemetry-cpp.tar.gz -C /src --strip-componen
 
 # "storage" alone also enables monitoring, trace, opentelemetry and universe_domain
 # (cmake/GoogleCloudCppFeatures.cmake), which require gRPC and Protobuf; the REST client does not.
-ADD --checksum=sha256:e8ed19ddb68755332262b613dea3f98d2a044fceecd7a60d862523b6eba84daf https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v3.14.1.tar.gz /dl/google-cloud-cpp.tar.gz
+ADD --checksum=sha256:156895c3d3c11c78eac4881454715fef01837889bb2d19226b94d66545f53519 https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v3.14.2.tar.gz /dl/google-cloud-cpp.tar.gz
 RUN mkdir /src && tar -xzf /dl/google-cloud-cpp.tar.gz -C /src --strip-components=1 \
  && cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=${CXX_STD} \
       -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \

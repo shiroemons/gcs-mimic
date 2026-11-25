@@ -1521,3 +1521,42 @@ The `node:24-trixie-slim` rebuild arrived in two steps. At the 08:03Z check its 
 | `markdownlint-cli2` on the changed Markdown files | 0 issues in 11 files |
 
 All four freshness checks ran with `GITHUB_TOKEN` set.
+
+## Refresh: 2026-11-25
+
+The full check on 2026-11-25 reported only development-only inputs behind their current releases, and this refresh adopts every one of them. Three are images rebuilt under unchanged tags, which `cargo xtask dependencies update-images` rewrote at `2026-11-25T04:05:47Z`. The daily workflow had proposed the 2026-11-24 rebuilds with an earlier gcc:16.2.0-trixie index (`sha256:e39cfa939c18b4dcb1bcf77cdae11a2d8b2dcfbee0eb531c24694334047509f8`), which Docker Hub has since replaced, so this refresh pins the newer index.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| google.golang.org/api | v0.316.0 | v0.317.0 (published 2026-11-24T21:06:32Z; revision `02c388d20cd4c8f3b07f7430d13ba1850a24daa9`; 52,722,505-byte module zip) | `go`, `sdk-tests/go`, `sdk-scorecard/go` |
+| Bundler | 4.1.0 | 4.1.1 (released 2026-11-25T01:09:18Z; 423,936-byte gem, SHA-256 `7a76aebebc2e476cbc1e11314200d7fe83c7398d6930f1d048e4d3dd2d0e93e3`) | `sdk-tests/ruby`, `sdk-tests/ruby/active_storage`, `sdk-scorecard/ruby` |
+| google-cloud-cpp | v3.14.1 | v3.14.2 (released 2026-11-24T15:58:11Z; source archive SHA-256 `156895c3d3c11c78eac4881454715fef01837889bb2d19226b94d66545f53519`, 19,323,769 bytes) | `sdk-scorecard/cpp/Dockerfile` |
+| composer | composer:2.11.2 index `sha256:cd3a90dc5624c59a2f9ddf80dad08569f06416db31de519024f249d63bca554b` (PHP 8.5.13) | composer:2.11.3 index `sha256:4e5f671c4a5784b422c20fcb993a38da96529438889dbce40be27c452d18dd6d` (Composer 2.11.3, released 2026-11-24, PHP 8.5.13); linux/amd64 `sha256:00c34bf107ea859ce808b598ac1edad6ad3879136fc4425c8c8ab3cfb45b1b83`, linux/arm64 `sha256:272b76325f09d97d4db42ea83936a60fbdd98423c1e600ae7d2d6036b34ed62f` | `sdk-tests/php/run.sh`, `sdk-scorecard/run.sh`, `sdk-scorecard/test-tls.sh` |
+| node:24.22.3-trixie-slim | index `sha256:e50d187fecf517dca835935aa69788d79a2e737b8801c616c6da87423896ddc5` | index `sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4`; the linux/amd64 and linux/arm64 manifests are unchanged | `scripts/strict-recipe-browser.sh` |
+| rust:1.100.0-slim-trixie | index `sha256:86993c97389ebb5487eb09e88168e2a00b0de29aa08dff9ae896049b9be96ed9` | index `sha256:3b199fd6db7d709274df56565b8f4003f9e30d7bfcff9d53148c86053b7855e2`; the linux/amd64 and linux/arm64 manifests are unchanged, so the Debian snapshot stays `20261123T000000Z` | `Dockerfile`, `sdk-scorecard/run.sh`, `sdk-scorecard/test-tls.sh` |
+| gcc:16.2.0-trixie | index `sha256:5c2f83335c97e233c80d2bc754bd5c46b2d9c32f236a765a4ac40a59f216c064` | index `sha256:b560ecf8f694944afa8137ba7462a73f75bb799880535fcd7e0dfc890ba8b27a`; linux/amd64 `sha256:9af0ba1a5281cac2a79aa718b6d21af8670322cf4378198ee306efd5acc1955f` and linux/arm64 `sha256:637f514ad9995c33a0901e2bfb842e6071fb201ab6070b32fc730b4f677db661`, both built 2026-11-24 | `sdk-scorecard/cpp/Dockerfile`, `examples/cpp/Dockerfile` |
+
+[google.golang.org/api v0.317.0](https://github.com/googleapis/google-api-go-client/releases/tag/v0.317.0) regenerates Discovery clients, adds `UnsafeResolver.ResolvedUniverseDomain` to `option/internaloption` and improves DirectPath detection in `transport`. It leaves `storage/v1` unchanged at Discovery revision 20261111, keeps the BSD-3-Clause LICENSE byte for byte and still requires Go 1.26.0, the facade's `go` directive. `go get` and `go mod tidy` raise golang.org/x/crypto to v0.59.0, x/net to v0.63.0, x/sys to v0.50.0 and x/text to v0.44.0 indirectly in all three modules, and genproto/googleapis/rpc to v0.0.0-20261118221215-c8830f628b3f in the facade and the scorecard probe; the SDK suite already required that revision.
+
+[Bundler 4.1.1](https://github.com/ruby/rubygems/releases/tag/v4.1.1) is MIT and requires Ruby 3.2.0 and RubyGems 3.4.1 or later, unchanged from 4.1.0. The patch release fixes resolution, locking and frozen-install defects, among them requiring a digest on every content-addressed row of a checksummed lockfile. `bundle _4.1.1_ update --bundler=4.1.1` with Ruby 4.0.10 changed only the Bundler checksum row and `BUNDLED WITH` in each of the three lockfiles.
+
+[google-cloud-cpp v3.14.2](https://github.com/googleapis/google-cloud-cpp/releases/tag/v3.14.2) changes only Bigtable, whose DirectPath configuration now honors the universe domain and custom endpoints; the storage client still has no public API to restore a soft-deleted bucket, so only the version in that n/a reason changes. [Composer 2.11.3](https://github.com/composer/composer/releases/tag/2.11.3) is a security release: it fixes code execution in a directory whose `composer.json` and vendor directory an attacker prepared (GHSA-374h-4mh9-7rpm), package metadata rendered as console markup and credentials shown in download errors. Its image keeps PHP 8.5.13. The 2.11.3 index has no linux/riscv64 manifest yet while `latest` does, so the check prints `INFO: latest differs only on linux/riscv64`. `examples/cpp/Dockerfile` shares the gcc pin but no check builds it; the scorecard probe builds on the same index.
+
+### Validation performed on 2026-11-25
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask dependencies check` at `2026-11-25T04:15:04Z` | Exit 0 with 144 `CURRENT` lines and no updates or check errors; composer:latest differs from the pinned index only on linux/riscv64, and fake-gcs-server v1.56.1 stays `PINNED_REFERENCE` |
+| `cargo xtask dependencies check --scope release` at `2026-11-25T04:16:11Z` | Exit 0 with 42 `CURRENT` lines |
+| `just check-sdk` | Passed in 106 s. `go vet` passed and the Go suite passed 95 top-level tests, with the HTTPS-only V2 signing test skipped. The Ruby suite on Bundler 4.1.1, the Node.js suites, the Python suites, the permissive and strict PHP suites on Composer 2.11.3, the Java HTTP scenario, the .NET suite on net10.0 and net11.0 and the Rust suite passed |
+| `just check-sdk-clients` | Passed in 84 s: the Go facade under `go test -race -tags integration`, its `go vet` and tests on Go 1.26.0, `go/sourceexport`, and the Java, .NET and Rust clients |
+| `just check-active-storage` and `just check-active-storage-strict` on Bundler 4.1.1 | The default scenario reports only its known `AS-DEFAULT-AUTH` failure, in which the guard refuses the request to `oauth2.googleapis.com`, and the emulator recipe passes 11 cases; the strict runs pass 9, 10 and 10 cases |
+| `just check-containers` | The linux/amd64 and linux/arm64 images built on the adopted Rust index and every container smoke passed, in 652 s |
+| `docker buildx build --platform linux/arm64 --load` from the final checkout, then `GCSM_IMAGE=<image> bash scripts/strict-recipe-browser.sh` | Passed in 138 s with 69 `PASS` lines: Node 24.22.3 from the adopted index and Chromium 156.0.8078.79 |
+| `bash sdk-scorecard/run.sh --out <dir> gcs-mimic` | Passed in 751 s with Score and Core both 100: Go 66/66, Ruby 57/57, Node.js 59/59, PHP 60/60, Python 63/63, Java 79/79, .NET 72/72, Rust 54/54 and C++ 61/61, with 10 checks not applicable. The C++ probe built google-cloud-cpp 3.14.2 on the adopted gcc index |
+| `bash sdk-scorecard/test-score.sh` | Passed |
+| `bash sdk-scorecard/test-tls.sh` on the final checkout | Passed in 153 s: every probe, the Rust and C++ probes among them, rejects the wrong-host certificate, and 32 client CA, SAN and origin transport cases pass |
+| `bash scripts/check-docs.sh` | Passed |
+| `just check-markdown` | 427 Markdown files and 2 generated views have no lint issues |
+
+All freshness checks ran with `GITHUB_TOKEN` set.
