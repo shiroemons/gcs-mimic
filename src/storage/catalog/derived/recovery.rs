@@ -3,11 +3,10 @@ use super::*;
 /// Recovery reads this many rows at a time, so its memory does not grow with the catalog.
 const PAGE_SIZE: usize = 128;
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "deferred derived deletions are reclaimed only during open-time recovery"
-)]
-fn reclaim_derived_deletions(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
+fn reclaim_derived_deletions(
+    connection: &mut Connection,
+    data_dir: &Path,
+) -> Result<(), ObjectError> {
     let mut after = After::Start;
     let mut failure = None;
     loop {
@@ -24,7 +23,11 @@ fn reclaim_derived_deletions(connection: &Connection, data_dir: &Path) -> Result
         for id in ids {
             match objects::reclaim(connection, data_dir, &id) {
                 Ok(()) => {
-                    connection.execute("DELETE FROM derived_deletions WHERE blob_id = ?1", [id])?;
+                    sql::exec_on_writer(
+                        connection,
+                        "DELETE FROM derived_deletions WHERE blob_id = ?1",
+                        [id],
+                    )?;
                 }
                 Err(error) => failure = Some(error),
             }
@@ -32,20 +35,23 @@ fn reclaim_derived_deletions(connection: &Connection, data_dir: &Path) -> Result
     }
 }
 
-fn discard_record(connection: &Connection, id: &BlobId) -> Result<(), ObjectError> {
-    // This transaction only runs at open, before the connection can serve requests.
-    let transaction = connection.unchecked_transaction()?;
-    transaction
-        .prepare_cached("DELETE FROM derived_inputs WHERE transfer_id = ?1")?
-        .execute([id])?;
-    transaction
-        .prepare_cached("DELETE FROM derived_transfers WHERE id = ?1")?
-        .execute([id])?;
+fn discard_record(connection: &mut Connection, id: &BlobId) -> Result<(), ObjectError> {
+    let transaction = sql::deferred_write(connection)?;
+    sql::exec(
+        &transaction,
+        "DELETE FROM derived_inputs WHERE transfer_id = ?1",
+        [id],
+    )?;
+    sql::exec(
+        &transaction,
+        "DELETE FROM derived_transfers WHERE id = ?1",
+        [id],
+    )?;
     transaction.commit().map_err(object_unavailable)
 }
 
 pub(in crate::storage::catalog) fn recover(
-    connection: &Connection,
+    connection: &mut Connection,
     data_dir: &Path,
     now: UnixMillis,
 ) -> Result<(), ObjectError> {

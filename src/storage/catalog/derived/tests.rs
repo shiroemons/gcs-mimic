@@ -1684,8 +1684,8 @@ fn foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine() {
             "cancel" => {
                 let _discarded = discard_transfer(&mut connection, &id).unwrap();
             }
-            "expiry" => recover(&connection, &std::env::temp_dir(), UnixMillis(1)).unwrap(),
-            "quarantine" => recover(&connection, &std::env::temp_dir(), UnixMillis(0)).unwrap(),
+            "expiry" => recover(&mut connection, &std::env::temp_dir(), UnixMillis(1)).unwrap(),
+            "quarantine" => recover(&mut connection, &std::env::temp_dir(), UnixMillis(0)).unwrap(),
             _ => unreachable!(),
         }
         assert_eq!(

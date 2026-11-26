@@ -67,7 +67,7 @@ pub(super) fn live_journal_error(id: BlobId) -> ObjectError {
 
 /// At startup recovery, the connection is local and no API request can use it.
 pub(in crate::storage::catalog) fn reclaim(
-    connection: &Connection,
+    connection: &mut Connection,
     data_dir: &Path,
     id: &BlobId,
 ) -> Result<(), ObjectError> {
@@ -94,9 +94,11 @@ pub(in crate::storage::catalog) fn reclaim(
     let _ = shard;
     #[cfg(test)]
     fault::hit(data_dir, Step::ReclaimForget).map_err(object_unavailable)?;
-    connection
-        .prepare_cached("DELETE FROM pending_blob_deletions WHERE blob_id = ?1")?
-        .execute([id])?;
+    sql::exec_on_writer(
+        connection,
+        "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
+        [id],
+    )?;
     Ok(())
 }
 

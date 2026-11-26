@@ -8,13 +8,13 @@ fn os_metadata(entry: &fs::DirEntry) -> bool {
 }
 
 pub(in crate::storage::catalog) fn recover(
-    connection: &Connection,
+    connection: &mut Connection,
     data_dir: &Path,
     now: UnixMillis,
 ) -> Result<(), CatalogError> {
     // The phases run in this order: staging and derived state first, then the deletion
     // journal, so the reference and orphan scans only see committed, durable state.
-    let recover = || -> Result<(), ObjectError> {
+    let mut recover = || -> Result<(), ObjectError> {
         fs::create_dir_all(data_dir.join("staging"))?;
         fs::create_dir_all(data_dir.join("blobs"))?;
         #[cfg(unix)]
@@ -68,7 +68,7 @@ fn remove_unretained_staging(connection: &Connection, data_dir: &Path) -> Result
 }
 
 /// Finishes deletions committed before a crash.
-fn drain_deletion_journal(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
+fn drain_deletion_journal(connection: &mut Connection, data_dir: &Path) -> Result<(), ObjectError> {
     // Keyset pages bound memory independently of the number of objects or pending deletions.
     loop {
         let ids = connection

@@ -640,7 +640,13 @@ kind when constructing its `io::Error`.
   savepoints take `&WriteTx`. Standalone writes take `&mut Connection` through
   `sql::exec_on_writer`. Read closures receive `&Connection`, which can call
   neither helper. The reader's own TEMP parent-policy refresh has its private
-  mutable connection before it runs the read closure.
+  mutable connection before it runs the read closure. Startup recovery also
+  passes its mutable connection to the write helpers. The types guard the
+  catalog helpers only. Raw rusqlite calls such as `prepare_cached().execute()`,
+  `execute_batch()` and `unchecked_transaction()` can write through
+  `&Connection`. Review keeps them out of read closures, and tests check pooled
+  reads with the `SQLITE_READONLY` counter and serialized reads with the
+  connection's change count.
 
 ### Jobs that move to the read pool
 
@@ -694,6 +700,13 @@ thread: the pop moves into its own statement. Derived inputs hold independent
 disk hard links or RAM blob IDs, so the final deletion journal sweep reclaims
 retired sources. A failure draining that journal belongs to the deletion
 journal sweep in the maintenance diagnostic.
+
+### End state
+
+`sql::exec` requires `&WriteTx`, and `sql::exec_on_writer` requires
+`&mut Connection`. The read closure's shared connection cannot call either
+helper. Review and the `SQLITE_READONLY` counter tests guard against raw
+rusqlite writes that bypass those helpers.
 
 ### Catalog structure and shutdown
 
