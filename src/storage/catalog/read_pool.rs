@@ -47,7 +47,7 @@ const READER_SETUP: &str = "PRAGMA cache_size = -1024;
      CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;";
 
 /// Whether a read's failure may be an artifact of its snapshot rather than the final answer.
-pub(super) trait ReadOutcome {
+pub(super) trait ReadOutcome: crate::storage::failure::TypedSource {
     fn retry_serialized(&self) -> bool;
 }
 
@@ -166,6 +166,8 @@ struct Shared {
     idle: Mutex<Vec<Reader>>,
     #[cfg(test)]
     served: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    readonly_answers: std::sync::atomic::AtomicUsize,
 }
 
 impl Shared {
@@ -244,6 +246,8 @@ impl ReadPool {
                 idle: Mutex::default(),
                 #[cfg(test)]
                 served: std::sync::atomic::AtomicUsize::new(0),
+                #[cfg(test)]
+                readonly_answers: std::sync::atomic::AtomicUsize::new(0),
             }),
         }
     }
@@ -353,7 +357,7 @@ impl Catalog {
     ) -> Option<Result<T, E>>
     where
         T: Send + 'static,
-        E: Send + 'static,
+        E: ReadOutcome + Send + 'static,
     {
         let pool = self.0.read_pool.as_ref()?;
         // A writer whose rollback could not be confirmed fails every call closed, and the
@@ -373,6 +377,19 @@ impl Catalog {
             .run(move || {
                 let _held = (admission, lease);
                 let result = checkout.run(|connection| operation(connection, ReadPath::Pooled));
+                #[cfg(test)]
+                if let Some(Err(error)) = &result
+                    && let Some(first) = error.typed_source()
+                    && crate::storage::failure::chain(first).any(|link| {
+                        matches!(link, crate::storage::failure::Link::Sqlite(error)
+                            if error.sqlite_error_code() == Some(rusqlite::ErrorCode::ReadOnly))
+                    })
+                {
+                    checkout
+                        .shared
+                        .readonly_answers
+                        .fetch_add(1, Ordering::Relaxed);
+                }
                 drop(checkout);
                 result
             })
@@ -389,7 +406,14 @@ impl Catalog {
             .as_ref()
             .map_or(0, |pool| pool.shared.served.load(Ordering::Relaxed))
     }
+
+    #[cfg(test)]
+    pub(super) fn readonly_answers(&self) -> usize {
+        self.0.read_pool.as_ref().map_or(0, |pool| {
+            pool.shared.readonly_answers.load(Ordering::Relaxed)
+        })
+    }
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

@@ -7,6 +7,7 @@ use crate::{
     object::ObjectError,
     storage::catalog::{
         ResumableError,
+        connection::SerializedRead,
         session_limits::MAX_FINISHED_SESSIONS,
         test_fixtures::{bucket, fill_cancelled_sessions},
     },
@@ -105,7 +106,7 @@ async fn create(catalog: &Catalog, clock: &ManualClock) -> Result<String, Resuma
 /// The counts admission reads and the counts of the table itself.
 async fn counts(catalog: &Catalog) -> ((i64, i64), (i64, i64)) {
     catalog
-        .run::<_, CatalogError>(|connection| {
+        .run_serialized_read::<_, CatalogError>(SerializedRead::ResumableSessionCounts, |connection| {
             let pair = |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?));
             Ok((
                 sql::row(

@@ -261,7 +261,7 @@ impl Catalog {
     }
 
     pub(crate) async fn next_notification(&self) -> Result<Option<Pending>, CatalogError> {
-        self.run(|connection| {
+        self.run_read(|connection| {
             sql::row(connection, "SELECT id, topic, message, due, attempts FROM notification_outbox ORDER BY due, id LIMIT 1", [], |row| Ok(Pending {
                     id: row.get(0)?, topic: row.get(1)?, message: row.get(2)?, due: row.get(3)?, attempts: row.get(4)?,
                 })).optional().map_err(unavailable)

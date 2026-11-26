@@ -87,6 +87,27 @@ async fn drain(catalog: &Catalog) -> Vec<Value> {
     messages
 }
 
+#[tokio::test]
+async fn polling_reads_the_committed_outbox_event() {
+    let dir = TestDir::new();
+    let catalog = setup(&dir, VersionHistory::Discard).await;
+    assert!(catalog.next_notification().await.unwrap().is_none());
+    put(&catalog, "prefix/item", ObjectConditions::default())
+        .await
+        .unwrap();
+    super::super::read_pool::tests::assert_point_read(&catalog, async || {
+        let pending = catalog.next_notification().await.unwrap().unwrap();
+        let message: Value = serde_json::from_str(&pending.message).unwrap();
+        assert_eq!(
+            message["messages"][0]["attributes"]["objectId"],
+            "prefix/item"
+        );
+        assert_eq!(pending.attempts, 0);
+    })
+    .await;
+    catalog.close().await.unwrap();
+}
+
 async fn initialization_put(
     admin: &crate::storage::admin::Admin,
     condition: Option<crate::storage::admin::GenerationCondition>,

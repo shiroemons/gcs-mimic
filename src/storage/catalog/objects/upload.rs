@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::connection::SerializedRead;
 
 mod group_commit;
 pub(in crate::storage::catalog) use group_commit::CommitQueue;
@@ -330,10 +331,10 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         let clock = self.0.clock.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            let (_, delete_permission) = authorized_bucket(&transaction, &bucket, &access)?;
-            let previous = lookup(&transaction, &bucket, &name)?;
+        self.run_serialized_read(SerializedRead::AdvisoryUpload, move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
+            let (_, delete_permission) = authorized_bucket(&snapshot, &bucket, &access)?;
+            let previous = lookup(&snapshot, &bucket, &name)?;
             check_publication(
                 previous.as_ref(),
                 conditions,

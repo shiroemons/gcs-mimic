@@ -50,7 +50,7 @@ impl Catalog {
         }
         let prefix = prefix.unwrap_or("").to_owned();
         let start_after = start_after.map(str::to_owned);
-        self.run(move |connection| {
+        self.run_read(move |connection| {
             bucket_list_page(
                 connection,
                 projects.as_deref(),

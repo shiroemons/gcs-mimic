@@ -8,6 +8,11 @@
 //! the queue holds at most one job in practice.
 
 use crate::storage::failure::{Link, TypedSource};
+#[cfg(test)]
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use tokio::sync::{mpsc, oneshot};
 
 /// What the thread does after a job: closing the catalog runs the last job.
@@ -61,22 +66,39 @@ impl crate::storage::failure::StorageCause for ExecutorError {
 
 pub(super) struct Executor {
     jobs: mpsc::Sender<Job>,
+    #[cfg(test)]
+    executed: Arc<AtomicUsize>,
 }
 
 impl Executor {
     /// Starts the thread. It exits after a [`Self::run_last`] job or once the catalog is dropped.
     pub(super) fn start(name: &'static str) -> std::io::Result<Self> {
         let (jobs, mut queue) = mpsc::channel::<Job>(1);
+        #[cfg(test)]
+        let executed = Arc::<AtomicUsize>::default();
+        #[cfg(test)]
+        let count = executed.clone();
         crate::task::spawn_thread(name, move || {
             #[cfg(test)]
             super::fault::enter_catalog_thread();
             while let Some(job) = queue.blocking_recv() {
+                #[cfg(test)]
+                count.fetch_add(1, Ordering::Relaxed);
                 if let Flow::Stop = job() {
                     break;
                 }
             }
         })?;
-        Ok(Self { jobs })
+        Ok(Self {
+            jobs,
+            #[cfg(test)]
+            executed,
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn jobs_executed(&self) -> usize {
+        self.executed.load(Ordering::Relaxed)
     }
 
     /// Runs `job` on the catalog thread. Once queued, the job runs to completion even if the

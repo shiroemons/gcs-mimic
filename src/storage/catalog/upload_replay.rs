@@ -1,5 +1,5 @@
 use super::{Catalog, UploadGuard, objects, unix_micros};
-use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
+use crate::storage::catalog::{Incarnation, bucket_incarnation, connection::SerializedRead, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{ObjectConditions, ObjectError, ObjectRecord},
@@ -592,9 +592,9 @@ impl Catalog {
     ) -> Result<(), ObjectError> {
         let bucket = bucket.to_owned();
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            objects::authorized_bucket(&transaction, &bucket, &access).map(|_| ())
+        self.run_serialized_read(SerializedRead::AdvisoryUpload, move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
+            objects::authorized_bucket(&snapshot, &bucket, &access).map(|_| ())
         })
         .await
     }
@@ -620,11 +620,10 @@ impl Catalog {
         let request = replay_request(request, &access)?;
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            let (_, delete_permission) =
-                objects::authorized_bucket(&transaction, &bucket, &access)?;
-            let incarnation = bucket_incarnation(&transaction, &bucket)?;
+        self.run_serialized_read(SerializedRead::AdvisoryUpload, move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
+            let (_, delete_permission) = objects::authorized_bucket(&snapshot, &bucket, &access)?;
+            let incarnation = bucket_incarnation(&snapshot, &bucket)?;
             if expected_incarnation
                 .as_ref()
                 .is_some_and(|expected| expected != &incarnation)
@@ -639,10 +638,10 @@ impl Catalog {
                 principals,
             };
             let now = unix_micros(clock.now())?;
-            if replay.cached(&transaction, now)?.is_none()
+            if replay.cached(&snapshot, now)?.is_none()
                 && let Some((name, conditions)) = &object
             {
-                let previous = objects::lookup(&transaction, &bucket, name)?;
+                let previous = objects::lookup(&snapshot, &bucket, name)?;
                 objects::check_publication(
                     previous.as_ref(),
                     *conditions,

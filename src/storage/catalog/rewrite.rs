@@ -52,7 +52,7 @@ fn read_session(
     connection: &Connection,
     token: &RewriteToken,
     now: UnixMillis,
-) -> Result<RewriteSession, RewriteError> {
+) -> Result<Option<RewriteSession>, ObjectError> {
     let session = sql::row(
         connection,
         concat!(
@@ -64,12 +64,8 @@ fn read_session(
         read,
     )
     .optional()
-    .map_err(object_unavailable)?
-    .ok_or(RewriteError::Gone)?;
-    if session.deadline <= now {
-        return Err(RewriteError::Gone);
-    }
-    Ok(session)
+    .map_err(object_unavailable)?;
+    Ok(session.filter(|session| session.deadline > now))
 }
 
 fn check_continuation(
@@ -658,8 +654,9 @@ impl Catalog {
 
     async fn session_by_token(&self, token: RewriteToken) -> Result<RewriteSession, RewriteError> {
         let now = UnixMillis::try_from(self.0.clock.now())?;
-        self.run(move |connection| read_session(connection, &token, now))
-            .await
+        self.run_read(move |connection| read_session(connection, &token, now))
+            .await?
+            .ok_or(RewriteError::Gone)
     }
 
     pub(crate) async fn continue_rewrite(
@@ -689,7 +686,7 @@ impl Catalog {
         let (mut session, source_result) = self
             .run(move |connection| {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
-                let checked = read_session(&transaction, &token, now)?;
+                let checked = read_session(&transaction, &token, now)?.ok_or(RewriteError::Gone)?;
                 let result = check_continuation(
                     &transaction,
                     &checked,
@@ -1027,7 +1024,18 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(token, stored);
-        assert!(catalog.rewrite_session(&token).await.is_ok());
+        super::super::read_pool::tests::assert_point_read(&catalog, async || {
+            assert_eq!(
+                catalog
+                    .rewrite_session(&token)
+                    .await
+                    .unwrap()
+                    .token
+                    .to_string(),
+                stored
+            );
+        })
+        .await;
         assert!(matches!(
             catalog.rewrite_session(&token.to_ascii_uppercase()).await,
             Err(RewriteError::Invalid)

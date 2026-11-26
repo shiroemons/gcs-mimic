@@ -286,12 +286,12 @@ impl Catalog {
     ) -> Result<bool, CatalogError> {
         let bucket = bucket.to_owned();
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
+        self.run_read(move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
             let project: String =
-                sql::optional_scalar(&transaction, SELECT_BUCKET_PROJECT, [&bucket])?
+                sql::optional_scalar(&snapshot, SELECT_BUCKET_PROJECT, [&bucket])?
                     .ok_or(CatalogError::NotFound)?;
-            match check_access(&transaction, &bucket, &project, &access) {
+            match check_access(&snapshot, &bucket, &project, &access) {
                 Ok(_) => Ok(true),
                 Err(error) if error.is_refusal() => Ok(false),
                 Err(error) => Err(error),
@@ -307,10 +307,10 @@ impl Catalog {
     ) -> Result<Policy, CatalogError> {
         let bucket = bucket.to_owned();
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            authorize_policy(&transaction, &bucket, &access)?;
-            read_policy(&transaction, &bucket)
+        self.run_read(move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
+            authorize_policy(&snapshot, &bucket, &access)?;
+            read_policy(&snapshot, &bucket)
         })
         .await
     }

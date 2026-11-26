@@ -1,6 +1,20 @@
 use super::*;
 use crate::storage::failure::{Link, TypedSource};
 
+/// Why a read needs the writer's queue or its connection-local state.
+#[derive(Debug)]
+pub(super) enum SerializedRead {
+    AdvisoryUpload,
+    AdvisoryXmlUpload,
+    // Production accesses these TEMP tables inside mutations. Only tests read them separately.
+    #[cfg(test)]
+    ResumableSessionCounts,
+    #[cfg(test)]
+    NotificationRuntime,
+    #[cfg(test)]
+    LifecycleQuarantine,
+}
+
 /// Why an operation could not run on the shared catalog connection.
 #[derive(Debug)]
 pub(crate) enum ConnectionUnavailable {
@@ -207,6 +221,31 @@ impl Inner {
 }
 
 impl Catalog {
+    pub(super) async fn run_serialized_read<
+        T: Send + 'static,
+        E: From<CatalogError> + Send + 'static,
+    >(
+        &self,
+        reason: SerializedRead,
+        operation: impl FnOnce(&Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
+        self.run(move |connection| {
+            #[cfg(not(test))]
+            let _ = reason;
+            #[cfg(test)]
+            let before = connection.total_changes();
+            let result = operation(connection);
+            #[cfg(test)]
+            assert_eq!(
+                before,
+                connection.total_changes(),
+                "{reason:?} changed rows"
+            );
+            result
+        })
+        .await
+    }
+
     /// Queues one operation on the shared connection. A caller past the queue waits its turn
     /// instead of failing: jobs run one at a time, so the wait changes latency, not the load on
     /// SQLite, and a local client cannot act on a rejection except by retrying.

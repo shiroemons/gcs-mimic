@@ -316,9 +316,11 @@ a read lease that the exclusive job drains. While it drains, new work of that ki
 its reservation, so a stream of uploads cannot keep it out, while reads and work already under way
 continue. Everything queued then runs against the state the job left instead of answering 503.
 
-Reads that change nothing need not line up there. With the disk backend, object and bucket reads
-run on up to eight read-only WAL connections, each on its own thread, which take the same admission
-slots and hold an activity lease while they run. A snapshot is at least as new as every commit
+Advisory upload checks queue on the writer before the body is accepted. With the disk backend,
+object and bucket point reads, bucket pages, bucket IAM policy and permission lookups, resumable
+and rewrite session lookups, and notification outbox polls use up to eight read-only WAL connections.
+Each reader has its own thread, takes an admission slot and holds an activity lease while it runs.
+A snapshot is at least as new as every commit
 that finished before the read began, so clients still read their own writes. Once an exclusive job
 has reserved the gate, reads take the serialized path behind it. A reader's snapshot can select a
 blob that reclamation unlinks before the open, and any failure on a reader, including an attempted

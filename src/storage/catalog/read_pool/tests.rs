@@ -13,6 +13,9 @@ use std::{
 };
 use tokio::time::timeout;
 
+mod point_reads;
+pub(in crate::storage::catalog) use point_reads::assert_point_read;
+
 /// Long enough that no test reaches it unless the behaviour under test is broken.
 const LONG: Duration = Duration::from_secs(60);
 const LONG_LIMIT: TimeLimit = TimeLimit::from_millis(60_000);
@@ -231,6 +234,7 @@ async fn a_definite_answer_from_a_reader_is_not_retried() {
 /// The connection is what enforces the rule that a pooled read changes nothing: a write fails
 /// there, and the serialized path answers as it always did.
 #[tokio::test]
+#[should_panic(expected = "pooled reads returned SQLITE_READONLY")]
 async fn a_write_cannot_happen_on_a_reader() {
     let dir = TestDir::new();
     let catalog = open_with_object(&dir).await;
@@ -252,6 +256,7 @@ async fn a_write_cannot_happen_on_a_reader() {
         *paths.lock().unwrap(),
         [ReadPath::Pooled, ReadPath::Serialized]
     );
+    assert_eq!(catalog.readonly_answers(), 1);
     catalog.close().await.unwrap();
 }
 

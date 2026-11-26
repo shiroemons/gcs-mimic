@@ -16,6 +16,39 @@ async fn open(dir: &TestDir) -> Catalog {
     catalog
 }
 
+async fn notification_runtime_count(catalog: &Catalog) -> Result<i64, CatalogError> {
+    catalog
+        .run_serialized_read(SerializedRead::NotificationRuntime, |connection| {
+            Ok(sql::scalar(
+                connection,
+                "SELECT count(*) FROM notification_runtime",
+                [],
+            )?)
+        })
+        .await
+}
+
+#[tokio::test]
+async fn serialized_reads_detect_even_rolled_back_temp_changes() {
+    let dir = TestDir::new();
+    let catalog = open(&dir).await;
+    let result = catalog
+        .run_serialized_read::<_, CatalogError>(SerializedRead::LifecycleQuarantine, |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
+            sql::exec(
+                &snapshot,
+                "INSERT INTO lifecycle_quarantine VALUES ('bucket', 'id', 'name', 1, 'rev')",
+                [],
+            )?;
+            Ok(())
+        })
+        .await;
+    assert!(matches!(result, Err(CatalogError::Unavailable(cause))
+        if cause.message() == ConnectionUnavailable::Panicked.to_string()));
+    assert_eq!(notification_runtime_count(&catalog).await.unwrap(), 0);
+    catalog.close().await.unwrap();
+}
+
 /// Occupies the catalog thread until the returned sender fires, so every later call queues.
 async fn block_thread(catalog: &Catalog) -> (mpsc::Sender<()>, tokio::task::JoinHandle<()>) {
     let (release, held) = mpsc::channel::<()>();
@@ -46,7 +79,7 @@ async fn callers_past_the_queue_wait_and_every_read_and_write_completes() {
         calls.spawn(async move {
             // A read that stays on the serialized connection, which is what the thread blocks.
             if index % 2 == 0 {
-                catalog.get_policy("bucket", PERMISSIVE).await.map(|_| ())
+                notification_runtime_count(&catalog).await.map(|_| ())
             } else {
                 catalog
                     .insert_bucket(bucket(&format!("bucket-{index}"), "project"))
@@ -108,7 +141,7 @@ async fn closing_fails_waiters_at_once_and_runs_the_calls_already_admitted() {
     for _ in 0..CALLERS {
         let catalog = catalog.clone();
         // A read that stays on the serialized connection, which is what the thread blocks.
-        calls.spawn(async move { catalog.get_policy("bucket", PERMISSIVE).await });
+        calls.spawn(async move { notification_runtime_count(&catalog).await });
     }
     let waiting = CALLERS - (MAX_IN_FLIGHT - 1);
     eventually_async("the callers past the slots to wait", || async {

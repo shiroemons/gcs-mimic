@@ -580,7 +580,7 @@ impl Catalog {
     ) -> Result<ResumableSession, ResumableError> {
         let bucket = bucket.to_owned();
         let session = self
-            .run(move |connection| {
+            .run_read(move |connection| {
                 sql::row(
                     connection,
                     concat!(

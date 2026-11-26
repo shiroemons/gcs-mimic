@@ -3,7 +3,7 @@
 use super::resumable::writers::{ClaimError, KeyOrigin, WriterKey};
 use super::{Catalog, UnixMillis, objects, resumable};
 use crate::storage::blob_id::BlobId;
-use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
+use crate::storage::catalog::{Incarnation, bucket_incarnation, connection::SerializedRead, sql};
 use crate::{
     auth::Permission,
     bucket::{BucketAccess, CatalogError},
@@ -386,9 +386,9 @@ impl Catalog {
     async fn active_upload(&self, target: Target, access: &BucketAccess) -> Result<Upload, Error> {
         let access = access.clone();
         let now = UnixMillis::try_from(self.0.clock.now())?;
-        self.run(move |connection| {
-            let transaction = connection.transaction().map_err(object_unavailable)?;
-            active(&transaction, &target, &access, now)
+        self.run_serialized_read(SerializedRead::AdvisoryXmlUpload, move |connection| {
+            let snapshot = sql::read_snapshot(connection).map_err(object_unavailable)?;
+            active(&snapshot, &target, &access, now)
         })
         .await
     }
