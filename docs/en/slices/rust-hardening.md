@@ -963,7 +963,7 @@ parser. The run did not record whether other builds were active.
 | Item | Design |
 | --- | --- |
 | gRPC resumable tail | the first partial granule reserves a `BytesMut`; the stream reclaims its allocation after the catalog write. Aligned streams need no tail allocation |
-| Deadline renewal per frame | a per-connection progress clock; the watch notifies only on state changes, and an expiring deadline re-arms from the last frame instead of expiring. Same expiry instant. Lands last among performance slices, and only if its measured run shows a gain |
+| Deadline renewal per frame | retain the per-frame watch notification. Lazy renewal increased upload CPU time and context switches in the run below |
 | Query parsed three to five times per request | `percent::RequestUri` caches the form parameters on first use. Request and object contexts borrow it, and each batch part owns its target. Signed URLs keep their raw query and IAM reads repeated `permissions` from the raw query. Validation order stays the same, and `percent` clones a key only for a duplicate error |
 | ACL subjects built for every listed object | built only for `projection=full` |
 | `diagnostics::emit` | checks the level before locking stderr; per-connection debug events are built only when enabled |
@@ -986,6 +986,22 @@ took 0.107 seconds before the small changes and 0.118 seconds after, with
 0.10 and 0.11 seconds of server CPU time. The listings took 0.065 and
 0.105 seconds, with 0.06 seconds of server CPU time in each run. Other
 Cargo and rustc processes were active during all four measurements.
+
+On macOS 27.2.1 arm64 with Rust 1.100.0, curl uploaded and downloaded
+one 1 GiB object over HTTP/1 loopback per release build. The candidate
+recorded frame progress under the watch lock and rechecked it when a timer
+fired. The current implementation renews the timer on a watch notification.
+
+| Transfer | Implementation | Elapsed seconds | Server CPU seconds | Server context switches |
+| --- | --- | ---: | ---: | ---: |
+| Upload | Current | 23.012 | 3.46 | 78,655 |
+| Upload | Lazy | 67.580 | 5.47 | 190,872 |
+| Download | Current | 0.336 | 0.31 | 7,861 |
+| Download | Lazy | 0.442 | 0.30 | 7,469 |
+
+Both builds returned HTTP 200 and transferred 1,073,741,824 bytes in each
+direction. Other builds ran during both measurements. The small reduction
+in download CPU time and context switches did not justify the upload cost.
 
 ## Types, configuration and duplicated rules
 
