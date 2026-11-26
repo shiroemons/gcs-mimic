@@ -26,6 +26,42 @@ pub(crate) type TestDir = input_fixtures::TestDir;
 // re-export warns per binary, so the other waits are reached through `input_fixtures`.
 pub(crate) use input_fixtures::eventually;
 
+enum Base64 {
+    Standard,
+    UrlSafe,
+}
+
+pub(crate) fn base64(bytes: &[u8]) -> String {
+    encode_base64(bytes, Base64::Standard)
+}
+
+pub(crate) fn base64_url(bytes: &[u8]) -> String {
+    encode_base64(bytes, Base64::UrlSafe)
+}
+
+fn encode_base64(bytes: &[u8], format: Base64) -> String {
+    let alphabet = match format {
+        Base64::Standard => b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+        Base64::UrlSafe => b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+    };
+    let mut encoded = String::new();
+    for chunk in bytes.chunks(3) {
+        let bits = chunk.iter().enumerate().fold(0u32, |bits, (index, byte)| {
+            bits | u32::from(*byte) << (16 - 8 * index)
+        });
+        for index in 0..4 {
+            if index <= chunk.len() {
+                encoded.push(char::from(
+                    alphabet[((bits >> (18 - 6 * index)) & 63) as usize],
+                ));
+            } else if matches!(format, Base64::Standard) {
+                encoded.push('=');
+            }
+        }
+    }
+    encoded
+}
+
 /// PUT defaults to `projection=full`; remove ACL fields before comparing with noAcl reads.
 pub(crate) fn without_acl(mut value: serde_json::Value) -> serde_json::Value {
     let resource = value.as_object_mut().unwrap();

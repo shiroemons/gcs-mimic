@@ -2,6 +2,7 @@
 //! cache headers, error bodies, JSON formatting and XML documents.
 
 use crate::common;
+use crate::common::base64;
 
 use common::TestDir;
 use common::ingress::{Reply, Server, gzip};
@@ -52,26 +53,6 @@ fn varint(bytes: &mut Vec<u8>, mut value: u64) {
         value >>= 7;
     }
     bytes.push(value as u8);
-}
-
-pub(super) fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::new();
-    for chunk in bytes.chunks(3) {
-        let word = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        for index in 0..4 {
-            if index <= chunk.len() {
-                out.push(char::from(
-                    ALPHABET[(word >> (18 - 6 * index) & 63) as usize],
-                ));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }
 
 /// The protobuf message Cloud Storage encodes into JSON ETags: field 1 is the object

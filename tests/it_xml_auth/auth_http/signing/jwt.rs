@@ -1,26 +1,8 @@
 use super::*;
+use crate::common::base64_url;
 use ring::{rand::SystemRandom, signature};
 use std::time::UNIX_EPOCH;
 use tokio_rustls::rustls::pki_types::{PrivateKeyDer, pem::PemObject};
-
-fn encoded(bytes: &[u8]) -> String {
-    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut output = String::new();
-    let mut bits = 0u32;
-    let mut count = 0;
-    for byte in bytes {
-        bits = bits << 8 | u32::from(*byte);
-        count += 8;
-        while count >= 6 {
-            count -= 6;
-            output.push(alphabet[((bits >> count) & 63) as usize] as char);
-        }
-    }
-    if count != 0 {
-        output.push(alphabet[((bits << (6 - count)) & 63) as usize] as char);
-    }
-    output
-}
 
 pub(super) fn bearer(issuer: &str) -> String {
     let now = SystemTime::now()
@@ -31,8 +13,8 @@ pub(super) fn bearer(issuer: &str) -> String {
         "scope":"https://www.googleapis.com/auth/devstorage.full_control", "iat":now - 60,"exp":now + 60});
     let message = format!(
         "{}.{}",
-        encoded(br#"{"alg":"RS256","typ":"JWT"}"#),
-        encoded(claims.to_string().as_bytes())
+        base64_url(br#"{"alg":"RS256","typ":"JWT"}"#),
+        base64_url(claims.to_string().as_bytes())
     );
     let key = PrivateKeyDer::from_pem_slice(PRIVATE).unwrap();
     let key = signature::RsaKeyPair::from_pkcs8(key.secret_der()).unwrap();
@@ -44,7 +26,7 @@ pub(super) fn bearer(issuer: &str) -> String {
         &mut bytes,
     )
     .unwrap();
-    format!("Authorization: Bearer {message}.{}\r\n", encoded(&bytes))
+    format!("Authorization: Bearer {message}.{}\r\n", base64_url(&bytes))
 }
 
 #[test]

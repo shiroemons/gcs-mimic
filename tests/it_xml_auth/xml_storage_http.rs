@@ -1,4 +1,5 @@
 use crate::common;
+use crate::common::base64;
 use crate::common::process::declare_server;
 
 use common::TestDir;
@@ -89,26 +90,6 @@ impl Server {
 
 fn encode(value: &str) -> String {
     value.bytes().map(|byte| format!("%{byte:02X}")).collect()
-}
-
-fn base64(bytes: &[u8]) -> String {
-    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut encoded = String::new();
-    for chunk in bytes.chunks(3) {
-        let value = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        for shift in [18, 12, 6, 0] {
-            encoded.push(
-                if (shift == 0 && chunk.len() < 3) || (shift == 6 && chunk.len() < 2) {
-                    '='
-                } else {
-                    alphabet[((value >> shift) & 63) as usize] as char
-                },
-            );
-        }
-    }
-    encoded
 }
 
 fn signed_v2(resource: &str) -> String {

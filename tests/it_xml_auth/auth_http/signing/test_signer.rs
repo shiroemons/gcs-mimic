@@ -1,29 +1,10 @@
 use super::*;
+use crate::common::base64;
 use gcs_mimic::auth::{
     signature::{encode_query_component, sign_policy},
     test_signer,
 };
 use std::time::UNIX_EPOCH;
-
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut encoded = String::new();
-    for chunk in bytes.chunks(3) {
-        let value = chunk
-            .iter()
-            .chain([0, 0].iter())
-            .take(3)
-            .fold(0u32, |value, byte| value << 8 | u32::from(*byte));
-        for index in 0..4 {
-            encoded.push(if index > chunk.len() {
-                '='
-            } else {
-                ALPHABET[(value >> (18 - 6 * index) & 63) as usize] as char
-            });
-        }
-    }
-    encoded
-}
 
 /// A V2 RSA query signature from the built-in signer's published key.
 fn v2(server: &Server, path: &str) -> String {

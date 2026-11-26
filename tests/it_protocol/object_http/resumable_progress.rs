@@ -19,7 +19,7 @@ fn expected(bytes: &[u8]) -> (String, String) {
     let crc32c = crc32c::crc32c(bytes).to_be_bytes();
     let md5: [u8; 16] = Md5::digest(bytes).into();
     (
-        format!("crc32c={}", super::super::wire_parity_http::base64(&crc32c)),
+        format!("crc32c={}", crate::common::base64(&crc32c)),
         md5.iter().map(|byte| format!("{byte:02x}")).collect(),
     )
 }

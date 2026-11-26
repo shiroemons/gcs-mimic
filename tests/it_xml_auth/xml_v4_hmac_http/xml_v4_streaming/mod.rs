@@ -1,26 +1,9 @@
 //! Local wire fixtures sign independently of the production chunk decoder.
 
 use super::*;
+use crate::common::base64;
 
 pub(super) const MARKER: &str = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
-
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = String::new();
-    for chunk in bytes.chunks(3) {
-        let bits = chunk.iter().enumerate().fold(0_u32, |bits, (index, byte)| {
-            bits | u32::from(*byte) << (16 - index * 8)
-        });
-        for index in 0..4 {
-            output.push(if index <= chunk.len() {
-                ALPHABET[(bits >> (18 - index * 6) & 63) as usize] as char
-            } else {
-                '='
-            });
-        }
-    }
-    output
-}
 
 pub(super) fn chain(key: &Key, signed: &Signed, chunks: &[&[u8]]) -> Vec<u8> {
     let date = signed

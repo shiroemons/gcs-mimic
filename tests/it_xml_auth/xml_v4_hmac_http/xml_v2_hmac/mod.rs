@@ -1,4 +1,5 @@
 use super::*;
+use crate::common::base64;
 
 pub(super) fn send(
     server: &Server,
@@ -66,24 +67,6 @@ fn read_response(mut reader: BufReader<TcpStream>, method: &str) -> Reply {
         headers,
         body,
     }
-}
-
-pub(super) fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = String::new();
-    for chunk in bytes.chunks(3) {
-        let bits = chunk.iter().enumerate().fold(0u32, |bits, (index, byte)| {
-            bits | u32::from(*byte) << (16 - index * 8)
-        });
-        for index in 0..4 {
-            output.push(if index <= chunk.len() {
-                ALPHABET[(bits >> (18 - index * 6) & 63) as usize] as char
-            } else {
-                '='
-            });
-        }
-    }
-    output
 }
 
 pub(super) fn query(key: &Key, method: &str, path: &str, extras: &[(&str, &str)]) -> Signed {

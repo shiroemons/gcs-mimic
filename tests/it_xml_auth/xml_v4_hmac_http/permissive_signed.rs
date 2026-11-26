@@ -49,7 +49,7 @@ fn rsa_v2(method: &str, path: &str, signer: &str, expires: SystemTime) -> Signed
         path: format!(
             "{path}?GoogleAccessId={}&Expires={expires}&Signature={}",
             encode_query_component(signer),
-            encode_query_component(&xml_v2_hmac::base64(&bytes))
+            encode_query_component(&crate::common::base64(&bytes))
         ),
         headers: String::new(),
     }

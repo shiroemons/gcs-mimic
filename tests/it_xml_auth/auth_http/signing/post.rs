@@ -1,4 +1,5 @@
 use super::*;
+use crate::common::base64;
 use gcs_mimic::auth::signature::{sign_policy, timestamp};
 use std::{
     sync::LazyLock,
@@ -11,24 +12,6 @@ static DATE: LazyLock<String> = LazyLock::new(|| timestamp(SystemTime::now()).un
 static FUTURE: LazyLock<String> =
     LazyLock::new(|| timestamp(SystemTime::now() + Duration::from_secs(3600)).unwrap());
 const BOUNDARY: &str = "form-boundary";
-
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::new();
-    for chunk in bytes.chunks(3) {
-        let value = chunk.iter().enumerate().fold(0u32, |value, (index, byte)| {
-            value | u32::from(*byte) << (16 - 8 * index)
-        });
-        for index in 0..4 {
-            result.push(if index <= chunk.len() {
-                ALPHABET[(value >> (18 - 6 * index) & 63) as usize] as char
-            } else {
-                '='
-            });
-        }
-    }
-    result
-}
 
 fn credential(signer: &str) -> String {
     format!("{signer}/{}/auto/storage/goog4_request", &DATE[..8])

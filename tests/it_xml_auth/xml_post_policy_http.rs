@@ -1,4 +1,5 @@
 use crate::common;
+use crate::common::base64;
 use crate::common::process::declare_server;
 use common::TestDir;
 use common::http::Body;
@@ -128,23 +129,6 @@ impl Server {
     fn stop(&mut self) {
         self.0.stop();
     }
-}
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::new();
-    for chunk in bytes.chunks(3) {
-        let value = chunk.iter().enumerate().fold(0u32, |value, (index, byte)| {
-            value | u32::from(*byte) << (16 - index * 8)
-        });
-        for index in 0..4 {
-            result.push(if index <= chunk.len() {
-                ALPHABET[(value >> (18 - index * 6) & 63) as usize] as char
-            } else {
-                '='
-            });
-        }
-    }
-    result
 }
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()

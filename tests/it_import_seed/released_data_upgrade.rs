@@ -4,6 +4,7 @@
 //! show that a real user's directory upgrades.
 
 use crate::common;
+use crate::common::base64;
 
 use common::TestDir;
 use common::process::declare_server;
@@ -118,26 +119,6 @@ fn encode_component(name: &str) -> String {
             _ => format!("%{byte:02X}"),
         })
         .collect()
-}
-
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::new();
-    for chunk in bytes.chunks(3) {
-        let triple = chunk.iter().enumerate().fold(0u32, |acc, (index, &byte)| {
-            acc | u32::from(byte) << (16 - 8 * index)
-        });
-        for index in 0..4 {
-            if index <= chunk.len() {
-                out.push(char::from(
-                    ALPHABET[(triple >> (18 - 6 * index) & 63) as usize],
-                ));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }
 
 fn check_release(release: &str) {
