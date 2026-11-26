@@ -73,6 +73,47 @@ fn assert_unknown_list_field<T>(result: Result<T, Status>) {
 }
 
 #[tokio::test]
+async fn get_object_keeps_the_generation_without_acl_when_the_bucket_is_deleted() {
+    use crate::storage::{
+        fault::Step,
+        test_fixtures::{PERMISSIVE, pause_read, version},
+    };
+
+    let (_dir, storage) = setup(false).await;
+    write(&storage, vec![message("object", b"data")])
+        .await
+        .unwrap();
+    let request = get_request("object", &["name", "generation", "acl"]);
+    let mut expected = get(&storage, request.clone(), None).await.unwrap();
+    assert!(!expected.acl.is_empty());
+    expected.acl.clear();
+
+    let catalog = &storage.state.catalog;
+    let (reached, release) = pause_read(catalog, Step::BeforeObjectAclProjection);
+    let response = get(&storage, request, None);
+    tokio::pin!(response);
+    tokio::select! {
+        result = &mut response => panic!("GetObject finished before deletion: {result:?}"),
+        entered = reached => entered.unwrap(),
+    }
+    catalog
+        .delete_object(
+            version("grpc-io", "object", expected.generation),
+            Default::default(),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    catalog
+        .delete_bucket("grpc-io", Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    release.send(()).unwrap();
+    assert_eq!(response.await.unwrap(), expected);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn an_invalid_read_mask_is_reported_for_a_missing_object() {
     let (_dir, storage) = setup(false).await;
     assert_unknown_field(get(&storage, get_request("missing", &["noSuchField"]), None).await);

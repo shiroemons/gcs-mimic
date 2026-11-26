@@ -60,7 +60,8 @@ pub(super) fn open_appendable_in(
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
     let (record, blob) = selected_appendable(snapshot, catalog, target, conditions, access)?;
-    // If finalization unlinks the selected file before it opens, run_read retries on the writer.
+    // A pooled open racing a finalization unlink retries on the writer via run_read.
+    // On the writer, selection and open are already serialized with finalization.
     #[cfg(test)]
     {
         use crate::storage::catalog::fault::{self, Step};
