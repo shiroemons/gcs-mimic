@@ -757,8 +757,14 @@ mod tests {
             assert!(request.await.unwrap().unwrap_err().is_backend_failure());
             assert_eq!(catalog.pending_faults(), 0);
             clean(&catalog, &path.0, &transfer.id).await;
-            let files = UploadCleanup::observe(&path.0, catalog.active_uploads());
-            assert!(files.is_complete(), "{step:?}: {files:?}");
+            let files = crate::test_support::eventually_some_async(
+                "snapshot reclamation to finish",
+                || async {
+                    let files = UploadCleanup::observe(&path.0, catalog.active_uploads());
+                    files.is_complete().then_some(files)
+                },
+            )
+            .await;
             assert_eq!(files.objects, 1);
             assert_eq!(
                 catalog
