@@ -15,25 +15,26 @@ fn table() -> Connection {
     connection
 }
 
-fn trace_rollbacks(connection: &mut Connection) -> Arc<AtomicUsize> {
-    let rollbacks = Arc::new(AtomicUsize::new(0));
-    let count = rollbacks.clone();
+fn trace_statements(connection: &mut Connection, expected: &'static str) -> Arc<AtomicUsize> {
+    let statements = Arc::new(AtomicUsize::new(0));
+    let count = statements.clone();
     connection
         .trace_v2(
             TraceEventCodes::SQLITE_TRACE_STMT,
             Some(move |event: TraceEvent<'_>| {
-                if let TraceEvent::Stmt(_, "ROLLBACK") = event {
+                if let TraceEvent::Stmt(_, sql) = event
+                    && sql == expected
+                {
                     count.fetch_add(1, Ordering::Relaxed);
                 }
             }),
         )
         .unwrap();
-    rollbacks
+    statements
 }
 
-#[test]
-fn a_failed_commit_rolls_back_the_transaction() {
-    let mut connection = Connection::open_in_memory().unwrap();
+fn foreign_keys() -> Connection {
+    let connection = Connection::open_in_memory().unwrap();
     connection
         .execute_batch(
             "PRAGMA foreign_keys = ON;
@@ -41,7 +42,13 @@ fn a_failed_commit_rolls_back_the_transaction() {
              CREATE TABLE children (parent INTEGER REFERENCES parents(id) DEFERRABLE INITIALLY DEFERRED);",
         )
         .unwrap();
-    let rollbacks = trace_rollbacks(&mut connection);
+    connection
+}
+
+#[test]
+fn a_failed_commit_rolls_back_the_transaction() {
+    let mut connection = foreign_keys();
+    let rollbacks = trace_statements(&mut connection, "ROLLBACK");
     let transaction = immediate(&mut connection).unwrap();
     exec(&transaction, "INSERT INTO children VALUES (1)", []).unwrap();
     assert!(matches!(
@@ -67,7 +74,7 @@ fn an_automatic_sqlite_rollback_needs_no_drop_rollback() {
         [],
     )
     .unwrap();
-    let rollbacks = trace_rollbacks(&mut connection);
+    let rollbacks = trace_statements(&mut connection, "ROLLBACK");
     let transaction = immediate(&mut connection).unwrap();
     exec(&transaction, "INSERT INTO entries VALUES (1)", []).unwrap();
     assert!(matches!(
@@ -137,6 +144,61 @@ fn immediate_reports_a_busy_writer_and_can_retry() {
     immediate(&mut second).unwrap().commit().unwrap();
 }
 
+#[test]
+fn a_deferred_write_does_not_reserve_the_writer_at_begin() {
+    let dir = TestDir::new();
+    let path = dir.0.join("writer.sqlite3");
+    let mut first = Connection::open(&path).unwrap();
+    let mut second = Connection::open(&path).unwrap();
+    exec(&first, "CREATE TABLE entries (id INTEGER)", []).unwrap();
+    second.busy_timeout(Duration::ZERO).unwrap();
+    let begins = trace_statements(&mut second, "BEGIN DEFERRED");
+
+    let held = immediate(&mut first).unwrap();
+    let transaction = second.transaction().unwrap();
+    assert_eq!(begins.load(Ordering::Relaxed), 1);
+    assert!(matches!(
+        exec(&transaction, "INSERT INTO entries VALUES (1)", []),
+        Err(Error::SqliteFailure(error, _)) if error.code == ErrorCode::DatabaseBusy
+    ));
+    drop(transaction);
+    assert!(second.is_autocommit());
+    held.commit().unwrap();
+    let transaction = second.transaction().unwrap();
+    exec(&transaction, "INSERT INTO entries VALUES (1)", []).unwrap();
+    transaction.commit().unwrap();
+}
+
+#[test]
+fn deferred_commit_failure_and_drop_each_roll_back() {
+    let mut connection = foreign_keys();
+    let rollbacks = trace_statements(&mut connection, "ROLLBACK");
+    let transaction = connection.transaction().unwrap();
+    exec(&transaction, "INSERT INTO children VALUES (1)", []).unwrap();
+    assert!(matches!(
+        transaction.commit(),
+        Err(Error::SqliteFailure(error, _))
+            if error.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY
+    ));
+    assert!(connection.is_autocommit());
+    assert_eq!(rollbacks.load(Ordering::Relaxed), 1);
+
+    let transaction = connection.transaction().unwrap();
+    exec(&transaction, "INSERT INTO parents VALUES (1)", []).unwrap();
+    drop(transaction);
+    assert!(connection.is_autocommit());
+    assert_eq!(rollbacks.load(Ordering::Relaxed), 2);
+    assert_eq!(
+        scalar::<u32>(
+            &connection,
+            "SELECT (SELECT count(*) FROM parents) + (SELECT count(*) FROM children)",
+            [],
+        )
+        .unwrap(),
+        0
+    );
+}
+
 #[tokio::test]
 async fn committing_a_new_bucket_uses_one_writer_job() {
     let dir = TestDir::new();
@@ -144,6 +206,19 @@ async fn committing_a_new_bucket_uses_one_writer_job() {
     let (writes, reads) = catalog.job_counts();
     catalog
         .insert_bucket(bucket("bucket", "project"))
+        .await
+        .unwrap();
+    assert_eq!(catalog.job_counts(), (writes + 1, reads));
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn configuring_notifications_uses_one_writer_job() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let (writes, reads) = catalog.job_counts();
+    catalog
+        .configure_notifications(&crate::notification::Runtime::default())
         .await
         .unwrap();
     assert_eq!(catalog.job_counts(), (writes + 1, reads));
