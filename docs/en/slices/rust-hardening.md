@@ -841,8 +841,8 @@ live blob (`publish_pinned`).
 
 ### Multipart and batch parsing
 
-`memchr` (2.8.3, already locked) becomes a direct dependency under the
-dependency policy.
+`memchr` 2.8.3 is a direct dependency. The direct edge reused the locked
+version.
 
 - **`multipart::Delimiter`.** It holds the delimiter and a
   `memmem::Finder`, used by both multipart and batch parsing.
@@ -857,6 +857,13 @@ dependency policy.
   delimiter prefixes against the whole-body parse. A test asserting 8 KiB
   chunks pinned the old copy size, not a behavior; it now asserts the frame
   size and the carry bound.
+
+One 256 MiB JSON multipart upload per implementation on macOS 27.2.1 arm64
+(Rust 1.100.0, release build, curl over loopback) took 1.284366 s with the
+copying parser and 0.846357 s with the frame-slice parser. Server CPU time
+fell from 1.97 s to 1.21 s. Both uploads returned HTTP 200 with the same
+size, MD5 and CRC32C. These results supported adopting the frame-slice
+parser. The run did not record whether other builds were active.
 
 ### Smaller items
 
@@ -1176,7 +1183,7 @@ The ledger records these as DESIGN-105 cases:
 | `DESIGN-105-WRITER-IO` | No executor thread reaches a durability seam outside the reset and reseed allowance; every test that closes a catalog checks it. |
 | `DESIGN-105-READ-ROUTING` | Read-only jobs run on the read pool, see completed writes, fall back under exclusive reservations and failures, and never answer `SQLITE_READONLY`. |
 | `DESIGN-105-ROUND-TRIPS` | Writer and reader job counts per operation match the round-trip table. |
-| `DESIGN-105-BODY-IO` | Staged writes and copies run as bounded blocking jobs, with failed-write, failed-sync, crash and power-loss coverage for each path. |
+| `DESIGN-105-BODY-IO` | Multipart parsing returns slices of the received frames and retains less than one delimiter between frames. Staged writes and copies run as bounded blocking jobs, with failed-write, failed-sync, crash and power-loss coverage for each path. |
 | `DESIGN-105-PROTOCOL` | Multipart and batch parsing, gRPC `ReadObject` and the smaller adapter items keep their wire behavior. |
 | `DESIGN-105-LAYERS` | The layer and adapter rules are zero tolerance. |
 | `DESIGN-105-ERRORS` | Adapters map protocol-neutral errors exhaustively; `ApiError` is private to JSON; chains repeat no text; `io::Error::other` remains only under reasoned expectations. |
