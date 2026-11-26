@@ -167,7 +167,7 @@ fn filesystem_failures_convert_as_io_failures() {
     );
     assert!(std::error::Error::source(&unsupported).is_none());
     assert_eq!(
-        crate::error::Report(&unsupported).to_string(),
+        crate::error::Report::chain(&unsupported).to_string(),
         "administrative operation: Io(Unsupported)"
     );
     assert!(matches!(

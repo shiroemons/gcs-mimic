@@ -131,6 +131,31 @@ impl fmt::Display for ImportError {
     }
 }
 
+/// A cleanup has two branches. The journal uses the public Display above, while a diagnostic
+/// report finishes the original branch before it names the failed cleanup.
+impl fmt::Display for crate::error::Report<'_, ImportError> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let ImportError::Cleanup {
+            original,
+            operation,
+            cause,
+        } = self.0
+        {
+            #[cfg(test)]
+            crate::error::assert_distinct_causes(self.0);
+            write!(
+                f,
+                "{}; {}: {}",
+                crate::error::Report(original.as_ref()),
+                operation.message(),
+                crate::error::Report(cause.as_ref()),
+            )
+        } else {
+            crate::error::Report::chain(self.0).fmt(f)
+        }
+    }
+}
+
 impl Error for ImportError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -324,8 +349,12 @@ mod tests {
         let error = ImportError::Catalog(original)
             .with_cleanup(CleanupOperation::Catalog, io::Error::other("close detail"));
         assert_eq!(
+            error.to_string(),
+            "catalog I/O: permission denied; catalog close also failed: close detail"
+        );
+        assert_eq!(
             crate::error::Report(&error).to_string(),
-            "catalog I/O: permission denied; catalog close also failed: close detail: disk detail"
+            "catalog I/O: permission denied: disk detail; catalog close also failed: close detail"
         );
         assert_eq!(
             error

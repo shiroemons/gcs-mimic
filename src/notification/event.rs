@@ -205,7 +205,7 @@ mod tests {
             "catalog corrupt: invalid notification timestamp"
         );
         assert_eq!(
-            crate::error::Report(&error).to_string(),
+            crate::error::Report::chain(&error).to_string(),
             "catalog corrupt: invalid notification timestamp: 503 Service Unavailable: Bucket timestamp is outside the supported RFC 3339 range"
         );
     }

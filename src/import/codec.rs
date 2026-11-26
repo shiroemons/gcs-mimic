@@ -632,13 +632,13 @@ mod tests {
             TimestampError::OUTSIDE_PLATFORM_RANGE,
         ));
         assert_eq!(error.to_string(), OUTER);
-        assert_eq!(crate::error::Report(&error).to_string(), CHAIN);
+        assert_eq!(crate::error::Report::chain(&error).to_string(), CHAIN);
         // Windows SystemTime starts in 1601, so only it reaches this through parsing.
         #[cfg(not(unix))]
         {
             let error = parse_bucket_timestamp("0000-01-01T00:00:00Z").unwrap_err();
             std::assert_matches!(error.0, Kind::BucketTimeRange(_), "{error:?}");
-            assert_eq!(crate::error::Report(&error).to_string(), CHAIN);
+            assert_eq!(crate::error::Report::chain(&error).to_string(), CHAIN);
         }
     }
 }

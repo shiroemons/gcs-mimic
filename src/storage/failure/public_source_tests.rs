@@ -1,4 +1,4 @@
-//! Typed links retained until the Cause vocabulary slice can change their classification.
+//! Public Display/source pairs whose observable contract is up for review in Public facade.
 
 use super::{BackendCause, BackendFailure, IoCause, Link, TypedSource};
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
         ResumableError,
         catalog::{ConnectionUnavailable, ExecutorError, RollbackError},
         hmac_keys::HmacKeyError,
-        import_journal::{JournalFailure, ResumeError},
+        import_journal::ResumeError,
         xml_multipart,
     },
 };
@@ -23,9 +23,9 @@ struct Exception {
     example: fn() -> Box<Node>,
 }
 
-// Each row also constructs a real chain. The test below fails when a source or its wording
-// changes so that the exception can be removed alongside the Cause vocabulary migration.
-const CLASSIFIED: &[Exception] = &[
+// Embedders can log these errors directly and inspect their concrete cause. Each exception
+// expires when Public facade settles that contract; a stale example fails immediately.
+const PUBLIC_PAIRS: &[Exception] = &[
     // BackendCause::failure and sqlite_extended_code inspect the chain held by this context.
     Exception {
         matches: |outer, inner| {
@@ -44,13 +44,16 @@ const CLASSIFIED: &[Exception] = &[
         },
         example: || Box::new(IoCause::from(io::Error::from(io::ErrorKind::StorageFull))),
     },
-    // Catalog corruption and unavailability retain SQLite codes, backend guidance and resume refusals.
+    // Catalog corruption and unavailability expose the same concrete SQLite or backend cause.
     Exception {
         matches: |outer, inner| matches!(outer.downcast_ref(), Some(CatalogError::Corrupt(cause) | CatalogError::Unavailable(cause)) if classified(cause.typed_source(), inner)),
         example: || {
-            Box::new(CatalogError::from(ResumeError::PermanentlyFailed {
-                reason: JournalFailure::ElementRejected,
-            }))
+            Box::new(CatalogError::Corrupt(BackendCause::from_error(
+                rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+                    None,
+                ),
+            )))
         },
     },
     // The catalog's I/O classification retains the error behind the kind or recovery context.
@@ -81,29 +84,6 @@ const CLASSIFIED: &[Exception] = &[
             ))
         },
     },
-    // An unrecovered connection's rollback cause leads sqlite_extended_code to the database error.
-    Exception {
-        matches: |outer, inner| {
-            matches!(
-                outer.downcast_ref(),
-                Some(ConnectionUnavailable::Unrecovered(_))
-            ) && inner.is::<RollbackError>()
-        },
-        example: || Box::new(ConnectionUnavailable::Unrecovered(RollbackError::StillOpen)),
-    },
-    // The database code on a failed rollback is used in backend failure events.
-    Exception {
-        matches: |outer, inner| {
-            matches!(outer.downcast_ref(), Some(RollbackError::Rollback(_)))
-                && inner.is::<rusqlite::Error>()
-        },
-        example: || {
-            Box::new(RollbackError::Rollback(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
-                None,
-            )))
-        },
-    },
     // Startup follows nested seed failures to give disk, memory and fixture-specific remedies.
     Exception {
         matches: |outer, inner| matches!(outer.downcast_ref(), Some(SeedError::Entry { source, .. } | SeedError::Import(source)) if inner.downcast_ref().is_some_and(|cause| std::ptr::eq(source.as_ref(), cause))),
@@ -118,8 +98,18 @@ fn classified(link: Option<Link<'_>>, inner: &Node) -> bool {
         | Link::Context(_)
         | Link::Io(_)
         | Link::Sqlite(_)
-        | Link::Typed(_)
         | Link::Unopenable(_) => std::ptr::addr_eq(link.as_error(), inner),
+        Link::Typed(_) => {
+            let error = link.as_error();
+            (error.is::<CatalogError>()
+                || error.is::<ObjectError>()
+                || error.is::<ResumeError>()
+                || error.is::<crate::storage::admin::AdminError>()
+                || error.is::<ConnectionUnavailable>()
+                || error.is::<ExecutorError>()
+                || error.is::<RollbackError>())
+                && std::ptr::addr_eq(error, inner)
+        }
         Link::Leaf(_) => false,
     })
 }
@@ -154,14 +144,14 @@ fn inherits_exception(outer: &Node, payload: &Node, inner: &Node) -> bool {
         && payload
             .source()
             .is_some_and(|source| std::ptr::addr_eq(source, inner))
-        && deferred(payload, inner)
+        && public_pair(payload, inner)
 }
 
-pub(crate) fn deferred(outer: &Node, inner: &Node) -> bool {
+pub(crate) fn public_pair(outer: &Node, inner: &Node) -> bool {
     if let Some(payload) = transparent_payload(outer) {
         return inherits_exception(outer, payload, inner);
     }
-    CLASSIFIED.iter().any(|row| (row.matches)(outer, inner))
+    PUBLIC_PAIRS.iter().any(|row| (row.matches)(outer, inner))
 }
 
 #[test]
@@ -172,9 +162,29 @@ fn closed_connection_and_executor_keep_their_guidance_without_a_synthetic_source
     ] {
         let error = source.as_error();
         assert!(error.source().is_none());
-        assert_eq!(crate::error::Report(error).to_string(), "catalog is closed");
+        assert_eq!(
+            crate::error::Report::chain(error).to_string(),
+            "catalog is closed"
+        );
         assert_eq!(source.link().failure(), Some(BackendFailure::CatalogClosed));
     }
+}
+
+#[test]
+fn rollback_context_preserves_every_cause_without_repeating_its_message() {
+    let sqlite = rusqlite::Error::InvalidQuery;
+    let message = sqlite.to_string();
+    let error = ConnectionUnavailable::Unrecovered(RollbackError::Rollback(sqlite));
+    let rollback = error
+        .source()
+        .unwrap()
+        .downcast_ref::<RollbackError>()
+        .unwrap();
+    assert!(rollback.source().unwrap().is::<rusqlite::Error>());
+    assert_eq!(
+        crate::error::Report::chain(&error).to_string(),
+        format!("catalog connection is unusable: transaction could not be rolled back: {message}")
+    );
 }
 
 #[test]
@@ -201,8 +211,11 @@ fn assert_reports_payload<E: Error + 'static, W: Error + 'static>(
     payload: E,
     wrap: impl FnOnce(E) -> W,
 ) {
-    let expected = crate::error::Report(&payload).to_string();
-    assert_eq!(crate::error::Report(&wrap(payload)).to_string(), expected);
+    let expected = crate::error::Report::chain(&payload).to_string();
+    assert_eq!(
+        crate::error::Report::chain(&wrap(payload)).to_string(),
+        expected
+    );
 }
 
 #[test]
@@ -234,7 +247,7 @@ fn import_reports_a_classified_resume_cause() {
 fn a_changed_message_does_not_inherit_the_payload_exception() {
     let payload = disk_full();
     let source = payload.source().unwrap();
-    assert!(deferred(&payload, source));
+    assert!(public_pair(&payload, source));
     assert!(!inherits_exception(
         &io::Error::other("different text"),
         &payload,
@@ -247,13 +260,29 @@ fn a_different_source_does_not_inherit_the_payload_exception() {
     let outer = ImportError::Catalog(disk_full());
     let other = disk_full();
     assert_eq!(outer.to_string(), other.to_string());
-    assert!(deferred(&outer, outer.source().unwrap()));
-    assert!(!deferred(&outer, other.source().unwrap()));
+    assert!(public_pair(&outer, outer.source().unwrap()));
+    assert!(!public_pair(&outer, other.source().unwrap()));
 }
 
 #[test]
-fn deferred_classified_sources_still_repeat_their_text() {
-    for row in CLASSIFIED {
+fn public_catalog_report_retains_its_historical_sqlite_suffix() {
+    let sqlite = rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+        Some("malformed stored row".into()),
+    );
+    let ffi = sqlite.source().unwrap().to_string();
+    let error = CatalogError::from(sqlite);
+    assert_eq!(error.to_string(), "catalog corrupt: malformed stored row");
+    assert!(error.source().unwrap().is::<rusqlite::Error>());
+    assert_eq!(
+        crate::error::Report::chain(&error).to_string(),
+        format!("catalog corrupt: malformed stored row: malformed stored row: {ffi}")
+    );
+}
+
+#[test]
+fn public_source_exceptions_still_match_the_held_error_and_its_text() {
+    for row in PUBLIC_PAIRS {
         let outer = (row.example)();
         let inner = outer.source().expect("the classified link is retained");
         assert!((row.matches)(&*outer, inner), "{outer:?} -> {inner:?}");

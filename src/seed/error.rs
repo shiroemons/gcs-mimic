@@ -67,7 +67,10 @@ impl fmt::Display for SeedError {
 
 impl SeedError {
     pub(crate) fn failed_pass_diagnostic(&self) -> String {
-        crate::error::Report(self).to_string()
+        if let Self::Admin(error) | Self::BucketName(error) = self {
+            return error.diagnostic_report().to_string();
+        }
+        crate::error::Report::chain(self).to_string()
     }
 
     /// This error as a pass report states it, in `problems[].reason` and `error`.

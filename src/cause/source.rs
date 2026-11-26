@@ -10,6 +10,11 @@ pub(crate) struct Source(Box<dyn Layer>);
 pub(crate) trait Layer: Error + Send + Sync + 'static {
     fn link(&self) -> Link<'_>;
 
+    /// A cause included in this layer's historical public diagnostic.
+    fn embedded_cause(&self) -> Option<Link<'_>> {
+        None
+    }
+
     fn failure(&self) -> Option<BackendFailure> {
         None
     }
@@ -119,6 +124,18 @@ pub(crate) trait TypedSource {
 /// `first` and every link below it, outermost first.
 pub(crate) fn chain(first: Link<'_>) -> impl Iterator<Item = Link<'_>> {
     std::iter::successors(Some(first), |link| link.source())
+}
+
+impl fmt::Display for Link<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self.as_error(), f)?;
+        if let Self::Typed(layer) = self
+            && let Some(cause) = layer.embedded_cause()
+        {
+            write!(f, ": {cause}")?;
+        }
+        Ok(())
+    }
 }
 
 impl fmt::Display for Source {

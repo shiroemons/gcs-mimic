@@ -375,7 +375,7 @@ pub(crate) fn topic_unverifiable(error: &notification::TopicCheckError) -> ApiEr
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
         crate::diagnostics::Event::NotificationTopicCheckFailed,
-        json!({"cause": Report(error).to_string()}),
+        json!({"cause": Report::chain(error).to_string()}),
     );
     ApiError::service_unavailable(
         "Could not confirm that the Cloud Pub/Sub topic exists: the configured local Pub/Sub emulator is unreachable or gave an unexpected answer; start or repair the emulator (pubsub_emulator_host), then retry",
@@ -691,7 +691,7 @@ mod topic_check_tests {
         let error =
             TopicCheckError::Unreachable(std::io::Error::other("connection refused").into());
         assert_eq!(
-            Report(&error).to_string(),
+            Report::chain(&error).to_string(),
             "Pub/Sub emulator topic lookup failed: connection refused"
         );
     }

@@ -2,19 +2,27 @@ use std::error::Error;
 
 /// An error and its causes on one line, skipping a cause that displays the same text as the
 /// one above it.
-pub(crate) struct Report<'a>(pub(crate) &'a (dyn Error + 'static));
+pub(crate) struct Report<'a, E: ?Sized = dyn Error + 'static>(pub(crate) &'a E);
+
+impl<'a> Report<'a> {
+    pub(crate) fn chain(error: &'a (dyn Error + 'static)) -> Self {
+        Self(error)
+    }
+}
 impl std::fmt::Display for Report<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         #[cfg(test)]
         assert_distinct_causes(self.0);
-        join(f, self.0)
+        join(f, causes(self.0).map(ToString::to_string))
     }
 }
 
-fn join(output: &mut impl std::fmt::Write, error: &(dyn Error + 'static)) -> std::fmt::Result {
+pub(crate) fn join(
+    output: &mut impl std::fmt::Write,
+    messages: impl Iterator<Item = String>,
+) -> std::fmt::Result {
     let mut previous = None;
-    for cause in causes(error) {
-        let message = cause.to_string();
+    for message in messages {
         if previous.as_ref() == Some(&message) {
             continue;
         }
@@ -43,7 +51,7 @@ pub(crate) fn assert_distinct_causes(error: &(dyn Error + 'static)) {
         assert!(
             !outer.to_string().ends_with(&inner.to_string())
                 || upstream_repeat(outer, inner)
-                || crate::storage::failure::repeated_source_tests::deferred(outer, inner),
+                || crate::storage::failure::public_source_tests::public_pair(outer, inner),
             "error repeats its source: {outer:?} -> {inner:?}"
         );
         outer = inner;
@@ -88,7 +96,7 @@ mod tests {
         let source = error.source().unwrap();
         assert!(source.is::<rusqlite::ffi::Error>());
         assert_eq!(error.to_string(), source.to_string());
-        assert_eq!(Report(&error).to_string(), source.to_string());
+        assert_eq!(Report::chain(&error).to_string(), source.to_string());
         assert_distinct_causes(&error);
     }
 
@@ -122,14 +130,14 @@ mod tests {
         let error = io::Error::other(io::Error::other(Wrapped(io::Error::from_raw_os_error(
             libc::EMFILE,
         ))));
-        let _ = Report(&error).to_string();
+        let _ = Report::chain(&error).to_string();
     }
 
     #[test]
     fn joining_adjacent_equal_messages_writes_the_text_once() {
         let error = Wrapped(io::Error::other("disk detail"));
         let mut message = String::new();
-        join(&mut message, &error).unwrap();
+        join(&mut message, causes(&error).map(ToString::to_string)).unwrap();
         assert_eq!(message, "disk detail");
     }
 
@@ -162,7 +170,7 @@ mod tests {
                 Some(&self.0)
             }
         }
-        let _ = Report(&Prefixed(io::ErrorKind::TimedOut.into())).to_string();
+        let _ = Report::chain(&Prefixed(io::ErrorKind::TimedOut.into())).to_string();
     }
 
     /// Each `io::Error` shows its payload's text and hands over the payload's own source, so

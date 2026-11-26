@@ -309,7 +309,7 @@ struct Unfinished {
 /// causes, such as the I/O error under a manifest that could not be parsed.
 pub(super) fn unreadable(path: &Path, error: &(dyn Error + 'static)) {
     let path = path.display().to_string();
-    let error = Report(error).to_string();
+    let error = Report::chain(error).to_string();
     emit(
         LogLevel::Warn,
         Event::SyncRetiredFilesUnchecked,
@@ -328,7 +328,7 @@ pub(super) fn unreadable(path: &Path, error: &(dyn Error + 'static)) {
 /// later attempt removes it; this one stages under a name of its own.
 pub(super) fn staged_kept(path: &Path, error: &(dyn Error + 'static)) {
     let path = path.display().to_string();
-    let error = Report(error).to_string();
+    let error = Report::chain(error).to_string();
     emit(
         LogLevel::Warn,
         Event::SyncRetiredStagedKept,

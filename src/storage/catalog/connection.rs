@@ -32,7 +32,7 @@ impl std::fmt::Display for ConnectionUnavailable {
             Self::Panicked => {
                 f.write_str("catalog operation panicked; its changes were rolled back")
             }
-            Self::Unrecovered(error) => write!(f, "catalog connection is unusable: {error}"),
+            Self::Unrecovered(_) => f.write_str("catalog connection is unusable"),
         }
     }
 }
@@ -58,6 +58,10 @@ impl Layer for ConnectionUnavailable {
     }
 
     fn next(&self) -> Option<Link<'_>> {
+        self.typed_source()
+    }
+
+    fn embedded_cause(&self) -> Option<Link<'_>> {
         self.typed_source()
     }
 
@@ -109,7 +113,7 @@ pub(crate) enum RollbackError {
 impl std::fmt::Display for RollbackError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Rollback(error) => write!(f, "transaction could not be rolled back: {error}"),
+            Self::Rollback(_) => f.write_str("transaction could not be rolled back"),
             Self::StillOpen => f.write_str("connection is still inside a transaction"),
             #[cfg(test)]
             Self::Injected => f.write_str("injected rollback failure"),
@@ -120,6 +124,20 @@ impl std::fmt::Display for RollbackError {
 impl std::error::Error for RollbackError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.typed_source().map(Link::as_error)
+    }
+}
+
+impl Layer for RollbackError {
+    fn link(&self) -> Link<'_> {
+        Link::Typed(self)
+    }
+
+    fn next(&self) -> Option<Link<'_>> {
+        self.typed_source()
+    }
+
+    fn embedded_cause(&self) -> Option<Link<'_>> {
+        self.typed_source()
     }
 }
 

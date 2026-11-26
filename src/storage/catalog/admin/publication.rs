@@ -557,7 +557,7 @@ async fn cleanup(catalog: &Catalog, ids: Vec<BlobId>) -> Result<(), AdminError> 
                     || {
                         serde_json::Value::from_iter([(
                             "message",
-                            crate::error::Report(&previous).to_string(),
+                            crate::error::Report::chain(&previous).to_string(),
                         )])
                     },
                 );

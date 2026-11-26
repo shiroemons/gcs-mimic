@@ -91,7 +91,7 @@ fn a_full_database_names_the_memory_catalog_budget_only_inside_its_job() {
             "the SQLite failure stays in the cause chain"
         );
         assert_eq!(
-            crate::error::Report(&CatalogError::Io(cause)).to_string(),
+            crate::error::Report::chain(&CatalogError::Io(cause)).to_string(),
             "catalog I/O: no storage space: RAM catalog page budget exhausted; increase memory_catalog_max_bytes: Error code 13: database or disk is full"
         );
     }
@@ -378,8 +378,8 @@ fn an_other_io_cause_reports_like_an_io_error_wrapper() {
     assert_eq!(typed.to_string(), wrapped.to_string());
     assert_eq!(format!("{typed:?}"), format!("{wrapped:?}"));
     assert_eq!(
-        crate::error::Report(&typed).to_string(),
-        crate::error::Report(&wrapped).to_string()
+        crate::error::Report::chain(&typed).to_string(),
+        crate::error::Report::chain(&wrapped).to_string()
     );
     assert!(typed.source().unwrap().is::<ResumeError>());
 }

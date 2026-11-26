@@ -141,7 +141,7 @@ impl BackendCause {
     pub(crate) fn from_error(error: impl Into<Source>) -> Self {
         let source = error.into();
         Self {
-            message: source.to_string().into(),
+            message: source.link().to_string().into(),
             source: Some(Arc::new(source)),
         }
     }

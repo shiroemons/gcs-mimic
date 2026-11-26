@@ -128,7 +128,9 @@ use buckets::{
     BucketCreation, Cors, create_bucket_in_transaction, insert_bucket_in_transaction, read_bucket,
     remove_live_bucket, remove_objects,
 };
-pub(in crate::storage) use connection::{ConnectionUnavailable, RollbackError};
+pub(in crate::storage) use connection::ConnectionUnavailable;
+#[cfg(test)]
+pub(in crate::storage) use connection::RollbackError;
 #[cfg(test)]
 pub(in crate::storage) use executor::ExecutorError;
 use keyset::After;

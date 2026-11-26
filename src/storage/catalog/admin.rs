@@ -334,6 +334,22 @@ impl AdminError {
         }
     }
 
+    /// The failed-pass warning predates the separation of rollback context from its cause.
+    pub(crate) fn diagnostic_report(&self) -> impl fmt::Display + '_ {
+        fmt::from_fn(|f| {
+            #[cfg(test)]
+            crate::error::assert_distinct_causes(self);
+            let sources = self
+                .typed_source()
+                .into_iter()
+                .flat_map(crate::cause::chain);
+            crate::error::join(
+                f,
+                std::iter::once(self.to_string()).chain(sources.map(|link| link.to_string())),
+            )
+        })
+    }
+
     /// Wraps a failure outside the catalog's own classification, keeping it as the source.
     pub(crate) fn backend(error: impl Into<crate::storage::failure::Source>) -> Self {
         Self::Backend(BackendCause::from_error(error))

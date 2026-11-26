@@ -55,7 +55,7 @@ fn stored_timestamps_keep_the_range_error_as_the_source() {
     let source = Source::from(crate::time_format::TimeOutOfRange);
     assert!(source.as_error().is::<crate::time_format::TimeOutOfRange>());
     assert_eq!(
-        crate::error::Report(source.as_error()).to_string(),
+        crate::error::Report::chain(source.as_error()).to_string(),
         crate::time_format::TimeOutOfRange::MESSAGE
     );
 }
@@ -84,7 +84,7 @@ fn assert_chain_matches(first: Link<'_>) {
     let typed: Vec<_> = chain(first).map(Link::as_error).collect();
     let plain: Vec<_> =
         std::iter::successors(Some(first.as_error()), |&error| error.source()).collect();
-    let report = crate::error::Report(first.as_error()).to_string();
+    let report = crate::error::Report::chain(first.as_error()).to_string();
     assert_eq!(typed.len(), plain.len(), "{report}");
     for (typed, plain) in typed.into_iter().zip(plain) {
         assert!(

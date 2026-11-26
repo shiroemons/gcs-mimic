@@ -4,10 +4,13 @@ use crate::cause::{Layer, Link, MemoryBudget, MemoryExhausted, TypedSource};
 use crate::{
     bucket::CatalogError,
     object::ObjectError,
-    storage::{admin::AdminError, catalog::RollbackError, import_journal::ResumeError, memory::BlobError},
+    storage::{admin::AdminError, import_journal::ResumeError, memory::BlobError},
 };
 #[cfg(test)]
-use crate::cause::{BackendCause, BackendFailure, Source, chain};
+use crate::{
+    cause::{BackendCause, BackendFailure, Source, chain},
+    storage::catalog::RollbackError,
+};
 #[cfg(test)]
 use std::{error::Error, io};
 
@@ -25,7 +28,7 @@ macro_rules! classified_layers {
     };
 }
 
-classified_layers!(CatalogError, ObjectError, AdminError, ResumeError, RollbackError);
+classified_layers!(CatalogError, ObjectError, AdminError, ResumeError);
 
 /// A full RAM store exposes the budget; its other failures expose the original error.
 impl Layer for BlobError {

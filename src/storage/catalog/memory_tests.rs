@@ -352,7 +352,10 @@ fn assert_blob_budget_exhausted(error: &ObjectError) {
         cause.memory_budget(),
         Some(crate::storage::failure::MemoryBudget::Blobs)
     );
-    assert_eq!(crate::error::Report(error).to_string(), BLOB_BUDGET_REPORT);
+    assert_eq!(
+        crate::error::Report::chain(error).to_string(),
+        BLOB_BUDGET_REPORT
+    );
 }
 
 #[tokio::test]

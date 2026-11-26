@@ -533,28 +533,35 @@ A further split waits until after `1.0.0`:
     whose `source()` returns the cause's source.
 - `ImportError::Cleanup` carries two failures. Its journal text gives the
   original failure first and the cleanup failure second. Its `source()`
-  follows the original failure's underlying cause, so a report can place that
-  detail after the cleanup failure. The Cause vocabulary slice will address
-  report ordering while preserving the journal text.
+  follows the original failure's underlying cause. Its typed report finishes
+  the original cause chain before reporting the cleanup and its causes.
 - Transparent CLI, import, resume and adapter errors forward their cause's
   source. Texts the import journal stores stay byte-identical. Storage
   classification still reads typed source links for backend guidance, SQLite
-  result codes, memory budgets and journal refusals. The Cause vocabulary
-  slice removes their remaining repeated text while preserving those decisions.
+  result codes and memory budgets. Import receives journal refusals directly.
 - **Enforcement:**
   - a test helper that fails when a link's text equals or ends with the next
     link's, called from every exhaustive error table;
-  - `Report` panics on a repeat in tests. Separate test-only tables identify
-    known rusqlite source pairs (`src/error.rs`) and the classified links
-    deferred to Cause vocabulary (`src/storage/failure/repeated_source_tests.rs`).
-    Tests pin the repeats so a stale exception fails;
+  - `Report` panics on a repeat in tests. Separate test tables pin rusqlite's
+    own repeated sources and public error pairs in
+    `src/storage/failure/public_source_tests.rs`. Embedders can print these
+    errors and inspect their concrete sources. Revisit these seven groups in
+    Public facade: `BackendCause`, `IoCause`, catalog corrupt/unavailable,
+    catalog I/O, object corrupt/unavailable/body aborted, object I/O, and seed
+    entry/import. A transparent wrapper inherits an exception only for the
+    same text and the same source object;
   - the `text::error_displays_source` rule rejects a `#[error]` format that
     interpolates its own source.
 - **`Report`** joins the display text of successive causes, including for
   notification lookups. Adjacent equal messages are emitted once. For example,
   SQLite can return a `rusqlite::Error::SqliteFailure(_, None)` whose display
   is its FFI source's display. Both concrete errors remain in `source()`, and
-  the diagnostic keeps the single copy it has always printed.
+  the diagnostic keeps the single copy it has always printed. A public catalog
+  corruption report retains the SQLite message in both its prefixed display and
+  its source. The import CLI prints the prefixed display once. The seed watch's
+  existing rollback warning includes each nested catalog context in full.
+  Its boundary test pins those repeated bytes; a report of the private rollback
+  error itself gives the context and the concrete SQLite cause once.
 - **thiserror.** Types are converted module by module. `#[from]` never replaces
   a `classified_from!` conversion, and the ten `TypedSource` types keep their
   hand-written `source()`. `SeedError` also implements `source()` by hand so
