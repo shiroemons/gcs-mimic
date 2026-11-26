@@ -2,7 +2,7 @@
 //! signed URL, and the session URI it returns. Sessions, transfers and completion are the
 //! shared resumable engine; this adapter only parses XML requests and renders XML responses.
 
-use super::{Error, HeaderKind, ObjectPath, XmlCode, accepted_parameter, put};
+use super::{Error, HeaderKind, ObjectPath, Validators, XmlCode, accepted_parameter, put};
 use crate::server::RequestBody as Incoming;
 use crate::{
     api_error::{ApiError, ErrorKind},
@@ -244,16 +244,7 @@ fn completed(value: &serde_json::Value) -> Result<Response<ResponseBody>, Error>
         text("etag").ok_or_else(unavailable)?,
     );
     let md5 = text("md5Hash");
-    // XML reports a plain object's MD5 as its ETag; other objects quote the JSON validator,
-    // matching `xml::object_etag`.
-    let plain = value.get("customerEncryption").is_none() && value.get("componentCount").is_none();
-    let etag = match md5 {
-        Some(md5) if plain => format!(
-            "\"{}\"",
-            crate::hashing::encode_lower(&crate::hashing::decode_hash::<16>(md5)?)
-        ),
-        _ => format!("\"{etag}\""),
-    };
+    let etag = Validators::for_completion(md5, value)?.etag(|| etag);
     let hash = md5.map_or_else(
         || format!("crc32c={crc32c}"),
         |md5| format!("crc32c={crc32c},md5={md5}"),

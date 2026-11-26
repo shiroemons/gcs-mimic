@@ -6,6 +6,7 @@ use crate::{
     bucket::BucketAccess,
     object::{
         ObjectConditions, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
+        content_type,
     },
     server::{
         ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed,
@@ -246,11 +247,7 @@ fn destination(
         .or(Some(source.storage_class));
     let mut metadata = if matches!(directive, MetadataDirective::Replace) {
         options.metadata.write = WriteMode::Replace;
-        options.metadata.content_type = Patch::Set(if options.content_type.is_empty() {
-            "application/octet-stream".into()
-        } else {
-            options.content_type
-        });
+        options.metadata.content_type = Patch::Set(content_type::or_default(options.content_type));
         options.metadata
     } else {
         // Publishing checks the encoded size as well, but only after the whole body is copied.

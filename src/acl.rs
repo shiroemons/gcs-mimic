@@ -717,6 +717,28 @@ pub(crate) const UNIFORM_ACCESS_UPLOAD_ACL: &str = "Cannot insert legacy ACL for
 /// (recorded 2026-11-17, case bkt-gaps-settings).
 pub(crate) const UNIFORM_ACCESS_UPDATE_OBJECT_ACL: &str = "Cannot update access control for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access";
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum AnonymousCannedAcl {
+    #[error("Anonymous callers cannot specify {0}; authenticate or omit {0}")]
+    Parameter(&'static str),
+    #[error(
+        "Anonymous callers cannot specify x-goog-acl on upload; authenticate or omit x-goog-acl"
+    )]
+    XmlUpload,
+}
+
+/// An anonymous write belongs to the project owners and cannot choose its ACL.
+pub(crate) fn refuse_anonymous_canned_acl(
+    access: &crate::bucket::BucketAccess,
+    refusal: AnonymousCannedAcl,
+) -> Result<(), AnonymousCannedAcl> {
+    if access.is_anonymous() {
+        Err(refusal)
+    } else {
+        Ok(())
+    }
+}
+
 crate::config::string_enum! {
     no_default listed
     /// A JSON API object `predefinedAcl` value. `publicReadWrite` is bucket-only and is not one.
@@ -919,6 +941,50 @@ impl PredefinedBucketAcl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn anonymous_canned_acl_refusals_keep_each_field_and_wording() {
+        use crate::{auth, bucket::BucketAccess};
+        let anonymous =
+            BucketAccess::for_caller(Some(auth::Caller::Anonymous), auth::OBJECTS_CREATE, None);
+        let identity = auth::Identity::from_upload_snapshot(
+            &serde_json::json!({"id": "writer@example.invalid", "projects": {}}),
+        )
+        .unwrap();
+        let authenticated = BucketAccess::for_caller(
+            Some(auth::Caller::Principal(&identity)),
+            auth::OBJECTS_CREATE,
+            None,
+        );
+        for (refusal, expected) in [
+            (
+                AnonymousCannedAcl::Parameter("predefinedAcl"),
+                "Anonymous callers cannot specify predefinedAcl; authenticate or omit predefinedAcl",
+            ),
+            (
+                AnonymousCannedAcl::Parameter("destinationPredefinedAcl"),
+                "Anonymous callers cannot specify destinationPredefinedAcl; authenticate or omit destinationPredefinedAcl",
+            ),
+            (
+                AnonymousCannedAcl::Parameter("destination_predefined_acl"),
+                "Anonymous callers cannot specify destination_predefined_acl; authenticate or omit destination_predefined_acl",
+            ),
+            (
+                AnonymousCannedAcl::XmlUpload,
+                "Anonymous callers cannot specify x-goog-acl on upload; authenticate or omit x-goog-acl",
+            ),
+        ] {
+            assert_eq!(
+                refuse_anonymous_canned_acl(&anonymous, refusal)
+                    .unwrap_err()
+                    .to_string(),
+                expected
+            );
+        }
+        for access in [authenticated, BucketAccess::Permissive] {
+            refuse_anonymous_canned_acl(&access, AnonymousCannedAcl::XmlUpload).unwrap();
+        }
+    }
 
     #[test]
     fn predefined_object_acls_round_trip_and_exclude_bucket_only_values() {

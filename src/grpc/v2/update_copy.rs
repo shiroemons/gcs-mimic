@@ -7,14 +7,14 @@ use super::{
     status::{invalid_field, unsupported},
 };
 use crate::{
-    acl::AclRequest,
+    acl::{AclRequest, AnonymousCannedAcl, refuse_anonymous_canned_acl},
     auth::{self, Caller},
     bucket::BucketAccess,
     csek::{CopyKeys, CustomerKey},
     grpc::validate::{self, NegativeGeneration},
     object::{
         ComposeSource, ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectTarget,
-        generation::Generation,
+        content_type, generation::Generation,
     },
     storage::{
         DerivedDestination, DerivedRequestGuard,
@@ -286,12 +286,17 @@ fn destination_acl(value: &str, access: &BucketAccess) -> Result<AclRequest, Sta
     let Some(acl) = canned_acl("destination_predefined_acl", value)? else {
         return Ok(AclRequest::Omitted);
     };
-    if access.is_anonymous() {
-        return Err(Status::invalid_argument(
-            "Anonymous callers cannot specify destination_predefined_acl; authenticate or omit destination_predefined_acl",
-        ));
-    }
+    refuse_anonymous_canned_acl(
+        access,
+        AnonymousCannedAcl::Parameter("destination_predefined_acl"),
+    )?;
     Ok(AclRequest::Predefined(acl))
+}
+
+impl From<AnonymousCannedAcl> for Status {
+    fn from(error: AnonymousCannedAcl) -> Self {
+        Self::invalid_argument(error.to_string())
+    }
 }
 
 /// Source and destination of a rewrite; names a request omits come from its token's binding.
@@ -564,7 +569,7 @@ impl Storage {
             .content_type
             .value()
             .cloned()
-            .unwrap_or_else(|| "application/octet-stream".into());
+            .unwrap_or_else(|| content_type::DEFAULT.to_owned());
         let destination = DerivedDestination {
             bucket: db.into(),
             name: dn.into(),
@@ -652,11 +657,7 @@ impl Storage {
         let destination = DerivedDestination {
             bucket: bucket.into(),
             name: name.into(),
-            content_type: if o.content_type.is_empty() {
-                "application/octet-stream".into()
-            } else {
-                o.content_type
-            },
+            content_type: content_type::or_default(o.content_type),
             metadata,
             storage_class,
             // The catalog checks a declared CRC32C against the one it combines from the sources

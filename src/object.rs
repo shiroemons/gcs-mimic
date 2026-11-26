@@ -8,6 +8,7 @@ use crate::{
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 use unix_nanos::UnixNanos;
 
+pub(crate) mod content_type;
 pub(crate) mod generation;
 mod idempotency;
 pub(crate) mod media_headers;

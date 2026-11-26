@@ -226,6 +226,16 @@ pub(crate) enum DefaultBucketError {
 }
 
 impl BucketRecord {
+    /// Canned ACL prechecks honor both the stored policy and a request to enable uniform access.
+    pub(crate) fn uniform_access(&self, requested: Option<UniformAccessRequest>) -> UniformAccess {
+        let locked_time = self.uniform_bucket_level_access_locked_time;
+        if locked_time.is_some() || requested.is_some_and(|request| request.enabled(locked_time)) {
+            UniformAccess::Enabled
+        } else {
+            UniformAccess::Disabled
+        }
+    }
+
     /// Native insert defaults for local callers that already validated the bucket name.
     pub(crate) fn default_for(
         name: &name::BucketName,
@@ -309,20 +319,6 @@ impl From<bool> for UniformAccessRequest {
 pub(crate) enum UniformAccess {
     Enabled,
     Disabled,
-}
-
-impl UniformAccess {
-    /// Enabled once the bucket records a lock time, or when the request itself enables it.
-    pub(crate) fn of(
-        locked_time: Option<SystemTime>,
-        requested: Option<UniformAccessRequest>,
-    ) -> Self {
-        if locked_time.is_some() || requested.is_some_and(|request| request.enabled(locked_time)) {
-            Self::Enabled
-        } else {
-            Self::Disabled
-        }
-    }
 }
 
 /// What a bucket write does to the retention policy.
@@ -819,6 +815,32 @@ pub enum CatalogError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uniform_access_precheck_honors_stored_and_requested_policy() {
+        let now = SystemTime::UNIX_EPOCH;
+        let mut bucket = BucketRecord::new("bucket".into(), "project", Location::US, now);
+        for (requested, disabled_bucket_result) in [
+            (None, UniformAccess::Disabled),
+            (
+                Some(UniformAccessRequest::Set(false)),
+                UniformAccess::Disabled,
+            ),
+            (
+                Some(UniformAccessRequest::Set(true)),
+                UniformAccess::Enabled,
+            ),
+            (
+                Some(UniformAccessRequest::Conflicting),
+                UniformAccess::Enabled,
+            ),
+        ] {
+            bucket.uniform_bucket_level_access_locked_time = None;
+            assert_eq!(bucket.uniform_access(requested), disabled_bucket_result);
+            bucket.uniform_bucket_level_access_locked_time = Some(now);
+            assert_eq!(bucket.uniform_access(requested), UniformAccess::Enabled);
+        }
+    }
 
     /// Both enums count the same two refusals, and the conversion between them keeps that.
     #[test]

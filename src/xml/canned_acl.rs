@@ -3,8 +3,8 @@
 
 use super::{Error, put};
 use crate::{
-    acl::{InvalidCannedAcl, PredefinedObjectAcl},
-    bucket::BucketAccess,
+    acl::{AnonymousCannedAcl, InvalidCannedAcl, PredefinedObjectAcl, refuse_anonymous_canned_acl},
+    bucket::{BucketAccess, UniformAccess},
     object::ObjectError,
     server::ObjectCtx,
 };
@@ -16,6 +16,12 @@ pub(super) const HEADER: &str = "x-goog-acl";
 impl From<InvalidCannedAcl<'_>> for Error {
     fn from(error: InvalidCannedAcl<'_>) -> Self {
         Self::invalid_argument(error.to_string())
+    }
+}
+
+impl From<AnonymousCannedAcl> for Error {
+    fn from(error: AnonymousCannedAcl) -> Self {
+        Self::invalid(error.to_string())
     }
 }
 
@@ -38,22 +44,14 @@ pub(super) async fn check(
     if requested.is_none() {
         return Ok(());
     }
-    // Documented for uploads: an anonymous object is owned by the project owners team, so an
-    // anonymous caller could otherwise choose its object's ACL.
-    if access.is_anonymous() {
-        return Err(Error::invalid(
-            "Anonymous callers cannot specify x-goog-acl on upload; authenticate or omit x-goog-acl",
-        ));
-    }
+    refuse_anonymous_canned_acl(access, AnonymousCannedAcl::XmlUpload)?;
     let record = ctx
         .state
         .catalog
         .get_bucket(bucket, &BucketAccess::Permissive)
         .await?
         .ok_or_else(|| put::storage_error(ObjectError::BucketNotFound, ctx.caller))?;
-    if crate::bucket::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None)
-        == crate::bucket::UniformAccess::Enabled
-    {
+    if record.uniform_access(None) == UniformAccess::Enabled {
         return Err(Error::uniform_access_acl());
     }
     Ok(())

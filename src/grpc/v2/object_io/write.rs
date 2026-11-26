@@ -2,6 +2,7 @@ use super::step::AdmittedStep;
 use super::*;
 use crate::csek::{CsekError, CustomerKey};
 use crate::grpc::v2::routing;
+use crate::object::content_type;
 
 /// A caller the write task can own: [`Caller`] borrows its identity from the request.
 enum TaskCaller {
@@ -146,11 +147,7 @@ impl Storage {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let access = self.access(caller, &bucket, OBJECTS_CREATE).await?;
-        let content_type = if resource.content_type.is_empty() {
-            "application/octet-stream".to_owned()
-        } else {
-            std::mem::take(&mut resource.content_type)
-        };
+        let content_type = content_type::or_default(std::mem::take(&mut resource.content_type));
         let mut metadata = super::super::object_update::for_write(&resource);
         metadata.write = crate::object::WriteMode::Patch;
         let storage_class = std::mem::take(&mut resource.storage_class);

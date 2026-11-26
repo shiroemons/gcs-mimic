@@ -11,6 +11,7 @@ use crate::time_format::{TimeOutOfRange, timestamp};
 use crate::{
     auth,
     config::CompatProfile,
+    csek::CustomerKey,
     http_header::{TextOrder, sole},
     object::{
         IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget, retention::UnlockedOverride,
@@ -1072,13 +1073,14 @@ pub(crate) fn object_resource(
     base_url: &str,
     projection: Projection,
 ) -> Result<Value, TimeOutOfRange> {
-    object_resource_fields(object, base_url, projection).map(Value::Object)
+    object_resource_fields(object, base_url, projection, None).map(Value::Object)
 }
 
 pub(super) fn object_resource_fields(
     object: &ObjectRecord,
     base_url: &str,
     projection: Projection,
+    key: Option<CustomerKey>,
 ) -> Result<Map<String, Value>, TimeOutOfRange> {
     // ACL and owner projection requires current catalog authorization in the server adapter.
     let (Projection::NoAcl | Projection::Full) = projection;
@@ -1181,7 +1183,7 @@ pub(super) fn object_resource_fields(
     if let Some(time) = object.hard_delete_time {
         value.insert("hardDeleteTime".into(), timestamp(time)?.into());
     }
-    super::csek::render(object, &mut value);
+    super::csek::render(object, key, &mut value);
     Ok(value)
 }
 

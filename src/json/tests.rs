@@ -828,6 +828,44 @@ fn bkt_get_002_and_del_002_signed_conditions() {
 }
 
 #[test]
+fn bucket_and_default_acl_queries_share_conditions_and_failure_order() {
+    let acl = |query| {
+        super::acl::route_acl(
+            &Method::GET,
+            &format!("/storage/v1/b/abc/defaultObjectAcl?{query}")
+                .parse()
+                .unwrap(),
+            CompatProfile::Native,
+        )
+        .unwrap()
+    };
+    let both =
+        "ifMetagenerationMatch=-9223372036854775808&ifMetagenerationNotMatch=9223372036854775807";
+    let conditions = acl(both).unwrap().conditions;
+    assert_eq!(conditions.if_metageneration_match, Some(i64::MIN));
+    assert_eq!(conditions.if_metageneration_not_match, Some(i64::MAX));
+    let invalid = "ifMetagenerationNotMatch=bogus&ifMetagenerationMatch=%2B1";
+    let error = acl(invalid).unwrap_err();
+    assert_eq!(error.message, "ifMetagenerationMatch must be an int64");
+    assert_eq!(
+        error,
+        request(Method::GET, &format!("/storage/v1/b/abc?{invalid}")).unwrap_err()
+    );
+    let lock = request(
+        Method::POST,
+        "/storage/v1/b/abc/lockRetentionPolicy?ifMetagenerationMatch=%2B1",
+    )
+    .unwrap();
+    assert!(matches!(
+        lock,
+        BucketRequest::LockRetentionPolicy {
+            metageneration: 1,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn bkt_lst_001_max_results_defaults_bounds_and_clamping() {
     for (query, expected) in [
         ("", 1000),

@@ -1055,10 +1055,15 @@ fn obj_csek_001_encrypted_resource_hides_hashes_without_its_key() {
         object_resource_keyed(&object, "http://localhost", Projection::NoAcl, Some(key)).unwrap();
     assert_eq!(keyed["md5Hash"], base64(&object.md5));
     assert_eq!(keyed["crc32c"], base64(&object.crc32c.to_be_bytes()));
+    assert!(keyed.as_object().unwrap().keys().rev().take(3).eq([
+        "md5Hash",
+        "crc32c",
+        "customerEncryption",
+    ]));
     let other = crate::csek::CustomerKey::from_sha256([0; 32]);
     let wrong =
         object_resource_keyed(&object, "http://localhost", Projection::NoAcl, Some(other)).unwrap();
-    assert!(wrong.get("md5Hash").is_none());
+    assert_eq!(wrong, value);
     let plain = object_resource(&record(), "http://localhost", Projection::NoAcl).unwrap();
     assert!(plain.get("customerEncryption").is_none() && plain.get("md5Hash").is_some());
 }

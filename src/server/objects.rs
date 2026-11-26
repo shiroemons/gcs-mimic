@@ -180,7 +180,7 @@ async fn check_predefined_acl(
         .ok_or(CatalogError::NotFound)?;
     json::reject_predefined_acl(
         uri.query(),
-        crate::bucket::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+        record.uniform_access(None),
         operation.predefined_acl_target(),
         access,
     )

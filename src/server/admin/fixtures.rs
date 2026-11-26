@@ -10,7 +10,7 @@ use crate::{
     auth::AuthFailure,
     json,
     notification::NotificationMode,
-    object::{ExpectedHashes, ObjectError, Patch, UploadChunk},
+    object::{ExpectedHashes, ObjectError, Patch, UploadChunk, content_type},
     server::{DeadlineWatch, RequestBody, RequestCtx, json_response},
     storage::admin::{
         AdminError, BucketName, Generation, ImportedIdentity, ObjectName, Publication, PublishMode,
@@ -181,7 +181,7 @@ fn parse(bytes: &[u8], now: SystemTime, config: &Config) -> Result<Fixture, ApiE
     let content_type = match (metadata.content_type.value(), &provenance) {
         (Some(content_type), _) => content_type.clone(),
         (None, Provenance::Seed) => config.seed_content_type().for_name(&name).into(),
-        (None, Provenance::Fixture(_)) => "application/octet-stream".into(),
+        (None, Provenance::Fixture(_)) => content_type::DEFAULT.to_owned(),
     };
     let name = ObjectName::new(name).map_err(failure)?;
     metadata.validate()?;

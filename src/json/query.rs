@@ -17,6 +17,9 @@ pub(super) const MAX_BUCKET_SEGMENT_BYTES: usize = 3 * MAX_BUCKET_NAME_BYTES;
 /// The longest raw object segment: every byte of the longest name percent-encoded.
 pub(super) const MAX_OBJECT_SEGMENT_BYTES: usize = 3 * crate::object::name::MAX_OBJECT_NAME_BYTES;
 
+const BUCKET_CONDITION_PARAMETERS: [&str; 2] =
+    ["ifMetagenerationMatch", "ifMetagenerationNotMatch"];
+
 /// The raw bucket segment of `/storage/v1/b/{bucket}{suffix}`: one nonempty segment without `/`.
 pub(super) fn bucket_subresource<'a>(path: &'a str, suffix: &str) -> Option<&'a str> {
     let segment = path.strip_prefix(BUCKET_PATH)?.strip_suffix(suffix)?;
@@ -336,7 +339,8 @@ fn parse_lock_retention_policy(
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
-    let metageneration = query.remove("ifMetagenerationMatch").ok_or_else(|| {
+    let [requested, _] = BUCKET_CONDITION_PARAMETERS;
+    let metageneration = query.remove(requested).ok_or_else(|| {
         ApiError::required(
             "ifMetagenerationMatch is required; read the bucket metageneration first",
         )
@@ -438,10 +442,7 @@ fn soft_deleted_get(
             ));
         }
     };
-    unsupported(
-        query,
-        &["ifMetagenerationMatch", "ifMetagenerationNotMatch"],
-    )?;
+    unsupported(query, &BUCKET_CONDITION_PARAMETERS)?;
     let projection = projection(query)?;
     finish(query)?;
     Ok(Some(BucketRequest::GetSoftDeleted {
@@ -667,7 +668,7 @@ fn parse(
             parse_bucket_item(&mut query, bucket, method, profile)
         }
         BucketMethod::Delete { bucket } => {
-            let conditions = conditions(&mut query)?;
+            let conditions = bucket_conditions(&mut query)?;
             finish_for_profile(&query, profile)?;
             Ok(BucketRequest::Delete { bucket, conditions })
         }
@@ -704,7 +705,7 @@ fn parse_bucket_item(
             query.remove("predefinedDefaultObjectAcl");
         }
     }
-    let conditions = conditions(query)?;
+    let conditions = bucket_conditions(query)?;
     let projection = projection_or(query, default_projection)?;
     finish_for_profile(query, profile)?;
     let params = GetParams {
@@ -895,10 +896,13 @@ fn false_only(query: &mut BTreeMap<String, String>, key: &str) -> Result<(), Api
     }
 }
 
-fn conditions(query: &mut BTreeMap<String, String>) -> Result<BucketConditions, ApiError> {
+pub(super) fn bucket_conditions(
+    query: &mut BTreeMap<String, String>,
+) -> Result<BucketConditions, ApiError> {
+    let [matches, differs] = BUCKET_CONDITION_PARAMETERS;
     Ok(BucketConditions {
-        if_metageneration_match: take_int64(query, "ifMetagenerationMatch")?,
-        if_metageneration_not_match: take_int64(query, "ifMetagenerationNotMatch")?,
+        if_metageneration_match: take_int64(query, matches)?,
+        if_metageneration_not_match: take_int64(query, differs)?,
     })
 }
 

@@ -243,19 +243,17 @@ pub(crate) enum StoredHashes {
 impl StoredHashes {
     /// Visibility for a caller that supplied no key.
     pub(crate) fn keyless(stored: Option<[u8; 32]>) -> Self {
-        if stored.is_some() {
+        Self::for_key(stored, None)
+    }
+
+    /// Visibility alone. Request validation separately rejects keys that cannot read an object.
+    pub(crate) fn for_key(stored: Option<[u8; 32]>, supplied: Option<CustomerKey>) -> Self {
+        if let Some(stored) = stored
+            && !supplied.is_some_and(|key| key.sha256() == stored)
+        {
             Self::Withheld
         } else {
             Self::Revealed
-        }
-    }
-
-    /// Visibility for a caller whose `supplied` key already passed `check_metadata` against
-    /// `stored`: a verified key reveals the hashes.
-    pub(crate) fn verified(stored: Option<[u8; 32]>, supplied: Option<CustomerKey>) -> Self {
-        match supplied {
-            Some(_) => Self::Revealed,
-            None => Self::keyless(stored),
         }
     }
 }
@@ -281,8 +279,9 @@ pub(crate) fn check_metadata(
 ) -> Result<StoredHashes, CsekError> {
     if supplied.is_some() {
         check_data(stored, supplied)?;
+        return Ok(StoredHashes::Revealed);
     }
-    Ok(StoredHashes::verified(stored, supplied))
+    Ok(StoredHashes::keyless(stored))
 }
 
 /// Whether `name` is one of the three key headers under `prefix`. Other names sharing the
@@ -446,6 +445,21 @@ mod tests {
             check_metadata(None, Some(key)),
             Err(CsekError::ResourceNotEncrypted)
         );
+    }
+
+    #[test]
+    fn visibility_requires_the_key_only_for_encrypted_hashes() {
+        let stored = [1; 32];
+        let matching = CustomerKey::from_sha256(stored);
+        let wrong = CustomerKey::from_sha256([2; 32]);
+        for (key, encrypted) in [
+            (None, StoredHashes::Withheld),
+            (Some(matching), StoredHashes::Revealed),
+            (Some(wrong), StoredHashes::Withheld),
+        ] {
+            assert_eq!(StoredHashes::for_key(None, key), StoredHashes::Revealed);
+            assert_eq!(StoredHashes::for_key(Some(stored), key), encrypted);
+        }
     }
 
     /// The raw form of a key and its fingerprint, as Storage v2 sends them.

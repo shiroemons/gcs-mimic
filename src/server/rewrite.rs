@@ -3,7 +3,7 @@ use super::*;
 use crate::{
     csek::CopyKeys,
     json::rewrite::RewriteRequest,
-    object::ObjectConditions,
+    object::{ObjectConditions, content_type},
     storage::{
         DerivedDestination,
         rewrite::{
@@ -111,7 +111,7 @@ pub(super) async fn respond(
             .ok_or(CatalogError::NotFound)?;
         json::reject_predefined_acl(
             request.uri().query(),
-            crate::bucket::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+            record.uniform_access(None),
             json::PredefinedAclTarget::DerivedObject,
             &destination_access,
         )?;
@@ -343,7 +343,7 @@ fn destination(
         .content_type
         .value()
         .cloned()
-        .unwrap_or_else(|| "application/octet-stream".into());
+        .unwrap_or_else(|| content_type::DEFAULT.to_owned());
     Ok(DerivedDestination {
         component_count: source.component_count,
         bucket: request.names.destination.bucket.clone(),

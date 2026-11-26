@@ -1,4 +1,5 @@
 use super::{ApiError, Projection, WriteMode, query::validate_project};
+use crate::acl::{AnonymousCannedAcl, refuse_anonymous_canned_acl};
 use crate::bucket::resource::{
     LEGACY_LOCATION, UNSUPPORTED_FIELDS, parse_cors, parse_lifecycle, parse_object_retention,
     parse_public_access_prevention, parse_retention_period, parse_soft_delete_retention,
@@ -520,11 +521,8 @@ pub(crate) fn reject_predefined_acl(
     if let Some(key) = target.applied_key()
         && target.publishes()
         && query.contains_key(key)
-        && access.is_anonymous()
     {
-        return Err(ApiError::invalid_argument(format!(
-            "Anonymous callers cannot specify {key}; authenticate or omit {key}"
-        )));
+        refuse_anonymous_canned_acl(access, AnonymousCannedAcl::Parameter(key))?;
     }
     let present = [
         "predefinedAcl",
@@ -563,6 +561,12 @@ pub(crate) fn reject_predefined_acl(
         }
     }
     Ok(())
+}
+
+impl From<AnonymousCannedAcl> for ApiError {
+    fn from(error: AnonymousCannedAcl) -> Self {
+        Self::invalid_argument(error.to_string())
+    }
 }
 
 /// Render supported metadata using a caller-validated advertised origin/base path.

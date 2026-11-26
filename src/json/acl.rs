@@ -5,7 +5,7 @@ use super::{
     ApiError, Fields, Schema,
     buckets::encode_segment,
     integer::take_int64,
-    query::{common, finish_for_profile},
+    query::{bucket_conditions, common, finish_for_profile},
     validate_object_name,
 };
 use crate::percent::{Decoding, decode, parse_query};
@@ -207,10 +207,7 @@ fn parse_route(
     let fields = Fields::take(&mut query, schema)?;
     common(&mut query)?;
     let conditions = if kind == AclKind::DefaultObject && listing {
-        BucketConditions {
-            if_metageneration_match: take_int64(&mut query, "ifMetagenerationMatch")?,
-            if_metageneration_not_match: take_int64(&mut query, "ifMetagenerationNotMatch")?,
-        }
+        bucket_conditions(&mut query)?
     } else {
         BucketConditions::default()
     };

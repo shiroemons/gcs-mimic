@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, sync::LazyLock};
 
 pub(crate) const TEXT_PLAIN_UTF8: &str = "text/plain; charset=utf-8";
+pub(crate) const OCTET_STREAM: &str = "application/octet-stream";
 
 crate::config::string_enum! {
     no_default
@@ -43,7 +44,7 @@ impl SeedContentType {
                 }
             }
         }
-        "application/octet-stream"
+        OCTET_STREAM
     }
 }
 

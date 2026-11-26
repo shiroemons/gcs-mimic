@@ -1,6 +1,6 @@
 //! Representation headers of an object media download, shared by the JSON and XML adapters.
 
-use super::ObjectRecord;
+use super::{ObjectRecord, content_type};
 use crate::api_error::ApiError;
 use crate::base64::encode as base64;
 use crate::etag::object_etag;
@@ -17,11 +17,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, A
         ("cache-control", NO_STORE_CACHE_CONTROL.to_owned()),
         (
             "content-type",
-            if object.content_type.is_empty() {
-                "application/octet-stream".into()
-            } else {
-                object.content_type.clone()
-            },
+            content_type::or_default(object.content_type.clone()),
         ),
         ("content-length", object.size.to_string()),
         ("x-goog-generation", object.generation.to_string()),

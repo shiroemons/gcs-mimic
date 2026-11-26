@@ -250,6 +250,25 @@ Pending the evidence below:
   checks do, is a candidate if compatibility checks support it for requests
   that currently use path-style addressing. Signature verification would
   still use the authority as sent.
+- **XML precondition header diagnostics.** Object reads and deletes, bucket
+  operations and object listings use precondition-specific wording for repeated
+  or non-ASCII values. PUT and resumable initiation use the upload header
+  wording. Both sets of routes reject repetitions before interpreting the
+  first value and use the same number grammar and range. Using the
+  precondition-specific wording on every route is a candidate.
+- **JSON bucket metageneration syntax.** Bucket queries and default object ACL
+  listing use the same optional `int64` grammar. Retention lock still requires
+  `ifMetagenerationMatch` and accepts a leading `+` with its own error wording.
+  Accepting `+` consistently is a candidate if pinned clients benefit from it.
+- **Anonymous canned ACL wording.** JSON and gRPC name the route's parameter;
+  XML says `x-goog-acl on upload`. Uniform wording across the three adapters
+  could name the field while keeping their existing error envelope and code.
+- **Omitted content types.** JSON media and multipart uploads can store an
+  empty type and omit `contentType` from the resource. XML and gRPC uploads
+  default these empty fields. Resumable and rewrite apply a default to absent
+  declarations, while reads of stored empty types use it in the media header.
+  Defaulting every upload at publication is a candidate only if clients can
+  tolerate a stored type and a `contentType` field where they are absent today.
 
 Found by the error goldens, which pin them as they are today. Each goes to the
 owner with the error slice that touches it:

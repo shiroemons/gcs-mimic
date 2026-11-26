@@ -18,7 +18,7 @@ use crate::{
     multipart::{Multipart, form_data_boundary},
     object::{
         ExpectedHashes, MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate,
-        ObjectRecord, Patch, UploadChunk,
+        ObjectRecord, Patch, UploadChunk, content_type,
     },
     server::{ObjectCtx, RequestCtx, ResponseBody, anonymous_error, boxed},
     storage::ObjectUpload,
@@ -584,11 +584,7 @@ fn plan<'f>(form: &'f Form, bucket: &str) -> Result<Plan<'f>, Error> {
         );
     }
     let content_type = crate::object::upload_headers::content_type(&selected)?;
-    let content_type = if content_type.is_empty() {
-        "application/octet-stream".to_owned()
-    } else {
-        content_type
-    };
+    let content_type = content_type::or_default(content_type);
     let declared_length = fields
         .get("content-length")
         .map(|raw| {

@@ -20,6 +20,90 @@ fn listing(query: &str, headers: &HeaderMap, page: &ObjectListPage) -> String {
     list::render(&params, page).unwrap()
 }
 
+#[test]
+fn xml_condition_grammars_agree_and_keep_both_error_messages() {
+    for (messages, repeated, invalid) in [
+        (
+            ConditionMessages::Object,
+            "Multiple precondition header values.",
+            "Invalid precondition header.",
+        ),
+        (
+            ConditionMessages::Upload,
+            "Expected one header value.",
+            "Header must be representable as ASCII.",
+        ),
+    ] {
+        let generation = "x-goog-if-generation-match";
+        let metageneration = "x-goog-if-metageneration-match";
+        let mut headers = HeaderMap::new();
+        headers.insert(generation, HeaderValue::from_static("0"));
+        headers.insert(
+            metageneration,
+            HeaderValue::from_static("9223372036854775807"),
+        );
+        let parsed = conditions(&headers, messages).unwrap();
+        assert_eq!(parsed.if_generation_match, Some(0));
+        assert_eq!(parsed.if_metageneration_match, Some(i64::MAX));
+
+        for (name, input) in [
+            (generation, "-1"),
+            (generation, "+1"),
+            (metageneration, "0"),
+            (metageneration, "9223372036854775808"),
+        ] {
+            let mut bad = headers.clone();
+            bad.insert(name, HeaderValue::from_static(input));
+            let error = conditions(&bad, messages).unwrap_err();
+            assert_eq!(error.code, XmlCode::InvalidArgument);
+            assert_eq!(error.message, "Invalid generation or metageneration.");
+        }
+        headers.insert(generation, HeaderValue::from_bytes(&[0xff]).unwrap());
+        let error = conditions(&headers, messages).unwrap_err();
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (XmlCode::InvalidArgument, invalid)
+        );
+        headers.append(generation, HeaderValue::from_static("0"));
+        let error = conditions(&headers, messages).unwrap_err();
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (XmlCode::ExcessHeaderValues, repeated)
+        );
+    }
+}
+
+#[test]
+fn xml_object_and_completion_etags_choose_the_same_validator() {
+    let mut record = object_record("bucket", "object", at());
+    let revision = crate::etag::object_etag(&record);
+    let md5 = crate::base64::encode(&record.md5);
+    let plain = serde_json::json!({});
+    let encrypted = serde_json::json!({"customerEncryption": {}});
+    let composite = serde_json::json!({"componentCount": 2});
+    let etag = |md5, value| {
+        Validators::for_completion(md5, value)
+            .unwrap()
+            .etag(|| &revision)
+    };
+    assert_eq!(
+        etag(Some(&md5), &plain),
+        "\"03030303030303030303030303030303\""
+    );
+    assert_eq!(object_etag(&record), etag(Some(&md5), &plain));
+    assert!(Validators::for_completion(Some("bad"), &plain).is_err());
+
+    record.customer_key_sha256 = Some([1; 32]);
+    assert_eq!(object_etag(&record), etag(Some("bad"), &encrypted));
+    record.customer_key_sha256 = None;
+    record.component_count = Some(2);
+    assert_eq!(object_etag(&record), etag(Some("bad"), &composite));
+    record.component_count = None;
+    record.md5_availability = crate::object::Md5Availability::Unavailable;
+    assert_eq!(object_etag(&record), etag(None, &plain));
+    assert_eq!(object_etag(&record), format!("\"{revision}\""));
+}
+
 /// Cloud Storage writes `<ETag>"…"</ETag>`, so text elements escape `&`, `<` and `>` only.
 #[tokio::test]
 async fn error_document_keeps_quotes_literal() {

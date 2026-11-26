@@ -1,4 +1,4 @@
-use super::{Error, HeaderKind, MinValue, ReadRequest, XmlCode, number};
+use super::{ConditionMessages, Error, HeaderKind, ReadRequest, XmlCode};
 use crate::server::RequestBody as Incoming;
 use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
@@ -11,6 +11,7 @@ use crate::{
     object::{
         Checksum, ChecksumConflict, ExpectedHashes, HashAlgorithm, HashMismatch, IdempotencyToken,
         MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, TokenError,
+        content_type,
     },
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
     storage::ObjectUpload,
@@ -44,7 +45,7 @@ pub(super) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'
         .map_err(|error| header_error(&error))
 }
 
-fn header_error(error: &TextError) -> Error {
+pub(super) fn header_error(error: &TextError) -> Error {
     match error {
         TextError::Repeated(_) => {
             Error::new(XmlCode::ExcessHeaderValues, "Expected one header value.")
@@ -155,23 +156,7 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
 }
 
 pub(super) fn conditions(headers: &HeaderMap) -> Result<ObjectConditions, Error> {
-    let mut conditions = ObjectConditions::default();
-    for (key, target, min) in [
-        (
-            "x-goog-if-generation-match",
-            &mut conditions.if_generation_match,
-            MinValue::Zero,
-        ),
-        (
-            "x-goog-if-metageneration-match",
-            &mut conditions.if_metageneration_match,
-            MinValue::One,
-        ),
-    ] {
-        *target = single(headers, key)?
-            .map(|raw| number(raw, min))
-            .transpose()?;
-    }
+    let conditions = super::conditions(headers, ConditionMessages::Upload)?;
     let token =
         IdempotencyToken::from_text(headers, TextOrder::RepetitionFirst).map_err(|error| {
             match error {
@@ -240,11 +225,7 @@ pub(super) fn content_type_and_hashes(
     }
     let content_type = crate::object::upload_headers::content_type(&selected)?;
     // The JSON parser stores no type for an upload without one; XML objects default it.
-    let content_type = if content_type.is_empty() {
-        "application/octet-stream".to_owned()
-    } else {
-        content_type
-    };
+    let content_type = content_type::or_default(content_type);
     selected.clear();
     for value in headers.get_all("x-goog-hash") {
         selected.append("x-goog-hash", value.clone());

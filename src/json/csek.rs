@@ -3,7 +3,7 @@
 
 use super::ApiError;
 use crate::{
-    csek::{CopyKeys, CustomerKey, DESTINATION_PREFIX, SOURCE_PREFIX},
+    csek::{CopyKeys, CustomerKey, DESTINATION_PREFIX, SOURCE_PREFIX, StoredHashes},
     object::ObjectRecord,
 };
 use hyper::HeaderMap;
@@ -29,7 +29,11 @@ pub(crate) fn copy_keys(headers: &HeaderMap) -> Result<CopyKeys, ApiError> {
 
 /// Encryption output fields for a resource. Hashes describe the stored plaintext, so Cloud
 /// Storage returns them for an encrypted object only to callers that supplied its key.
-pub(super) fn render(object: &ObjectRecord, value: &mut Map<String, Value>) {
+pub(super) fn render(
+    object: &ObjectRecord,
+    key: Option<CustomerKey>,
+    value: &mut Map<String, Value>,
+) {
     let Some(sha256) = object.customer_key_sha256 else {
         return;
     };
@@ -43,17 +47,7 @@ pub(super) fn render(object: &ObjectRecord, value: &mut Map<String, Value>) {
     // shift_remove keeps the recorded field order of the remaining fields.
     value.shift_remove("md5Hash");
     value.shift_remove("crc32c");
-}
-
-/// Render a resource for a caller whose `key` has already been verified against `object`.
-pub(crate) fn object_resource_keyed(
-    object: &ObjectRecord,
-    base_url: &str,
-    projection: super::Projection,
-    key: Option<CustomerKey>,
-) -> Result<Value, crate::time_format::TimeOutOfRange> {
-    let mut value = super::objects::object_resource_fields(object, base_url, projection)?;
-    if key.is_some_and(|key| object.customer_key_sha256 == Some(key.sha256())) {
+    if StoredHashes::for_key(Some(sha256), key) == StoredHashes::Revealed {
         value.insert(
             "crc32c".into(),
             super::base64(&object.crc32c.to_be_bytes()).into(),
@@ -62,5 +56,14 @@ pub(crate) fn object_resource_keyed(
             value.insert("md5Hash".into(), super::base64(&object.md5).into());
         }
     }
-    Ok(Value::Object(value))
+}
+
+/// Render a resource with the supplied key; validation belongs to the request handler.
+pub(crate) fn object_resource_keyed(
+    object: &ObjectRecord,
+    base_url: &str,
+    projection: super::Projection,
+    key: Option<CustomerKey>,
+) -> Result<Value, crate::time_format::TimeOutOfRange> {
+    super::objects::object_resource_fields(object, base_url, projection, key).map(Value::Object)
 }

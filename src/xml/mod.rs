@@ -1001,6 +1001,29 @@ pub(crate) fn headers(
             return Err(Error::unsupported(key));
         }
     }
+    conditions(headers, ConditionMessages::Object)
+}
+
+#[derive(Clone, Copy)]
+enum ConditionMessages {
+    Object,
+    Upload,
+}
+
+impl ConditionMessages {
+    fn for_header(self, error: &TextError) -> Error {
+        match (self, error) {
+            (Self::Upload, error) => put::header_error(error),
+            (Self::Object, TextError::Repeated(_)) => Error::new(
+                XmlCode::ExcessHeaderValues,
+                "Multiple precondition header values.",
+            ),
+            (Self::Object, TextError::Invalid(_)) => Error::invalid("Invalid precondition header."),
+        }
+    }
+}
+
+fn conditions(headers: &HeaderMap, messages: ConditionMessages) -> Result<ObjectConditions, Error> {
     let mut conditions = ObjectConditions::default();
     for (key, target, min) in [
         (
@@ -1016,13 +1039,7 @@ pub(crate) fn headers(
     ] {
         let value = sole(headers, key)
             .text(TextOrder::RepetitionFirst)
-            .map_err(|error| match error {
-                TextError::Repeated(_) => Error::new(
-                    XmlCode::ExcessHeaderValues,
-                    "Multiple precondition header values.",
-                ),
-                TextError::Invalid(_) => Error::invalid("Invalid precondition header."),
-            })?;
+            .map_err(|error| messages.for_header(&error))?;
         *target = value.map(|value| number(value, min)).transpose()?;
     }
     Ok(conditions)
@@ -1070,13 +1087,42 @@ pub(crate) enum CacheScope {
 }
 
 pub(crate) fn object_etag(record: &ObjectRecord) -> String {
+    Validators::for_object(record).etag(|| crate::etag::object_etag(record))
+}
+
+enum Validators {
+    Md5([u8; 16]),
+    Revision,
+}
+
+impl Validators {
     // MD5 ETags apply only to objects without customer-supplied encryption. Other objects quote
     // the JSON validator, because XML entity tags are always quoted; Cloud Storage's XML ETag for
     // composite and encrypted objects has not been recorded.
-    if !record.has_md5() || record.customer_key_sha256.is_some() {
-        format!("\"{}\"", crate::etag::object_etag(record))
-    } else {
-        format!("\"{}\"", crate::hashing::encode_lower(&record.md5))
+    fn for_object(record: &ObjectRecord) -> Self {
+        if record.has_md5() && record.customer_key_sha256.is_none() {
+            Self::Md5(record.md5)
+        } else {
+            Self::Revision
+        }
+    }
+
+    fn for_completion(md5: Option<&str>, value: &serde_json::Value) -> Result<Self, Error> {
+        if let Some(md5) = md5
+            && value.get("customerEncryption").is_none()
+            && value.get("componentCount").is_none()
+        {
+            Ok(Self::Md5(crate::hashing::decode_hash::<16>(md5)?))
+        } else {
+            Ok(Self::Revision)
+        }
+    }
+
+    fn etag<T: std::fmt::Display>(self, revision: impl FnOnce() -> T) -> String {
+        match self {
+            Self::Md5(md5) => format!("\"{}\"", crate::hashing::encode_lower(&md5)),
+            Self::Revision => format!("\"{}\"", revision()),
+        }
     }
 }
 

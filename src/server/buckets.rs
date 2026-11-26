@@ -11,7 +11,7 @@ use super::{
 use crate::{
     api_error::ApiError,
     auth::{self, Caller},
-    bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError},
+    bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError, UniformAccess},
     config::CompatProfile,
     http_conditions::EtagError,
     json::{self, BucketRequest, WriteMode},
@@ -168,7 +168,7 @@ async fn leaves_uniform_access(
         .catalog
         .get_bucket(bucket, access)
         .await?
-        .is_some_and(|record| record.uniform_bucket_level_access_locked_time.is_some()))
+        .is_some_and(|record| record.uniform_access(None) == UniformAccess::Enabled))
 }
 
 async fn authorize(
@@ -356,10 +356,7 @@ async fn write(
         .ok_or(CatalogError::NotFound)?;
     let predefined = json::bucket_predefined_acls(
         acl_query.as_deref(),
-        crate::bucket::UniformAccess::of(
-            record.uniform_bucket_level_access_locked_time,
-            update.uniform_bucket_level_access_enabled,
-        ),
+        record.uniform_access(update.uniform_bucket_level_access_enabled),
         json::BucketAclWrite::Update,
         profile,
     )?;
@@ -512,7 +509,7 @@ async fn insert(
     let name = record.name.clone();
     json::bucket_predefined_acls(
         acl_query.as_deref(),
-        crate::bucket::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+        record.uniform_access(None),
         json::BucketAclWrite::Insert,
         profile,
     )?;

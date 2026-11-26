@@ -7,13 +7,12 @@ use crate::{
     config::CompatProfile,
     decimal::Grammar,
     http_header::{TextError, TextOrder, sole},
-    object::{ChecksumConflict, ExpectedHashes, MapPatch, ObjectError, upload_headers},
+    object::{
+        ChecksumConflict, ExpectedHashes, MapPatch, ObjectError, content_type, upload_headers,
+    },
     storage::ResumableOptions,
 };
 use hyper::{HeaderMap, Method, Uri};
-
-/// The stored type of an upload that declares none, in its headers or its metadata.
-const DEFAULT_CONTENT_TYPE: &str = "application/octet-stream";
 
 /// The resumable session a request continues.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -148,7 +147,7 @@ pub(crate) fn headers(headers: &HeaderMap, max: u64) -> Result<UploadHeaders, Ap
     clean.insert(
         "content-type",
         declared
-            .unwrap_or(DEFAULT_CONTENT_TYPE)
+            .unwrap_or(content_type::DEFAULT)
             .parse()
             .map_err(|_| ApiError::invalid_parameter("Invalid upload content type"))?,
     );
@@ -217,7 +216,7 @@ pub(crate) fn options(
         .value()
         .cloned()
         .or(mime)
-        .unwrap_or_else(|| DEFAULT_CONTENT_TYPE.to_owned());
+        .unwrap_or_else(|| content_type::DEFAULT.to_owned());
     // Persisted with the session so completion applies the ACL the initiation requested.
     metadata.acl = params.predefined_acl.into();
     Ok((
