@@ -222,6 +222,23 @@ Pending the evidence below:
     one `PreconditionPolicy` shared by JSON and XML. Otherwise keep today's
     behavior and record each route's policy as a local choice.
 
+Found by the error goldens, which pin them as they are today. Each goes to the
+owner with the error slice that touches it:
+
+- **A refused IAM role on JSON reads as a bucket setting.**
+  `PolicyInputError::UnsupportedInput` goes through `ApiError::unsupported`,
+  which says "does not support bucket API setting role roles/owner; omit this
+  setting". The direct gRPC mapping names the IAM role.
+- **XML `NotModified` through the shared mapping carries a body.** The mapping
+  answers 304 with a 112-byte `InvalidArgument` document. XML reads answer 304
+  themselves before it, so this is only reachable if another path maps the
+  error.
+- **gRPC through `ApiError` turns 409 into `ALREADY_EXISTS`.** For example
+  `CatalogError::NotEmpty` is `FAILED_PRECONDITION` through the direct mapping
+  and `ALREADY_EXISTS` with another message through `ApiError`. Which gRPC
+  paths reach the `ApiError` route is checked in the error slices, which
+  remove it.
+
 ## Module layers
 
 A module may name modules in its own layer and in lower layers. The three
@@ -329,6 +346,14 @@ reaching `json`.
 The generated protobuf code moves into a workspace crate that depends only on
 `prost` and `tonic`. The slice records one build measurement (a clean build,
 and an incremental build after editing a non-protobuf file) as a fact.
+
+The same slice generates protobuf maps as `BTreeMap` (`btree_map` in
+`src/grpc/codegen`). Map fields are encoded in `HashMap` order today, so the
+bytes of an object with two or more custom metadata entries, stored as a gRPC
+completion, and of an `ErrorInfo.metadata` detail change from run to run.
+Protobuf leaves map order unspecified and decoding accepts any order, so
+nothing that reads them changes; the persisted-format and error goldens then
+pin several entries instead of one entry and a re-encoded detail.
 
 A further split waits until after `1.0.0`:
 

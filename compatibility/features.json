@@ -64156,7 +64156,17 @@
           "id": "DESIGN-105-GOLDENS",
           "description": "Error, persisted-format and bucket-default golden tests recorded before the code that produces them moved pass after every slice.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": [
+            "json::error::golden_tests::every_error_keeps_its_json_response",
+            "xml::error_mapping::golden_tests::every_error_keeps_its_xml_response",
+            "grpc::v2::status::golden_tests::every_error_keeps_its_storage_v2_status",
+            "server::resumable::tests::json_completion_keeps_the_text_stored_in_sqlite",
+            "grpc::v2::stored::tests::completion_text_is_a_bare_array_of_protobuf_bytes",
+            "storage::catalog::upload_replay::tests::completion_documents_keep_their_stored_bytes",
+            "storage::catalog::upload_replay::fingerprint::tests::custom_time_and_copy_fingerprints_keep_their_digests",
+            "storage::catalog::admin::tests::default_bucket_definition_keeps_every_field",
+            "import::filesystem::tests::an_imported_bucket_keeps_every_field"
+          ]
         },
         {
           "id": "DESIGN-105-WRITER-IO",
@@ -64202,7 +64212,19 @@
           "id": "DESIGN-105-LAYERS",
           "description": "The module layer and adapter isolation rules are zero tolerance.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": [
+            "lint::layers::tests::adapters_may_not_name_each_other",
+            "lint::layers::tests::same_and_lower_layers_are_allowed_and_higher_layers_are_reported",
+            "lint::layers::tests::super_and_self_resolve_from_the_file_path",
+            "lint::layers::tests::dollar_crate_in_a_macro_is_reported_where_the_macro_is_written",
+            "lint::layers::tests::only_the_top_level_members_of_a_crate_group_are_modules",
+            "lint::layers::tests::re_exports_are_reported_where_they_are_written",
+            "lint::layers::tests::tests_comments_strings_binary_files_and_the_library_root_are_skipped",
+            "lint::layers::tests::every_library_module_has_exactly_one_layer",
+            "lint::layers::tests::the_design_guide_shows_the_same_layer_table",
+            "lint::layers::tests::both_rules_take_a_reasoned_suppression",
+            "lint::tests::test_items_include_multi_line_attributes_after_the_cfg"
+          ]
         },
         {
           "id": "DESIGN-105-ERRORS",
@@ -64256,9 +64278,57 @@
         "storage::catalog::xml_multipart::tests::part_durable_step_failures_keep_prior_part_and_cleanup_after_restart",
         "storage::catalog::xml_multipart::tests::completion_durable_step_failures_preserve_old_or_confirm_committed_generation",
         "storage::catalog::xml_multipart::tests::multipart_part_and_completion_crash_and_power_loss_snapshots_recover",
-        "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins"
+        "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+        "json::error::golden_tests::every_error_keeps_its_json_response",
+        "xml::error_mapping::golden_tests::every_error_keeps_its_xml_response",
+        "grpc::v2::status::golden_tests::every_error_keeps_its_storage_v2_status",
+        "server::resumable::tests::json_completion_keeps_the_text_stored_in_sqlite",
+        "grpc::v2::stored::tests::completion_text_is_a_bare_array_of_protobuf_bytes",
+        "storage::catalog::upload_replay::tests::completion_documents_keep_their_stored_bytes",
+        "storage::catalog::upload_replay::fingerprint::tests::custom_time_and_copy_fingerprints_keep_their_digests",
+        "storage::catalog::admin::tests::default_bucket_definition_keeps_every_field",
+        "import::filesystem::tests::an_imported_bucket_keeps_every_field",
+        "lint::layers::tests::adapters_may_not_name_each_other",
+        "lint::layers::tests::same_and_lower_layers_are_allowed_and_higher_layers_are_reported",
+        "lint::layers::tests::super_and_self_resolve_from_the_file_path",
+        "lint::layers::tests::dollar_crate_in_a_macro_is_reported_where_the_macro_is_written",
+        "lint::layers::tests::only_the_top_level_members_of_a_crate_group_are_modules",
+        "lint::layers::tests::re_exports_are_reported_where_they_are_written",
+        "lint::layers::tests::tests_comments_strings_binary_files_and_the_library_root_are_skipped",
+        "lint::layers::tests::every_library_module_has_exactly_one_layer",
+        "lint::layers::tests::the_design_guide_shows_the_same_layer_table",
+        "lint::layers::tests::both_rules_take_a_reasoned_suppression",
+        "lint::tests::test_items_include_multi_line_attributes_after_the_cfg"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask lint --baseline",
+          "result": "PASS",
+          "verified_at": "2026-11-26",
+          "artifact": "docs/en/evidence/rust-hardening.md",
+          "test_ids": [
+            "json::error::golden_tests::every_error_keeps_its_json_response",
+            "xml::error_mapping::golden_tests::every_error_keeps_its_xml_response",
+            "grpc::v2::status::golden_tests::every_error_keeps_its_storage_v2_status",
+            "server::resumable::tests::json_completion_keeps_the_text_stored_in_sqlite",
+            "grpc::v2::stored::tests::completion_text_is_a_bare_array_of_protobuf_bytes",
+            "storage::catalog::upload_replay::tests::completion_documents_keep_their_stored_bytes",
+            "storage::catalog::upload_replay::fingerprint::tests::custom_time_and_copy_fingerprints_keep_their_digests",
+            "storage::catalog::admin::tests::default_bucket_definition_keeps_every_field",
+            "import::filesystem::tests::an_imported_bucket_keeps_every_field",
+            "lint::layers::tests::adapters_may_not_name_each_other",
+            "lint::layers::tests::same_and_lower_layers_are_allowed_and_higher_layers_are_reported",
+            "lint::layers::tests::super_and_self_resolve_from_the_file_path",
+            "lint::layers::tests::dollar_crate_in_a_macro_is_reported_where_the_macro_is_written",
+            "lint::layers::tests::only_the_top_level_members_of_a_crate_group_are_modules",
+            "lint::layers::tests::re_exports_are_reported_where_they_are_written",
+            "lint::layers::tests::tests_comments_strings_binary_files_and_the_library_root_are_skipped",
+            "lint::layers::tests::every_library_module_has_exactly_one_layer",
+            "lint::layers::tests::the_design_guide_shows_the_same_layer_table",
+            "lint::layers::tests::both_rules_take_a_reasoned_suppression",
+            "lint::tests::test_items_include_multi_line_attributes_after_the_cfg"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast",
           "result": "PASS",
