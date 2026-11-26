@@ -814,7 +814,7 @@ reported separately with their own evidence. New upstream releases expand the
 baseline explicitly rather than silently changing the denominator.
 
 This gate, together with the fixed named additions, is a goal rather than a product version condition.
-Product **1.0.0** freezes the public contract and states the supported migration scope as defined in the [release policy](release-policy.md#the-100-gate).
+Product **1.0.0** is defined by the official SDK matrix and the frozen public contract in the [release policy](release-policy.md#the-100-gate).
 No release, before or after it, claims a full superset until this gate passes.
 
 ## Sources consulted

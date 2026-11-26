@@ -256,7 +256,7 @@ The release-path inspection found these version assumptions:
 Actual GitHub workflow execution, registry publication and candidate fixtures
 captured from a published image remain unverified. The synthetic fixture test
 verifies the upgrade-source requirement, not a real candidate's data format.
-The existing distribution rows remain `PARTIAL`; no 14-day soak is claimed.
+The existing distribution rows remain `PARTIAL`; no release-candidate soak is claimed.
 Follow the [first-candidate remote verification procedure](binary-distribution.md#candidate-verification-limits)
 before treating the first RC's publication and upgrade fixture as verified.
 

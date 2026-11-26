@@ -80,5 +80,9 @@ needs it.
 
 ## 1.0.0
 
-The conditions for 1.0.0 are in the
+1.0.0 means that the nine scorecard SDKs, at their pinned versions, pass every
+scored case on the release commit, and that upgrades within `1.x` keep
+documented integrations and data directories working. It does not mean that
+every `PARTIAL` row is complete. The full conditions, including a seven-day
+release-candidate soak, are in the
 [release policy](release-policy.md#the-100-gate).

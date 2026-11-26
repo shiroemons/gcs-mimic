@@ -133,39 +133,49 @@ the Go module is tagged `go/vX.Y.Z` on that commit
 
 ## The 1.0.0 gate
 
-`1.0.0` is a stability promise, not a completeness claim.
-It commits to the public contract described above, so users can upgrade within `1.x` without changing a documented integration or losing data.
+`1.0.0` promises two things, and does not claim complete Cloud Storage or
+fake-gcs-server coverage:
+
+- **The official SDKs work.** The nine SDKs of the
+  [SDK scorecard](../../sdk-scorecard/README.md) (Go, Ruby, Node.js, PHP,
+  Python, Java, .NET, Rust and C++), at the versions and over the transports
+  pinned there, pass every scored case against the release.
+- **Upgrades within `1.x` are safe.** Users can upgrade without changing a
+  documented integration or losing data.
+
 Every supported capability keeps its recorded scope; rows that are `PARTIAL` in the [feature ledger](../../compatibility/features.json) stay `PARTIAL` and are documented as such.
 All of these must pass:
 
-1. **Freeze the public contract.**
+1. **Pass the SDK matrix on the release commit.**
+   `bash sdk-scorecard/run.sh gcs-mimic` on the release commit passes every scored case in all nine SDKs.
+   A case is excluded only when its SDK has no public API for it and the scorecard marks it `unsupported`; a failing case is never marked or removed to reach the gate.
+2. **Freeze the public contract.**
    Document the stable surface: CLI commands and options, environment variables, configuration file formats and defaults, data directory access, and the supported API subset with its recorded limits.
    Before the first release candidate, review that surface for names, aliases and defaults that should not be kept, and ship every remaining breaking change in a `0.x` minor release.
    The [public contract review](public-contract-review.md) holds the current inventory, the owner's decisions with the changes they still require, and the remaining proposals.
-2. **Upgrade data directories from every supported release.**
+3. **Upgrade data directories from every supported release.**
    A data directory written by each supported release opens with the new build and serves the same buckets, objects, generations, metadata and bytes.
    The fixtures come from the published images through `scripts/released-data-fixtures.sh` and are checked by `tests/it_import_seed/released_data_upgrade.rs`; each stable release and each release candidate adds its own digest-pinned fixture.
    Candidates are supported upgrade sources: the final release must open every candidate's data directory, even when a later candidate included a breaking change.
    The xtask release-version tests require each earlier published version's fixture before the next candidate or stable version; the integration test verifies that every fixture is listed and opens with preserved resources.
    Supported releases are `0.8.0` and later; see [withdrawn releases](#withdrawn-releases).
-3. **Soak a release candidate.**
-   Publish `1.0.0-rc.N` and keep it for at least 14 days without a breaking change.
+4. **Soak a release candidate.**
+   Publish `1.0.0-rc.N` and keep it for at least 7 days without a breaking change.
    A breaking change starts a new candidate.
    A candidate publishes only its exact container tag and is a GitHub prerelease, never GitHub's latest release.
    It never moves floating container tags such as `1.0`, any major alias, or `latest`; stable releases alone determine their advancement.
    Published recipes are paired with their source release, so their explicit default image pins point to that candidate's exact tag. This does not move a floating tag: the README quick start continues to use stable `latest`.
-4. **Verify the final source once.**
+5. **Verify the final source once.**
    Run the native, cross-target, SDK, container and browser gates on the release commit.
    Results from earlier checkpoints do not substitute for this run.
-5. **State the migration scope.**
-   The [fake-gcs-server migration guide](fake-gcs-server-migration.md) lists the supported migration workflows and the remaining gaps against the pinned reference without claiming full replacement.
-
-A complete functional superset of the pinned fake-gcs-server baseline remains a goal, tracked by the [full-superset gate](fake-gcs-server-migration.md#delivery-and-full-superset-gate).
-It is not a `1.0.0` condition.
-The phrase "fully backward-compatible superset" is used only after that gate passes, in whichever release that happens.
-Full Google Cloud Storage API coverage is likewise a separate goal.
 
 After `1.0.0`, breaking public-contract changes increment major, compatible additions increment minor, and compatible fixes increment patch.
+
+The SDK matrix does not shrink within `1.x`. A minor release may add an SDK
+or a scorecard case, and a pinned SDK version advances only when the whole
+matrix passes on the new version. A case that passed in a `1.x` release keeps
+passing: a regression is fixed in a patch release, never removed from the
+scorecard to keep it green.
 
 ## Withdrawn releases
 
