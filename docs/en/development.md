@@ -346,8 +346,8 @@ It prints every rejected occurrence in server production code. Rules are zero
 tolerance unless the [Rules](#rules) table marks them "per-file ratchet"; those
 use per-file baseline counts, and no new finding may increase them. Text rules share
 `xtask/lint-baseline.txt`; Clippy uses `xtask/lint-baseline.<triple>.txt`.
-No rule is ratcheted at present and every baseline file is empty; the mechanism
-stays for a rule that has to be introduced over existing findings.
+`text::layer_dependency` is the one ratcheted rule, so only
+`xtask/lint-baseline.txt` has rows; every Clippy baseline file is empty.
 The other exceptions are:
 
 - a reasoned `#[expect(<lint>, reason = "...")]` for a Clippy or rustc lint
@@ -419,7 +419,8 @@ cannot express.
 | `text::downcast` | `.downcast_ref`, `.downcast_mut` and `.downcast` calls that recover a type from a type-erased value. A panic payload takes a reasoned suppression. |
 | `text::diagnostics_in_io_error` | `io::Error::other` or `io::Error::new` whose arguments name `Diagnostics`; startup diagnostics keep their own error type. |
 | `text::immediately_invoked_closure` | `(\|\| ..)()` and `(move \|\| ..)()`, a closure called where it is written. |
-| `text::json_adapter_dependency` | References from `src/grpc` and `src/xml` production code to the crate's own `json` module: `json::..` as a path root or after `crate::`, `super::` or `self::`, `use crate::json;` and `json` in a `use crate::{..}` group. Adapters stay separate from shared logic; move the shared piece to a neutral module in the same change. |
+| `text::adapter_dependency` | One adapter (`src/json`, `src/xml`, `src/grpc`) naming another: `crate::` or `$crate::` paths, top-level members of `use crate::{..}` groups, and `super::` or `self::` paths resolved from the file's module path. Adapters that depend on each other cannot be reasoned about or replaced separately; move the shared piece to a lower module in the same change. |
+| `text::layer_dependency` | A module naming a module in a higher layer of the [module layer table](design.md#implemented-foundation-and-extension-boundaries), found the same way; a re-export counts where it is written. An upward reference ties a lower module to everything above it, and a cycle through it keeps either side from being changed or tested alone. A per-file ratchet over the references that existed when the rule arrived; kept apart from the adapter rule so a file cannot trade one forbidden edge for the other under an unchanged count. The gate also fails when `src/lib.rs` declares a module outside `#[cfg(test)]` that `xtask/src/lint/layers.rs` gives no layer, or a layer names an undeclared module. |
 | `text::sync_without_flush` | `.sync_all().await` or `.sync_data().await` after an awaited write in the same function with no `.flush().await` or `.shutdown().await` in between. |
 
 `unreachable_pub` and `clippy::redundant_clone` pass on every workspace target,
@@ -459,8 +460,11 @@ an object or array literal. `text::downcast` sees method calls, not
 `<dyn Any>::downcast_ref(..)`, and cannot tell a panic payload from an error.
 `text::diagnostics_in_io_error` sees only a `Diagnostics` named inside the
 call's arguments, not `map_err(io::Error::other)` on a
-`Result<_, Diagnostics>`. Review still applies the written rules where the
-tool cannot.
+`Result<_, Diagnostics>`. `text::layer_dependency` and
+`text::adapter_dependency` see only module names: a name that `src/lib.rs`
+re-exports at the crate root (`crate::ApiError`), a path inside a string such
+as `#[serde(with = "..")]`, `use crate::*` and `use crate as alias` are not
+followed. Review still applies the written rules where the tool cannot.
 
 New error types must not be `&'static str`, even for rejected client input:
 strings do not implement `Error` and cannot preserve a cause chain. Use a

@@ -12,6 +12,7 @@
 use crate::Verdict;
 use serde_json::Value;
 
+mod layers;
 mod ratchet;
 mod test_clock;
 use std::{
@@ -77,10 +78,11 @@ const JSON_MACRO_VALUE: &str = "text::json_macro_value";
 const DOWNCAST: &str = "text::downcast";
 const DIAGNOSTICS_IN_IO_ERROR: &str = "text::diagnostics_in_io_error";
 const IMMEDIATELY_INVOKED_CLOSURE: &str = "text::immediately_invoked_closure";
-const JSON_ADAPTER_DEPENDENCY: &str = "text::json_adapter_dependency";
+const ADAPTER_DEPENDENCY: &str = "text::adapter_dependency";
+const LAYER_DEPENDENCY: &str = "text::layer_dependency";
 /// Text rules whose existing findings are counted per file; see "Graduating a ratcheted rule"
-/// in `docs/en/development.md`. Empty now that every text rule is zero tolerance.
-pub const RATCHETED_TEXT_RULES: [&str; 0] = [];
+/// in `docs/en/development.md`. The module layers arrived over existing upward references.
+pub const RATCHETED_TEXT_RULES: [&str; 1] = [LAYER_DEPENDENCY];
 
 const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
 
@@ -98,7 +100,7 @@ const STRINGIFIED_ERROR: &str = "text::stringified_error";
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
-pub const TEXT_RULES: [&str; 14] = [
+pub const TEXT_RULES: [&str; 15] = [
     PATH_ATTRIBUTE,
     STRING_ERROR_RESULT,
     UNAVAILABLE_HELPER,
@@ -112,7 +114,8 @@ pub const TEXT_RULES: [&str; 14] = [
     DOWNCAST,
     DIAGNOSTICS_IN_IO_ERROR,
     IMMEDIATELY_INVOKED_CLOSURE,
-    JSON_ADAPTER_DEPENDENCY,
+    ADAPTER_DEPENDENCY,
+    LAYER_DEPENDENCY,
 ];
 
 const SUPPRESSION_MARKER: &str = "xtask-lint:";
@@ -338,6 +341,10 @@ fn gate(root: &Path) -> Result<Verdict> {
     let problems = ratchet::Baseline::load(root, None)?.check(&scan.findings);
     ratchet_problems.extend(ratchet::report(problems, ratchet::StaleCounts::Reject));
     let test_clock_problems = test_clock_gate(root)?;
+    let layer_problems = layers::check(root)?;
+    for problem in &layer_problems {
+        eprintln!("error: {problem}");
+    }
     findings.extend(scan.findings);
     findings.sort();
     let ratcheted_count = findings
@@ -366,7 +373,8 @@ fn gate(root: &Path) -> Result<Verdict> {
         && missing_helper.is_none()
         && scan.problems.is_empty()
         && ratchet_problems.is_empty()
-        && test_clock_problems.is_empty();
+        && test_clock_problems.is_empty()
+        && layer_problems.is_empty();
     if passed {
         println!(
             "lint: 0 new production violations; {ratcheted_count} ratcheted findings; {suppressions}; test wall-clock calls within {}",
@@ -374,10 +382,11 @@ fn gate(root: &Path) -> Result<Verdict> {
         );
     } else {
         eprintln!(
-            "lint failed: {} production violations, {} suppression problems, {} test wall-clock problems; {suppressions}",
+            "lint failed: {} production violations, {} suppression problems, {} test wall-clock problems, {} module layer table problems; {suppressions}",
             violations.len() + usize::from(missing_helper.is_some()) + ratchet_problems.len(),
             scan.problems.len(),
-            test_clock_problems.len()
+            test_clock_problems.len(),
+            layer_problems.len()
         );
         eprintln!(
             "Fix each finding, or justify it with `#[expect(<lint>, reason = \"...\")]` or `{SUPPRESSION_SYNTAX}`."
@@ -824,74 +833,14 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
     for offset in immediately_invoked_closures(masked) {
         add(IMMEDIATELY_INVOKED_CLOSURE, offset);
     }
-    if file.starts_with("src/grpc/") || file.starts_with("src/xml/") {
-        for offset in json_adapter_references(masked) {
-            add(JSON_ADAPTER_DEPENDENCY, offset);
-        }
+    for (breach, offset) in layers::breaches(file, masked) {
+        let rule = match breach {
+            layers::Breach::HigherLayer => LAYER_DEPENDENCY,
+            layers::Breach::IsolatedPeer => ADAPTER_DEPENDENCY,
+        };
+        add(rule, offset);
     }
     findings
-}
-
-/// Offsets of references to the crate's own `json` module: `json::..` as a path root or after
-/// `crate::`, `super::` or `self::`, plus `use crate::json;` and `json` as an element of a
-/// `use crate::{..}` group. The gRPC and XML adapters stay separate from the JSON adapter, so
-/// a shared piece moves to a neutral module instead. Method calls such as `.json::<T>()`,
-/// `serde_json` and longer paths like `other::json::X` are not the module.
-fn json_adapter_references(masked: &str) -> Vec<usize> {
-    let bytes = masked.as_bytes();
-    let uses: Vec<Range<usize>> = words(masked, "use")
-        .map(|start| {
-            start
-                ..masked[start..]
-                    .find(';')
-                    .map_or(masked.len(), |n| start + n)
-        })
-        .collect();
-    words(masked, "json")
-        .filter(|&at| {
-            let after = skip_space(bytes, at + "json".len());
-            let path_follows = masked[after..].starts_with("::");
-            let leaf_follows = matches!(bytes.get(after), Some(b';' | b',' | b'}'))
-                || ident_at(masked, after) == "as";
-            let in_use = uses.iter().any(|range| range.contains(&at));
-            let before = masked[..at].trim_end();
-            if let Some(path) = before.strip_suffix("::") {
-                let path = path.trim_end();
-                let root = path
-                    .rsplit(|c: char| !(c.is_alphanumeric() || c == '_'))
-                    .next()
-                    .unwrap_or("");
-                matches!(root, "crate" | "super" | "self")
-                    && (path_follows || (in_use && leaf_follows))
-            } else if before.ends_with('.') {
-                false
-            } else if in_use && (before.ends_with('{') || before.ends_with(',')) {
-                (path_follows || leaf_follows) && crate_relative_group(masked, at)
-            } else {
-                path_follows
-            }
-        })
-        .collect()
-}
-
-/// Whether the innermost `{..}` group around `at` hangs off `crate::`, `super::` or `self::`.
-fn crate_relative_group(masked: &str, at: usize) -> bool {
-    let mut depth = 0usize;
-    for (i, &byte) in masked.as_bytes()[..at].iter().enumerate().rev() {
-        match byte {
-            b'}' => depth += 1,
-            b'{' if depth == 0 => {
-                let prefix = masked[..i].trim_end();
-                return ["crate::", "super::", "self::"]
-                    .iter()
-                    .any(|root| prefix.ends_with(root));
-            }
-            b'{' => depth -= 1,
-            b';' => return false,
-            _ => {}
-        }
-    }
-    false
 }
 
 /// Offsets of `(|..| ..)()` and `(move || ..)()`: a closure called where it is written,
@@ -1640,26 +1589,43 @@ pub fn test_lines(masked: &str) -> Vec<bool> {
         }
         let start = attribute_stack_start(masked, i);
         i += 1;
-        while i < lines.len() && (lines[i].trim().starts_with("#[") || lines[i].trim().is_empty()) {
-            i += 1;
-        }
-        let mut depth = 0i64;
-        while i < lines.len() {
-            for byte in lines[i].bytes() {
-                match byte {
-                    b'(' | b'[' | b'{' => depth += 1,
-                    b')' | b']' | b'}' => depth -= 1,
-                    _ => {}
-                }
+        // Attributes after the `cfg` may span several lines, such as a multi-line
+        // `#[expect(..)]`; each ends where its brackets balance, and the item follows.
+        loop {
+            while lines.get(i).is_some_and(|line| line.trim().is_empty()) {
+                i += 1;
             }
-            i += 1;
-            if depth <= 0 {
+            if !lines
+                .get(i)
+                .is_some_and(|line| line.trim_start().starts_with("#["))
+            {
                 break;
             }
+            i = balanced_end(&lines, i);
         }
+        i = balanced_end(&lines, i);
         tests[start..i].fill(true);
     }
     tests
+}
+
+/// The index just past the line where the brackets opened from line `i` on balance again.
+fn balanced_end(lines: &[&str], mut i: usize) -> usize {
+    let mut depth = 0i64;
+    while let Some(line) = lines.get(i) {
+        for byte in line.bytes() {
+            match byte {
+                b'(' | b'[' | b'{' => depth += 1,
+                b')' | b']' | b'}' => depth -= 1,
+                _ => {}
+            }
+        }
+        i += 1;
+        if depth <= 0 {
+            break;
+        }
+    }
+    i
 }
 
 #[cfg(test)]
@@ -1793,6 +1759,27 @@ mod shared;
                 (STRING_ERROR_RESULT.to_owned(), 17)
             ]
         );
+    }
+
+    #[test]
+    fn test_items_include_multi_line_attributes_after_the_cfg() {
+        let text = "\
+#[cfg(test)]
+#[expect(
+    dead_code,
+    reason = \"fixtures shared with the integration tests\"
+)]
+
+#[path = \"a_tests.rs\"]
+mod a_tests { fn helper() -> Result<(), String> {} }
+fn after() -> Result<(), String> {}
+";
+        assert_eq!(
+            rules("src/a.rs", text),
+            [(STRING_ERROR_RESULT.to_owned(), 9)]
+        );
+        let lines = test_lines(&mask(text));
+        assert_eq!(lines.iter().filter(|line| **line).count(), 8);
     }
 
     #[test]
@@ -2085,71 +2072,6 @@ let k = json!(r#\"raw\"#);
 mod tests { fn t() { json!(x); } }
 ";
         assert_eq!(lines_of(JSON_MACRO_VALUE, text), [1, 2, 3, 9]);
-    }
-
-    #[test]
-    fn json_adapter_references_are_found_in_grpc_and_xml_files() {
-        let text = "\
-use crate::json;
-use crate::json as adapter;
-use crate::{a, json, b};
-use crate::{a, json as adapter};
-use super::json::JsonError;
-use crate::{a, json::JsonError};
-use crate::{a::{json}, b};
-use other::{json::X};
-use other::json::X;
-use crate::other::json;
-use serde_json::{json, Value};
-use serde_json::Value;
-fn f() -> Result<(), json::JsonError> {
-    let a = crate::json::bucket::valid(x);
-    let b = super::json::etag(x);
-    let c = self::json::etag(x);
-    let d = json::page_token(x);
-    let e = other::json::X;
-    let f = reqwest.json::<T>();
-    let g = json!({});
-    let json = 1;
-    let h = serde_json::json::x();
-    let i = Vec::<json::Item>::new();
-    let j = crate::a::json::X;
-}
-// crate::json::etag(x)
-/// `crate::json::etag(x)`
-let k = \"crate::json::etag(x)\";
-#[cfg(test)]
-mod tests { fn t() { crate::json::etag(x); } }
-";
-        let expected = [1, 2, 3, 4, 5, 6, 13, 14, 15, 16, 17, 23];
-        for path in ["src/grpc/v2/a.rs", "src/xml/b.rs"] {
-            let found: Vec<usize> = rules(path, text)
-                .into_iter()
-                .filter(|(r, _)| r == JSON_ADAPTER_DEPENDENCY)
-                .map(|(_, line)| line)
-                .collect();
-            assert_eq!(found, expected, "{path}");
-        }
-    }
-
-    #[test]
-    fn json_adapter_references_are_allowed_outside_grpc_and_xml() {
-        let text = "use crate::json::JsonError;\nfn f() { crate::json::etag(x); }\n";
-        for path in ["src/server/a.rs", "src/json/a.rs", "src/storage/a.rs"] {
-            assert_eq!(rules(path, text), [], "{path}");
-        }
-    }
-
-    #[test]
-    fn json_adapter_references_take_a_reasoned_suppression() {
-        let suppressed = "\
-// xtask-lint: allow(text::json_adapter_dependency) -- shared until the helper moves
-use crate::json::JsonError;
-";
-        let scan = scan_source("src/grpc/a.rs", suppressed);
-        assert_eq!(scan.problems, []);
-        assert!(scan.findings.is_empty());
-        assert_eq!(scan.suppressed.len(), 1);
     }
 
     #[test]
