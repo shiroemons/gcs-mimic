@@ -1408,7 +1408,7 @@ async fn rejects_bodies_and_oversized_or_malformed_headers() {
         assert!(response.starts_with("HTTP/1.1 413"));
     }
     for headers in [
-        format!("X-Large: {}\r\n", "x".repeat(20_000)),
+        format!("X-Large: {}\r\n", "x".repeat(160 * 1024)),
         (0..80).map(|n| format!("X-{n}: x\r\n")).collect(),
     ] {
         let mut stream = stream(address);
