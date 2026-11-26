@@ -60173,6 +60173,7 @@
             "signals_preserve_startup_events_and_exit_status",
             "authentication_diagnostics_preserve_the_catalog_and_io_causes",
             "close_diagnostics_follow_the_original_startup_failure",
+            "a_shutdown_signal_with_failed_catalog_close_reports_only_close",
             "a_new_directory_is_reported_before_parent_policy_failure_and_unlocks",
             "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
             "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
@@ -60280,6 +60281,7 @@
         "signals_preserve_startup_events_and_exit_status",
         "authentication_diagnostics_preserve_the_catalog_and_io_causes",
         "close_diagnostics_follow_the_original_startup_failure",
+        "a_shutdown_signal_with_failed_catalog_close_reports_only_close",
         "a_new_directory_is_reported_before_parent_policy_failure_and_unlocks",
         "cancelled_policy_request_still_executes_its_owned_job",
         "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
@@ -60335,8 +60337,18 @@
             "shutdown_during_recovery_drains_open_before_unlocking",
             "shutdown_during_reconciliation_drains_before_seed",
             "signals_preserve_startup_events_and_exit_status",
-            "authentication_diagnostics_preserve_the_catalog_and_io_causes",
-            "close_diagnostics_follow_the_original_startup_failure"
+            "startup_failures_close_catalog_even_with_live_handles",
+            "authentication_diagnostics_preserve_the_catalog_and_io_causes"
+          ]
+        },
+        {
+          "command": "cargo test --locked --bin gcs-mimic -- startup::tests::",
+          "result": "PASS",
+          "verified_at": "2026-11-27",
+          "artifact": "docs/en/slices/startup-phases.md",
+          "test_ids": [
+            "close_diagnostics_follow_the_original_startup_failure",
+            "a_shutdown_signal_with_failed_catalog_close_reports_only_close"
           ]
         },
         {
@@ -60457,8 +60469,6 @@
           "verified_at": "2026-10-24",
           "artifact": "docs/en/evidence/startup-phases-checks.txt",
           "test_ids": [
-            "shutdown_during_recovery_drains_open_before_unlocking",
-            "startup_failures_close_catalog_even_with_live_handles",
             "shutdown_wins_before_starting_the_next_phase",
             "phase_completion_and_signal_errors_are_preserved",
             "catalog_open_failure_preserves_diagnostics_without_repolling",

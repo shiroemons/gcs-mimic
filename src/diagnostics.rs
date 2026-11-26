@@ -337,6 +337,7 @@ pub fn combine_shutdown_results(
     append_shutdown_failure(result, close, catalog_close_failure)
 }
 
+/// The diagnostic appended when releasing the catalog also failed.
 pub fn catalog_close_failure(close: &impl RuntimeFailure) -> Diagnostic {
     Diagnostic::new(
         DiagnosticSource::Catalog,

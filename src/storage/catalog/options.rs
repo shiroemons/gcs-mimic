@@ -108,11 +108,14 @@ pub enum CatalogOpenFailure {
     ParentPolicy(CatalogError),
 }
 
+/// The setup stage that failed, together with any error releasing recovered storage.
 #[derive(Debug, thiserror::Error)]
-#[error("{failure}")]
+#[error("catalog open failed")]
 pub struct CatalogOpenError {
+    /// The failure that prevented the catalog from accepting requests.
     #[source]
     pub failure: CatalogOpenFailure,
+    /// A secondary failure while closing the recovered catalog.
     pub cleanup: Option<Box<CatalogError>>,
 }
 

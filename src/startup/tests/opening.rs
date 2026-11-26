@@ -6,6 +6,11 @@ use std::{error::Error, process::Command};
 fn close_diagnostics_follow_the_original_startup_failure() {
     for (failure, first, second) in [
         (
+            CatalogOpenFailure::Storage(CatalogError::PreconditionFailed),
+            "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state.",
+            "Cannot close catalog (Other): catalog I/O: permission denied; inspect persistence before restarting.",
+        ),
+        (
             CatalogOpenFailure::Authentication(CatalogError::PreconditionFailed),
             "Cannot reconcile stored bucket IAM and ACL state; inspect the catalog or restore a valid backup before restarting.",
             "Cannot close the catalog after authentication setup failed; inspect persistence before restarting.",
@@ -40,10 +45,36 @@ fn close_diagnostics_follow_the_original_startup_failure() {
             error.diagnostics().unwrap().errors,
             [expected(first), expected(second)]
         );
+        if matches!(error, crate::CliError::Authentication(_)) {
+            assert!(
+                error
+                    .to_string()
+                    .ends_with("; catalog close failed: catalog I/O: permission denied")
+            );
+        }
     }
 }
 
 const SCENARIO: &str = "GCSM_TEST_STARTUP_SIGNAL";
+
+#[test]
+fn a_shutdown_signal_with_failed_catalog_close_reports_only_close() {
+    let failure = merge_close_result(
+        Ok(()),
+        Err(CatalogError::from(io::Error::from(
+            io::ErrorKind::PermissionDenied,
+        ))),
+    )
+    .unwrap_err();
+    assert_eq!(
+        failure.errors,
+        [gcs_mimic::diagnostics::Diagnostic::new(
+            DiagnosticSource::Catalog,
+            "data_dir",
+            "Cannot close catalog (Other): catalog I/O: permission denied; inspect persistence before restarting.",
+        )]
+    );
+}
 
 #[tokio::test]
 async fn signals_preserve_startup_events_and_exit_status() {

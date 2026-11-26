@@ -54,7 +54,7 @@ pub(crate) const MID_WRITE_BODY_BYTES: usize = 3 * super::objects::WRITE_BATCH_B
 /// A catalog boundary at which a test can inject a fault or hold a job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
-    /// Report an error while releasing recovered directory ownership.
+    /// After closing the connection, before releasing directory ownership.
     CatalogClose,
     /// Linking an immutable input for a derived operation, its publication, or soft-delete restore.
     CopyLink,

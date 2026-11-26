@@ -21,7 +21,11 @@ impl Failure {
             "Cannot reconcile stored bucket IAM and ACL state; inspect the catalog or restore a valid backup before restarting.",
         );
         if cleanup.is_some() {
-            diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Catalog, "data_dir", "Cannot close the catalog after authentication setup failed; inspect persistence before restarting."));
+            diagnostics.errors.push(Diagnostic::new(
+                DiagnosticSource::Catalog,
+                "data_dir",
+                "Cannot close the catalog after authentication setup failed; inspect persistence before restarting.",
+            ));
         }
         Self {
             diagnostics,

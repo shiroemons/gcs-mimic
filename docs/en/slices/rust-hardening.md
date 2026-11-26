@@ -205,6 +205,8 @@ Decided by the owner on 2026-11-26:
 
 Pending the evidence below:
 
+- If lifecycle initialization and the subsequent close both fail, startup now
+  appends the close diagnostic after the storage diagnostic and still exits with code 1.
 - **Custom time in import preflight and publication.** Preflight accepts year
   `0000` (such as `0000-12-31T23:59:59Z`) and fractions with ten or more
   digits and only zeros after the sixth digit (such as
