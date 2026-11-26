@@ -533,7 +533,7 @@ impl Catalog {
             self.0.maintenance.health.clone(),
             move || {
                 let inner = weak.upgrade()?;
-                (!inner.admission.slots.is_closed())
+                (!inner.shutdown.token.is_cancelled())
                     .then(|| maintenance_loop(weak.clone(), wake.clone()))
             },
         );
@@ -576,7 +576,7 @@ async fn maintenance_loop(
         let Some(inner) = weak.upgrade() else {
             return;
         };
-        if inner.admission.slots.is_closed() {
+        if inner.shutdown.token.is_cancelled() {
             return;
         }
         #[cfg(test)]
@@ -617,7 +617,7 @@ async fn maintenance_loop(
         tokio::select! {
             () = shutdown.cancelled() => return,
             () = notified => {}
-            Some(()) = async { Some(sleep?.await) } => {}
+            Some(()) = async { sleep?.await; Some(()) } => {}
         }
     }
 }

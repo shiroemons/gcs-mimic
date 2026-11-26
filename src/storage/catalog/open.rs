@@ -629,7 +629,6 @@ impl RecoveredCatalog {
                 slots: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 activity: ActivityGate::default(),
                 uploads: Mutex::new(UploadState::default()),
-                uploads_idle: Notify::new(),
                 #[cfg(test)]
                 waiters: std::sync::atomic::AtomicUsize::new(0),
             },

@@ -431,7 +431,7 @@ where
 /// The catalog while it is open; once it closed, the board stops taking waits.
 fn open(weak: &Weak<Inner>) -> Option<Arc<Inner>> {
     let inner = weak.upgrade()?;
-    if inner.admission.slots.is_closed() {
+    if inner.shutdown.token.is_cancelled() {
         inner.admin.seed_watch.stop();
         return None;
     }

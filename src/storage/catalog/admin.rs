@@ -537,8 +537,11 @@ impl Catalog {
         slots: Arc<Semaphore>,
         deadline: tokio::time::Instant,
     ) -> Result<AdminPermit, AdminError> {
-        let task = self.0.shutdown.tasks.track().ok_or(AdminError::Closed)?;
         let slot = self.wait_admin(slots, deadline).await?;
+        let task = self.0.shutdown.tasks.track().ok_or(AdminError::Closed)?;
+        if self.is_closing() {
+            return Err(AdminError::Closed);
+        }
         Ok(AdminPermit {
             _slot: slot,
             _task: task,

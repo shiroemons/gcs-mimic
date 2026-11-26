@@ -553,7 +553,7 @@ pub(in crate::storage::catalog) async fn write_stream(
     tokio::pin!(closing);
     let received = async {
         loop {
-            if catalog.0.admission.slots.is_closed() {
+            if catalog.is_closing() {
                 return Err(object_unavailable("catalog is closing"));
             }
             let chunk = tokio::select! {

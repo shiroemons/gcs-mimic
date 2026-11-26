@@ -402,6 +402,29 @@ async fn a_closed_catalog_refuses_new_work_at_once_without_waiting_for_anything(
 }
 
 #[tokio::test]
+async fn closing_rechecks_a_released_lease_for_work_under_way() {
+    let (_dir, catalog, _admin) = setup().await;
+    let exclusive = catalog.wait_exclusive(LONG.deadline()).await.unwrap();
+    let waiting = catalog.await_activity(Work::UnderWay);
+    tokio::pin!(waiting);
+    tokio::select! {
+        biased;
+        _ = &mut waiting => panic!("exclusive lease should block work"),
+        () = std::future::ready(()) => {}
+    }
+    let closing = catalog.close();
+    tokio::pin!(closing);
+    tokio::select! {
+        biased;
+        _ = &mut closing => panic!("exclusive owner still holds the writer"),
+        () = std::future::ready(()) => {}
+    }
+    drop(exclusive);
+    drop(waiting.await.unwrap());
+    closing.await.unwrap();
+}
+
+#[tokio::test]
 async fn a_dropped_wait_leaves_nothing_behind() {
     let (_dir, catalog, _admin) = setup().await;
     let exclusive = catalog.wait_exclusive(LONG.deadline()).await.unwrap();

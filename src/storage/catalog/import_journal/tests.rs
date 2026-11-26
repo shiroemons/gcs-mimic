@@ -135,6 +135,67 @@ async fn import_resume_checks_the_binding_before_schema_migration_and_recovery()
     }
 }
 
+#[tokio::test]
+async fn resumed_catalog_drains_staged_cleanup_before_unlocking() {
+    let dir = TestDir::new();
+    let binding = binding(1);
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    catalog
+        .import_journal()
+        .begin(binding.clone())
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+
+    let resumed = Catalog::resume_import(&dir.0, binding.source)
+        .await
+        .unwrap();
+    let source = TestDir::new();
+    let path = source.0.join("object");
+    std::fs::write(&path, b"part").unwrap();
+    let staged = resumed
+        .admin(Origin::Import)
+        .stage_from_file(std::fs::File::open(path).unwrap(), Default::default(), 4)
+        .await
+        .unwrap();
+    let staging = dir.0.join("staging");
+    assert_eq!(std::fs::read_dir(&staging).unwrap().count(), 1);
+    let closing = resumed.close();
+    tokio::pin!(closing);
+    tokio::select! {
+        biased;
+        result = &mut closing => panic!("resumed catalog closed before cleanup: {result:?}"),
+        () = std::future::ready(()) => {}
+    }
+    assert!(resumed.is_closing());
+    assert!(resumed.admit_object_upload().is_err());
+    assert!(
+        Catalog::resume_import(&dir.0, binding.source)
+            .await
+            .is_err()
+    );
+    drop(staged);
+    tokio::time::timeout(std::time::Duration::from_secs(10), closing)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(std::fs::read_dir(staging).unwrap().count(), 0);
+    let reopened = Catalog::resume_import(&dir.0, binding.source)
+        .await
+        .unwrap();
+    assert_eq!(
+        reopened
+            .import_journal()
+            .progress()
+            .await
+            .unwrap()
+            .unwrap()
+            .binding,
+        binding
+    );
+    reopened.close().await.unwrap();
+}
+
 async fn commit(
     catalog: &Catalog,
     binding: ImportBinding,

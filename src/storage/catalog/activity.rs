@@ -190,7 +190,7 @@ impl Catalog {
                 None if closed => return Err(ActivityClosed),
                 None => tokio::select! {
                     () = released => {}
-                    () = self.0.shutdown.token.cancelled() => return Err(ActivityClosed),
+                    () = self.0.shutdown.token.cancelled() => {}
                 },
             }
         }

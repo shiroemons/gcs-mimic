@@ -50,7 +50,7 @@ impl Catalog {
         let wake = self.0.notifications.wake.clone();
         crate::task::spawn_restarting("notification-publisher", health.clone(), move || {
             let inner = weak.upgrade()?;
-            (!inner.admission.slots.is_closed())
+            (!inner.shutdown.token.is_cancelled())
                 .then(|| run(weak.clone(), wake.clone(), endpoint.clone(), health.clone()))
         });
         Ok(())
@@ -68,7 +68,7 @@ async fn run(
         tokio::pin!(changed);
         changed.as_mut().enable();
         let Some(inner) = weak.upgrade() else { return };
-        if inner.admission.slots.is_closed() {
+        if inner.shutdown.token.is_cancelled() {
             return;
         }
         let catalog = Catalog(inner);
@@ -76,7 +76,7 @@ async fn run(
         let delay = match attempt(&catalog, &endpoint, &health).await {
             Ok(delay) => delay,
             Err(error) => {
-                if catalog.0.admission.slots.is_closed() {
+                if catalog.is_closing() {
                     return;
                 }
                 health.pass_failed();
@@ -92,7 +92,7 @@ async fn run(
         tokio::select! {
             () = shutdown.cancelled() => return,
             () = changed => {}
-            Some(()) = async { Some(tokio::time::sleep(delay?).await) } => {}
+            Some(()) = async { tokio::time::sleep(delay?).await; Some(()) } => {}
         }
     }
 }
@@ -102,14 +102,11 @@ async fn attempt(
     endpoint: &Endpoint,
     health: &TaskHealth,
 ) -> Result<Option<Duration>, CatalogError> {
-    let _attempt = catalog
-        .0
-        .notifications
-        .attempts
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(unavailable)?;
+    let _attempt = tokio::select! {
+        biased;
+        () = catalog.0.shutdown.token.cancelled() => return Ok(None),
+        permit = catalog.0.notifications.attempts.clone().acquire_owned() => permit.map_err(unavailable)?,
+    };
     let Some(_task) = catalog.0.shutdown.tasks.track() else {
         return Ok(None);
     };

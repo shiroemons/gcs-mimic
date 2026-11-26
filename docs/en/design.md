@@ -410,8 +410,10 @@ process exit without drop after a committed write, immediate close/reopen, schem
 rejection and a second server process failing to acquire the directory. The connection
 is dropped before explicitly unlocking the lock file. Closing a file alone can leave
 the lock held by an unrelated child between fork and exec. Catalog jobs explicitly
-release captured ownership before publishing completion. `Catalog::close()` stops
-admission across all clones, waits for the running catalog job, closes SQLite and releases
+release captured ownership before publishing completion. `Catalog::close()` cancels
+catalog waiters and stops admission across all clones. It waits for tracked uploads,
+administrative work, notification attempts and reclamation, closes the reader pool,
+then drains the writer, closes SQLite and releases
 the directory even when old handles remain alive. Repeated close/drop of old handles
 cannot unlock a reopened catalog. Without explicit close, the last handle or running
 job still owns the resources until its synchronous drop. See the

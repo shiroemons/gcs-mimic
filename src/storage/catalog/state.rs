@@ -39,7 +39,6 @@ pub(super) struct Admission {
     pub(super) slots: Arc<Semaphore>,
     pub(super) activity: ActivityGate,
     pub(super) uploads: Mutex<UploadState>,
-    pub(super) uploads_idle: Notify,
     #[cfg(test)]
     pub(super) waiters: std::sync::atomic::AtomicUsize,
 }

@@ -483,11 +483,14 @@ impl Catalog {
             let activity = self.client_activity(work).await?;
             match self.claim_leased(activity, key.clone(), origin) {
                 Ok(guard) => return Ok(guard),
+                Err(ClaimError::Busy) if self.is_closing() => {
+                    return Err(ClaimError::Catalog(unavailable(
+                        BackendFailure::CatalogClosed,
+                    )));
+                }
                 Err(ClaimError::Busy) => tokio::select! {
                     () = released => {}
-                    () = self.0.shutdown.token.cancelled() => {
-                        return Err(ClaimError::Catalog(unavailable(BackendFailure::CatalogClosed)));
-                    }
+                    () = self.0.shutdown.token.cancelled() => {}
                 },
                 Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => return Err(error),
             }

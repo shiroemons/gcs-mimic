@@ -24,6 +24,7 @@ use std::{
 use tokio::task::JoinHandle;
 
 /// A unit of work handed to a child before spawning it, including detached cleanup.
+#[must_use = "keep the token until the admitted work has finished"]
 #[derive(Debug)]
 pub(crate) struct TaskToken {
     _receiver: tokio::sync::watch::Receiver<()>,

@@ -121,7 +121,7 @@ async fn receive_chunk(
     let transfer = async {
         let mut received = 0_u64;
         loop {
-            if catalog.0.admission.slots.is_closed() { return Err(object_unavailable("catalog is closing")); }
+            if catalog.is_closing() { return Err(object_unavailable("catalog is closing")); }
             let message = tokio::select! {
                 biased;
                 _ = &mut closing => return Err(object_unavailable("catalog is closing")),
