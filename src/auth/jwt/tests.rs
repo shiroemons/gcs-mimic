@@ -185,6 +185,29 @@ async fn failed_signatures_do_not_change_the_result_for_the_same_claims() {
 }
 
 #[tokio::test]
+async fn a_verified_signature_does_not_authorize_other_claims_or_a_future_issue_time() {
+    let auth = Auth::strict(registry(&[PUBLIC], &[]));
+    let signed = token(&claims());
+    assert!(authenticate(&auth, &signed, &Fixed(NOW)).await.is_some());
+    let (header, _) = signed.split_once('.').unwrap();
+    let (_, signature) = signed.rsplit_once('.').unwrap();
+    let mut changed = claims();
+    changed["exp"] = (NOW + 61).into();
+    let forged = format!(
+        "{header}.{}.{signature}",
+        encoded(changed.to_string().as_bytes())
+    );
+    for _ in 0..2 {
+        assert!(authenticate(&auth, &forged, &Fixed(NOW)).await.is_none());
+        assert!(
+            authenticate(&auth, &signed, &Fixed(NOW - 61))
+                .await
+                .is_none()
+        );
+    }
+}
+
+#[tokio::test]
 async fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
     let registry = Auth::strict(registry(&[PUBLIC], &[]));
     let valid = token(&claims());
