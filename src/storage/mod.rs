@@ -35,7 +35,9 @@ pub(crate) use catalog::acl::{
 };
 pub(crate) use catalog::retired_sync_left_in_folder;
 pub(crate) use catalog::{AppendError, AppendWriter, Finality, ReadableMetadata};
-pub use catalog::{Catalog, CatalogBacking, CatalogOpenError, CatalogOptions, DataDirState};
+pub use catalog::{
+    Catalog, CatalogBacking, CatalogOpenError, CatalogOptions, DataDirState, RecoveredCatalog,
+};
 pub(crate) use catalog::{
     ChunkEnd, ChunkWait, Overrun, Progress, ResumableChunk, SessionLease, Written,
 };

@@ -60150,27 +60150,27 @@
         },
         {
           "id": "onboarding-state-cancellation",
-          "description": "Startup subset verified: recovery/PAP barriers, real SIGTERM during partial staging and after rename before commit, empty staging and no unreferenced blobs before stopped. Broader administrative/handle-drop and ambiguous-commit cases remain pending. Contract: docs/en/slices/onboarding-state-contract.md.",
+          "description": "Startup subset verified: recovery and authentication barriers, real SIGTERM during partial staging and after rename before commit, empty staging and no unreferenced blobs before stopped. Broader administrative/handle-drop and ambiguous-commit cases remain pending. Contract: docs/en/slices/onboarding-state-contract.md.",
           "result": "PENDING",
           "test_ids": [
             "shutdown_during_recovery_drains_open_before_unlocking",
-            "shutdown_during_policy_configuration_drains_owned_work",
+            "shutdown_during_reconciliation_drains_before_seed",
             "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
-            "cancelled_policy_request_still_executes_its_owned_job"
+            "signals_preserve_startup_events_and_exit_status"
           ]
         },
         {
           "id": "startup-phase-cleanup",
-          "description": "Race open/recovery, PAP, seed and bind against shutdown; no false readiness, drain owned work before close/lock release, close on PAP/bind failure and preserve committed seed bytes on retry. Contract: docs/en/slices/onboarding-state-contract.md; owner shared-startup-phases.",
+          "description": "Drain recovery before closing the connection and releasing its lock on shutdown. Report authentication failures before a pending stop, install parent policy before executor startup, close on bind failure and preserve committed seed bytes on retry. Contract: docs/en/slices/onboarding-state-contract.md; owner shared-startup-phases.",
           "result": "PASS",
           "test_ids": [
             "shutdown_during_recovery_drains_open_before_unlocking",
-            "shutdown_during_policy_configuration_drains_owned_work",
+            "shutdown_during_reconciliation_drains_before_seed",
             "startup_failures_close_catalog_even_with_live_handles",
             "shutdown_wins_before_starting_the_next_phase",
             "phase_completion_and_signal_errors_are_preserved",
             "catalog_open_failure_preserves_diagnostics_without_repolling",
-            "cancelled_policy_request_still_executes_its_owned_job",
+            "signals_preserve_startup_events_and_exit_status",
             "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
             "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
             "sigterm_during_seed_drains_writes_releases_lock_and_retries",
@@ -60269,12 +60269,12 @@
         "recovery_ignores_os_metadata_and_names_other_stray_entries",
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "shutdown_during_recovery_drains_open_before_unlocking",
-        "shutdown_during_policy_configuration_drains_owned_work",
+        "shutdown_during_reconciliation_drains_before_seed",
         "startup_failures_close_catalog_even_with_live_handles",
         "shutdown_wins_before_starting_the_next_phase",
         "phase_completion_and_signal_errors_are_preserved",
         "catalog_open_failure_preserves_diagnostics_without_repolling",
-        "cancelled_policy_request_still_executes_its_owned_job",
+        "signals_preserve_startup_events_and_exit_status",
         "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
         "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
         "sigterm_during_seed_drains_writes_releases_lock_and_retries",
@@ -60431,7 +60431,7 @@
           "artifact": "docs/en/evidence/startup-phases-checks.txt",
           "test_ids": [
             "shutdown_during_recovery_drains_open_before_unlocking",
-            "shutdown_during_policy_configuration_drains_owned_work",
+            "shutdown_during_reconciliation_drains_before_seed",
             "startup_failures_close_catalog_even_with_live_handles",
             "shutdown_wins_before_starting_the_next_phase",
             "phase_completion_and_signal_errors_are_preserved",

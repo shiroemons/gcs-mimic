@@ -254,8 +254,12 @@ impl Harness {
         base: Option<&str>,
         config: crate::config::ConfigDraft,
     ) -> Self {
+        Self::open(auth, base, config, None).await
+    }
+
+    async fn start_with_session_limits(config: crate::config::ConfigDraft) -> Self {
         let limits = config.clone().build();
-        Self::open(auth, base, config, Some(&limits)).await
+        Self::open(Permissive, None, config, Some(&limits)).await
     }
 
     async fn open(
@@ -962,15 +966,12 @@ async fn initiation_checks_strict_create_and_overwrite_permissions_before_stagin
 
 #[tokio::test]
 async fn initiation_session_cap_and_status_prefix_are_bounded() {
-    let h = Harness::start_with_config(
-        Permissive,
-        None,
-        crate::config::ConfigDraft {
-            max_object_bytes: 1024 * 1024,
-            max_resumable_sessions: std::num::NonZeroU32::new(128),
-            ..Default::default()
-        },
-    )
+    let h = Harness::start_with_session_limits(crate::config::ConfigDraft {
+        max_object_bytes: 1024 * 1024,
+        catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(30_000),
+        max_resumable_sessions: std::num::NonZeroU32::new(128),
+        ..Default::default()
+    })
     .await;
     let reply = h.initiate("name=object", "", b"").await;
     let path = h.path(&reply);

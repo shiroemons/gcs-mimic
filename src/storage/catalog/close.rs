@@ -62,14 +62,8 @@ impl Catalog {
                 let _execution = execution;
                 // Poison must not prevent shutdown from closing the connection and its lock.
                 let mut resources = crate::sync::lock_for_cleanup(&inner.writer.resources);
-                if let Some(Resources { connection, lock }) = resources.take() {
-                    connection
-                        .close()
-                        .map_err(|(_, error)| unavailable(error))?;
-                    if let Some(lock) = lock {
-                        lock.release()?;
-                    }
-                    inner.storage.backend.clear_memory()?;
+                if let Some(resources) = resources.take() {
+                    resources.close(&inner.storage.backend)?;
                 }
                 Ok(())
             })
@@ -88,5 +82,17 @@ impl Catalog {
             Err(executor::ExecutorError::Closed) => Ok(()),
             Err(error) => Err(unavailable(error)),
         }
+    }
+}
+
+impl Resources {
+    pub(super) fn close(self, backend: &BlobBackend) -> Result<(), CatalogError> {
+        self.connection
+            .close()
+            .map_err(|(_, error)| unavailable(error))?;
+        if let Some(lock) = self.lock {
+            lock.release()?;
+        }
+        backend.clear_memory().map_err(CatalogError::from)
     }
 }

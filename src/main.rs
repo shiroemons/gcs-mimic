@@ -99,7 +99,11 @@ No configuration, environment or network is read.";
 fn main() -> ExitCode {
     #[cfg(target_env = "musl")]
     disable_transparent_huge_pages();
-    match run() {
+    command_exit(run())
+}
+
+fn command_exit(result: Result<(), CliError>) -> ExitCode {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             let fallback = Diagnostics::error(
@@ -120,7 +124,8 @@ fn main() -> ExitCode {
 enum CliError {
     Diagnostics(Diagnostics),
     /// Authentication setup failed at startup: its diagnostics are reported, and its catalog
-    /// cause remains the error's source.
+    /// cause remains the error's source. Box the diagnostics and cause together to keep
+    /// unrelated command results small.
     Authentication(Box<startup::CatalogAuthenticationFailure>),
     /// A failure without advice of its own, such as a closed standard stream.
     Io(io::Error),

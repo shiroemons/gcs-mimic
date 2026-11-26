@@ -132,8 +132,8 @@ means no parent enforcement.
 Removing a fixture on restart reactivates stored public bindings for inherited
 buckets; an explicitly enforced bucket remains enforced. The fixture is held in
 a connection-local temporary table, never serialized into bucket metadata.
-Embedded users install it with `Catalog::configure_public_access_prevention`
-before serving. No Google contact, organization hierarchy, policy mutation API,
+Embedded users pass the configured identities to `CatalogOptions::for_server`
+and supply those options to `Catalog::open_with_options`. No Google contact, organization hierarchy, policy mutation API,
 propagation delay or external cache invalidation is simulated.
 
 ## Acceptance cases

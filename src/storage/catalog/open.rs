@@ -65,10 +65,10 @@ impl Backing {
 /// Opened storage, before the schema is brought up to date.
 struct OpenedStorage {
     backend: BlobBackend,
-    /// Held for a data directory for as long as the catalog is open.
+    connection: Connection,
+    /// Declared after the connection so an open failure drops it before unlocking.
     lock: Option<lock::DirectoryLock>,
     stored_version: i64,
-    connection: Connection,
     data_dir: PathBuf,
 }
 
@@ -389,29 +389,7 @@ impl Catalog {
         backing: CatalogBacking<'_>,
         options: CatalogOptions,
     ) -> Result<Self, CatalogOpenError> {
-        let backing = match backing {
-            CatalogBacking::Disk(data_dir) => Backing::Disk {
-                data_dir: data_dir.to_owned(),
-                resume: None,
-            },
-            CatalogBacking::Memory {
-                blob_bytes,
-                catalog_bytes,
-            } => {
-                if blob_bytes == 0 || catalog_bytes < 1024 * 1024 {
-                    return Err(CatalogOpenError::Storage(unavailable(
-                        "RAM requires a positive blob budget and at least 1 MiB of catalog pages",
-                    )));
-                }
-                Backing::Memory {
-                    limits: MemoryLimits {
-                        blob_bytes,
-                        catalog_bytes,
-                    },
-                    data_dir: PathBuf::new(),
-                }
-            }
-        };
+        let backing = Backing::try_from(backing)?;
         Self::open_options(backing, options).await
     }
 
@@ -430,6 +408,113 @@ impl Catalog {
         backing: Backing,
         options: CatalogOptions,
     ) -> Result<Self, CatalogOpenError> {
+        crate::task::run_blocking("catalog-open", move || {
+            RecoveredCatalog::open(backing, options)?.start()
+        })
+        .await
+        .map_err(CatalogError::from)?
+    }
+}
+
+impl TryFrom<CatalogBacking<'_>> for Backing {
+    type Error = CatalogError;
+
+    fn try_from(backing: CatalogBacking<'_>) -> Result<Self, Self::Error> {
+        Ok(match backing {
+            CatalogBacking::Disk(data_dir) => Backing::Disk {
+                data_dir: data_dir.to_owned(),
+                resume: None,
+            },
+            CatalogBacking::Memory {
+                blob_bytes,
+                catalog_bytes,
+            } => {
+                if blob_bytes == 0 || catalog_bytes < 1024 * 1024 {
+                    return Err(unavailable(
+                        "RAM requires a positive blob budget and at least 1 MiB of catalog pages",
+                    ));
+                }
+                Backing::Memory {
+                    limits: MemoryLimits {
+                        blob_bytes,
+                        catalog_bytes,
+                    },
+                    data_dir: PathBuf::new(),
+                }
+            }
+        })
+    }
+}
+
+/// Owns recovered storage and its directory lock before any executor accepts requests.
+#[must_use = "finish opening the catalog or close its recovered storage"]
+pub struct RecoveredCatalog {
+    storage: OpenedStorage,
+    options: CatalogOptions,
+}
+
+impl RecoveredCatalog {
+    pub async fn recover(
+        backing: CatalogBacking<'_>,
+        options: CatalogOptions,
+    ) -> Result<Self, CatalogError> {
+        let backing = Backing::try_from(backing)?;
+        crate::task::run_blocking("catalog-recovery", move || Self::open(backing, options)).await?
+    }
+
+    fn open(backing: Backing, options: CatalogOptions) -> Result<Self, CatalogError> {
+        let mut storage = open_storage(backing)?;
+        upgrade_catalog(
+            &mut storage.connection,
+            storage.stored_version,
+            &storage.backend,
+        )?;
+        match storage.backend.kind() {
+            crate::config::Backend::Memory => {
+                storage.connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(CatalogError::from)?;
+                notification_outbox::open(&storage.connection)?;
+                resumable::open(&storage.connection)?;
+            }
+            crate::config::Backend::Disk => {
+                recover_on_open(&mut storage.connection, &storage.backend, &*options.clock)?
+            }
+        }
+        Ok(Self { storage, options })
+    }
+
+    fn data_dir_state(&self) -> DataDirState {
+        if self.storage.stored_version == 0 {
+            DataDirState::Created
+        } else {
+            DataDirState::Opened
+        }
+    }
+
+    pub fn created_directory(&self) -> Option<&Path> {
+        (self.data_dir_state() == DataDirState::Created && !self.storage.backend.is_memory())
+            .then_some(self.storage.data_dir.as_path())
+    }
+
+    pub async fn close(self) -> Result<(), CatalogError> {
+        crate::task::run_blocking("catalog-close", move || {
+            Resources {
+                connection: self.storage.connection,
+                lock: self.storage.lock,
+            }
+            .close(&self.storage.backend)
+        })
+        .await?
+    }
+
+    /// Reconciles authentication, checks the import journal and installs parent policy before admitting requests.
+    pub async fn finish(self) -> Result<Catalog, CatalogOpenError> {
+        crate::task::run_blocking("catalog-open", move || self.start())
+            .await
+            .map_err(CatalogError::from)?
+    }
+
+    fn start(self) -> Result<Catalog, CatalogOpenError> {
+        let data_dir_state = self.data_dir_state();
         let CatalogOptions {
             clock,
             local_admin,
@@ -439,115 +524,100 @@ impl Catalog {
             lifecycle: lifecycle_execution,
             pubsub_endpoint,
             parent_projects,
-            mut stop,
-        } = options;
-        crate::task::run_blocking("catalog-open", move || -> Result<Self, CatalogOpenError> {
-            let OpenedStorage {
+        } = self.options;
+        let OpenedStorage {
+            backend,
+            lock,
+            mut connection,
+            data_dir,
+            ..
+        } = self.storage;
+        match &principals {
+            Some(
+                profile @ (principals::Profile::Strict(_) | principals::Profile::Permissive { .. }),
+            ) => {
+                profile
+                    .reconcile(&mut connection, &*clock)
+                    .map_err(CatalogOpenError::Authentication)?;
+                if import_journal::in_progress(&connection)
+                    .map_err(CatalogOpenError::ImportState)?
+                {
+                    return Err(CatalogOpenError::ImportInProgress);
+                }
+            }
+            None | Some(principals::Profile::TrustedLocal) => {}
+        }
+        let parent_policy = Arc::<read_pool::ParentPolicy>::default();
+        if !parent_projects.is_empty() {
+            policies::install_parent_policy(&mut connection, &parent_policy, &parent_projects)
+                .map_err(CatalogOpenError::ParentPolicy)?;
+        }
+        let lifecycle = lifecycle::LifecycleSchedule::open(&mut connection, lifecycle_execution)?;
+        // An in-memory database exists only inside the writer's connection.
+        let read_pool = match backend.kind() {
+            crate::config::Backend::Memory => None,
+            crate::config::Backend::Disk => Some(read_pool::ReadPool::new(
+                data_dir.join("catalog.sqlite3"),
+                parent_policy.clone(),
+            )),
+        };
+        Ok(Catalog(Arc::new(Inner {
+            policy: state::Policy {
+                principals,
+                clock,
+                session_limits,
+                default_soft_delete_retention,
+            },
+            storage: state::Storage {
                 backend,
-                lock,
-                stored_version,
-                mut connection,
                 data_dir,
-            } = open_storage(backing)?;
-            // A version-zero database has no catalog yet, including an interrupted first open.
-            let data_dir_state = if stored_version == 0 {
-                DataDirState::Created
-            } else {
-                DataDirState::Opened
-            };
-            upgrade_catalog(&mut connection, stored_version, &backend)?;
-            match backend.kind() {
-                crate::config::Backend::Memory => {
-                    connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(CatalogError::from)?;
-                    notification_outbox::open(&connection)?;
-                    resumable::open(&connection)?;
-                }
-                crate::config::Backend::Disk => recover_on_open(&mut connection, &backend, &*clock)?,
-            }
-            if stop.as_mut().is_some_and(|signal| signal.try_recv().is_ok()) {
-                let created_directory = (data_dir_state == DataDirState::Created && !backend.is_memory()).then_some(data_dir);
-                return Err(CatalogOpenError::Interrupted { created_directory });
-            }
-            match &principals {
-                Some(profile @ (principals::Profile::Strict(_) | principals::Profile::Permissive { .. })) => {
-                    profile.reconcile(&mut connection, &*clock).map_err(CatalogOpenError::Authentication)?;
-                    if import_journal::in_progress(&connection).map_err(CatalogOpenError::ImportState)? {
-                        return Err(CatalogOpenError::ImportInProgress);
-                    }
-                }
-                None | Some(principals::Profile::TrustedLocal) => {}
-            }
-            let parent_policy = Arc::<read_pool::ParentPolicy>::default();
-            if !parent_projects.is_empty() {
-                policies::install_parent_policy(&mut connection, &parent_policy, &parent_projects).map_err(CatalogOpenError::ParentPolicy)?;
-            }
-            let lifecycle = lifecycle::LifecycleSchedule::open(&mut connection, lifecycle_execution)?;
-            // An in-memory database exists only inside the writer's connection.
-            let read_pool = match backend.kind() {
-                crate::config::Backend::Memory => None,
-                crate::config::Backend::Disk => Some(read_pool::ReadPool::new(
-                    data_dir.join("catalog.sqlite3"),
-                    parent_policy.clone(),
-                )),
-            };
-            Ok(Self(Arc::new(Inner {
-                policy: state::Policy {
-                    principals,
-                    clock,
-                    session_limits,
-                    default_soft_delete_retention,
-                },
-                storage: state::Storage {
-                    backend,
-                    data_dir,
-                    data_dir_state,
-                    reclamation: Arc::new(Semaphore::new(1)),
-                },
-                writer: state::Writer {
-                    resources: Mutex::new(Some(Resources { connection, lock })),
-                    execution: Arc::new(Semaphore::new(1)),
-                    executor: executor::Executor::start("gcs-mimic-catalog").map_err(CatalogError::from)?,
-                    upload_commits: objects::CommitQueue::default(),
-                    #[cfg(test)]
-                    fail_rollback: AtomicBool::new(false),
-                },
-                reads: state::Reads {
-                    pool: read_pool,
-                    #[cfg(test)]
-                    parent_policy,
-                    cache: read_cache::ReadCache::new(crate::fd_limit::cacheable_files()),
-                    runtime: tokio::runtime::Handle::current(),
-                },
-                admission: state::Admission {
-                    slots: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
-                    activity: ActivityGate::default(),
-                    uploads: Mutex::new(UploadState::default()),
-                    uploads_idle: Notify::new(),
-                    #[cfg(test)]
-                    waiters: std::sync::atomic::AtomicUsize::new(0),
-                },
-                admin: state::AdminState::new(local_admin)?,
-                writers: state::WriterRegistry::default(),
-                maintenance: state::Maintenance {
-                    wake: Arc::new(Notify::new()),
-                    derived_wake: Notify::new(),
-                    lifecycle,
-                    multipart_orphan_scan: AtomicBool::new(false),
-                    error: Mutex::new(None),
-                    started: AtomicBool::new(false),
-                    health: crate::task::TaskHealth::default(),
-                    #[cfg(test)]
-                    panics: std::sync::atomic::AtomicUsize::new(0),
-                },
-                notifications: state::Notifications {
-                    wake: Arc::new(Notify::new()),
-                    started: AtomicBool::new(false),
-                    endpoint: pubsub_endpoint,
-                    attempts: Arc::new(Semaphore::new(1)),
-                },
-                shutdown: state::Shutdown::default(),
-            })))
-        })
-        .await.map_err(CatalogError::from)?
+                data_dir_state,
+                reclamation: Arc::new(Semaphore::new(1)),
+            },
+            writer: state::Writer {
+                resources: Mutex::new(Some(Resources { connection, lock })),
+                execution: Arc::new(Semaphore::new(1)),
+                executor: executor::Executor::start("gcs-mimic-catalog")
+                    .map_err(CatalogError::from)?,
+                upload_commits: objects::CommitQueue::default(),
+                #[cfg(test)]
+                fail_rollback: AtomicBool::new(false),
+            },
+            reads: state::Reads {
+                pool: read_pool,
+                #[cfg(test)]
+                parent_policy,
+                cache: read_cache::ReadCache::new(crate::fd_limit::cacheable_files()),
+                runtime: tokio::runtime::Handle::current(),
+            },
+            admission: state::Admission {
+                slots: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+                activity: ActivityGate::default(),
+                uploads: Mutex::new(UploadState::default()),
+                uploads_idle: Notify::new(),
+                #[cfg(test)]
+                waiters: std::sync::atomic::AtomicUsize::new(0),
+            },
+            admin: state::AdminState::new(local_admin)?,
+            writers: state::WriterRegistry::default(),
+            maintenance: state::Maintenance {
+                wake: Arc::new(Notify::new()),
+                derived_wake: Notify::new(),
+                lifecycle,
+                multipart_orphan_scan: AtomicBool::new(false),
+                error: Mutex::new(None),
+                started: AtomicBool::new(false),
+                health: crate::task::TaskHealth::default(),
+                #[cfg(test)]
+                panics: std::sync::atomic::AtomicUsize::new(0),
+            },
+            notifications: state::Notifications {
+                wake: Arc::new(Notify::new()),
+                started: AtomicBool::new(false),
+                endpoint: pubsub_endpoint,
+                attempts: Arc::new(Semaphore::new(1)),
+            },
+            shutdown: state::Shutdown::default(),
+        })))
     }
 }

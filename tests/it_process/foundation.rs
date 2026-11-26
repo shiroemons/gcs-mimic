@@ -928,20 +928,17 @@ async fn authentication_reconciliation_failure_reports_the_catalog_remedy_and_ex
         "UPDATE buckets SET acl_policy_bound=0; INSERT OR REPLACE INTO acl_bucket_entries VALUES ('broken-bucket','bucket','[{}]');"
     ).unwrap();
 
-    let (stop, stopping) = tokio::sync::oneshot::channel();
-    stop.send(()).unwrap();
-    let stopped = CatalogOptions::for_server(
+    let options = CatalogOptions::for_server(
         &Config::default(),
         &Auth::permissive(),
         Arc::new(SystemClock),
-    )
-    .stop_after_recovery(stopping);
-    assert!(matches!(
-        Catalog::open_with_options(CatalogBacking::Disk(&dir.0), stopped).await,
-        Err(CatalogOpenError::Interrupted {
-            created_directory: None
-        })
-    ));
+    );
+    let recovered =
+        gcs_mimic::storage::RecoveredCatalog::recover(CatalogBacking::Disk(&dir.0), options)
+            .await
+            .unwrap();
+    assert!(recovered.created_directory().is_none());
+    recovered.close().await.unwrap();
     let options = CatalogOptions::for_server(
         &Config::default(),
         &Auth::permissive(),

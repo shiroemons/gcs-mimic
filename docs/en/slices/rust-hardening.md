@@ -728,8 +728,8 @@ rusqlite writes that bypass those helpers.
   - notification endpoint;
   - local admin.
 
-  Inside open, before the executor starts, it installs the parent
-  public-access-prevention table and reconciles authentication. That removes:
+  After storage recovery and before the executor starts, open reconciles
+  authentication, checks the import journal, then installs parent public access prevention. That removes:
   - the `OnceLock`s and the `AtomicU64` retention;
   - `AuthenticationAlreadyConfigured`;
   - the silent `unwrap_or_default()` of session limits;

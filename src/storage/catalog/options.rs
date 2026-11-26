@@ -28,8 +28,7 @@ pub struct CatalogOptions {
     pub(super) default_soft_delete_retention: Option<std::num::NonZeroU64>,
     pub(super) lifecycle: crate::config::LifecycleExecution,
     pub(super) pubsub_endpoint: Option<crate::notification::Endpoint>,
-    pub parent_projects: Vec<String>,
-    pub(super) stop: Option<tokio::sync::oneshot::Receiver<()>>,
+    pub(super) parent_projects: Vec<String>,
 }
 
 impl std::fmt::Debug for CatalogOptions {
@@ -47,12 +46,6 @@ impl std::fmt::Debug for CatalogOptions {
 }
 
 impl CatalogOptions {
-    /// A shutdown received during recovery lets open release the directory before starting authentication.
-    pub fn stop_after_recovery(mut self, signal: tokio::sync::oneshot::Receiver<()>) -> Self {
-        self.stop = Some(signal);
-        self
-    }
-
     pub(super) fn embedded(clock: Arc<dyn Clock>, local_admin: LocalAdmin) -> Self {
         Self {
             clock,
@@ -63,7 +56,6 @@ impl CatalogOptions {
             lifecycle: crate::config::LifecycleExecution::Disabled,
             pubsub_endpoint: None,
             parent_projects: Vec::new(),
-            stop: None,
         }
     }
 
@@ -104,10 +96,6 @@ impl CatalogOptions {
 /// The startup phase determines which diagnostic and remedy the CLI reports.
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogOpenError {
-    #[error("catalog opening interrupted")]
-    Interrupted {
-        created_directory: Option<std::path::PathBuf>,
-    },
     #[error(transparent)]
     Storage(#[from] CatalogError),
     #[error(transparent)]
@@ -123,9 +111,6 @@ pub enum CatalogOpenError {
 impl CatalogOpenError {
     pub(super) fn into_cause(self) -> CatalogError {
         match self {
-            Self::Interrupted { .. } => {
-                std::io::Error::from(std::io::ErrorKind::Interrupted).into()
-            }
             Self::ImportInProgress => CatalogError::PreconditionFailed,
             Self::Storage(cause)
             | Self::Authentication(cause)

@@ -117,6 +117,7 @@ mod known_projects;
 mod open;
 mod options;
 mod state;
+pub use open::RecoveredCatalog;
 pub use options::{CatalogBacking, CatalogOpenError, CatalogOptions};
 mod schema;
 #[cfg(test)]

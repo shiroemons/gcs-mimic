@@ -10,7 +10,8 @@ use gcs_mimic::{
     seed::{SeedError, SeedOutcome},
     server::{self, State},
     storage::{
-        Catalog, CatalogOpenError, CatalogOptions, DataDirState, MemoryBudget, admin::AdminError,
+        Catalog, CatalogOpenError, CatalogOptions, DataDirState, MemoryBudget, RecoveredCatalog,
+        admin::AdminError,
     },
     time_limit::TimeLimit,
 };
@@ -367,53 +368,49 @@ async fn open_catalog(
     config: &Config,
     auth: &Auth,
     clock: Arc<dyn Clock>,
-    shutdown: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<()>>>,
+    mut shutdown: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<()>>>,
 ) -> Result<PhaseResult<Catalog>, crate::CliError> {
-    let (stop, stopping) = tokio::sync::oneshot::channel();
+    let options = CatalogOptions::for_server(config, auth, clock);
     let opening = async {
-        let options = CatalogOptions::for_server(config, auth, clock).stop_after_recovery(stopping);
-        let opened = Catalog::open_with_options(config.into(), options).await;
-        let created = match &opened {
-            Ok(catalog) => catalog
-                .data_directory()
-                .and_then(|(path, state)| (state == DataDirState::Created).then_some(path)),
-            Err(CatalogOpenError::Interrupted { created_directory }) => {
-                created_directory.as_deref()
-            }
-            Err(_) => None,
-        };
-        if let Some(path) = created {
+        let recovered = RecoveredCatalog::recover(config.into(), options)
+            .await
+            .map_err(|cause| catalog_open_failure(&cause))?;
+        if let Some(path) = recovered.created_directory() {
             gcs_mimic::diagnostics::emit(
                 gcs_mimic::diagnostics::LogLevel::Info,
                 Event::DataDirCreated,
                 serde_json::json!({"data_dir":path.to_string_lossy(),"message":format!("created a new empty catalog at {}", path.display())}),
             );
         }
-        opened
+        Ok::<_, Diagnostics>(recovered)
     };
     tokio::pin!(opening);
-    // Dropping this borrowed wait keeps the pinned owner alive for the required recovery drain.
-    match race(CancelSafe(opening.as_mut()), shutdown).await {
-        Ok(PhaseResult::Complete(result)) => {
-            result.map(PhaseResult::Complete).map_err(open_failure)
-        }
+    let recovered = match race(CancelSafe(opening.as_mut()), shutdown.as_mut()).await {
+        Ok(PhaseResult::Complete(result)) => result?,
         interrupted => {
-            let _ = stop.send(());
-            match opening.await {
-                Ok(catalog) => finish_startup(&catalog, interrupted.map(|_| ())).await?,
-                Err(
-                    CatalogOpenError::Interrupted { .. }
-                    | CatalogOpenError::Authentication(_)
-                    | CatalogOpenError::ImportInProgress
-                    | CatalogOpenError::ImportState(_)
-                    | CatalogOpenError::ParentPolicy(_),
-                ) => {
-                    interrupted?;
-                }
-                Err(CatalogOpenError::Storage(cause)) => {
-                    return Err(catalog_open_failure(&cause).into());
-                }
+            let recovered = opening.await?;
+            merge_close_result(interrupted.map(|_| ()), recovered.close().await)?;
+            report_stopped();
+            return Ok(PhaseResult::Stopped);
+        }
+    };
+    // Once reconciliation starts, its failure must reach the operator even if a signal arrives.
+    let result = match recovered.finish().await {
+        Err(error @ (CatalogOpenError::Authentication(_) | CatalogOpenError::Storage(_))) => {
+            return Err(open_failure(error));
+        }
+        other => other,
+    };
+    match race(CancelSafe(std::future::ready(())), shutdown).await {
+        Ok(PhaseResult::Complete(())) => result.map(PhaseResult::Complete).map_err(open_failure),
+        interrupted => {
+            let signal = interrupted.map(|_| ());
+            if let Ok(catalog) = result {
+                close_startup(&catalog, signal).await?;
+            } else {
+                signal?;
             }
+            report_stopped();
             Ok(PhaseResult::Stopped)
         }
     }
@@ -421,7 +418,6 @@ async fn open_catalog(
 
 fn open_failure(error: CatalogOpenError) -> crate::CliError {
     match error {
-        CatalogOpenError::Interrupted { .. } => io::Error::from(io::ErrorKind::Interrupted).into(),
         CatalogOpenError::Storage(cause) => catalog_open_failure(&cause).into(),
         CatalogOpenError::Authentication(cause) => authentication::Failure::new(cause).into(),
         CatalogOpenError::ImportState(_) => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "Cannot inspect import state; inspect the native catalog before restarting.").into(),
@@ -915,6 +911,7 @@ async fn bind_after_time_wait(
 
 #[cfg(test)]
 mod tests {
+    mod opening;
     use super::*;
     use crate::test_support::TestDir;
     use gcs_mimic::{
@@ -1292,7 +1289,6 @@ mod tests {
         .err()
         .unwrap();
         assert!(failure.to_string().contains("Import is incomplete"));
-        assert!(!catalog.is_healthy());
         let reopened = Catalog::open(&dir.0).await.unwrap();
         assert!(reopened.import_journal().in_progress().await.unwrap());
         reopened.import_journal().finish(binding).await.unwrap();
@@ -1477,7 +1473,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shutdown_during_policy_configuration_drains_owned_work() {
+    async fn shutdown_during_reconciliation_drains_before_seed() {
         use gcs_mimic::storage::admin::{BucketDefinition, BucketName, Origin};
         let dir = TestDir::new();
         let seed = dir.0.join("fixtures");
@@ -1504,14 +1500,12 @@ mod tests {
             release: Mutex::new(released),
         });
         let (signal, shutdown) = tokio::sync::oneshot::channel();
-        let (observed, stopping) = tokio::sync::oneshot::channel();
         let work = tokio::spawn(async move {
             let mut report = Config::preflight_os(&["--auth-mode=strict".into(), "--identities".into(), r#"{"identities":[{"id":"reader@example.test","tokens":[]}],"public_access_prevention_projects":["project"]}"#.into()], []);
             let auth = report.load_auth();
             report.into_config().unwrap();
             let shutdown = async {
                 shutdown.await.map_err(io::Error::other)?;
-                observed.send(()).unwrap();
                 Ok(())
             };
             tokio::pin!(shutdown);
@@ -1523,10 +1517,6 @@ mod tests {
             .unwrap()
             .unwrap();
         signal.send(()).unwrap();
-        tokio::time::timeout(guard, stopping)
-            .await
-            .unwrap()
-            .unwrap();
         assert!(!work.is_finished());
         assert!(matches!(
             File::open(data.join("catalog.lock")).unwrap().try_lock(),
@@ -1616,17 +1606,11 @@ mod tests {
     #[tokio::test]
     async fn startup_failures_close_catalog_even_with_live_handles() {
         let dir = TestDir::new();
-        let config = dir.config();
         let shutdown = std::future::pending();
         tokio::pin!(shutdown);
-        let mut options =
-            CatalogOptions::for_server(&config, &Auth::permissive(), Arc::new(SystemClock));
-        options.parent_projects.push("bad project".into());
-        let failure = Catalog::open_with_options((&config).into(), options)
-            .await
-            .err()
-            .expect("PAP failure");
-        let error = open_failure(failure);
+        let error = open_failure(CatalogOpenError::ParentPolicy(
+            CatalogError::InvalidMetadata("Invalid parent policy project".into()),
+        ));
         let diagnostics = error.diagnostics().unwrap();
         assert_eq!(diagnostics.errors[0].source, DiagnosticSource::Catalog);
         assert_eq!(diagnostics.errors[0].key, "data_dir");
