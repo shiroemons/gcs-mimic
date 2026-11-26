@@ -346,7 +346,7 @@ impl<F: Future> Future for CatchPanic<F> {
     }
 }
 
-#[must_use = "the task runs only when the supervised future is polled"]
+#[must_use = "dropping an unfinished supervised task cancels it"]
 struct Supervised<F> {
     name: &'static str,
     future: Pin<Box<F>>,
