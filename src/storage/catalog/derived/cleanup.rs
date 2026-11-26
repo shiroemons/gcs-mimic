@@ -25,7 +25,7 @@ impl Drop for DerivedRequestGuard {
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             crate::task::spawn_supervised_on(&runtime, "derived-cleanup", async move {
                 loop {
-                    let notified = catalog.0.derived_wake.notified();
+                    let notified = catalog.0.maintenance.derived_wake.notified();
                     tokio::pin!(notified);
                     notified.as_mut().enable();
                     match catalog.derived_guard(&id) {
@@ -72,9 +72,9 @@ impl Catalog {
     }
 
     pub(super) async fn release_transfer(&self, discarded: DiscardedTransfer) {
-        let backend = self.0.backend.clone();
+        let backend = self.0.storage.backend.clone();
         #[cfg(test)]
-        let root = self.0.data_dir.clone();
+        let root = self.0.storage.data_dir.clone();
         match crate::task::run_blocking("derived-release", move || {
             #[cfg(test)]
             fault::hit(&root, Step::DerivedCleanup).map_err(object_unavailable)?;
@@ -117,7 +117,7 @@ impl Catalog {
     pub(crate) async fn maintain_derived_transfers(
         &self,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         self.maintain_derived_transfers_at(now).await
     }
 

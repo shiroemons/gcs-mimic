@@ -496,7 +496,7 @@ async fn ram_appendable_cancelled_finalizer_finishes_owned_publication_and_recla
         .unwrap();
     assert_eq!((published.generation, published.size), (generation, 4));
     catalog.reclaim_pending().await.unwrap();
-    let memory = catalog.0.backend.memory().unwrap();
+    let memory = catalog.0.storage.backend.memory().unwrap();
     assert!(memory.open(&id).is_err());
     assert!(memory.draft(&id, 0).is_err());
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"body"[..]);
@@ -1073,7 +1073,7 @@ async fn a_dropped_append_cannot_overwrite_bytes_committed_after_a_takeover() {
         .unwrap();
     assert_eq!(writer.flush().await, Ok(4));
     let generation = writer.record().generation;
-    let (entered, release) = arm_write_pause(&catalog.0.data_dir);
+    let (entered, release) = arm_write_pause(&catalog.0.storage.data_dir);
     {
         let append = writer.append(4, Bytes::from_static(b"LATE"), 1024);
         tokio::pin!(append);

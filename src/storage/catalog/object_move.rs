@@ -51,7 +51,7 @@ impl Catalog {
         let source_read = access.source_read.clone();
         let source_delete = access.source_delete.clone();
         let destination_create = access.destination_create.clone();
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         let (record, retired) = self
             .run(move |connection| {
                 let transaction = sql::immediate(connection)?;

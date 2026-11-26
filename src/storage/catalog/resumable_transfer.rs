@@ -116,13 +116,13 @@ async fn receive_chunk(
         lease.guard.clone(),
     )
     .await?;
-    let closing = catalog.0.admin_shutdown.notified();
+    let closing = catalog.0.shutdown.admin_wake.notified();
     tokio::pin!(closing);
     closing.as_mut().enable();
     let transfer = async {
         let mut received = 0_u64;
         loop {
-            if catalog.0.admission.is_closed() { return Err(object_unavailable("catalog is closing")); }
+            if catalog.0.admission.slots.is_closed() { return Err(object_unavailable("catalog is closing")); }
             let message = tokio::select! {
                 biased;
                 _ = &mut closing => return Err(object_unavailable("catalog is closing")),
@@ -260,7 +260,8 @@ impl Catalog {
             let total = chunk.end.total(end);
             let offset = lease.session.offset.max(end);
             #[cfg(test)]
-            fault::hit(&catalog.0.data_dir, Step::Checkpoint).map_err(object_unavailable)?;
+            fault::hit(&catalog.0.storage.data_dir, Step::Checkpoint)
+                .map_err(object_unavailable)?;
             chunk.catalog_wait.send_replace(ChunkWait::Catalog);
             let appended = Appended {
                 output: file,
@@ -320,6 +321,7 @@ impl Catalog {
             && let SessionState::Complete(completion) = session.state
         {
             self.0
+                .storage
                 .backend
                 .finish_draft(&lease.session.blob_id)
                 .map_err(object_unavailable)?;
@@ -328,14 +330,15 @@ impl Catalog {
                 .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion).into());
         }
         if matches!(&error, ResumableError::Object(error) if error.is_backend_failure()) {
-            if self.0.backend.is_memory() {
+            if self.0.storage.backend.is_memory() {
                 self.0
+                    .storage
                     .backend
                     .remove(&lease.session.blob_id)
                     .map_err(object_unavailable)?;
                 return Err(error);
             }
-            let data_dir = self.0.data_dir.clone();
+            let data_dir = self.0.storage.data_dir.clone();
             let blob_id = lease.session.blob_id;
             let offset = lease.session.offset;
             self.run_upload(move |connection| {
@@ -386,11 +389,11 @@ impl Catalog {
         lease: &SessionLease,
         reason: TerminalReason,
     ) -> Result<(), ResumableError> {
-        let wake = self.0.maintenance_wake.clone();
+        let wake = self.0.maintenance.wake.clone();
         let id = lease.session.id;
         let blob_id = lease.session.blob_id;
         #[cfg(test)]
-        let data_dir = self.0.data_dir.clone();
+        let data_dir = self.0.storage.data_dir.clone();
         let changed = self.run_upload::<_, ObjectError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED', options = json_set(options, '$.terminal_error', json(?2)) WHERE id = ?1 AND state = 'ACTIVE'", params![id, sql::Json(reason)])?;
@@ -442,12 +445,13 @@ impl Catalog {
         // Every chunk, the final one included, was made durable by `receive_chunk` before its
         // checkpoint, and hashing only reads the file, so there is nothing left to sync.
         self.0
+            .storage
             .backend
             .publish_resumable(self, lease.session.blob_id)
             .await?;
         let session = lease.session.clone();
-        let clock = self.0.clock.clone();
-        let principals = self.0.principals.clone();
+        let clock = self.0.policy.clock.clone();
+        let principals = self.0.policy.principals.clone();
         catalog_wait.send_replace(ChunkWait::Catalog);
         let publication =
             move |connection: &mut rusqlite::Connection| -> Result<(Value, objects::Retired), ResumableError> {
@@ -518,6 +522,7 @@ impl Catalog {
             .await??;
         self.schedule_expiry(retired);
         self.0
+            .storage
             .backend
             .finish_draft(&lease.session.blob_id)
             .map_err(object_unavailable)?;

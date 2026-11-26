@@ -155,7 +155,7 @@ async fn ram_xml_multipart_quota_preserves_parts_and_old_destination_for_retry()
     let target = begin(&catalog).await;
     let first = part(&catalog, &target, b"first", Complete).await.unwrap();
     let mut reservations = Vec::new();
-    while let Ok(stage) = catalog.0.backend.memory().unwrap().stage() {
+    while let Ok(stage) = catalog.0.storage.backend.memory().unwrap().stage() {
         reservations.push(stage);
     }
     assert!(
@@ -388,7 +388,7 @@ async fn ram_xml_multipart_parts_write_side_by_side_and_a_disconnect_frees_its_b
     let (kept, kept_request) = open(2, b"kept").await;
     let (cut, cut_request) = open(3, b"cut off").await;
     part(&catalog, &target, b"first", Complete).await.unwrap();
-    let memory = catalog.0.backend.memory().unwrap();
+    let memory = catalog.0.storage.backend.memory().unwrap();
     assert_eq!(memory.blob_count(), 1);
 
     drop(cut);

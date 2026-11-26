@@ -43,7 +43,14 @@ async fn queue_uploads(
     catalog: &Catalog,
     uploads: &[(&'static str, ObjectConditions)],
 ) -> Vec<tokio::task::JoinHandle<Result<ObjectRecord, ObjectError>>> {
-    let writer = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let writer = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let tasks = uploads
         .iter()
         .map(|&(name, conditions)| {
@@ -62,7 +69,7 @@ async fn queue_uploads(
         })
         .collect();
     eventually_async("every upload queued behind the writer", || async {
-        catalog.0.upload_commits.queued().len() == uploads.len()
+        catalog.0.writer.upload_commits.queued().len() == uploads.len()
     })
     .await;
     drop(writer);
@@ -418,7 +425,14 @@ async fn publish_long_names_without_temporary_files() {
             )
         })
         .collect();
-    let writer = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let writer = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let tasks: Vec<_> = names
         .iter()
         .map(|name| {
@@ -435,7 +449,7 @@ async fn publish_long_names_without_temporary_files() {
         })
         .collect();
     eventually_async("every upload queued behind the writer", || async {
-        catalog.0.upload_commits.queued().len() == names.len()
+        catalog.0.writer.upload_commits.queued().len() == names.len()
     })
     .await;
     drop(writer);

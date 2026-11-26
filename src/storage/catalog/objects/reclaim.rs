@@ -187,7 +187,7 @@ impl Catalog {
             crate::task::run_blocking("upload-discard", move || unlink(&stage)).await??;
         }
         #[cfg(test)]
-        fault::hit(&self.0.data_dir, Step::DiscardProbe).map_err(object_unavailable)?;
+        fault::hit(&self.0.storage.data_dir, Step::DiscardProbe).map_err(object_unavailable)?;
         // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
         let journaled = self
             .run_upload::<_, ObjectError>(move |connection| {
@@ -218,7 +218,7 @@ impl Catalog {
             ),
         }
         // A full page can leave work behind even if no later request journals a blob.
-        self.0.maintenance_wake.notify_one();
+        self.0.maintenance.wake.notify_one();
     }
 
     /// Reclaims the whole journal, one bounded page at a time, for the maintenance scheduler.
@@ -241,6 +241,7 @@ impl Catalog {
         let activity = self.await_activity(Work::UnderWay).await?;
         let permit = self
             .0
+            .storage
             .reclamation
             .clone()
             .acquire_owned()
@@ -269,7 +270,7 @@ impl Catalog {
                 return conflict.map_or(Ok(0), |id| Err(live_journal_error(id)));
             }
             let selected = ids.len();
-            let backend = catalog.0.backend.clone();
+            let backend = catalog.0.storage.backend.clone();
             let (removed, failure) =
                 crate::task::run_blocking("blob-reclamation", move || backend.reclaim_batch(ids))
                     .await?

@@ -158,7 +158,7 @@ fn cancelled_cleanup_keeps_its_writer_and_directory_ownership_until_close() {
         let request =
             tokio::spawn(async move { worker.cancel_resumable_session(&id, "bucket").await });
         eventually_async("the cancellation to become an active upload", || async {
-            catalog.0.uploads.lock().unwrap().active != 0
+            catalog.0.admission.uploads.lock().unwrap().active != 0
         })
         .await;
         request.abort();
@@ -167,7 +167,7 @@ fn cancelled_cleanup_keeps_its_writer_and_directory_ownership_until_close() {
         let worker = catalog.clone();
         let close = tokio::spawn(async move { worker.close().await });
         eventually_async("close to stop admission", || async {
-            catalog.0.admission.is_closed()
+            catalog.0.admission.slots.is_closed()
         })
         .await;
         assert!(!close.is_finished());
@@ -175,7 +175,7 @@ fn cancelled_cleanup_keeps_its_writer_and_directory_ownership_until_close() {
         release.send(()).unwrap();
         blocker.await.unwrap().unwrap();
         close.await.unwrap().unwrap();
-        assert!(catalog.0.session_writers.lock().unwrap().is_empty());
+        assert!(catalog.0.writers.sessions.lock().unwrap().is_empty());
         assert!(!session.blob_id.staging_path(&data.0).exists());
         assert_eq!(fault::catalog_thread_io(&data.0), catalog_io);
         let recovered = Catalog::open(&data.0).await.unwrap();
@@ -244,7 +244,7 @@ async fn failed_cleanup_directory_sync_keeps_the_journal_for_retry() {
             catalog.resumable_maintenance_error(),
             Some(format!("catalog I/O: {kind}"))
         );
-        let cause = catalog.0.maintenance_error.lock().unwrap().clone().unwrap();
+        let cause = catalog.0.maintenance.error.lock().unwrap().clone().unwrap();
         assert!(crate::error::causes(&cause).any(|error| {
             error
                 .downcast_ref::<io::Error>()

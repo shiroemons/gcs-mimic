@@ -120,6 +120,7 @@ mod keyset;
 mod known_projects;
 mod open;
 mod options;
+mod state;
 pub use options::{CatalogBacking, CatalogOpenError, CatalogOptions};
 mod schema;
 #[cfg(test)]
@@ -205,74 +206,16 @@ fn bucket_incarnation(connection: &Connection, bucket: &str) -> rusqlite::Result
 }
 
 struct Inner {
-    principals: Option<principals::Profile>,
-    activity: ActivityGate,
-    resources: Mutex<Option<Resources>>,
-    admission: Arc<Semaphore>,
-    execution: Arc<Semaphore>,
-    executor: executor::Executor,
-    /// Upload commits waiting for the writer, which its next holder publishes together.
-    upload_commits: objects::CommitQueue,
-    /// Absent for a RAM catalog, whose database exists only inside the writer's connection.
-    read_pool: Option<read_pool::ReadPool>,
-    parent_policy: Arc<read_pool::ParentPolicy>,
-    read_cache: read_cache::ReadCache,
-    cache_runtime: tokio::runtime::Handle,
-    reclamation: Arc<Semaphore>,
-    uploads: Mutex<UploadState>,
-    uploads_idle: Notify,
-    admin_uploads: Arc<Semaphore>,
-    admin_reads: Arc<Semaphore>,
-    staged_handles: Arc<Semaphore>,
-    publication_batch: Arc<Semaphore>,
-    /// Held by a seed batch from before it lets go of its lease until its commit ends, while
-    /// nothing else keeps a reset from clearing the bodies it already put in the RAM store.
-    seed_commit: Arc<Semaphore>,
-    /// Held by a publication request until its batch and every staged cleanup it left are done,
-    /// which is what `close` waits for. Callers past the permits wait for one like any other slot.
-    publication_requests: Arc<Semaphore>,
-    file_workers: admin::FileWorkers,
-    admin_shutdown: Notify,
-    local_admin: Option<admin::AdminGrant>,
-    notification_wake: Arc<Notify>,
-    notification_started: AtomicBool,
-    /// The local Pub/Sub emulator, set once when the publisher starts; also answers topic lookups.
-    pubsub_endpoint: OnceLock<crate::notification::Endpoint>,
-    /// Retention a new bucket without an explicit softDeletePolicy receives, an
-    /// `Option<NonZeroU64>` in atomic form: read it through `default_soft_delete_retention()`.
-    default_soft_delete_retention: AtomicU64,
-    notification_attempts: Arc<Semaphore>,
-    data_dir: PathBuf,
-    data_dir_state: DataDirState,
-    backend: BlobBackend,
-    clock: Arc<dyn Clock>,
-    session_writers: Mutex<resumable::writers::SessionWriters>,
-    /// Wakes requests waiting for a writer. One waker serves every session: a release with no
-    /// waiter costs an atomic check, and waiters on a busy session are few and short-lived.
-    writer_released: Notify,
-    session_limits: OnceLock<session_limits::SessionLimits>,
-    derived_wake: Notify,
-    maintenance_wake: Arc<Notify>,
-    /// Shared with the task that runs the passes, which waits on it without holding the catalog.
-    seed_watch: Arc<admin::seed_watch::SeedWatch>,
-    lifecycle: lifecycle::LifecycleSchedule,
-    /// Whether a bucket delete may have left XML multipart uploads behind.
-    multipart_orphan_scan: AtomicBool,
-    maintenance_error: Mutex<Option<BackendCause>>,
-    maintenance_started: AtomicBool,
-    maintenance_health: crate::task::TaskHealth,
-    /// Workers started beside the catalog whose health readiness also reports. Each worker
-    /// registers once and is never removed; the server starts each such worker once per
-    /// catalog, so the list stays as short as the set of workers.
-    background_health: Mutex<Vec<crate::task::TaskHealth>>,
-    #[cfg(test)]
-    fail_rollback: AtomicBool,
-    #[cfg(test)]
-    maintenance_panics: std::sync::atomic::AtomicUsize,
-    #[cfg(test)]
-    cleanup_tasks: std::sync::atomic::AtomicUsize,
-    #[cfg(test)]
-    admission_waiters: std::sync::atomic::AtomicUsize,
+    policy: state::Policy,
+    storage: state::Storage,
+    writer: state::Writer,
+    reads: state::Reads,
+    admission: state::Admission,
+    admin: state::AdminState,
+    writers: state::WriterRegistry,
+    maintenance: state::Maintenance,
+    notifications: state::Notifications,
+    shutdown: state::Shutdown,
 }
 
 struct Resources {
@@ -284,9 +227,9 @@ struct Resources {
 impl Drop for Inner {
     fn drop(&mut self) {
         // Weak background loops need a stored wake permit even when the last owner disappears between polls.
-        self.notification_wake.notify_one();
-        self.maintenance_wake.notify_one();
-        self.seed_watch.wake();
+        self.notifications.wake.notify_one();
+        self.maintenance.wake.notify_one();
+        self.admin.seed_watch.wake();
     }
 }
 
@@ -324,10 +267,10 @@ impl UploadGuard {
 impl Drop for UploadGuard {
     fn drop(&mut self) {
         if let UploadSlot::Counted(catalog) = &self.slot {
-            let mut uploads = crate::sync::lock(&catalog.0.uploads);
+            let mut uploads = crate::sync::lock(&catalog.0.admission.uploads);
             uploads.active -= 1;
             if uploads.active == 0 {
-                catalog.0.uploads_idle.notify_waiters();
+                catalog.0.admission.uploads_idle.notify_waiters();
             }
         }
     }
@@ -348,47 +291,47 @@ pub enum DataDirState {
 impl Catalog {
     /// Returns startup facts without resolving symlinks or inspecting the filesystem again.
     pub fn data_directory(&self) -> Option<(&Path, DataDirState)> {
-        match self.0.backend {
-            BlobBackend::Disk(_) => Some((&self.0.data_dir, self.0.data_dir_state)),
+        match self.0.storage.backend {
+            BlobBackend::Disk(_) => Some((&self.0.storage.data_dir, self.0.storage.data_dir_state)),
             BlobBackend::Memory(_) => None,
         }
     }
 
     #[cfg(test)]
     pub(crate) fn active_uploads(&self) -> usize {
-        self.0.uploads.lock().unwrap().active
+        self.0.admission.uploads.lock().unwrap().active
     }
 
     #[cfg(test)]
     pub(crate) fn session_writers_idle(&self) -> bool {
-        self.0.session_writers.lock().unwrap().is_empty()
+        self.0.writers.sessions.lock().unwrap().is_empty()
     }
 
     /// Arms a one-shot fault for the `skip + 1`-th time the catalog reaches `step`.
     #[cfg(test)]
     pub(crate) fn inject(&self, step: fault::Step, skip: usize, fault: fault::Fault) {
-        fault::arm(&self.0.data_dir, step, skip, fault);
+        fault::arm(&self.0.storage.data_dir, step, skip, fault);
     }
 
     /// The number of injected faults the catalog has yet to reach.
     #[cfg(test)]
     pub(crate) fn pending_faults(&self) -> usize {
-        fault::pending(&self.0.data_dir)
+        fault::pending(&self.0.storage.data_dir)
     }
 
     /// Whether shutdown started closing the catalog. An unhealthy catalog also refuses work, so
     /// only this tells a stopping server from a failing one.
     pub(crate) fn is_closing(&self) -> bool {
-        self.0.admission.is_closed()
+        self.0.admission.slots.is_closed()
     }
 
     pub fn is_healthy(&self) -> bool {
-        !self.0.resources.is_poisoned()
-            && self.0.backend.is_healthy()
-            && !self.0.session_writers.is_poisoned()
-            && !self.0.admission.is_closed()
-            && !self.0.admin_uploads.is_closed()
-            && !self.0.admin_reads.is_closed()
+        !self.0.writer.resources.is_poisoned()
+            && self.0.storage.backend.is_healthy()
+            && !self.0.writers.sessions.is_poisoned()
+            && !self.0.admission.slots.is_closed()
+            && !self.0.admin.uploads.is_closed()
+            && !self.0.admin.reads.is_closed()
     }
 }
 

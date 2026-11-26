@@ -224,7 +224,7 @@ fn restore_owns_blocking_publication_through_disconnect_and_close() {
             let worker = catalog.clone();
             let close = tokio::spawn(async move { worker.close().await });
             eventually_async("close to stop admission", || async {
-                catalog.0.admission.is_closed()
+                catalog.0.admission.slots.is_closed()
             })
             .await;
             assert!(!close.is_finished());
@@ -265,7 +265,7 @@ async fn expired_restore_source_is_rechecked_after_pinning() {
     };
     let id = crate::storage::BlobId::generate().unwrap();
     let selection = request.clone();
-    let backend = catalog.0.backend.clone();
+    let backend = catalog.0.storage.backend.clone();
     let time = objects::PublicationTime::read(clock.as_ref()).unwrap();
     let source = catalog
         .run_upload::<_, ObjectError>(move |connection| {
@@ -275,7 +275,7 @@ async fn expired_restore_source_is_rechecked_after_pinning() {
         })
         .await
         .unwrap();
-    let backend = catalog.0.backend.clone();
+    let backend = catalog.0.storage.backend.clone();
     let published =
         crate::task::run_blocking("restore-test-publish", move || backend.publish_pinned(&id))
             .await;
@@ -297,7 +297,11 @@ async fn expired_restore_source_is_rechecked_after_pinning() {
         .unwrap_err();
     assert_eq!(error, ObjectError::ObjectNotFound);
     catalog
-        .discard_staged(objects::StagedBlob::pin(&catalog.0.backend, &data.0, id))
+        .discard_staged(objects::StagedBlob::pin(
+            &catalog.0.storage.backend,
+            &data.0,
+            id,
+        ))
         .await;
     catalog.reclaim_if(objects::Journaled::SOME).await;
     assert_eq!(blob_count(&data.0), 0);

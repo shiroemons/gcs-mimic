@@ -439,6 +439,7 @@ async fn import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix() 
     );
     let slots = catalog
         .0
+        .admin
         .publication_requests
         .clone()
         .acquire_many_owned(2)
@@ -469,7 +470,14 @@ async fn import_publication_cancelled_caller_drains_commit() {
     let (dir, catalog, admin, source) = setup(2).await;
     bucket(&admin, &source).await;
     let item = entry(&dir, &admin, 2, "object", b"retained").await;
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let worker = admin.clone();
     let source_copy = source.clone();
     let publishing = tokio::spawn(async move {

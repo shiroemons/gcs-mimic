@@ -266,7 +266,7 @@ impl Catalog {
                 .map_err(object_unavailable)?
                 .to_hex(),
         };
-        let now = StoredTime::try_from(self.0.clock.now())?;
+        let now = StoredTime::try_from(self.0.policy.clock.now())?;
         let deadline = now
             .millis
             .checked_add_millis(super::SESSION_LIFETIME_MILLIS)
@@ -313,7 +313,7 @@ impl Catalog {
                 })
             })
             .await?;
-        self.0.maintenance_wake.notify_one();
+        self.0.maintenance.wake.notify_one();
         Ok(upload)
     }
 
@@ -386,7 +386,7 @@ impl Catalog {
 
     async fn active_upload(&self, target: Target, access: &BucketAccess) -> Result<Upload, Error> {
         let access = access.clone();
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         self.run_serialized_read(SerializedRead::AdvisoryXmlUpload, move |connection| {
             let snapshot = sql::read_snapshot(connection).map_err(object_unavailable)?;
             active(&snapshot, &target, &access, now)
@@ -401,7 +401,7 @@ impl Catalog {
         marker: u16,
         limit: usize,
     ) -> Result<PartsPage, Error> {
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         self.run(move |connection| -> Result<_, Error> {
             let transaction=connection.transaction().map_err(object_unavailable)?;
             let upload=active(&transaction,&target,&access,now)?;
@@ -427,11 +427,11 @@ impl Catalog {
                         &transaction,
                         &lease.upload.target,
                         &lease.access,
-                        UnixMillis::try_from(operation.0.clock.now())?,
+                        UnixMillis::try_from(operation.0.policy.clock.now())?,
                     )?;
                     maintenance::retire(&transaction, &lease.upload.target.id)?;
                     objects::commit_publication(transaction)?;
-                    operation.0.maintenance_wake.notify_one();
+                    operation.0.maintenance.wake.notify_one();
                     Ok(())
                 })
                 .await;
@@ -453,7 +453,7 @@ impl Catalog {
         self.record_maintenance_error(Some(crate::storage::failure::BackendCause::from_error(
             error,
         )));
-        self.0.maintenance_wake.notify_one();
+        self.0.maintenance.wake.notify_one();
     }
 }
 

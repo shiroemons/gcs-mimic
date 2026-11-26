@@ -343,13 +343,14 @@ impl SessionLease {
     pub(crate) fn staging_path(&self) -> PathBuf {
         self.session
             .blob_id
-            .staging_path(&self.guard.catalog.0.data_dir)
+            .staging_path(&self.guard.catalog.0.storage.data_dir)
     }
 }
 
 fn create_session_bytes(catalog: &Catalog, blob_id: &BlobId) -> Result<(), CatalogError> {
     catalog
         .0
+        .storage
         .backend
         .create_resumable_draft(blob_id)
         .map_err(unavailable)
@@ -358,6 +359,7 @@ fn create_session_bytes(catalog: &Catalog, blob_id: &BlobId) -> Result<(), Catal
 fn remove_session_stage(catalog: &Catalog, blob_id: &BlobId) -> Result<(), CatalogError> {
     catalog
         .0
+        .storage
         .backend
         .remove_new_draft(blob_id)
         .map_err(unavailable)
@@ -384,15 +386,18 @@ fn insert_session(
     if let Err(error) = transaction.commit() {
         return Err(failed_commit(
             connection,
-            catalog.0.backend.kind(),
+            catalog.0.storage.backend.kind(),
             &request.blob_id,
             error,
         ));
     }
     // After the commit every failure leaves the session in place.
     #[cfg(test)]
-    super::fault::hit(&catalog.0.data_dir, super::fault::Step::SessionCreated)
-        .map_err(|error| CommitFailure::Ambiguous(unavailable(error).into()))?;
+    super::fault::hit(
+        &catalog.0.storage.data_dir,
+        super::fault::Step::SessionCreated,
+    )
+    .map_err(|error| CommitFailure::Ambiguous(unavailable(error).into()))?;
     sql::row(connection, SELECT_SESSION, [&request.id], read_session)
         .map_err(|error| CommitFailure::Ambiguous(unavailable(error).into()))
 }
@@ -410,7 +415,7 @@ fn stage_session(
     super::objects::BucketPublication::load(transaction, &request.bucket)?
         .check_class(request.options.metadata.storage_class)?;
     let previous = super::objects::lookup(transaction, &request.bucket, &request.name)?;
-    let now = catalog.0.clock.now();
+    let now = catalog.0.policy.clock.now();
     super::objects::check_publication(
         previous.as_ref(),
         ObjectConditions::default(),
@@ -584,7 +589,7 @@ impl Catalog {
             let metadata = catalog.clone();
             let result = catalog.run(move |connection| Ok::<_, ResumableError>(insert_session(connection, &metadata, &request))).await;
             let result = result.unwrap_or_else(|error| Err(CommitFailure::Ambiguous(error)));
-            catalog.0.maintenance_wake.notify_one();
+            catalog.0.maintenance.wake.notify_one();
             match result {
                 Ok(session) => Ok(session),
                 Err(CommitFailure::Ambiguous(error)) => Err(error),
@@ -635,7 +640,7 @@ impl Catalog {
             })
             .await?
             .ok_or(ResumableError::NotFound)?;
-        if self.0.clock.now() >= session.deadline {
+        if self.0.policy.clock.now() >= session.deadline {
             return Err(ResumableError::NotFound);
         }
         match session.state {
@@ -724,7 +729,7 @@ impl Catalog {
         appended: Option<Appended>,
     ) -> Result<Option<super::transfer_io::Output>, ResumableError> {
         self.check_lease_owner(lease)?;
-        if self.0.clock.now() >= lease.session.deadline {
+        if self.0.policy.clock.now() >= lease.session.deadline {
             return Err(ResumableError::NotFound);
         }
         if lease.session.state != SessionState::Active {
@@ -740,7 +745,7 @@ impl Catalog {
         }
         let id = lease.session.id;
         let old = lease.session.offset;
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         let encoded = options
             .map(encode_options)
             .transpose()?
@@ -1090,6 +1095,7 @@ mod tests {
                 .unwrap();
             catalog
                 .0
+                .storage
                 .backend
                 .open_output(
                     &session.blob_id,

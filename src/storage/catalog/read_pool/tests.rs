@@ -46,7 +46,7 @@ async fn put(
 }
 
 fn pool(catalog: &Catalog) -> &ReadPool {
-    catalog.0.read_pool.as_ref().unwrap()
+    catalog.0.reads.pool.as_ref().unwrap()
 }
 
 /// Waits until a read that finished on its thread has also given its slot back.
@@ -112,7 +112,14 @@ async fn reads_answer_while_the_writer_is_busy() {
     let dir = TestDir::new();
     let catalog = open_with_object(&dir).await;
     let served = catalog.pooled_reads();
-    let writer = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let writer = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let record = timeout(
         LONG,
         catalog.get_object(live("bucket", "object"), Default::default(), PERMISSIVE),
@@ -153,7 +160,7 @@ async fn overwrites_neither_fail_nor_mix_a_concurrent_read() {
             let catalog = catalog.clone();
             tokio::spawn(async move {
                 let mut reads = 0_usize;
-                while !catalog.0.admission.is_closed() {
+                while !catalog.0.admission.slots.is_closed() {
                     let (record, mut reader) = catalog
                         .open_object_keyed(
                             live("bucket", "object"),

@@ -179,8 +179,8 @@ impl Catalog {
         let total = derived_total(&segments, max_bytes)?;
         // Every segment holds its source's lease, and at least one segment exists.
         let permit = self.admit_object_upload()?;
-        let backend = self.0.backend.clone();
-        let created = UnixMillis::try_from(self.0.clock.now())?;
+        let backend = self.0.storage.backend.clone();
+        let created = UnixMillis::try_from(self.0.policy.clock.now())?;
         let deadline = created
             .checked_add_millis(kind.lifetime_millis())
             .ok_or_else(|| object_unavailable("derived deadline overflow"))?;
@@ -195,7 +195,7 @@ impl Catalog {
             let (_permit, _writer) = (permit, writer);
             let files = backend.clone();
             #[cfg(test)]
-            let root = catalog.0.data_dir.clone();
+            let root = catalog.0.storage.data_dir.clone();
             let prepared = crate::task::run_blocking("derived-create", move || {
                 files.create_draft(&id)?;
                 #[cfg(all(test, unix))]
@@ -266,7 +266,7 @@ impl Catalog {
                     Err(error)
                 }
             };
-            catalog.0.maintenance_wake.notify_one();
+            catalog.0.maintenance.wake.notify_one();
             (result, bound)
         })
         .await?;

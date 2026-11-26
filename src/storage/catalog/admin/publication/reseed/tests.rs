@@ -60,7 +60,13 @@ async fn a_reset_queued_ahead_of_a_seed_commit_leaves_no_object_without_its_byte
     batch.bucket(bucket()).unwrap();
     add(&mut batch, &dir.0, "seeded", b"seeded bytes").await;
     // Holding SQL lines the reset up ahead of the commit, whichever of them reaches it first.
-    let held = catalog.0.execution.clone().try_acquire_owned().unwrap();
+    let held = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .try_acquire_owned()
+        .unwrap();
     let wait = crate::time_limit::TimeLimit::from_millis(60_000);
     let reset = tokio::spawn({
         let admin = admin.clone();
@@ -73,7 +79,7 @@ async fn a_reset_queued_ahead_of_a_seed_commit_leaves_no_object_without_its_byte
     };
     settle().await;
     let commit = tokio::spawn(async move { batch.commit(SeedMode::Merge).await.map(drop) });
-    catalog.0.activity.drained().await;
+    catalog.0.admission.activity.drained().await;
     settle().await;
     drop(held);
     joined(commit).await.unwrap();
@@ -521,7 +527,14 @@ async fn atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespa
     batch
         .entries
         .push(prepare_entry(catalog.clone(), entry).await.unwrap());
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let mut commit = Box::pin(batch.commit(SeedMode::Merge));
     assert!(matches!(
         commit
@@ -534,6 +547,7 @@ async fn atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespa
     // Acquiring the complete request budget waits for cancelled batch cleanup without a timer or polling loop.
     let drain = catalog
         .0
+        .admin
         .publication_requests
         .clone()
         .acquire_many_owned(2)
@@ -710,7 +724,7 @@ async fn seed_admission_waits_for_a_competing_batch_to_finish() {
 #[tokio::test]
 async fn cancelled_seed_waits_release_admission_and_allow_reset() {
     let (dir, catalog, admin, _bucket, _name) = setup().await;
-    let requests = catalog.0.publication_requests.available_permits();
+    let requests = catalog.0.admin.publication_requests.available_permits();
     let first = admin.seed_batch().await.unwrap();
     assert!(
         tokio::time::timeout(Duration::from_millis(20), admin.seed_batch())
@@ -733,7 +747,7 @@ async fn cancelled_seed_waits_release_admission_and_allow_reset() {
     drop(upload);
     // The cancelled commit hands its staged object to a detached cleanup, which owns the request.
     eventually_async("the cancelled batch's request to be returned", || async {
-        catalog.0.publication_requests.available_permits() == requests
+        catalog.0.admin.publication_requests.available_permits() == requests
     })
     .await;
     // Cancelled waits leave no lease behind, so an exclusive reset can still proceed.
@@ -776,7 +790,7 @@ async fn seeds_past_the_active_batch_take_turns_and_all_commit() {
         .map(|index| spawn_seed(&admin, &dir.0, index))
         .collect();
     eventually_async("the seeds to fill the request slots", || async {
-        catalog.0.publication_requests.available_permits() == 0
+        catalog.0.admin.publication_requests.available_permits() == 0
     })
     .await;
     drop(active);
@@ -798,7 +812,7 @@ async fn a_reset_passes_the_seeds_waiting_in_line_and_they_run_after_it() {
         .map(|index| spawn_seed(&admin, &dir.0, index))
         .collect();
     eventually_async("the seeds to fill the request slots", || async {
-        catalog.0.publication_requests.available_permits() == 0
+        catalog.0.admin.publication_requests.available_permits() == 0
     })
     .await;
     let worker = admin.clone();
@@ -808,7 +822,7 @@ async fn a_reset_passes_the_seeds_waiting_in_line_and_they_run_after_it() {
             .await
     });
     eventually_async("the reset to line up", || async {
-        catalog.0.admin_reads.available_permits() == 31
+        catalog.0.admin.reads.available_permits() == 31
     })
     .await;
     // Only the active batch's lease stands in the reset's way: seeds in line hold none.
@@ -830,6 +844,7 @@ async fn closing_wakes_every_seed_waiting_for_its_turn() {
     let (dir, catalog, admin, _bucket, _name) = setup().await;
     let requests = catalog
         .0
+        .admin
         .publication_requests
         .clone()
         .acquire_many_owned(2)

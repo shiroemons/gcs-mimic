@@ -76,7 +76,7 @@ impl Catalog {
         );
         let limit = limit.clamp(1, 1000);
         let access = access.clone();
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         if !query.soft_deleted {
             return self
                 .run_read(move |connection| {

@@ -114,7 +114,7 @@ impl Catalog {
     ) -> Result<NotificationRecord, CatalogError> {
         let bucket = bucket.to_owned();
         let access = access.clone();
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             authorize(&transaction, &bucket, &access)?;
@@ -191,7 +191,7 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let id = parse_id(id);
         let access = access.clone();
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             authorize(&transaction, &bucket, &access)?;

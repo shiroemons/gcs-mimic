@@ -238,7 +238,14 @@ async fn part_and_completion_use_bounded_writer_jobs_under_their_leases() {
 async fn new_parts_skip_reclamation_but_replacements_reclaim_the_retired_bytes() {
     let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
     let target = begin(&catalog).await;
-    let held = catalog.0.reclamation.clone().acquire_owned().await.unwrap();
+    let held = catalog
+        .0
+        .storage
+        .reclamation
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let first = tokio::time::timeout(Duration::from_secs(5), put(&catalog, &target, 1, b"old"))
         .await
         .unwrap()
@@ -273,7 +280,14 @@ async fn cancelled_abort_reclaims_every_batch_without_another_request() {
     for number in 1..=33 {
         put(&catalog, &target, number, b"retired").await.unwrap();
     }
-    let held = catalog.0.reclamation.clone().acquire_owned().await.unwrap();
+    let held = catalog
+        .0
+        .storage
+        .reclamation
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let (entered, committed) = tokio::sync::oneshot::channel();
     let (release, blocked) = std::sync::mpsc::channel();
     catalog.inject(
@@ -307,7 +321,7 @@ async fn cancelled_abort_reclaims_every_batch_without_another_request() {
     // Leave one batch for the scheduler after the owned abort drains its first batch.
     tokio::time::timeout(
         Duration::from_secs(5),
-        catalog.0.maintenance_wake.notified(),
+        catalog.0.maintenance.wake.notified(),
     )
     .await
     .unwrap();
@@ -319,7 +333,7 @@ async fn cancelled_abort_reclaims_every_batch_without_another_request() {
     assert_eq!(deletion_count(&catalog).await, 1);
     tokio::time::timeout(
         Duration::from_secs(5),
-        catalog.0.maintenance_wake.notified(),
+        catalog.0.maintenance.wake.notified(),
     )
     .await
     .unwrap();
@@ -890,8 +904,8 @@ async fn bucket_delete_wakes_cleanup_and_retires_every_upload_of_the_old_bucket(
         begin(&catalog).await;
     }
     // Consume the coalesced insertion wake before observing the deletion's own signal.
-    catalog.0.maintenance_wake.notified().await;
-    let changed = catalog.0.maintenance_wake.notified();
+    catalog.0.maintenance.wake.notified().await;
+    let changed = catalog.0.maintenance.wake.notified();
     tokio::pin!(changed);
     changed.as_mut().enable();
     catalog

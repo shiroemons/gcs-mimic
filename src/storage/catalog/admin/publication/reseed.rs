@@ -139,12 +139,12 @@ impl Admin {
         let deadline = wait_deadline(&self.catalog, request_deadline);
         let request = Arc::new(
             self.catalog
-                .wait_admin(self.catalog.0.publication_requests.clone(), deadline)
+                .wait_admin(self.catalog.0.admin.publication_requests.clone(), deadline)
                 .await?,
         );
         let admission = self
             .catalog
-            .wait_admin(self.catalog.0.publication_batch.clone(), deadline)
+            .wait_admin(self.catalog.0.admin.publication_batch.clone(), deadline)
             .await?;
         // Taken after the wait so that a waiting seed never holds back an exclusive reset.
         let activity = self.catalog.admin_activity(Work::New, deadline).await?;
@@ -211,6 +211,7 @@ impl SeedBatch {
         self.admin
             .catalog
             .0
+            .admin
             .file_workers
             .run(move || {
                 let file = fsutil::open_directory_nofollow(&root)?;
@@ -342,7 +343,7 @@ impl SeedBatch {
         let deadline = wait_deadline(&catalog, self.request_deadline);
         // Taken while the lease still keeps a reset out, so the two together leave it no gap.
         let committing = catalog
-            .wait_admin(catalog.0.seed_commit.clone(), deadline)
+            .wait_admin(catalog.0.admin.seed_commit.clone(), deadline)
             .await?;
         // The batch's own read lease would otherwise keep the exclusive gate from ever opening.
         self.activity.take();
@@ -350,6 +351,7 @@ impl SeedBatch {
         let inner = catalog.0.clone();
         let (outcome, mut batch) = catalog
             .0
+            .writer
             .executor
             .run(move || {
                 let (_exclusive, _committing) = (exclusive, committing);
@@ -367,7 +369,7 @@ impl SeedBatch {
             .map_err(AdminError::backend)?;
         batch.clean_up_staged().await?;
         // Any element may have replaced a version in a bucket that retains deletions.
-        catalog.0.maintenance_wake.notify_one();
+        catalog.0.maintenance.wake.notify_one();
         let (counts, journaled) = outcome?;
         catalog.reclaim_if(journaled).await;
         Ok(counts)
@@ -440,16 +442,17 @@ async fn prepare_entry(catalog: Catalog, mut entry: SeedEntry) -> Result<SeedEnt
         let _activity = catalog.activity()?;
         let staged = &mut entry.publication.staged;
         let id = staged.blob_id();
-        let source = id.staging_path(&catalog.0.data_dir);
-        let destination = id.blob_path(&catalog.0.data_dir);
+        let source = id.staging_path(&catalog.0.storage.data_dir);
+        let destination = id.blob_path(&catalog.0.storage.data_dir);
         #[cfg(test)]
         super::super::super::fault::hit(
-            &catalog.0.data_dir,
+            &catalog.0.storage.data_dir,
             super::super::super::fault::Step::BeforePublish,
         )
         .map_err(objects_error)?;
         catalog
             .0
+            .admin
             .file_workers
             .run(move || {
                 objects::publish_blob(&source, &destination)?;
@@ -458,7 +461,7 @@ async fn prepare_entry(catalog: Catalog, mut entry: SeedEntry) -> Result<SeedEnt
             .await?;
         #[cfg(test)]
         super::super::super::fault::hit(
-            &catalog.0.data_dir,
+            &catalog.0.storage.data_dir,
             super::super::super::fault::Step::AfterPublish,
         )
         .map_err(objects_error)?;
@@ -520,12 +523,12 @@ fn commit(
     // One instant for the whole commit, at the microsecond that publication records: the
     // guards, the replay's protection decisions and each publication's own check then all
     // judge protection at the time the published records keep.
-    let now = super::recorded_instant(catalog.0.clock.now())?;
+    let now = super::recorded_instant(catalog.0.policy.clock.now())?;
     check_guards(&transaction, mode, now)?;
     let mut counts = Counts::default();
     let mut journaled = objects::Journaled::NOTHING;
     let epoch = if mode.clears() {
-        let reclamation = super::super::reset::Reclamation::for_backend(&catalog.0.backend);
+        let reclamation = super::super::reset::Reclamation::for_backend(&catalog.0.storage.backend);
         let cleared = super::super::reset::clear_in_transaction(&transaction, reclamation)?;
         journaled |= cleared.journaled;
         counts.removed = Removed {
@@ -900,7 +903,7 @@ fn forget_marks(
 /// included: the reference-checked reclamation after commit removes blobs alone, so those files
 /// would otherwise wait for a restart. The batch's own bodies have new IDs outside the journal.
 fn clear_replaced(connection: &mut Connection, batch: &SeedBatch) -> bool {
-    let backend = &batch.admin.catalog.0.backend;
+    let backend = &batch.admin.catalog.0.storage.backend;
     match backend {
         crate::storage::catalog::BlobBackend::Memory(_) => {
             // Only the bounded prepared namespace is indexed; a full old catalog needs no growing

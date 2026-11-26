@@ -189,9 +189,9 @@ impl Context {
     fn new(catalog: &Catalog, grant: AdminGrant) -> Self {
         Self {
             grant,
-            clock: catalog.0.clock.clone(),
+            clock: catalog.0.policy.clock.clone(),
             default_retention: catalog.default_soft_delete_retention(),
-            principals: catalog.0.principals.clone(),
+            principals: catalog.0.policy.principals.clone(),
         }
     }
 }

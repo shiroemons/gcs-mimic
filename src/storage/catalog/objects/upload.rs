@@ -286,6 +286,7 @@ impl Catalog {
     ) -> Result<T, E> {
         let execution = self
             .0
+            .writer
             .execution
             .clone()
             .acquire_owned()
@@ -304,6 +305,7 @@ impl Catalog {
     ) -> Result<T, E> {
         let inner = self.0.clone();
         self.0
+            .writer
             .executor
             .run(move || {
                 let _execution = execution;
@@ -327,7 +329,7 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let access = access.clone();
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         self.run_serialized_read(SerializedRead::AdvisoryUpload, move |connection| {
             let snapshot = sql::read_snapshot(connection)?;
             check_upload_destination(&snapshot, &bucket, &name, conditions, &access, clock.now())
@@ -390,7 +392,7 @@ impl Catalog {
     }
 
     fn counted_upload(&self, activity: Activity) -> Result<UploadGuard, ObjectError> {
-        let mut uploads = crate::sync::lock(&self.0.uploads);
+        let mut uploads = crate::sync::lock(&self.0.admission.uploads);
         if uploads.closed || !self.is_healthy() {
             return Err(object_unavailable(
                 crate::storage::failure::BackendFailure::CatalogClosed,
@@ -457,9 +459,9 @@ impl Catalog {
             let blob =
                 super::super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
             let id = blob;
-            let stage = blob.staging_path(&catalog.0.data_dir);
-            let published = blob.blob_path(&catalog.0.data_dir);
-            let mut file = catalog.0.backend.stage(&id, permit.clone()).await?;
+            let stage = blob.staging_path(&catalog.0.storage.data_dir);
+            let published = blob.blob_path(&catalog.0.storage.data_dir);
+            let mut file = catalog.0.storage.backend.stage(&id, permit.clone()).await?;
             let result = async {
                 let uploaded = write_stream(
                     &mut file,
@@ -481,21 +483,21 @@ impl Catalog {
                     }
                 }
                 let commit = UploadCommit {
-                    backend: catalog.0.backend.kind(),
+                    backend: catalog.0.storage.backend.kind(),
                     bucket,
                     name,
                     content_type,
                     metadata,
                     conditions,
                     access,
-                    principals: catalog.0.principals.clone(),
+                    principals: catalog.0.policy.principals.clone(),
                     mode,
                     identity,
                     owner,
                     replay: replay
                         .map(|(replay, sha256)| ReplayedUpload::new(replay, sha256))
                         .transpose()?,
-                    clock: catalog.0.clock.clone(),
+                    clock: catalog.0.policy.clock.clone(),
                     blob_id: id,
                     body: uploaded,
                 };
@@ -513,7 +515,7 @@ impl Catalog {
                     catalog
                         .discard_staged(StagedBlob {
                             id,
-                            stage: (!catalog.0.backend.is_memory()).then_some(stage),
+                            stage: (!catalog.0.storage.backend.is_memory()).then_some(stage),
                         })
                         .await;
                 }
@@ -541,12 +543,12 @@ pub(in crate::storage::catalog) async fn write_stream(
 ) -> Result<UploadedBody, ObjectError> {
     let mut size = 0_u64;
     let mut hasher = Hasher::default();
-    let closing = catalog.0.admin_shutdown.notified();
+    let closing = catalog.0.shutdown.admin_wake.notified();
     tokio::pin!(closing);
     closing.as_mut().enable();
     let received = async {
         loop {
-            if catalog.0.admission.is_closed() {
+            if catalog.0.admission.slots.is_closed() {
                 return Err(object_unavailable("catalog is closing"));
             }
             let chunk = tokio::select! {

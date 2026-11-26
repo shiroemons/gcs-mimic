@@ -141,7 +141,7 @@ fn pending(data: &Path) -> usize {
 
 impl Catalog {
     pub(crate) fn assert_reclaimed_blobs(&self, remaining: usize) {
-        let root = &self.0.data_dir;
+        let root = &self.0.storage.data_dir;
         assert_eq!(pending(root), 0);
         let files: usize = fs::read_dir(root.join("blobs"))
             .unwrap()

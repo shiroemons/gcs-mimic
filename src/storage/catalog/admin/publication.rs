@@ -178,7 +178,7 @@ struct Staged {
 
 impl StagedObject {
     fn new(catalog: Catalog, id: BlobId, lease: StagedLease, staged: Staged) -> Self {
-        let published = catalog.0.backend.is_memory();
+        let published = catalog.0.storage.backend.is_memory();
         Self {
             catalog,
             runtime: tokio::runtime::Handle::current(),
@@ -542,7 +542,7 @@ async fn cleanup(catalog: &Catalog, ids: Vec<BlobId>) -> Result<(), AdminError> 
             Ok::<_, ObjectError>((ids, referenced))
         })
         .await?;
-    let backend = catalog.0.backend.clone();
+    let backend = catalog.0.storage.backend.clone();
     let remove = move || {
         // Staging permits bound this job to 256 IDs. Sync each successful unlink before
         // the next failure so a later shard error cannot leave earlier removals unsynced.
@@ -560,10 +560,10 @@ async fn cleanup(catalog: &Catalog, ids: Vec<BlobId>) -> Result<(), AdminError> 
         }
         failure.map_or(Ok(()), Err)
     };
-    if catalog.0.backend.is_memory() {
+    if catalog.0.storage.backend.is_memory() {
         remove()
     } else {
-        catalog.0.file_workers.run(remove).await
+        catalog.0.admin.file_workers.run(remove).await
     }
 }
 
@@ -599,20 +599,21 @@ impl Admin {
             .await?;
         let permit = self
             .catalog
-            .wait_admin(self.catalog.0.staged_handles.clone(), deadline)
+            .wait_admin(self.catalog.0.admin.staged_handles.clone(), deadline)
             .await?;
         let worker = self
             .catalog
-            .wait_admin(self.catalog.0.admin_uploads.clone(), deadline)
+            .wait_admin(self.catalog.0.admin.uploads.clone(), deadline)
             .await?;
         let catalog = self.catalog.clone();
         // Owned work returns a handle even if its receiving future is cancelled; Drop then cleans it.
         crate::task::spawn_supervised("admin-stage-object", async move {
             let _worker = worker;
             let id = BlobId::generate().map_err(AdminError::backend)?;
-            let backend = catalog.0.backend.clone();
+            let backend = catalog.0.storage.backend.clone();
             let staged = catalog
                 .0
+                .admin
                 .file_workers
                 .run(move || backend.stage_admin_file(source.borrow(), id, expected, max_bytes))
                 .await;
@@ -778,11 +779,11 @@ impl Admin {
         let deadline = self.catalog.admin_deadline();
         let request = self
             .catalog
-            .wait_admin(self.catalog.0.publication_requests.clone(), deadline)
+            .wait_admin(self.catalog.0.admin.publication_requests.clone(), deadline)
             .await?;
         let batch = self
             .catalog
-            .wait_admin(self.catalog.0.publication_batch.clone(), deadline)
+            .wait_admin(self.catalog.0.admin.publication_batch.clone(), deadline)
             .await?;
         crate::task::spawn_supervised(
             "admin-publication-batch",
@@ -873,9 +874,10 @@ async fn run_batch(
                 continue;
             }
             let id = entry.staged.blob_id();
-            let backend = catalog.0.backend.clone();
+            let backend = catalog.0.storage.backend.clone();
             catalog
                 .0
+                .admin
                 .file_workers
                 .run(move || {
                     backend.publish_draft(&id)?;
@@ -885,7 +887,7 @@ async fn run_batch(
             entry.staged.published = true;
         }
         // Accepted batches retain ownership through shutdown; only new admission is closed.
-        tokio::time::timeout_at(deadline, catalog.0.execution.clone().acquire_owned())
+        tokio::time::timeout_at(deadline, catalog.0.writer.execution.clone().acquire_owned())
             .await
             .map_err(|_| AdminError::busy())?
             .map_err(|_| AdminError::Closed)
@@ -898,7 +900,7 @@ async fn run_batch(
             return Err(error);
         }
     };
-    let clock = catalog.0.clock.clone();
+    let clock = catalog.0.policy.clock.clone();
     let (outcome, mut entries) = catalog
         .run_upload_admitted::<_, ObjectError>(execution, move |connection| {
             let outcome = commit_batch(
@@ -920,7 +922,7 @@ async fn run_batch(
         }
     };
     // Any element may have replaced a version in a bucket that retains deletions.
-    catalog.0.maintenance_wake.notify_one();
+    catalog.0.maintenance.wake.notify_one();
     let unattempted = entries.split_off(committed.results.len());
     cleanup_entries(entries).await?;
     catalog.reclaim_if(committed.journaled).await;

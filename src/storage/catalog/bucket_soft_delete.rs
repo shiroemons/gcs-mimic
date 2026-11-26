@@ -324,7 +324,7 @@ impl Catalog {
         generation: i64,
         access: &BucketAccess,
     ) -> Result<SoftDeletedBucket, CatalogError> {
-        let (name, access, clock) = (name.to_owned(), access.clone(), self.0.clock.clone());
+        let (name, access, clock) = (name.to_owned(), access.clone(), self.0.policy.clock.clone());
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let now = unix_micros(clock.now())?;
@@ -350,8 +350,11 @@ impl Catalog {
         start_after: Option<(String, i64)>,
         limit: usize,
     ) -> Result<super::Page<SoftDeletedBucket>, CatalogError> {
-        let (project, prefix, clock) =
-            (project.to_owned(), prefix.to_owned(), self.0.clock.clone());
+        let (project, prefix, clock) = (
+            project.to_owned(),
+            prefix.to_owned(),
+            self.0.policy.clock.clone(),
+        );
         self.run(move |connection| {
             let now = unix_micros(clock.now())?;
             let (after_name, after_generation) = start_after.unzip();
@@ -382,8 +385,8 @@ impl Catalog {
         generation: i64,
         access: &BucketAccess,
     ) -> Result<BucketRecord, CatalogError> {
-        let (name, access, clock) = (name.to_owned(), access.clone(), self.0.clock.clone());
-        let principals = self.0.principals.clone();
+        let (name, access, clock) = (name.to_owned(), access.clone(), self.0.policy.clock.clone());
+        let principals = self.0.policy.principals.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             let now = unix_micros(clock.now())?;

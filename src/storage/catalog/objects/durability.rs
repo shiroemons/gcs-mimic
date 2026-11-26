@@ -128,14 +128,14 @@ impl Catalog {
         destination: PathBuf,
     ) -> Result<(), ObjectError> {
         #[cfg(test)]
-        fault::hit(&self.0.data_dir, Step::BeforePublish).map_err(object_unavailable)?;
+        fault::hit(&self.0.storage.data_dir, Step::BeforePublish).map_err(object_unavailable)?;
         crate::task::run_blocking("blob-publication", move || {
             publish_blob(&source, &destination)
         })
         .await?
         .map_err(object_unavailable)?;
         #[cfg(test)]
-        fault::hit(&self.0.data_dir, Step::AfterPublish).map_err(object_unavailable)?;
+        fault::hit(&self.0.storage.data_dir, Step::AfterPublish).map_err(object_unavailable)?;
         Ok(())
     }
 }

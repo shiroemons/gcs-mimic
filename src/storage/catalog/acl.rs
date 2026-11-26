@@ -857,7 +857,7 @@ impl Catalog {
         access: &BucketAccess,
     ) -> Result<Option<ObjectAclSnapshot>, CatalogError> {
         let access = access.clone();
-        let principals = self.0.principals.clone();
+        let principals = self.0.policy.principals.clone();
         self.run_read(move |connection| {
             let transaction = sql::read_snapshot(connection)?;
             let Some(row) = bucket_row(&transaction, &snapshot.bucket)? else {
@@ -950,8 +950,8 @@ impl Catalog {
         access: &BucketAccess,
     ) -> Result<(AclState, Option<AclEntry>), AclError> {
         let access = access.clone();
-        let clock = self.0.clock.clone();
-        let principals = self.0.principals.clone();
+        let clock = self.0.policy.clock.clone();
+        let principals = self.0.policy.principals.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection).map_err(unavailable)?;
             let (mut state, loaded) = load(&transaction, &target, &access)?;

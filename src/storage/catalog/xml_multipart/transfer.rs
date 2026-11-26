@@ -31,9 +31,10 @@ fn sync_staging_entry(
     #[cfg(test)] step: super::super::fault::Step,
 ) -> Result<(), ObjectError> {
     #[cfg(test)]
-    super::super::fault::hit(&catalog.0.data_dir, step).map_err(object_unavailable)?;
+    super::super::fault::hit(&catalog.0.storage.data_dir, step).map_err(object_unavailable)?;
     catalog
         .0
+        .storage
         .backend
         .sync_staging_dir()
         .map_err(object_unavailable)
@@ -65,7 +66,7 @@ impl Catalog {
         crate::task::spawn_supervised("xml-multipart-part",async move {
             let (_permit,lease)=(permit,lease);
             let number=lease.number;
-            let now=UnixMillis::try_from(catalog.0.clock.now())?;
+            let now=UnixMillis::try_from(catalog.0.policy.clock.now())?;
             let target=lease.upload.target.clone();
             let access=lease.access.clone();
             let retained=catalog.run(move |connection| -> Result<_, Error> {
@@ -77,16 +78,16 @@ impl Catalog {
             let budget=request.max_bytes.checked_sub(retained).ok_or(ObjectError::TooLarge)?.min(MAX_PART_BYTES);
             let blob=super::super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
             let id=blob;
-            let mut file=catalog.0.backend.stage(&id, lease.guard.clone()).await?;
+            let mut file=catalog.0.storage.backend.stage(&id, lease.guard.clone()).await?;
             let result=async {
                 let objects::UploadedBody{size,md5,crc32c}=objects::write_stream(&mut file,request.expected,budget,body,cancellation,&catalog,None).await?;
                 #[cfg(test)]
-                let data_dir=catalog.0.data_dir.clone();
+                let data_dir=catalog.0.storage.data_dir.clone();
                 let target=lease.upload.target.clone();
                 let access=lease.access.clone();
-                let clock=catalog.0.clock.clone();
+                let clock=catalog.0.policy.clock.clone();
                 #[cfg(unix)]
-                if !catalog.0.backend.is_memory() {
+                if !catalog.0.storage.backend.is_memory() {
                     let syncing = catalog.clone();
                     crate::task::run_blocking("xml-multipart-part-sync", move || sync_staging_entry(&syncing, #[cfg(test)] super::super::fault::Step::MultipartPartSync)).await.map_err(object_unavailable)??;
                 }
@@ -196,7 +197,7 @@ impl Catalog {
             let target = lease.upload.target.clone();
             let incarnation = lease.upload.incarnation;
             let access = lease.access.clone();
-            let clock = catalog.0.clock.clone();
+            let clock = catalog.0.policy.clock.clone();
             let destination = super::super::derived::DerivedDestination {
                 bucket: target.bucket.clone(),
                 name: target.name.clone(),
@@ -255,7 +256,7 @@ impl Catalog {
     ) -> Result<CompletionParts, Error> {
         let target = lease.upload.target.clone();
         let access = lease.access.clone();
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         self.run(move |connection| -> Result<_, Error> {
             let transaction = connection.transaction().map_err(object_unavailable)?;
             active(&transaction, &target, &access, now)?;
@@ -306,7 +307,7 @@ impl Catalog {
         let guard = lease.guard.clone();
         let mut assembly = crate::task::run_blocking("xml-assemble-part", move || {
             let mut assembly = Assembly {
-                file: catalog.0.backend.stage_copy_output(&id, guard)?,
+                file: catalog.0.storage.backend.stage_copy_output(&id, guard)?,
                 md5: md5::Md5::default(),
                 crc32c: 0,
             };
@@ -333,7 +334,7 @@ impl Catalog {
         } = crate::task::run_blocking("xml-multipart-assemble-sync", move || {
             assembly.file.make_durable()?;
             #[cfg(unix)]
-            if !catalog.0.backend.is_memory() {
+            if !catalog.0.storage.backend.is_memory() {
                 sync_staging_entry(
                     &catalog,
                     #[cfg(test)]
@@ -346,7 +347,7 @@ impl Catalog {
         .map_err(object_unavailable)??;
         let state = md5.serialize();
         let total = completion.total;
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         self.run(move |connection| {
             sql::exec(
                 connection,
@@ -378,7 +379,7 @@ impl Assembly {
     fn append(&mut self, catalog: &Catalog, part: &Part) -> Result<(), ObjectError> {
         use md5::Digest;
 
-        let mut input = catalog.0.backend.open_input(&part.blob_id, 0)?;
+        let mut input = catalog.0.storage.backend.open_input(&part.blob_id, 0)?;
         let mut part_hash = Hasher::default();
         objects::with_copy_buffer(|buffer| {
             catalog.copy_range(

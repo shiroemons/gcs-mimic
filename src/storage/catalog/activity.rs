@@ -169,13 +169,13 @@ impl Catalog {
     /// Takes a lease now or fails. This form suits work that can skip a turn, such as
     /// maintenance, and work that already holds a lease, where it cannot fail on an exclusive job.
     pub(super) fn activity(&self) -> Result<Activity, CatalogError> {
-        self.0.activity.try_read().map_err(unavailable)
+        self.0.admission.activity.try_read().map_err(unavailable)
     }
 
     /// A lease for a read about to run, or `None` if an exclusive job runs or waits to run. The
     /// read then takes the serialized path, which lines up behind the job.
     pub(super) fn read_lease(&self) -> Option<Activity> {
-        let gate = &self.0.activity;
+        let gate = &self.0.admission.activity;
         if gate.is_reserved() {
             return None;
         }
@@ -185,14 +185,14 @@ impl Catalog {
     /// Waits for a lease. Only a closed catalog fails this, at once for new work; work under way
     /// may still finish while the catalog closes, so it fails only if it would have to wait.
     pub(super) async fn await_activity(&self, work: Work) -> Result<Activity, ActivityClosed> {
-        let gate = &self.0.activity;
+        let gate = &self.0.admission.activity;
         loop {
             let released = gate.reservations.released.notified();
             tokio::pin!(released);
             // Registered before the checks, so a release or a close right after them still wakes
             // this waiter.
             released.as_mut().enable();
-            let closed = self.0.admission.is_closed();
+            let closed = self.0.admission.slots.is_closed();
             let lease = match work {
                 Work::New if closed || gate.is_reserved() => None,
                 Work::New | Work::UnderWay => gate.try_read().ok(),
@@ -223,7 +223,7 @@ impl Catalog {
         &self,
         deadline: Instant,
     ) -> Result<ExclusiveGuard, AdminError> {
-        let gate = &self.0.activity;
+        let gate = &self.0.admission.activity;
         let reservation = gate.reserve();
         loop {
             // Registered before the attempt, so a lease dropped right after it still wakes this
@@ -234,7 +234,9 @@ impl Catalog {
             tokio::pin!(lease_released, released);
             lease_released.as_mut().enable();
             released.as_mut().enable();
-            let execution = self.wait_admin(self.0.execution.clone(), deadline).await?;
+            let execution = self
+                .wait_admin(self.0.writer.execution.clone(), deadline)
+                .await?;
             // Queuing a writer would reject the nested read leases needed by draining uploads.
             if let Ok(lock) = gate.lock.clone().try_write_owned() {
                 return Ok(ExclusiveGuard {

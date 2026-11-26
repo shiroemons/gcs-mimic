@@ -204,7 +204,7 @@ impl Catalog {
             check_conditions(Some(&hit.record), conditions, RequestKind::Read)?;
             return Ok(hit.record.clone());
         }
-        let revision = self.0.read_cache.revision();
+        let revision = self.0.reads.cache.revision();
         let inner = self.0.clone();
         let ObjectTarget {
             bucket,
@@ -224,7 +224,7 @@ impl Catalog {
                 &access,
             )?;
             if shareable && path.stores_answers() {
-                inner.read_cache.store_object(
+                inner.reads.cache.store_object(
                     revision,
                     CachedObject {
                         record: record.clone(),
@@ -271,9 +271,9 @@ impl Catalog {
             name,
             generation,
         } = target;
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         let access = access.clone();
-        let principals = self.0.principals.clone();
+        let principals = self.0.policy.principals.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             let StoredObject { mut record, .. } = selected(
@@ -328,7 +328,7 @@ impl Catalog {
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
         let access = access.clone();
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         let (purged, result) = self
             .run(move |connection| {
                 delete_selected(connection, clock.as_ref(), &target, conditions, &access)
@@ -468,7 +468,7 @@ pub(super) fn open_selected_in(
     )?;
     // On the serialized path this cannot race a delete or overwrite. On a pooled reader the blob
     // may already be gone, and the failed open sends the read to the serialized path.
-    let file = catalog.0.backend.open(&id)?;
+    let file = catalog.0.storage.backend.open(&id)?;
     let remaining = record.size;
     let publicly_readable = publicly_readable(connection, bucket, name, record.generation)?;
     Ok((

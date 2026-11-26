@@ -46,7 +46,7 @@ fn selected_appendable(
         &target.name,
         storage_class,
         &row,
-        catalog.0.principals.as_ref(),
+        catalog.0.policy.principals.as_ref(),
     )?;
     check_conditions(Some(&record), conditions, objects::RequestKind::Read)?;
     Ok((record, row.blob_id))
@@ -65,10 +65,13 @@ pub(super) fn open_appendable_in(
     #[cfg(test)]
     {
         use crate::storage::catalog::fault::{self, Step};
-        fault::hit(&catalog.0.data_dir, Step::AppendableReadSelected)
+        fault::hit(&catalog.0.storage.data_dir, Step::AppendableReadSelected)
             .map_err(objects::object_unavailable)?;
     }
-    let reader = ObjectReader::bounded_data(catalog.0.backend.open_appendable(&blob)?, record.size);
+    let reader = ObjectReader::bounded_data(
+        catalog.0.storage.backend.open_appendable(&blob)?,
+        record.size,
+    );
     Ok((record, reader))
 }
 

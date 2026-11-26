@@ -430,14 +430,14 @@ async fn no_rules_stays_disarmed_and_early_wakes_do_not_scan() {
     create(&catalog, vec![]).await;
     put(&catalog, "object").await;
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
-    assert_eq!(catalog.0.lifecycle.state().scans, 0);
+    assert_eq!(catalog.0.maintenance.lifecycle.state().scans, 0);
     rules(&catalog, vec![delete(json!({"age":1}))]).await;
     let due = clock.now() + DAY;
     assert_eq!(
         catalog.maintain_resumable_sessions().await.unwrap(),
         Some(due)
     );
-    let scans = catalog.0.lifecycle.state().scans;
+    let scans = catalog.0.maintenance.lifecycle.state().scans;
     clock.advance(Duration::from_secs(10));
     for _ in 0..3 {
         assert_eq!(
@@ -445,7 +445,7 @@ async fn no_rules_stays_disarmed_and_early_wakes_do_not_scan() {
             Some(due)
         );
     }
-    assert_eq!(catalog.0.lifecycle.state().scans, scans);
+    assert_eq!(catalog.0.maintenance.lifecycle.state().scans, scans);
     clock.set(due - Duration::from_micros(1));
     assert_eq!(
         catalog.maintain_resumable_sessions().await.unwrap(),
@@ -468,7 +468,7 @@ async fn writes_coalesce_for_one_second_and_removing_rules_disarms_the_schedule(
         catalog.maintain_resumable_sessions().await.unwrap(),
         Some(gate)
     );
-    assert_eq!(catalog.0.lifecycle.state().scans, 1);
+    assert_eq!(catalog.0.maintenance.lifecycle.state().scans, 1);
     clock.set(gate);
     assert_eq!(
         catalog.maintain_resumable_sessions().await.unwrap(),
@@ -477,10 +477,10 @@ async fn writes_coalesce_for_one_second_and_removing_rules_disarms_the_schedule(
     rules(&catalog, vec![]).await;
     clock.advance(Duration::from_secs(1));
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
-    let scans = catalog.0.lifecycle.state().scans;
+    let scans = catalog.0.maintenance.lifecycle.state().scans;
     put(&catalog, "second").await;
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
-    assert_eq!(catalog.0.lifecycle.state().scans, scans);
+    assert_eq!(catalog.0.maintenance.lifecycle.state().scans, scans);
     catalog.close().await.unwrap();
 }
 
@@ -542,9 +542,9 @@ async fn a_selected_storage_class_action_updates_metadata_once() {
         crate::etag::object_etag(&object)
     );
     assert_eq!(execute(&catalog).await.transitioned, 0);
-    let scans = catalog.0.lifecycle.state().scans;
+    let scans = catalog.0.maintenance.lifecycle.state().scans;
     catalog.maintain_resumable_sessions().await.unwrap();
-    assert_eq!(catalog.0.lifecycle.state().scans, scans);
+    assert_eq!(catalog.0.maintenance.lifecycle.state().scans, scans);
     catalog.close().await.unwrap();
 }
 
@@ -782,7 +782,7 @@ async fn an_unconfigured_catalog_never_executes_stored_rules() {
     ));
     catalog.maintain_resumable_sessions().await.unwrap();
     assert!(exists(&catalog, live("bucket", "object")).await);
-    assert_eq!(catalog.0.lifecycle.state().scans, 0);
+    assert_eq!(catalog.0.maintenance.lifecycle.state().scans, 0);
     catalog.configure_lifecycle(&Default::default());
     assert_eq!(execute(&catalog).await.deleted, 1);
     catalog.close().await.unwrap();
@@ -917,7 +917,14 @@ async fn restart_rebuilds_the_schedule_from_stored_rules_and_recomputes_the_dead
     let catalog = Catalog::open_with_clock(&data.0, clock.clone())
         .await
         .unwrap();
-    assert!(catalog.0.lifecycle.armed.load(Ordering::Acquire));
+    assert!(
+        catalog
+            .0
+            .maintenance
+            .lifecycle
+            .armed
+            .load(Ordering::Acquire)
+    );
     catalog.configure_lifecycle(&Default::default());
     assert_eq!(
         catalog.maintain_resumable_sessions().await.unwrap(),
@@ -1156,7 +1163,7 @@ async fn candidate(
     target: ObjectTarget<i64>,
     incarnation: Incarnation,
 ) -> LifecycleCounts {
-    let now = catalog.0.clock.now();
+    let now = catalog.0.policy.clock.now();
     catalog
         .run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
@@ -1286,7 +1293,14 @@ async fn a_bucket_recreated_between_selection_and_application_rejects_the_old_in
 #[tokio::test]
 async fn a_low_level_bucket_publication_rearms_without_any_caller_specific_wakeup() {
     let (catalog, clock) = memory().await;
-    assert!(!catalog.0.lifecycle.armed.load(Ordering::Acquire));
+    assert!(
+        !catalog
+            .0
+            .maintenance
+            .lifecycle
+            .armed
+            .load(Ordering::Acquire)
+    );
     catalog
         .run::<_, CatalogError>(|connection| {
             let transaction = sql::immediate(connection)?;
@@ -1300,7 +1314,14 @@ async fn a_low_level_bucket_publication_rearms_without_any_caller_specific_wakeu
         })
         .await
         .unwrap();
-    assert!(catalog.0.lifecycle.armed.load(Ordering::Acquire));
+    assert!(
+        catalog
+            .0
+            .maintenance
+            .lifecycle
+            .armed
+            .load(Ordering::Acquire)
+    );
     put(&catalog, "object").await;
     clock.advance(DAY);
     assert_eq!(execute(&catalog).await.deleted, 1);
@@ -1392,7 +1413,15 @@ async fn administrative_ensure_import_seed_and_initialization_all_arm_the_shared
             }
             _ => panic!("unknown publication path"),
         }
-        assert!(catalog.0.lifecycle.armed.load(Ordering::Acquire), "{path}");
+        assert!(
+            catalog
+                .0
+                .maintenance
+                .lifecycle
+                .armed
+                .load(Ordering::Acquire),
+            "{path}"
+        );
         put(&catalog, "object").await;
         clock.advance(DAY);
         assert_eq!(execute(&catalog).await.deleted, 1, "{path}");
@@ -1550,7 +1579,7 @@ async fn the_running_maintenance_loop_wakes_on_a_write_after_the_injected_deadli
     let due = clock.now() + DAY;
     catalog.start_resumable_maintenance();
     crate::test_support::eventually_async("the lifecycle deadline to be scheduled", || async {
-        catalog.0.lifecycle.state().next == Some(due)
+        catalog.0.maintenance.lifecycle.state().next == Some(due)
     })
     .await;
     clock.advance(DAY);

@@ -287,9 +287,9 @@ impl Catalog {
     /// A closing catalog, an exclusive job and a writer that failed to roll back turn hits away just
     /// as they do pooled reads.
     fn cache_available(&self) -> bool {
-        !self.0.admission.is_closed()
-            && !self.0.activity.is_reserved()
-            && !self.0.resources.is_poisoned()
+        !self.0.admission.slots.is_closed()
+            && !self.0.admission.activity.is_reserved()
+            && !self.0.writer.resources.is_poisoned()
     }
 
     /// A hit never waits for anything, so a caller reading in a loop would hold its worker and
@@ -301,7 +301,8 @@ impl Catalog {
             return None;
         }
         self.0
-            .read_cache
+            .reads
+            .cache
             .read()
             .object(&target.bucket, &target.name)
             .cloned()
@@ -312,7 +313,7 @@ impl Catalog {
         if !self.cache_available() {
             return None;
         }
-        self.0.read_cache.read().bucket_cors.get(bucket).copied()
+        self.0.reads.cache.read().bucket_cors.get(bucket).copied()
     }
 }
 

@@ -635,7 +635,7 @@ impl Catalog {
         let source = source.to_owned();
         let destination = destination.clone();
         let access = access.clone();
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         self.run_read(move |connection| {
             let snapshot = sql::read_snapshot(connection)?;
             super::objects::check_upload_destination(
@@ -720,7 +720,7 @@ impl Catalog {
                         &start.destination.name,
                         buckets.conditions,
                         &buckets.access,
-                        catalog.0.clock.now(),
+                        catalog.0.policy.clock.now(),
                     )?;
                     let request = encode(&start, buckets.source, buckets.destination)?;
                     let deadline = UnixMillis::try_from(transfer.deadline)?;
@@ -744,7 +744,7 @@ impl Catalog {
                 },
             )
             .await?;
-        self.0.maintenance_wake.notify_one();
+        self.0.maintenance.wake.notify_one();
         Ok((
             RewriteStep {
                 id: transfer.id,
@@ -779,7 +779,7 @@ impl Catalog {
     }
 
     async fn session_by_token(&self, token: RewriteToken) -> Result<RewriteSession, RewriteError> {
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         self.run_read(move |connection| read_session(connection, &token, now))
             .await?
             .ok_or(RewriteError::Gone)
@@ -818,7 +818,7 @@ impl Catalog {
                 .await
                 .map_err(CatalogError::from)?,
         );
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         let source_check = source_access.clone();
         let destination_check = destination_access.clone();
         let (mut session, source_result) = self
@@ -866,7 +866,7 @@ impl Catalog {
             session.destination.access = destination_access;
             let destination = session.destination.clone();
             let id = session.id;
-            let clock = self.0.clock.clone();
+            let clock = self.0.policy.clock.clone();
             let validate_session = session.clone();
             let completed_session = session.clone();
             let finished_budget = self.session_limits().finished_session_bytes;
@@ -896,7 +896,7 @@ impl Catalog {
         };
         let saved = serde_json::to_string(&response).map_err(object_unavailable)?;
         let progress = progress(&session, &response);
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         let checkpoint = self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             let now = clock.now();
@@ -1545,11 +1545,11 @@ mod tests {
                 .unwrap(),
             1
         );
-        catalog.0.maintenance_wake.notified().await;
+        catalog.0.maintenance.wake.notified().await;
         drop(guard);
         tokio::time::timeout(
             Duration::from_millis(100),
-            catalog.0.maintenance_wake.notified(),
+            catalog.0.maintenance.wake.notified(),
         )
         .await
         .unwrap();
@@ -2016,7 +2016,7 @@ mod tests {
                 .map(drop)
         });
         crate::test_support::eventually_async("the reset to line up", || async {
-            catalog.0.admin_reads.available_permits() == 31
+            catalog.0.admin.reads.available_permits() == 31
         })
         .await;
         drop(detached);

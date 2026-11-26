@@ -20,7 +20,7 @@ pub(in crate::storage::catalog) async fn assert_point_read(
         _ = &mut exclusive => panic!("the held lease must keep the reservation pending"),
         () = std::future::ready(()) => {}
     }
-    assert!(catalog.0.activity.is_reserved());
+    assert!(catalog.0.admission.activity.is_reserved());
     check().await;
     assert_eq!(catalog.job_counts(), (writes + 1, reads + 1));
     drop(lease);
@@ -49,11 +49,11 @@ async fn idle_maintenance_reads_the_committed_deadline_without_cleanup_or_a_wake
         .await
         .unwrap();
     // Consume the insertion wake, then register before running each routing case.
-    catalog.0.maintenance_wake.notified().await;
-    let next = catalog.0.maintenance_wake.notified();
+    catalog.0.maintenance.wake.notified().await;
+    let next = catalog.0.maintenance.wake.notified();
     tokio::pin!(next);
     next.as_mut().enable();
-    let tasks = catalog.0.cleanup_tasks.load(Ordering::Relaxed);
+    let tasks = catalog.0.admin.cleanup_tasks.load(Ordering::Relaxed);
     assert_point_read(&catalog, async || {
         assert_eq!(
             catalog.maintain_resumable_sessions().await.unwrap(),
@@ -61,7 +61,7 @@ async fn idle_maintenance_reads_the_committed_deadline_without_cleanup_or_a_wake
         );
     })
     .await;
-    assert_eq!(catalog.0.cleanup_tasks.load(Ordering::Relaxed), tasks);
+    assert_eq!(catalog.0.admin.cleanup_tasks.load(Ordering::Relaxed), tasks);
     assert!(!next.as_mut().enable());
     catalog.close().await.unwrap();
 }

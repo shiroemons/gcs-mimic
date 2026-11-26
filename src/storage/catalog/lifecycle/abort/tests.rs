@@ -307,12 +307,12 @@ async fn multipart_abort_busy_leases_rearm_on_release_without_polling() {
         catalog.maintain_resumable_sessions().await.unwrap(),
         Some(UNIX_EPOCH + DAY * 8)
     );
-    let scans = catalog.0.lifecycle.state().scans;
+    let scans = catalog.0.maintenance.lifecycle.state().scans;
     assert_eq!(
         catalog.maintain_resumable_sessions().await.unwrap(),
         Some(UNIX_EPOCH + DAY * 8)
     );
-    assert_eq!(catalog.0.lifecycle.state().scans, scans);
+    assert_eq!(catalog.0.maintenance.lifecycle.state().scans, scans);
     drop(part_lease);
     drop(complete_lease);
     let LifecycleOutcome::Executed(gated) = catalog.run_lifecycle(Pass::Scheduled).await.unwrap()
@@ -398,7 +398,14 @@ async fn multipart_lease_release_without_a_skipped_abort_does_not_dirty_the_sche
         .unwrap();
     assert_counts(execute(&catalog).await, 1, 0, 0, Some(clock.now() + DAY));
     drop(lease);
-    assert!(!catalog.0.lifecycle.dirty.load(Ordering::Acquire));
+    assert!(
+        !catalog
+            .0
+            .maintenance
+            .lifecycle
+            .dirty
+            .load(Ordering::Acquire)
+    );
     let LifecycleOutcome::Executed(outcome) = catalog.run_lifecycle(Pass::Scheduled).await.unwrap()
     else {
         panic!("disabled")
@@ -418,9 +425,23 @@ async fn multipart_abort_whole_lease_release_alone_rearms_the_next_pass() {
         .unwrap();
     clock.advance(DAY);
     assert_counts(execute(&catalog).await, 1, 0, 1, None);
-    assert!(!catalog.0.lifecycle.dirty.load(Ordering::Acquire));
+    assert!(
+        !catalog
+            .0
+            .maintenance
+            .lifecycle
+            .dirty
+            .load(Ordering::Acquire)
+    );
     drop(lease);
-    assert!(catalog.0.lifecycle.dirty.load(Ordering::Acquire));
+    assert!(
+        catalog
+            .0
+            .maintenance
+            .lifecycle
+            .dirty
+            .load(Ordering::Acquire)
+    );
     clock.advance(COALESCE);
     let LifecycleOutcome::Executed(outcome) = catalog.run_lifecycle(Pass::Scheduled).await.unwrap()
     else {
@@ -455,9 +476,23 @@ async fn multipart_abort_success_does_not_rearm_on_an_unrelated_lease_release() 
     );
     clock.advance(COALESCE);
     assert_counts(execute(&catalog).await, 1, 0, 0, None);
-    assert!(!catalog.0.lifecycle.dirty.load(Ordering::Acquire));
+    assert!(
+        !catalog
+            .0
+            .maintenance
+            .lifecycle
+            .dirty
+            .load(Ordering::Acquire)
+    );
     drop(lease);
-    assert!(!catalog.0.lifecycle.dirty.load(Ordering::Acquire));
+    assert!(
+        !catalog
+            .0
+            .maintenance
+            .lifecycle
+            .dirty
+            .load(Ordering::Acquire)
+    );
     let LifecycleOutcome::Executed(outcome) = catalog.run_lifecycle(Pass::Scheduled).await.unwrap()
     else {
         panic!("disabled")
@@ -557,7 +592,7 @@ async fn multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory
             .await
             .unwrap();
         if !disk_backend {
-            assert!(catalog.0.backend.open(&part_id).is_ok());
+            assert!(catalog.0.storage.backend.open(&part_id).is_ok());
         }
         assert_eq!(
             count(&catalog, "SELECT count(*) FROM xml_multipart_parts").await,
@@ -588,7 +623,7 @@ async fn multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory
         catalog.maintain_resumable_sessions().await.unwrap();
         if !disk_backend {
             assert!(
-                matches!(catalog.0.backend.open(&part_id), Err(error) if error.kind() == io::ErrorKind::NotFound)
+                matches!(catalog.0.storage.backend.open(&part_id), Err(error) if error.kind() == io::ErrorKind::NotFound)
             );
         }
         assert_eq!(

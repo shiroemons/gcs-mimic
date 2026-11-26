@@ -264,7 +264,14 @@ async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bod
             .publish_object(&bucket, &name, request(None), body(b"old"))
             .await
             .unwrap();
-        let held = catalog.0.reclamation.clone().acquire_owned().await.unwrap();
+        let held = catalog
+            .0
+            .storage
+            .reclamation
+            .clone()
+            .acquire_owned()
+            .await
+            .unwrap();
         let worker = catalog.clone();
         let cleanup = tokio::spawn(async move { worker.reclaim_pending().await });
         let worker = catalog.clone();
@@ -382,18 +389,18 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
         .unwrap();
     // Drain any wake left by setup before registering for reclamation's own signal.
     {
-        let stale = catalog.0.maintenance_wake.notified();
+        let stale = catalog.0.maintenance.wake.notified();
         tokio::pin!(stale);
         stale.as_mut().enable();
     }
-    let full_page = catalog.0.maintenance_wake.notified();
+    let full_page = catalog.0.maintenance.wake.notified();
     tokio::pin!(full_page);
     assert!(!full_page.as_mut().enable());
     catalog.reclaim_if(objects::Journaled::SOME).await;
     assert!(full_page.as_mut().enable());
     assert_eq!(publication_blobs(&dir.0).len(), 13);
-    assert_eq!(catalog.0.execution.available_permits(), 1);
-    let final_page = catalog.0.maintenance_wake.notified();
+    assert_eq!(catalog.0.writer.execution.available_permits(), 1);
+    let final_page = catalog.0.maintenance.wake.notified();
     tokio::pin!(final_page);
     assert!(!final_page.as_mut().enable());
     catalog.reclaim_if(objects::Journaled::SOME).await;
@@ -440,7 +447,14 @@ async fn publication_waits_for_reclamation_without_holding_catalog_execution() {
         .publish_object(&bucket, &name, request(None), body(b"old"))
         .await
         .unwrap();
-    let cleanup = catalog.0.reclamation.clone().acquire_owned().await.unwrap();
+    let cleanup = catalog
+        .0
+        .storage
+        .reclamation
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let worker = admin.clone();
     let target_bucket = bucket.clone();
     let target_name = name.clone();
@@ -469,11 +483,18 @@ async fn publication_waits_for_reclamation_without_holding_catalog_execution() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_reclamation_retains_directory_ownership_until_sql_settles() {
     let (dir, catalog, _admin, _bucket, _name) = setup().await;
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let worker = catalog.clone();
     let cleanup = tokio::spawn(async move { worker.reclaim_if(objects::Journaled::SOME).await });
     eventually_async("reclamation to hold its permit", || async {
-        catalog.0.reclamation.available_permits() == 0
+        catalog.0.storage.reclamation.available_permits() == 0
     })
     .await;
     cleanup.abort();
@@ -729,6 +750,7 @@ async fn admin_admission_is_independent_of_saturated_api_slots() {
     let api_calls = catalog
         .0
         .admission
+        .slots
         .clone()
         .acquire_many_owned(32)
         .await
@@ -745,7 +767,14 @@ async fn admin_admission_is_independent_of_saturated_api_slots() {
         .is_err(),
         "API callers wait while the slots are taken"
     );
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let mut waiting = std::pin::pin!(admin.publish_object(
         &bucket,
         &name,
@@ -799,27 +828,35 @@ async fn admin_wait_deadlines_and_closed_state_are_typed() {
     let (_dir, catalog, admin, bucket, _) = setup().await;
     assert!(matches!(
         catalog
-            .wait_admin(catalog.0.admin_reads.clone(), tokio::time::Instant::now())
+            .wait_admin(catalog.0.admin.reads.clone(), tokio::time::Instant::now())
             .await,
         Err(AdminError::Busy { .. })
     ));
     let held = catalog
         .0
-        .admin_uploads
+        .admin
+        .uploads
         .clone()
         .acquire_many_owned(2)
         .await
         .unwrap();
     let error = catalog
         .wait_admin(
-            catalog.0.admin_uploads.clone(),
+            catalog.0.admin.uploads.clone(),
             tokio::time::Instant::now() + Duration::from_millis(20),
         )
         .await
         .unwrap_err();
     assert!(matches!(error, AdminError::Busy { .. }));
     drop(held);
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     assert!(matches!(
         catalog
             .run_admin_until(
@@ -856,17 +893,24 @@ fn spawn_gets(
 #[tokio::test]
 async fn management_calls_past_every_slot_wait_their_turn_and_all_succeed() {
     let (_dir, catalog, admin, bucket, _) = setup().await;
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let calls = spawn_gets(&admin, &bucket);
     eventually_async("the read slots to fill", || async {
-        catalog.0.admin_reads.available_permits() == 0
+        catalog.0.admin.reads.available_permits() == 0
     })
     .await;
     drop(execution);
     for call in calls {
         assert!(call.await.unwrap().unwrap().is_some());
     }
-    assert_eq!(catalog.0.admin_reads.available_permits(), 32);
+    assert_eq!(catalog.0.admin.reads.available_permits(), 32);
     catalog.close().await.unwrap();
 }
 
@@ -875,7 +919,8 @@ async fn closing_wakes_every_management_call_waiting_for_a_slot() {
     let (_dir, catalog, admin, bucket, _) = setup().await;
     let reads = catalog
         .0
-        .admin_reads
+        .admin
+        .reads
         .clone()
         .acquire_many_owned(32)
         .await
@@ -902,7 +947,8 @@ async fn a_cancelled_management_call_gives_up_its_place_and_nothing_else() {
     let (_dir, catalog, admin, bucket, _) = setup().await;
     let reads = catalog
         .0
-        .admin_reads
+        .admin
+        .reads
         .clone()
         .acquire_many_owned(32)
         .await
@@ -918,7 +964,7 @@ async fn a_cancelled_management_call_gives_up_its_place_and_nothing_else() {
     }
     drop(reads);
     assert!(last.await.unwrap().unwrap().is_some());
-    assert_eq!(catalog.0.admin_reads.available_permits(), 32);
+    assert_eq!(catalog.0.admin.reads.available_permits(), 32);
     catalog.close().await.unwrap();
 }
 
@@ -935,7 +981,8 @@ async fn admin_publication_times_out_at_the_configured_catalog_wait() {
     );
     let slots = catalog
         .0
-        .admin_uploads
+        .admin
+        .uploads
         .clone()
         .acquire_many_owned(2)
         .await
@@ -968,7 +1015,7 @@ async fn admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock() {
             .await
     });
     eventually_async("the ensure to hold the execution permit", || async {
-        catalog.0.execution.available_permits() == 0
+        catalog.0.writer.execution.available_permits() == 0
     })
     .await;
     ensure.abort();
@@ -1275,7 +1322,14 @@ async fn admin_shutdown_holds_lock_through_renamed_publication() {
             .any(|entry| live_len(&entry.unwrap().path()) > 0)
     })
     .await;
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     sender.send(Ok(UploadChunk::End)).await.unwrap();
     drop(sender);
     eventually_async("the publication to rename its blob", || async {

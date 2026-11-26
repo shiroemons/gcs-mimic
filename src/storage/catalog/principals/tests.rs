@@ -40,7 +40,7 @@ async fn empty_catalog_installs_each_authentication_profile_without_a_write_tran
         let data = TestDir::new();
         let catalog = open(&data, &auth).await.unwrap();
         assert_eq!(
-            matches!(catalog.0.principals, Some(Profile::Strict(_))),
+            matches!(catalog.0.policy.principals, Some(Profile::Strict(_))),
             auth.principals().is_some()
         );
         let path = data.0.join("catalog.sqlite3");

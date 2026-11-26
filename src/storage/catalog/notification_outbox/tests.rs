@@ -908,14 +908,14 @@ async fn reset_is_busy_during_network_attempt_and_clears_retry_payloads_afterwar
     // then fence completed SQL jobs before checking reset admission without polling.
     let attempt = tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        catalog.0.notification_attempts.clone().acquire_owned(),
+        catalog.0.notifications.attempts.clone().acquire_owned(),
     )
     .await
     .unwrap()
     .unwrap();
     tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        catalog.0.activity.drained(),
+        catalog.0.admission.activity.drained(),
     )
     .await
     .unwrap();
@@ -928,7 +928,7 @@ async fn reset_is_busy_during_network_attempt_and_clears_retry_payloads_afterwar
     // Release the attempt fence and advance beyond backoff before observing the
     // listener; a blocked publisher must not make the no-resend assertion pass.
     clock.set(UNIX_EPOCH + std::time::Duration::from_micros(42_200_000));
-    catalog.0.notification_wake.notify_one();
+    catalog.0.notifications.wake.notify_one();
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(150), listener.accept())
             .await

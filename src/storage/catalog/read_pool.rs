@@ -349,7 +349,7 @@ impl Catalog {
         {
             return result;
         }
-        let path = if self.0.read_pool.is_some() {
+        let path = if self.0.reads.pool.is_some() {
             ReadPath::Serialized
         } else {
             ReadPath::Memory
@@ -368,10 +368,10 @@ impl Catalog {
         T: Send + 'static,
         E: ReadOutcome + Send + 'static,
     {
-        let pool = self.0.read_pool.as_ref()?;
+        let pool = self.0.reads.pool.as_ref()?;
         // A writer whose rollback could not be confirmed fails every call closed, and the
         // serialized path is where a later call can confirm it.
-        if self.0.resources.is_poisoned() {
+        if self.0.writer.resources.is_poisoned() {
             return None;
         }
         // Admission still bounds all catalog work, so what `close` must wait for stays bounded.
@@ -406,21 +406,22 @@ impl Catalog {
     /// Writer jobs and pooled reads executed by this catalog.
     #[cfg(test)]
     pub(crate) fn job_counts(&self) -> (usize, usize) {
-        (self.0.executor.jobs_executed(), self.pooled_reads())
+        (self.0.writer.executor.jobs_executed(), self.pooled_reads())
     }
 
     /// Reads answered by the pool, for tests that must know which path ran.
     #[cfg(test)]
     pub(crate) fn pooled_reads(&self) -> usize {
         self.0
-            .read_pool
+            .reads
+            .pool
             .as_ref()
             .map_or(0, |pool| pool.shared.served.load(Ordering::Relaxed))
     }
 
     #[cfg(test)]
     pub(super) fn readonly_answers(&self) -> usize {
-        self.0.read_pool.as_ref().map_or(0, |pool| {
+        self.0.reads.pool.as_ref().map_or(0, |pool| {
             pool.shared.readonly_answers.load(Ordering::Relaxed)
         })
     }

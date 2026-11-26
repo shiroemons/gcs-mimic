@@ -121,7 +121,7 @@ fn trim_finished(
             Err(error @ ClaimError::Poisoned) => return Err(error.into()),
         };
         // Finishing a session normally drops its RAM draft; this covers a failed drop.
-        catalog.0.backend.finish_draft(&blob_id)?;
+        catalog.0.storage.backend.finish_draft(&blob_id)?;
         sql::exec(
             transaction,
             "DELETE FROM resumable_sessions WHERE id = ?1",

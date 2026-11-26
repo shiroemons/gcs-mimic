@@ -225,6 +225,7 @@ impl Catalog {
         let activity = self.await_activity(Work::UnderWay).await?;
         let permit = self
             .0
+            .storage
             .reclamation
             .clone()
             .acquire_owned()
@@ -235,8 +236,8 @@ impl Catalog {
         self.count_cleanup_task();
         crate::task::spawn_supervised("multipart-reclamation", async move {
             let (_activity, _permit) = (activity, permit);
-            let pending = if catalog.0.backend.is_memory() {
-                let backend = catalog.0.backend.clone();
+            let pending = if catalog.0.storage.backend.is_memory() {
+                let backend = catalog.0.storage.backend.clone();
                 catalog
                     .run_upload(move |connection| drain_memory(connection, &backend))
                     .await?
@@ -245,7 +246,7 @@ impl Catalog {
                     .run_upload(|connection| pending_ids(connection))
                     .await?;
                 if !ids.is_empty() {
-                    let data_dir = catalog.0.data_dir.clone();
+                    let data_dir = catalog.0.storage.data_dir.clone();
                     let ids = crate::task::run_blocking("multipart-reclamation", move || {
                         reclaim_disk(&data_dir, &ids)?;
                         Ok::<_, ObjectError>(ids)
@@ -268,7 +269,7 @@ impl Catalog {
                 catalog.run_upload(|connection| pending(connection)).await?
             };
             if pending {
-                catalog.0.maintenance_wake.notify_one();
+                catalog.0.maintenance.wake.notify_one();
             }
             Ok(pending)
         })
@@ -325,8 +326,11 @@ impl Catalog {
 
     /// Asks the next maintenance pass to look for uploads whose bucket is gone.
     pub(in crate::storage::catalog) fn schedule_multipart_orphan_scan(&self) {
-        self.0.multipart_orphan_scan.store(true, Ordering::Release);
-        self.0.maintenance_wake.notify_one();
+        self.0
+            .maintenance
+            .multipart_orphan_scan
+            .store(true, Ordering::Release);
+        self.0.maintenance.wake.notify_one();
     }
 
     /// Once the catalog is open only a deleted bucket leaves orphans behind, and recovery covers
@@ -334,14 +338,22 @@ impl Catalog {
     /// costs little: clients cannot reach it, and it still retires at its deadline.
     async fn retire_orphaned(&self) -> Result<(), CatalogError> {
         // Cleared before the scan, so a bucket deleted during it asks for another.
-        if !self.0.multipart_orphan_scan.swap(false, Ordering::AcqRel) {
+        if !self
+            .0
+            .maintenance
+            .multipart_orphan_scan
+            .swap(false, Ordering::AcqRel)
+        {
             return Ok(());
         }
         let scanned = self.scan_for_orphans().await;
         // A held orphan wakes maintenance when its lease drops, and a failed pass runs again;
         // either way the next pass must look again.
         if !matches!(scanned, Ok(0)) {
-            self.0.multipart_orphan_scan.store(true, Ordering::Release);
+            self.0
+                .maintenance
+                .multipart_orphan_scan
+                .store(true, Ordering::Release);
         }
         scanned.map(|_held| ())
     }

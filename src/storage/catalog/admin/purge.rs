@@ -370,7 +370,7 @@ impl Sessions {
                 [id],
             )?;
         }
-        let backend = catalog.0.backend.kind();
+        let backend = catalog.0.storage.backend.kind();
         let appendable = appendable::retire_bucket(transaction, backend, name)?;
         Ok(match backend {
             crate::config::Backend::Memory => SessionFiles::default(),
@@ -432,7 +432,7 @@ impl Catalog {
         );
         drop(writers);
         if cleanup.pending {
-            self.0.maintenance_wake.notify_one();
+            self.0.maintenance.wake.notify_one();
         }
         cleanup.pending
     }
@@ -443,7 +443,7 @@ impl Catalog {
         if files.staging.is_empty() && files.appendable.is_empty() {
             return Ok(());
         }
-        let backend = self.0.backend.clone();
+        let backend = self.0.storage.backend.clone();
         crate::task::run_blocking("bucket-purge-cleanup", move || {
             for id in &files.staging {
                 backend.remove_draft_durable(id)?;

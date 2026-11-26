@@ -711,7 +711,11 @@ async fn panicked_operation_rolls_back_and_keeps_the_catalog_ready() {
 
     // When the rollback cannot be confirmed the catalog fails closed and
     // readiness is revoked for good, even after a later call recovers.
-    catalog.0.fail_rollback.store(true, Ordering::Release);
+    catalog
+        .0
+        .writer
+        .fail_rollback
+        .store(true, Ordering::Release);
     assert!(matches!(
         panic_inside_transaction(&catalog).await,
         CatalogError::Unavailable(_)
@@ -722,7 +726,11 @@ async fn panicked_operation_rolls_back_and_keeps_the_catalog_ready() {
         catalog.get_bucket("abc", PERMISSIVE).await,
         Err(CatalogError::Unavailable(_))
     ));
-    catalog.0.fail_rollback.store(false, Ordering::Release);
+    catalog
+        .0
+        .writer
+        .fail_rollback
+        .store(false, Ordering::Release);
     assert!(!probe_exists(&catalog).await.unwrap());
     assert!(catalog.is_healthy());
     assert!(!state.is_ready());

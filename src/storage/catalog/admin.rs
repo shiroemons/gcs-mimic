@@ -463,7 +463,7 @@ fn management_page_limit(limit: usize) -> Result<usize, AdminError> {
 
 impl Catalog {
     pub(crate) fn local_admin(&self) -> Option<Admin> {
-        self.0.local_admin.clone().map(|grant| Admin {
+        self.0.admin.grant.clone().map(|grant| Admin {
             catalog: self.clone(),
             grant,
         })
@@ -492,7 +492,7 @@ impl Catalog {
         slots: Arc<Semaphore>,
         deadline: tokio::time::Instant,
     ) -> Result<OwnedSemaphorePermit, AdminError> {
-        let shutdown = self.0.admin_shutdown.notified();
+        let shutdown = self.0.shutdown.admin_wake.notified();
         tokio::pin!(shutdown);
         shutdown.as_mut().enable();
         if !self.is_healthy() {
@@ -539,11 +539,14 @@ impl Catalog {
         operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
     ) -> Result<T, E> {
         let admission = self
-            .wait_admin(self.0.admin_reads.clone(), deadline)
+            .wait_admin(self.0.admin.reads.clone(), deadline)
             .await?;
-        let execution = self.wait_admin(self.0.execution.clone(), deadline).await?;
+        let execution = self
+            .wait_admin(self.0.writer.execution.clone(), deadline)
+            .await?;
         let inner = self.0.clone();
         self.0
+            .writer
             .executor
             .run(move || {
                 let (_admission, _execution) = (admission, execution);
@@ -702,7 +705,7 @@ impl Admin {
         let activity = self.catalog.admin_activity(Work::New, deadline).await?;
         let permit = self
             .catalog
-            .wait_admin(self.catalog.0.admin_uploads.clone(), deadline)
+            .wait_admin(self.catalog.0.admin.uploads.clone(), deadline)
             .await?;
         let conditions = request
             .condition
@@ -749,7 +752,7 @@ impl Admin {
         let bucket = bucket.as_str().to_owned();
         let name = name.as_str().to_owned();
         let access = self.grant.access();
-        let clock = self.catalog.0.clock.clone();
+        let clock = self.catalog.0.policy.clock.clone();
         self.catalog
             .run_admin_until(deadline, move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
@@ -849,7 +852,7 @@ impl Admin {
     ) -> Result<(), AdminError> {
         let target = ObjectTarget::new(bucket.as_str().to_owned(), name.as_str().to_owned(), None);
         let access = self.grant.access();
-        let clock = self.catalog.0.clock.clone();
+        let clock = self.catalog.0.policy.clock.clone();
         let (purged, result) = self
             .catalog
             .run_admin_with_error(move |connection| {

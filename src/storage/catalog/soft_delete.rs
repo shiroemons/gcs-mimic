@@ -256,7 +256,7 @@ impl Catalog {
     /// and the row then waits for the next pass; reads hide it on time either way.
     pub(super) fn schedule_expiry(&self, retired: objects::Retired) {
         match retired {
-            objects::Retired::SoftDeleted => self.0.maintenance_wake.notify_one(),
+            objects::Retired::SoftDeleted => self.0.maintenance.wake.notify_one(),
             objects::Retired::Nothing | objects::Retired::Journaled => {}
         }
     }
@@ -296,7 +296,7 @@ impl Catalog {
             name,
             generation,
         } = target;
-        let (access, clock) = (access.clone(), self.0.clock.clone());
+        let (access, clock) = (access.clone(), self.0.policy.clock.clone());
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let object_acl = objects::object_acl_authority(&transaction, &bucket, &access)?;
@@ -361,8 +361,8 @@ impl Catalog {
     async fn restore_pinned(&self, request: RestoreRequest) -> Result<ObjectRecord, ObjectError> {
         let id = crate::storage::BlobId::generate().map_err(object_unavailable)?;
         let (backend, clock, selection) = (
-            self.0.backend.clone(),
-            self.0.clock.clone(),
+            self.0.storage.backend.clone(),
+            self.0.policy.clock.clone(),
             request.clone(),
         );
         let pinned = self
@@ -391,16 +391,16 @@ impl Catalog {
         let outcome = async {
             let source = pinned??;
             #[cfg(test)]
-            super::fault::hit(&self.0.data_dir, super::fault::Step::BeforePublish)
+            super::fault::hit(&self.0.storage.data_dir, super::fault::Step::BeforePublish)
                 .map_err(object_unavailable)?;
-            let backend = self.0.backend.clone();
+            let backend = self.0.storage.backend.clone();
             let published =
                 crate::task::run_blocking("restore-publish", move || backend.publish_pinned(&id))
                     .await;
             #[cfg(test)]
-            super::fault::hit(&self.0.data_dir, super::fault::Step::RestorePinned)
+            super::fault::hit(&self.0.storage.data_dir, super::fault::Step::RestorePinned)
                 .map_err(object_unavailable)?;
-            let clock = self.0.clock.clone();
+            let clock = self.0.policy.clock.clone();
             let (record, retired) = self
                 .run_upload(move |connection| {
                     restore_in_transaction(
@@ -420,8 +420,8 @@ impl Catalog {
         .await;
         if pin_attempted && outcome.is_err() {
             self.discard_staged(objects::StagedBlob::pin(
-                &self.0.backend,
-                &self.0.data_dir,
+                &self.0.storage.backend,
+                &self.0.storage.data_dir,
                 id,
             ))
             .await;

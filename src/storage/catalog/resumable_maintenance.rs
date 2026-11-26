@@ -219,7 +219,7 @@ impl Catalog {
                 })
                 .await
                 .map_err(unavailable)?;
-            let backend = catalog.0.backend.clone();
+            let backend = catalog.0.storage.backend.clone();
             crate::task::run_blocking("session-cleanup", move || {
                 remove_session_files(&backend, cleanup)
             })
@@ -248,9 +248,9 @@ impl Catalog {
             return Err(ResumableError::Gone);
         }
         let id = lease.session.id;
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         let blob_id = lease.session.blob_id;
-        let wake = self.0.maintenance_wake.clone();
+        let wake = self.0.maintenance.wake.clone();
         let changed = self.run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now])?;
@@ -282,6 +282,7 @@ impl Catalog {
     #[cfg(test)]
     pub(super) fn count_cleanup_task(&self) {
         self.0
+            .admin
             .cleanup_tasks
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
@@ -294,7 +295,7 @@ impl Catalog {
         let result = self.run_resumable_maintenance().await;
         if result.is_err() {
             // A manually triggered pass can discover work while the scheduler is asleep.
-            self.0.maintenance_wake.notify_one();
+            self.0.maintenance.wake.notify_one();
         }
         result
     }
@@ -311,18 +312,18 @@ impl Catalog {
     }
 
     pub(super) fn record_maintenance_error(&self, cause: Option<BackendCause>) {
-        *crate::sync::lock(&self.0.maintenance_error) = cause;
+        *crate::sync::lock(&self.0.maintenance.error) = cause;
     }
 
     #[cfg(test)]
     pub(crate) fn resumable_maintenance_error(&self) -> Option<String> {
-        crate::sync::lock(&self.0.maintenance_error)
+        crate::sync::lock(&self.0.maintenance.error)
             .as_ref()
             .map(|cause| cause.message().to_owned())
     }
 
     async fn maintain_resumable_inner(&self) -> Result<Option<SystemTime>, CatalogError> {
-        let reading = self.0.clock.now();
+        let reading = self.0.policy.clock.now();
         // Session deadlines are stored in milliseconds, hard delete times in microseconds. Each
         // sweep gets its own unit from one reading: truncating to milliseconds would leave a row
         // due within the current millisecond unpurged and spin the scheduler until the next one.
@@ -360,7 +361,7 @@ impl Catalog {
             .await;
 
         // Earlier sweeps can mark lifecycle dirty. Its gate and quarantine belong to the writer.
-        let lifecycle = self.0.lifecycle.scheduled_at(reading);
+        let lifecycle = self.0.maintenance.lifecycle.scheduled_at(reading);
         if lifecycle.is_some_and(|time| time <= reading) {
             use super::lifecycle::{LifecycleOutcome, Pass};
             let result = self.run_lifecycle(Pass::Scheduled).await;
@@ -517,21 +518,23 @@ impl Catalog {
     pub fn start_resumable_maintenance(&self) {
         if self
             .0
-            .maintenance_started
+            .maintenance
+            .started
             .swap(true, std::sync::atomic::Ordering::AcqRel)
         {
             return;
         }
         let weak = std::sync::Arc::downgrade(&self.0);
-        let wake = self.0.maintenance_wake.clone();
+        let wake = self.0.maintenance.wake.clone();
         // A panic must not end expiry for the rest of the process: restart the loop and report
         // the gap through readiness. The supervisor holds only a weak reference, like the loop.
         crate::task::spawn_restarting(
             "resumable-maintenance",
-            self.0.maintenance_health.clone(),
+            self.0.maintenance.health.clone(),
             move || {
                 let inner = weak.upgrade()?;
-                (!inner.admission.is_closed()).then(|| maintenance_loop(weak.clone(), wake.clone()))
+                (!inner.admission.slots.is_closed())
+                    .then(|| maintenance_loop(weak.clone(), wake.clone()))
             },
         );
     }
@@ -539,8 +542,8 @@ impl Catalog {
     /// False while a background loop is down: restarting after a panic until a pass succeeds,
     /// or failing every pass.
     pub(crate) fn background_tasks_running(&self) -> bool {
-        !self.0.maintenance_health.is_down()
-            && crate::sync::lock(&self.0.background_health)
+        !self.0.maintenance.health.is_down()
+            && crate::sync::lock(&self.0.shutdown.background_health)
                 .iter()
                 .all(|health| !health.is_down())
     }
@@ -548,14 +551,15 @@ impl Catalog {
     /// Reports `health` through readiness for as long as the catalog lives, for a background
     /// worker the catalog does not start at open, such as the notification publisher.
     pub(crate) fn watch_background_task(&self, health: crate::task::TaskHealth) {
-        crate::sync::lock(&self.0.background_health).push(health);
+        crate::sync::lock(&self.0.shutdown.background_health).push(health);
     }
 
     /// Makes the next `count` maintenance passes panic before doing any work.
     #[cfg(test)]
     pub(crate) fn inject_maintenance_panics(&self, count: usize) {
         self.0
-            .maintenance_panics
+            .maintenance
+            .panics
             .store(count, std::sync::atomic::Ordering::Release);
     }
 }
@@ -572,12 +576,13 @@ async fn maintenance_loop(
         let Some(inner) = weak.upgrade() else {
             return;
         };
-        if inner.admission.is_closed() {
+        if inner.admission.slots.is_closed() {
             return;
         }
         #[cfg(test)]
         if inner
-            .maintenance_panics
+            .maintenance
+            .panics
             .try_update(
                 std::sync::atomic::Ordering::AcqRel,
                 std::sync::atomic::Ordering::Acquire,
@@ -588,16 +593,16 @@ async fn maintenance_loop(
             panic!("injected resumable maintenance panic");
         }
         let catalog = Catalog(inner);
-        let clock = catalog.0.clock.clone();
+        let clock = catalog.0.policy.clock.clone();
         let sleep = match catalog.run_resumable_maintenance().await {
             Ok(next) => {
-                catalog.0.maintenance_health.pass_succeeded();
+                catalog.0.maintenance.health.pass_succeeded();
                 next.map(|deadline| clock.sleep_until(deadline))
             }
             Err(error) => {
                 // Expiry that fails on every pass leaves sessions and staged bytes behind, so
                 // persistent failure turns readiness off until a pass succeeds again.
-                catalog.0.maintenance_health.pass_failed();
+                catalog.0.maintenance.health.pass_failed();
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
                     crate::diagnostics::Event::ResumableMaintenanceRetry,
@@ -664,14 +669,17 @@ mod tests {
             .await
             .unwrap();
         let (w, r) = catalog.job_counts();
-        let tasks = catalog.0.cleanup_tasks.load(Ordering::Relaxed);
+        let tasks = catalog.0.admin.cleanup_tasks.load(Ordering::Relaxed);
         clock.set(session.deadline);
         assert_eq!(
             catalog.maintain_resumable_sessions().await.unwrap(),
             Some(later.deadline)
         );
         assert_eq!(catalog.job_counts(), (w + 6, r + 2));
-        assert_eq!(catalog.0.cleanup_tasks.load(Ordering::Relaxed), tasks + 1);
+        assert_eq!(
+            catalog.0.admin.cleanup_tasks.load(Ordering::Relaxed),
+            tasks + 1
+        );
         assert!(!session.blob_id.staging_path(&data.0).exists());
         assert!(later.blob_id.staging_path(&data.0).exists());
         catalog.close().await.unwrap();

@@ -175,13 +175,13 @@ async fn cleanup_snapshot(crash: crate::storage::catalog::fault::Crash, sync: Di
         .await
         .unwrap();
     let id = staged.blob_id();
-    catalog.0.backend.publish_draft(&id).unwrap();
+    catalog.0.storage.backend.publish_draft(&id).unwrap();
     let snapshot = crate::test_support::TestDir::new();
     catalog.inject(Step::AfterCommit, 0, crash.fault(snapshot.0.clone()));
     if sync == DirectorySync::Complete {
         cleanup(&catalog, vec![id]).await.unwrap();
     } else {
-        catalog.0.backend.remove(&id).unwrap();
+        catalog.0.storage.backend.remove(&id).unwrap();
     }
     // This explicit trigger snapshots cleanup, independently of publication transactions.
     fault::hit(&dir.0, Step::AfterCommit).unwrap();
@@ -240,7 +240,7 @@ async fn cleanup_directory_sync_failure_reaches_discard_and_drop() {
             .await
             .unwrap();
         let id = staged.blob_id();
-        catalog.0.backend.publish_draft(&id).unwrap();
+        catalog.0.storage.backend.publish_draft(&id).unwrap();
         catalog.inject(Step::AdminCleanupSync, 0, Fault::Io(io::ErrorKind::Other));
         if explicit {
             let error = staged.discard().await.unwrap_err();
@@ -390,7 +390,7 @@ async fn publication_disk_full_rolls_back_the_batch_and_its_generations() {
     );
     assert_eq!(last_generation(&catalog).await, generation);
     assert_eq!(blob_count(&dir.0), 0);
-    assert_eq!(catalog.0.staged_handles.available_permits(), 256);
+    assert_eq!(catalog.0.admin.staged_handles.available_permits(), 256);
     catalog.close().await.unwrap();
 }
 
@@ -578,7 +578,7 @@ async fn publication_batch_isolates_failed_elements_and_cleans_unused_blobs() {
     b.request.condition = Some(GenerationCondition::Absent);
     let c = entry(&admin, &dir.0, "c", b"c").await;
     let (writes, reads) = catalog.job_counts();
-    let files = &catalog.0.file_workers.submitted;
+    let files = &catalog.0.admin.file_workers.submitted;
     let submitted = files.load(std::sync::atomic::Ordering::Relaxed);
     let result = admin
         .publish_objects_with_budget(vec![a, b, c], Duration::from_secs(1))
@@ -688,11 +688,11 @@ async fn publication_budget_returns_retryable_handles_and_releases_sql_lane() {
     assert_eq!(result.unattempted.len(), 1);
     assert!(result.budget_exceeded);
     assert!(admin.get_bucket(&bucket).await.unwrap().is_some());
-    assert_eq!(catalog.0.staged_handles.available_permits(), 255);
+    assert_eq!(catalog.0.admin.staged_handles.available_permits(), 255);
     let result = admin.publish_objects(result.unattempted).await.unwrap();
     assert_eq!(result.results.len(), 1);
     assert!(result.results[0].is_ok());
-    assert_eq!(catalog.0.staged_handles.available_permits(), 256);
+    assert_eq!(catalog.0.admin.staged_handles.available_permits(), 256);
     catalog.close().await.unwrap();
 }
 
@@ -702,6 +702,7 @@ async fn publication_partial_batch_allows_staging_without_a_second_batch() {
     let first = entry(&admin, &dir.0, "a", b"a").await;
     let held = catalog
         .0
+        .admin
         .publication_batch
         .clone()
         .acquire_owned()
@@ -712,7 +713,7 @@ async fn publication_partial_batch_allows_staging_without_a_second_batch() {
     tokio::task::yield_now().await;
     let next = entry(&admin, &dir.0, "b", b"b").await;
     assert!(!publishing.is_finished());
-    assert_eq!(catalog.0.staged_handles.available_permits(), 254);
+    assert_eq!(catalog.0.admin.staged_handles.available_permits(), 254);
     drop(held);
     assert!(publishing.await.unwrap().unwrap().results[0].is_ok());
     assert!(admin.publish_objects(vec![next]).await.unwrap().results[0].is_ok());
@@ -745,10 +746,17 @@ async fn spawn_batches(
 #[tokio::test]
 async fn publication_past_the_active_batch_takes_turns_and_every_batch_commits() {
     let (dir, catalog, admin, _, _) = setup().await;
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let batches = spawn_batches(&admin, &dir.0).await;
     eventually_async("the batches to fill the request slots", || async {
-        catalog.0.publication_requests.available_permits() == 0
+        catalog.0.admin.publication_requests.available_permits() == 0
     })
     .await;
     assert!(batches.iter().all(|batch| !batch.is_finished()));
@@ -763,12 +771,19 @@ async fn publication_past_the_active_batch_takes_turns_and_every_batch_commits()
 #[tokio::test]
 async fn a_reset_drains_the_publications_waiting_in_line() {
     let (dir, catalog, admin, bucket, _) = setup().await;
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let batches = spawn_batches(&admin, &dir.0).await;
     let worker = admin.clone();
     let reset = tokio::spawn(async move { worker.reset_until(LONG_WAIT.deadline()).await });
     eventually_async("the reset to line up", || async {
-        catalog.0.admin_reads.available_permits() == 31
+        catalog.0.admin.reads.available_permits() == 31
     })
     .await;
     drop(execution);
@@ -828,6 +843,7 @@ async fn closing_wakes_every_publication_waiting_for_its_turn() {
     let (dir, catalog, admin, _, _) = setup().await;
     let requests = catalog
         .0
+        .admin
         .publication_requests
         .clone()
         .acquire_many_owned(2)
@@ -854,6 +870,7 @@ async fn a_cancelled_publication_gives_up_its_place_and_returns_its_lease() {
     let (dir, catalog, admin, bucket, _) = setup().await;
     let requests = catalog
         .0
+        .admin
         .publication_requests
         .clone()
         .acquire_many_owned(2)
@@ -867,8 +884,8 @@ async fn a_cancelled_publication_gives_up_its_place_and_returns_its_lease() {
         assert!(batch.await.err().is_some_and(|error| error.is_cancelled()));
     }
     drop(requests);
-    assert_eq!(catalog.0.publication_requests.available_permits(), 2);
-    assert_eq!(catalog.0.publication_batch.available_permits(), 1);
+    assert_eq!(catalog.0.admin.publication_requests.available_permits(), 2);
+    assert_eq!(catalog.0.admin.publication_batch.available_permits(), 1);
     // A lease left behind by a cancelled wait would keep this reset out until it gives up.
     admin.reset_until(LONG_WAIT.deadline()).await.unwrap();
     assert!(admin.get_bucket(&bucket).await.unwrap().is_none());
@@ -883,7 +900,14 @@ async fn publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks() {
         let input = entry(&admin, &dir.0, "object", b"cancelled").await;
         let mut refused = entry(&admin, &dir.0, "object", b"refused").await;
         refused.request.condition = Some(GenerationCondition::Absent);
-        let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+        let execution = catalog
+            .0
+            .writer
+            .execution
+            .clone()
+            .acquire_owned()
+            .await
+            .unwrap();
         let worker = admin.clone();
         let publishing = tokio::spawn(async move {
             worker
@@ -939,18 +963,25 @@ async fn publication_shutdown_drains_accepted_batch_through_retired_blob_reclama
         .await
         .unwrap();
     let input = entry(&admin, &dir.0, "object", b"new").await;
-    let held = catalog.0.reclamation.clone().acquire_owned().await.unwrap();
+    let held = catalog
+        .0
+        .storage
+        .reclamation
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let worker = admin.clone();
     let publishing = tokio::spawn(async move { worker.publish_objects(vec![input]).await });
     let selected = eventually_some_async("the batch to select a new generation", || async {
         let selected = admin.get_object(&bucket, &name, None).await.unwrap();
         (selected.generation != old.generation
-            && catalog.0.staged_handles.available_permits() == 256)
+            && catalog.0.admin.staged_handles.available_permits() == 256)
             .then_some(selected)
     })
     .await;
     assert!(!publishing.is_finished());
-    assert_eq!(catalog.0.publication_requests.available_permits(), 1);
+    assert_eq!(catalog.0.admin.publication_requests.available_permits(), 1);
     let worker = catalog.clone();
     let close = tokio::spawn(async move { worker.close().await });
     tokio::task::yield_now().await;
@@ -1105,7 +1136,7 @@ async fn publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup(
                 .unwrap(),
         );
     }
-    assert_eq!(catalog.0.staged_handles.available_permits(), 0);
+    assert_eq!(catalog.0.admin.staged_handles.available_permits(), 0);
     let worker = admin.clone();
     let input = source(&dir.0, b"next");
     let next = tokio::spawn(async move {

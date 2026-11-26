@@ -49,7 +49,7 @@ async fn retaining_bucket(catalog: &Catalog, name: &str, seconds: u64) {
     let mut record = bucket(name, "project");
     record.soft_delete_policy = Some(SoftDeletePolicy {
         retention_duration_seconds: seconds,
-        effective_time: catalog.0.clock.now(),
+        effective_time: catalog.0.policy.clock.now(),
     });
     catalog.insert_bucket(record).await.unwrap();
 }
@@ -116,7 +116,7 @@ async fn readable(catalog: &Catalog, bucket: &str, name: &str, generation: i64) 
 }
 
 fn memory_blobs(catalog: &Catalog) -> usize {
-    match &catalog.0.backend {
+    match &catalog.0.storage.backend {
         super::super::BlobBackend::Memory(store) => store.blob_count(),
         super::super::BlobBackend::Disk(_) => unreachable!("the catalog was opened in memory"),
     }
@@ -738,7 +738,7 @@ async fn crash_at_every_expiry_boundary_recovers_without_losing_the_deletion() {
 }
 
 async fn expect_wake(catalog: &Catalog, operation: impl AsyncFnOnce()) {
-    let wake = catalog.0.maintenance_wake.clone();
+    let wake = catalog.0.maintenance.wake.clone();
     let notified = wake.notified();
     tokio::pin!(notified);
     notified.as_mut().enable();

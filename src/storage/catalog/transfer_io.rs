@@ -82,7 +82,7 @@ impl Catalog {
         on_eof: impl FnOnce(&InputReader) -> ObjectError,
     ) -> Result<(), ObjectError> {
         while remaining != 0 {
-            if self.0.admission.is_closed() {
+            if self.0.admission.slots.is_closed() {
                 return Err(object_unavailable("catalog is closing"));
             }
             let length =
@@ -117,6 +117,7 @@ impl Output {
     ) -> Result<Self, ObjectError> {
         catalog
             .0
+            .storage
             .backend
             .open_output(id, offset, ReadAccess::WriteOnly, lease)
             .await
@@ -130,6 +131,7 @@ impl Output {
     ) -> Result<Self, ObjectError> {
         catalog
             .0
+            .storage
             .backend
             .open_output(id, offset, ReadAccess::ReadWrite, lease)
             .await

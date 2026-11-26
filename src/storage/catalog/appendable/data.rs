@@ -150,6 +150,7 @@ impl Data {
 pub(super) fn remove(catalog: &Catalog, id: &BlobId) -> Result<(), ObjectError> {
     catalog
         .0
+        .storage
         .backend
         .remove_appendable(id)
         .map_err(object_unavailable)

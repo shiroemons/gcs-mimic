@@ -189,7 +189,7 @@ async fn a_ram_body_takes_no_descriptor_slot() {
     put(&catalog, "object", &b"contents"[..]).await;
     download(&catalog, "object").await.unwrap();
     assert!(keeps_file(&catalog, "object").await);
-    assert_eq!(catalog.0.read_cache.read().open_files(), 0);
+    assert_eq!(catalog.0.reads.cache.read().open_files(), 0);
     catalog.close().await.unwrap();
 }
 
@@ -781,7 +781,7 @@ async fn a_catalog_write_releases_the_cached_descriptors() {
     }
     let (dropped, observed) = tokio::sync::oneshot::channel();
     let files = {
-        let mut contents = catalog.0.read_cache.write();
+        let mut contents = catalog.0.reads.cache.write();
         contents.on_drop = Some(Box::new(move |count| {
             let writer = std::thread::current().name() == Some("gcs-mimic-catalog");
             dropped.send((count, writer)).unwrap();
@@ -808,7 +808,7 @@ async fn a_reopened_blob_survives_stale_file_cleanup_and_cancelled_close() {
     put(&catalog, "object", &b"kept"[..]).await;
     download(&catalog, "object").await.unwrap();
     let cached_file = || {
-        let contents = catalog.0.read_cache.read();
+        let contents = catalog.0.reads.cache.read();
         let entry = contents.object("bucket", "object").unwrap();
         let ReaderData::Disk(file) = &entry.download.as_ref().unwrap().data else {
             panic!("disk fixture");
@@ -816,11 +816,11 @@ async fn a_reopened_blob_survives_stale_file_cleanup_and_cancelled_close() {
         Arc::downgrade(file)
     };
     let old = cached_file();
-    let available = catalog.0.read_cache.file_slots.available_permits();
+    let available = catalog.0.reads.cache.file_slots.available_permits();
     let (entered, started) = tokio::sync::oneshot::channel();
     let (release, held) = std::sync::mpsc::channel();
     let held = std::sync::Mutex::new(held);
-    catalog.0.read_cache.write().on_drop = Some(Box::new(move |_| {
+    catalog.0.reads.cache.write().on_drop = Some(Box::new(move |_| {
         let writer = std::thread::current().name() == Some("gcs-mimic-catalog");
         entered.send(writer).unwrap();
         if !writer {
@@ -837,14 +837,14 @@ async fn a_reopened_blob_survives_stale_file_cleanup_and_cancelled_close() {
     assert!(!old.ptr_eq(&reopened));
     let reader = reopened.upgrade().unwrap();
     assert_eq!(
-        catalog.0.read_cache.file_slots.available_permits() + 1,
+        catalog.0.reads.cache.file_slots.available_permits() + 1,
         available
     );
 
     let closing = catalog.clone();
     let close = tokio::spawn(async move { closing.close().await });
     crate::test_support::eventually_async("close to clear the new cache", || async {
-        catalog.0.admission.is_closed() && catalog.0.read_cache.read().object_count == 0
+        catalog.0.admission.slots.is_closed() && catalog.0.reads.cache.read().object_count == 0
     })
     .await;
     assert!(!close.is_finished());
@@ -855,7 +855,7 @@ async fn a_reopened_blob_survives_stale_file_cleanup_and_cancelled_close() {
     catalog.close().await.unwrap();
     assert!(old.upgrade().is_none());
     assert_eq!(
-        catalog.0.read_cache.file_slots.available_permits(),
+        catalog.0.reads.cache.file_slots.available_permits(),
         available + 1
     );
     let mut bytes = [0; 4];
@@ -871,7 +871,7 @@ async fn a_panicking_cache_close_is_reported_and_releases_its_slots() {
     let catalog = open_catalog(&dir).await;
     put(&catalog, "object", &b"first"[..]).await;
     download(&catalog, "object").await.unwrap();
-    catalog.0.read_cache.write().on_drop = Some(Box::new(|_| panic!("cache close fixture")));
+    catalog.0.reads.cache.write().on_drop = Some(Box::new(|_| panic!("cache close fixture")));
     put(&catalog, "object", &b"second"[..]).await;
     crate::test_support::eventually_async("the blocking cleanup panic to be reported", || async {
         crate::task::tests::reported_panics("read-cache-close")
@@ -882,8 +882,8 @@ async fn a_panicking_cache_close_is_reported_and_releases_its_slots() {
     assert_eq!(download(&catalog, "object").await.unwrap().1, b"second");
     catalog.close().await.unwrap();
     assert_eq!(
-        catalog.0.read_cache.file_slots.available_permits(),
-        catalog.0.read_cache.max_open_files as usize
+        catalog.0.reads.cache.file_slots.available_permits(),
+        catalog.0.reads.cache.max_open_files as usize
     );
 }
 
@@ -894,9 +894,9 @@ async fn closing_releases_every_kept_file() {
     let catalog = open_catalog(&dir).await;
     put(&catalog, "object", &b"contents"[..]).await;
     download(&catalog, "object").await.unwrap();
-    assert_eq!(catalog.0.read_cache.read().open_files(), 1);
+    assert_eq!(catalog.0.reads.cache.read().open_files(), 1);
     catalog.close().await.unwrap();
-    assert_eq!(catalog.0.read_cache.read().open_files(), 0);
+    assert_eq!(catalog.0.reads.cache.read().open_files(), 0);
 }
 
 /// Nothing changed a row here, so only the poison check can stop the hit.
@@ -909,6 +909,7 @@ async fn hits_stop_while_a_rollback_stays_unconfirmed() {
     assert!(!catalog.bucket_has_cors("bucket").await.unwrap());
     catalog
         .0
+        .writer
         .fail_rollback
         .store(true, std::sync::atomic::Ordering::Release);
     let failed = catalog
@@ -923,6 +924,7 @@ async fn hits_stop_while_a_rollback_stays_unconfirmed() {
     assert!(catalog.bucket_has_cors("bucket").await.is_err());
     catalog
         .0
+        .writer
         .fail_rollback
         .store(false, std::sync::atomic::Ordering::Release);
     assert_eq!(metadata(&catalog, "object").await.unwrap().size, 8);

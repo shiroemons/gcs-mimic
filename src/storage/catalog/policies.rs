@@ -265,7 +265,7 @@ impl Catalog {
         projects: &[String],
     ) -> Result<(), CatalogError> {
         let projects = projects.to_vec();
-        let parent_policy = self.0.parent_policy.clone();
+        let parent_policy = self.0.reads.parent_policy.clone();
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             transaction.execute("DELETE FROM parent_public_access_prevention", [])?;
@@ -374,8 +374,8 @@ impl Catalog {
     ) -> Result<Policy, CatalogError> {
         let bucket = bucket.to_owned();
         let access = access.clone();
-        let clock = self.0.clock.clone();
-        let principals = self.0.principals.clone();
+        let clock = self.0.policy.clock.clone();
+        let principals = self.0.policy.principals.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             authorize_policy(&transaction, &bucket, &access)?;
@@ -508,6 +508,7 @@ mod cancellation_tests {
             let held = catalog.clone();
             let blocker = tokio::spawn(async move {
                 held.0
+                    .writer
                     .executor
                     .run(move || {
                         entered.send(()).unwrap();

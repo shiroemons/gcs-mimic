@@ -68,7 +68,7 @@ impl SeedBatch {
         self.prepare_entries().await?;
         let deadline = wait_deadline(&catalog, None);
         let execution =
-            tokio::time::timeout_at(deadline, catalog.0.execution.clone().acquire_owned())
+            tokio::time::timeout_at(deadline, catalog.0.writer.execution.clone().acquire_owned())
                 .await
                 .map_err(|_| AdminError::busy())?
                 .map_err(|_| AdminError::Closed)?;
@@ -82,7 +82,7 @@ impl SeedBatch {
         let (outcome, journaled) = outcome?;
         if outcome.counts.published + outcome.counts.deleted > 0 {
             // A replaced or deleted version may wait in a bucket that retains deletions.
-            catalog.0.maintenance_wake.notify_one();
+            catalog.0.maintenance.wake.notify_one();
         }
         catalog.reclaim_if(journaled).await;
         Ok(outcome)
@@ -145,7 +145,7 @@ fn commit(
     mut counts: LiveCounts,
 ) -> Result<(LiveOutcome, objects::Journaled), AdminError> {
     let transaction = sql::immediate(connection).map_err(objects_error)?;
-    let now = super::super::recorded_instant(batch.admin.catalog.0.clock.now())?;
+    let now = super::super::recorded_instant(batch.admin.catalog.0.policy.clock.now())?;
     check_guards(&transaction, SeedMode::Merge, now)?;
     let LiveWalk {
         complete,

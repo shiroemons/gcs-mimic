@@ -23,7 +23,7 @@ impl Catalog {
     /// server applies its configuration before any bucket is created; an embedded catalog keeps
     /// `None`, which leaves such buckets without a policy.
     pub fn set_default_soft_delete_retention(&self, retention: Option<NonZeroU64>) {
-        self.0.default_soft_delete_retention.store(
+        self.0.policy.default_soft_delete_retention.store(
             retention.map_or(0, NonZeroU64::get),
             std::sync::atomic::Ordering::Relaxed,
         );
@@ -32,6 +32,7 @@ impl Catalog {
     pub(crate) fn default_soft_delete_retention(&self) -> Option<NonZeroU64> {
         NonZeroU64::new(
             self.0
+                .policy
                 .default_soft_delete_retention
                 .load(std::sync::atomic::Ordering::Relaxed),
         )
@@ -78,7 +79,7 @@ impl Catalog {
         if let Some(has_cors) = self.cached_bucket_cors(name).await {
             return Ok(has_cors);
         }
-        let revision = self.0.read_cache.revision();
+        let revision = self.0.reads.cache.revision();
         let inner = self.0.clone();
         let name = name.to_owned();
         self.run_read_on(move |connection, path| {
@@ -92,7 +93,8 @@ impl Catalog {
             let has_cors = stored.is_some_and(|cors| cors != "[]");
             if path.stores_answers() {
                 inner
-                    .read_cache
+                    .reads
+                    .cache
                     .store_bucket_cors(revision, &name, has_cors);
             }
             Ok(has_cors)
@@ -110,7 +112,7 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         let catalog = self.clone();
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         let journaled = self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             let (metageneration, project): (i64, String) = sql::row(

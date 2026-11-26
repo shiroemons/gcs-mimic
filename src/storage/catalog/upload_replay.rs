@@ -498,7 +498,7 @@ impl Catalog {
         let source_object = source_name.clone();
         let source_authority = source_access.clone();
         let token = hash(raw_token.as_bytes())?;
-        let now = unix_micros(self.0.clock.now())?;
+        let now = unix_micros(self.0.policy.clock.now())?;
         let source_incarnation: Incarnation = self
             .run(move |connection| {
                 let transaction = connection.transaction()?;
@@ -550,7 +550,7 @@ impl Catalog {
         replay: &CopyReplay,
     ) -> Result<Option<ObjectRecord>, ObjectError> {
         let replay = replay.clone();
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             replay.cached(&transaction, unix_micros(clock.now())?)
@@ -618,8 +618,8 @@ impl Catalog {
         let access = access.clone();
         let token = hash(token.as_bytes())?;
         let request = replay_request(request, &access)?;
-        let clock = self.0.clock.clone();
-        let principals = self.0.principals.clone();
+        let clock = self.0.policy.clock.clone();
+        let principals = self.0.policy.principals.clone();
         self.run_serialized_read(SerializedRead::AdvisoryUpload, move |connection| {
             let snapshot = sql::read_snapshot(connection)?;
             let (_, delete_permission) = objects::authorized_bucket(&snapshot, &bucket, &access)?;

@@ -236,7 +236,7 @@ impl Catalog {
     ) -> Result<CreatedHmacKey, HmacKeyError> {
         let project = project.clone();
         let email = service_account_email.to_owned();
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         self.run::<_, HmacKeyError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let live: i64 = sql::scalar(
@@ -323,7 +323,7 @@ impl Catalog {
         }
         let project = project.clone();
         let access_id = access_id.to_owned();
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         self.run::<_, HmacKeyError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let Some(current) = select(&transaction, &project, &access_id)? else {
@@ -351,7 +351,7 @@ impl Catalog {
     ) -> Result<(), HmacKeyError> {
         let project = project.clone();
         let access_id = access_id.to_owned();
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         self.run::<_, HmacKeyError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let Some(current) = select(&transaction, &project, &access_id)? else {

@@ -52,8 +52,8 @@ impl Catalog {
     ) -> Result<BucketRecord, CatalogError> {
         let name = name.to_owned();
         let access = access.clone();
-        let clock = self.0.clock.clone();
-        let principals = self.0.principals.clone();
+        let clock = self.0.policy.clock.clone();
+        let principals = self.0.policy.principals.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             let change = BucketChange {

@@ -102,10 +102,15 @@ async fn assert_restored(catalog: &Catalog, lease: &SessionLease) {
     assert_eq!(session.state, SessionState::Active);
     assert_eq!(session.offset, 6);
     assert_eq!(
-        std::fs::read(session.blob_id.staging_path(&catalog.0.data_dir)).unwrap(),
+        std::fs::read(session.blob_id.staging_path(&catalog.0.storage.data_dir)).unwrap(),
         b"prefix"
     );
-    assert!(!session.blob_id.blob_path(&catalog.0.data_dir).exists());
+    assert!(
+        !session
+            .blob_id
+            .blob_path(&catalog.0.storage.data_dir)
+            .exists()
+    );
 }
 
 #[tokio::test]

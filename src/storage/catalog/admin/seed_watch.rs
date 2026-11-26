@@ -324,7 +324,7 @@ impl SeedWatch {
 impl Catalog {
     /// The board of the passes over the seed directory.
     pub(crate) fn seed_watch(&self) -> &SeedWatch {
-        &self.0.seed_watch
+        &self.0.admin.seed_watch
     }
 
     /// Runs `pass` every `interval` on the catalog's clock until the catalog closes, and at once
@@ -337,7 +337,7 @@ impl Catalog {
         P: Fn(Catalog, u64) -> F + Send + Sync + 'static,
         F: Future<Output = PassReport> + Send + 'static,
     {
-        let watch = &self.0.seed_watch;
+        let watch = &self.0.admin.seed_watch;
         let mut started = false;
         watch.state.send_if_modified(|board| {
             started = board.schedule == Schedule::Off;
@@ -406,8 +406,8 @@ where
         let Some(inner) = open(&weak) else {
             return;
         };
-        let watch = Arc::clone(&inner.seed_watch);
-        let clock = Arc::clone(&inner.clock);
+        let watch = Arc::clone(&inner.admin.seed_watch);
+        let clock = Arc::clone(&inner.policy.clock);
         drop(inner);
         // A request that began waiting while the last pass ran is served at once. A closing
         // catalog's wake leaves a permit, so a close during a pass ends the task at once.
@@ -436,8 +436,8 @@ where
 /// The catalog while it is open; once it closed, the board stops taking waits.
 fn open(weak: &Weak<Inner>) -> Option<Arc<Inner>> {
     let inner = weak.upgrade()?;
-    if inner.admission.is_closed() {
-        inner.seed_watch.stop();
+    if inner.admission.slots.is_closed() {
+        inner.admin.seed_watch.stop();
         return None;
     }
     Some(inner)

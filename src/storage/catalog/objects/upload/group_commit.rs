@@ -105,7 +105,7 @@ impl Catalog {
     /// it only collects the answer.
     pub(super) async fn commit_upload(&self, commit: UploadCommit) -> UploadOutcome {
         let (reply, mut outcome) = oneshot::channel();
-        let ticket = self.0.upload_commits.push(commit, reply);
+        let ticket = self.0.writer.upload_commits.push(commit, reply);
         match self.await_answer(&mut outcome).await {
             Ok(answer) => answer,
             Err(error) => self.abandon(ticket, outcome, error).await,
@@ -121,6 +121,7 @@ impl Catalog {
         loop {
             let execution = self
                 .0
+                .writer
                 .execution
                 .clone()
                 .acquire_owned()
@@ -150,7 +151,7 @@ impl Catalog {
         outcome: oneshot::Receiver<UploadOutcome>,
         error: ObjectError,
     ) -> UploadOutcome {
-        if self.0.upload_commits.withdraw(ticket) {
+        if self.0.writer.upload_commits.withdraw(ticket) {
             return Err(error);
         }
         outcome.await.unwrap_or(Err(error))
@@ -159,9 +160,10 @@ impl Catalog {
     /// Publishes the queued commits while `execution` keeps every other catalog job out, and
     /// answers them once the commit and its read cache invalidation are done.
     async fn commit_batch(&self, execution: OwnedSemaphorePermit) -> Result<(), ObjectError> {
-        let batch = self.0.upload_commits.take_batch();
+        let batch = self.0.writer.upload_commits.take_batch();
         let inner = self.0.clone();
         self.0
+            .writer
             .executor
             .run(move || {
                 let _execution = execution;

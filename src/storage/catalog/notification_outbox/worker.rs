@@ -31,7 +31,7 @@ impl Catalog {
         &self,
         topic: &Topic,
     ) -> Result<(), crate::notification::TopicCheckError> {
-        match self.0.pubsub_endpoint.get() {
+        match self.0.notifications.endpoint.get() {
             Some(endpoint) => endpoint.topic_exists(topic).await,
             None => Ok(()),
         }
@@ -41,18 +41,18 @@ impl Catalog {
         &self,
         endpoint: Endpoint,
     ) -> Result<(), CatalogError> {
-        if self.0.notification_started.swap(true, Ordering::AcqRel) {
+        if self.0.notifications.started.swap(true, Ordering::AcqRel) {
             return Err(unavailable("notification publisher already started"));
         }
         // The swap above makes this the only writer, so the set cannot lose a race.
-        let _ = self.0.pubsub_endpoint.set(endpoint.clone());
+        let _ = self.0.notifications.endpoint.set(endpoint.clone());
         let health = TaskHealth::default();
         self.watch_background_task(health.clone());
         let weak = Arc::downgrade(&self.0);
-        let wake = self.0.notification_wake.clone();
+        let wake = self.0.notifications.wake.clone();
         crate::task::spawn_restarting("notification-publisher", health.clone(), move || {
             let inner = weak.upgrade()?;
-            (!inner.admission.is_closed())
+            (!inner.admission.slots.is_closed())
                 .then(|| run(weak.clone(), wake.clone(), endpoint.clone(), health.clone()))
         });
         Ok(())
@@ -70,14 +70,14 @@ async fn run(
         tokio::pin!(changed);
         changed.as_mut().enable();
         let Some(inner) = weak.upgrade() else { return };
-        if inner.admission.is_closed() {
+        if inner.admission.slots.is_closed() {
             return;
         }
         let catalog = Catalog(inner);
         let delay = match attempt(&catalog, &endpoint, &health).await {
             Ok(delay) => delay,
             Err(error) => {
-                if catalog.0.admission.is_closed() {
+                if catalog.0.admission.slots.is_closed() {
                     return;
                 }
                 health.pass_failed();
@@ -106,12 +106,13 @@ async fn attempt(
 ) -> Result<Option<Duration>, CatalogError> {
     let _attempt = catalog
         .0
-        .notification_attempts
+        .notifications
+        .attempts
         .clone()
         .acquire_owned()
         .await
         .map_err(unavailable)?;
-    if catalog.0.admission.is_closed() {
+    if catalog.0.admission.slots.is_closed() {
         return Ok(None);
     }
     // A reset cannot succeed between selecting a queued snapshot and finishing its network attempt.
@@ -121,7 +122,7 @@ async fn attempt(
         health.pass_succeeded();
         return Ok(None);
     };
-    let now = unix_micros(catalog.0.clock.now())?;
+    let now = unix_micros(catalog.0.policy.clock.now())?;
     if pending.due > now {
         return Ok(Some(Duration::from_micros(
             u64::try_from(pending.due.saturating_sub(now)).map_err(unavailable)?,
@@ -138,7 +139,7 @@ async fn attempt(
         }
         Err(error) => {
             let delay = Duration::from_millis((100_u64 << pending.attempts.min(9)).min(30_000));
-            let due = unix_micros(catalog.0.clock.now())?
+            let due = unix_micros(catalog.0.policy.clock.now())?
                 .saturating_add(i64::try_from(delay.as_micros()).map_err(unavailable)?);
             catalog.retry_notification(pending.id, due).await?;
             health.pass_failed();

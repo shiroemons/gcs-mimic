@@ -469,7 +469,7 @@ async fn replayed_upload_keeps_its_record_when_discard_fails() {
     }
     assert_eq!(fault::pending(&data.0), 0);
     assert_eq!(fault::catalog_thread_io(&data.0), 0);
-    assert_eq!(catalog.0.uploads.lock().unwrap().active, 0);
+    assert_eq!(catalog.0.admission.uploads.lock().unwrap().active, 0);
     catalog.close().await.unwrap();
     let recovered = Catalog::open(&data.0).await.unwrap();
     assert_eq!(
@@ -532,7 +532,7 @@ async fn invalid_body_keeps_its_error_when_discard_fails() {
         });
         assert_eq!(fault::pending(&data.0), 0);
     }
-    assert_eq!(catalog.0.uploads.lock().unwrap().active, 0);
+    assert_eq!(catalog.0.admission.uploads.lock().unwrap().active, 0);
     catalog.close().await.unwrap();
 }
 
@@ -656,7 +656,7 @@ async fn poisoned_upload_counter_remains_usable() {
     let catalog = Catalog::open(&data.0).await.unwrap();
     let other = catalog.clone();
     let _ = std::thread::spawn(move || {
-        let _guard = other.0.uploads.lock().unwrap();
+        let _guard = other.0.admission.uploads.lock().unwrap();
         panic!("injected upload counter poison");
     })
     .join();

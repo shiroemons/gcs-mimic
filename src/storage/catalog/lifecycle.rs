@@ -150,8 +150,11 @@ impl LifecycleSchedule {
 impl Inner {
     /// Called on the writer after a transaction stores rules, even if a prior scan disarmed us.
     pub(super) fn lifecycle_rules_changed(&self) {
-        self.lifecycle.armed.store(true, Ordering::Release);
-        self.lifecycle.on_write(&self.maintenance_wake);
+        self.maintenance
+            .lifecycle
+            .armed
+            .store(true, Ordering::Release);
+        self.maintenance.lifecycle.on_write(&self.maintenance.wake);
     }
 }
 
@@ -246,7 +249,7 @@ pub(super) enum Pass {
 impl Catalog {
     /// Applied before maintenance starts; stored rules still round trip while execution is off.
     pub fn configure_lifecycle(&self, config: &crate::config::Config) {
-        self.0.lifecycle.enabled.store(
+        self.0.maintenance.lifecycle.enabled.store(
             config.lifecycle_execution() == crate::config::LifecycleExecution::Enabled,
             Ordering::Release,
         );
@@ -257,17 +260,17 @@ impl Catalog {
         if let Ok(LifecycleOutcome::Executed(counts)) = &outcome {
             self.reclaim_if(counts.journaled).await;
         }
-        self.0.maintenance_wake.notify_one();
+        self.0.maintenance.wake.notify_one();
         outcome
     }
 
     pub(super) async fn run_lifecycle(&self, pass: Pass) -> Result<LifecycleOutcome, CatalogError> {
-        let schedule = &self.0.lifecycle;
+        let schedule = &self.0.maintenance.lifecycle;
         let _pass = schedule.pass.acquire().await.map_err(unavailable)?;
         if !schedule.enabled.load(Ordering::Acquire) {
             return Ok(LifecycleOutcome::Disabled);
         }
-        let now = self.0.clock.now();
+        let now = self.0.policy.clock.now();
         if matches!(pass, Pass::Scheduled) {
             let next = schedule.scheduled_at(now);
             if next.is_none_or(|due| now < due) {
@@ -300,21 +303,33 @@ impl Catalog {
         let next = self
             .run::<_, CatalogError>(move |connection| {
                 let armed = sql::scalar(connection, HAS_RULES, [])?;
-                inner.lifecycle.armed.store(armed, Ordering::Release);
+                inner
+                    .maintenance
+                    .lifecycle
+                    .armed
+                    .store(armed, Ordering::Release);
                 if !armed {
-                    inner.lifecycle.dirty.store(false, Ordering::Release);
+                    inner
+                        .maintenance
+                        .lifecycle
+                        .dirty
+                        .store(false, Ordering::Release);
                 }
                 if failed || capped {
-                    inner.lifecycle.dirty.store(true, Ordering::Release);
+                    inner
+                        .maintenance
+                        .lifecycle
+                        .dirty
+                        .store(true, Ordering::Release);
                 }
                 let next = if capped {
                     Some(now)
-                } else if inner.lifecycle.dirty.load(Ordering::Acquire) {
+                } else if inner.maintenance.lifecycle.dirty.load(Ordering::Acquire) {
                     next.into_iter().chain(now.checked_add(COALESCE)).min()
                 } else {
                     next
                 };
-                let mut state = inner.lifecycle.state();
+                let mut state = inner.maintenance.lifecycle.state();
                 state.next = next;
                 if failed {
                     state.last_scan = None;
@@ -432,8 +447,12 @@ struct ScanGuard<'a> {
 impl Drop for ScanGuard<'_> {
     fn drop(&mut self) {
         if !self.complete {
-            self.inner.lifecycle.dirty.store(true, Ordering::Release);
-            self.inner.maintenance_wake.notify_one();
+            self.inner
+                .maintenance
+                .lifecycle
+                .dirty
+                .store(true, Ordering::Release);
+            self.inner.maintenance.wake.notify_one();
         }
     }
 }

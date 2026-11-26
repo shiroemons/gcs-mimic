@@ -230,7 +230,7 @@ enum Namespace {
 
 impl Namespace {
     fn of(catalog: &Catalog) -> Self {
-        match &catalog.0.backend {
+        match &catalog.0.storage.backend {
             super::BlobBackend::Memory(memory) => Self::Memory(memory.id()),
             super::BlobBackend::Disk(root) => Self::Disk(root.clone()),
         }
@@ -565,7 +565,7 @@ impl AppendWriter {
         let bytes = added.clone();
         let activity = self.activity.clone();
         #[cfg(test)]
-        let data_dir = self.catalog.0.data_dir.clone();
+        let data_dir = self.catalog.0.storage.data_dir.clone();
         crate::task::run_blocking("append-write", move || -> Result<(), ObjectError> {
             // The guard lives in the blocking job, not the future: a dropped append still
             // holds the slot until its write ends, so a takeover cannot truncate the file and
@@ -598,7 +598,7 @@ impl AppendWriter {
         let file = self.file.clone();
         let activity = self.activity.clone();
         #[cfg(test)]
-        let data_dir = self.catalog.0.data_dir.clone();
+        let data_dir = self.catalog.0.storage.data_dir.clone();
         // As in `append`, the blocking job owns the guard while it touches the file, so a
         // dropped flush cannot let a takeover truncate the file under a sync in flight. The
         // size update below runs on the catalog executor, which finishes a queued job even
@@ -625,8 +625,11 @@ impl AppendWriter {
             }
         };
         #[cfg(test)]
-        super::fault::hit(&self.catalog.0.data_dir, super::fault::Step::AppendCommit)
-            .map_err(object_unavailable)?;
+        super::fault::hit(
+            &self.catalog.0.storage.data_dir,
+            super::fault::Step::AppendCommit,
+        )
+        .map_err(object_unavailable)?;
         let (bucket, name, generation, handle) = (
             self.bucket.clone(),
             self.name.clone(),
@@ -637,7 +640,7 @@ impl AppendWriter {
             i64::try_from(self.end).map_err(object_unavailable)?,
             self.crc32c,
         );
-        let clock = self.catalog.0.clock.clone();
+        let clock = self.catalog.0.policy.clock.clone();
         let updated = self
             .catalog
             .run_upload::<_, ObjectError>(move |connection| {
@@ -763,7 +766,7 @@ impl AppendWriter {
     /// only its removal remains.
     async fn retire(&self) {
         // The publication already reclaimed the RAM draft it journaled.
-        if !self.catalog.0.backend.is_memory() {
+        if !self.catalog.0.storage.backend.is_memory() {
             self.catalog
                 .release_appendable_data(Unreferenced::DiskFile(self.blob_id))
                 .await;
@@ -872,7 +875,9 @@ fn unreference(
 impl Catalog {
     async fn release_appendable_data(&self, data: Unreferenced) {
         #[cfg(test)]
-        if let Err(error) = super::fault::hit(&self.0.data_dir, super::fault::Step::AppendCleanup) {
+        if let Err(error) =
+            super::fault::hit(&self.0.storage.data_dir, super::fault::Step::AppendCleanup)
+        {
             deferred_cleanup(&object_unavailable(error));
             return;
         }
@@ -923,7 +928,7 @@ impl Catalog {
         let file_activity = activity.clone();
         let file = crate::task::run_blocking("append-create", move || {
             let _activity = file_activity;
-            data::Data::create(&catalog.0.backend, &id)
+            data::Data::create(&catalog.0.storage.backend, &id)
         })
         .await
         .map_err(object_unavailable)?
@@ -937,7 +942,7 @@ impl Catalog {
             Ok(value) => value,
             Err(error) => {
                 // No row was committed, so the new file stays unreferenced.
-                if !self.0.backend.is_memory() {
+                if !self.0.storage.backend.is_memory() {
                     self.release_appendable_data(Unreferenced::DiskFile(blob_id))
                         .await;
                 }
@@ -978,9 +983,9 @@ impl Catalog {
             *blob_id,
             handle.to_owned(),
         );
-        let clock = self.0.clock.clone();
-        let backend = self.0.backend.clone();
-        let principals = self.0.principals.clone();
+        let clock = self.0.policy.clock.clone();
+        let backend = self.0.storage.backend.clone();
+        let principals = self.0.policy.principals.clone();
         self.run_upload::<_, AppendError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let (storage_class, _) = authorized_bucket(&transaction, &bucket, &options.access)?;
@@ -1061,7 +1066,7 @@ impl Catalog {
         } = target;
         let handle = new_handle.clone();
         let presented = write_handle.map(<[u8]>::to_vec);
-        let principals = self.0.principals.clone();
+        let principals = self.0.policy.principals.clone();
         let selected = self
             .run_upload::<_, AppendError>(move |connection| {
                 let transaction = sql::immediate(connection)?;
@@ -1101,8 +1106,8 @@ impl Catalog {
         let (mut guard, slot, file) = crate::task::run_blocking("append-takeover", move || {
             let _activity = file_activity;
             #[cfg(test)]
-            pause_append_write(&catalog.0.data_dir);
-            let result = data::Data::take_over(&catalog.0.backend, &id, size);
+            pause_append_write(&catalog.0.storage.data_dir);
+            let result = data::Data::take_over(&catalog.0.storage.backend, &id, size);
             (guard, slot, result)
         })
         .await
@@ -1168,9 +1173,9 @@ impl Catalog {
             generation,
         } = target;
         let access = access.clone();
-        let backend = self.0.backend.kind();
-        let clock = self.0.clock.clone();
-        let principals = self.0.principals.clone();
+        let backend = self.0.storage.backend.kind();
+        let clock = self.0.policy.clock.clone();
+        let principals = self.0.policy.principals.clone();
         let id = self
             .run_upload(move |connection| {
                 let transaction = sql::immediate(connection)?;

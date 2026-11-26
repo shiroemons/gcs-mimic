@@ -22,45 +22,46 @@ impl Catalog {
     /// descriptor closes and their supervisors. Runtime shutdown cancels queued work and
     /// drops its owned files, but cannot guarantee completion of an orderly catalog close.
     pub async fn close(&self) -> Result<(), CatalogError> {
-        crate::sync::lock(&self.0.uploads).closed = true;
-        self.0.admission.close();
-        self.0.writer_released.notify_waiters();
-        self.0.activity.wake_waiters();
-        self.0.admin_shutdown.notify_waiters();
-        self.0.notification_wake.notify_one();
-        self.0.maintenance_wake.notify_one();
-        self.0.seed_watch.wake();
-        let _notification_attempt = drain(&self.0.notification_attempts, 1).await?;
+        crate::sync::lock(&self.0.admission.uploads).closed = true;
+        self.0.admission.slots.close();
+        self.0.writers.released.notify_waiters();
+        self.0.admission.activity.wake_waiters();
+        self.0.shutdown.admin_wake.notify_waiters();
+        self.0.notifications.wake.notify_one();
+        self.0.maintenance.wake.notify_one();
+        self.0.admin.seed_watch.wake();
+        let _notification_attempt = drain(&self.0.notifications.attempts, 1).await?;
         let _publication_requests =
-            drain(&self.0.publication_requests, PUBLICATION_REQUESTS).await?;
-        let _staged_handles = drain(&self.0.staged_handles, STAGED_HANDLES).await?;
-        let _admin_uploads = drain(&self.0.admin_uploads, ADMIN_UPLOADS).await?;
-        let _admin_reads = drain(&self.0.admin_reads, ADMIN_READS).await?;
+            drain(&self.0.admin.publication_requests, PUBLICATION_REQUESTS).await?;
+        let _staged_handles = drain(&self.0.admin.staged_handles, STAGED_HANDLES).await?;
+        let _admin_uploads = drain(&self.0.admin.uploads, ADMIN_UPLOADS).await?;
+        let _admin_reads = drain(&self.0.admin.reads, ADMIN_READS).await?;
         loop {
-            let idle = self.0.uploads_idle.notified();
+            let idle = self.0.admission.uploads_idle.notified();
             tokio::pin!(idle);
             idle.as_mut().enable();
-            if crate::sync::lock(&self.0.uploads).active == 0 {
+            if crate::sync::lock(&self.0.admission.uploads).active == 0 {
                 break;
             }
             idle.await;
         }
-        let _reclamation = drain(&self.0.reclamation, 1).await?;
-        if let Some(pool) = &self.0.read_pool {
+        let _reclamation = drain(&self.0.storage.reclamation, 1).await?;
+        if let Some(pool) = &self.0.reads.pool {
             pool.close().await;
         }
-        let execution = drain(&self.0.execution, 1).await?;
+        let execution = drain(&self.0.writer.execution, 1).await?;
         // Once every cache producer has stopped, release the files before directory ownership.
-        self.0.read_cache.invalidate(&self.0.cache_runtime);
-        self.0.read_cache.drain().await?;
+        self.0.reads.cache.invalidate(&self.0.reads.runtime);
+        self.0.reads.cache.drain().await?;
         let inner = self.0.clone();
         let closed = self
             .0
+            .writer
             .executor
             .run_last(move || {
                 let _execution = execution;
                 // Poison must not prevent shutdown from closing the connection and its lock.
-                let mut resources = crate::sync::lock_for_cleanup(&inner.resources);
+                let mut resources = crate::sync::lock_for_cleanup(&inner.writer.resources);
                 if let Some(Resources { connection, lock }) = resources.take() {
                     connection
                         .close()
@@ -68,13 +69,13 @@ impl Catalog {
                     if let Some(lock) = lock {
                         lock.release()?;
                     }
-                    inner.backend.clear_memory()?;
+                    inner.storage.backend.clear_memory()?;
                 }
                 Ok(())
             })
             .await;
         #[cfg(test)]
-        fault::assert_no_catalog_thread_io(&self.0.data_dir);
+        fault::assert_no_catalog_thread_io(&self.0.storage.data_dir);
         #[cfg(test)]
         assert_eq!(
             self.readonly_answers(),

@@ -198,7 +198,14 @@ async fn a_copy_replay_that_meets_a_starting_job_waits_for_it_instead_of_failing
         .unwrap();
     // Holding the permit lines the replay's first job up ahead of the reset, so the reset owns the
     // catalog by the time that job's result gets back to the replay.
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let worker = catalog.clone();
     let replay = tokio::spawn(async move {
         worker
@@ -413,7 +420,7 @@ async fn cancelling_a_draining_job_lets_the_callers_behind_it_through() {
     reset.abort();
     assert!(reset.await.unwrap_err().is_cancelled());
     joined(new).await.unwrap();
-    assert!(!catalog.0.activity.is_reserved());
+    assert!(!catalog.0.admission.activity.is_reserved());
     drop(upload);
     catalog.close().await.unwrap();
 }
@@ -438,7 +445,7 @@ async fn work_under_way_finishes_ahead_of_a_draining_job() {
     let upload = catalog.admit_object_upload().unwrap();
     let reset = spawn_reset(&admin);
     settle().await;
-    assert!(catalog.0.activity.is_reserved());
+    assert!(catalog.0.admission.activity.is_reserved());
 
     drop(catalog.admit_object_upload().unwrap());
     drop(catalog.continue_object_upload().await.unwrap());
@@ -468,7 +475,7 @@ async fn a_held_source_finishes_its_transfer_setup_ahead_of_a_draining_job() {
         .unwrap();
     let reset = spawn_reset(&admin);
     settle().await;
-    assert!(catalog.0.activity.is_reserved());
+    assert!(catalog.0.admission.activity.is_reserved());
     catalog
         .begin_derived_ephemeral(vec![source.whole()], 16)
         .await
@@ -592,7 +599,14 @@ async fn a_disabled_catalog_wait_leaves_administrative_waits_unlimited() {
     );
     let admin = catalog.local_admin().unwrap();
     let name = BucketName::new(BUCKET).unwrap();
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let execution = catalog
+        .0
+        .writer
+        .execution
+        .clone()
+        .acquire_owned()
+        .await
+        .unwrap();
     let mut lookup = std::pin::pin!(admin.get_bucket(&name));
     // Past the embedded default of 30 seconds and the server default of 120.
     assert!(
@@ -609,8 +623,15 @@ async fn a_disabled_catalog_wait_leaves_administrative_waits_unlimited() {
 /// job in front of the gate still runs, as it does when the job takes over right after that SQL.
 fn exclusive_job_after_the_next_sql(catalog: &Catalog) -> ExclusiveGuard {
     ExclusiveGuard {
-        _gate: catalog.0.activity.lock.clone().try_write_owned().unwrap(),
-        _reservation: catalog.0.activity.reserve(),
+        _gate: catalog
+            .0
+            .admission
+            .activity
+            .lock
+            .clone()
+            .try_write_owned()
+            .unwrap(),
+        _reservation: catalog.0.admission.activity.reserve(),
         _execution: Arc::new(tokio::sync::Semaphore::new(1))
             .try_acquire_owned()
             .unwrap(),

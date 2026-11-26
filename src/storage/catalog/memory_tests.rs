@@ -237,7 +237,7 @@ async fn ram_derived_capacity_and_sql_failure_preserve_acknowledged_offset_and_o
     let original = put(&catalog, Default::default(), Complete).await.unwrap();
     let transfer = ram_transfer(&catalog).await;
     catalog.advance_derived(&transfer.id, 2).await.unwrap();
-    let memory = catalog.0.backend.memory().unwrap();
+    let memory = catalog.0.storage.backend.memory().unwrap();
     let mut blocker = memory.stage().unwrap();
     while blocker.write(&[0; 128]).is_ok() {}
     let mut reservations = Vec::new();
@@ -322,7 +322,7 @@ const BLOB_BUDGET_REPORT: &str = "object I/O: no storage space: RAM blob byte bu
 
 /// Reserves the rest of the RAM blob budget until the returned stages drop.
 fn exhaust_blob_budget(catalog: &Catalog) -> Vec<crate::storage::memory::Stage> {
-    let memory = catalog.0.backend.memory().unwrap();
+    let memory = catalog.0.storage.backend.memory().unwrap();
     let mut reservations = Vec::new();
     while let Ok(stage) = memory.stage() {
         reservations.push(stage);
@@ -821,7 +821,7 @@ async fn ram_default_budgets_accept_one_thousand_small_objects_and_report_databa
 #[tokio::test]
 async fn ram_last_catalog_drop_wakes_and_releases_an_idle_notification_publisher() {
     let catalog = setup(1024, Off).await;
-    let wake = Arc::downgrade(&catalog.0.notification_wake);
+    let wake = Arc::downgrade(&catalog.0.notifications.wake);
     let (release, held) = std::sync::mpsc::channel();
     let (entered, running) = tokio::sync::oneshot::channel();
     {
@@ -841,7 +841,7 @@ async fn ram_last_catalog_drop_wakes_and_releases_an_idle_notification_publisher
             )
             .unwrap();
         eventually_async("the publisher to hold the attempt permit", || async {
-            catalog.0.notification_attempts.available_permits() == 0
+            catalog.0.notifications.attempts.available_permits() == 0
         })
         .await;
         release.send(()).unwrap();
@@ -849,7 +849,7 @@ async fn ram_last_catalog_drop_wakes_and_releases_an_idle_notification_publisher
     }
     eventually_async("the publisher to release the catalog", || async {
         Arc::strong_count(&catalog.0) == 1
-            && catalog.0.notification_attempts.available_permits() == 1
+            && catalog.0.notifications.attempts.available_permits() == 1
     })
     .await;
     drop(catalog);

@@ -130,7 +130,7 @@ impl Inner {
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, E>,
     ) -> Result<Result<T, E>, ConnectionUnavailable> {
-        let mut resources = match crate::sync::lock_checked(&self.resources) {
+        let mut resources = match crate::sync::lock_checked(&self.writer.resources) {
             Ok(resources) => resources,
             Err(poisoned) => {
                 let resources = poisoned.into_inner();
@@ -138,7 +138,7 @@ impl Inner {
                     self.end_abandoned_transaction(&resources.connection)
                         .map_err(ConnectionUnavailable::Unrecovered)?;
                 }
-                self.resources.clear_poison();
+                self.writer.resources.clear_poison();
                 crate::sync::report_recovery();
                 resources
             }
@@ -149,7 +149,7 @@ impl Inner {
         let connection = &mut resources.connection;
         // A memory catalog's full database is its page budget; the operation's own error types
         // cannot tell it from a full disk.
-        let _pages = match self.backend.kind() {
+        let _pages = match self.storage.backend.kind() {
             crate::config::Backend::Memory => {
                 Some(crate::storage::failure::MemoryCatalogJob::enter())
             }
@@ -164,7 +164,7 @@ impl Inner {
             // A rollback or an unrelated write wakes the notification worker too; it only
             // rereads the outbox.
             if connection.total_changes() != changes_before {
-                self.notification_wake.notify_waiters();
+                self.notifications.wake.notify_waiters();
             }
             result
         }));
@@ -172,11 +172,11 @@ impl Inner {
         // Before the caller can learn the outcome, so a read after this write misses the cache. A
         // rollback also counts as a change, which only costs some cached answers.
         if connection.total_changes() != changes_before {
-            self.read_cache.invalidate(&self.cache_runtime);
+            self.reads.cache.invalidate(&self.reads.runtime);
             if rules_written {
                 self.lifecycle_rules_changed();
             } else {
-                self.lifecycle.on_write(&self.maintenance_wake);
+                self.maintenance.lifecycle.on_write(&self.maintenance.wake);
             }
         }
         match outcome {
@@ -203,6 +203,7 @@ impl Inner {
     fn end_abandoned_transaction(&self, connection: &Connection) -> Result<(), RollbackError> {
         #[cfg(test)]
         if self
+            .writer
             .fail_rollback
             .load(std::sync::atomic::Ordering::Acquire)
         {
@@ -268,6 +269,7 @@ impl Catalog {
             .map_err(|_| unavailable(BackendFailure::CatalogClosed))?;
         let execution = self
             .0
+            .writer
             .execution
             .clone()
             .acquire_owned()
@@ -275,6 +277,7 @@ impl Catalog {
             .map_err(unavailable)?;
         let inner = self.0.clone();
         self.0
+            .writer
             .executor
             .run(move || {
                 let (_admission, _execution) = (admission, execution);
@@ -294,8 +297,8 @@ impl Catalog {
         &self,
     ) -> Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError> {
         #[cfg(test)]
-        let _waiting = WaitingForAdmission::enter(&self.0.admission_waiters);
-        self.0.admission.clone().acquire_owned().await
+        let _waiting = WaitingForAdmission::enter(&self.0.admission.waiters);
+        self.0.admission.slots.clone().acquire_owned().await
     }
 
     /// Takes every admission slot, so later `run` calls wait until the returned permit drops.
@@ -303,6 +306,7 @@ impl Catalog {
     pub(crate) fn hold_admission(&self) -> tokio::sync::OwnedSemaphorePermit {
         self.0
             .admission
+            .slots
             .clone()
             .try_acquire_many_owned(u32::try_from(MAX_IN_FLIGHT).unwrap())
             .unwrap()
@@ -312,14 +316,15 @@ impl Catalog {
     #[cfg(test)]
     pub(crate) fn admission_waiters(&self) -> usize {
         self.0
-            .admission_waiters
+            .admission
+            .waiters
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// The admission slots no job or waiter holds.
     #[cfg(test)]
     pub(crate) fn free_admission_slots(&self) -> usize {
-        self.0.admission.available_permits()
+        self.0.admission.slots.available_permits()
     }
 }
 

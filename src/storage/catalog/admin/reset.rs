@@ -31,18 +31,20 @@ impl Admin {
     ) -> Result<ResetOutcome, AdminError> {
         let admission = self
             .catalog
-            .wait_admin(self.catalog.0.admin_reads.clone(), deadline)
+            .wait_admin(self.catalog.0.admin.reads.clone(), deadline)
             .await?;
         let exclusive = self.exclusive_past_seed_commits(deadline).await?;
         let inner = self.catalog.0.clone();
         self.catalog
             .0
+            .writer
             .executor
             .run(move || {
                 // Cancellation cannot release admission while the owned transaction/cleanup runs.
                 let (_admission, _exclusive) = (admission, exclusive);
-                let result = inner.with_connection(|connection| reset(connection, &inner.backend));
-                inner.maintenance_wake.notify_one();
+                let result =
+                    inner.with_connection(|connection| reset(connection, &inner.storage.backend));
+                inner.maintenance.wake.notify_one();
                 match result {
                     Ok(result) => result.map_err(AdminError::from),
                     Err(error) => Err(error.into()),
@@ -61,7 +63,7 @@ impl Admin {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<crate::storage::catalog::ExclusiveGuard, AdminError> {
-        let seed_commit = &self.catalog.0.seed_commit;
+        let seed_commit = &self.catalog.0.admin.seed_commit;
         loop {
             let exclusive = self.catalog.wait_exclusive(deadline).await?;
             if seed_commit.available_permits() > 0 {

@@ -266,7 +266,7 @@ impl Drop for WholeUploadTurn<'_> {
         self.catalog
             .registry_for_release()
             .settle_upload(self.id, |upload| upload.whole_waiting -= 1);
-        self.catalog.0.writer_released.notify_waiters();
+        self.catalog.0.writers.released.notify_waiters();
     }
 }
 
@@ -298,14 +298,14 @@ impl Drop for WriterGuard {
             writers.release(&self.key);
             writers.take_deferred(&self.key)
         };
-        self.catalog.0.writer_released.notify_waiters();
+        self.catalog.0.writers.released.notify_waiters();
         if matches!(self.key, WriterKey::Derived(_)) {
-            self.catalog.0.derived_wake.notify_waiters();
+            self.catalog.0.maintenance.derived_wake.notify_waiters();
         }
         if let Some(retry) = retry {
-            let wake = &self.catalog.0.maintenance_wake;
+            let wake = &self.catalog.0.maintenance.wake;
             if retry == Deferred::Lifecycle {
-                self.catalog.0.lifecycle.mark_dirty();
+                self.catalog.0.maintenance.lifecycle.mark_dirty();
             }
             wake.notify_one();
         }
@@ -316,25 +316,25 @@ impl Catalog {
     /// The registry for a new claim. A poisoned registry refuses claims, and `is_healthy` reports
     /// it.
     fn registry_for_claim(&self) -> Result<MutexGuard<'_, SessionWriters>, ClaimError> {
-        crate::sync::lock_checked(&self.0.session_writers).map_err(|_| ClaimError::Poisoned)
+        crate::sync::lock_checked(&self.0.writers.sessions).map_err(|_| ClaimError::Poisoned)
     }
 
     /// The registry for a release, which runs in `Drop` and cannot fail: the holder's own entry is
     /// still valid after another holder panicked.
     fn registry_for_release(&self) -> MutexGuard<'_, SessionWriters> {
-        crate::sync::lock_for_cleanup(&self.0.session_writers)
+        crate::sync::lock_for_cleanup(&self.0.writers.sessions)
     }
 
     /// Whether any session or transfer writer is held right now.
     #[cfg(test)]
     pub(crate) fn has_session_writers(&self) -> bool {
-        !self.0.session_writers.lock().unwrap().is_empty()
+        !self.0.writers.sessions.lock().unwrap().is_empty()
     }
 
     /// How many part numbers of an XML multipart upload are writing right now.
     #[cfg(test)]
     pub(crate) fn multipart_parts_writing(&self, id: &str) -> usize {
-        match self.0.session_writers.lock().unwrap().uploads.get(id) {
+        match self.0.writers.sessions.lock().unwrap().uploads.get(id) {
             Some(UploadWriters {
                 holders: UploadHolders::Parts(writing) | UploadHolders::Aborting(writing),
                 ..
@@ -347,7 +347,8 @@ impl Catalog {
     #[cfg(test)]
     pub(crate) fn multipart_whole_waiters(&self, id: &str) -> usize {
         self.0
-            .session_writers
+            .writers
+            .sessions
             .lock()
             .unwrap()
             .uploads
@@ -465,7 +466,7 @@ impl Catalog {
         origin: KeyOrigin,
     ) -> Result<WriterGuard, ClaimError> {
         loop {
-            let released = self.0.writer_released.notified();
+            let released = self.0.writers.released.notified();
             tokio::pin!(released);
             // Registered before the claim and the closed check, so a release or a close right
             // after them still wakes this waiter.
@@ -473,7 +474,7 @@ impl Catalog {
             let activity = self.client_activity(work).await?;
             match self.claim_leased(activity, key.clone(), origin) {
                 Ok(guard) => return Ok(guard),
-                Err(ClaimError::Busy) if self.0.admission.is_closed() => {
+                Err(ClaimError::Busy) if self.0.admission.slots.is_closed() => {
                     return Err(ClaimError::Catalog(unavailable(
                         BackendFailure::CatalogClosed,
                     )));
@@ -508,8 +509,8 @@ mod tests {
         let first = hold(WriterKey::MultipartPart("busy".into(), 1));
         let last = hold(WriterKey::MultipartPart("busy".into(), 2));
         let unrelated = hold(WriterKey::Multipart("other".into()));
-        catalog.0.maintenance_wake.notified().await;
-        let wake = catalog.0.maintenance_wake.notified();
+        catalog.0.maintenance.wake.notified().await;
+        let wake = catalog.0.maintenance.wake.notified();
         tokio::pin!(wake);
         wake.as_mut().enable();
         assert!(matches!(
@@ -524,7 +525,7 @@ mod tests {
         assert!(!wake.as_mut().enable());
         drop(last);
         assert!(wake.as_mut().enable());
-        assert!(catalog.0.session_writers.lock().unwrap().is_empty());
+        assert!(catalog.0.writers.sessions.lock().unwrap().is_empty());
         catalog.close().await.unwrap();
     }
 

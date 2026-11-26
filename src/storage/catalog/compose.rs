@@ -244,7 +244,7 @@ impl Catalog {
         let combined = combine_sources(
             &sources,
             disposal,
-            &*self.0.clock,
+            &*self.0.policy.clock,
             destination.storage_class,
         )?;
         combined.apply(&mut destination)?;
@@ -284,7 +284,7 @@ impl Catalog {
         read_access: BucketAccess,
         disposal: SourceDisposal,
     ) -> Result<Incarnation, ObjectError> {
-        let clock = self.0.clock.clone();
+        let clock = self.0.policy.clock.clone();
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let (_, destination_delete) =
@@ -316,7 +316,7 @@ impl Catalog {
     ) -> Result<ObjectRecord, ObjectError> {
         self.advance_derived(&transfer.id, transfer.total).await?;
         let checked = plan.clone();
-        let check_clock: Arc<dyn Clock> = self.0.clock.clone();
+        let check_clock: Arc<dyn Clock> = self.0.policy.clock.clone();
         let delete_clock = check_clock.clone();
         self.publish_derived_with_validation(
             &transfer.id,

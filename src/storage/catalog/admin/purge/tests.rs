@@ -434,7 +434,7 @@ fn file_count(directory: &Path) -> usize {
 }
 
 fn ram_blobs(catalog: &Catalog) -> usize {
-    let crate::storage::catalog::BlobBackend::Memory(store) = &catalog.0.backend else {
+    let crate::storage::catalog::BlobBackend::Memory(store) = &catalog.0.storage.backend else {
         panic!("a RAM catalog stores its bytes in RAM");
     };
     store.blob_count()

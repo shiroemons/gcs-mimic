@@ -235,7 +235,7 @@ impl Catalog {
             ));
         }
         let activity = std::sync::Arc::new(self.await_activity(Work::New).await?);
-        let backend = self.0.backend.clone();
+        let backend = self.0.storage.backend.clone();
         let (pinned, failure) = self
             .run(move |connection| -> Result<_, ObjectError> {
                 let transaction = connection.transaction()?;

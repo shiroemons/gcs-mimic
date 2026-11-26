@@ -307,17 +307,25 @@ async fn reset_wait_allows_catalog_reads_while_upload_lease_is_active() {
 async fn cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset() {
     let (_dir, catalog, admin) = setup().await;
     let upload = catalog.admit_object_upload().unwrap();
-    let reads = catalog.0.admin_reads.available_permits();
+    let reads = catalog.0.admin.reads.available_permits();
     for hold_execution in [false, true] {
-        let held = hold_execution.then(|| catalog.0.execution.clone().try_acquire_owned().unwrap());
-        let execution = catalog.0.execution.available_permits();
+        let held = hold_execution.then(|| {
+            catalog
+                .0
+                .writer
+                .execution
+                .clone()
+                .try_acquire_owned()
+                .unwrap()
+        });
+        let execution = catalog.0.writer.execution.available_permits();
         assert!(
             tokio::time::timeout(Duration::from_millis(20), admin.reset())
                 .await
                 .is_err()
         );
-        assert_eq!(catalog.0.admin_reads.available_permits(), reads);
-        assert_eq!(catalog.0.execution.available_permits(), execution);
+        assert_eq!(catalog.0.admin.reads.available_permits(), reads);
+        assert_eq!(catalog.0.writer.execution.available_permits(), execution);
         drop(held);
     }
     assert!(

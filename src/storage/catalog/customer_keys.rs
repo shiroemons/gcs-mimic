@@ -71,7 +71,7 @@ impl Catalog {
                 return Ok((hit.record.clone(), reader));
             }
         }
-        let revision = self.0.read_cache.revision();
+        let revision = self.0.reads.cache.revision();
         let catalog = self.clone();
         let access = access.clone();
         self.run_read_on(move |connection, path| {
@@ -82,7 +82,7 @@ impl Catalog {
                 reader.read_ahead_on_pool();
             }
             if shareable && path.stores_answers() {
-                catalog.0.read_cache.store_object(
+                catalog.0.reads.cache.store_object(
                     revision,
                     CachedObject {
                         record: record.clone(),

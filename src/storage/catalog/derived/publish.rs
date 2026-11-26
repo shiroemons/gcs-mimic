@@ -325,6 +325,7 @@ impl Catalog {
             let guard = self.derived_guard(id)?;
             let execution = self
                 .0
+                .writer
                 .execution
                 .clone()
                 .acquire_owned()
@@ -345,9 +346,9 @@ impl Catalog {
         crate::task::spawn_supervised("derived-publication", async move {
             let (_permit, _guard) = (permit, guard);
             let query = id;
-            let backend = catalog.0.backend.clone();
-            let clock = catalog.0.clock.clone();
-            let principals = catalog.0.principals.clone();
+            let backend = catalog.0.storage.backend.clone();
+            let clock = catalog.0.policy.clock.clone();
+            let principals = catalog.0.policy.principals.clone();
             let result = async {
             catalog.run_upload_admitted(execution, move |connection| {
                 let (progress, hasher) = transfer(connection, &query, UnixMillis::try_from(clock.now())?)?;
@@ -358,15 +359,15 @@ impl Catalog {
             if !backend.is_memory() {
                 let files = backend.clone();
                 crate::task::run_blocking("derived-restore", move || files.restore_draft(&id)).await??;
-                catalog.publish_staged(id.staging_path(&catalog.0.data_dir), id.blob_path(&catalog.0.data_dir)).await?;
+                catalog.publish_staged(id.staging_path(&catalog.0.storage.data_dir), id.blob_path(&catalog.0.storage.data_dir)).await?;
             }
-            let publication = TransferPublication { id, destination, backend, clock: catalog.0.clock.clone(), principals, replay, prepare, complete };
+            let publication = TransferPublication { id, destination, backend, clock: catalog.0.policy.clock.clone(), principals, replay, prepare, complete };
             let published = catalog.run_upload(move |connection| publish_transfer(connection, publication)).await?;
             catalog.release_transfer(DiscardedTransfer { id, pins: published.pins }).await;
             catalog.reclaim_if(published.journaled).await;
             Ok::<_, ObjectError>(DerivedPublication { record: published.record, completion: published.completion })
             }.await;
-            catalog.0.maintenance_wake.notify_one();
+            catalog.0.maintenance.wake.notify_one();
             // Check SQL references even after an ambiguous commit error before removing bytes.
             if matches!(&result, Err(error) if !error.is_backend_failure() && !matches!(error, ObjectError::DerivedTransferBusy | ObjectError::DerivedTransferIncomplete | ObjectError::DerivedTransferNotFound))
                 && let Err(error) = catalog.cleanup_derived(&id).await {
