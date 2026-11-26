@@ -5,6 +5,7 @@ use crate::bucket::BucketAccess;
 use crate::grpc::v2::{routing::Admitted, stored};
 use crate::hashing::Hashes;
 use crate::storage::{ChunkEnd, ChunkWait, SessionLease, Written};
+use bytes::{Buf, Bytes, BytesMut};
 
 impl Storage {
     /// Authorizes `caller` to write to `bucket`, the bucket an upload ID names, and then
@@ -287,7 +288,9 @@ impl Storage {
             let options = self
                 .message_options(&lease, options, expected, &piece, end)
                 .await?;
-            let answer = match self.write_piece(lease, options, piece).await? {
+            let written = self.write_piece(lease, options, &piece).await?;
+            call.persisted(piece);
+            let answer = match written {
                 Written::Complete(value) => finished(
                     self.completed_resource(stored::from_completion(Some(&value))?, caller, bucket)
                         .await?,
@@ -321,7 +324,7 @@ impl Storage {
         &self,
         lease: SessionLease,
         options: ResumableOptions,
-        piece: Piece,
+        piece: &Piece,
     ) -> Result<Written, Status> {
         let (tx, rx) = mpsc::channel(2);
         let (catalog_wait, _wait) = watch::channel(ChunkWait::Transfer);
@@ -384,6 +387,8 @@ pub(super) enum Refusal {
 pub(super) struct Piece {
     /// The bytes in order: the unpersisted tail of earlier messages, then this message's.
     pub(super) parts: [bytes::Bytes; 2],
+    /// Still in the incoming frame while the writer owns slices of the tail buffer.
+    remainder: Bytes,
     pub(super) length: u64,
     end: ChunkEnd,
 }
@@ -423,7 +428,7 @@ impl Piece {
 pub(super) struct Call {
     position: MessagePosition,
     /// Received bytes the session has not persisted; always shorter than a granule.
-    tail: bytes::Bytes,
+    tail: BytesMut,
     /// The object offset of the first byte of `tail`: the session's persisted size when the
     /// call's last message was admitted.
     tail_start: u64,
@@ -440,7 +445,7 @@ impl Default for Call {
     fn default() -> Self {
         Self {
             position: MessagePosition::First,
-            tail: bytes::Bytes::new(),
+            tail: BytesMut::with_capacity(WRITE_GRANULE),
             tail_start: 0,
             uploaded: 0,
             declared: ExpectedHashes::default(),
@@ -504,7 +509,7 @@ impl Call {
             .uploaded
             .saturating_add(u64::try_from(sent).unwrap_or(u64::MAX));
         self.position = MessagePosition::Later;
-        let parts = self.take_whole_granules(&added, end);
+        let (parts, remainder) = self.take_whole_granules(added, end);
         let length = parts
             .iter()
             .try_fold(0_u64, |length, part| {
@@ -515,6 +520,7 @@ impl Call {
         let finish = end.finishes();
         Ok(Piece {
             parts,
+            remainder,
             length,
             end: ChunkEnd::Exact {
                 total: total.or_else(|| finish.then_some(written)),
@@ -531,7 +537,7 @@ impl Call {
         let stale = usize::try_from(persisted.saturating_sub(self.tail_start))
             .unwrap_or(usize::MAX)
             .min(self.tail.len());
-        self.tail = self.tail.slice(stale..);
+        self.tail.advance(stale);
         self.tail_start = persisted;
     }
 
@@ -558,22 +564,29 @@ impl Call {
 
     /// Adds `added` to the unpersisted tail and takes the bytes to persist now: everything on
     /// a finishing message, otherwise the whole granules.
-    fn take_whole_granules(&mut self, added: &bytes::Bytes, end: StepEnd) -> [bytes::Bytes; 2] {
+    fn take_whole_granules(&mut self, mut added: Bytes, end: StepEnd) -> ([Bytes; 2], Bytes) {
+        let length = self.tail.len() + added.len();
         let kept = match end {
             StepEnd::Finish => 0,
-            StepEnd::Continue { .. } => (self.tail.len() + added.len()) % WRITE_GRANULE,
+            StepEnd::Continue { .. } if length < WRITE_GRANULE => {
+                self.tail.extend_from_slice(&added);
+                return ([Bytes::new(), Bytes::new()], Bytes::new());
+            }
+            StepEnd::Continue { .. } => length % WRITE_GRANULE,
         };
-        let Some(cut) = added.len().checked_sub(kept) else {
-            // Less than a granule in all: nothing to persist yet.
-            let mut tail = bytes::BytesMut::with_capacity(kept);
-            tail.extend_from_slice(&self.tail);
-            tail.extend_from_slice(added);
-            self.tail = tail.freeze();
-            return [bytes::Bytes::new(), bytes::Bytes::new()];
-        };
-        // The new tail is copied so that it does not keep the whole message alive.
-        let tail = bytes::Bytes::copy_from_slice(&added.slice(cut..));
-        [std::mem::replace(&mut self.tail, tail), added.slice(..cut)]
+        let prefix = added.split_to(added.len() - kept);
+        ([self.tail.split().freeze(), prefix], added)
+    }
+
+    pub(super) fn persisted(&mut self, piece: Piece) {
+        let reclaim = !piece.parts[0].is_empty();
+        drop(piece.parts);
+        if reclaim {
+            // The catalog has consumed the previous granule. Reclaim its allocation before
+            // copying the new tail so it cannot keep an entire incoming message alive.
+            self.tail.reserve(WRITE_GRANULE);
+        }
+        self.tail.extend_from_slice(&piece.remainder);
     }
 
     /// The client closed the stream without `finish_write`: bytes still waiting for a whole

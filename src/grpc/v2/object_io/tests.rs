@@ -114,6 +114,7 @@ fn resumable_call_persists_whole_granules_until_finish() {
     assert_eq!(piece.length, 262_144);
     assert_eq!(piece.parts[0], b"hel"[..]);
     assert_eq!(piece.parts[1].len(), GRANULE - 3);
+    call.persisted(piece);
     assert!(call.close().is_err());
     // A later message may repeat received bytes; they are not written twice. finish_write
     // persists everything that waits.
