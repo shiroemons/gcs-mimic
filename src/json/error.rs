@@ -44,13 +44,21 @@ pub struct ApiError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ErrorKind {
+    /// Catalog waits expose the typed cause to classification tests.
     Backend(BackendFailure),
+    /// Legacy bucket routes use their shorter missing-bucket wording.
     MissingBucket,
+    /// An object route can supply the name the catalog did not have.
     MissingObject,
+    /// Media failures use the missing-object page and keep the original name.
     NamedMissingObject,
+    /// Legacy bucket writes render the reason as invalid.
     InvalidArgument,
+    /// Legacy bucket parsing uses the same reason for malformed input.
     LegacyParseError,
+    /// Uploads give class/location conflicts an HTML content type.
     ClassLocation,
+    /// No route-specific rewrite applies.
     Other,
 }
 

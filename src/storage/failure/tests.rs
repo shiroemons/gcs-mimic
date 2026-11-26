@@ -1,5 +1,5 @@
+use super::test_support::guidance_failures;
 use super::*;
-use crate::json::JsonErrorResponse;
 
 #[test]
 fn object_error_keeps_authorization_from_catalog() {
@@ -120,82 +120,15 @@ fn an_exhausted_blob_budget_survives_io_and_recovery_context_wrappers() {
     );
 }
 
-fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
-    use BackendFailure::*;
-    let cases = [
-        (
-            CatalogClosed,
-            "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
-        ),
-        (
-            UploadWaitTimeout,
-            "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 300000; 0 disables it); a completed upload may still commit",
-        ),
-        (
-            RetainedSessionLimit,
-            "Object storage is unavailable: retained upload session limit reached; raise max_resumable_sessions (0 is unlimited), wait for expired sessions to be reclaimed or use single-request media uploads",
-        ),
-        (
-            RewriteSessionLimit,
-            "Object storage is unavailable: rewrite session limit reached; raise max_rewrite_sessions (0 is unlimited) or wait for unfinished rewrites to expire",
-        ),
-        (
-            FinalizationTimeout,
-            "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000; 0 disables it)",
-        ),
-        (
-            CopyDeadline,
-            "Object storage is unavailable: copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000; 0 disables it)",
-        ),
-        (
-            SessionBusy,
-            "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session, or increase catalog_wait_timeout_ms (for example, 60000)",
-        ),
-        (
-            MissingCompletion,
-            "Object storage is unavailable: internal storage failure (private backend details withheld)",
-        ),
-    ];
-    let mut failures: Vec<_> = cases
-        .into_iter()
-        .flat_map(|(cause, message)| {
-            [
-                (object_unavailable(cause), message),
-                (ObjectError::from(unavailable(cause)), message),
-            ]
-        })
-        .collect();
-    for (failure, guidance) in crate::storage::catalog::test_fixtures::guidance_source_failures() {
-        failures.push((
-            failure,
-            cases.iter().find(|(kind, _)| *kind == guidance).unwrap().1,
-        ));
-    }
-    for error in [
-        crate::server::copy::CheckpointError::ObserverDropped,
-        crate::server::copy::CheckpointError::Abandoned,
-    ] {
-        let message = "Object storage is unavailable: internal storage failure (private backend details withheld)";
-        failures.push((ObjectError::backend(error), message));
-        failures.push((
-            ObjectError::from(unavailable(ObjectError::backend(error))),
-            message,
-        ));
-    }
-    failures
-}
-
 #[tokio::test]
 async fn backend_guidance_wire_responses_are_stable_across_protocols() {
     use http_body_util::BodyExt;
     use hyper::{HeaderMap, StatusCode};
 
-    for (((grpc, message), (xml, xml_message)), (json, json_message)) in guidance_failures()
-        .into_iter()
-        .zip(guidance_failures())
-        .zip(guidance_failures())
+    for ((grpc, message), (xml, xml_message)) in
+        guidance_failures().into_iter().zip(guidance_failures())
     {
-        assert_eq!((xml_message, json_message), (message, message));
+        assert_eq!(xml_message, message);
         let grpc: hyper::Response<tonic::body::Body> = tonic::Status::from(grpc).into_http();
         assert_eq!(grpc.status(), StatusCode::OK);
         let expected: HeaderMap = [
@@ -241,30 +174,6 @@ async fn backend_guidance_wire_responses_are_stable_across_protocols() {
         .collect();
         assert_eq!(xml.headers(), &expected);
         assert_eq!(xml.into_body().collect().await.unwrap().to_bytes(), body);
-
-        let json = crate::ApiError::from(json).into_response();
-        assert_eq!(json.status(), StatusCode::SERVICE_UNAVAILABLE);
-        let expected: HeaderMap = [
-            ("content-type", "application/json; charset=UTF-8"),
-            (
-                "cache-control",
-                "no-cache, no-store, max-age=0, must-revalidate",
-            ),
-            ("pragma", "no-cache"),
-        ]
-        .into_iter()
-        .map(|(key, value)| {
-            (
-                key.parse::<hyper::header::HeaderName>().unwrap(),
-                value.parse().unwrap(),
-            )
-        })
-        .collect();
-        assert_eq!(json.headers(), &expected);
-        let body = format!(
-            "{{\n  \"error\": {{\n    \"code\": 503,\n    \"message\": \"{message}\",\n    \"errors\": [\n      {{\n        \"message\": \"{message}\",\n        \"domain\": \"global\",\n        \"reason\": \"backendError\"\n      }}\n    ]\n  }}\n}}"
-        );
-        assert_eq!(json.into_body().collect().await.unwrap().to_bytes(), body);
     }
 }
 
@@ -293,7 +202,7 @@ fn backend_guidance_survives_changed_and_nested_contexts() {
         assert_eq!(cause.failure(), Some(BackendFailure::CatalogClosed));
         assert!(cause.source().is_some());
         assert_eq!(
-            crate::ApiError::from(ObjectError::Unavailable(cause)).message(),
+            wording::object_backend(&cause).message,
             guidance_failures()[0].1
         );
     }

@@ -605,7 +605,7 @@ mod tests {
         let error = request.await.unwrap().unwrap_err();
         assert_eq!(error, refused);
         assert_eq!(
-            crate::ApiError::from(error).status(),
+            crate::json::ApiError::from(error).status(),
             hyper::StatusCode::FORBIDDEN
         );
         assert_eq!(

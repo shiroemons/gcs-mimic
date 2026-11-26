@@ -3,7 +3,7 @@ use gcs_mimic::object::{MapPatch, Patch, WriteMode};
 use hyper::StatusCode;
 use serde_json::{Value, json};
 
-fn parse(value: Value) -> Result<compose::ComposeRequest, gcs_mimic::ApiError> {
+fn parse(value: Value) -> Result<compose::ComposeRequest, gcs_mimic::json::ApiError> {
     compose::parse_compose(value.to_string().as_bytes(), "compose-bucket")
 }
 

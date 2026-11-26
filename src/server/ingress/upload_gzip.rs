@@ -17,7 +17,7 @@ use super::{
     without_coding,
 };
 use crate::{
-    ApiError,
+    json::ApiError,
     server::{CHUNK_BYTES, chunk_body},
 };
 use bytes::{Buf, Bytes};

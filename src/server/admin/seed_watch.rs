@@ -4,7 +4,7 @@
 
 use crate::json::JsonErrorResponse;
 use crate::{
-    ApiError,
+    json::ApiError,
     seed::{DEFAULT_WAIT, MAX_WAIT},
     server::{RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::seed_watch::WaitError,

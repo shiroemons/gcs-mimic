@@ -3,10 +3,11 @@
 use super::{AclSource, Written, idempotency_token};
 use crate::server::RequestBody as Incoming;
 use crate::{
-    ApiError, auth,
+    auth,
     bucket::BucketAccess,
     csek::{CopyKeys, CustomerKey},
     json,
+    json::ApiError,
     object::{ObjectError, ObjectRecord, ObjectTarget},
     server::{
         ObjectCtx, RESOURCE_BODY_LIMIT,

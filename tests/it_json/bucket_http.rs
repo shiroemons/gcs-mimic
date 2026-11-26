@@ -1019,7 +1019,7 @@ fn bucket_regional_locations_round_trip_and_rejections_preserve_state() {
     let placement = server.request("POST", "/storage/v1/b?project=locations", r#"{"name":"invalid-placement","location":"US","customPlacementConfig":{"dataLocations":["US-EAST1","US-WEST1"]}}"#);
     assert_eq!(
         placement.json()["error"]["errors"][0]["reason"],
-        gcs_mimic::ApiError::unsupported("customPlacementConfig").reason()
+        gcs_mimic::json::ApiError::unsupported("customPlacementConfig").reason()
     );
     for name in ["invalid-location", "invalid-placement"] {
         server
@@ -2974,14 +2974,14 @@ fn bucket_core_strict_protection_settings_never_create_an_unprotected_bucket() {
                     if invalid_uniform_access {
                         400
                     } else {
-                        gcs_mimic::ApiError::unsupported("bucket metadata")
+                        gcs_mimic::json::ApiError::unsupported("bucket metadata")
                             .status()
                             .as_u16()
                     },
                     if invalid_uniform_access {
                         "invalid"
                     } else {
-                        gcs_mimic::ApiError::unsupported("bucket metadata").reason()
+                        gcs_mimic::json::ApiError::unsupported("bucket metadata").reason()
                     },
                 );
             server

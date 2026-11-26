@@ -4,9 +4,9 @@ use crate::json::JsonErrorResponse;
 use crate::server::RequestBody as Incoming;
 use crate::storage::ObjectReader;
 use crate::{
-    ApiError,
     bucket::BucketAccess,
     json,
+    json::ApiError,
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     server::{
         ALLOWED_RESOURCES_VARY, ObjectCtx, QueryPrecondition, ResponseBody, ValidatedRead, acl,

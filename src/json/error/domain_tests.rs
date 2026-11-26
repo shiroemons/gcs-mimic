@@ -342,3 +342,103 @@ fn backend_remedies_keep_their_object_and_bucket_wording() {
         assert_eq!(corrupt.kind, ErrorKind::Backend(failure));
     }
 }
+
+#[tokio::test]
+async fn backend_guidance_keeps_its_json_headers_and_body() {
+    use http_body_util::BodyExt;
+    use hyper::HeaderMap;
+    for (json, message) in crate::storage::failure::test_support::guidance_failures() {
+        let json = ApiError::from(json).into_response();
+        assert_eq!(json.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let expected: HeaderMap = [
+            ("content-type", "application/json; charset=UTF-8"),
+            (
+                "cache-control",
+                "no-cache, no-store, max-age=0, must-revalidate",
+            ),
+            ("pragma", "no-cache"),
+        ]
+        .into_iter()
+        .map(|(key, value)| {
+            (
+                key.parse::<hyper::header::HeaderName>().unwrap(),
+                value.parse().unwrap(),
+            )
+        })
+        .collect();
+        assert_eq!(json.headers(), &expected);
+        let body = format!(
+            "{{\n  \"error\": {{\n    \"code\": 503,\n    \"message\": \"{message}\",\n    \"errors\": [\n      {{\n        \"message\": \"{message}\",\n        \"domain\": \"global\",\n        \"reason\": \"backendError\"\n      }}\n    ]\n  }}\n}}"
+        );
+        assert_eq!(json.into_body().collect().await.unwrap().to_bytes(), body);
+    }
+}
+
+#[test]
+fn bucket_validation_preserves_the_rejected_setting() {
+    for value in [
+        "storageClass",
+        "isLive",
+        "storageClass.isLive",
+        "terminalStorageClass",
+    ] {
+        let error = crate::bucket::validate_update_storage_class(value).unwrap_err();
+        assert_eq!(
+            ApiError::from(error).message(),
+            format!("Invalid storage class \"{value}\"")
+        );
+    }
+    let error = CatalogError::Metadata(crate::metadata_error::MetadataError::AutoclassTerminal);
+    assert_eq!(
+        ApiError::from(error).message(),
+        "Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE"
+    );
+    let patch = br#"{"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":-1}}]}, "defaultEventBasedHold":true}"#;
+    let error =
+        crate::json::parse_bucket_patch(patch, crate::config::CompatProfile::Native).unwrap_err();
+    assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+}
+
+#[test]
+fn verifier_and_corrupt_storage_keep_their_json_responses() {
+    let unavailable = crate::auth::AuthError::Unavailable(BackendFailure::CatalogClosed.into());
+    assert_eq!(
+        ApiError::from(unavailable).status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let catalog = ApiError::from(CatalogError::Corrupt("private detail".into()));
+    assert_eq!(catalog.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(catalog.message(), "Bucket catalog is unavailable");
+    assert_eq!(
+        ApiError::from(ObjectError::Corrupt("private detail".into())).message(),
+        "Object storage is unavailable: stored data is corrupt; restore a valid data directory"
+    );
+}
+
+#[test]
+fn upload_validation_retains_json_status_and_reason() {
+    for case in crate::storage::failure::test_support::csek_cases() {
+        assert_eq!(ApiError::from(case.error).reason(), case.error.reason());
+    }
+    for error in [
+        MultipartError::Framing,
+        MultipartError::BadContentType,
+        MultipartError::UnsupportedParameter("start".into()),
+    ] {
+        assert_eq!(ApiError::from(error).status(), StatusCode::BAD_REQUEST);
+    }
+    for (_, error) in crate::error::golden_tests::upload::hash_cases() {
+        assert_eq!(ApiError::from(error).status(), StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(
+        ApiError::from(UploadHeaderError::DuplicateContentType).status(),
+        StatusCode::BAD_REQUEST
+    );
+    let mut record = crate::storage::test_fixtures::bare_object_record();
+    record.content_type = "text/plain\r\nx: no".to_owned();
+    let error = crate::object::media_headers::object_media_headers(&record).unwrap_err();
+    assert_eq!(
+        ApiError::from(error).status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}

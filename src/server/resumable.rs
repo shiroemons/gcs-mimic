@@ -5,9 +5,9 @@ use super::{
 };
 use crate::json::JsonErrorResponse;
 use crate::{
-    ApiError,
     bucket::BucketAccess,
     input::InputError,
+    json::ApiError,
     json::{
         self, ObjectInsertParams,
         resumable::{self, Range},

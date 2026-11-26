@@ -163,7 +163,7 @@ pub(crate) fn each_declared_hash(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hyper::{StatusCode, header::HeaderName};
+    use hyper::header::HeaderName;
 
     fn header_map<'a>(entries: impl IntoIterator<Item = (&'static str, &'a str)>) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -234,10 +234,10 @@ mod tests {
             ("content-type", "text/plain"),
             ("content-type", "text/html"),
         ]);
-        assert_eq!(
-            crate::ApiError::from(content_type(&headers).unwrap_err()).status(),
-            StatusCode::BAD_REQUEST
-        );
+        assert!(matches!(
+            content_type(&headers),
+            Err(UploadHeaderError::DuplicateContentType)
+        ));
     }
 
     #[test]
@@ -290,11 +290,7 @@ mod tests {
             "md5=AAAAAAAAAAAAAAAAAAAAAB==",
         ] {
             let headers = header_map([("x-goog-hash", value)]);
-            assert_eq!(
-                crate::ApiError::from(declared_hashes(&headers).unwrap_err()).status(),
-                StatusCode::BAD_REQUEST,
-                "{value}"
-            );
+            assert!(declared_hashes(&headers).is_err(), "{value}");
         }
         let headers = header_map([
             ("x-goog-hash", "crc32c=AQIDBA=="),

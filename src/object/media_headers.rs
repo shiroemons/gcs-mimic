@@ -73,7 +73,6 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, S
 mod tests {
     use super::*;
     use crate::etag::object_etag;
-    use hyper::StatusCode;
 
     #[test]
     fn obj_render_002_media_headers_match_selected_generation_and_hashes() {
@@ -116,10 +115,6 @@ mod tests {
         let error = object_media_headers(&object).unwrap_err();
         let source = std::error::Error::source(&error).expect("stored header error has a source");
         assert!(source.is::<hyper::header::InvalidHeaderValue>());
-        assert_eq!(
-            crate::ApiError::from(error).status(),
-            StatusCode::SERVICE_UNAVAILABLE
-        );
     }
 
     #[test]

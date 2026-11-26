@@ -2,7 +2,7 @@
 
 use super::{RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, ResponseBody, boxed, empty_response};
 use crate::json::JsonErrorResponse;
-use crate::{ApiError, auth, config::EndpointError};
+use crate::{auth, config::EndpointError, json::ApiError};
 use http_body_util::Full;
 use hyper::{Method, Request, Response, StatusCode, body::Bytes};
 use serde::Deserialize;

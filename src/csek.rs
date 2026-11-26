@@ -618,7 +618,6 @@ mod tests {
     #[test]
     fn error_reasons_round_trip_to_xml_codes() {
         for error in CsekError::ALL {
-            assert_eq!(crate::ApiError::from(error).reason(), error.reason());
             let mut code = error.reason().to_owned();
             code[..1].make_ascii_uppercase();
             assert_eq!(error.xml_code(), code);

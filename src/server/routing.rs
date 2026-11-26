@@ -13,10 +13,10 @@ use super::{
 };
 use crate::json::JsonErrorResponse;
 use crate::{
-    ApiError,
     auth::Caller,
     bucket::{BucketAccess, CatalogError, CorsRule, cors::CorsRequest},
     config::{CompatProfile, Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
+    json::ApiError,
     json::{self, ObjectRequest},
     storage::failure::wording::safe_backend_cause,
     xml,

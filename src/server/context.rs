@@ -5,11 +5,11 @@
 
 use super::{ObjectActivity, State, await_upload_catalog, bucket_access};
 use crate::{
-    ApiError,
     auth::{Caller, ListenerRole, signature::Resource},
     bucket::{BucketAccess, CatalogError},
     config::{ApiBaseSource, Config, RequestEndpoints},
     json,
+    json::ApiError,
     object::ObjectError,
     time_limit::TimeLimit,
     xml,

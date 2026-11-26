@@ -4,8 +4,8 @@ use super::{
     EmptyJsonBody, RESOURCE_BODY_LIMIT, State, authorize_project, empty_response, json_response,
     require_empty_body, validate_bodyless_post,
 };
-use crate::ApiError;
 use crate::auth::{AuthFailure, Caller, Permission};
+use crate::json::ApiError;
 use crate::json::{self, Fields, ProjectRequest};
 use crate::storage::hmac_keys::HmacKeyListQuery;
 use http_body_util::Full;

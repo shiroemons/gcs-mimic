@@ -6,8 +6,8 @@
 
 use super::unsupported;
 use crate::{
-    ApiError,
     config::Config,
+    json::ApiError,
     json::{self, BucketRequest, Fields, ObjectRequest, ProjectRequest},
 };
 use hyper::{Method, Uri};

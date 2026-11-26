@@ -9,10 +9,10 @@ use super::{
 };
 use crate::json::JsonErrorResponse;
 use crate::{
-    ApiError,
     auth::ListenerRole,
     config::{Config, RequestEndpoints},
     json,
+    json::ApiError,
 };
 use http_body_util::BodyExt;
 use hyper::body::{Frame, SizeHint};

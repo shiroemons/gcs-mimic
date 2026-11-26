@@ -694,7 +694,6 @@ mod tests {
     use super::*;
     use crate::server::chunk_body;
     use http_body_util::Full;
-    use hyper::StatusCode;
 
     fn wire(metadata: &[u8], media: &[u8]) -> Vec<u8> {
         let mut body =
@@ -1081,11 +1080,7 @@ mod tests {
         ] {
             let mut headers = HeaderMap::new();
             headers.insert("content-type", value.parse().unwrap());
-            assert_eq!(
-                crate::ApiError::from(multipart_boundary(&headers).unwrap_err()).status(),
-                StatusCode::BAD_REQUEST,
-                "{value}"
-            );
+            assert!(multipart_boundary(&headers).is_err(), "{value}");
         }
         for length in [70, 71] {
             let mut headers = HeaderMap::new();

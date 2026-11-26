@@ -1,8 +1,8 @@
 //! Management is for local tools; page-initiated requests must never reach mutations.
 
 use crate::{
-    ApiError,
     config::{Config, EndpointSnapshot},
+    json::ApiError,
     server::{RequestBody, RequestCtx, browser, host},
     url::PublicOrigin,
 };

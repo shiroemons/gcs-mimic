@@ -3,7 +3,7 @@
 //! returns.
 
 use super::host;
-use crate::{ApiError, auth::ListenerRole};
+use crate::{auth::ListenerRole, json::ApiError};
 use hyper::{HeaderMap, Request, StatusCode, header::HeaderValue};
 
 /// Whether a browser sent the request on a page's behalf. Browsers add `Origin` to every request

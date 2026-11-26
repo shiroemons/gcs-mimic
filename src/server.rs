@@ -1,6 +1,5 @@
 use crate::json::JsonErrorResponse;
 use crate::{
-    ApiError,
     auth::{self, Auth, Caller, ListenerRole},
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
@@ -8,6 +7,7 @@ use crate::{
     diagnostics::Diagnostics,
     http_conditions::{EtagError, etag_not_modified},
     json,
+    json::ApiError,
     object::{ObjectError, UploadChunk},
     storage::{
         Catalog,

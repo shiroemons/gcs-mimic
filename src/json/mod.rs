@@ -17,7 +17,7 @@ pub(crate) mod cors;
 mod csek;
 mod derived_metadata;
 mod envelope;
-pub(crate) mod error;
+mod error;
 mod fields;
 mod format;
 mod iam;

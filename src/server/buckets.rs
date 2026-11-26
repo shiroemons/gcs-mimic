@@ -9,11 +9,11 @@ use super::{
     read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
 };
 use crate::{
-    ApiError,
     auth::{self, Caller},
     bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError, UniformAccess},
     config::CompatProfile,
     http_conditions::EtagError,
+    json::ApiError,
     json::{self, BucketRequest, WriteMode},
     storage::failure::unavailable,
 };

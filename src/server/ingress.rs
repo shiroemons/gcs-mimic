@@ -3,7 +3,7 @@
 //! removes before it routes a JSON API request.
 
 use super::{BodyRead, ObjectActivity, RESOURCE_BODY_LIMIT, RequestCtx, ResponseBody, boxed};
-use crate::{ApiError, auth::Caller, json::JsonErrorResponse};
+use crate::{auth::Caller, json::ApiError, json::JsonErrorResponse};
 use http_body_util::{BodyExt, Full};
 use hyper::{
     HeaderMap, Method, Request, Response, StatusCode,

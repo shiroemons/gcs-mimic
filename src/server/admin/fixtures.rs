@@ -6,9 +6,9 @@ use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
 };
 use crate::{
-    ApiError,
     auth::AuthFailure,
     json,
+    json::ApiError,
     notification::NotificationMode,
     object::{ExpectedHashes, ObjectError, Patch, UploadChunk, content_type},
     server::{DeadlineWatch, RequestBody, RequestCtx, json_response},

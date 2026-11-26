@@ -310,29 +310,27 @@ Pending the evidence below:
     and the `upload_id` comments in the [pinned Storage v2 proto](../../../src/grpc/proto/google/storage/v2/storage.proto),
     under [No live Cloud Storage contact](../development.md#no-live-cloud-storage-contact).
 
-- **Unknown gRPC upload IDs.** `src/grpc/v2/object_io.rs:99` returns
-  `INTERNAL` for unknown and expired sessions. The pinned googleapis
-  `933dd1be` Storage v2 proto describes `NOT_FOUND` for a missing object
-  in `QueryWriteStatus` (`src/grpc/proto/google/storage/v2/storage.proto:588–590`).
-  The pinned Go storage SDK v1.71.0 retries `INTERNAL` in
-  `invoke.go:292–295`, so a client can wait until its retry deadline.
+- **Unknown gRPC upload IDs.** `object_io::session_status` returns
+  `INTERNAL` for unknown and expired sessions. The pinned Storage v2 proto
+  describes `NOT_FOUND` for a missing object in `Storage.QueryWriteStatus`.
+  The pinned Go storage SDK v1.71.0 retries `INTERNAL` in `ShouldRetry`
+  (`invoke.go`), so a client can wait until its retry deadline.
   Choose whether to keep the current code for all session calls or use
   `NOT_FOUND` for queries. The historical probe cited in the adapter cannot
   be repeated under the no-live-contact policy.
-- **Wording for anonymous gRPC v2 denials.** At emulator revision
-  `b05128867`, `src/grpc/v2/status.rs:419–427` returns “Login Required”.
-  The JSON, XML and gRPC v1 adapters name the denied permission and the
-  anonymous caller (`src/server.rs:1927`, `src/xml/error_mapping.rs:121`,
-  `src/grpc/v1/mod.rs:63`). No pinned source specifies that wording.
-  Choose whether v2 keeps its shorter message or names the permission too.
-- **Retrying an invalidated XML upload.** At emulator revision `b05128867`,
-  a final metadata refusal invalidates the session
-  (`src/server/resumable.rs:591–598`). A later PUT then returns 204
-  (`src/xml/resumable.rs:191`). A client treating 2xx as completion can
-  report success without an object. Choose whether to keep 204 for both
-  cancellation and invalidation or return an error for invalidation.
-  The historical observation covers cancellation only and cannot be repeated
-  under the no-live-contact policy.
+- **Wording for anonymous gRPC v2 denials.** `grpc::v2::status::anonymous`
+  returns “Login Required”. The JSON, XML and gRPC v1 adapters name the denied
+  permission and the anonymous caller in `server::anonymous_error`,
+  `xml::Error::for_caller` and `grpc::v1::access_status`. No pinned source
+  specifies that wording. Choose whether v2 keeps its shorter message or names
+  the permission too.
+- **Retrying an invalidated XML upload.** A final metadata refusal in
+  `server::resumable::transfer` invalidates the session. A later PUT then
+  returns 204 from `xml::resumable::session`. A client treating 2xx as
+  completion can report success without an object. Choose whether to keep
+  204 for both cancellation and invalidation or return an error for
+  invalidation. The historical observation covers cancellation only and
+  cannot be repeated under the no-live-contact policy.
 
 Found by the error goldens, which pin them as they are today. Each goes to the
 owner with the error slice that touches it:
