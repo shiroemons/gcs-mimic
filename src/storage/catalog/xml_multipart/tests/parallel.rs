@@ -270,6 +270,47 @@ async fn a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overt
     catalog.close().await.unwrap();
 }
 
+#[tokio::test]
+async fn completion_keeps_its_validated_parts_through_publication() {
+    let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
+    let target = begin(&catalog).await;
+    let part = put(&catalog, &target, 1, b"selected").await.unwrap();
+    let (entered, blocked) = tokio::sync::oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    // Hold the assembled body after validation, before the transaction retires the upload.
+    catalog.inject(
+        Step::BodyFlush,
+        0,
+        Fault::Block {
+            entered: Arc::new(std::sync::Mutex::new(Some(entered))),
+            release: Arc::new(std::sync::Mutex::new(released)),
+        },
+    );
+    let completion = spawn_completion(&catalog, &target, part.etag);
+    tokio::time::timeout(HANG_GUARD, blocked)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        put(&catalog, &target, 1, b"replacement").await,
+        Err(Error::Busy)
+    ));
+    assert!(matches!(
+        catalog
+            .lease_xml_abort(target.clone(), BucketAccess::Permissive)
+            .await,
+        Err(Error::Busy)
+    ));
+    release.send(()).unwrap();
+    completion.await.unwrap().unwrap();
+    assert_eq!(bytes(&catalog).await, b"selected");
+    assert!(matches!(
+        put(&catalog, &target, 1, b"late").await,
+        Err(Error::NoSuchUpload)
+    ));
+    catalog.close().await.unwrap();
+}
+
 /// Cloud Storage fails the parts in flight of an aborted upload rather than making the abort
 /// wait for them. The patient budget outlasts `HANG_GUARD`, so an abort that waited for the
 /// stalled body would fail the guard here.

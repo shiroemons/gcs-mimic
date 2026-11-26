@@ -328,6 +328,9 @@ fn multipart_wire_round_trip_sparse_parts_paging_restart_and_checksum_metadata()
     );
     drop(server);
     let server = Server::start(&dir, &[]);
+    let stale = complete(&server, "dir%2Fvalue", &id, "", &[(2, &etag), (9, &old)]);
+    stale.status(400);
+    assert_eq!(tag(&stale.body, "Code"), "InvalidPart");
     let reply = complete(&server, "dir%2Fvalue", &id, "", &[(2, &etag), (9, &last)]);
     reply.status(200);
     assert!(reply.headers.contains("x-goog-hash: crc32c="));

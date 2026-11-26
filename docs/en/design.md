@@ -618,7 +618,8 @@ chunk retries while the old handler is still unwinding; past that it receives lo
 503. An XML multipart upload differs: each part number has its own writer, so different numbers
 write side by side, and completion waits for the whole upload within the same budget. An abort
 waits only for a completion or another abort; parts in flight fail at their commit, which rechecks
-the upload in the same transaction.
+the upload in the same transaction. Under its whole-upload lease, completion validates the requested
+part rows once and assembles their immutable blobs in manifest order.
 Maintenance and session trimming skip a held writer instead of waiting. Repeated/overlapping writes
 must discard the acknowledged prefix with bounded buffers and append only the
 unseen tail. Persisted bytes remain immutable. A chunk checkpoint requires

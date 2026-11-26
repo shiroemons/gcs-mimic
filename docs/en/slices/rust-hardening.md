@@ -589,7 +589,7 @@ expectation where a trait requires `io::Error`.
 | gRPC `open_readable`, `get_readable` | a test pins the answer when finalization unlinks between snapshot and open |
 | `session_by_id`, `session_by_token` | the guarded updates stay authoritative |
 | `next_notification` | one statement on the main table |
-| soft-deleted gets, XML part and upload listings, HMAC key and notification reads, `xml_completion_total` | second batch, after reading each in full |
+| soft-deleted gets, XML part and upload listings, HMAC key and notification reads, `xml_completion_parts` | second batch, after reading each in full |
 
 The reader statement cache grows from 32 to 96 statements when listing moves.
 
@@ -601,8 +601,8 @@ point reads already on the pool.
 
 | Change | Before → after |
 | --- | --- |
-| XML part: sync on the blocking pool before the commit job; the pending check inside the commit job; the reference probe only after an error | 3 W, one holding a directory sync → 2 W |
-| XML completion: reuse the part rows `xml_completion_total` read, under the upload lease; sync off the writer | about N+6 W → about 6 W |
+| XML part: sync on the blocking pool before the commit job; the pending check inside the commit job; the reference probe only after an error | new part after acquiring its lease: 3 W → 2 W |
+| XML completion: reuse the rows from `xml_completion_parts` under the upload lease; sync off the writer | disk, after acquiring the lease, publishing a new object and reclaiming one page of parts: N+8 W → 8 W |
 | Maintenance: a busy sweep marks its key deferred and a release wakes only for a deferred key; a pass starts with one snapshot probe of every kind of due work and runs only the sweeps with work | about 12 W and 3 tasks per idle wake → 1 R, and no self-wake |
 | Reclamation: each retiring transaction reports whether it journaled; all sites use `reclaim_if` | 1 W, a task and a permit per commit → none when nothing was journaled |
 | Delete: one `BucketAuthority` (bucket row, policy, public access prevention and ACL decoded once); purge inside the delete transaction | 2 transactions, the row read 3 times, the ACL decoded up to 4 times → 1 transaction, everything once |

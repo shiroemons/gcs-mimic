@@ -13,6 +13,12 @@ pub(crate) struct PartUpload {
     pub max_bytes: u64,
 }
 
+/// Validated in manifest order while the completion holds the whole upload.
+struct CompletionParts {
+    parts: Vec<Part>,
+    total: u64,
+}
+
 /// The bytes the other parts of an upload retain. Every part reads this twice: before its body,
 /// to refuse early, and in its commit, because parts in flight have not counted each other yet.
 const OTHER_PARTS_BYTES: &str =
@@ -126,17 +132,13 @@ impl Catalog {
                     sql::exec(&transaction, "INSERT INTO xml_multipart_parts (upload_id,number,blob_id,size,md5,crc32c,updated,updated_sub_milli_micros) VALUES (?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated,updated_sub_milli_micros=excluded.updated_sub_milli_micros", params![target.id,number,id,size,md5.as_slice(),crc32c,now.millis,now.micros]).map_err(object_unavailable)?;
                     let stored=part(&transaction,&target.id,number)?;
                     objects::commit_publication(transaction)?;
-                    Ok(stored)
+                    Ok((stored, maintenance::pending(connection)))
                 }).await
             }.await;
-            // An error after COMMIT is ambiguous: only reclaim a file without a committed reference.
-            let cleanup=catalog.run(move |connection| {
-                let referenced:bool=sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1)", [&id])?;
-                if !referenced {
-                    sql::exec(connection, "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)", [id])?;
-                }
-                maintenance::pending(connection)
-            }).await;
+            let (result, cleanup) = match result {
+                Ok((stored, pending)) => (Ok(stored), pending),
+                Err(error) => (Err(error), catalog.journal_unreferenced_xml_part(id).await),
+            };
             let cleanup = match cleanup {
                 Ok(true) => catalog.drain_xml_multipart().await.map(|_| ()),
                 Ok(false) => Ok(()),
@@ -146,6 +148,27 @@ impl Catalog {
             drop(lease);
             result
         }).await.map_err(object_unavailable)?
+    }
+
+    /// A commit error can arrive after the row was published. Check ownership before queuing
+    /// the staged part for deletion.
+    async fn journal_unreferenced_xml_part(&self, id: BlobId) -> Result<bool, ObjectError> {
+        self.run(move |connection| {
+            let referenced: bool = sql::scalar(
+                connection,
+                "SELECT EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1)",
+                [id],
+            )?;
+            if !referenced {
+                sql::exec(
+                    connection,
+                    "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)",
+                    [id],
+                )?;
+            }
+            maintenance::pending(connection)
+        })
+        .await
     }
 
     pub(crate) async fn complete_xml_multipart(
@@ -173,10 +196,10 @@ impl Catalog {
             let (_permit, lease) = (permit, lease);
             let id = BlobId::generate().map_err(object_unavailable)?;
             let owner = catalog.guard_derived_request(&id);
-            let total = catalog
-                .xml_completion_total(&lease, parts.clone(), max_bytes)
+            let parts = catalog
+                .xml_completion_parts(&lease, parts, max_bytes)
                 .await?;
-            if let Err(error) = catalog.assemble_xml_parts(&lease, &parts, &id, total).await {
+            if let Err(error) = catalog.assemble_xml_parts(&parts, &id).await {
                 let orphan = id;
                 let cleanup = catalog
                     .run(move |connection| {
@@ -250,12 +273,12 @@ impl Catalog {
         .map_err(object_unavailable)?
     }
 
-    async fn xml_completion_total(
+    async fn xml_completion_parts(
         &self,
         lease: &UploadLease,
         requested: Vec<CompletedPart>,
         max_bytes: u64,
-    ) -> Result<u64, Error> {
+    ) -> Result<CompletionParts, Error> {
         let target = lease.upload.target.clone();
         let access = lease.access.clone();
         let now = UnixMillis::try_from(self.0.clock.now())?;
@@ -267,42 +290,38 @@ impl Catalog {
                 &target.bucket,
                 &access.with_permission(Permission::ObjectsCreate),
             )?;
+            let count = requested.len();
+            let mut parts = Vec::with_capacity(count);
             let mut total = 0u64;
-            for (index, wanted) in requested.iter().enumerate() {
+            for (index, wanted) in requested.into_iter().enumerate() {
                 let stored = part(&transaction, &target.id, wanted.number)?;
                 if stored.etag != wanted.etag {
                     return Err(Error::InvalidPart);
                 }
-                if index + 1 < requested.len() && stored.size < MIN_PART_BYTES {
+                if index + 1 < count && stored.size < MIN_PART_BYTES {
                     return Err(Error::PartTooSmall);
                 }
                 total = total
                     .checked_add(stored.size)
                     .filter(|n| *n <= max_bytes)
                     .ok_or(ObjectError::TooLarge)?;
+                parts.push(stored);
             }
-            Ok(total)
+            Ok(CompletionParts { parts, total })
         })
         .await
     }
 
     async fn assemble_xml_parts(
         &self,
-        lease: &UploadLease,
-        parts: &[CompletedPart],
+        completion: &CompletionParts,
         id: &BlobId,
-        total: u64,
     ) -> Result<(), Error> {
         let mut file = self.0.backend.stage_output(id).await?;
         let mut hasher = Hasher::default();
         let mut buffer = [0; 64 * 1024];
         let assembled = async {
-            for wanted in parts {
-                let upload_id = lease.upload.target.id.clone();
-                let number = wanted.number;
-                let stored = self
-                    .run(move |connection| part(connection, &upload_id, number))
-                    .await?;
+            for stored in &completion.parts {
                 let mut input = InputReader::open(self, &stored.blob_id, 0).await?;
                 let mut remaining = stored.size;
                 let mut part_hash = Hasher::default();
@@ -345,6 +364,7 @@ impl Catalog {
         let id = *id;
         let now = UnixMillis::try_from(self.0.clock.now())?;
         let (state, crc32c) = hasher.md5_state();
+        let total = completion.total;
         self.run(move |connection| {
             sql::exec(
                 connection,

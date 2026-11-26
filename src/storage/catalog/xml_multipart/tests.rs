@@ -178,6 +178,54 @@ async fn deletion_count(catalog: &Catalog) -> u64 {
         .unwrap()
 }
 
+#[tokio::test]
+async fn part_and_completion_use_bounded_writer_jobs_under_their_leases() {
+    for count in [1_u16, 3] {
+        let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
+        let target = begin(&catalog).await;
+        let mut parts = Vec::new();
+        for number in 1..=count {
+            let lease = catalog
+                .lease_xml_part(target.clone(), number, BucketAccess::Permissive)
+                .await
+                .unwrap();
+            let chunk = if number == count {
+                bytes::Bytes::from_static(b"tail")
+            } else {
+                bytes::Bytes::from(vec![1; usize::try_from(MIN_PART_BYTES).unwrap()])
+            };
+            let (writes, reads) = catalog.job_counts();
+            let stored = catalog
+                .put_xml_part(
+                    lease,
+                    PartUpload {
+                        expected: Default::default(),
+                        max_bytes: 64 * 1024 * 1024,
+                    },
+                    body(vec![chunk]),
+                )
+                .await
+                .unwrap();
+            assert_eq!(catalog.job_counts(), (writes + 2, reads));
+            parts.push(CompletedPart {
+                number,
+                etag: stored.etag,
+            });
+        }
+        let lease = catalog
+            .lease_xml_multipart(target, BucketAccess::Permissive)
+            .await
+            .unwrap();
+        let (writes, reads) = catalog.job_counts();
+        catalog
+            .complete_xml_multipart(lease, parts, 64 * 1024 * 1024)
+            .await
+            .unwrap();
+        assert_eq!(catalog.job_counts(), (writes + 8, reads));
+        catalog.close().await.unwrap();
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn new_parts_skip_reclamation_but_replacements_reclaim_the_retired_bytes() {
     let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
