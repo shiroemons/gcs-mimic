@@ -908,6 +908,57 @@ fn dual_listener_shares_state_and_https_primary_resumable_origin() {
 }
 
 #[test]
+fn startup_configuration_diagnostics_keep_their_bytes_and_exit_code() {
+    let dir = TestDir::new();
+    let data = dir.0.join("never-created");
+    let output = common::server_command()
+        .clean_env()
+        .args(["serve", "--data-dir"])
+        .arg(&data)
+        .args([
+            "--tls-cert",
+            "unused.pem",
+            "--scheme",
+            "both",
+            "--listen",
+            "127.0.0.1:8000",
+            "--grpc-scheme",
+            "tls",
+            "--api-base-url",
+            "http://bucket.storage.example.invalid",
+            "--xml-virtual-host-domains",
+            "storage.example.invalid",
+            "--public-base-url",
+            "http://127.0.0.1:4443",
+            "--trusted-allowed-hosts",
+            "app.example.invalid",
+            "--event-pubsub-topic",
+            "uploads",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(!data.exists());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        concat!(
+            r#"{"event":"diagnostics","level":"warn","diagnostics":["#,
+            r#"{"source":"cli","key":"--public-base-url","fix":"public_base_url is an IP address: virtual-host routing is disabled; use path-style URLs or a DNS origin such as http://storage.example.invalid."}]}"#,
+            "\n",
+            r#"{"event":"diagnostics","level":"error","diagnostics":["#,
+            r#"{"source":"cli","key":"--api-base-url","fix":"api_base_url host selects an XML virtual bucket; use a host outside xml_virtual_host_domains or configure that host itself as a base domain."},"#,
+            r#"{"source":"cli","key":"--event-pubsub-topic","fix":"Event publishing requires event_pubsub_project_id, event_pubsub_topic and an explicit pubsub_emulator_host (or PUBSUB_EMULATOR_HOST); production Google Pub/Sub is disabled"},"#,
+            r#"{"source":"cli","key":"--grpc-scheme","fix":"grpc_scheme requires grpc_listen; remove it or set --grpc-listen, for example 127.0.0.1:4444."},"#,
+            r#"{"source":"cli","key":"--listen","fix":"listen and listen_http must use different nonzero endpoints; use --listen-http 127.0.0.1:8001 or port 0."},"#,
+            r#"{"source":"cli","key":"--tls-cert","fix":"tls_cert and tls_key must be supplied together; provide both PEM paths."},"#,
+            r#"{"source":"cli","key":"--trusted-allowed-hosts","fix":"trusted_allowed_hosts requires trusted_listen; set --trusted-listen IP:PORT or remove the setting."}]}"#,
+            "\n",
+        )
+    );
+}
+
+#[test]
 fn dual_listener_invalid_settings_fail_before_catalog_or_readiness() {
     for args in [
         vec!["--scheme", "http", "--listen-http", "127.0.0.1:0"],
