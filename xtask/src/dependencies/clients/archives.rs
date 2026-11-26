@@ -176,7 +176,7 @@ fn is_name(part: &str) -> bool {
 
 /// The numbers a release tag orders by, such as `[4, 5, 0, 0]` for `v4.5.0`.
 fn tag_order(tag: &str) -> Option<[u64; 4]> {
-    numeric_release(tag.strip_prefix('v').unwrap_or(tag))
+    numeric_release(tag.trim_prefix('v'))
 }
 
 /// A `sha256:<hex>` digest as Docker's `--checksum` takes it: its digits must be lowercase, or

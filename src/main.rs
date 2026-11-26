@@ -215,23 +215,26 @@ fn cli_args() -> Result<Vec<String>, Diagnostics> {
 
 fn run() -> Result<(), CliError> {
     let args = cli_args()?;
-    match args.as_slice() {
+    let words: Vec<_> = args.iter().map(String::as_str).collect();
+    let after_command = args.get(1..).unwrap_or_default();
+    let after_subcommand = args.get(2..).unwrap_or_default();
+    match words.as_slice() {
         // A script written for an older release fails with what replaced the command.
-        [command, ..] if command == "sync" => {
+        ["sync", ..] => {
             return Err(Diagnostics::error(DiagnosticSource::Cli, "command", REMOVED_SYNC).into());
         }
-        [command, kind, rest @ ..] if command == "import" && kind == "fake-gcs-server" => {
-            return gcs_mimic::import::cli(rest).map_err(CliError::from);
+        ["import", "fake-gcs-server", ..] => {
+            return gcs_mimic::import::cli(after_subcommand).map_err(CliError::from);
         }
         // Valueless bucket settings would read as options missing a value in the shared check.
-        [command, kind, help] if command == "buckets" && kind == "new" && help == "--help" => {
+        ["buckets", "new", "--help"] => {
             println!("{}", buckets_cli::HELP);
             return Ok(());
         }
-        [command, kind, rest @ ..] if command == "buckets" && kind == "new" => {
-            return buckets_cli::run(rest);
+        ["buckets", "new", ..] => {
+            return buckets_cli::run(after_subcommand);
         }
-        [command, ..] if command == "buckets" => {
+        ["buckets", ..] => {
             return Err(Diagnostics::error(
                 DiagnosticSource::Cli,
                 "command",
@@ -240,7 +243,7 @@ fn run() -> Result<(), CliError> {
             .into());
         }
         // Its switch would read as an option missing a value in the shared check.
-        [command, rest @ ..] if command == "seed" => return seed_cli::run(rest),
+        ["seed", ..] => return seed_cli::run(after_command),
         _ => (),
     }
     if gcs_mimic::config_input::requests_version(&args) {
@@ -254,44 +257,40 @@ fn run() -> Result<(), CliError> {
     if diagnostics.is_err() {
         return Err(diagnostics.into());
     }
-    match args.as_slice() {
+    match words.as_slice() {
         [] => Err(Diagnostics::error(
             DiagnosticSource::Cli,
             "command",
             "No command given; start the emulator with gcs-mimic serve, or see gcs-mimic --help.",
         )
         .into()),
-        [command, rest @ ..] if command == "healthcheck" => {
-            healthcheck(rest)?;
+        ["healthcheck", ..] => {
+            healthcheck(after_command)?;
             Ok(())
         }
-        [command, kind] if command == "tls" && kind == "ca" => {
+        ["tls", "ca"] => {
             print!("{}", tls::DEVELOPMENT_CA_PEM);
             Ok(())
         }
-        [command, kind, help] if command == "url" && kind == "public" && help == "--help" => {
+        ["url", "public", "--help"] => {
             println!("{URL_PUBLIC_HELP}");
             Ok(())
         }
-        [command, kind, rest @ ..] if command == "url" && kind == "public" => {
-            url_command(rest, url_public)
-        }
-        [command, kind, help] if command == "url" && kind == "sign" && help == "--help" => {
+        ["url", "public", ..] => url_command(after_subcommand, url_public),
+        ["url", "sign", "--help"] => {
             println!("{URL_SIGN_HELP}");
             Ok(())
         }
-        [command, kind, rest @ ..] if command == "url" && kind == "sign" => {
-            url_command(rest, url_sign)
-        }
-        [command, help] if command == "test-signer" && help == "--help" => {
+        ["url", "sign", ..] => url_command(after_subcommand, url_sign),
+        ["test-signer", "--help"] => {
             println!("{TEST_SIGNER_HELP}");
             Ok(())
         }
-        [command, kind] if command == "test-signer" && kind == "credentials" => {
+        ["test-signer", "credentials"] => {
             println!("{}", gcs_mimic::auth::test_signer::service_account_json());
             Ok(())
         }
-        [command, ..] if command == "test-signer" => Err(Diagnostics::error(
+        ["test-signer", ..] => Err(Diagnostics::error(
             DiagnosticSource::Cli,
             "command",
             format!("Invalid test-signer command; use gcs-mimic test-signer credentials.\n{TEST_SIGNER_HELP}"),

@@ -321,11 +321,7 @@ impl UploadGuard {
 impl Drop for UploadGuard {
     fn drop(&mut self) {
         if let UploadSlot::Counted(catalog) = &self.slot {
-            let mut uploads = catalog
-                .0
-                .uploads
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut uploads = crate::sync::lock(&catalog.0.uploads);
             uploads.active -= 1;
             if uploads.active == 0 {
                 catalog.0.uploads_idle.notify_waiters();

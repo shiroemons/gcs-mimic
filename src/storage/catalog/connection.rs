@@ -130,7 +130,7 @@ impl Inner {
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, E>,
     ) -> Result<Result<T, E>, ConnectionUnavailable> {
-        let mut resources = match self.resources.lock() {
+        let mut resources = match crate::sync::lock_checked(&self.resources) {
             Ok(resources) => resources,
             Err(poisoned) => {
                 let resources = poisoned.into_inner();
@@ -139,6 +139,7 @@ impl Inner {
                         .map_err(ConnectionUnavailable::Unrecovered)?;
                 }
                 self.resources.clear_poison();
+                crate::sync::report_recovery();
                 resources
             }
         };

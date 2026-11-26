@@ -20,7 +20,7 @@ use std::{
     fs::{self, File},
     io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard},
 };
 use tokio::sync::{OwnedSemaphorePermit, mpsc, oneshot};
 

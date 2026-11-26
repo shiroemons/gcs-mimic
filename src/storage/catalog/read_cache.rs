@@ -29,7 +29,7 @@ use crate::{
 use std::{
     collections::HashMap,
     sync::{
-        Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard,
+        Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -163,13 +163,11 @@ impl ReadCache {
     }
 
     fn read(&self) -> RwLockReadGuard<'_, Contents> {
-        self.contents.read().unwrap_or_else(PoisonError::into_inner)
+        crate::sync::read(&self.contents)
     }
 
     fn write(&self) -> RwLockWriteGuard<'_, Contents> {
-        self.contents
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
+        crate::sync::write(&self.contents)
     }
 
     pub(super) fn revision(&self) -> Revision {

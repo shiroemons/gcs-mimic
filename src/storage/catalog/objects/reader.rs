@@ -24,7 +24,7 @@ impl BufferPool {
     }
 
     fn spare(&self) -> MutexGuard<'_, Vec<Vec<u8>>> {
-        self.spare.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::sync::lock(&self.spare)
     }
 }
 

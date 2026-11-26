@@ -6,7 +6,7 @@ use crate::storage::{
 use std::{
     collections::{HashMap, HashSet},
     fmt,
-    sync::{MutexGuard, PoisonError},
+    sync::MutexGuard,
 };
 
 /// Typed namespaces keep unrelated transfer and upload IDs independent.
@@ -316,19 +316,13 @@ impl Catalog {
     /// The registry for a new claim. A poisoned registry refuses claims, and `is_healthy` reports
     /// it.
     fn registry_for_claim(&self) -> Result<MutexGuard<'_, SessionWriters>, ClaimError> {
-        self.0
-            .session_writers
-            .lock()
-            .map_err(|_| ClaimError::Poisoned)
+        crate::sync::lock_checked(&self.0.session_writers).map_err(|_| ClaimError::Poisoned)
     }
 
     /// The registry for a release, which runs in `Drop` and cannot fail: the holder's own entry is
     /// still valid after another holder panicked.
     fn registry_for_release(&self) -> MutexGuard<'_, SessionWriters> {
-        self.0
-            .session_writers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        crate::sync::lock_for_cleanup(&self.0.session_writers)
     }
 
     /// Whether any session or transfer writer is held right now.

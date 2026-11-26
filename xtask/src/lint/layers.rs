@@ -58,6 +58,7 @@ const LAYERS: [Layer; 7] = [
             "mime",
             "http_conditions",
             "http_header",
+            "sync",
         ],
     },
     Layer {

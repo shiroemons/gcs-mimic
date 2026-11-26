@@ -53,8 +53,7 @@ pub(super) async fn list_prefix_paging(ctx: &Ctx) -> Result<()> {
         found.extend(page.buckets.into_iter().map(|bucket| {
             bucket
                 .name
-                .strip_prefix("projects/_/buckets/")
-                .unwrap_or(&bucket.name)
+                .trim_prefix("projects/_/buckets/")
                 .to_owned()
         }));
         token = page.next_page_token;

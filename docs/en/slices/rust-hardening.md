@@ -899,9 +899,12 @@ try_from = "i64")]`.
 ### Robustness helpers
 
 - **Guards.** The 31 drop guards get `#[must_use]` with a message.
-- **Poisoned locks.** Recovery goes through `crate::sync::{lock, read, write}`,
-  which recover and report each lock once. All 45 sites migrate, and the plain
-  lock methods then join `disallowed-methods`.
+- **Poisoned locks.** `crate::sync::{lock, read, write}` recover usable state
+  and report once per poison episode. Checked acquisitions preserve the original
+  failure or health-check signal and let callers repair state when recovery
+  needs a rollback or directory sync. Cleanup can release resources while
+  retaining poison for health checks. `Mutex::lock` and `RwLock::read`/`write`
+  join `disallowed-methods` for production code.
 - **String enums.** `string_enum!` moves to `choice` with optional serde and
   SQL arms. It absorbs `serialize_as_str!`, `sql::text_enum!` and
   `storage_classes!`, and the plain hand-written `FromStr` impls.

@@ -182,7 +182,7 @@ fn fallback_from<L: PartialEq, T, E>(
 /// container image. The image's own command carries none, so the configuration already covered
 /// it.
 fn container_server_args(cmdline: &[u8]) -> Option<Vec<String>> {
-    let cmdline = cmdline.strip_suffix(b"\0").unwrap_or(cmdline);
+    let cmdline = cmdline.trim_suffix(b"\0");
     let args = cmdline
         .split(|byte| *byte == 0)
         .map(|arg| String::from_utf8(arg.to_vec()))

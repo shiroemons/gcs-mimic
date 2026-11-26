@@ -311,19 +311,12 @@ impl Catalog {
     }
 
     pub(super) fn record_maintenance_error(&self, cause: Option<BackendCause>) {
-        *self
-            .0
-            .maintenance_error
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = cause;
+        *crate::sync::lock(&self.0.maintenance_error) = cause;
     }
 
     #[cfg(test)]
     pub(crate) fn resumable_maintenance_error(&self) -> Option<String> {
-        self.0
-            .maintenance_error
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        crate::sync::lock(&self.0.maintenance_error)
             .as_ref()
             .map(|cause| cause.message().to_owned())
     }
@@ -547,11 +540,7 @@ impl Catalog {
     /// or failing every pass.
     pub(crate) fn background_tasks_running(&self) -> bool {
         !self.0.maintenance_health.is_down()
-            && self
-                .0
-                .background_health
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
+            && crate::sync::lock(&self.0.background_health)
                 .iter()
                 .all(|health| !health.is_down())
     }
@@ -559,11 +548,7 @@ impl Catalog {
     /// Reports `health` through readiness for as long as the catalog lives, for a background
     /// worker the catalog does not start at open, such as the notification publisher.
     pub(crate) fn watch_background_task(&self, health: crate::task::TaskHealth) {
-        self.0
-            .background_health
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(health);
+        crate::sync::lock(&self.0.background_health).push(health);
     }
 
     /// Makes the next `count` maintenance passes panic before doing any work.

@@ -255,9 +255,7 @@ impl RuntimeEndpoints {
         config: &Config,
         api_base_url: &str,
     ) -> Result<Arc<EndpointSnapshot>, EndpointError> {
-        if let Some(current) = self
-            .current
-            .read()
+        if let Some(current) = crate::sync::read_checked(&self.current)
             .map_err(|_| EndpointError::Poisoned)?
             .as_ref()
         {
@@ -272,7 +270,8 @@ impl RuntimeEndpoints {
             public_base_url: config.public_base_url().cloned(),
             xml_virtual_host_domains: config.xml_virtual_host_domains().clone(),
         });
-        let mut current = self.current.write().map_err(|_| EndpointError::Poisoned)?;
+        let mut current =
+            crate::sync::write_checked(&self.current).map_err(|_| EndpointError::Poisoned)?;
         Ok(current.get_or_insert(initial).clone())
     }
 
@@ -284,7 +283,8 @@ impl RuntimeEndpoints {
         public_host: Option<&str>,
     ) -> Result<(), EndpointError> {
         let initial = self.snapshot(config, initial_api_base_url)?;
-        let mut current = self.current.write().map_err(|_| EndpointError::Poisoned)?;
+        let mut current =
+            crate::sync::write_checked(&self.current).map_err(|_| EndpointError::Poisoned)?;
         // Read the latest committed pair under the write lock to avoid losing a concurrent update.
         let mut candidate = current.as_ref().unwrap_or(&initial).as_ref().clone();
         if let Some(value) = external_url.filter(|value| !value.is_empty()) {

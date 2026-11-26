@@ -1116,7 +1116,7 @@ mod tests {
                 "unrecognized backend failure (private details withheld)",
             ),
         ] {
-            let cause = cause.strip_prefix("catalog unavailable: ").unwrap_or(cause);
+            let cause = cause.trim_prefix("catalog unavailable: ");
             assert_eq!(safe_backend_cause(cause), expected);
             let error = ApiError::backend(&cause.into());
             assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);

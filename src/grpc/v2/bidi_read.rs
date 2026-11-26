@@ -20,7 +20,7 @@ use crate::{
 use prost::Message;
 use std::{
     collections::VecDeque,
-    sync::{Mutex, PoisonError},
+    sync::Mutex,
     time::{Duration, SystemTime},
 };
 use tokio::sync::mpsc;
@@ -72,7 +72,7 @@ pub struct ReadHandles(Mutex<VecDeque<Handle>>);
 
 impl ReadHandles {
     fn insert(&self, handle: Handle, now: SystemTime) {
-        let mut entries = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut entries = crate::sync::lock(&self.0);
         entries.retain(|entry| entry.expires > now);
         if entries.len() == MAX_HANDLES {
             entries.pop_front();
@@ -81,7 +81,7 @@ impl ReadHandles {
     }
 
     fn find(&self, token: &[u8], now: SystemTime) -> Option<Handle> {
-        let mut entries = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut entries = crate::sync::lock(&self.0);
         entries.retain(|entry| entry.expires > now);
         entries
             .iter()
@@ -90,10 +90,7 @@ impl ReadHandles {
     }
 
     fn remove(&self, token: HandleToken) {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|entry| !entry.token.matches(&token.0));
+        crate::sync::lock(&self.0).retain(|entry| !entry.token.matches(&token.0));
     }
 }
 

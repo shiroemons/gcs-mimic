@@ -72,10 +72,7 @@ impl FileWorkers {
                 loop {
                     // Jobs run after the guard is released, so the lock is never poisoned by
                     // a job; recovering keeps the pool whole even if it were.
-                    let job = receiver
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .recv();
+                    let job = crate::sync::lock(&receiver).recv();
                     match job {
                         Ok(job) => job(),
                         Err(_) => return,

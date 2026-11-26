@@ -457,9 +457,7 @@ impl IdlePlace {
 
     /// Every use replaces the whole value, so a panic while it was held left nothing half done.
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<IdleTurn>> {
-        self.taken
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        crate::sync::lock(&self.taken)
     }
 }
 

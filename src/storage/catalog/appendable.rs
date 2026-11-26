@@ -33,7 +33,7 @@ use std::{
     fmt, fs,
     io::{self, Read},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock, PoisonError},
+    sync::{Arc, Mutex, OnceLock},
     time::SystemTime,
 };
 use tokio::sync::mpsc;
@@ -267,7 +267,7 @@ impl SlotHandle {
         let key = (Namespace::of(catalog), bucket.to_owned(), name.to_owned());
         // The map only counts holders, and each update completes before the lock is
         // released, so a panic elsewhere cannot leave it inconsistent.
-        let mut slots = slots().lock().unwrap_or_else(PoisonError::into_inner);
+        let mut slots = crate::sync::lock(slots());
         let entry = slots.entry(key.clone()).or_insert_with(|| SlotEntry {
             holders: 0,
             slot: Arc::default(),
@@ -288,7 +288,7 @@ impl std::ops::Deref for SlotHandle {
 
 impl Clone for SlotHandle {
     fn clone(&self) -> Self {
-        let mut slots = slots().lock().unwrap_or_else(PoisonError::into_inner);
+        let mut slots = crate::sync::lock(slots());
         let entry = slots.entry(self.key.clone()).or_insert_with(|| SlotEntry {
             holders: 0,
             slot: self.slot.clone(),
@@ -303,7 +303,7 @@ impl Clone for SlotHandle {
 
 impl Drop for SlotHandle {
     fn drop(&mut self) {
-        let mut slots = slots().lock().unwrap_or_else(PoisonError::into_inner);
+        let mut slots = crate::sync::lock(slots());
         if let Some(entry) = slots.get_mut(&self.key) {
             entry.holders = entry.holders.saturating_sub(1);
             if entry.holders == 0 {
@@ -335,21 +335,18 @@ fn arm_write_pause(
 ) {
     let (entered, on_entered) = tokio::sync::oneshot::channel();
     let (release, on_release) = std::sync::mpsc::channel();
-    WRITE_PAUSES
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .push(WritePause {
-            data_dir: data_dir.to_owned(),
-            entered,
-            release: on_release,
-        });
+    crate::sync::lock(&WRITE_PAUSES).push(WritePause {
+        data_dir: data_dir.to_owned(),
+        entered,
+        release: on_release,
+    });
     (on_entered, release)
 }
 
 #[cfg(test)]
 fn pause_append_write(data_dir: &Path) {
     let pause = {
-        let mut pauses = WRITE_PAUSES.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut pauses = crate::sync::lock(&WRITE_PAUSES);
         let Some(index) = pauses.iter().position(|pause| pause.data_dir == data_dir) else {
             return;
         };
@@ -361,9 +358,7 @@ fn pause_append_write(data_dir: &Path) {
 
 #[cfg(test)]
 fn slot_count(data_dir: &Path) -> usize {
-    slots()
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
+    crate::sync::lock(slots())
         .keys()
         .filter(|(namespace, _, _)| matches!(namespace, Namespace::Disk(dir) if dir == data_dir))
         .count()
@@ -804,9 +799,7 @@ pub(super) fn retire_published(
 /// of the bucket until it commits.
 pub(super) fn bucket_in_use(catalog: &Catalog, bucket: &str) -> bool {
     let namespace = Namespace::of(catalog);
-    slots()
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
+    crate::sync::lock(slots())
         .keys()
         .any(|(space, name, _)| *space == namespace && name == bucket)
 }

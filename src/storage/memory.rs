@@ -163,16 +163,14 @@ impl Store {
 
     /// The published blobs. A poisoned table fails the caller, and `is_healthy` reports it.
     fn blobs(&self) -> io::Result<MutexGuard<'_, HashMap<String, Arc<Blob>>>> {
-        self.blobs
-            .lock()
+        crate::sync::lock_checked(&self.blobs)
             .map_err(|_| io::Error::other("RAM blob store lock poisoned"))
     }
 
     /// The drafts not yet published. A poisoned table fails the caller, and `is_healthy` reports
     /// it.
     fn drafts(&self) -> io::Result<MutexGuard<'_, HashMap<String, Box<Stage>>>> {
-        self.drafts
-            .lock()
+        crate::sync::lock_checked(&self.drafts)
             .map_err(|_| io::Error::other("RAM draft store lock poisoned"))
     }
 

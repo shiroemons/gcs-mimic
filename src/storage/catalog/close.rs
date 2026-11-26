@@ -19,11 +19,7 @@ impl Catalog {
     /// Stops admission on all handles and waits for blocking work before releasing ownership.
     /// Remaining handles become unavailable; repeated closes succeed without touching a new owner.
     pub async fn close(&self) -> Result<(), CatalogError> {
-        self.0
-            .uploads
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .closed = true;
+        crate::sync::lock(&self.0.uploads).closed = true;
         self.0.admission.close();
         self.0.writer_released.notify_waiters();
         self.0.activity.wake_waiters();
@@ -41,14 +37,7 @@ impl Catalog {
             let idle = self.0.uploads_idle.notified();
             tokio::pin!(idle);
             idle.as_mut().enable();
-            if self
-                .0
-                .uploads
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .active
-                == 0
-            {
+            if crate::sync::lock(&self.0.uploads).active == 0 {
                 break;
             }
             idle.await;
@@ -67,10 +56,7 @@ impl Catalog {
             .run_last(move || {
                 let _execution = execution;
                 // Poison must not prevent shutdown from closing the connection and its lock.
-                let mut resources = inner
-                    .resources
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut resources = crate::sync::lock_for_cleanup(&inner.resources);
                 if let Some(Resources { connection, lock }) = resources.take() {
                     connection
                         .close()

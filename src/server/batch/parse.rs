@@ -71,7 +71,7 @@ impl<'a> Line<'a> {
         if self.ending.is_some() {
             self.text
         } else {
-            self.text.strip_suffix(b"\r").unwrap_or(self.text)
+            self.text.trim_suffix(b"\r")
         }
     }
 }

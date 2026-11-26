@@ -33,11 +33,10 @@ pub(in crate::storage::catalog) fn publish_blob(
     let shard = blob_shard(destination)?;
     {
         // A concurrent publisher must not pass a creator whose parent fsync is unfinished.
-        let creation = SHARD_CREATION.lock();
+        let creation = crate::sync::lock_checked(&SHARD_CREATION);
         // The lock guards no data, so a creator that unwound must not stop all
         // later publishing. It may have left a shard whose parent entry was never
         // synced, so the next publisher syncs the parent before clearing the poison.
-        #[cfg(unix)]
         let unwound = creation.is_err();
         let _creation = creation.unwrap_or_else(std::sync::PoisonError::into_inner);
         #[cfg(unix)]
@@ -64,7 +63,10 @@ pub(in crate::storage::catalog) fn publish_blob(
             }
             Err(error) => return Err(error),
         }
-        SHARD_CREATION.clear_poison();
+        if unwound {
+            SHARD_CREATION.clear_poison();
+            crate::sync::report_recovery();
+        }
     }
     #[cfg(unix)]
     {
@@ -291,7 +293,7 @@ impl StagedFile {
             &tokio::runtime::Handle::current(),
             name,
             move || {
-                let closed = closed.lock().unwrap_or_else(PoisonError::into_inner);
+                let closed = crate::sync::lock(&closed);
                 let result = if *closed { Ok(()) } else { action(&mut writer) };
                 (writer, result)
             },
@@ -357,7 +359,7 @@ impl Drop for StagedFile {
         // runtime stops, revoke a queued job and fence any write already inside the OS.
         if let Some(job) = &self.pending {
             job.abort();
-            *self.closed.lock().unwrap_or_else(PoisonError::into_inner) = true;
+            *crate::sync::lock(&self.closed) = true;
         }
     }
 }

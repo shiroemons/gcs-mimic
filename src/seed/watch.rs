@@ -33,7 +33,7 @@ use crate::{
 };
 use std::{
     collections::HashSet,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -114,7 +114,7 @@ impl FailedPasses {
     /// first pass of a run warns, and a later one only for another reason than the last warning
     /// gave.
     fn failed(&self, reason: &str) -> bool {
-        let mut current = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut current = crate::sync::lock(&self.0);
         let Some(run) = current.as_mut() else {
             *current = Some(FailedRun {
                 warned: reason.to_owned(),
@@ -132,7 +132,7 @@ impl FailedPasses {
 
     /// Ends the run with a pass that ran, and tells how many passes it held, if any.
     fn ran(&self) -> Option<u64> {
-        let mut current = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut current = crate::sync::lock(&self.0);
         current.take().map(|run| run.passes)
     }
 }

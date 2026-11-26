@@ -68,7 +68,7 @@ struct Queued {
 impl CommitQueue {
     fn queued(&self) -> MutexGuard<'_, VecDeque<Queued>> {
         // Nothing under the lock can leave the queue half changed, so a poisoned one is valid.
-        self.queued.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::sync::lock(&self.queued)
     }
 
     fn push(&self, commit: UploadCommit, reply: oneshot::Sender<UploadOutcome>) -> Ticket {

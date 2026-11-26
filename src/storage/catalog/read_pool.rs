@@ -22,7 +22,7 @@ use rusqlite::{Connection, OpenFlags};
 use std::{
     path::PathBuf,
     sync::{
-        Arc, Mutex, PoisonError,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
@@ -108,7 +108,7 @@ pub(super) struct ParentPolicy {
 impl ParentPolicy {
     /// Takes effect for reads that start after this returns.
     pub(super) fn publish(&self, projects: &[String]) {
-        projects.clone_into(&mut self.projects.lock().unwrap_or_else(PoisonError::into_inner));
+        projects.clone_into(&mut crate::sync::lock(&self.projects));
         self.revision.fetch_add(1, Ordering::Release);
     }
 }
@@ -139,11 +139,7 @@ impl ReaderConnection {
         if self.parent_revision == revision {
             return Ok(());
         }
-        let projects = policy
-            .projects
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
+        let projects = crate::sync::lock(&policy.projects).clone();
         let transaction = self.connection.transaction()?;
         sql::exec(
             &transaction,
@@ -185,7 +181,7 @@ struct Shared {
 
 impl Shared {
     fn idle(&self) -> std::sync::MutexGuard<'_, Vec<Reader>> {
-        self.idle.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::sync::lock(&self.idle)
     }
 }
 

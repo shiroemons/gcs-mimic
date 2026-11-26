@@ -22,10 +22,7 @@ pub struct CorsWarnings(Mutex<BTreeSet<String>>);
 impl CorsWarnings {
     /// Records `bucket` and says whether this is its first logged fallback.
     fn claim(&self, bucket: &str) -> bool {
-        let mut warned = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut warned = crate::sync::lock(&self.0);
         warned.len() < WARNED_BUCKET_LIMIT && warned.insert(bucket.to_owned())
     }
 }

@@ -8,7 +8,7 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 
 mod worker;
 
@@ -189,10 +189,7 @@ static EVICTIONS: Mutex<EvictionLog> = Mutex::new(EvictionLog {
 });
 
 fn warn_evicted(evicted: u64, now: i64) {
-    let due = EVICTIONS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .record(evicted, now);
+    let due = crate::sync::lock(&EVICTIONS).record(evicted, now);
     if let Some(evicted) = due {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,

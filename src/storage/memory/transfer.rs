@@ -2,7 +2,7 @@ use super::*;
 
 impl Store {
     pub(in crate::storage) fn pin(&self, original: &str, id: String) -> Result<(), BlobError> {
-        let mut blobs = self.blobs.lock().map_err(|_| poisoned())?;
+        let mut blobs = crate::sync::lock_checked(&self.blobs).map_err(|_| poisoned())?;
         let original = blobs
             .get(original)
             .ok_or_else(|| io::Error::other("missing RAM source"))?;
@@ -61,7 +61,7 @@ impl Store {
             stage.reservation.resize(stage.fixed_charge)?;
         }
         stage.hasher = hasher;
-        let mut drafts = self.drafts.lock().map_err(|_| poisoned())?;
+        let mut drafts = crate::sync::lock_checked(&self.drafts).map_err(|_| poisoned())?;
         if drafts.contains_key(&id) {
             return Err(io::Error::from(io::ErrorKind::AlreadyExists).into());
         }
@@ -75,9 +75,7 @@ impl Store {
         id: &str,
         offset: u64,
     ) -> Result<Draft, BlobError> {
-        let stage = self
-            .drafts
-            .lock()
+        let stage = crate::sync::lock_checked(&self.drafts)
             .map_err(|_| poisoned())?
             .remove(id)
             .ok_or_else(|| io::Error::other("missing RAM draft"))?;
@@ -97,17 +95,19 @@ impl Store {
     }
 
     pub(in crate::storage) fn remove_draft(&self, id: &str) -> io::Result<()> {
-        self.drafts.lock().map_err(|_| poisoned())?.remove(id);
+        crate::sync::lock_checked(&self.drafts)
+            .map_err(|_| poisoned())?
+            .remove(id);
         Ok(())
     }
 
     pub(in crate::storage) fn publish_draft(&self, id: &str) -> Result<(), BlobError> {
-        let mut drafts = self.drafts.lock().map_err(|_| poisoned())?;
+        let mut drafts = crate::sync::lock_checked(&self.drafts).map_err(|_| poisoned())?;
         let stage = drafts
             .get_mut(id)
             .ok_or_else(|| io::Error::other("missing RAM draft"))?;
         stage.flush_pending()?;
-        let mut blobs = self.blobs.lock().map_err(|_| poisoned())?;
+        let mut blobs = crate::sync::lock_checked(&self.blobs).map_err(|_| poisoned())?;
         // A publication retry reuses the immutable candidate after a rolled-back SQL transaction.
         if !blobs.contains_key(id) {
             let blob = self.snapshot(&stage.chunks, stage.size)?;
@@ -121,13 +121,13 @@ impl Store {
         self: &Arc<Self>,
         id: &str,
     ) -> Result<Checkpoint, BlobError> {
-        let mut drafts = self.drafts.lock().map_err(|_| poisoned())?;
+        let mut drafts = crate::sync::lock_checked(&self.drafts).map_err(|_| poisoned())?;
         let stage = drafts
             .get_mut(id)
             .ok_or_else(|| io::Error::other("missing RAM draft"))?;
         stage.flush_pending()?;
         let blob = self.snapshot(&stage.chunks, stage.size)?;
-        let mut blobs = self.blobs.lock().map_err(|_| poisoned())?;
+        let mut blobs = crate::sync::lock_checked(&self.blobs).map_err(|_| poisoned())?;
         blobs.try_reserve(1).map_err(io::Error::other)?;
         // Existing readers retain the previous snapshot and its leases until their last clone.
         let previous = blobs.insert(id.into(), blob.clone());
@@ -189,7 +189,7 @@ impl Drop for Checkpoint {
         let Some(installed) = self.installed.take() else {
             return;
         };
-        match self.store.blobs.lock() {
+        match crate::sync::lock_checked(&self.store.blobs) {
             Ok(mut blobs) => {
                 if blobs
                     .get(&self.id)
@@ -265,9 +265,7 @@ impl Drop for Draft {
         };
         stage.hasher = self.acknowledged_hash.take();
         let result = stage.truncate(self.acknowledged).and_then(|()| {
-            self.store
-                .drafts
-                .lock()
+            crate::sync::lock_checked(&self.store.drafts)
                 .map_err(|_| poisoned())?
                 .insert(self.id.clone(), stage);
             Ok(())

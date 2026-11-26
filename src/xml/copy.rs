@@ -48,8 +48,7 @@ fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
         ));
     }
     let (bucket, name) = value
-        .strip_prefix('/')
-        .unwrap_or(value)
+        .trim_prefix('/')
         .split_once('/')
         .ok_or_else(|| Error::invalid("x-goog-copy-source must be /BUCKET/OBJECT"))?;
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;

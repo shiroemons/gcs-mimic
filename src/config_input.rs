@@ -286,10 +286,7 @@ impl Inputs {
                 ));
                 continue;
             };
-            let name = key
-                .strip_prefix("GCS_MIMIC_")
-                .unwrap_or(&key)
-                .to_ascii_lowercase();
+            let name = key.trim_prefix("GCS_MIMIC_").to_ascii_lowercase();
             let (value, invalid) = match value.into_string() {
                 Ok(value) => (value, None),
                 Err(_) => (String::new(), Some(InputError::Encoding)),

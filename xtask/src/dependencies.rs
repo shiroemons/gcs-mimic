@@ -292,7 +292,7 @@ fn go_mod(source: &str) -> Result<GoModule> {
 
 fn go_stable_version(name: &str) -> Option<(u64, u64, u64)> {
     let core = name.strip_prefix('v')?;
-    version(core.strip_suffix("+incompatible").unwrap_or(core))
+    version(core.trim_suffix("+incompatible"))
 }
 
 /// Returns the commit timestamp of a Go pseudo-version, such as
@@ -367,7 +367,7 @@ fn go_retractions(source: &str) -> Result<Vec<(String, String)>> {
 
 fn go_version_bound(name: &str) -> Result<((u64, u64, u64), bool)> {
     let name = name.strip_prefix('v').ok_or("invalid Go version prefix")?;
-    let name = name.strip_suffix("+incompatible").unwrap_or(name);
+    let name = name.trim_suffix("+incompatible");
     let (core, pre) = name
         .split_once('-')
         .map_or((name, None), |(v, p)| (v, Some(p)));

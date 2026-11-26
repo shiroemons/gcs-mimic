@@ -399,11 +399,7 @@ impl Catalog {
     }
 
     fn counted_upload(&self, activity: Activity) -> Result<UploadGuard, ObjectError> {
-        let mut uploads = self
-            .0
-            .uploads
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut uploads = crate::sync::lock(&self.0.uploads);
         if uploads.closed || !self.is_healthy() {
             return Err(object_unavailable(
                 crate::storage::failure::BackendFailure::CatalogClosed,

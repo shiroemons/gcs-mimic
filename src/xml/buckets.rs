@@ -18,7 +18,7 @@ pub(crate) fn matches(method: &Method, uri: &Uri, selected: Option<&ObjectPath>)
             && *method == Method::PUT
             && !super::reserved_path(uri.path())
             && uri.path().strip_prefix('/').is_some_and(|path| {
-                let path = path.strip_suffix('/').unwrap_or(path);
+                let path = path.trim_suffix('/');
                 !path.is_empty() && !path.contains('/')
             }))
         || selected.is_some_and(|path| {

@@ -43,6 +43,7 @@ pub mod server;
 mod service;
 pub mod source_tree;
 pub mod storage;
+mod sync;
 mod task;
 #[cfg(test)]
 #[expect(

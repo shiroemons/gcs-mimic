@@ -31,6 +31,10 @@ disallowed-methods = [
     { path = "tokio::runtime::Runtime::spawn", reason = "unsupervised; use crate::task::spawn_supervised_on" },
     { path = "std::thread::spawn", reason = "unsupervised; use crate::task::spawn_thread" },
     { path = "std::thread::Builder::spawn", reason = "unsupervised; use crate::task::spawn_thread" },
+    # Recover through a named policy or surface a failed lock to the caller or health checks.
+    { path = "std::sync::Mutex::lock", reason = "use crate::sync::lock or a checked acquisition" },
+    { path = "std::sync::RwLock::read", reason = "use crate::sync::read or a checked acquisition" },
+    { path = "std::sync::RwLock::write", reason = "use crate::sync::write or a checked acquisition" },
     # These prepare their SQL on every call, which wastes CPU on request paths. Calls through
     # a Transaction resolve to them too; Statement methods from prepare_cached do not.
     { path = "rusqlite::Connection::execute", reason = "prepares on every call; use prepare_cached" },

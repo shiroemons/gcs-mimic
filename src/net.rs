@@ -12,7 +12,7 @@ pub(crate) enum TrailingDot {
 pub(crate) fn normalized_host(host: &str, trailing_dot: TrailingDot) -> String {
     let host = match trailing_dot {
         TrailingDot::Preserve => host,
-        TrailingDot::Remove => host.strip_suffix('.').unwrap_or(host),
+        TrailingDot::Remove => host.trim_suffix('.'),
     };
     host.to_ascii_lowercase()
 }

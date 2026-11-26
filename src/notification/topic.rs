@@ -16,7 +16,7 @@ impl Topic {
     /// `projects/{project}/topics/{topic}`, the path the Pub/Sub REST API addresses.
     pub(crate) fn relative(&self) -> &str {
         // Parsing builds the full form, so the prefix is always there.
-        self.0.strip_prefix(PREFIX).unwrap_or(&self.0)
+        self.0.trim_prefix(PREFIX)
     }
 
     /// A topic this server wrote, which must already be in the full form.
@@ -34,7 +34,7 @@ impl std::str::FromStr for Topic {
     type Err = NotificationError;
 
     fn from_str(topic: &str) -> Result<Self, NotificationError> {
-        let relative = topic.strip_prefix(PREFIX).unwrap_or(topic);
+        let relative = topic.trim_prefix(PREFIX);
         let invalid = || NotificationError::InvalidTopic(topic.to_owned());
         let mut parts = relative.split('/');
         let (Some("projects"), Some(project), Some("topics"), Some(name), None) = (
