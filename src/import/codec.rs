@@ -550,7 +550,60 @@ mod tests {
         }
         #[test]
         fn arbitrary_times_never_panic(input in any::<String>()) { let _ = parse_timestamp(&input); }
+
+        #[test]
+        fn publishable_import_custom_times_match_the_object_parser(
+            date in prop_oneof![
+                Just((1, 1, 1)),
+                Just((1969, 12, 31)),
+                Just((2000, 2, 29)),
+                Just((9999, 12, 31)),
+                (1..=9999, 1..=12, 1..=31),
+            ],
+            time in (0..=23, 0..=59, 0..=59),
+            digits in "[0-9]{0,6}0{0,3}",
+            zone in prop_oneof![Just("Z".to_owned()), "[+-][0-2][0-9]:[0-5][0-9]"],
+        ) {
+            let (year, month, day) = date;
+            let (hour, minute, second) = time;
+            let date = format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}");
+            let input = if digits.is_empty() {
+                format!("{date}{zone}")
+            } else {
+                format!("{date}.{digits}{zone}")
+            };
+            if is_unset_time(&input) == Ok(false) {
+                let instant = crate::object::custom_time_key(&input);
+                prop_assert!(instant.is_ok(), "{input}: {instant:?}");
+                let micros = parse_timestamp(&input).unwrap();
+                prop_assert_eq!(instant.unwrap().micros_and_remainder(), Some((micros, 0)));
+            }
+        }
     }
+
+    #[test]
+    fn import_preflight_accepts_some_custom_times_that_publication_rejects() {
+        use crate::{
+            metadata_error::MetadataError,
+            object::{ObjectError, ObjectMetadataUpdate, Patch},
+        };
+
+        for input in ["1969-12-31T23:59:59.0000000000Z", "0000-12-31T23:59:59Z"] {
+            assert_eq!(is_unset_time(input), Ok(false), "{input}");
+            let update = ObjectMetadataUpdate {
+                custom_time: Patch::Set(input.into()),
+                ..Default::default()
+            };
+            assert!(
+                matches!(
+                    update.validate(),
+                    Err(ObjectError::Metadata(MetadataError::CustomTime))
+                ),
+                "{input}"
+            );
+        }
+    }
+
     #[test]
     fn exact_times_offsets_zero_and_negative_epoch() {
         assert_eq!(parse_timestamp("1970-01-01T00:00:00Z"), Ok(0));
