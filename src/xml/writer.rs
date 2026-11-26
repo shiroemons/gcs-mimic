@@ -110,3 +110,27 @@ impl XmlWriter {
         self.body
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_and_display_escape_runs_at_utf8_boundaries() {
+        for (quotes, expected) in [
+            (Quotes::Literal, "&lt;猫&amp;&gt;\"'é&lt;"),
+            (Quotes::Escaped, "&lt;猫&amp;&gt;&quot;&apos;é&lt;"),
+        ] {
+            let mut writer = XmlWriter::with_quotes("Root", Namespace::None, quotes);
+            let text = "<猫&>\"'é<";
+            writer.element("Text", text);
+            writer.value("Value", text);
+            assert_eq!(
+                writer.finish(),
+                format!(
+                    "{DECLARATION}<Root><Text>{expected}</Text><Value>{expected}</Value></Root>"
+                )
+            );
+        }
+    }
+}
