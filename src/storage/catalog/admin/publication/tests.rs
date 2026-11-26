@@ -2,7 +2,7 @@ use super::super::tests::{body, request, setup, setup_with_limits};
 use super::*;
 use crate::object::{MapPatch, Patch};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
-use crate::test_support::{eventually_async, eventually_some_async};
+use crate::test_support::{blob_count, eventually_async, eventually_some_async};
 use std::io::{Seek, SeekFrom};
 use std::{collections::BTreeMap, fs};
 
@@ -131,13 +131,6 @@ async fn entry(admin: &Admin, dir: &std::path::Path, name: &str, bytes: &[u8]) -
         request: request(None),
         staged,
     }
-}
-
-fn blob_count(dir: &std::path::Path) -> usize {
-    fs::read_dir(dir.join("blobs"))
-        .unwrap()
-        .map(|shard| fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum()
 }
 
 /// The last object generation the catalog allocated, which a rolled-back or skipped

@@ -41,6 +41,13 @@ pub(crate) struct UploadCleanup {
     pub derived: usize,
 }
 
+pub(crate) fn blob_count(data: &Path) -> usize {
+    fs::read_dir(data.join("blobs"))
+        .unwrap()
+        .map(|shard| fs::read_dir(shard.unwrap().path()).unwrap().count())
+        .sum()
+}
+
 pub(crate) fn upload_files(dir: &Path, directory: &str) -> usize {
     fs::read_dir(dir.join(directory))
         .unwrap()

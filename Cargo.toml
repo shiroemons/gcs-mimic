@@ -146,7 +146,7 @@ libc = "0.2.191"
 mimalloc = { version = "0.1.52", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_Console", "Win32_System_Threading"] }

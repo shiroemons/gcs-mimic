@@ -8,7 +8,7 @@ use crate::{
             version,
         },
     },
-    test_support::{TestDir, eventually_async},
+    test_support::{TestDir, blob_count, eventually_async},
 };
 use bytes::Bytes;
 use std::{
@@ -47,13 +47,6 @@ async fn retained(data: &Path) -> (Catalog, ObjectTarget<i64>, Arc<ManualClock>)
         ObjectTarget::new("bucket", "object", record.generation),
         clock,
     )
-}
-
-fn blob_count(data: &Path) -> usize {
-    fs::read_dir(data.join("blobs"))
-        .unwrap()
-        .map(|shard| fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum()
 }
 
 async fn assert_state(catalog: &Catalog, target: ObjectTarget<i64>, committed: bool) {

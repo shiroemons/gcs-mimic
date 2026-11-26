@@ -1,4 +1,5 @@
 use super::cleanup::DiscardedTransfer;
+use super::source::PublicationFile;
 use super::*;
 
 pub(crate) struct DerivedBody {
@@ -74,6 +75,7 @@ pub(crate) struct DerivedPublication<T> {
 fn publish_transfer<P, C, T>(
     connection: &mut Connection,
     request: TransferPublication<P, C>,
+    pins: Vec<BlobId>,
 ) -> Result<Published<T>, ObjectError>
 where
     P: FnOnce(&sql::WriteTx<'_>, &mut ObjectRecord) -> Result<(), ObjectError>,
@@ -87,12 +89,6 @@ where
         return Err(ObjectError::DerivedTransferIncomplete);
     }
     let (blob, hashes) = request.pinned.unwrap_or_else(|| (id, hasher.finish()));
-    let pins = inputs(connection, &id)?
-        .into_iter()
-        .map(|source| source.id)
-        // The commit transfers a private snapshot's input row to the destination.
-        .filter(|source| *source != blob)
-        .collect::<Vec<_>>();
     if backend.is_memory() && request.pinned.is_none() {
         backend.publish_draft(&id)?;
     }
@@ -394,13 +390,17 @@ impl Catalog {
             let clock = catalog.0.policy.clock.clone();
             let principals = catalog.0.policy.principals.clone();
             let input = pin.as_ref().map(|p| p.input);
+            let snapshot = pin.as_ref().is_some_and(|p| matches!(p.file, PublicationFile::Snapshot));
             let pinned = pin.as_mut().map(|p| {
-                p.pin.backend = None;
-                (p.pin.id, p.hashes)
+                let blob = match &mut p.file {
+                    PublicationFile::Link(link) => { link.backend = None; link.id }
+                    PublicationFile::Snapshot => p.input,
+                };
+                (blob, p.hashes)
             });
             let blob = pinned.map_or(id, |(blob, _)| blob);
             let result = async {
-            catalog.run_upload_admitted(execution, move |connection| {
+            let pins = catalog.run_upload_admitted(execution, move |connection| {
                 let (progress, _) = transfer(connection, &query, UnixMillis::try_from(clock.now())?)?;
                 let sources = inputs(connection, &query)?;
                 let ready = match input {
@@ -408,12 +408,13 @@ impl Catalog {
                     None => progress.offset == progress.total,
                 };
                 if !ready { return Err(ObjectError::DerivedTransferIncomplete); }
-                if input == Some(blob) {
+                if snapshot {
                     // This first and only call has issued no token. Once its sole input
                     // moves to blobs, a crash must abandon the transfer and sweep the orphan.
                     sql::exec_on_writer(connection, "UPDATE derived_transfers SET ephemeral=1 WHERE id=?1 AND ephemeral=0", [query])?;
+                    return Ok(Vec::new());
                 }
-                Ok(())
+                Ok(sources.into_iter().map(|source| source.id).collect())
             }).await?;
             if !backend.is_memory() {
                 if pinned.is_none() {
@@ -423,7 +424,7 @@ impl Catalog {
                 catalog.publish_staged(blob.staging_path(&catalog.0.storage.data_dir), blob.blob_path(&catalog.0.storage.data_dir)).await?;
             }
             let publication = TransferPublication { id, pinned, destination, backend, clock: catalog.0.policy.clock.clone(), principals, replay, prepare, complete };
-            let published = catalog.run_upload(move |connection| publish_transfer(connection, publication)).await?;
+            let published = catalog.run_upload(move |connection| publish_transfer(connection, publication, pins)).await?;
             catalog.release_transfer(DiscardedTransfer { id, pins: published.pins }).await;
             catalog.reclaim_if(published.journaled).await;
             Ok::<_, ObjectError>(DerivedPublication { record: published.record, completion: published.completion })

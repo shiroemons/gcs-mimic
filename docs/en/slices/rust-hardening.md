@@ -879,13 +879,15 @@ live blob (`publish_pinned`).
   When selection itself cannot link, it opens the source in the selecting
   transaction and copies it to private staging on the blocking pool. A
   single-call copy or eligible rewrite publishes that snapshot with the
-  hashes computed during the copy. Once its input moves, a crash discards
-  the unpublished request. No continuation token has been issued.
+  hashes computed during the copy. Before renaming the snapshot, publication
+  persists `ephemeral=1` so recovery discards the unpublished request.
+  No continuation token has been issued.
 - On Windows, Rust maps `ERROR_NOT_SAME_DEVICE` to `CrossesDevices`,
   `ERROR_TOO_MANY_LINKS` to `TooManyLinks`, `ERROR_ACCESS_DENIED` to
   `PermissionDenied` and `ERROR_CALL_NOT_IMPLEMENTED` to `Unsupported`.
   The link fallback also recognizes the raw codes for `ERROR_INVALID_FUNCTION`
-  and `ERROR_NOT_SUPPORTED`, which this toolchain leaves uncategorized.
+  and `ERROR_NOT_SUPPORTED`, which fall through to `Uncategorized` in
+  [Rust 1.100.0's Windows error mapping](https://github.com/rust-lang/rust/blob/0ef1bc386059596dada8fb65b50425aab2ea637a/library/std/src/sys/io/error/windows.rs).
 - **Tests.** Publication gets the crash and `Fault::PowerLoss` tests at the
   rename and directory-sync seams.
 - A single 1 GiB JSON copy on the disk backend over HTTP/1 loopback on

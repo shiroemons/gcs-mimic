@@ -236,10 +236,7 @@ pub(crate) fn staging_count(dir: &TestDir) -> usize {
 }
 
 pub(crate) fn blob_count(dir: &TestDir) -> usize {
-    std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum()
+    super::input_fixtures::blob_count(&dir.0)
 }
 
 pub(crate) fn no_leaks(dir: &TestDir, expected: usize) {

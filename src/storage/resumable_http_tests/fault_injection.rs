@@ -11,7 +11,7 @@ use super::*;
 use crate::storage::catalog::fault::Crash;
 use crate::storage::catalog::fault::{Fault, MID_WRITE_BODY_BYTES, Step};
 use crate::storage::test_fixtures::{PERMISSIVE, live, read_all as read_body};
-use crate::test_support::{StoredObjects, UploadCleanup, eventually_async};
+use crate::test_support::{StoredObjects, UploadCleanup, blob_count, eventually_async};
 use std::{io::ErrorKind, path::Path};
 
 const CORRUPT: &str =
@@ -74,13 +74,6 @@ fn staged(dir: &Path) -> Vec<String> {
         .collect();
     names.sort();
     names
-}
-
-fn blob_count(dir: &Path) -> usize {
-    std::fs::read_dir(dir.join("blobs"))
-        .unwrap()
-        .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum()
 }
 
 fn count(dir: &Path, sql: &str) -> usize {

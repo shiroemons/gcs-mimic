@@ -209,7 +209,7 @@ mod tests {
         bucket::BucketAccess,
         object::{ObjectConditions, UploadChunk},
         storage::DerivedTransfer,
-        test_support::TestDir,
+        test_support::{TestDir, UploadCleanup, blob_count},
     };
     use bytes::Bytes;
     use std::{fs, time::Duration};
@@ -274,12 +274,42 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
+    enum CopyPath {
+        Linked,
+        Snapshot,
+        Stream(u64),
+    }
+
+    impl CopyPath {
+        fn before_selection(self, catalog: &Catalog) {
+            if matches!(self, Self::Snapshot) {
+                refuse_link(catalog);
+            }
+        }
+
+        fn checkpoint(self) -> u64 {
+            match self {
+                Self::Linked | Self::Snapshot => 0,
+                Self::Stream(offset) => offset,
+            }
+        }
+    }
+
+    fn refuse_link(catalog: &Catalog) {
+        catalog.inject(
+            crate::storage::fault::Step::CopyLink,
+            0,
+            crate::storage::fault::Fault::Io(std::io::ErrorKind::Unsupported),
+        );
+    }
+
     fn start(
         catalog: &Catalog,
         source: DerivedSource,
         source_access: BucketAccess,
         destination: DerivedDestination,
-        after_bytes: impl Into<Option<u64>>,
+        path: CopyPath,
         wait_ms: u64,
     ) -> (
         tokio::task::JoinHandle<Result<ObjectRecord, ObjectError>>,
@@ -287,15 +317,10 @@ mod tests {
         oneshot::Sender<()>,
     ) {
         let catalog = catalog.clone();
-        let after_bytes = after_bytes.into();
-        if after_bytes.is_some() {
-            catalog.inject(
-                crate::storage::fault::Step::CopyLink,
-                0,
-                crate::storage::fault::Fault::Io(std::io::ErrorKind::Unsupported),
-            );
+        if matches!(path, CopyPath::Stream(_)) {
+            refuse_link(&catalog);
         }
-        let after_bytes = after_bytes.unwrap_or(0);
+        let after_bytes = path.checkpoint();
         let (reached, observed) = oneshot::channel();
         let (resume, paused) = oneshot::channel();
         let request = tokio::spawn(async move {
@@ -357,7 +382,7 @@ mod tests {
             source,
             BucketAccess::Permissive,
             target,
-            BYTE_BUDGET,
+            CopyPath::Stream(BYTE_BUDGET),
             250,
         );
         let progress = progress.await.unwrap();
@@ -392,8 +417,14 @@ mod tests {
         let existing = put(&catalog, "copy", b"preserved".to_vec()).await;
         let mut target = destination(&source, "copy", b"");
         target.conditions.if_generation_match = Some(0);
-        let (request, observed, _resume) =
-            start(&catalog, source, BucketAccess::Permissive, target, 0, 5000);
+        let (request, observed, _resume) = start(
+            &catalog,
+            source,
+            BucketAccess::Permissive,
+            target,
+            CopyPath::Stream(0),
+            5000,
+        );
         assert!(matches!(
             tokio::time::timeout(Duration::from_secs(5), request)
                 .await
@@ -419,8 +450,14 @@ mod tests {
             let (catalog, path) = fixture().await;
             let source = source(&catalog).await;
             let target = destination(&source, "copy", b"");
-            let (request, progress, resume) =
-                start(&catalog, source, BucketAccess::Permissive, target, 0, 5000);
+            let (request, progress, resume) = start(
+                &catalog,
+                source,
+                BucketAccess::Permissive,
+                target,
+                CopyPath::Stream(0),
+                5000,
+            );
             let progress = progress.await.unwrap();
             if drop_handler {
                 request.abort();
@@ -462,7 +499,7 @@ mod tests {
                 source,
                 BucketAccess::Permissive,
                 target,
-                BYTE_BUDGET,
+                CopyPath::Stream(BYTE_BUDGET),
                 5000,
             );
             let progress = progress.await.unwrap();
@@ -530,8 +567,14 @@ mod tests {
             .unwrap();
         let target = destination(&source, "copy", b"");
         let refused = ObjectError::Denied(access.denied("bucket"));
-        let (request, progress, resume) =
-            start(&catalog, source, access, target, BYTE_BUDGET, 5000);
+        let (request, progress, resume) = start(
+            &catalog,
+            source,
+            access,
+            target,
+            CopyPath::Stream(BYTE_BUDGET),
+            5000,
+        );
         let progress = progress.await.unwrap();
         assert_eq!(progress.offset, BYTE_BUDGET);
         catalog
@@ -566,15 +609,20 @@ mod tests {
 
     #[tokio::test]
     async fn copy_rechecks_source_read_grant_before_publication() {
-        for checkpoint in [Some(BYTE_BUDGET), None] {
+        for checkpoint in [
+            CopyPath::Stream(BYTE_BUDGET),
+            CopyPath::Linked,
+            CopyPath::Snapshot,
+        ] {
             revoked_source_grant(checkpoint).await;
         }
     }
 
-    async fn revoked_source_grant(checkpoint: Option<u64>) {
+    async fn revoked_source_grant(checkpoint: CopyPath) {
         use crate::auth::{Auth, Binding, OBJECTS_GET, Policy, Registry};
 
         let (catalog, path) = fixture().await;
+        checkpoint.before_selection(&catalog);
         let auth = Auth::strict(
             Registry::parse(br#"{"identities":[{"id":"reader","tokens":["token"]}]}"#).unwrap(),
         );
@@ -607,7 +655,7 @@ mod tests {
         let refused = ObjectError::Denied(access.denied("bucket"));
         let (request, progress, resume) = start(&catalog, source, access, target, checkpoint, 5000);
         let progress = progress.await.unwrap();
-        assert_eq!(progress.offset, checkpoint.unwrap_or(0));
+        assert_eq!(progress.offset, checkpoint.checkpoint());
         catalog
             .set_policy(
                 "bucket",
@@ -633,35 +681,28 @@ mod tests {
             Err(ObjectError::ObjectNotFound)
         );
         clean(&catalog, &path.0, &progress.id).await;
-        let connection = rusqlite::Connection::open(path.0.join("catalog.sqlite3")).unwrap();
         assert_eq!(blob_count(&path.0), 1);
         assert_eq!(
-            connection
-                .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
+            UploadCleanup::observe(&path.0, catalog.active_uploads()).derived,
             0
         );
-        drop(connection);
         catalog.close().await.unwrap();
     }
 
     #[tokio::test]
     async fn copy_rechecks_destination_conditions_after_the_advisory_check() {
-        for checkpoint in [Some(BYTE_BUDGET), None] {
+        for checkpoint in [
+            CopyPath::Stream(BYTE_BUDGET),
+            CopyPath::Linked,
+            CopyPath::Snapshot,
+        ] {
             competing_destination(checkpoint).await;
         }
     }
 
-    fn blob_count(root: &std::path::Path) -> usize {
-        fs::read_dir(root.join("blobs"))
-            .unwrap()
-            .map(|s| fs::read_dir(s.unwrap().path()).unwrap().count())
-            .sum()
-    }
-
-    async fn competing_destination(checkpoint: Option<u64>) {
+    async fn competing_destination(checkpoint: CopyPath) {
         let (catalog, path) = fixture().await;
+        checkpoint.before_selection(&catalog);
         let source = source(&catalog).await;
         let mut target = destination(&source, "copy", b"");
         target.conditions.if_generation_match = Some(0);
@@ -686,7 +727,47 @@ mod tests {
         );
         clean(&catalog, &path.0, &progress.id).await;
         assert_eq!(blob_count(&path.0), 2);
+        assert_eq!(
+            UploadCleanup::observe(&path.0, catalog.active_uploads()).derived,
+            0
+        );
         catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_snapshot_publication_releases_its_input_and_transfer() {
+        use crate::storage::fault::{Fault, Step};
+        for step in [Step::BeforePublish, Step::BeforeCommit] {
+            let (catalog, path) = fixture().await;
+            let route = CopyPath::Snapshot;
+            route.before_selection(&catalog);
+            let source = source(&catalog).await;
+            let target = destination(&source, "copy", b"");
+            let (request, progress, resume) = start(
+                &catalog,
+                source,
+                BucketAccess::Permissive,
+                target,
+                route,
+                5000,
+            );
+            let transfer = progress.await.unwrap();
+            catalog.inject(step, 0, Fault::Io(std::io::ErrorKind::Other));
+            resume.send(()).unwrap();
+            assert!(request.await.unwrap().unwrap_err().is_backend_failure());
+            assert_eq!(catalog.pending_faults(), 0);
+            clean(&catalog, &path.0, &transfer.id).await;
+            let files = UploadCleanup::observe(&path.0, catalog.active_uploads());
+            assert!(files.is_complete(), "{step:?}: {files:?}");
+            assert_eq!(files.objects, 1);
+            assert_eq!(
+                catalog
+                    .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
+                    .await,
+                Err(ObjectError::ObjectNotFound)
+            );
+            catalog.close().await.unwrap();
+        }
     }
 
     #[tokio::test]
@@ -700,7 +781,7 @@ mod tests {
             source,
             BucketAccess::Permissive,
             target,
-            BYTE_BUDGET,
+            CopyPath::Stream(BYTE_BUDGET),
             5000,
         );
         let progress = progress.await.unwrap();
@@ -730,7 +811,7 @@ mod tests {
             source,
             BucketAccess::Permissive,
             target,
-            length,
+            CopyPath::Stream(length),
             100,
         );
         let progress = progress.await.unwrap();
@@ -785,7 +866,7 @@ mod tests {
             source,
             BucketAccess::Permissive,
             target,
-            BYTE_BUDGET,
+            CopyPath::Stream(BYTE_BUDGET),
             5000,
         );
         let progress = progress.await.unwrap();

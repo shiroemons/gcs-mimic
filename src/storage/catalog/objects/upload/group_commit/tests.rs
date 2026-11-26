@@ -1,7 +1,7 @@
 use super::*;
 use crate::storage::catalog::fault::{Crash, Fault};
 use crate::storage::test_fixtures::{PERMISSIVE, body, bucket, live, permissive_upload};
-use crate::test_support::{TestDir, eventually_async, joined};
+use crate::test_support::{TestDir, blob_count, eventually_async, joined};
 
 const NAMES: [&str; 3] = ["first", "second", "third"];
 
@@ -28,13 +28,6 @@ async fn read(catalog: &Catalog, name: &str) -> Result<ObjectRecord, ObjectError
     catalog
         .get_object(live("bucket", name), Default::default(), PERMISSIVE)
         .await
-}
-
-fn blob_count(data: &Path) -> usize {
-    fs::read_dir(data.join("blobs"))
-        .unwrap()
-        .map(|shard| fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum()
 }
 
 /// Holds the writer, starts an upload of each name whose body is the name itself, and returns

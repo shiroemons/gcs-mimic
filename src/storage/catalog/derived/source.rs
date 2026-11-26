@@ -29,10 +29,16 @@ impl Drop for SourcePin {
 }
 
 pub(crate) struct PublicationPin {
-    pub(super) pin: SourcePin,
+    pub(super) file: PublicationFile,
     pub(super) input: BlobId,
     pub(super) hashes: Hashes,
     _activity: std::sync::Arc<super::super::Activity>,
+}
+
+pub(super) enum PublicationFile {
+    Link(SourcePin),
+    /// The transfer's single input is already a durable, private copy.
+    Snapshot,
 }
 
 fn link_unavailable(error: &BlobError) -> bool {
@@ -135,10 +141,7 @@ impl DerivedSource {
         if let Some(hashes) = self.snapshot_hashes {
             // The input row owns this private file until publication takes it over.
             return Ok(Some(PublicationPin {
-                pin: SourcePin {
-                    backend: None,
-                    id: input,
-                },
+                file: PublicationFile::Snapshot,
                 input,
                 hashes,
                 _activity: activity,
@@ -155,10 +158,10 @@ impl DerivedSource {
             let id = random_id()?;
             match backend.pin_staged(&input, &id) {
                 Ok(()) => Ok(Some(PublicationPin {
-                    pin: SourcePin {
+                    file: PublicationFile::Link(SourcePin {
                         backend: Some(backend),
                         id,
-                    },
+                    }),
                     input,
                     hashes,
                     _activity: activity,

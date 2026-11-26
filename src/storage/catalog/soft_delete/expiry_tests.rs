@@ -11,11 +11,11 @@ use crate::{
             PERMISSIVE, PERMISSIVE_RESTORE, body, bucket, live, permissive_upload, version,
         },
     },
-    test_support::{TestDir, eventually_async},
+    test_support::{TestDir, blob_count, eventually_async},
 };
 use bytes::Bytes;
 use std::{
-    fs, io,
+    io,
     path::Path,
     sync::Arc,
     time::{Duration, UNIX_EPOCH},
@@ -77,13 +77,6 @@ async fn soft_delete(catalog: &Catalog, bucket: &str, name: &str) -> i64 {
         .await
         .unwrap();
     generation
-}
-
-fn blob_files(data: &Path) -> usize {
-    fs::read_dir(data.join("blobs"))
-        .unwrap()
-        .map(|shard| fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum()
 }
 
 async fn count(catalog: &Catalog, query: &'static str) -> i64 {
@@ -172,13 +165,13 @@ async fn only_journaled_generations_add_reclamation_jobs() {
     assert_ne!(generation, replacement);
     // A journaled overwrite adds selection and acknowledgement on the writer.
     assert_eq!(catalog.job_counts(), (writes + 7, reads));
-    assert_eq!(blob_files(&data.0), 1);
+    assert_eq!(blob_count(&data.0), 1);
     catalog
         .delete_object(live("bucket", "object"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(catalog.job_counts(), (writes + 10, reads));
-    assert_eq!(blob_files(&data.0), 0);
+    assert_eq!(blob_count(&data.0), 0);
     catalog.close().await.unwrap();
 }
 
@@ -197,7 +190,7 @@ async fn a_failed_delete_reclaims_the_committed_purge() {
         Err(ObjectError::ObjectNotFound)
     );
     assert_eq!(catalog.job_counts(), (writes + 3, reads));
-    assert_eq!(blob_files(&data.0), 0);
+    assert_eq!(blob_count(&data.0), 0);
     catalog.close().await.unwrap();
 }
 
@@ -222,7 +215,7 @@ async fn restart_before_delete_commit_recovers_both_the_purged_row_and_live_targ
             .await
             .unwrap();
         assert_eq!(fault::pending(&data.0), 0);
-        assert_eq!(blob_files(&data.0), 1);
+        assert_eq!(blob_count(&data.0), 1);
         catalog.close().await.unwrap();
 
         let recovered = Catalog::open_with_clock(&snapshot.0, clock).await.unwrap();
@@ -232,11 +225,11 @@ async fn restart_before_delete_commit_recovers_both_the_purged_row_and_live_targ
             .unwrap();
         assert_eq!(live.generation, generation);
         assert_eq!(soft_deleted_rows(&recovered).await, 1);
-        assert_eq!(blob_files(&snapshot.0), 2);
+        assert_eq!(blob_count(&snapshot.0), 2);
         recovered.maintain_resumable_sessions().await.unwrap();
         assert_eq!(soft_deleted_rows(&recovered).await, 0);
         assert_eq!(journal_rows(&recovered).await, 0);
-        assert_eq!(blob_files(&snapshot.0), 1);
+        assert_eq!(blob_count(&snapshot.0), 1);
         recovered.close().await.unwrap();
     }
 }
@@ -267,7 +260,7 @@ async fn a_failed_delete_commit_preserves_the_target_and_the_expired_generation(
     assert_eq!(live.generation, generation);
     assert_eq!(soft_deleted_rows(&catalog).await, 1);
     assert_eq!(journal_rows(&catalog).await, 0);
-    assert_eq!(blob_files(&data.0), 2);
+    assert_eq!(blob_count(&data.0), 2);
     catalog.close().await.unwrap();
 }
 
@@ -308,7 +301,7 @@ async fn a_partial_delete_rolls_back_to_the_purge_or_with_the_whole_transaction(
         assert_eq!(live.generation, generation);
         assert_eq!(soft_deleted_rows(&catalog).await, i64::from(!purge_commits));
         assert_eq!(journal_rows(&catalog).await, 0);
-        assert_eq!(blob_files(&data.0), if purge_commits { 1 } else { 2 });
+        assert_eq!(blob_count(&data.0), if purge_commits { 1 } else { 2 });
         catalog.close().await.unwrap();
     }
 }
@@ -433,7 +426,7 @@ async fn a_soft_deleted_listing_purges_expired_rows_on_the_writer() {
     assert_eq!(catalog.job_counts(), (writes + 3, reads));
     assert!(expired.items.is_empty());
     assert_eq!(soft_deleted_rows(&catalog).await, 0);
-    assert_eq!(blob_files(&data.0), 0);
+    assert_eq!(blob_count(&data.0), 0);
     catalog.close().await.unwrap();
 }
 
@@ -443,27 +436,27 @@ async fn disk_body_stays_until_the_hard_delete_time_and_is_then_removed() {
     let (catalog, clock) = open_disk(&data.0).await;
     retaining_bucket(&catalog, "bucket", 5).await;
     let generation = soft_delete(&catalog, "bucket", "object").await;
-    assert_eq!(blob_files(&data.0), 1);
+    assert_eq!(blob_count(&data.0), 1);
 
     assert_eq!(
         catalog.maintain_resumable_sessions().await.unwrap(),
         Some(start_time() + Duration::from_secs(5)),
         "the pass reports the hard delete time as its next deadline"
     );
-    assert_eq!(blob_files(&data.0), 1);
+    assert_eq!(blob_count(&data.0), 1);
 
     clock.advance(Duration::from_micros(4_999_999));
     assert_eq!(
         catalog.maintain_resumable_sessions().await.unwrap(),
         Some(start_time() + Duration::from_secs(5))
     );
-    assert_eq!(blob_files(&data.0), 1);
+    assert_eq!(blob_count(&data.0), 1);
     assert!(readable(&catalog, "bucket", "object", generation).await);
 
     // The first microsecond at which reads hide the row is also the first at which it is purged.
     clock.advance(Duration::from_micros(1));
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
-    assert_eq!(blob_files(&data.0), 0);
+    assert_eq!(blob_count(&data.0), 0);
     assert_eq!(soft_deleted_rows(&catalog).await, 0);
     assert_eq!(journal_rows(&catalog).await, 0);
     assert!(!readable(&catalog, "bucket", "object", generation).await);
@@ -526,10 +519,10 @@ async fn a_restored_version_survives_the_hard_delete_time_of_its_source() {
         )
         .await
         .unwrap();
-    assert_eq!(blob_files(&data.0), 2);
+    assert_eq!(blob_count(&data.0), 2);
     clock.advance(Duration::from_secs(5));
     catalog.maintain_resumable_sessions().await.unwrap();
-    assert_eq!(blob_files(&data.0), 1);
+    assert_eq!(blob_count(&data.0), 1);
     catalog
         .open_object(live("bucket", "object"), Default::default(), PERMISSIVE)
         .await
@@ -557,14 +550,14 @@ async fn the_next_deadline_is_the_earliest_across_buckets_and_soft_deleted_versi
         catalog.maintain_resumable_sessions().await.unwrap(),
         next(5)
     );
-    assert_eq!(blob_files(&data.0), 3);
+    assert_eq!(blob_count(&data.0), 3);
 
     clock.advance(Duration::from_secs(5));
     assert_eq!(
         catalog.maintain_resumable_sessions().await.unwrap(),
         next(10)
     );
-    assert_eq!(blob_files(&data.0), 2);
+    assert_eq!(blob_count(&data.0), 2);
 
     // The version's object and the version itself expire together here.
     clock.advance(Duration::from_secs(5));
@@ -572,7 +565,7 @@ async fn the_next_deadline_is_the_earliest_across_buckets_and_soft_deleted_versi
         catalog.maintain_resumable_sessions().await.unwrap(),
         next(30)
     );
-    assert_eq!(blob_files(&data.0), 1);
+    assert_eq!(blob_count(&data.0), 1);
     catalog.close().await.unwrap();
 }
 
@@ -596,7 +589,7 @@ async fn one_pass_clears_a_disk_backlog_beyond_every_batch_limit() {
     let data = TestDir::new();
     let (catalog, clock) = open_disk(&data.0).await;
     assert_backlog_is_purged(&catalog, &clock).await;
-    assert_eq!(blob_files(&data.0), 0);
+    assert_eq!(blob_count(&data.0), 0);
     catalog.close().await.unwrap();
 }
 
@@ -624,7 +617,7 @@ async fn one_pass_drains_a_soft_deleted_bucket_holding_more_than_a_reclamation_p
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     assert_eq!(soft_deleted_rows(&catalog).await, 0);
     assert_eq!(journal_rows(&catalog).await, 0);
-    assert_eq!(blob_files(&data.0), 0);
+    assert_eq!(blob_count(&data.0), 0);
     catalog.close().await.unwrap();
 }
 
@@ -687,12 +680,12 @@ async fn a_failed_blob_removal_stays_journaled_and_the_next_pass_finishes_it() {
     assert!(catalog.resumable_maintenance_error().is_some());
     assert_eq!(soft_deleted_rows(&catalog).await, 0);
     assert_eq!(journal_rows(&catalog).await, 1);
-    assert_eq!(blob_files(&data.0), 1);
+    assert_eq!(blob_count(&data.0), 1);
 
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     assert!(catalog.resumable_maintenance_error().is_none());
     assert_eq!(journal_rows(&catalog).await, 0);
-    assert_eq!(blob_files(&data.0), 0);
+    assert_eq!(blob_count(&data.0), 0);
     catalog.close().await.unwrap();
 }
 
@@ -712,11 +705,11 @@ async fn a_failed_expiry_commit_keeps_the_row_and_the_next_pass_purges_it() {
     catalog.maintain_resumable_sessions().await.unwrap_err();
     assert_eq!(soft_deleted_rows(&catalog).await, 1);
     assert_eq!(journal_rows(&catalog).await, 0);
-    assert_eq!(blob_files(&data.0), 1);
+    assert_eq!(blob_count(&data.0), 1);
 
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     assert_eq!(soft_deleted_rows(&catalog).await, 0);
-    assert_eq!(blob_files(&data.0), 0);
+    assert_eq!(blob_count(&data.0), 0);
     catalog.close().await.unwrap();
 }
 
@@ -739,7 +732,7 @@ async fn crash_at_every_expiry_boundary_recovers_without_losing_the_deletion() {
             fault::arm(&data.0, step, 0, crash.fault(snapshot.0.clone()));
             assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
             assert_eq!(fault::pending(&data.0), 0, "{crash:?} {step:?}");
-            assert_eq!(blob_files(&data.0), 0, "{crash:?} {step:?}");
+            assert_eq!(blob_count(&data.0), 0, "{crash:?} {step:?}");
             catalog.close().await.unwrap();
 
             let recovered = Catalog::open_with_clock(&snapshot.0, clock.clone())
@@ -754,7 +747,7 @@ async fn crash_at_every_expiry_boundary_recovers_without_losing_the_deletion() {
                 "{crash:?} {step:?}"
             );
             assert_eq!(soft_deleted_rows(&recovered).await, 0, "{crash:?} {step:?}");
-            assert_eq!(blob_files(&snapshot.0), 0, "{crash:?} {step:?}");
+            assert_eq!(blob_count(&snapshot.0), 0, "{crash:?} {step:?}");
             recovered.close().await.unwrap();
         }
     }
@@ -894,7 +887,7 @@ async fn a_shorter_retention_wakes_a_scheduler_sleeping_until_a_later_deadline()
     clock.time.advance(Duration::from_secs(1));
     eventually_async("the brief retention to expire", || async {
         // The journal row outlives the unlink until the removal is durable.
-        blob_files(&data.0) == 1 && journal_rows(&catalog).await == 0
+        blob_count(&data.0) == 1 && journal_rows(&catalog).await == 0
     })
     .await;
     assert_eq!(soft_deleted_rows(&catalog).await, 1);

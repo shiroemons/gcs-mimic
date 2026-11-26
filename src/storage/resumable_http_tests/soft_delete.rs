@@ -2,6 +2,7 @@ use super::AuthProfile::{Permissive, Strict};
 use super::{Harness, Reply};
 use crate::object::ObjectTarget;
 use crate::storage::test_fixtures::{PERMISSIVE, PERMISSIVE_RESTORE};
+use crate::test_support::blob_count;
 use serde_json::{Value, json};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -251,13 +252,6 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
     h.stop().await;
 }
 
-fn blob_files(h: &Harness) -> usize {
-    std::fs::read_dir(h.dir.0.join("blobs"))
-        .unwrap()
-        .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum()
-}
-
 #[tokio::test]
 async fn short_retention_keeps_lists_and_restores_a_deletion_then_frees_its_body_when_due() {
     let h = Harness::start(1024, Permissive, None).await;
@@ -273,7 +267,7 @@ async fn short_retention_keeps_lists_and_restores_a_deletion_then_frees_its_body
     let listed = retained(&h).await;
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0]["generation"], kept["generation"]);
-    assert_eq!(blob_files(&h), 1);
+    assert_eq!(blob_count(&h.dir.0), 1);
 
     let restored = h
         .request(
@@ -295,13 +289,13 @@ async fn short_retention_keeps_lists_and_restores_a_deletion_then_frees_its_body
     upload(&h, "overwritten", b"first").await;
     upload(&h, "overwritten", b"second").await;
     assert_eq!(retained(&h).await.len(), 2);
-    let before_expiry = blob_files(&h);
+    let before_expiry = blob_count(&h.dir.0);
     h.clock.advance(Duration::from_secs(4));
     assert_eq!(
         h.state.catalog.maintain_resumable_sessions().await.unwrap(),
         Some(UNIX_EPOCH + Duration::from_secs(1005))
     );
-    assert_eq!(blob_files(&h), before_expiry);
+    assert_eq!(blob_count(&h.dir.0), before_expiry);
 
     h.clock.advance(Duration::from_secs(1));
     assert_eq!(
@@ -310,7 +304,7 @@ async fn short_retention_keeps_lists_and_restores_a_deletion_then_frees_its_body
     );
     assert!(retained(&h).await.is_empty());
     // Only the restored object and the live overwrite still own files.
-    assert_eq!(blob_files(&h), 2);
+    assert_eq!(blob_count(&h.dir.0), 2);
     assert_eq!(
         h.request(
             "GET",

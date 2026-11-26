@@ -3,7 +3,7 @@ use crate::storage::{
     ChunkEnd, ChunkWait, ResumableChunk, ResumableOptions,
     fault::{Crash, Fault},
 };
-use crate::test_support::TestDir;
+use crate::test_support::{TestDir, blob_count};
 use std::io::ErrorKind;
 
 async fn copy(
@@ -231,13 +231,7 @@ async fn link_limitations_fall_back_and_io_failures_keep_their_cause() {
             assert!(std::error::Error::source(&error).is_some());
             assert_eq!(catalog.pending_faults(), 0);
             assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
-            assert_eq!(
-                fs::read_dir(path.join("blobs"))
-                    .unwrap()
-                    .map(|s| fs::read_dir(s.unwrap().path()).unwrap().count())
-                    .sum::<usize>(),
-                1
-            );
+            assert_eq!(blob_count(&path), 1);
         }
     }
     catalog.close().await.unwrap();
@@ -304,11 +298,7 @@ async fn pin_publication_recovery_retains_only_committed_names_and_bytes() {
                 }
                 assert_eq!(bytes(&recovered, "source").await, b"immutable bytes");
                 delete(&recovered, "source").await;
-                assert!(
-                    fs::read_dir(snapshot.0.join("blobs"))
-                        .unwrap()
-                        .all(|entry| fs::read_dir(entry.unwrap().path()).unwrap().count() == 0)
-                );
+                assert_eq!(blob_count(&snapshot.0), 0);
                 assert_eq!(fs::read_dir(snapshot.0.join("staging")).unwrap().count(), 0);
                 recovered.close().await.unwrap();
                 fs::remove_dir_all(path).unwrap();
