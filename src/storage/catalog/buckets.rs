@@ -136,7 +136,7 @@ impl Catalog {
             // Commit failures may be ambiguous; cleanup rechecks the current bucket incarnation.
             catalog.schedule_multipart_orphan_scan();
             result?;
-            Ok::<_, CatalogError>(objects::Journaled::for_rows(removed))
+            Ok::<_, CatalogError>(objects::Journaled::from(removed != 0))
         })
         .await?;
         self.reclaim_if(journaled).await;

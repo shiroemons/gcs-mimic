@@ -158,6 +158,39 @@ async fn import_batch_rejects_missing_hashes_and_nonreplace_modes_before_binding
 }
 
 #[tokio::test]
+async fn an_import_collision_preserves_the_existing_blob_and_discards_the_candidate() {
+    let (dir, catalog, admin, binding) = setup(3).await;
+    bucket(&admin, &binding).await;
+    let item = entry(&dir, &admin, 2, "object", b"retained").await;
+    let result = admin
+        .publish_import_objects(binding.clone(), 1, vec![item])
+        .await
+        .unwrap();
+    let original = result.results[0].as_ref().unwrap();
+    let item = entry(&dir, &admin, 3, "object", b"rejected").await;
+    let (writes, reads) = catalog.job_counts();
+    let result = admin
+        .publish_import_objects(binding, 2, vec![item])
+        .await
+        .unwrap();
+    assert_eq!(result.results[0], Err(AdminError::Precondition));
+    assert_eq!(catalog.job_counts(), (writes + 2, reads));
+    catalog.assert_reclaimed_blobs(1);
+    assert_eq!(
+        &admin
+            .get_object(
+                &BucketName::new("test-bucket").unwrap(),
+                &ObjectName::new("object").unwrap(),
+                None
+            )
+            .await
+            .unwrap(),
+        original
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn import_publication_preserves_identity_settings_hold_and_atomic_prefix() {
     let (dir, catalog, admin, source) = setup(2).await;
     let mut record = definition().0;

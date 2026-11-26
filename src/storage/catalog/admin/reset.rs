@@ -87,6 +87,7 @@ fn reset(connection: &mut Connection, backend: &BlobBackend) -> Result<ResetOutc
             return Err(unavailable(error));
         }
     }
+    // Reset drains even pre-existing journal entries, irrespective of what this transaction added.
     let cleanup = match backend {
         BlobBackend::Memory(_) => backend.clear_memory().map_err(unavailable),
         BlobBackend::Disk(data_dir) => reclaim(connection, data_dir),
@@ -178,7 +179,7 @@ pub(super) fn clear_in_transaction(
             "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects UNION SELECT blob_id FROM resumable_sessions UNION SELECT blob_id FROM derived_inputs UNION SELECT id FROM derived_transfers UNION SELECT blob_id FROM derived_deletions UNION SELECT blob_id FROM appendable_objects UNION SELECT blob_id FROM xml_multipart_parts UNION SELECT blob_id FROM xml_multipart_deletions",
             [],
         )?;
-        objects::Journaled::for_rows(inserted as u64)
+        objects::Journaled::for_rows(inserted)
     } else {
         // RAM can drop its whole registry after commit; growing a disk recovery journal would block a full catalog's reset.
         sql::exec(transaction, "DELETE FROM pending_blob_deletions", [])?;

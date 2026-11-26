@@ -91,7 +91,7 @@ pub(super) fn after_purge<T>(
     op: impl FnOnce(&mut Connection) -> Result<T, ObjectError>,
 ) -> Result<(objects::Journaled, Result<T, ObjectError>), ObjectError> {
     let removed = purge_expired(connection, bucket, now)?;
-    Ok((objects::Journaled::for_rows(removed as u64), op(connection)))
+    Ok((objects::Journaled::for_rows(removed), op(connection)))
 }
 
 /// What one catalog turn of the expiry sweep did.

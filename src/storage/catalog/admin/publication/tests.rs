@@ -592,6 +592,20 @@ async fn publication_batch_isolates_failed_elements_and_cleans_unused_blobs() {
 }
 
 #[tokio::test]
+async fn a_batch_reclaims_the_object_it_replaces() {
+    let (dir, catalog, admin, _, _) = setup().await;
+    for (bytes, expected_jobs) in [(b"old", 2), (b"new", 4)] {
+        let item = entry(&admin, &dir.0, "object", bytes).await;
+        let (writes, reads) = catalog.job_counts();
+        let result = admin.publish_objects(vec![item]).await.unwrap();
+        assert!(result.results[0].is_ok());
+        assert_eq!(catalog.job_counts(), (writes + expected_jobs, reads));
+        catalog.assert_reclaimed_blobs(1);
+    }
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn publication_budget_returns_retryable_handles_and_releases_sql_lane() {
     let (dir, catalog, admin, bucket, _) = setup().await;
     let a = entry(&admin, &dir.0, "a", b"a").await;

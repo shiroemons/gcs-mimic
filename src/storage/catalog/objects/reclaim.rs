@@ -93,12 +93,18 @@ pub(in crate::storage::catalog) struct Journaled(bool);
 impl Journaled {
     pub(in crate::storage::catalog) const NOTHING: Self = Self(false);
     pub(in crate::storage::catalog) const SOME: Self = Self(true);
-    pub(in crate::storage::catalog) fn for_rows(rows: u64) -> Self {
+    pub(in crate::storage::catalog) fn for_rows(rows: usize) -> Self {
         Self(rows != 0)
     }
 
     pub(in crate::storage::catalog) fn any(self) -> bool {
         self.0
+    }
+}
+
+impl From<bool> for Journaled {
+    fn from(pending: bool) -> Self {
+        Self(pending)
     }
 }
 

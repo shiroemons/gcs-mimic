@@ -237,7 +237,7 @@ where
     let journaled = if retired == objects::Retired::Journaled {
         objects::Journaled::SOME
     } else {
-        objects::Journaled::for_rows(sql::scalar(
+        objects::Journaled::from(sql::scalar::<bool>(
             transaction,
             "SELECT EXISTS(SELECT 1 FROM derived_deletions WHERE transfer_id = ?1)",
             [id],

@@ -619,9 +619,10 @@ point reads already on the pool.
 | Lifecycle scan: statements batched per page | to count at slice start |
 
 `read_pool.rs` stops holding the idle-pool mutex while it starts an executor
-thread: the pop moves into its own statement. The derived sweep's leading
-`reclaim_pending` duplicates the final journal sweep and goes unless a pin
-depends on that order, which the slice checks first.
+thread: the pop moves into its own statement. Derived inputs hold independent
+disk hard links or RAM blob IDs, so the final deletion journal sweep reclaims
+retired sources. A failure draining that journal belongs to the deletion
+journal sweep in the maintenance diagnostic.
 
 ### Catalog structure and shutdown
 

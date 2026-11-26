@@ -139,6 +139,18 @@ fn pending(data: &Path) -> usize {
         .unwrap()
 }
 
+impl Catalog {
+    pub(crate) fn assert_reclaimed_blobs(&self, remaining: usize) {
+        let root = &self.0.data_dir;
+        assert_eq!(pending(root), 0);
+        let files: usize = fs::read_dir(root.join("blobs"))
+            .unwrap()
+            .map(|shard| fs::read_dir(shard.unwrap().path()).unwrap().count())
+            .sum();
+        assert_eq!(files, remaining);
+    }
+}
+
 fn assert_live_blobs(data: &Path) {
     for index in 0..140 {
         let id: BlobId = format!("00{index:030x}").parse().unwrap();

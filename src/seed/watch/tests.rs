@@ -302,6 +302,30 @@ async fn a_removed_file_deletes_its_object_after_a_second_proof_and_restores_it_
     watched.close().await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn a_confirmed_live_seed_deletion_reclaims_the_owned_blob() {
+    let watched = watched_with(|config| config.seed_watch_interval = None).await;
+    let clock: Arc<dyn Clock> = watched.clock.clone();
+    watched.remove("bucket/b");
+    let run = |number| walk_and_commit(&watched.catalog, &watched.config, &clock, number);
+    let (writes, reads) = watched.catalog.job_counts();
+    assert_eq!(run(1).await.unwrap().counts.pending_deletions, 1);
+    let (waiting_writes, waiting_reads) = watched.catalog.job_counts();
+    watched.catalog.assert_reclaimed_blobs(3);
+    watched.clock.advance(Duration::from_secs(2));
+    assert_eq!(run(2).await.unwrap().counts.deleted, 1);
+    let (confirmed_writes, confirmed_reads) = watched.catalog.job_counts();
+    // Both walks perform the same catalog work. Only the confirmed deletion selects and forgets the blob.
+    assert_eq!(
+        confirmed_writes - waiting_writes,
+        waiting_writes - writes + 2
+    );
+    assert_eq!(confirmed_reads - waiting_reads, waiting_reads - reads);
+    watched.catalog.assert_reclaimed_blobs(2);
+    watched.close().await;
+}
+
 /// An editor that unlinks a file and renames another into its place leaves the name empty for a
 /// moment; a pass in between only starts the wait, and the file found again cancels it.
 #[cfg(unix)]

@@ -179,6 +179,102 @@ async fn a_failed_delete_reclaims_the_separately_committed_purge() {
 }
 
 #[tokio::test]
+async fn moving_over_a_live_destination_reclaims_its_blob() {
+    use super::super::object_move::{MoveAccess, MoveNames};
+    let data = TestDir::new();
+    let (catalog, _) = open_disk(&data.0).await;
+    catalog
+        .insert_bucket(bucket("bucket", "project"))
+        .await
+        .unwrap();
+    put(&catalog, "bucket", "source").await;
+    put(&catalog, "bucket", "destination").await;
+    let (writes, reads) = catalog.job_counts();
+    catalog
+        .move_object(
+            MoveNames {
+                bucket: "bucket".into(),
+                source: "source".into(),
+                destination: "destination".into(),
+            },
+            Default::default(),
+            MoveAccess {
+                source_read: PERMISSIVE,
+                source_delete: PERMISSIVE,
+                destination_create: PERMISSIVE,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(catalog.job_counts(), (writes + 3, reads));
+    catalog.assert_reclaimed_blobs(1);
+    catalog
+        .open_object(
+            live("bucket", "destination"),
+            Default::default(),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn restore_reclaims_an_expired_sibling_and_retains_the_replaced_live_version() {
+    let data = TestDir::new();
+    let (catalog, clock) = open_disk(&data.0).await;
+    retaining_bucket(&catalog, "bucket", 5).await;
+    soft_delete(&catalog, "bucket", "expired").await;
+    clock.advance(Duration::from_secs(1));
+    let source = soft_delete(&catalog, "bucket", "restored").await;
+    let replacement = put(&catalog, "bucket", "restored").await;
+    clock.advance(Duration::from_secs(4));
+    let (writes, reads) = catalog.job_counts();
+    catalog
+        .restore_object(
+            ObjectTarget::new("bucket", "restored", source),
+            Default::default(),
+            PERMISSIVE_RESTORE,
+        )
+        .await
+        .unwrap();
+    assert_eq!(catalog.job_counts(), (writes + 4, reads));
+    catalog.assert_reclaimed_blobs(3);
+    assert!(readable(&catalog, "bucket", "restored", source).await);
+    assert!(readable(&catalog, "bucket", "restored", replacement).await);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn deleting_a_bucket_after_disabling_retention_reclaims_its_retained_blobs() {
+    use crate::bucket::BucketMetadataUpdate;
+    let data = TestDir::new();
+    let (catalog, _) = open_disk(&data.0).await;
+    retaining_bucket(&catalog, "bucket", 5).await;
+    soft_delete(&catalog, "bucket", "retained").await;
+    catalog
+        .patch_bucket(
+            "bucket",
+            BucketMetadataUpdate {
+                soft_delete_retention: Some(0_i64.try_into().unwrap()),
+                ..Default::default()
+            },
+            Default::default(),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    let (writes, reads) = catalog.job_counts();
+    catalog
+        .delete_bucket("bucket", Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(catalog.job_counts(), (writes + 3, reads));
+    catalog.assert_reclaimed_blobs(0);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn a_soft_deleted_listing_purges_expired_rows_on_the_writer() {
     let data = TestDir::new();
     let (catalog, clock) = open_disk(&data.0).await;
@@ -196,9 +292,6 @@ async fn a_soft_deleted_listing_purges_expired_rows_on_the_writer() {
         .unwrap();
     assert_eq!(catalog.job_counts(), (writes + 1, reads));
     assert_eq!(readable.items[0].generation, generation);
-    // The former unconditional post-commit probe spent a second writer job on this empty journal.
-    assert_eq!(catalog.reclaim_pending().await.unwrap(), 0);
-    assert_eq!(catalog.job_counts(), (writes + 2, reads));
     clock.advance(Duration::from_secs(5));
     let (writes, reads) = catalog.job_counts();
     let expired = catalog.list_objects(query, 10, PERMISSIVE).await.unwrap();

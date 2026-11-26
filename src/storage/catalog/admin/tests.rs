@@ -380,10 +380,24 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
         })
         .await
         .unwrap();
+    // Drain any wake left by setup before registering for reclamation's own signal.
+    {
+        let stale = catalog.0.maintenance_wake.notified();
+        tokio::pin!(stale);
+        stale.as_mut().enable();
+    }
+    let full_page = catalog.0.maintenance_wake.notified();
+    tokio::pin!(full_page);
+    assert!(!full_page.as_mut().enable());
     catalog.reclaim_if(objects::Journaled::SOME).await;
+    assert!(full_page.as_mut().enable());
     assert_eq!(publication_blobs(&dir.0).len(), 13);
     assert_eq!(catalog.0.execution.available_permits(), 1);
+    let final_page = catalog.0.maintenance_wake.notified();
+    tokio::pin!(final_page);
+    assert!(!final_page.as_mut().enable());
     catalog.reclaim_if(objects::Journaled::SOME).await;
+    assert!(!final_page.as_mut().enable());
     assert_eq!(publication_blobs(&dir.0), vec![live_path.clone()]);
     let id = live_id.clone();
     catalog
