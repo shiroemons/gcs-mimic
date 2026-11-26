@@ -3,6 +3,7 @@
 use super::*;
 use crate::xml::document::{self, malformed};
 use serde_json::{Map, Value};
+use std::num::NonZeroI64;
 
 pub(super) async fn respond(
     request: Request<RequestBody>,
@@ -44,8 +45,9 @@ pub(super) async fn respond(
         return Err(Error::unsupported("content-encoding on bucket creation"));
     }
     let period = super::super::put::single(request.headers(), "x-goog-bucket-retention-period")?
-        .map(|raw| super::super::number(raw, super::super::MinValue::One))
-        .transpose()?;
+        .map(super::super::number)
+        .transpose()?
+        .map(NonZeroI64::get);
     let sha = auth::signature::PayloadHash::of(request.headers())
         .map(auth::signature::PayloadHash::digest)
         .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration"))?;

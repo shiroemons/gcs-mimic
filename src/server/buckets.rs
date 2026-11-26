@@ -15,6 +15,7 @@ use crate::{
     http_conditions::EtagError,
     json::ApiError,
     json::{self, BucketRequest, WriteMode},
+    object::generation::Generation,
     storage::failure::unavailable,
 };
 use http_body_util::Full;
@@ -109,7 +110,7 @@ pub(super) async fn respond<'a>(
         } => {
             let version = state
                 .catalog
-                .get_soft_deleted_bucket(&bucket, generation, &access)
+                .get_soft_deleted_bucket(&bucket, generation.get(), &access)
                 .await?;
             without_acl(json::soft_deleted_bucket_resource(
                 &version, base_url, projection, profile,
@@ -291,14 +292,14 @@ async fn restore(
     ctx: BucketCtx<'_>,
     access: &BucketAccess,
     bucket: &str,
-    generation: i64,
+    generation: Generation,
     projection: json::Projection,
 ) -> Result<Rendered, ApiError> {
     validate_bodyless_post(request, ctx.uri.parameters()?, EmptyJsonBody::Refused).await?;
     let record = ctx
         .state
         .catalog
-        .restore_bucket(bucket, generation, access)
+        .restore_bucket(bucket, generation.get(), access)
         .await?;
     rendered_bucket(&record, ctx.base_url, projection, ctx.profile)
 }

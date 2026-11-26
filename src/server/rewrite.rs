@@ -73,7 +73,7 @@ async fn authorize_source(
                 && session.binding.source.name == source.name
         })
         .map(|(_, session)| session.binding.source.generation)
-        .or(operation.source_generation);
+        .or_else(|| operation.source_generation.map(i64::from));
     catalog
         .get_object(
             operation.names.source_at(generation),
@@ -203,7 +203,9 @@ async fn resolve_source(
     access: &BucketAccess,
     keys: CopyKeys,
 ) -> Result<crate::storage::DerivedSource, ApiError> {
-    let target = operation.names.source_at(operation.source_generation);
+    let target = operation
+        .names
+        .source_at(operation.source_generation.map(i64::from));
     let conditions = operation.source_conditions;
     catalog
         .resolve_derived_source_keyed(target, conditions, access, keys.source)

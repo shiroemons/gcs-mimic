@@ -74,6 +74,19 @@ fn xml_condition_grammars_agree_and_keep_both_error_messages() {
 }
 
 #[test]
+fn concrete_generation_requires_positive_digit_text_within_int64() {
+    assert_eq!(
+        number::<Generation>("09223372036854775807").unwrap().get(),
+        i64::MAX
+    );
+    for text in ["0", "-1", "+1", "9223372036854775808"] {
+        let error = number::<Generation>(text).unwrap_err();
+        assert_eq!(error.code, XmlCode::InvalidArgument);
+        assert_eq!(error.message, "Invalid generation or metageneration.");
+    }
+}
+
+#[test]
 fn xml_object_and_completion_etags_choose_the_same_validator() {
     let mut record = object_record("bucket", "object", at());
     let revision = crate::etag::object_etag(&record);

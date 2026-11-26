@@ -63,7 +63,7 @@ pub(super) async fn copy(
             CopyReplaySource {
                 bucket: &params.source_bucket,
                 name: &params.source_name,
-                generation: params.source_generation,
+                generation: params.source_generation.map(i64::from),
                 access: &source_access,
             },
             ReplayInvocation {
@@ -127,7 +127,7 @@ async fn copy_object(
     let target = ObjectTarget::new(
         &params.source_bucket,
         &params.source_name,
-        params.source_generation,
+        params.source_generation.map(i64::from),
     );
     let source = catalog
         .resolve_derived_source_keyed(

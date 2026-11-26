@@ -4,6 +4,7 @@ use crate::{
     bucket::{BucketConditions, name::MAX_BUCKET_NAME_BYTES},
     config::CompatProfile,
     decimal::Grammar,
+    object::generation::Generation,
     percent::{Decoding, RequestUri, decode},
 };
 use hyper::{Method, StatusCode};
@@ -131,13 +132,13 @@ pub(crate) enum BucketRequest {
     /// `buckets.get` with `softDeleted=true` and the selected `generation`.
     GetSoftDeleted {
         bucket: String,
-        generation: i64,
+        generation: Generation,
         projection: Projection,
     },
     ListSoftDeleted(SoftDeletedListParams),
     Restore {
         bucket: String,
-        generation: i64,
+        generation: Generation,
         projection: Projection,
     },
     LockRetentionPolicy {
@@ -395,13 +396,13 @@ fn parse_restore(
     })
 }
 
-fn bucket_generation(query: &mut BTreeMap<String, String>) -> Result<Option<i64>, ApiError> {
+fn bucket_generation(query: &mut BTreeMap<String, String>) -> Result<Option<Generation>, ApiError> {
     query
         .remove("generation")
         .map(|value| {
             Grammar::SignedNoPlus
                 .parse::<i64>(&value)
-                .filter(|generation| *generation > 0)
+                .and_then(|generation| Generation::try_from(generation).ok())
                 .ok_or_else(|| ApiError::invalid_parameter("generation must be a positive int64"))
         })
         .transpose()

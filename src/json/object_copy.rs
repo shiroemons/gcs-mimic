@@ -1,6 +1,6 @@
 use super::{
     ApiError, ObjectRequest, Projection,
-    integer::take_long,
+    integer::take_source_generation,
     objects::{ConditionKeys, take_conditions, take_predefined_acl},
     query::{
         BUCKET_PATH, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, projection,
@@ -10,7 +10,7 @@ use super::{
 use crate::{
     acl::PredefinedObjectAcl,
     config::CompatProfile,
-    object::ObjectConditions,
+    object::{ObjectConditions, generation::Generation},
     percent::{Decoding, RequestUri, decode},
 };
 use hyper::Method;
@@ -21,7 +21,7 @@ pub(crate) struct ObjectCopyParams {
     pub source_name: String,
     pub bucket: String,
     pub name: String,
-    pub source_generation: Option<i64>,
+    pub source_generation: Option<Generation>,
     pub source_conditions: ObjectConditions,
     pub conditions: ObjectConditions,
     pub projection: Projection,
@@ -71,12 +71,8 @@ fn parse(
         return Err(ApiError::invalid_parameter("copy requires alt=json"));
     }
     let projection = projection(&mut query)?;
-    let source_generation = take_long(&mut query, "sourceGeneration")?;
-    if source_generation.is_some_and(|generation| generation <= 0) {
-        return Err(ApiError::invalid_parameter(
-            "sourceGeneration must be positive",
-        ));
-    }
+    let source_generation =
+        take_source_generation(&mut query, "sourceGeneration must be positive")?;
     let source_conditions = take_conditions(&mut query, ConditionKeys::Source)?;
     let conditions = take_conditions(&mut query, ConditionKeys::Plain)?;
     // Cloud Storage copied an object whose request carried an undeclared `gcsmimicUnknown=1`

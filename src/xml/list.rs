@@ -1,10 +1,11 @@
 //! Bounded XML bucket listing over the shared authorized catalog cursor.
 
 use super::name_encoding::NameEncoding;
-use super::{Error, MinValue, Namespace, ReadRequest, XmlWriter, accepted_parameter, number};
+use super::{Error, Namespace, ReadRequest, XmlWriter, accepted_parameter, number};
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth,
+    object::generation::Generation,
     server::{ObjectCtx, ResponseBody, boxed},
     storage::{ObjectListCursor, ObjectListPage, ObjectListQuery},
 };
@@ -23,7 +24,7 @@ enum Pagination {
     /// `list-type` 1 (default): `marker`/`key-marker` and `generation-marker`/`version-id-marker`.
     V1 {
         marker: String,
-        generation: Option<i64>,
+        generation: Option<Generation>,
     },
     /// `list-type=2`: `continuation-token` or `start-after`.
     V2 {
@@ -169,7 +170,7 @@ fn parse_v1(
 ) -> Result<Pagination, Error> {
     let marker = take_alias(values, "marker", "key-marker")?.unwrap_or_default();
     let generation = take_alias(values, "generation-marker", "version-id-marker")?
-        .map(|value| number(&value, MinValue::One))
+        .map(|value| number(&value))
         .transpose()?;
     if generation.is_some() && (marker.is_empty() || !query.versions) {
         return Err(Error::invalid(
@@ -232,7 +233,7 @@ fn take_alias(
 
 fn marker_cursor(
     marker: &str,
-    generation: Option<i64>,
+    generation: Option<Generation>,
     query: &ObjectListQuery,
 ) -> Option<ObjectListCursor> {
     if marker.is_empty() {
@@ -247,7 +248,11 @@ fn marker_cursor(
     Some(ObjectListCursor {
         name: prefix.unwrap_or(marker).to_owned(),
         is_prefix: prefix.is_some(),
-        generation: if prefix.is_some() { None } else { generation },
+        generation: if prefix.is_some() {
+            None
+        } else {
+            generation.map(Generation::get)
+        },
     })
 }
 
@@ -347,7 +352,7 @@ fn render_header_v1(
     w: &mut XmlWriter,
     params: &Params,
     marker: &str,
-    generation: Option<i64>,
+    generation: Option<Generation>,
     page: &ObjectListPage,
 ) {
     let encoding = params.encoding;

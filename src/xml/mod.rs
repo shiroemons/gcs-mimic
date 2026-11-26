@@ -7,7 +7,9 @@ use crate::{
     net::{TrailingDot, normalized_host},
     object::{
         CustomTime, IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget,
-        OpaqueTokenError, media_headers::CUSTOM_METADATA_PREFIX,
+        OpaqueTokenError,
+        generation::{Generation, Metageneration},
+        media_headers::CUSTOM_METADATA_PREFIX,
     },
 };
 use http_body_util::{BodyExt, Full};
@@ -213,7 +215,7 @@ pub(crate) async fn authenticate_upload_target<'a>(
 
 /// An XML object request's path and response overrides; headers supply preconditions separately.
 pub(crate) struct ReadRequest {
-    pub target: ObjectTarget,
+    pub target: ObjectTarget<Option<Generation>>,
     pub response_overrides: HeaderMap,
 }
 
@@ -763,7 +765,7 @@ pub(crate) fn route(
     }
     let generation = query
         .remove("generation")
-        .map(|value| number(&value, MinValue::One))
+        .map(|value| number(&value))
         .transpose()?;
     if *method == Method::DELETE && query.keys().any(|key| !accepted_parameter(key)) {
         return Err(Error::unsupported(
@@ -870,22 +872,11 @@ fn accepted_parameter(key: &str) -> bool {
     signing_parameter(key) || key == BILLING_QUERY
 }
 
-/// The smallest generation or metageneration a field accepts. Generation 0 in a generation
-/// precondition requires that no live object exists; every other field starts at 1.
-#[derive(Clone, Copy)]
-enum MinValue {
-    Zero,
-    One,
-}
-
-fn number(raw: &str, min: MinValue) -> Result<i64, Error> {
-    let floor = match min {
-        MinValue::Zero => 0,
-        MinValue::One => 1,
-    };
+/// XML revision fields use unsigned decimal spelling within the signed int64 range.
+fn number<T: TryFrom<i64>>(raw: &str) -> Result<T, Error> {
     crate::decimal::Grammar::Digits
         .parse::<i64>(raw)
-        .filter(|n| *n >= floor)
+        .and_then(|value| T::try_from(value).ok())
         .ok_or_else(|| Error::invalid("Invalid generation or metageneration."))
 }
 
@@ -987,25 +978,21 @@ impl ConditionMessages {
 }
 
 fn conditions(headers: &HeaderMap, messages: ConditionMessages) -> Result<ObjectConditions, Error> {
-    let mut conditions = ObjectConditions::default();
-    for (key, target, min) in [
-        (
-            "x-goog-if-generation-match",
-            &mut conditions.if_generation_match,
-            MinValue::Zero,
-        ),
-        (
-            "x-goog-if-metageneration-match",
-            &mut conditions.if_metageneration_match,
-            MinValue::One,
-        ),
-    ] {
-        let value = sole(headers, key)
+    let read = |key| {
+        sole(headers, key)
             .text(TextOrder::RepetitionFirst)
-            .map_err(|error| messages.for_header(&error))?;
-        *target = value.map(|value| number(value, min)).transpose()?;
-    }
-    Ok(conditions)
+            .map_err(|error| messages.for_header(&error))
+    };
+    Ok(ObjectConditions {
+        if_generation_match: read("x-goog-if-generation-match")?
+            .map(number)
+            .transpose()?,
+        if_metageneration_match: read("x-goog-if-metageneration-match")?
+            .map(number)
+            .transpose()?
+            .map(Metageneration::get),
+        ..Default::default()
+    })
 }
 
 /// Whether a signed SHA-256 declaration exists and differs from `body`'s digest. Each caller

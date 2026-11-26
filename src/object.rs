@@ -640,6 +640,12 @@ impl<G> ObjectTarget<G> {
     }
 }
 
+impl ObjectTarget<Option<generation::Generation>> {
+    pub(crate) fn into_signed_target(self) -> ObjectTarget {
+        ObjectTarget::new(self.bucket, self.name, self.generation.map(i64::from))
+    }
+}
+
 /// Whether opening an object should also fetch the start of its body. A plain download sends
 /// those bytes anyway; a ranged, conditional or HEAD request often does not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

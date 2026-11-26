@@ -977,6 +977,12 @@ try_from = "i64")]`.
 - **Generations.** `Generation` and a new `Metageneration` come from one macro
   with SQL and serde conversions; a value of 0 or less fails decoding.
   Precondition values stay `i64`, because 0 and negatives mean something there.
+  Allocator positions and suffix cursors that use 0 as an initial value stay
+  `i64`. A new bucket's generation remains unassigned until catalog insertion.
+  Live bucket rows can still hold `generation=0` because migration 45 leaves a
+  default of 0 after backfilling existing rows. Live and soft-deleted bucket
+  metagenerations also have no positivity constraint. Keep reading the signed
+  values from those columns so existing data directories can still be read.
 - **Custom time.** `CustomTime { text, instant }` is parsed once, ordered by
   instant and rendered as its text. It replaces four re-parses.
   - Text that cannot be parsed keeps its spelling with an empty

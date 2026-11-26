@@ -1,6 +1,6 @@
 use super::{
     ApiError, Fields, Schema,
-    integer::take_long,
+    integer::{take_long, take_source_generation},
     objects::{ConditionKeys, take_conditions, take_predefined_acl},
     query, validate_object_name,
 };
@@ -8,7 +8,7 @@ use crate::percent::{Decoding, RequestUri, decode};
 use crate::{
     acl::PredefinedObjectAcl,
     config::CompatProfile,
-    object::{ObjectConditions, ObjectTarget},
+    object::{ObjectConditions, ObjectTarget, generation::Generation},
     storage::rewrite::{RewriteNames, RewriteProgress},
 };
 use hyper::Method;
@@ -19,7 +19,7 @@ pub(crate) struct RewriteRequest {
     pub(crate) names: RewriteNames,
     pub(crate) token: Option<String>,
     /// `sourceGeneration`: positive when present.
-    pub(crate) source_generation: Option<i64>,
+    pub(crate) source_generation: Option<Generation>,
     /// The `ifSource*` preconditions, which guard the source.
     pub(crate) source_conditions: ObjectConditions,
     /// The unprefixed preconditions, which guard the destination.
@@ -120,17 +120,14 @@ fn parse(
             return Err(ApiError::unsupported_object(key));
         }
     }
-    let source_generation = take_long(&mut remaining, "sourceGeneration")?;
-    if source_generation.is_some_and(|generation| generation <= 0) {
-        return Err(ApiError::invalid_parameter("Invalid sourceGeneration"));
-    }
+    let source_generation = take_source_generation(&mut remaining, "Invalid sourceGeneration")?;
     let source_conditions = take_conditions(&mut remaining, ConditionKeys::Source)?;
     let conditions = take_conditions(&mut remaining, ConditionKeys::Plain)?;
     let max_bytes = take_long(&mut remaining, "maxBytesRewrittenPerCall")?;
     let max_bytes_per_call = max_bytes.map(byte_budget).transpose()?;
     // The binding spells each number in canonical decimal, so `007` binds as `7`.
     for (key, number) in [
-        ("sourceGeneration", source_generation),
+        ("sourceGeneration", source_generation.map(Generation::get)),
         (
             "ifSourceGenerationMatch",
             source_conditions.if_generation_match,
@@ -281,7 +278,7 @@ mod tests {
         let request = route(&Method::POST, &uri.parse().unwrap(), CompatProfile::Native)
             .unwrap()
             .unwrap();
-        assert_eq!(request.source_generation, Some(5));
+        assert_eq!(request.source_generation.map(Generation::get), Some(5));
         assert_eq!(
             request.source_conditions,
             ObjectConditions {

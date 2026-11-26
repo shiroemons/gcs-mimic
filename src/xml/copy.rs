@@ -1,12 +1,13 @@
 //! XML copy parsing; byte transfer, integrity and atomic publication use the shared engine.
 
-use super::{Error, MinValue, Namespace, ReadRequest, XmlCode, XmlWriter, number, put};
+use super::{Error, Namespace, ReadRequest, XmlCode, XmlWriter, number, put};
 use crate::{
     auth,
     bucket::BucketAccess,
     object::{
         ObjectConditions, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
         content_type,
+        generation::{Generation, Metageneration},
     },
     server::{
         ObjectCtx, RequestBody, ResponseBody, boxed,
@@ -29,7 +30,7 @@ const SOURCE_FIELDS: &[&str] = &[
 struct Source {
     bucket: String,
     name: String,
-    generation: Option<i64>,
+    generation: Option<Generation>,
     conditions: ObjectConditions,
 }
 
@@ -57,11 +58,13 @@ fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
     crate::object::name::validate(&name)?;
     let generation = source_number(headers, "x-goog-copy-source-generation")?;
     let conditions = ObjectConditions {
-        if_generation_match: source_number(headers, "x-goog-copy-source-if-generation-match")?,
+        if_generation_match: source_number(headers, "x-goog-copy-source-if-generation-match")?
+            .map(Generation::get),
         if_metageneration_match: source_number(
             headers,
             "x-goog-copy-source-if-metageneration-match",
-        )?,
+        )?
+        .map(Metageneration::get),
         ..Default::default()
     };
     if conditions.if_metageneration_match.is_some()
@@ -80,10 +83,8 @@ fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
     })
 }
 
-fn source_number(headers: &HeaderMap, name: &str) -> Result<Option<i64>, Error> {
-    put::single(headers, name)?
-        .map(|value| number(value, MinValue::One))
-        .transpose()
+fn source_number<T: TryFrom<i64>>(headers: &HeaderMap, name: &str) -> Result<Option<T>, Error> {
+    put::single(headers, name)?.map(number).transpose()
 }
 
 fn validate_source_etags(headers: &HeaderMap, record: &ObjectRecord) -> Result<(), Error> {
@@ -181,7 +182,7 @@ pub(super) async fn respond(
     let target = ObjectTarget::new(source.bucket, source.name, source.generation);
     let source = ctx
         .await_catalog(ctx.state.catalog.resolve_derived_source_keyed(
-            target,
+            target.into_signed_target(),
             source.conditions,
             &source_access,
             key,

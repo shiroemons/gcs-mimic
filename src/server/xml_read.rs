@@ -56,11 +56,11 @@ pub(super) async fn respond(
     // Reads and DELETE have no payload; consume framing before any mutation or response.
     xml::empty_body(request.body_mut()).await?;
     if delete {
-        ctx.await_catalog(
-            ctx.state
-                .catalog
-                .delete_object(operation.target, conditions, &access),
-        )
+        ctx.await_catalog(ctx.state.catalog.delete_object(
+            operation.target.into_signed_target(),
+            conditions,
+            &access,
+        ))
         .await
         .map_err(|error| xml::Error::from(error).for_caller(ctx.caller))?;
         return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
@@ -105,6 +105,7 @@ async fn read(
         target,
         response_overrides,
     } = operation;
+    let target = target.into_signed_target();
     let catalog = &ctx.state.catalog;
     let head = request.method() == Method::HEAD;
     let (record, mut reader) = if head {

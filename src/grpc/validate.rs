@@ -82,10 +82,12 @@ impl std::error::Error for NegativeGeneration {}
 /// A proto3 `int64` that selects an object version. 0 is the field's absent value and selects
 /// the live object; a negative value selects nothing.
 pub(super) fn selected_generation(raw: i64) -> Result<Option<Generation>, NegativeGeneration> {
-    if raw < 0 {
-        return Err(NegativeGeneration);
+    if raw == 0 {
+        return Ok(None);
     }
-    Ok(Generation::try_from(raw).ok())
+    Generation::try_from(raw)
+        .map(Some)
+        .map_err(|_| NegativeGeneration)
 }
 
 pub(super) fn common<T: Default + PartialEq>(

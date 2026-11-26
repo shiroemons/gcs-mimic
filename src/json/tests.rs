@@ -3,6 +3,7 @@ use crate::bounded_body::read_body;
 use crate::bucket::name::validate as validate_bucket_name;
 use crate::bucket::{BucketRecord, CatalogError, Rpo, UniformAccess};
 use crate::config::CompatProfile;
+use crate::object::generation::Generation;
 use crate::page_token::{decode_page_token, encode_page_token};
 use crate::time_format::{http_date, timestamp, timestamp_micros};
 use http_body_util::{BodyExt, Empty, Full};
@@ -737,7 +738,7 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             Method::GET,
             "/storage/v1/b/abc?softDeleted=true&generation=7"
         ),
-        Ok(BucketRequest::GetSoftDeleted { generation: 7, .. })
+        Ok(BucketRequest::GetSoftDeleted { generation, .. }) if generation.get() == 7
     );
     assert_matches!(
         request(Method::GET, "/storage/v1/b?project=p&softDeleted=true"),
@@ -774,10 +775,26 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
         ),
         Ok(BucketRequest::Restore {
             bucket: "abc".into(),
-            generation: 9,
+            generation: Generation::try_from(9).unwrap(),
             projection: Projection::Full,
         })
     );
+}
+
+#[test]
+fn bucket_generation_selectors_keep_their_decimal_grammar_and_error_order() {
+    let base = "/storage/v1/b/abc?softDeleted=true&generation=";
+    let path = format!("{base}09223372036854775807");
+    assert_matches!(
+        request(Method::GET, &path),
+        Ok(BucketRequest::GetSoftDeleted { generation, .. }) if generation.get() == i64::MAX
+    );
+    for text in ["0", "-0", "-1", "%2B1", "9223372036854775808"] {
+        let path = format!("{base}{text}&ifMetagenerationMatch=1");
+        let error = request(Method::GET, &path).unwrap_err();
+        assert_eq!(error.reason(), "invalidParameter");
+        assert_eq!(error.message(), "generation must be a positive int64");
+    }
 }
 
 #[test]
