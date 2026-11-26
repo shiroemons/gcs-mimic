@@ -10,6 +10,7 @@
 use super::{convert, pb};
 use crate::csek::StoredHashes;
 use crate::object::{ObjectError, ObjectRecord};
+use crate::storage::StoredCompletion;
 use prost::Message;
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -56,7 +57,11 @@ fn encode(record: &ObjectRecord) -> Result<Value, ObjectError> {
 
 fn decode(value: &Value) -> Result<pb::Object, Unreadable> {
     let bytes = Vec::<u8>::deserialize(value).map_err(Unreadable::NotBytes)?;
-    pb::Object::decode(bytes.as_slice()).map_err(Unreadable::NotObject)
+    decode_proto(&bytes)
+}
+
+fn decode_proto(bytes: &[u8]) -> Result<pb::Object, Unreadable> {
+    pb::Object::decode(bytes).map_err(Unreadable::NotObject)
 }
 
 /// An internal error that keeps its cause for logs; the client sees only `message`.
@@ -82,6 +87,17 @@ pub(super) fn rewrite_resource(record: &ObjectRecord) -> Result<Value, ObjectErr
 pub(super) fn from_completion(value: Option<&Value>) -> Result<pb::Object, Status> {
     let value = value.ok_or_else(|| Status::internal("Missing upload completion"))?;
     decode(value).map_err(|cause| internal("Invalid upload completion", cause))
+}
+
+pub(super) fn from_stored_completion(completion: &StoredCompletion) -> Result<pb::Object, Status> {
+    match completion {
+        StoredCompletion::Proto(bytes) => {
+            decode_proto(bytes).map_err(|cause| internal("Invalid upload completion", cause))
+        }
+        StoredCompletion::Json(map) => from_completion(Some(&Value::Object(map.clone()))),
+        StoredCompletion::Unrecognized(value) => from_completion(Some(value)),
+        StoredCompletion::Missing => from_completion(None),
+    }
 }
 
 pub(super) fn from_rewrite_resource(value: &Value) -> Result<pb::Object, Status> {

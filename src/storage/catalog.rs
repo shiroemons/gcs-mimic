@@ -41,7 +41,7 @@ pub(crate) use resumable::ResumableError;
 #[cfg(test)]
 pub(crate) use resumable::ResumableSession;
 pub(crate) use resumable::{
-    Overrun, Progress, ResumableOptions, SessionId, SessionLease, SessionState,
+    Overrun, Progress, ResumableOptions, SessionId, SessionLease, SessionState, StoredCompletion,
 };
 pub(crate) use resumable_transfer::{ChunkEnd, ChunkWait, ResumableChunk, Written};
 pub(crate) use upload_replay::UploadAclSnapshot;

@@ -15,7 +15,7 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 #[cfg(test)]
 use std::path::PathBuf;
 use std::{borrow::Cow, fmt, time::SystemTime};
@@ -79,14 +79,55 @@ pub(super) const SELECT_SESSION: &str = concat!(
     " FROM resumable_sessions WHERE id = ?1"
 );
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SessionState {
     Active,
-    Complete,
+    Complete(StoredCompletion),
     Cancelled,
     Aborted,
     InvalidContentRange,
     Overrun(Overrun),
+}
+
+impl SessionState {
+    pub(crate) fn is_complete(&self) -> bool {
+        matches!(self, Self::Complete(_))
+    }
+}
+
+/// A completed upload's resource in the format its adapter saved.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum StoredCompletion {
+    Json(Map<String, Value>),
+    Proto(Vec<u8>),
+    /// Earlier readers accepted any syntactically valid JSON here.
+    Unrecognized(Value),
+    /// A row violating the schema's completion constraint keeps the missing-resource error.
+    Missing,
+}
+
+impl From<Value> for StoredCompletion {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Object(map) => Self::Json(map),
+            value @ Value::Array(_) => Vec::<u8>::deserialize(&value)
+                .map_or_else(|_| Self::Unrecognized(value), Self::Proto),
+            value @ (Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)) => {
+                Self::Unrecognized(value)
+            }
+        }
+    }
+}
+
+impl StoredCompletion {
+    pub(crate) fn into_value(self) -> Option<Value> {
+        match self {
+            Self::Json(map) => Some(Value::Object(map)),
+            Self::Proto(bytes) => Some(Value::Array(bytes.into_iter().map(Value::from).collect())),
+            Self::Unrecognized(value) => Some(value),
+            Self::Missing => None,
+        }
+    }
 }
 
 /// A chunk that carried more bytes than the session's total left room for. Cloud Storage
@@ -188,7 +229,6 @@ pub(crate) struct ResumableSession {
     pub created: SystemTime,
     pub deadline: SystemTime,
     pub state: SessionState,
-    pub completion: Option<Value>,
     /// The digests of the `offset` persisted bytes, continued by each chunk; `None` for a
     /// session an earlier release staged.
     pub running_hash: Option<HasherState>,
@@ -602,7 +642,7 @@ impl Catalog {
             SessionState::Aborted => return Err(ResumableError::Gone),
             SessionState::InvalidContentRange => return Err(ResumableError::InvalidContentRange),
             SessionState::Overrun(overrun) => return Err(ResumableError::Overrun(overrun)),
-            SessionState::Active | SessionState::Complete => {}
+            SessionState::Active | SessionState::Complete(_) => {}
         }
         Ok(session)
     }
@@ -839,16 +879,16 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
         .map(TerminalReason::deserialize)
         .transpose()
         .map_err(|_| invalid_state())?;
-    let state = match (stored, reason) {
-        (StoredState::Active, None) => SessionState::Active,
-        (StoredState::Complete, None) => SessionState::Complete,
-        (StoredState::Cancelled, None) => SessionState::Cancelled,
-        (StoredState::Cancelled, Some(TerminalReason::Aborted)) => SessionState::Aborted,
+    let incomplete_state = match (stored, reason) {
+        (StoredState::Active, None) => Some(SessionState::Active),
+        (StoredState::Complete, None) => None,
+        (StoredState::Cancelled, None) => Some(SessionState::Cancelled),
+        (StoredState::Cancelled, Some(TerminalReason::Aborted)) => Some(SessionState::Aborted),
         (StoredState::Cancelled, Some(TerminalReason::ContentRange)) => {
-            SessionState::InvalidContentRange
+            Some(SessionState::InvalidContentRange)
         }
         (StoredState::Cancelled, Some(TerminalReason::Overrun(overrun))) => {
-            SessionState::Overrun(overrun)
+            Some(SessionState::Overrun(overrun))
         }
         (StoredState::Active | StoredState::Complete, Some(_)) => return Err(invalid_state()),
     };
@@ -865,13 +905,17 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
         offset: row.get(7)?,
         created: row.get::<_, UnixMillis>(8)?.system_time()?,
         deadline: row.get::<_, UnixMillis>(9)?.system_time()?,
-        state,
-        completion: completion
-            .map(|v| {
-                serde_json::from_str(&v)
-                    .map_err(|error| sql::conversion_error(11, Type::Text, error))
+        state: {
+            let completion = completion
+                .map(|text| {
+                    serde_json::from_str::<Value>(&text)
+                        .map_err(|error| sql::conversion_error(11, Type::Text, error))
+                })
+                .transpose()?;
+            incomplete_state.unwrap_or_else(|| {
+                SessionState::Complete(completion.map_or(StoredCompletion::Missing, Into::into))
             })
-            .transpose()?,
+        },
         running_hash: running_hash(row, 7, 12)?,
     })
 }

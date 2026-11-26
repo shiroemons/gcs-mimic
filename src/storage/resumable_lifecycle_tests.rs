@@ -7,7 +7,7 @@ use gcs_mimic::{
     api_error::ApiError,
     clock::{Clock, ManualClock},
     json::resumable_cancel::{Cancellation, cancel_response},
-    storage::{Catalog, ResumableError},
+    storage::{Catalog, ResumableError, SessionState},
 };
 use http_body_util::BodyExt;
 use hyper::{Request, body::Incoming, server::conn::http1, service::service_fn};
@@ -689,8 +689,8 @@ async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_s
             .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap()
-            .completion,
-        Some(completion)
+            .state,
+        SessionState::Complete(completion.into())
     );
     assert_eq!(
         cancel_wire(&catalog, &session.id.to_string(), b"").await,

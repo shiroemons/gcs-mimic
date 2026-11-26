@@ -317,14 +317,14 @@ impl Catalog {
             })
             .await?;
         if let Some(session) = committed
-            && session.state == SessionState::Complete
+            && let SessionState::Complete(completion) = session.state
         {
             self.0
                 .backend
                 .finish_draft(&lease.session.blob_id)
                 .map_err(object_unavailable)?;
-            return session
-                .completion
+            return completion
+                .into_value()
                 .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion).into());
         }
         if matches!(&error, ResumableError::Object(error) if error.is_backend_failure()) {

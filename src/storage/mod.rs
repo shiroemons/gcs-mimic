@@ -45,7 +45,7 @@ pub(crate) use catalog::{
     ObjectListQuery, ObjectReader,
 };
 pub(crate) use catalog::{MoveAccess, MoveConditions, MoveNames, ObjectUpload, RestoreAccess};
-pub(crate) use catalog::{ResumableOptions, SessionState};
+pub(crate) use catalog::{ResumableOptions, SessionState, StoredCompletion};
 #[cfg(test)]
 mod resumable_http_tests;
 #[cfg(test)]

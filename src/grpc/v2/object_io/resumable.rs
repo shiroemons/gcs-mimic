@@ -51,7 +51,7 @@ impl Storage {
                     .catalog
                     .resumable_session(id, bucket)
                     .await
-                    .is_ok_and(|session| session.state == SessionState::Complete);
+                    .is_ok_and(|session| session.state.is_complete());
                 Err(if finalized {
                     // Recorded 2026-11-18.
                     with_reason(
@@ -129,11 +129,11 @@ impl Storage {
         if !allowed {
             return Err(object_status(ObjectError::Forbidden));
         }
-        let response = if session.state == SessionState::Complete {
+        let response = if let SessionState::Complete(completion) = &session.state {
             // The finished resource carries the caller's ACL and owner view, as the write's
             // own answer does (recorded 2026-11-18).
             let resource = self
-                .completed_resource(session.completion.as_ref(), caller, bucket)
+                .completed_resource(stored::from_stored_completion(completion)?, caller, bucket)
                 .await?;
             pb::QueryWriteStatusResponse {
                 write_status: Some(pb::query_write_status_response::WriteStatus::Resource(
@@ -167,11 +167,10 @@ impl Storage {
     /// Completion keeps the publication snapshot and adds only the caller's ACL/owner view.
     async fn completed_resource(
         &self,
-        completion: Option<&serde_json::Value>,
+        mut resource: pb::Object,
         caller: Option<Caller<'_>>,
         bucket: &str,
     ) -> Result<pb::Object, Status> {
-        let mut resource = stored::from_completion(completion)?;
         self.add_written_owner_fields(caller, bucket, &mut resource)
             .await?;
         Ok(resource)
@@ -254,10 +253,10 @@ impl Storage {
                 .lock_resumable_session(id, bucket)
                 .await
                 .map_err(session_status)?;
-            if lease.session.state == SessionState::Complete {
+            if let SessionState::Complete(completion) = &lease.session.state {
                 call.position.require_resume_start()?;
                 let resource = self
-                    .completed_resource(lease.session.completion.as_ref(), caller, bucket)
+                    .completed_resource(stored::from_stored_completion(completion)?, caller, bucket)
                     .await?;
                 drop(lease);
                 let answer = finished(resource);
@@ -290,7 +289,7 @@ impl Storage {
                 .await?;
             let answer = match self.write_piece(lease, options, piece).await? {
                 Written::Complete(value) => finished(
-                    self.completed_resource(Some(&value), caller, bucket)
+                    self.completed_resource(stored::from_completion(Some(&value))?, caller, bucket)
                         .await?,
                 ),
                 Written::Open(progress) => {

@@ -241,10 +241,10 @@ impl ChunkPlan {
 }
 
 /// The session state a chunk is planned against.
-struct SessionPosition {
+struct SessionPosition<'a> {
     offset: u64,
     total: Option<u64>,
-    state: SessionState,
+    state: &'a SessionState,
 }
 
 /// Validates a chunk's framing headers against the object size limit before the session is
@@ -371,7 +371,7 @@ fn plan_chunk(
     headers: &hyper::HeaderMap,
     range: Option<Range>,
     length: Option<u64>,
-    session: &SessionPosition,
+    session: &SessionPosition<'_>,
     max_bytes: u64,
     target: &SessionTarget<'_>,
 ) -> Result<ChunkPlan, Refusal> {
@@ -402,7 +402,7 @@ fn plan_chunk(
             open_extent(start, total, length, session.total, max_bytes)?
         }
         None => {
-            if session.offset != 0 && session.state != SessionState::Complete {
+            if session.offset != 0 && !session.state.is_complete() {
                 return Err(InputError::session_protocol(
                     "Content-Range required after the first chunk",
                 )
@@ -434,7 +434,7 @@ fn plan_chunk(
         return Err(match (total, session.total) {
             // Only an open total reaches here with a known session total: the chunk overruns it.
             (None, Some(declared))
-                if session.state == SessionState::Active && target.name.is_none() =>
+                if *session.state == SessionState::Active && target.name.is_none() =>
             {
                 Refusal::Overrun(Overrun {
                     received: length,
@@ -581,7 +581,7 @@ pub(crate) async fn transfer(
     let position = SessionPosition {
         offset: session.offset,
         total: session.total,
-        state: session.state,
+        state: &session.state,
     };
     let plan = match plan_chunk(
         &headers,
@@ -601,7 +601,7 @@ pub(crate) async fn transfer(
     let options = match resumable::final_options(&headers, session.options.clone()) {
         Ok(options) => options,
         Err(error) => {
-            if plan.finalize && session.state != SessionState::Complete {
+            if plan.finalize && !session.state.is_complete() {
                 state.catalog.invalidate_resumable_session(&lease).await?;
             }
             return Err(error);
@@ -614,20 +614,19 @@ pub(crate) async fn transfer(
     {
         return Err(InputError::parameter("Final metadata requires a final request").into());
     }
-    if (session.state == SessionState::Complete || status_only)
-        && options.expected != session.options.expected
+    if (session.state.is_complete() || status_only) && options.expected != session.options.expected
     {
         return Err(InputError::parameter(
             "Status or completed retries cannot introduce new checksum declarations",
         )
         .into());
     }
-    if session.state == SessionState::Complete {
+    if let SessionState::Complete(completion) = &session.state {
         let view = CompletionView::of(&session.options)?;
         // Completing a session stores its resource in the same transaction.
-        let mut completion = session
-            .completion
+        let mut completion = completion
             .clone()
+            .into_value()
             .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion))?;
         drop(lease);
         super::context::rebase_stored_links(ctx.endpoints, &mut completion);

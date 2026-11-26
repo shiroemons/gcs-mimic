@@ -1,6 +1,6 @@
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
-use crate::storage::{ResumableChunk, ResumableError, ResumableOptions};
+use crate::storage::{ResumableChunk, ResumableError, ResumableOptions, SessionState};
 use crate::test_support::{eventually_async, eventually_some_async};
 use ChunkMode::{Checkpoint, Finalize};
 use serde_json::json;
@@ -105,8 +105,7 @@ async fn ram_resumable_overlap_preserves_prefix_hashes_and_atomic_completion() {
         .resumable_session(&session.id.to_string(), "test-bucket")
         .await
         .unwrap();
-    assert_eq!(stored.state, crate::storage::SessionState::Complete);
-    assert_eq!(stored.completion.as_ref(), Some(&completed));
+    assert_eq!(stored.state, SessionState::Complete(completed.into()));
     let object = catalog
         .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await

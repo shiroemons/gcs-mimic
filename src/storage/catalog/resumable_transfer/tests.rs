@@ -203,7 +203,6 @@ fn resumable_retention_overflow_reports_the_stored_period_as_corrupt() {
         created: UNIX_EPOCH,
         deadline: UNIX_EPOCH + Duration::from_secs(604800),
         state: SessionState::Active,
-        completion: None,
         running_hash: None,
     };
     for period in [10, i64::MAX] {

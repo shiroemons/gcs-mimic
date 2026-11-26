@@ -202,6 +202,13 @@ Decided by the owner on 2026-11-26:
 
 Pending the evidence below:
 
+- **Completed resumable sessions used across adapters.** A gRPC status
+  request for a session completed through JSON returns `INTERNAL` with
+  `Invalid upload completion`. JSON status and cancellation requests for a
+  session completed through gRPC return HTTP 200 with the protobuf bytes as a
+  JSON array. Tests preserve those replies. The owner can keep this behavior
+  or make JSON reject a gRPC completion through a typed error.
+
 - **Custom time in import preflight and publication.** Preflight accepts year
   `0000` (such as `0000-12-31T23:59:59Z`) and fractions with ten or more
   digits and only zeros after the sixth digit (such as
@@ -915,10 +922,11 @@ try_from = "i64")]`.
   - Replay fingerprints keep hashing the text.
 - **Resumable completion.** `SessionState::Complete(StoredCompletion)` with
   `Json(Map)` and `Proto(Vec<u8>)` replaces the separate `completion` field.
-  - The stored text tells the variants apart: an object is JSON and an array
-    of integers is gRPC.
-  - A session URI used across adapters fails typed instead of serving the
-    wrong shape.
+  - The stored text distinguishes JSON objects from arrays of protobuf bytes.
+    Other valid JSON and missing payloads keep their previous read behavior.
+    Malformed JSON remains a catalog corruption error.
+  - Each adapter preserves its cross-adapter reply pending the owner's
+    decision in [Behavior decisions](#behavior-decisions).
 
 ### Configuration
 

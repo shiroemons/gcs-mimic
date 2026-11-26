@@ -18,7 +18,7 @@ use gcs_mimic::{
     auth::{Auth, Registry},
     clock::{Clock, ManualClock},
     server::{State, Stop, TcpListeners, serve},
-    storage::Catalog,
+    storage::{Catalog, SessionState},
     tls::ListenerSecurity,
 };
 use serde_json::{Value, json};
@@ -1945,7 +1945,7 @@ async fn final_metadata_and_completion_snapshot_survive_catalog_restart() {
         .await
         .unwrap();
     let session = catalog.resumable_session(id, "bucket").await.unwrap();
-    assert_eq!(session.completion, Some(resource));
+    assert_eq!(session.state, SessionState::Complete(resource.into()));
     let record = catalog
         .admin(Origin::Seed)
         .get_object(

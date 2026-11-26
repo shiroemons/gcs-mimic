@@ -42,8 +42,8 @@ pub(crate) async fn cancel_response<B: Body + Unpin>(
 async fn completion(catalog: &Catalog, id: &str, bucket: &str) -> Result<Cancellation, ApiError> {
     let session = catalog.resumable_session(id, bucket).await?;
     match session.state {
-        SessionState::Complete => session
-            .completion
+        SessionState::Complete(completion) => completion
+            .into_value()
             .map(|resource| Cancellation::Completed {
                 resource,
                 options: Box::new(session.options),

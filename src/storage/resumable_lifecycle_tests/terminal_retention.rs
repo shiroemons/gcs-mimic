@@ -1,5 +1,5 @@
 use super::*;
-use gcs_mimic::storage::{ResumableChunk, ResumableOptions, ResumableSession, SessionState};
+use gcs_mimic::storage::{ResumableChunk, ResumableOptions, ResumableSession};
 use std::num::NonZeroU32;
 
 async fn create(
@@ -90,8 +90,10 @@ async fn sessions_past_the_former_caps_survive_reopening_and_stay_usable() {
             .resumable_session(&id.to_string(), "bucket")
             .await
             .unwrap();
-        assert_eq!(session.state, SessionState::Complete);
-        assert_eq!(session.completion.as_ref(), Some(resource));
+        assert_eq!(
+            session.state,
+            SessionState::Complete(resource.clone().into())
+        );
     }
     // Every active session is still known, and one past the old cap can finish.
     for session in &active {
