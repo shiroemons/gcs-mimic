@@ -1101,12 +1101,13 @@ These start DESIGN-098 for parsers:
   and counts reads for scheduler tests. The latter can set time without waking
   a timer, so a test can check that a request supplies the wake. Specialized
   clocks still exercise real microsecond timestamps and inject state changes
-  during reads.
+  during reads. Some tests in `src/storage/catalog` still use local fixed clocks.
 - **Shared helpers.** `tests/common` gets one clock and one base64 helper
   instead of nine copies.
 - **Fixtures.** Record builders under `cfg(test)` supply the defaults for
   `ObjectRecord` fixtures and build bucket records for tests that need catalog
-  state. Parser and cross-adapter tests still exercise JSON input.
+  state. Some tests in `src/storage/catalog` still build fixtures through
+  `json::parse_insert`. Parser and cross-adapter tests still exercise JSON input.
 
 ### Newer Rust
 

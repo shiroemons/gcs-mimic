@@ -78,7 +78,7 @@ impl ManualClock {
         });
     }
 
-    /// Explicit time reads and observations made when arming waits.
+    /// Counts each `now()` call and each armed deadline. `sleep()` does both.
     pub(crate) fn reads(&self) -> usize {
         self.reads.load(std::sync::atomic::Ordering::SeqCst)
     }

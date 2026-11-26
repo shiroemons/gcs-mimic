@@ -236,7 +236,8 @@ impl BucketRecord {
 
     #[cfg(test)]
     pub(crate) fn for_test(name: &str, project: &str, now: SystemTime) -> Self {
-        Self::new(name.into(), project, "US".parse().unwrap(), now)
+        let name = name.parse().unwrap();
+        Self::default_for(&name, project, now).unwrap()
     }
 }
 
