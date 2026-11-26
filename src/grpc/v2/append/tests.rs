@@ -262,7 +262,7 @@ async fn append_creates_flushes_reads_and_finalizes_with_reserved_generation() {
         .get_object(live("grpc-append", "log"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
-    assert_eq!((record.generation, record.size), (generation, 11));
+    assert_eq!((record.generation.get(), record.size), (generation, 11));
     // The Java SDK treats an appendable upload as finished only once the resource carries
     // finalize_time. It is the stored time JSON reports as `timeFinalized`.
     let finalize_time = Some(prost_types::Timestamp::from(record.time_created));
@@ -421,13 +421,13 @@ async fn append_refuses_an_invalid_opening_message_before_creating_or_taking_ove
         .unwrap();
     writer.flush().await.unwrap();
     let generation = writer.record().generation;
-    let mut bad_crc = take_over("held", generation, None);
+    let mut bad_crc = take_over("held", generation.get(), None);
     bad_crc.write_offset = 3;
     bad_crc.data = data(b"two");
     if let Some(Data::ChecksummedData(data)) = bad_crc.data.as_mut() {
         data.crc32c = Some(1);
     }
-    let mut early_checksums = take_over("held", generation, None);
+    let mut early_checksums = take_over("held", generation.get(), None);
     early_checksums.object_checksums = Some(pb::ObjectChecksums {
         crc32c: Some(1),
         md5_hash: Vec::new(),
@@ -466,7 +466,7 @@ async fn append_checks_an_opening_offset_after_the_takeover() {
         .await
         .unwrap();
     writer.flush().await.unwrap();
-    let mut gapped = take_over("gapped", writer.record().generation, None);
+    let mut gapped = take_over("gapped", writer.record().generation.get(), None);
     gapped.write_offset = 5;
     gapped.data = data(b"two");
     let (result, responses) = append(&storage, vec![Ok(gapped)], None).await;
@@ -539,7 +539,7 @@ async fn append_takeover_supersedes_the_previous_writer() {
     let first_handle = first.write_handle().to_vec();
     let mut second = catalog
         .take_over_appendable(
-            ObjectTarget::new("grpc-append", "single", generation),
+            ObjectTarget::new("grpc-append", "single", generation.get()),
             None,
             Default::default(),
             BucketAccess::Permissive,
@@ -556,7 +556,7 @@ async fn append_takeover_supersedes_the_previous_writer() {
     assert_eq!(
         catalog
             .take_over_appendable(
-                ObjectTarget::new("grpc-append", "single", generation),
+                ObjectTarget::new("grpc-append", "single", generation.get()),
                 Some(&first_handle),
                 Default::default(),
                 BucketAccess::Permissive
@@ -574,7 +574,7 @@ async fn append_takeover_supersedes_the_previous_writer() {
     assert_eq!(
         catalog
             .take_over_appendable(
-                ObjectTarget::new("grpc-append", "single", generation),
+                ObjectTarget::new("grpc-append", "single", generation.get()),
                 None,
                 ObjectConditions {
                     if_metageneration_match: Some(2),

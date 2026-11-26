@@ -542,7 +542,7 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
     assert_eq!(retained.generation.to_string(), generation);
     let restored = reopened
         .restore_object(
-            ObjectTarget::new("bucket", "history/item", retained.generation),
+            ObjectTarget::new("bucket", "history/item", retained.generation.get()),
             Default::default(),
             PERMISSIVE_RESTORE,
         )

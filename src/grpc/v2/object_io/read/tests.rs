@@ -269,7 +269,7 @@ async fn an_older_generation_is_read_with_its_own_key() {
     put_keyed(catalog, "grpc-io", "rotated", b"new", Some(&OTHER)).await;
 
     let mut request = read_request("rotated", Some(&KEY));
-    request.generation = old.generation;
+    request.generation = old.generation.get();
     let messages = read(&storage, request).await.unwrap();
     assert_eq!(body(&messages), b"old");
 
@@ -287,7 +287,7 @@ async fn an_older_generation_is_read_with_its_own_key() {
         b"new"
     );
     let mut request = read_request("rotated", Some(&OTHER));
-    request.generation = old.generation;
+    request.generation = old.generation.get();
     assert_customer_encryption(read(&storage, request).await, CsekError::KeyIncorrect);
     catalog.close().await.unwrap();
 }

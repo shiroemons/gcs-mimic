@@ -43,24 +43,27 @@ async fn get_object_reads_a_soft_deleted_generation() {
     let deleted = upload(&storage, "gone", 3).await;
     delete(&storage, RESOURCE).await;
 
-    let object = get(&storage, request(RESOURCE, deleted.generation, Some(true)))
-        .await
-        .unwrap();
-    assert_eq!(object.generation, deleted.generation);
+    let object = get(
+        &storage,
+        request(RESOURCE, deleted.generation.get(), Some(true)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(object.generation, deleted.generation.get());
     assert!(object.soft_delete_time.is_some());
     assert!(object.hard_delete_time.is_some());
     // The conditions are compared with the soft-deleted generation.
-    let mut failing = request(RESOURCE, deleted.generation, Some(true));
-    failing.if_metageneration_match = Some(deleted.metageneration + 1);
+    let mut failing = request(RESOURCE, deleted.generation.get(), Some(true));
+    failing.if_metageneration_match = Some(deleted.metageneration.get() + 1);
     assert_code(
         get(&storage, failing).await,
         tonic::Code::FailedPrecondition,
     );
     // Without `soft_deleted` the generation is gone, and no other generation was soft-deleted.
     for missing in [
-        request(RESOURCE, deleted.generation, None),
-        request(RESOURCE, deleted.generation, Some(false)),
-        request(RESOURCE, deleted.generation + 1, Some(true)),
+        request(RESOURCE, deleted.generation.get(), None),
+        request(RESOURCE, deleted.generation.get(), Some(false)),
+        request(RESOURCE, deleted.generation.get() + 1, Some(true)),
     ] {
         assert_code(get(&storage, missing).await, tonic::Code::NotFound);
     }
@@ -76,7 +79,11 @@ async fn get_object_soft_deleted_needs_a_soft_delete_policy() {
     let deleted = upload_to(&storage, "update-copy-other", "gone", 3).await;
     delete(&storage, BUCKET).await;
     assert_bad_request(
-        get(&storage, request(BUCKET, deleted.generation, Some(true))).await,
+        get(
+            &storage,
+            request(BUCKET, deleted.generation.get(), Some(true)),
+        )
+        .await,
         "Soft delete policy is required to request a soft-deleted version.",
     );
     storage.state.catalog.close().await.unwrap();

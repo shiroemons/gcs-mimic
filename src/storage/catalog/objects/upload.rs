@@ -134,7 +134,7 @@ impl UploadCommit {
 
     fn record(
         &self,
-        generation: i64,
+        generation: crate::object::Generation,
         defaults: PublicationDefaults,
     ) -> Result<ObjectRecord, ObjectError> {
         let time = defaults.time;

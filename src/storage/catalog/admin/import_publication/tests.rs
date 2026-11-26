@@ -232,7 +232,7 @@ async fn import_publication_preserves_identity_settings_hold_and_atomic_prefix()
         .await
         .unwrap();
     let object = result.results[0].as_ref().unwrap();
-    assert_eq!(object.generation, 902);
+    assert_eq!(object.generation.get(), 902);
     assert_eq!(
         object.time_created,
         UNIX_EPOCH + Duration::from_micros(123_456)
@@ -268,7 +268,7 @@ async fn import_publication_preserves_identity_settings_hold_and_atomic_prefix()
         )
         .await
         .unwrap();
-    assert!(normal.generation > 902 && normal.event_based_hold.as_bool() == Some(true));
+    assert!(normal.generation.get() > 902 && normal.event_based_hold.as_bool() == Some(true));
     catalog.close().await.unwrap();
     let reopened = Catalog::open(&dir.0).await.unwrap();
     assert!(!reopened.import_journal().in_progress().await.unwrap());
@@ -585,7 +585,7 @@ async fn import_publication_budget_returns_unattempted_elements_for_the_next_cur
         .await
         .unwrap();
     assert_eq!(result.results.len(), 1);
-    assert_eq!(result.results[0].as_ref().unwrap().generation, 902);
+    assert_eq!(result.results[0].as_ref().unwrap().generation.get(), 902);
     assert!(result.budget_exceeded);
     assert_eq!(result.unattempted.len(), 1);
     assert_eq!(result.unattempted[0].element, element(3));
@@ -617,7 +617,7 @@ async fn import_publication_budget_returns_unattempted_elements_for_the_next_cur
         .await
         .unwrap();
     assert!(resumed.unattempted.is_empty());
-    assert_eq!(resumed.results[0].as_ref().unwrap().generation, 903);
+    assert_eq!(resumed.results[0].as_ref().unwrap().generation.get(), 903);
     assert_eq!(
         catalog
             .import_journal()

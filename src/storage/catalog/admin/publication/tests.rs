@@ -265,7 +265,10 @@ async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
             .await
             .unwrap();
         let previous_acl = catalog
-            .acl_projection("test-bucket", vec![("object".into(), original.generation)])
+            .acl_projection(
+                "test-bucket",
+                vec![("object".into(), original.generation.get())],
+            )
             .await
             .unwrap()
             .unwrap()
@@ -302,7 +305,10 @@ async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
         );
         assert_eq!(
             catalog
-                .acl_projection("test-bucket", vec![("object".into(), original.generation)])
+                .acl_projection(
+                    "test-bucket",
+                    vec![("object".into(), original.generation.get())]
+                )
                 .await
                 .unwrap()
                 .unwrap()

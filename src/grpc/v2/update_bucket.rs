@@ -698,7 +698,7 @@ mod tests {
         let source = upload(&s, "tiny", 1).await;
         let src = pb::compose_object_request::SourceObject {
             name: "tiny".into(),
-            generation: source.generation,
+            generation: source.generation.get(),
             ..Default::default()
         };
         let request = pb::ComposeObjectRequest {

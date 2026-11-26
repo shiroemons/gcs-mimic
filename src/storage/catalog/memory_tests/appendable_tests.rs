@@ -69,12 +69,12 @@ async fn ram_appendable_prefix_snapshots_takeover_and_catalogs_are_isolated() {
         Err(AdminError::Busy { .. })
     ));
     let handle = writer.write_handle().to_vec();
-    let mut current = takeover(&catalog, generation).await;
+    let mut current = takeover(&catalog, generation.get()).await;
     assert!(matches!(writer.flush().await, Err(AppendError::Superseded)));
     assert!(matches!(
         catalog
             .take_over_appendable(
-                ObjectTarget::new("test-bucket", "growing", generation),
+                ObjectTarget::new("test-bucket", "growing", generation.get()),
                 Some(&handle),
                 Default::default(),
                 BucketAccess::Permissive
@@ -121,7 +121,7 @@ async fn ram_appendable_prefix_snapshots_takeover_and_catalogs_are_isolated() {
     assert!(matches!(
         catalog
             .take_over_appendable(
-                ObjectTarget::new("test-bucket", "growing", generation),
+                ObjectTarget::new("test-bucket", "growing", generation.get()),
                 None,
                 Default::default(),
                 BucketAccess::Permissive
@@ -171,7 +171,7 @@ async fn ram_appendable_aggregate_quota_preserves_prefix_and_finalization_for_re
         .delete_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
-    let mut current = takeover(&catalog, writer.record().generation).await;
+    let mut current = takeover(&catalog, writer.record().generation.get()).await;
     assert!(
         current
             .append(4, Bytes::from(vec![7; 2000]), 4096)
@@ -344,7 +344,7 @@ async fn ram_appendable_cancelled_flush_rolls_back_candidate_and_allows_takeover
     assert!(flush.await.unwrap_err().is_cancelled());
     release.send(()).unwrap();
     gate.await.unwrap().unwrap();
-    let mut current = takeover(&catalog, generation).await;
+    let mut current = takeover(&catalog, generation.get()).await;
     assert_eq!(current.persisted_size(), 4);
     current
         .append(4, Bytes::from_static(b"safe"), 1024)

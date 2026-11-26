@@ -193,7 +193,7 @@ impl CopyReplay {
     pub(crate) fn bind_source(self, source: &ObjectRecord) -> BoundCopyReplay {
         BoundCopyReplay {
             replay: self,
-            source_generation: source.generation,
+            source_generation: source.generation.get(),
         }
     }
 
@@ -335,7 +335,7 @@ impl UploadReplay {
             connection,
             &record.bucket,
             &record.name,
-            record.generation,
+            record.generation.get(),
             &acl_access,
         ) {
             Ok(_) => true,
@@ -461,7 +461,7 @@ fn copy_source_generation(
         None => match source.generation {
             Some(generation) => generation,
             None => match objects::lookup(connection, source.bucket, source.name)? {
-                Some(stored) => stored.record.generation,
+                Some(stored) => stored.record.generation.get(),
                 None => return Err(check.refusal()),
             },
         },
@@ -911,7 +911,7 @@ mod tests {
             owner: None,
         }
         .record(
-            crate::object::ObjectTarget::new("bucket", "object", 1),
+            crate::object::ObjectTarget::new("bucket", "object", 1_i64.try_into().unwrap()),
             "text/plain".into(),
             0,
             crate::hashing::Hashes {

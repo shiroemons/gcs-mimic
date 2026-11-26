@@ -110,9 +110,13 @@ pub(super) fn effective_object_entries(
     record: &crate::object::ObjectRecord,
 ) -> Result<Vec<AclEntry>, CatalogError> {
     let row = bucket_row(connection, &record.bucket)?.ok_or(CatalogError::NotFound)?;
-    let mut entries =
-        stored_object_entries(connection, &record.bucket, &record.name, record.generation)?
-            .unwrap_or_else(|| project_private(&row.project));
+    let mut entries = stored_object_entries(
+        connection,
+        &record.bucket,
+        &record.name,
+        record.generation.get(),
+    )?
+    .unwrap_or_else(|| project_private(&row.project));
     if let Some(owner) = &record.owner {
         owner.preserve_grant(&mut entries);
     }
@@ -322,7 +326,7 @@ impl ObjectAclSnapshot {
         Self {
             bucket: record.bucket.clone(),
             name: record.name.clone(),
-            generation: record.generation,
+            generation: record.generation.get(),
             entries,
             owner: record.owner.clone(),
             incarnation,
@@ -794,18 +798,19 @@ fn load(
             if row.uniform_access {
                 return Err(AclError::UniformAccess);
             }
-            let mut entries = stored_object_entries(connection, bucket, name, record.generation)?
-                .unwrap_or_else(|| project_private(&row.project));
+            let mut entries =
+                stored_object_entries(connection, bucket, name, record.generation.get())?
+                    .unwrap_or_else(|| project_private(&row.project));
             if let Some(owner) = &record.owner {
                 owner.preserve_grant(&mut entries);
             }
             let state = AclState {
                 entries,
-                metageneration: record.metageneration,
+                metageneration: record.metageneration.get(),
                 target: AclTarget::Object {
                     bucket: bucket.to_owned(),
                     name: record.name.clone(),
-                    generation: record.generation,
+                    generation: record.generation.get(),
                 },
                 project_number: crate::project::ProjectNumber::of(&row.project),
             };
@@ -1028,7 +1033,8 @@ impl Catalog {
                     sql::exec(&transaction,
                             "UPDATE objects SET metageneration = ?4, updated = ?5 WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![bucket, record.name, record.generation, state.metageneration, micros])
                         .map_err(unavailable)?;
-                    record.metageneration = state.metageneration;
+                    record.metageneration = crate::object::Metageneration::try_from(state.metageneration)
+                        .map_err(|_| unavailable("metageneration exhausted"))?;
                     record.updated = super::system_time_micros(micros).map_err(unavailable)?;
                     notification_outbox::metadata_updated(
                         &transaction,

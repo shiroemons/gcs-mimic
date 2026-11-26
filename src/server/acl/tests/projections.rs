@@ -165,7 +165,7 @@ async fn deleting_the_bucket_after_an_authorized_object_read_keeps_its_response(
                 AclTarget::Object {
                     bucket: "bucket".into(),
                     name: "object".into(),
-                    generation: Some(record.generation),
+                    generation: Some(record.generation.get()),
                 },
                 AclRole::Reader,
             )

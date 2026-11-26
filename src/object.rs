@@ -1,6 +1,5 @@
 //! Transport-independent object state shared by the catalog and protocol adapters.
 
-use self::generation::Generation;
 use crate::{
     bucket::StorageClass,
     cause::{BackendCause, IoCause, Link, TypedSource},
@@ -23,6 +22,7 @@ pub(crate) mod upload_headers;
 pub(crate) use idempotency::{IdempotencyToken, OpaqueTokenError, TextTokenError};
 
 pub use custom_time::CustomTime;
+pub use generation::{Generation, InvalidGeneration, InvalidMetageneration, Metageneration};
 pub use patch::{MapPatch, Patch, WriteMode};
 
 /// Unset holds are omitted from JSON; a released hold keeps its explicit false value.
@@ -92,8 +92,8 @@ pub enum UploadChunk {
 pub struct ObjectRecord {
     pub bucket: String,
     pub name: String,
-    pub generation: i64,
-    pub metageneration: i64,
+    pub generation: Generation,
+    pub metageneration: Metageneration,
     /// Older generations have no recoverable uploader identity.
     #[serde(default)]
     pub(crate) owner: Option<owner::ObjectOwner>,

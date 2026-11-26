@@ -277,7 +277,7 @@ async fn ram_derived_capacity_and_sql_failure_preserve_acknowledged_offset_and_o
         .await
         .unwrap();
     let mut destination = ram_destination("value");
-    destination.conditions.if_generation_match = Some(original.generation + 1);
+    destination.conditions.if_generation_match = Some(original.generation.get() + 1);
     assert!(matches!(
         catalog
             .publish_derived(&transfer.id, destination, |_, _| Ok(()))
@@ -432,7 +432,7 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
                     connection,
                     "test-bucket",
                     "value",
-                    source_generation,
+                    source_generation.get(),
                     Default::default(),
                     PERMISSIVE,
                     std::time::SystemTime::now(),
@@ -456,7 +456,7 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
     let second = ram_transfer(&catalog).await;
     catalog.advance_derived(&second.id, u64::MAX).await.unwrap();
     let mut destination = ram_destination("value");
-    destination.conditions.if_generation_match = Some(original.generation);
+    destination.conditions.if_generation_match = Some(original.generation.get());
     let (left, right) = tokio::join!(
         catalog.publish_derived(&first.id, destination.clone(), |_, _| Ok(())),
         catalog.publish_derived(&second.id, destination, |_, _| Ok(()))
@@ -625,7 +625,7 @@ async fn ram_incomplete_bodies_and_competing_conditions_preserve_committed_state
         first
     );
     let condition = ObjectConditions {
-        if_generation_match: Some(first.generation),
+        if_generation_match: Some(first.generation.get()),
         ..Default::default()
     };
     let (left, right) = tokio::join!(
@@ -995,7 +995,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
         )
         .await
         .unwrap();
-    let deleted = ObjectTarget::new("test-bucket", "value", first.generation);
+    let deleted = ObjectTarget::new("test-bucket", "value", first.generation.get());
     let before = catalog
         .get_soft_deleted_object(deleted.clone(), Default::default(), PERMISSIVE)
         .await
@@ -1005,7 +1005,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
         .await
         .unwrap();
     assert!(restored.generation > first.generation);
-    assert_eq!(restored.metageneration, 1);
+    assert_eq!(restored.metageneration.get(), 1);
     assert_eq!(
         restored
             .time_created
@@ -1074,7 +1074,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
             .delete_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
-        let deleted = ObjectTarget::new("test-bucket", "value", first.generation);
+        let deleted = ObjectTarget::new("test-bucket", "value", first.generation.get());
         if budget == 520 {
             catalog.run::<_, ObjectError>(|connection| {
                 connection.execute_batch("CREATE TEMP TRIGGER reject_ram_restore BEFORE INSERT ON objects BEGIN SELECT RAISE(ABORT,'injected restore failure'); END;").unwrap();

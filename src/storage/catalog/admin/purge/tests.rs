@@ -153,6 +153,7 @@ async fn put(catalog: &Catalog, bucket: &str, name: &str, bytes: &'static [u8]) 
         .await
         .unwrap()
         .generation
+        .get()
 }
 
 /// Starts a resumable upload, which stages a file on disk or a draft in RAM.
@@ -352,7 +353,7 @@ async fn rewrite(catalog: &Catalog) {
         .unwrap();
     let start = RewriteStart {
         binding: crate::storage::rewrite::RewriteBinding {
-            source: ObjectTarget::new(TARGET, "value", source.object.generation),
+            source: ObjectTarget::new(TARGET, "value", source.object.generation.get()),
             destination: ObjectTarget::new(TARGET, "copy", ()),
             parameters: Default::default(),
             metadata: None,
@@ -364,7 +365,7 @@ async fn rewrite(catalog: &Catalog) {
             ..DerivedDestination::new(BucketAccess::Permissive)
         },
         source_conditions: ObjectConditions::default(),
-        source_metageneration: source.object.metageneration,
+        source_metageneration: source.object.metageneration.get(),
         source_access: BucketAccess::Permissive,
         source_key_sha256: None,
         budget: std::num::NonZeroU64::new(1).unwrap(),

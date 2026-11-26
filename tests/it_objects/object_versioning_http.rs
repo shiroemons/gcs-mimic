@@ -589,7 +589,7 @@ async fn versioned_schema_migrations_preserve_objects() {
             )
             .await
             .unwrap();
-        assert_eq!(next.generation, future + 1);
+        assert_eq!(next.generation.get(), future + 1);
         catalog.close().await.unwrap();
         assert_eq!(
             rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))

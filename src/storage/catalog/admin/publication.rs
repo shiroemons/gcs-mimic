@@ -1081,7 +1081,7 @@ fn validate_staged_entry(entry: &BatchPublication) -> Result<(), ObjectError> {
 
 fn publication_record(
     entry: &BatchPublication,
-    generation: i64,
+    generation: crate::object::Generation,
     defaults: objects::PublicationDefaults,
 ) -> Result<ObjectRecord, ObjectError> {
     let mut record = defaults.record(
@@ -1264,7 +1264,7 @@ pub(in crate::storage::catalog) fn apply_acl(
             super::super::acl::ResolvedAclTarget::Object {
                 bucket: &record.bucket,
                 name: &record.name,
-                generation: record.generation,
+                generation: record.generation.get(),
             },
             entries,
             access,

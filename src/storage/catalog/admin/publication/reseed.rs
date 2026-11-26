@@ -676,8 +676,8 @@ pub(super) fn staged_body(entry: &BatchPublication) -> Body {
 /// The version of `object`, the generation at its metageneration.
 pub(super) fn version_of(object: &ObjectRecord) -> Version {
     Version {
-        generation: object.generation,
-        metageneration: object.metageneration,
+        generation: object.generation.get(),
+        metageneration: object.metageneration.get(),
     }
 }
 

@@ -1920,7 +1920,7 @@ mod tests {
             assert_eq!(status, 200, "{response}");
             assert_eq!(
                 response["metageneration"],
-                (before.metageneration + 1).to_string()
+                (before.metageneration.get() + 1).to_string()
             );
             assert_eq!(response["acl"].as_array().unwrap().len(), 3);
             let unchanged = catalog

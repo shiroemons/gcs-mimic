@@ -895,7 +895,7 @@ fn transition_version(
 ) -> Result<(), ObjectError> {
     record.metageneration = record
         .metageneration
-        .checked_add(1)
+        .checked_next()
         .ok_or_else(|| objects::object_unavailable("metageneration exhausted"))?;
     let micros = super::unix_micros(now.max(record.updated).max(record.time_created))?;
     record.updated = super::system_time_micros(micros)?;
@@ -930,7 +930,7 @@ fn retire_version(
     let target = ObjectTarget::new(
         &record.bucket,
         &record.name,
-        record.time_deleted.map(|_| record.generation),
+        record.time_deleted.map(|_| record.generation.get()),
     );
     // The maintenance pass records soft-delete deadlines in its following expiry sweep.
     let deleted = objects::delete_in_transaction(

@@ -589,10 +589,10 @@ fn check_source_generation(
             &session.binding.source.bucket,
             &session.binding.source.name,
         )?
-        .is_none_or(|stored| stored.record.generation != session.binding.source.generation);
+        .is_none_or(|stored| stored.record.generation.get() != session.binding.source.generation);
     if live_changed
-        || source.generation != session.binding.source.generation
-        || source.metageneration != session.source_metageneration
+        || source.generation.get() != session.binding.source.generation
+        || source.metageneration.get() != session.source_metageneration
     {
         return Err(ObjectError::PreconditionFailed);
     }
@@ -1157,7 +1157,7 @@ mod tests {
                 source: crate::object::ObjectTarget::new(
                     "bucket",
                     "source",
-                    source.object.generation,
+                    source.object.generation.get(),
                 ),
                 destination: crate::object::ObjectTarget::new("bucket", "destination", ()),
                 parameters: Default::default(),
@@ -1170,7 +1170,7 @@ mod tests {
                 ..crate::storage::DerivedDestination::new(crate::bucket::BucketAccess::Permissive)
             },
             source_conditions: ObjectConditions::default(),
-            source_metageneration: source.object.metageneration,
+            source_metageneration: source.object.metageneration.get(),
             source_access: BucketAccess::Permissive,
             source_key_sha256: None,
             budget: std::num::NonZeroU64::new(1_048_576).unwrap(),

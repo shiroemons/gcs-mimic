@@ -247,7 +247,7 @@ mod tests {
             .resolve_derived_source(
                 live("bucket", "source"),
                 ObjectConditions {
-                    if_generation_match: Some(record.generation),
+                    if_generation_match: Some(record.generation.get()),
                     ..Default::default()
                 },
                 PERMISSIVE,
@@ -544,7 +544,7 @@ mod tests {
         let acl = AclTarget::Object {
             bucket: "bucket".into(),
             name: "source".into(),
-            generation: Some(selected.generation),
+            generation: Some(selected.generation.get()),
         };
         catalog
             .change_acl(

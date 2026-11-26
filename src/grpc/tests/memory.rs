@@ -394,7 +394,8 @@ async fn ram_grpc_v2_framing_shares_io_permissions_history_and_derived_publicati
             )
             .await
             .unwrap()
-            .generation,
+            .generation
+            .get(),
         generation
     );
     state.catalog.close().await.unwrap();

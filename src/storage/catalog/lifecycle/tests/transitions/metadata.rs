@@ -46,7 +46,9 @@ async fn newly_configured_rules_preserve_the_observed_noncurrent_time() {
         (0, 0, Some(original.time_created + DAY * 60))
     );
     assert_eq!(
-        selected(&catalog, original.generation).await.time_deleted,
+        selected(&catalog, original.generation.get())
+            .await
+            .time_deleted,
         Some(archived_at)
     );
     clock.advance(DAY * 5);
@@ -62,7 +64,7 @@ async fn live_only_rules_never_match_existing_noncurrent_versions_even_after_ver
         let original = put(&catalog, "object").await;
         clock.advance(DAY * 40);
         put(&catalog, "object").await;
-        let archived = selected(&catalog, original.generation).await;
+        let archived = selected(&catalog, original.generation.get()).await;
         clock.advance(DAY);
         catalog
             .patch_bucket(
@@ -81,7 +83,10 @@ async fn live_only_rules_never_match_existing_noncurrent_versions_even_after_ver
             .await
             .unwrap();
         assert_eq!(execute(&catalog).await.applied(), 0);
-        assert_eq!(selected(&catalog, original.generation).await, archived);
+        assert_eq!(
+            selected(&catalog, original.generation.get()).await,
+            archived
+        );
         catalog.close().await.unwrap();
     }
 }
@@ -104,7 +109,9 @@ async fn a_noncurrent_transition_cannot_enable_a_historical_live_only_rule() {
     let outcome = execute(&catalog).await;
     assert_eq!((outcome.transitioned, outcome.deleted), (1, 0));
     assert_eq!(
-        selected(&catalog, original.generation).await.storage_class,
+        selected(&catalog, original.generation.get())
+            .await
+            .storage_class,
         StorageClass::Nearline
     );
     assert_eq!(execute(&catalog).await.applied(), 0);
@@ -143,7 +150,7 @@ async fn an_overwritten_retained_version_stops_matching_a_blocked_live_delete() 
             }
             let outcome = candidate(
                 &catalog,
-                ObjectTarget::new("bucket", "object", original.generation),
+                ObjectTarget::new("bucket", "object", original.generation.get()),
                 incarnation(&catalog).await,
             )
             .await;
@@ -152,7 +159,9 @@ async fn an_overwritten_retained_version_stops_matching_a_blocked_live_delete() 
             assert_eq!((outcome.archived, outcome.deleted), (0, 0), "day={day}");
         }
         assert_eq!(
-            selected(&catalog, original.generation).await.storage_class,
+            selected(&catalog, original.generation.get())
+                .await
+                .storage_class,
             StorageClass::Nearline
         );
         catalog.close().await.unwrap();
@@ -297,7 +306,9 @@ async fn a_delayed_archive_starts_noncurrent_age_at_the_physical_pass_time() {
     let first = execute(&catalog).await;
     assert_eq!((first.archived, first.deleted), (1, 0));
     assert_eq!(
-        selected(&catalog, original.generation).await.time_deleted,
+        selected(&catalog, original.generation.get())
+            .await
+            .time_deleted,
         Some(archived_at)
     );
     let next = execute(&catalog).await;

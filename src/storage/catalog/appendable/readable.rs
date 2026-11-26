@@ -36,7 +36,7 @@ fn selected_appendable(
     };
     if target
         .generation
-        .is_some_and(|generation| generation != row.generation)
+        .is_some_and(|generation| generation != row.generation.get())
     {
         return Err(ObjectError::ObjectNotFound);
     }

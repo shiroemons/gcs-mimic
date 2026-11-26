@@ -796,7 +796,7 @@ async fn verify_object(
         .get_object(bucket, name, Some(spec.generation))
         .await?;
     if deleted_micros.is_none()
-        && admin.get_object(bucket, name, None).await?.generation != generation
+        && admin.get_object(bucket, name, None).await?.generation != spec.generation
     {
         return Err(invalid(
             "committed live membership differs from the source binding",
@@ -821,7 +821,7 @@ async fn verify_object(
             ));
         }
     }
-    if target.generation != generation
+    if target.generation != spec.generation
         || target.time_created != time(*created_micros)?
         || target.updated != time(*updated_micros)?
         || target.time_deleted != deleted_micros.map(time).transpose()?
@@ -829,7 +829,7 @@ async fn verify_object(
         || target.md5 != spec.hashes.md5
         || target.crc32c != spec.hashes.crc32c
         || target.size != fingerprint.size
-        || target.metageneration != 1
+        || target.metageneration != crate::object::Metageneration::INITIAL
         || target.content_type != attributes.content_type
         || target.content_encoding.as_deref().unwrap_or_default() != attributes.content_encoding
         || target.content_disposition.as_deref().unwrap_or_default()

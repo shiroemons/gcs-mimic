@@ -209,8 +209,8 @@ async fn round_trip_exact_hashes_opaque_names_and_restart() {
     assert_eq!(record.md5, expected_md5);
     assert_eq!(record.crc32c, 0xe306_9283);
     assert_eq!(record.size, 9);
-    assert_eq!(record.generation, 1_234_567);
-    assert_eq!(record.metageneration, 1);
+    assert_eq!(record.generation.get(), 1_234_567);
+    assert_eq!(record.metageneration.get(), 1);
     assert_eq!(record.storage_class.as_str(), "NEARLINE");
     assert_eq!(record.content_type, "application/test");
     assert_eq!(
@@ -554,7 +554,7 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
     .await
     .unwrap();
     for index in 0..4 {
-        let fail = conditions(record.generation, index, ConditionOutcome::Fail);
+        let fail = conditions(record.generation.get(), index, ConditionOutcome::Fail);
         let read_error = if index % 2 == 1 {
             ObjectError::NotModified
         } else {
@@ -595,7 +595,7 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
             Err(write_error())
         );
         assert_eq!(blobs(&dir.0).len(), 1);
-        let pass = conditions(record.generation, index, ConditionOutcome::Pass);
+        let pass = conditions(record.generation.get(), index, ConditionOutcome::Pass);
         assert_eq!(
             catalog
                 .get_object(live("bucket", "conditions"), pass, PERMISSIVE)
@@ -619,7 +619,7 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
         catalog
             .delete_object(
                 live("bucket", "conditions"),
-                conditions(record.generation, index, ConditionOutcome::Pass),
+                conditions(record.generation.get(), index, ConditionOutcome::Pass),
                 PERMISSIVE,
             )
             .await
@@ -629,8 +629,8 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
             .unwrap();
     }
     let both = ObjectConditions {
-        if_generation_match: Some(record.generation),
-        if_generation_not_match: Some(record.generation),
+        if_generation_match: Some(record.generation.get()),
+        if_generation_not_match: Some(record.generation.get()),
         ..Default::default()
     };
     assert_eq!(
@@ -641,7 +641,7 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
     // Cloud Storage for PATCH with ifGenerationMatch and ifMetagenerationNotMatch).
     let match_fails_first = ObjectConditions {
         if_generation_match: Some(1),
-        if_metageneration_not_match: Some(record.metageneration),
+        if_metageneration_not_match: Some(record.metageneration.get()),
         ..Default::default()
     };
     assert_eq!(
@@ -728,7 +728,7 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
     )
     .await
     .unwrap();
-    assert_eq!(second.generation, first.generation + 1);
+    assert_eq!(second.generation.get(), first.generation.get() + 1);
     assert!(!old_path.exists());
     assert_eq!(read(old_reader).await, b"old bytes");
     assert_eq!(
@@ -856,7 +856,7 @@ async fn deleted_generations_are_never_reused_after_restart_or_backward_clock() 
                 .delete_object(
                     live("bucket", "identity"),
                     ObjectConditions {
-                        if_generation_match: Some(stale),
+                        if_generation_match: Some(stale.get()),
                         ..Default::default()
                     },
                     PERMISSIVE
@@ -915,7 +915,7 @@ async fn conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic(
             .await
             .unwrap();
         let conditions = ObjectConditions {
-            if_generation_match: Some(first.generation),
+            if_generation_match: Some(first.generation.get()),
             ..Default::default()
         };
         let deleting = catalog.clone();
@@ -1062,7 +1062,9 @@ async fn race_upload<T: Send + 'static>(
                 observer
                     .get_object(live("bucket", name), Default::default(), PERMISSIVE)
                     .await
-                    .is_ok_and(|record| Some(record.generation) != conditions.if_generation_match)
+                    .is_ok_and(|record| {
+                        Some(record.generation.get()) != conditions.if_generation_match
+                    })
             })
             .await;
         }
@@ -1600,7 +1602,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
     let original_paths = blobs(&dir.0);
     let original = ObjectRecord {
         name: "metadata".into(),
-        generation: 1234567,
+        generation: 1234567_i64.try_into().unwrap(),
         content_type: "application/test".into(),
         size: 9,
         md5,
@@ -1646,7 +1648,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         .await
         .unwrap();
     assert_eq!(changed.updated, UNIX_EPOCH + Duration::from_millis(9876));
-    assert_eq!(changed.metageneration, 2);
+    assert_eq!(changed.metageneration.get(), 2);
     assert_eq!(changed.generation, original.generation);
     assert_eq!(changed.time_created, original.time_created);
     assert_eq!(changed.md5, original.md5);
@@ -1696,7 +1698,7 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
             .await
             .unwrap();
         let conditions = ObjectConditions {
-            if_generation_match: Some(original.generation),
+            if_generation_match: Some(original.generation.get()),
             if_metageneration_match: Some(1),
             ..Default::default()
         };
@@ -1750,7 +1752,7 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
                 .await
                 .unwrap();
             assert_eq!(record.generation, original.generation);
-            assert_eq!(record.metageneration, 2);
+            assert_eq!(record.metageneration.get(), 2);
             assert_eq!(record.metadata["key"], "value");
             assert_eq!(read(reader).await, b"old bytes");
         } else if overwrite {
@@ -1760,7 +1762,7 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
                 .await
                 .unwrap();
             assert_ne!(record.generation, original.generation);
-            assert_eq!(record.metageneration, 1);
+            assert_eq!(record.metageneration.get(), 1);
             assert!(record.metadata.is_empty());
             assert_eq!(read(reader).await, b"new bytes");
         } else {

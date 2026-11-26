@@ -44,7 +44,7 @@ async fn retained(data: &Path) -> (Catalog, ObjectTarget<i64>, Arc<ManualClock>)
         .unwrap();
     (
         catalog,
-        ObjectTarget::new("bucket", "object", record.generation),
+        ObjectTarget::new("bucket", "object", record.generation.get()),
         clock,
     )
 }

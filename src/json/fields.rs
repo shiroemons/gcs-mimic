@@ -573,7 +573,7 @@ mod tests {
             next: Some(ObjectListCursor {
                 name: object.name.clone(),
                 is_prefix: false,
-                generation: Some(object.generation),
+                generation: Some(object.generation.get()),
             }),
             items: vec![object.clone()],
             prefixes: vec!["dir/".into()],

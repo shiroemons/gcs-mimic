@@ -45,8 +45,8 @@ async fn move_object_refuses_condition_pairs_and_failing_conditions_without_movi
     }
     for pair in [
         pb::MoveObjectRequest {
-            if_generation_match: Some(destination.generation),
-            if_generation_not_match: Some(destination.generation),
+            if_generation_match: Some(destination.generation.get()),
+            if_generation_not_match: Some(destination.generation.get()),
             ..move_request()
         },
         pb::MoveObjectRequest {
@@ -55,8 +55,8 @@ async fn move_object_refuses_condition_pairs_and_failing_conditions_without_movi
             ..move_request()
         },
         pb::MoveObjectRequest {
-            if_source_generation_match: Some(source.generation),
-            if_source_generation_not_match: Some(source.generation),
+            if_source_generation_match: Some(source.generation.get()),
+            if_source_generation_not_match: Some(source.generation.get()),
             ..move_request()
         },
         pb::MoveObjectRequest {
@@ -67,8 +67,8 @@ async fn move_object_refuses_condition_pairs_and_failing_conditions_without_movi
         // The pair is refused for its shape, whatever its values: pairs whose conditions both
         // hold were refused too (case grpc-probe-inferred-conditions).
         pb::MoveObjectRequest {
-            if_source_generation_match: Some(source.generation),
-            if_source_generation_not_match: Some(source.generation + 1),
+            if_source_generation_match: Some(source.generation.get()),
+            if_source_generation_not_match: Some(source.generation.get() + 1),
             ..move_request()
         },
     ] {
@@ -116,7 +116,7 @@ async fn restore_object_reports_a_missing_soft_delete_policy_before_its_conditio
     let restore = pb::RestoreObjectRequest {
         bucket: BUCKET.into(),
         object: "source".into(),
-        generation: deleted.generation,
+        generation: deleted.generation.get(),
         ..Default::default()
     };
     for request in [
@@ -163,7 +163,7 @@ async fn restore_object_compares_its_conditions_with_the_live_object() {
     let restore = pb::RestoreObjectRequest {
         bucket: RESOURCE.into(),
         object: "source".into(),
-        generation: deleted.generation,
+        generation: deleted.generation.get(),
         ..Default::default()
     };
     assert_code(

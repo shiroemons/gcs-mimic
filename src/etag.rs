@@ -7,7 +7,7 @@ use crate::{bucket::BucketRecord, object::ObjectRecord};
 /// The validator of one object generation. It carries no content hash, so a keyless metadata
 /// read of an encrypted object learns nothing about its plaintext.
 pub(crate) fn object_etag(object: &ObjectRecord) -> String {
-    revision_etag(Some(object.generation), object.metageneration)
+    revision_etag(Some(object.generation.get()), object.metageneration.get())
 }
 
 /// Cloud Storage encodes only the metageneration, so by inference from the encoding a recreated

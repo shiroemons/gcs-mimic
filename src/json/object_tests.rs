@@ -127,8 +127,8 @@ pub(crate) fn record() -> ObjectRecord {
     ObjectRecord {
         bucket: "test-bucket".to_owned(),
         name: "dir/猫 %2F?#".to_owned(),
-        generation: 9_007_199_254_740_993,
-        metageneration: 2,
+        generation: 9_007_199_254_740_993_i64.try_into().unwrap(),
+        metageneration: 2_i64.try_into().unwrap(),
         content_type: "text/plain; charset=utf-8".to_owned(),
         size: 5,
         md5: [0; 16],
@@ -929,7 +929,7 @@ fn obj_render_001_exact_resource_and_encoded_generation_links() {
         );
     }
     let mut changed = object.clone();
-    changed.metageneration += 1;
+    changed.metageneration = changed.metageneration.checked_next().unwrap();
     assert_ne!(
         object_resource(&object, "http://localhost", Projection::NoAcl).unwrap()["etag"],
         object_resource(&changed, "http://localhost", Projection::NoAcl).unwrap()["etag"]

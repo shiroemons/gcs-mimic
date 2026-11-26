@@ -339,11 +339,11 @@ async fn a_hit_still_answers_the_read_conditions() {
     let written = put(&catalog, "object", &b"contents"[..]).await;
     download(&catalog, "object").await.unwrap();
     let unmet = crate::object::ObjectConditions {
-        if_generation_match: Some(written.generation + 1),
+        if_generation_match: Some(written.generation.get() + 1),
         ..Default::default()
     };
     let not_modified = crate::object::ObjectConditions {
-        if_generation_not_match: Some(written.generation),
+        if_generation_not_match: Some(written.generation.get()),
         ..Default::default()
     };
     let target = || live("bucket", "object");
@@ -549,8 +549,8 @@ fn cached(name: &str, file: Option<Arc<File>>) -> CachedObject {
         record: ObjectRecord {
             bucket: "bucket".to_owned(),
             name: name.to_owned(),
-            generation: 1,
-            metageneration: 1,
+            generation: 1_i64.try_into().unwrap(),
+            metageneration: 1_i64.try_into().unwrap(),
             owner: None,
             content_type: "image/jpeg".to_owned(),
             content_encoding: None,
@@ -989,7 +989,7 @@ async fn no_read_sees_older_than_the_last_finished_write() {
     let dir = TestDir::new();
     let catalog = open_catalog(&dir).await;
     let first = put(&catalog, "object", &b"first"[..]).await;
-    let finished = Arc::new(AtomicI64::new(first.generation));
+    let finished = Arc::new(AtomicI64::new(first.generation.get()));
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let reader_tasks: Vec<_> = (0..4)
         .map(|index| {
@@ -1004,7 +1004,7 @@ async fn no_read_sees_older_than_the_last_finished_write() {
                         assert_eq!(crc32c::crc32c(&bytes), record.crc32c);
                         record.generation
                     };
-                    assert!(generation >= at_least, "{generation} < {at_least}");
+                    assert!(generation.get() >= at_least, "{generation} < {at_least}");
                 }
             })
         })
@@ -1013,7 +1013,7 @@ async fn no_read_sees_older_than_the_last_finished_write() {
         // Each commit's fsync leaves the reads time to warm the cache, so they exercise hits as
         // well as misses.
         let written = put(&catalog, "object", round.to_be_bytes().to_vec()).await;
-        finished.store(written.generation, Ordering::Release);
+        finished.store(written.generation.get(), Ordering::Release);
     }
     done.store(true, Ordering::Release);
     for task in reader_tasks {

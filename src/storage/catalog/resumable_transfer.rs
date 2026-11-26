@@ -12,7 +12,7 @@ use super::{
 };
 use crate::cause::BackendFailure;
 use crate::hashing::{Hasher, Hashes};
-use crate::object::{ObjectError, ObjectRecord, ObjectTarget, UploadChunk};
+use crate::object::{Generation, ObjectError, ObjectRecord, ObjectTarget, UploadChunk};
 use crate::storage::catalog::{bucket_incarnation, sql};
 use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
@@ -217,7 +217,7 @@ fn publication_record(
     connection: &rusqlite::Connection,
     session: &super::resumable::ResumableSession,
     options: ResumableOptions,
-    generation: i64,
+    generation: Generation,
     defaults: objects::PublicationDefaults,
     hashes: Hashes,
     length: u64,

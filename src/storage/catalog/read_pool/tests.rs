@@ -78,7 +78,7 @@ async fn a_new_binding_does_not_recompile_a_pooled_read() {
             &reader.connection,
             "bucket",
             &record.name,
-            record.generation,
+            record.generation.get(),
             &access,
         )
         .unwrap();

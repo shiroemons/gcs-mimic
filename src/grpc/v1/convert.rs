@@ -217,8 +217,8 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
     Ok(pb::Object {
         name: record.name.clone(),
         bucket: record.bucket.clone(),
-        generation: record.generation,
-        metageneration: record.metageneration,
+        generation: record.generation.get(),
+        metageneration: record.metageneration.get(),
         size: crate::grpc::convert::signed(record.size, "size")?,
         storage_class: record.storage_class.as_str().into(),
         content_type: record.content_type.clone(),

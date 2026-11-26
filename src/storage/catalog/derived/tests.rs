@@ -67,7 +67,11 @@ async fn md5_availability_survives_restart_without_component_count() {
     let selected = source(&catalog, "multipart").await;
     let start = super::super::rewrite::RewriteStart {
         binding: super::super::rewrite::RewriteBinding {
-            source: crate::object::ObjectTarget::new("bucket", "multipart", record.generation),
+            source: crate::object::ObjectTarget::new(
+                "bucket",
+                "multipart",
+                record.generation.get(),
+            ),
             destination: crate::object::ObjectTarget::new("bucket", "rewrite", ()),
             parameters: Default::default(),
             metadata: None,
@@ -77,7 +81,7 @@ async fn md5_availability_survives_restart_without_component_count() {
             ..destination("rewrite")
         },
         source_conditions: Default::default(),
-        source_metageneration: record.metageneration,
+        source_metageneration: record.metageneration.get(),
         source_access: BucketAccess::Permissive,
         source_key_sha256: None,
         budget: std::num::NonZeroU64::new(1_048_576).unwrap(),
@@ -727,7 +731,7 @@ async fn callback_source_deletion_rolls_back_with_destination_and_checks_holds()
                 connection,
                 "bucket",
                 "source",
-                generation,
+                generation.get(),
                 Default::default(),
                 PERMISSIVE,
                 std::time::SystemTime::now(),
@@ -772,7 +776,7 @@ async fn callback_source_deletion_rolls_back_with_destination_and_checks_holds()
                 connection,
                 "bucket",
                 "source",
-                generation,
+                generation.get(),
                 Default::default(),
                 PERMISSIVE,
                 std::time::SystemTime::now(),
@@ -794,14 +798,14 @@ async fn all_source_conditions_are_checked_before_pinning_and_ranges_are_validat
     for (conditions, expected) in [
         (
             ObjectConditions {
-                if_generation_match: Some(original.generation + 1),
+                if_generation_match: Some(original.generation.get() + 1),
                 ..Default::default()
             },
             ObjectError::PreconditionFailed,
         ),
         (
             ObjectConditions {
-                if_generation_not_match: Some(original.generation),
+                if_generation_not_match: Some(original.generation.get()),
                 ..Default::default()
             },
             ObjectError::SourceNotModified,
@@ -822,7 +826,7 @@ async fn all_source_conditions_are_checked_before_pinning_and_ranges_are_validat
         ),
         (
             ObjectConditions {
-                if_generation_match: Some(original.generation),
+                if_generation_match: Some(original.generation.get()),
                 if_metageneration_not_match: Some(1),
                 ..Default::default()
             },
@@ -831,7 +835,7 @@ async fn all_source_conditions_are_checked_before_pinning_and_ranges_are_validat
         (
             ObjectConditions {
                 if_metageneration_match: Some(2),
-                if_generation_not_match: Some(original.generation),
+                if_generation_not_match: Some(original.generation.get()),
                 ..Default::default()
             },
             ObjectError::PreconditionFailed,
@@ -894,7 +898,7 @@ async fn validation_sees_same_name_source_before_retirement_and_completion_sees_
                     connection,
                     "bucket",
                     "same",
-                    Some(generation),
+                    Some(generation.get()),
                     Default::default(),
                     PERMISSIVE,
                 )?;
@@ -1030,11 +1034,11 @@ async fn a_compose_component_not_match_stays_a_failed_precondition() {
     let original = put(&catalog, "source", b"bytes").await;
     for conditions in [
         ObjectConditions {
-            if_generation_not_match: Some(original.generation),
+            if_generation_not_match: Some(original.generation.get()),
             ..Default::default()
         },
         ObjectConditions {
-            if_metageneration_not_match: Some(original.metageneration),
+            if_metageneration_not_match: Some(original.metageneration.get()),
             ..Default::default()
         },
     ] {
@@ -1536,7 +1540,7 @@ async fn committed_callback_deletion_reclaims_source_blob_without_restart() {
                 connection,
                 "bucket",
                 "source",
-                original.generation,
+                original.generation.get(),
                 Default::default(),
                 PERMISSIVE,
                 std::time::SystemTime::now(),
@@ -1585,7 +1589,7 @@ async fn callback_reclamation_failure_preserves_success_and_maintenance_retries(
                 connection,
                 "bucket",
                 "source",
-                original.generation,
+                original.generation.get(),
                 Default::default(),
                 PERMISSIVE,
                 std::time::SystemTime::now(),

@@ -23,7 +23,9 @@ use super::{
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
-    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, Patch, UploadChunk},
+    object::{
+        Generation, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, Patch, UploadChunk,
+    },
     storage::{BlobError, BlobId},
 };
 use bytes::Bytes;
@@ -74,13 +76,12 @@ pub(super) struct ReservedGeneration {
 }
 
 impl ReservedGeneration {
-    fn from_record(record: &ObjectRecord) -> Result<Self, ObjectError> {
-        Ok(Self {
-            generation: super::admin::Generation::new(record.generation)
-                .map_err(object_unavailable)?,
+    fn from_record(record: &ObjectRecord) -> Self {
+        Self {
+            generation: record.generation,
             time_created: record.time_created,
             updated: record.updated,
-        })
+        }
     }
 
     pub(super) fn generation(self) -> super::admin::Generation {
@@ -206,7 +207,7 @@ impl From<CatalogError> for AppendError {
 }
 
 struct Row {
-    generation: i64,
+    generation: Generation,
     blob_id: BlobId,
     options: ResumableOptions,
     size: u64,
@@ -378,7 +379,7 @@ enum Lookup {
 /// An appendable row as stored. Its options, size and times decode only once the row is known
 /// to be live, so a stale row is retired whatever it holds.
 struct StoredRow {
-    generation: i64,
+    generation: Generation,
     incarnation: Incarnation,
     blob_id: BlobId,
     options: String,
@@ -408,7 +409,7 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
     let Some(stored) = row else {
         return Ok(Lookup::Absent);
     };
-    if published_generation(connection, bucket, name, stored.generation)?
+    if published_generation(connection, bucket, name, stored.generation.get())?
         || bucket_incarnation(connection, bucket).optional()? != Some(stored.incarnation)
     {
         return Ok(Lookup::Stale(stored.blob_id));
@@ -685,7 +686,7 @@ impl AppendWriter {
             return Err(AppendError::Superseded);
         }
         let catalog = self.catalog.clone();
-        let identity = ReservedGeneration::from_record(&self.record)?;
+        let identity = ReservedGeneration::from_record(&self.record);
         let permit = catalog.admit_object_upload()?;
         let (tx, rx) = mpsc::channel(2);
         let data = self.file.clone();
@@ -1073,7 +1074,7 @@ impl Catalog {
                 let transaction = sql::immediate(connection)?;
                 let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
                 let row = match select(&transaction, &bucket, &name)? {
-                    Lookup::Live(row) if row.generation == generation => row,
+                    Lookup::Live(row) if row.generation.get() == generation => row,
                     Lookup::Live(_) | Lookup::Stale(_) | Lookup::Absent => {
                         return Err(
                             if published_generation(&transaction, &bucket, &name, generation)? {
@@ -1184,7 +1185,7 @@ impl Catalog {
                 let Lookup::Live(row) = select(&transaction, &bucket, &name)? else {
                     return Err(ObjectError::ObjectNotFound);
                 };
-                if generation.is_some_and(|generation| generation != row.generation) {
+                if generation.is_some_and(|generation| generation != row.generation.get()) {
                     return Err(ObjectError::ObjectNotFound);
                 }
                 let record = record(

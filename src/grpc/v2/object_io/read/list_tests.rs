@@ -141,7 +141,7 @@ async fn grpc_list_soft_deleted_objects() {
         .into_inner();
     assert_eq!(soft.objects.len(), 1);
     assert_eq!(soft.objects[0].name, "gone");
-    assert_eq!(soft.objects[0].generation, deleted.generation);
+    assert_eq!(soft.objects[0].generation, deleted.generation.get());
     assert!(soft.objects[0].soft_delete_time.is_some());
     assert!(soft.objects[0].hard_delete_time.is_some());
     // The JSON listing rejects softDeleted with versions; gRPC shares that rule.

@@ -109,7 +109,7 @@ pub(super) fn published(
             event: crate::notification::Event::Finalize,
             object: record,
             time,
-            replacement: previous.map(|stored| stored.record.generation),
+            replacement: previous.map(|stored| stored.record.generation.get()),
         },
     )
 }

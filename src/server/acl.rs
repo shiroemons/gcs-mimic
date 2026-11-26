@@ -224,8 +224,8 @@ impl From<&ObjectRecord> for ObjectVersion {
         Self {
             bucket: record.bucket.clone(),
             name: record.name.clone(),
-            generation: record.generation,
-            metageneration: record.metageneration,
+            generation: record.generation.get(),
+            metageneration: record.metageneration.get(),
         }
     }
 }

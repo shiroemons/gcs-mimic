@@ -1,6 +1,6 @@
 //! Concrete object and bucket generations.
 
-use std::num::NonZeroI64;
+use std::num::{NonZeroI64, NonZeroU64};
 
 macro_rules! positive_revision {
     ($(#[$doc:meta])* $visibility:vis struct $revision:ident, $invalid:ident, $message:literal) => {
@@ -53,7 +53,16 @@ positive_revision! {
 
 positive_revision! {
     /// A positive metadata revision of an object or bucket.
-    pub(crate) struct Metageneration, InvalidMetageneration, "metageneration must be positive"
+    pub struct Metageneration, InvalidMetageneration, "metageneration must be positive"
+}
+
+impl Metageneration {
+    pub(crate) const INITIAL: Self = Self(NonZeroU64::MIN.cast_signed());
+
+    pub(crate) fn checked_next(self) -> Option<Self> {
+        let next = self.get().checked_add(1)?;
+        NonZeroI64::new(next).map(Self)
+    }
 }
 
 #[cfg(test)]
@@ -70,6 +79,13 @@ mod tests {
             assert_eq!(serde_json::to_string(&generation).unwrap(), text);
             assert_eq!(serde_json::to_string(&metageneration).unwrap(), text);
         }
+        assert_eq!(Metageneration::INITIAL.checked_next().unwrap().get(), 2);
+        assert!(
+            Metageneration::try_from(i64::MAX)
+                .unwrap()
+                .checked_next()
+                .is_none()
+        );
         for value in [i64::MIN, -1, 0] {
             assert!(Generation::try_from(value).is_err());
             assert!(Metageneration::try_from(value).is_err());

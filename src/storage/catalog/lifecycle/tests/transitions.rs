@@ -163,8 +163,8 @@ async fn every_supported_transition_and_inert_pair_obey_exact_age_deadlines() {
             assert_eq!(changed.storage_class, if valid { to } else { from });
             assert_eq!(changed.generation, original.generation);
             assert_eq!(
-                changed.metageneration,
-                original.metageneration + i64::from(valid)
+                changed.metageneration.get(),
+                original.metageneration.get() + i64::from(valid)
             );
             assert_eq!(changed.time_created, original.time_created);
             assert_eq!(changed.updated, if valid { due } else { original.updated });
@@ -422,7 +422,10 @@ async fn delete_precedence_and_coldest_target_do_not_depend_on_rule_order() {
             } else {
                 let changed = current(&catalog, "object").await;
                 assert_eq!(changed.storage_class, StorageClass::Coldline);
-                assert_eq!(changed.metageneration, original.metageneration + 1);
+                assert_eq!(
+                    changed.metageneration.get(),
+                    original.metageneration.get() + 1
+                );
             }
             catalog.close().await.unwrap();
         }
@@ -464,7 +467,10 @@ async fn transitions_chain_into_class_dependent_delete_in_one_pass_or_at_a_later
         if delete_age == 2 {
             let changed = current(&catalog, "object").await;
             assert_eq!(changed.storage_class, StorageClass::Coldline);
-            assert_eq!(changed.metageneration, original.metageneration + 2);
+            assert_eq!(
+                changed.metageneration.get(),
+                original.metageneration.get() + 2
+            );
             let delete_due = original.time_created + DAY * 2;
             clock.set(delete_due - MICROSECOND);
             counts(execute(&catalog).await, 0, 0, 0, Some(delete_due));
@@ -683,7 +689,10 @@ async fn a_class_dependent_delete_yields_to_further_transitions_during_retention
     );
     let changed = current(&catalog, "object").await;
     assert_eq!(changed.storage_class, StorageClass::Coldline);
-    assert_eq!(changed.metageneration, original.metageneration + 2);
+    assert_eq!(
+        changed.metageneration.get(),
+        original.metageneration.get() + 2
+    );
     counts(execute(&catalog).await, 0, 0, 0, None);
     clock.set(until);
     counts(execute(&catalog).await, 0, 0, 0, None);
@@ -718,7 +727,10 @@ async fn retention_blocks_delete_matching_a_transitioned_class_until_expiry() {
     );
     let changed = current(&catalog, "object").await;
     assert_eq!(changed.storage_class, StorageClass::Nearline);
-    assert_eq!(changed.metageneration, original.metageneration + 1);
+    assert_eq!(
+        changed.metageneration.get(),
+        original.metageneration.get() + 1
+    );
     // Consume the mutation's dirty wake separately from the protection deadline.
     counts(execute(&catalog).await, 0, 0, 1, Some(until));
     clock.set(until - MICROSECOND);
@@ -799,7 +811,7 @@ async fn transitions_update_live_and_noncurrent_generations_but_exclude_soft_del
         )
         .await
         .unwrap();
-    let target = ObjectTarget::new("bucket", "object", removed.generation);
+    let target = ObjectTarget::new("bucket", "object", removed.generation.get());
     let soft_deleted = catalog
         .get_soft_deleted_object(target.clone(), Default::default(), PERMISSIVE)
         .await
@@ -828,7 +840,10 @@ async fn transitions_update_live_and_noncurrent_generations_but_exclude_soft_del
             .await
             .unwrap();
         assert_eq!(changed.storage_class, StorageClass::Coldline);
-        assert_eq!(changed.metageneration, original.metageneration + 1);
+        assert_eq!(
+            changed.metageneration.get(),
+            original.metageneration.get() + 1
+        );
         assert_eq!(
             changed.time_deleted.is_some(),
             original.generation == old.generation
@@ -932,7 +947,7 @@ async fn each_chained_action_counts_toward_the_pass_limit_and_resumes_next_pass(
     assert_eq!(first.applied(), ACTION_LIMIT);
     let remaining = current(&catalog, "object-000").await;
     assert_eq!(remaining.storage_class, StorageClass::Nearline);
-    assert_eq!(remaining.metageneration, 2);
+    assert_eq!(remaining.metageneration.get(), 2);
     assert_eq!(count(&catalog, "SELECT count(*) FROM objects").await, 1);
     counts(
         execute(&catalog).await,

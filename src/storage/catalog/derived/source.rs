@@ -105,7 +105,7 @@ fn name_component(
             match objects::lookup(connection, &source.target.bucket, &source.target.name) {
                 Ok(Some(live)) => ComponentFailureKind::GenerationMismatch {
                     required,
-                    actual: live.record.generation,
+                    actual: live.record.generation.get(),
                 },
                 // Deleted meanwhile: the precondition failure stands. Naming the component is
                 // best-effort, so a failed lookup leaves it standing too.
@@ -194,7 +194,7 @@ impl Catalog {
             connection,
             &source.bucket,
             &source.name,
-            source.generation,
+            source.generation.get(),
             access,
         )
     }

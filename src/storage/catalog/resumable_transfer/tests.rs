@@ -221,7 +221,7 @@ fn resumable_retention_overflow_reports_the_stored_period_as_corrupt() {
             &connection,
             &session,
             options.clone(),
-            1,
+            1_i64.try_into().unwrap(),
             objects::PublicationDefaults {
                 storage_class: crate::bucket::StorageClass::Standard,
                 time: UNIX_EPOCH + Duration::from_secs(1),

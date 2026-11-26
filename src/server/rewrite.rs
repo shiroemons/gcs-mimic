@@ -281,7 +281,7 @@ async fn execute(
             source: crate::object::ObjectTarget::new(
                 names.source.bucket.clone(),
                 names.source.name.clone(),
-                source.object.generation,
+                source.object.generation.get(),
             ),
             destination: crate::object::ObjectTarget::new(
                 names.destination.bucket.clone(),
@@ -295,7 +295,7 @@ async fn execute(
             binding,
             destination,
             source_conditions: operation.source_conditions,
-            source_metageneration: source.object.metageneration,
+            source_metageneration: source.object.metageneration.get(),
             source_access: source_access.clone(),
             source_key_sha256: keys.source.map(crate::csek::CustomerKey::sha256),
             budget,

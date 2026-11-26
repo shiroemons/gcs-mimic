@@ -92,7 +92,7 @@ async fn queued_uploads_publish_together_and_a_failed_precondition_fails_alone()
     let catalog = open(&data.0).await;
     let existing = put(&catalog, "existing", b"old").await;
     let mismatch = ObjectConditions {
-        if_generation_match: Some(existing.generation + 1),
+        if_generation_match: Some(existing.generation.get() + 1),
         ..Default::default()
     };
     let tasks = queue_uploads(

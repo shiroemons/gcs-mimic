@@ -1100,7 +1100,7 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
             .unwrap_err(),
         AdminError::Checksum
     );
-    let condition = GenerationCondition::Is(Generation::new(first.generation).unwrap());
+    let condition = GenerationCondition::Is(first.generation);
     let (a, b) = tokio::join!(
         admin.publish_object(&bucket, &name, request(Some(condition)), body(b"next-a")),
         admin.publish_object(&bucket, &name, request(Some(condition)), body(b"next-b"))
@@ -1113,11 +1113,7 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
     assert!(next.generation > first.generation);
     assert!(next.metadata.is_empty());
     let (selected, mut reader) = admin
-        .open_object(
-            &bucket,
-            &name,
-            Some(Generation::new(first.generation).unwrap()),
-        )
+        .open_object(&bucket, &name, Some(first.generation))
         .await
         .unwrap();
     assert!(selected.time_deleted.is_some());
@@ -1133,11 +1129,7 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
         AdminError::Precondition
     );
     admin
-        .delete_object(
-            &bucket,
-            &name,
-            GenerationCondition::Is(Generation::new(next.generation).unwrap()),
-        )
+        .delete_object(&bucket, &name, GenerationCondition::Is(next.generation))
         .await
         .unwrap();
     assert_eq!(
@@ -1146,11 +1138,7 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
     );
     assert_eq!(
         admin
-            .get_object(
-                &bucket,
-                &name,
-                Some(Generation::new(first.generation).unwrap())
-            )
+            .get_object(&bucket, &name, Some(first.generation))
             .await
             .unwrap(),
         archived
@@ -1203,11 +1191,7 @@ async fn admin_holds_and_disk_full_keep_their_error_types() {
     );
     assert_eq!(
         admin
-            .delete_object(
-                &bucket,
-                &name,
-                GenerationCondition::Is(Generation::new(record.generation).unwrap())
-            )
+            .delete_object(&bucket, &name, GenerationCondition::Is(record.generation))
             .await
             .unwrap_err(),
         AdminError::Hold

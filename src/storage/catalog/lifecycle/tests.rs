@@ -172,7 +172,7 @@ async fn lifecycle_soft_delete_preserves_bytes_and_does_not_touch_retired_versio
     assert_eq!(execute(&catalog).await.deleted, 1);
     let deleted = catalog
         .get_soft_deleted_object(
-            ObjectTarget::new("bucket", "object", object.generation),
+            ObjectTarget::new("bucket", "object", object.generation.get()),
             Default::default(),
             PERMISSIVE,
         )
@@ -484,7 +484,7 @@ async fn restored_objects_restart_lifecycle_age_at_their_new_creation_time() {
     catalog.run_lifecycle_now().await.unwrap();
     let restored = catalog
         .restore_object(
-            ObjectTarget::new("bucket", "object", object.generation),
+            ObjectTarget::new("bucket", "object", object.generation.get()),
             Default::default(),
             PERMISSIVE_RESTORE,
         )
@@ -607,7 +607,10 @@ async fn a_selected_storage_class_action_updates_metadata_once() {
         .await
         .unwrap();
     assert_eq!(current.generation, object.generation);
-    assert_eq!(current.metageneration, object.metageneration + 1);
+    assert_eq!(
+        current.metageneration.get(),
+        object.metageneration.get() + 1
+    );
     assert_eq!(current.time_created, object.time_created);
     assert_eq!(current.updated, clock.now());
     assert_eq!(current.storage_class_updated(), clock.now());
@@ -1295,7 +1298,7 @@ async fn stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_befor
     assert_eq!(
         candidate(
             &catalog,
-            ObjectTarget::new("bucket", "object", old.generation),
+            ObjectTarget::new("bucket", "object", old.generation.get()),
             incarnation
         )
         .await
@@ -1307,7 +1310,7 @@ async fn stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_befor
     assert_eq!(
         candidate(
             &catalog,
-            ObjectTarget::new("bucket", "object", fresh.generation),
+            ObjectTarget::new("bucket", "object", fresh.generation.get()),
             incarnation
         )
         .await
@@ -1331,7 +1334,7 @@ async fn stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_befor
     assert_eq!(
         candidate(
             &catalog,
-            ObjectTarget::new("bucket", "object", fresh.generation),
+            ObjectTarget::new("bucket", "object", fresh.generation.get()),
             incarnation
         )
         .await
@@ -1357,7 +1360,7 @@ async fn a_bucket_recreated_between_selection_and_application_rejects_the_old_in
     assert_eq!(
         candidate(
             &catalog,
-            ObjectTarget::new("bucket", "object", object.generation),
+            ObjectTarget::new("bucket", "object", object.generation.get()),
             previous
         )
         .await

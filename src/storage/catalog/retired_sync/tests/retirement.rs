@@ -407,7 +407,8 @@ async fn released() -> Released {
     }
     catalog.close().await.unwrap();
     let connection = at_schema_57(&data);
-    let incarnation = record_synchronization(&connection, &folder, &data, objects[0].0.generation);
+    let incarnation =
+        record_synchronization(&connection, &folder, &data, objects[0].0.generation.get());
     let rows = objects_table(&connection);
     Released {
         dir,

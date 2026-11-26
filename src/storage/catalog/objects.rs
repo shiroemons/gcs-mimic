@@ -301,7 +301,7 @@ impl Catalog {
                     super::acl::ResolvedAclTarget::Object {
                         bucket: &bucket,
                         name: &name,
-                        generation: record.generation,
+                        generation: record.generation.get(),
                     },
                     &entries,
                     &access,
@@ -393,7 +393,7 @@ fn store_metadata_update(
         .transpose()?;
     record.metageneration = record
         .metageneration
-        .checked_add(1)
+        .checked_next()
         .ok_or_else(|| object_unavailable("metageneration exhausted"))?;
     record.updated = now;
     let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
@@ -470,7 +470,7 @@ pub(super) fn open_selected_in(
     // may already be gone, and the failed open sends the read to the serialized path.
     let file = catalog.0.storage.backend.open(&id)?;
     let remaining = record.size;
-    let publicly_readable = publicly_readable(connection, bucket, name, record.generation)?;
+    let publicly_readable = publicly_readable(connection, bucket, name, record.generation.get())?;
     Ok((
         record,
         ObjectReader {
@@ -685,7 +685,7 @@ pub(super) fn selected(
                     connection,
                     bucket,
                     name,
-                    stored.record.generation,
+                    stored.record.generation.get(),
                     check.access,
                 )
             })
@@ -871,8 +871,8 @@ pub(super) fn check_conditions(
     conditions: ObjectConditions,
     request: RequestKind,
 ) -> Result<(), ObjectError> {
-    let generation = record.map_or(0, |record| record.generation);
-    let metageneration = record.map(|record| record.metageneration);
+    let generation = record.map_or(0, |record| record.generation.get());
+    let metageneration = record.map(|record| record.metageneration.get());
     if conditions
         .if_generation_match
         .is_some_and(|value| value != generation)

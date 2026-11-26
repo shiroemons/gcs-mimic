@@ -986,7 +986,7 @@ async fn a_retained_object_refuses_a_replay_unless_versioning_keeps_it_noncurren
         if keeps_noncurrent {
             assert_eq!(committed.unwrap().replaced, 1);
             assert_eq!(bytes(&admin, "object").await, b"new");
-            let generation = Generation::new(old.generation).unwrap();
+            let generation = old.generation;
             let kept = admin
                 .get_object(&bucket, &name, Some(generation))
                 .await

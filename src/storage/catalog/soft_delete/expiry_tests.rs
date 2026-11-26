@@ -64,6 +64,7 @@ async fn put(catalog: &Catalog, bucket: &str, name: &str) -> i64 {
         .await
         .unwrap()
         .generation
+        .get()
 }
 
 async fn soft_delete(catalog: &Catalog, bucket: &str, name: &str) -> i64 {
@@ -124,7 +125,7 @@ async fn soft_deleted_object_read_sees_the_committed_generation() {
             )
             .await
             .unwrap();
-        assert_eq!(record.generation, generation);
+        assert_eq!(record.generation.get(), generation);
         assert_eq!(record.soft_delete_time, Some(start_time()));
     })
     .await;
@@ -223,7 +224,7 @@ async fn restart_before_delete_commit_recovers_both_the_purged_row_and_live_targ
             .get_object(live("bucket", "target"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
-        assert_eq!(live.generation, generation);
+        assert_eq!(live.generation.get(), generation);
         assert_eq!(soft_deleted_rows(&recovered).await, 1);
         assert_eq!(blob_count(&snapshot.0), 2);
         recovered.maintain_resumable_sessions().await.unwrap();
@@ -257,7 +258,7 @@ async fn a_failed_delete_commit_preserves_the_target_and_the_expired_generation(
         .get_object(live("bucket", "target"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
-    assert_eq!(live.generation, generation);
+    assert_eq!(live.generation.get(), generation);
     assert_eq!(soft_deleted_rows(&catalog).await, 1);
     assert_eq!(journal_rows(&catalog).await, 0);
     assert_eq!(blob_count(&data.0), 2);
@@ -298,7 +299,7 @@ async fn a_partial_delete_rolls_back_to_the_purge_or_with_the_whole_transaction(
             .get_object(live("bucket", "target"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
-        assert_eq!(live.generation, generation);
+        assert_eq!(live.generation.get(), generation);
         assert_eq!(soft_deleted_rows(&catalog).await, i64::from(!purge_commits));
         assert_eq!(journal_rows(&catalog).await, 0);
         assert_eq!(blob_count(&data.0), if purge_commits { 1 } else { 2 });
@@ -419,7 +420,7 @@ async fn a_soft_deleted_listing_purges_expired_rows_on_the_writer() {
         .await
         .unwrap();
     assert_eq!(catalog.job_counts(), (writes + 1, reads));
-    assert_eq!(readable.items[0].generation, generation);
+    assert_eq!(readable.items[0].generation.get(), generation);
     clock.advance(Duration::from_secs(5));
     let (writes, reads) = catalog.job_counts();
     let expired = catalog.list_objects(query, 10, PERMISSIVE).await.unwrap();

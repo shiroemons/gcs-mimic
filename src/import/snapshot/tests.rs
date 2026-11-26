@@ -119,7 +119,8 @@ fn pinned_source_export_imports_selected_bodies_and_metadata_after_restart() {
                     .get_object(&bucket, &ObjectName::new("a//../日本語/").unwrap(), None)
                     .await
                     .unwrap()
-                    .generation,
+                    .generation
+                    .get(),
                 7
             );
             assert!(
@@ -227,7 +228,7 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
                 .get_object(&bucket, &ObjectName::new(name).unwrap(), None)
                 .await
                 .unwrap();
-            assert_eq!(live.generation, 7);
+            assert_eq!(live.generation.get(), 7);
             assert_eq!(live.storage_class.as_str(), "NEARLINE");
             assert_eq!(live.event_based_hold.as_bool(), None);
             let archived = admin
@@ -337,7 +338,7 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
             )
             .await
             .unwrap();
-        assert!(next.generation > 9_000_000_000_000_000);
+        assert!(next.generation.get() > 9_000_000_000_000_000);
         catalog.close().await.unwrap();
     });
     assert_eq!(

@@ -428,8 +428,8 @@ pub(crate) fn object(
         bucket: format!("projects/_/buckets/{}", record.bucket),
         // The same validator as the JSON resource, so either API's value names one version.
         etag: crate::etag::object_etag(record),
-        generation: record.generation,
-        metageneration: record.metageneration,
+        generation: record.generation.get(),
+        metageneration: record.metageneration.get(),
         size: crate::grpc::convert::signed(record.size, "size")?,
         storage_class: record.storage_class.as_str().into(),
         content_type: record.content_type.clone(),

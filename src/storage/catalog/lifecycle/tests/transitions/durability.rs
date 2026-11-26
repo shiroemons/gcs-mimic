@@ -119,7 +119,10 @@ async fn transition_crash_and_power_loss_restart_converge_without_rewriting_or_d
             counts(execute(&recovered).await, 0, 0, 0, None);
             let changed = current(&recovered, "object").await;
             assert_eq!(changed.generation, original.generation);
-            assert_eq!(changed.metageneration, original.metageneration + 1);
+            assert_eq!(
+                changed.metageneration.get(),
+                original.metageneration.get() + 1
+            );
             assert_eq!(changed.storage_class, StorageClass::Coldline);
             assert_eq!(changed.storage_class_updated(), clock.now());
             assert_eq!(blob(&recovered, "object").await, original_blob);
@@ -214,7 +217,10 @@ async fn malformed_class_timestamp_is_quarantined_while_healthy_transitions_fini
     let repaired = current(&catalog, "broken").await;
     assert_eq!(repaired.storage_class, StorageClass::Coldline);
     assert_eq!(repaired.generation, malformed.generation);
-    assert_eq!(repaired.metageneration, malformed.metageneration + 2);
+    assert_eq!(
+        repaired.metageneration.get(),
+        malformed.metageneration.get() + 2
+    );
     assert_eq!(
         count(&catalog, "SELECT count(*) FROM lifecycle_quarantine").await,
         0

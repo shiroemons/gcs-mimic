@@ -101,8 +101,8 @@ async fn update_object_refuses_malformed_and_unmodeled_requests_without_changing
     );
     assert_failed_precondition(
         update(pb::UpdateObjectRequest {
-            if_generation_match: Some(original.generation),
-            if_generation_not_match: Some(original.generation),
+            if_generation_match: Some(original.generation.get()),
+            if_generation_not_match: Some(original.generation.get()),
             ..relabel()
         })
         .await,
@@ -110,8 +110,8 @@ async fn update_object_refuses_malformed_and_unmodeled_requests_without_changing
     );
     assert_failed_precondition(
         update(pb::UpdateObjectRequest {
-            if_metageneration_match: Some(original.metageneration),
-            if_metageneration_not_match: Some(original.metageneration),
+            if_metageneration_match: Some(original.metageneration.get()),
+            if_metageneration_not_match: Some(original.metageneration.get()),
             ..relabel()
         })
         .await,
@@ -384,13 +384,13 @@ async fn rewrite_object_refuses_malformed_and_unmodeled_requests_without_creatin
     }
     for pair in [
         pb::RewriteObjectRequest {
-            if_source_generation_match: Some(source.generation),
-            if_source_generation_not_match: Some(source.generation),
+            if_source_generation_match: Some(source.generation.get()),
+            if_source_generation_not_match: Some(source.generation.get()),
             ..rewrite()
         },
         pb::RewriteObjectRequest {
-            if_source_metageneration_match: Some(source.metageneration),
-            if_source_metageneration_not_match: Some(source.metageneration),
+            if_source_metageneration_match: Some(source.metageneration.get()),
+            if_source_metageneration_not_match: Some(source.metageneration.get()),
             ..rewrite()
         },
     ] {
@@ -399,8 +399,8 @@ async fn rewrite_object_refuses_malformed_and_unmodeled_requests_without_creatin
     // A source match that fails beside the not-match keeps the failed-condition wording.
     assert_failed_precondition(
         rewrite_with(pb::RewriteObjectRequest {
-            if_source_generation_match: Some(source.generation + 1),
-            if_source_generation_not_match: Some(source.generation),
+            if_source_generation_match: Some(source.generation.get() + 1),
+            if_source_generation_not_match: Some(source.generation.get()),
             ..rewrite()
         })
         .await,
@@ -466,7 +466,7 @@ async fn restore_object_refuses_a_missing_generation_and_copying_the_source_acl(
     let restore = pb::RestoreObjectRequest {
         bucket: RESOURCE.into(),
         object: "source".into(),
-        generation: source.generation,
+        generation: source.generation.get(),
         ..Default::default()
     };
     for generation in [0, -1] {
@@ -523,6 +523,6 @@ async fn restore_object_refuses_a_missing_generation_and_copying_the_source_acl(
     // A restore publishes the soft-deleted bytes as a new live generation.
     assert_eq!(restored.size, 4);
     let live = stored_object(&s, "source").await.unwrap();
-    assert_eq!(live.generation, restored.generation);
+    assert_eq!(live.generation.get(), restored.generation);
     s.state.catalog.close().await.unwrap();
 }

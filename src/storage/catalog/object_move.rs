@@ -8,7 +8,7 @@ use super::{
 use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
-    object::{ObjectConditions, ObjectError, ObjectRecord},
+    object::{Metageneration, ObjectConditions, ObjectError, ObjectRecord},
 };
 use rusqlite::params;
 
@@ -72,7 +72,7 @@ impl Catalog {
                     &transaction,
                     &record.bucket,
                     &record.name,
-                    record.generation,
+                    record.generation.get(),
                     &source_read,
                 )?;
                 let source_acl = super::acl::effective_object_entries(&transaction, &record)?;
@@ -107,7 +107,7 @@ impl Catalog {
                     params![bucket, source, record.generation],
                 )?;
                 record.name = destination;
-                record.metageneration = 1;
+                record.metageneration = Metageneration::INITIAL;
                 record.time_created = now.time;
                 record.updated = now.time;
                 record.time_deleted = None;

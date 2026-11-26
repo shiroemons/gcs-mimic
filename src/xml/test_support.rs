@@ -83,8 +83,8 @@ pub(super) fn object_record(
     crate::object::ObjectRecord {
         bucket: bucket.into(),
         name: name.into(),
-        generation: 42,
-        metageneration: 2,
+        generation: 42_i64.try_into().unwrap(),
+        metageneration: 2_i64.try_into().unwrap(),
         content_type: "text/plain".into(),
         size: 5,
         md5: [3; 16],

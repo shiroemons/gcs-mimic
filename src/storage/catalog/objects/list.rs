@@ -539,7 +539,7 @@ pub(super) fn list_page_within(
             name: name.clone(),
             is_prefix,
             generation: ((query.versions || query.soft_deleted) && !is_prefix)
-                .then_some(record.generation),
+                .then_some(record.generation.get()),
         });
         if !matches {
             examined += 1;

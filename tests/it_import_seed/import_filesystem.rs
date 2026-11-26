@@ -121,8 +121,8 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
             .open_object(&bucket, &ObjectName::new("a").unwrap(), None)
             .await
             .unwrap();
-        assert_eq!(record.generation, GENERATION);
-        assert_eq!(record.metageneration, 1);
+        assert_eq!(record.generation.get(), GENERATION);
+        assert_eq!(record.metageneration.get(), 1);
         assert_eq!(record.time_created, UNIX_EPOCH - Duration::from_micros(1));
         assert_eq!(
             record.updated,
@@ -158,7 +158,7 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
             )
             .await
             .unwrap();
-        assert!(later.generation > GENERATION);
+        assert!(later.generation.get() > GENERATION);
         assert_eq!(later.event_based_hold.as_bool(), Some(true));
         // Seed replays on imported catalogs too: fixtures without a matching file leave every
         // imported object and its source generation untouched.
@@ -192,8 +192,8 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
             .get_object(&bucket, &ObjectName::new("a").unwrap(), None)
             .await
             .unwrap();
-        assert_eq!(replayed.generation, GENERATION);
-        assert_eq!(replayed.metageneration, 1);
+        assert_eq!(replayed.generation.get(), GENERATION);
+        assert_eq!(replayed.metageneration.get(), 1);
         assert_eq!(replayed.content_type, "text/plain");
         assert_eq!(
             admin
@@ -249,7 +249,7 @@ fn filesystem_import_interrupt_resume_and_serve_gate() {
         assert!(
             page.items
                 .iter()
-                .all(|record| record.generation == GENERATION)
+                .all(|record| record.generation.get() == GENERATION)
         );
         catalog.close().await.unwrap();
     });
@@ -722,7 +722,7 @@ fn filesystem_import_preserves_classes_and_custom_time_through_resume_and_restar
                         .map(gcs_mimic::object::CustomTime::as_str),
                     Some("2026-01-02T03:04:05.123456+09:00")
                 );
-                assert_eq!(object.generation, GENERATION);
+                assert_eq!(object.generation.get(), GENERATION);
                 catalog.close().await.unwrap();
             });
         }

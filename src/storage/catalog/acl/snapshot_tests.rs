@@ -104,10 +104,10 @@ async fn page_projection_preserves_generation_order_owner_and_access_restriction
                 .object_acl_projection(
                     "bucket",
                     vec![
-                        ("object".into(), generation),
-                        ("missing".into(), generation),
-                        ("object".into(), generation + 1),
-                        ("object".into(), generation),
+                        ("object".into(), generation.get()),
+                        ("missing".into(), generation.get()),
+                        ("object".into(), generation.get() + 1),
+                        ("object".into(), generation.get()),
                     ],
                     &access,
                 )
@@ -118,7 +118,11 @@ async fn page_projection_preserves_generation_order_owner_and_access_restriction
             let allowed = catalog
                 .run::<_, CatalogError>(move |connection| {
                     match super::super::objects::authorize_generation(
-                        connection, "bucket", "object", generation, &checked,
+                        connection,
+                        "bucket",
+                        "object",
+                        generation.get(),
+                        &checked,
                     ) {
                         Ok(()) => Ok(true),
                         Err(ObjectError::Denied(_)) => Ok(false),
@@ -160,7 +164,7 @@ async fn page_projection_preserves_generation_order_owner_and_access_restriction
                     catalog
                         .object_acl_projection(
                             "bucket",
-                            vec![("object".into(), generation)],
+                            vec![("object".into(), generation.get())],
                             &wrong_project
                         )
                         .await
@@ -321,7 +325,7 @@ async fn acl_reads_and_object_projections_route_with_the_committed_grant() {
     let target = AclTarget::Object {
         bucket: "bucket".into(),
         name: "object".into(),
-        generation: Some(generation),
+        generation: Some(generation.get()),
     };
     let (state, _) = catalog
         .change_acl(
@@ -344,7 +348,7 @@ async fn acl_reads_and_object_projections_route_with_the_committed_grant() {
         );
     })
     .await;
-    let generations = || vec![("object".into(), generation)];
+    let generations = || vec![("object".into(), generation.get())];
     assert_point_read(&catalog, async || {
         let projection = catalog
             .acl_projection("bucket", generations())
@@ -430,7 +434,7 @@ async fn owner_entity_upsert_returns_the_preserved_owner_grant() {
     let target = AclTarget::Object {
         bucket: "bucket".into(),
         name: "object".into(),
-        generation: Some(record.generation),
+        generation: Some(record.generation.get()),
     };
     let upsert = |entity: &str| AclChange::Upsert {
         entity: entity.parse().unwrap(),
@@ -491,7 +495,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
         let target = AclTarget::Object {
             bucket: "bucket".into(),
             name: "object".into(),
-            generation: Some(record.generation),
+            generation: Some(record.generation.get()),
         };
         catalog
             .change_acl(
@@ -505,7 +509,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
             .await
             .unwrap();
         let projection = catalog
-            .acl_projection("bucket", vec![("object".into(), record.generation)])
+            .acl_projection("bucket", vec![("object".into(), record.generation.get())])
             .await
             .unwrap()
             .unwrap();
@@ -532,10 +536,10 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 .iter()
                 .any(|entry| entry.entity.as_str() == "user-uploader@example.test")
         );
-        assert!(snapshot.matches_resource("bucket", "object", record.generation));
-        assert!(!snapshot.matches_resource("other", "object", record.generation));
-        assert!(!snapshot.matches_resource("bucket", "other", record.generation));
-        assert!(!snapshot.matches_resource("bucket", "object", record.generation + 1));
+        assert!(snapshot.matches_resource("bucket", "object", record.generation.get()));
+        assert!(!snapshot.matches_resource("other", "object", record.generation.get()));
+        assert!(!snapshot.matches_resource("bucket", "other", record.generation.get()));
+        assert!(!snapshot.matches_resource("bucket", "object", record.generation.get() + 1));
         assert!(
             catalog
                 .object_acl_snapshot(snapshot.clone(), &access)
@@ -573,7 +577,11 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
         );
         assert_eq!(
             catalog
-                .object_acl_projection("bucket", vec![("object".into(), record.generation)], &get)
+                .object_acl_projection(
+                    "bucket",
+                    vec![("object".into(), record.generation.get())],
+                    &get
+                )
                 .await,
             Err(CatalogError::Forbidden)
         );

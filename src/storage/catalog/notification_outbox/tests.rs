@@ -636,7 +636,7 @@ async fn metadata_payload_filters_and_deleted_configuration_use_transaction_time
         .await
         .unwrap();
     assert_eq!(changed.generation, first.generation);
-    assert_eq!(changed.metageneration, 2);
+    assert_eq!(changed.metageneration.get(), 2);
     assert!(
         catalog
             .update_object_metadata(

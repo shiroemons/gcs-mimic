@@ -319,7 +319,7 @@ impl Storage {
                     token,
                     bucket: bucket.into(),
                     name: object.into(),
-                    generation: selected.record.generation,
+                    generation: selected.record.generation.get(),
                     size: selected.size,
                     finality,
                     expires,
@@ -886,7 +886,7 @@ mod tests {
             token.0.as_slice(),
             spec.read_handle.as_ref().unwrap().handle
         );
-        assert_eq!(resumed.record.generation, spec.generation);
+        assert_eq!(resumed.record.generation.get(), spec.generation);
         assert_eq!(
             resumed.reader.next_chunk().await.unwrap().unwrap(),
             b"handle data".as_slice()

@@ -1,6 +1,9 @@
 use super::super::UnixMicros;
 use super::*;
-use crate::bucket::{ClassLocationConflict, Location};
+use crate::{
+    bucket::{ClassLocationConflict, Location},
+    object::{Generation, Metageneration},
+};
 use std::num::NonZeroI64;
 
 /// The new version a publication transaction records: its blob, how its generation is
@@ -261,7 +264,7 @@ impl PublicationTime {
 impl PublicationDefaults {
     pub(in crate::storage::catalog) fn record(
         self,
-        target: ObjectTarget<i64>,
+        target: ObjectTarget<Generation>,
         content_type: String,
         size: u64,
         hashes: Hashes,
@@ -275,7 +278,7 @@ impl PublicationDefaults {
             bucket,
             name,
             generation,
-            metageneration: 1,
+            metageneration: Metageneration::INITIAL,
             owner: self.owner,
             content_type,
             size,
@@ -454,11 +457,12 @@ pub(in crate::storage::catalog) fn last_generation(
 pub(in crate::storage::catalog) fn next_generation(
     last: i64,
     micros: i64,
-) -> Result<i64, ObjectError> {
+) -> Result<Generation, ObjectError> {
     let after_last = last
         .checked_add(1)
         .ok_or_else(|| object_unavailable("generation exhausted"))?;
-    Ok(micros.max(after_last))
+    Generation::try_from(micros.max(after_last))
+        .map_err(|_| object_unavailable("generation exhausted"))
 }
 
 /// A version a publication wrote, what it did to the version it replaced, and what the
@@ -475,7 +479,7 @@ pub(in crate::storage::catalog) fn publish_version(
     previous: Option<&StoredObject>,
     bucket: &BucketPublication,
     version: NewVersion<'_>,
-    prepare: impl FnOnce(i64) -> Result<ObjectRecord, ObjectError>,
+    prepare: impl FnOnce(Generation) -> Result<ObjectRecord, ObjectError>,
 ) -> Result<PublishedVersion<()>, ObjectError> {
     publish_in_transaction(transaction, previous, bucket, version, |generation| {
         prepare(generation).map(|record| (record, ()))
@@ -490,7 +494,7 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
     previous: Option<&StoredObject>,
     bucket: &BucketPublication,
     version: NewVersion<'_>,
-    prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
+    prepare: impl FnOnce(Generation) -> Result<(ObjectRecord, T), ObjectError>,
 ) -> Result<PublishedVersion<T>, ObjectError> {
     let NewVersion {
         blob_id,
@@ -503,7 +507,7 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
     let last = last_generation(transaction)?;
     let generation = match assignment {
         GenerationAssignment::Automatic => next_generation(last, micros)?,
-        GenerationAssignment::Imported(generation) => generation.get(),
+        GenerationAssignment::Imported(generation) => generation,
     };
     let (mut record, prepared) = prepare(generation)?;
     // Reused records must not carry a previous generation's class-change history into publication,
@@ -555,14 +559,14 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
         bucket,
         RetirementContext {
             micros,
-            replacement: Some(generation),
+            replacement: Some(generation.get()),
             notification_mode,
         },
     )?;
     sql::exec(
         transaction,
         "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1",
-        [last.max(generation)],
+        [last.max(generation.get())],
     )?;
     let size = i64::try_from(record.size).map_err(object_unavailable)?;
     let time_created = unix_micros(record.time_created)?;

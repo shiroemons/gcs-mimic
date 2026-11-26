@@ -68,8 +68,8 @@ pub(crate) fn live(bucket: &str, name: &str) -> ObjectTarget {
 }
 
 /// A specific generation of bucket/name.
-pub(crate) fn version(bucket: &str, name: &str, generation: i64) -> ObjectTarget {
-    ObjectTarget::new(bucket, name, Some(generation))
+pub(crate) fn version(bucket: &str, name: &str, generation: impl Into<i64>) -> ObjectTarget {
+    ObjectTarget::new(bucket, name, Some(generation.into()))
 }
 
 /// A text/plain upload with no declared hashes or preconditions and permissive access.
@@ -330,8 +330,8 @@ pub(crate) fn bare_object_record() -> ObjectRecord {
     ObjectRecord {
         bucket: "bucket".into(),
         name: "bare.txt".into(),
-        generation: 1_700_000_000_123_456,
-        metageneration: 1,
+        generation: 1_700_000_000_123_456_i64.try_into().unwrap(),
+        metageneration: 1_i64.try_into().unwrap(),
         owner: None,
         content_type: "application/octet-stream".into(),
         content_encoding: None,
@@ -370,8 +370,8 @@ pub(crate) fn populated_object_record() -> ObjectRecord {
     ObjectRecord {
         bucket: "bucket".into(),
         name: "folder/full object.txt".into(),
-        generation: 1_700_000_000_123_456,
-        metageneration: 3,
+        generation: 1_700_000_000_123_456_i64.try_into().unwrap(),
+        metageneration: 3_i64.try_into().unwrap(),
         owner: Some(ObjectOwner::Principal {
             id: "uploader".into(),
             entity: Some("user-uploader@example.test".parse().unwrap()),

@@ -81,7 +81,7 @@ async fn a_wildcard_mask_replaces_the_editable_metadata_and_keeps_the_acl() {
 async fn service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused() {
     let (storage, _dir) = setup().await;
     let original = upload(&storage, "object", 4).await;
-    let mut metageneration = original.metageneration;
+    let mut metageneration = original.metageneration.get();
     for path in [
         "etag",
         "generation",
@@ -94,7 +94,7 @@ async fn service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused() 
             request(
                 pb::Object {
                     etag: "other".into(),
-                    generation: original.generation,
+                    generation: original.generation.get(),
                     retention_expire_time: Some(prost_types::Timestamp {
                         seconds: 1_577_836_800,
                         nanos: 0,
@@ -108,7 +108,7 @@ async fn service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused() 
         .await;
         metageneration += 1;
         assert_eq!(updated.metageneration, metageneration, "{path}");
-        assert_eq!(updated.generation, original.generation, "{path}");
+        assert_eq!(updated.generation, original.generation.get(), "{path}");
         assert!(!updated.etag.is_empty(), "{path}");
         assert_ne!(updated.etag, "other", "{path}");
         assert_eq!(updated.retention_expire_time, None, "{path}");
@@ -142,7 +142,7 @@ async fn service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused() 
         fixtures::assert_bad_request(refused, message);
     }
     let stored = stored_object(&storage, "object").await.unwrap();
-    assert_eq!(stored.metageneration, metageneration);
+    assert_eq!(stored.metageneration.get(), metageneration);
     storage.state.catalog.close().await.unwrap();
 }
 
@@ -190,7 +190,7 @@ async fn an_output_only_path_changes_nothing_but_the_metageneration() {
         seconds: 1_577_836_800,
         nanos: 0,
     });
-    let mut metageneration = original.metageneration;
+    let mut metageneration = original.metageneration.get();
     for path in ["create_time", "update_time"] {
         let updated = update(
             &storage,

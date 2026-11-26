@@ -1835,7 +1835,8 @@ async fn grpc_io_checksums_conditions_and_generation_preserve_data() {
                 .get_object(live("grpc-io", "object"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap()
-                .generation,
+                .generation
+                .get(),
             first.generation
         );
     }

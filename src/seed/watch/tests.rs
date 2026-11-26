@@ -156,7 +156,7 @@ impl Watched {
     }
 
     async fn generation(&self, bucket: &str, name: &str) -> i64 {
-        self.live(bucket, name).await.unwrap().generation
+        self.live(bucket, name).await.unwrap().generation.get()
     }
 
     async fn body(&self, bucket: &str, name: &str) -> Vec<u8> {
@@ -347,10 +347,16 @@ async fn an_api_overwrite_stays_until_the_file_changes_even_through_a_rename_sav
     let watched = watched().await;
     let written = watched.api_write("bucket", "a", b"api").await;
     watched.pass().await;
-    assert_eq!(watched.generation("bucket", "a").await, written.generation);
+    assert_eq!(
+        watched.generation("bucket", "a").await,
+        written.generation.get()
+    );
     watched.rename_save("bucket/a", b"a");
     watched.pass().await;
-    assert_eq!(watched.generation("bucket", "a").await, written.generation);
+    assert_eq!(
+        watched.generation("bucket", "a").await,
+        written.generation.get()
+    );
     watched.rename_save("bucket/a", b"edited");
     let report = watched.pass().await;
     assert_eq!(report.counts.published, 1);
@@ -408,7 +414,10 @@ async fn a_removed_file_keeps_the_object_an_api_write_made() {
     let report = watched.confirm().await;
     assert_eq!(report.counts.tombstones, 1);
     assert_eq!(report.counts.deleted, 0);
-    assert_eq!(watched.generation("bucket", "c").await, written.generation);
+    assert_eq!(
+        watched.generation("bucket", "c").await,
+        written.generation.get()
+    );
     watched.close().await;
 }
 
@@ -432,7 +441,15 @@ async fn an_api_edit_between_the_two_proofs_keeps_the_object() {
         .await;
     let report = watched.confirm().await;
     assert_eq!(report.counts.deleted, 0);
-    assert_eq!(watched.live("bucket", "b").await.unwrap().metageneration, 2);
+    assert_eq!(
+        watched
+            .live("bucket", "b")
+            .await
+            .unwrap()
+            .metageneration
+            .get(),
+        2
+    );
     watched.close().await;
 }
 
@@ -596,7 +613,10 @@ async fn a_directory_away_while_the_api_replaces_its_bucket_keeps_the_api_object
         (report.counts.buckets_created, report.counts.published),
         (0, 0)
     );
-    assert_eq!(watched.generation("bucket", "x").await, written.generation);
+    assert_eq!(
+        watched.generation("bucket", "x").await,
+        written.generation.get()
+    );
     assert_eq!(watched.body("bucket", "x").await, b"api");
     assert!(watched.live("bucket", "a").await.is_none());
     watched.close().await;
@@ -695,7 +715,10 @@ async fn an_unreadable_directory_keeps_the_bucket_the_api_deleted_or_created_aga
         assert_eq!(report.counts.published, 0, "{report:?}");
         match api {
             Some(written) => {
-                assert_eq!(watched.generation("bucket", "a").await, written.generation);
+                assert_eq!(
+                    watched.generation("bucket", "a").await,
+                    written.generation.get()
+                );
                 assert_eq!(watched.body("bucket", "a").await, b"api");
             }
             None => assert!(!watched.bucket_exists("bucket").await),
@@ -764,7 +787,7 @@ async fn a_name_the_lookup_cannot_tell_about_is_reported_only_while_seeding_owns
     assert_eq!(report.counts.tombstones, 2, "{report:?}");
     assert_eq!(
         watched.generation("bucket", "sub/replaced").await,
-        written.generation
+        written.generation.get()
     );
     assert!(watched.live("bucket", "sub/deleted").await.is_none());
     watched.close().await;

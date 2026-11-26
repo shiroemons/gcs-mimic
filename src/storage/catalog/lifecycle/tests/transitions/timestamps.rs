@@ -57,7 +57,10 @@ async fn transitions_never_backdate_creation_or_a_newer_metadata_update() {
             .unwrap();
         let changed = current(&catalog, "object").await;
         assert_eq!(changed.storage_class, StorageClass::Nearline);
-        assert_eq!(changed.metageneration, before.metageneration + 1);
+        assert_eq!(
+            changed.metageneration.get(),
+            before.metageneration.get() + 1
+        );
         assert_eq!(changed.updated, before.updated);
         assert_eq!(changed.storage_class_updated(), before.updated);
         assert!(changed.updated >= changed.time_created);
@@ -139,7 +142,7 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
                         source: crate::object::ObjectTarget::new(
                             "bucket",
                             "source",
-                            transitioned.generation,
+                            transitioned.generation.get(),
                         ),
                         destination: crate::object::ObjectTarget::new("bucket", route, ()),
                         parameters: Default::default(),
@@ -147,7 +150,7 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
                     },
                     destination,
                     source_conditions: Default::default(),
-                    source_metageneration: transitioned.metageneration,
+                    source_metageneration: transitioned.metageneration.get(),
                     source_access: BucketAccess::Permissive,
                     source_key_sha256: None,
                     budget: std::num::NonZeroU64::new(1_048_576).unwrap(),
@@ -210,7 +213,7 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
                     .unwrap();
                 catalog
                     .restore_object(
-                        ObjectTarget::new("bucket", "restore-source", original.generation),
+                        ObjectTarget::new("bucket", "restore-source", original.generation.get()),
                         Default::default(),
                         PERMISSIVE_RESTORE,
                     )

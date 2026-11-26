@@ -573,14 +573,14 @@ impl Storage {
         };
         let start = RewriteStart {
             binding: RewriteBinding {
-                source: crate::object::ObjectTarget::new(sb, sn, source.object.generation),
+                source: crate::object::ObjectTarget::new(sb, sn, source.object.generation.get()),
                 destination: destination_target,
                 parameters,
                 metadata: body,
             },
             destination,
             source_conditions: sc,
-            source_metageneration: source.object.metageneration,
+            source_metageneration: source.object.metageneration.get(),
             source_access: read.clone(),
             source_key_sha256: options.keys.source.map(CustomerKey::sha256),
             budget,
@@ -1159,7 +1159,7 @@ mod tests {
         let restore = pb::RestoreObjectRequest {
             bucket: RESOURCE.into(),
             object: "source".into(),
-            generation: source.generation,
+            generation: source.generation.get(),
             restore_token: "token".into(),
             ..Default::default()
         };
@@ -1239,7 +1239,7 @@ mod tests {
         let request = pb::RewriteObjectRequest {
             source_bucket: resource.into(),
             source_object: "source".into(),
-            source_generation: source.generation,
+            source_generation: source.generation.get(),
             destination_bucket: "projects/_/buckets/update-copy-other".into(),
             destination_name: "target".into(),
             max_bytes_rewritten_per_call: 1024 * 1024,
@@ -1298,10 +1298,10 @@ mod tests {
         };
         let src = pb::compose_object_request::SourceObject {
             name: "source".into(),
-            generation: source.generation,
+            generation: source.generation.get(),
             object_preconditions: Some(
                 pb::compose_object_request::source_object::ObjectPreconditions {
-                    if_generation_match: Some(source.generation + 1),
+                    if_generation_match: Some(source.generation.get() + 1),
                 },
             ),
         };

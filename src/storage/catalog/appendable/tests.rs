@@ -99,7 +99,7 @@ async fn reserved_publication_reclaims_memory_appendable_without_a_previous_obje
         .append(0, Bytes::from_static(b"data"), 1024)
         .await
         .unwrap();
-    let identity = ReservedGeneration::from_record(&writer.record).unwrap();
+    let identity = ReservedGeneration::from_record(&writer.record);
     let record = catalog
         .put_object_with_mode(
             crate::storage::test_fixtures::permissive_upload("append", "reserved", 1024),
@@ -350,7 +350,7 @@ async fn appendable_creation_and_acknowledged_prefix_survive_power_loss() {
         catalog.close().await.unwrap();
         let recovered = Catalog::open(&snapshot).await.unwrap();
         assert_eq!(persisted_content(&recovered, "durable").await, b"kept");
-        let writer = take_over(&recovered, "durable", generation).await;
+        let writer = take_over(&recovered, "durable", generation.get()).await;
         assert_eq!(writer.persisted_size(), 4);
         drop(writer);
         recovered.close().await.unwrap();
@@ -407,7 +407,8 @@ async fn ram_and_disk_cancelled_takeover_keeps_slot_registered_until_truncation_
         drop(writer);
         let (entered, release) = arm_write_pause(&data_dir);
         let worker = catalog.clone();
-        let request = tokio::spawn(async move { take_over(&worker, "takeover", generation).await });
+        let request =
+            tokio::spawn(async move { take_over(&worker, "takeover", generation.get()).await });
         entered.await.unwrap();
         request.abort();
         let Err(error) = request.await else {
@@ -416,7 +417,7 @@ async fn ram_and_disk_cancelled_takeover_keeps_slot_registered_until_truncation_
         assert!(error.is_cancelled());
         let worker = catalog.clone();
         let mut successor =
-            tokio::spawn(async move { take_over(&worker, "takeover", generation).await });
+            tokio::spawn(async move { take_over(&worker, "takeover", generation.get()).await });
         let blocked = tokio::time::timeout(std::time::Duration::from_millis(50), &mut successor)
             .await
             .is_err();
@@ -504,7 +505,7 @@ async fn ram_appendable_cancelled_finalizer_finishes_owned_publication_and_recla
     assert!(matches!(
         catalog
             .take_over_appendable(
-                ObjectTarget::new("append", "cancelled", generation),
+                ObjectTarget::new("append", "cancelled", generation.get()),
                 None,
                 Default::default(),
                 BucketAccess::Permissive
@@ -753,7 +754,7 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
     assert_eq!(
         catalog
             .take_over_appendable(
-                ObjectTarget::new("append", "crash", generation),
+                ObjectTarget::new("append", "crash", generation.get()),
                 None,
                 Default::default(),
                 BucketAccess::Permissive
@@ -807,7 +808,7 @@ async fn interrupted_finalization_before_publication_stays_appendable() {
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(open(&catalog, "pending").await.unwrap().size, 4);
-    let mut writer = take_over(&catalog, "pending", generation).await;
+    let mut writer = take_over(&catalog, "pending", generation.get()).await;
     let record = writer
         .finalize(
             Some(crc32c::crc32c(b"kept")),
@@ -838,7 +839,7 @@ async fn publishing_a_reserved_generation_retires_its_row_atomically() {
     let record = writer.record().clone();
     drop(writer);
     let identity = super::super::admin::ImportedIdentity::new(
-        super::super::admin::Generation::new(record.generation).unwrap(),
+        record.generation,
         record.time_created,
         record.updated,
     )
@@ -924,7 +925,7 @@ async fn writer_slots_are_released_with_their_last_holder() {
         .await
         .unwrap();
     let generation = first.record().generation;
-    let mut second = take_over(&catalog, "shared", generation).await;
+    let mut second = take_over(&catalog, "shared", generation.get()).await;
     assert_eq!(slot_count(&dir.0), 1);
     assert_eq!(
         first.append(0, Bytes::from_static(b"x"), 1024).await,
@@ -1012,7 +1013,7 @@ async fn appendable_size_limit_and_reader_bound_by_persisted_size() {
     assert_eq!(
         catalog
             .open_appendable(
-                version("append", "bounded", record.generation + 1),
+                version("append", "bounded", record.generation.get() + 1),
                 Default::default(),
                 PERMISSIVE
             )
@@ -1025,7 +1026,7 @@ async fn appendable_size_limit_and_reader_bound_by_persisted_size() {
             .open_appendable(
                 live("append", "bounded"),
                 ObjectConditions {
-                    if_generation_not_match: Some(record.generation),
+                    if_generation_not_match: Some(record.generation.get()),
                     ..Default::default()
                 },
                 PERMISSIVE
@@ -1085,7 +1086,7 @@ async fn a_dropped_append_cannot_overwrite_bytes_committed_after_a_takeover() {
     }
     let taker = catalog.clone();
     let mut takeover = tokio::spawn(async move {
-        let mut next = take_over(&taker, "dropped", generation).await;
+        let mut next = take_over(&taker, "dropped", generation.get()).await;
         next.append(4, Bytes::from_static(b"next"), 1024)
             .await
             .unwrap();
@@ -1216,7 +1217,7 @@ async fn append_crash_at_each_durable_step_recovers_the_flushed_prefix() {
             b"one",
             "{step:?}"
         );
-        let mut writer = take_over(&recovered, "crash", generation).await;
+        let mut writer = take_over(&recovered, "crash", generation.get()).await;
         assert_eq!(writer.persisted_size(), 3, "{step:?}");
         writer
             .append(3, Bytes::from_static(b"TWO"), 1024)
@@ -1265,7 +1266,7 @@ async fn finalize_failure_and_crashes_recover_appendable_or_finalized() {
     let after = crashes.0.join("after");
     catalog.inject(Step::BeforeCommit, 0, Fault::Snapshot(before.clone()));
     catalog.inject(Step::AfterCommit, 0, Fault::Snapshot(after.clone()));
-    let mut writer = take_over(&catalog, "final", generation).await;
+    let mut writer = take_over(&catalog, "final", generation.get()).await;
     let record = writer
         .finalize(
             Some(crc32c::crc32c(b"data")),
@@ -1292,7 +1293,7 @@ async fn finalize_failure_and_crashes_recover_appendable_or_finalized() {
     assert_eq!(
         recovered
             .take_over_appendable(
-                ObjectTarget::new("append", "final", generation),
+                ObjectTarget::new("append", "final", generation.get()),
                 None,
                 Default::default(),
                 BucketAccess::Permissive

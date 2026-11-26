@@ -252,7 +252,7 @@ mod tests {
             .publish_with_identity(&bucket, &name, request(), Some(source), body())
             .await
             .unwrap();
-        assert_eq!(published.generation, 7);
+        assert_eq!(published.generation.get(), 7);
         assert_eq!(published.time_created, source.time_created());
         catalog.close().await.unwrap();
     }
@@ -265,7 +265,7 @@ mod tests {
             .publish_with_identity(&bucket, &name, request(), Some(source), body())
             .await
             .unwrap();
-        assert_eq!(record.generation, source.generation().unwrap().get());
+        assert_eq!(record.generation.get(), source.generation().unwrap().get());
         assert_eq!(
             (record.time_created, record.updated),
             (source.time_created(), source.updated())
@@ -288,7 +288,8 @@ mod tests {
                 .get_object(&bucket, &name, None)
                 .await
                 .unwrap()
-                .generation,
+                .generation
+                .get(),
             7
         );
         assert_eq!(
@@ -328,7 +329,10 @@ mod tests {
             .publish_object(&bucket, &name, request(), body())
             .await
             .unwrap();
-        assert_eq!(ordinary.generation, source.generation().unwrap().get() + 1);
+        assert_eq!(
+            ordinary.generation.get(),
+            source.generation().unwrap().get() + 1
+        );
         catalog.close().await.unwrap();
     }
 
@@ -369,7 +373,7 @@ mod tests {
             .publish_object(&bucket, &name, request(), body())
             .await
             .unwrap();
-        assert_eq!(next.generation, original.generation + 1);
+        assert_eq!(next.generation.get(), original.generation.get() + 1);
         assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
         let blobs: usize = std::fs::read_dir(dir.0.join("blobs"))
             .unwrap()
@@ -411,12 +415,12 @@ mod tests {
             .publish_with_identity(&bucket, &name, request(), Some(identity(7)), body())
             .await
             .unwrap();
-        assert_eq!(imported.generation, 7);
+        assert_eq!(imported.generation.get(), 7);
         let next = admin
             .publish_object(&bucket, &name, request(), body())
             .await
             .unwrap();
-        assert_eq!(next.generation, original.generation + 1);
+        assert_eq!(next.generation.get(), original.generation.get() + 1);
         catalog.close().await.unwrap();
     }
 
@@ -433,7 +437,7 @@ mod tests {
             .publish_with_identity(&bucket, &name, input, Some(fixture), body())
             .await
             .unwrap();
-        assert_eq!(record.generation, 7);
+        assert_eq!(record.generation.get(), 7);
         assert_eq!(record.md5, request().expected.md5.unwrap());
         assert_eq!(record.crc32c, request().expected.crc32c.unwrap());
         assert_eq!(
@@ -475,7 +479,8 @@ mod tests {
                 .get_object(&bucket, &name, None)
                 .await
                 .unwrap()
-                .generation,
+                .generation
+                .get(),
             i64::MAX
         );
         let other = ObjectName::new("other").unwrap();

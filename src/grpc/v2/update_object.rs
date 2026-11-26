@@ -450,7 +450,7 @@ mod tests {
             .await
             .unwrap()
             .into_inner();
-        assert_eq!(object.metageneration, source.metageneration + 1);
+        assert_eq!(object.metageneration, source.metageneration.get() + 1);
         assert!(
             object
                 .acl
@@ -614,7 +614,7 @@ mod tests {
                 ..Default::default()
             }),
             update_mask: fixtures::mask(&["metadata"]),
-            if_generation_match: Some(source.generation),
+            if_generation_match: Some(source.generation.get()),
             ..Default::default()
         };
         let object = s
@@ -688,7 +688,7 @@ mod tests {
             .await
             .unwrap()
             .into_inner();
-        assert_eq!(updated.metageneration, source.metageneration + 1);
+        assert_eq!(updated.metageneration, source.metageneration.get() + 1);
         assert!(
             grants(&updated).contains(&("allUsers", "READER")),
             "{updated:?}"
@@ -712,7 +712,11 @@ mod tests {
             .unwrap_err();
         assert_eq!(status.code(), tonic::Code::InvalidArgument);
         assert_eq!(
-            stored_object(&s, "source").await.unwrap().metageneration,
+            stored_object(&s, "source")
+                .await
+                .unwrap()
+                .metageneration
+                .get(),
             updated.metageneration
         );
 

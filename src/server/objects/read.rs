@@ -438,6 +438,6 @@ async fn metadata(
 /// Whether the query's `ifGenerationNotMatch` or `ifMetagenerationNotMatch` names `record`, so
 /// a read answers `304 Not Modified`.
 fn not_modified_by(conditions: &ObjectConditions, record: &ObjectRecord) -> bool {
-    conditions.if_generation_not_match == Some(record.generation)
-        || conditions.if_metageneration_not_match == Some(record.metageneration)
+    conditions.if_generation_not_match == Some(record.generation.get())
+        || conditions.if_metageneration_not_match == Some(record.metageneration.get())
 }

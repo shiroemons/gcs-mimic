@@ -37,13 +37,17 @@ async fn a_delayed_pass_can_delete_an_old_version_after_removing_its_transition_
         );
         if on_time {
             assert_eq!(
-                selected(&catalog, first.generation).await.storage_class,
+                selected(&catalog, first.generation.get())
+                    .await
+                    .storage_class,
                 StorageClass::Nearline
             );
         }
         assert!(!exists(&catalog, version("bucket", "object", second.generation)).await);
         assert_eq!(
-            selected(&catalog, third.generation).await.storage_class,
+            selected(&catalog, third.generation.get())
+                .await
+                .storage_class,
             StorageClass::Standard
         );
         catalog.close().await.unwrap();
@@ -77,7 +81,9 @@ async fn an_overwrite_during_a_stop_can_remove_a_live_only_transition_opportunit
         );
         if on_time {
             assert_eq!(
-                selected(&catalog, first.generation).await.storage_class,
+                selected(&catalog, first.generation.get())
+                    .await
+                    .storage_class,
                 StorageClass::Nearline
             );
         }
@@ -190,7 +196,9 @@ async fn descending_scans_remove_successors_before_testing_an_older_delete_thres
         clock.set(first.time_created + DAY * 50);
         assert_eq!(execute(&catalog).await.deleted, u64::from(!on_time));
         assert_eq!(
-            selected(&catalog, first.generation).await.storage_class,
+            selected(&catalog, first.generation.get())
+                .await
+                .storage_class,
             StorageClass::Standard
         );
         assert!(!exists(&catalog, version("bucket", "object", second.generation)).await);

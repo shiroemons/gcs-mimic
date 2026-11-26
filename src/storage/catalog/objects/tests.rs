@@ -311,7 +311,7 @@ async fn glob_listing_pages_through_non_matching_rows() {
                 );
                 assert_eq!(
                     cursor.generation,
-                    (shape == "versions").then_some(created[2].generation)
+                    (shape == "versions").then_some(created[2].generation.get())
                 );
             }
             items.extend(page.items);
@@ -1256,7 +1256,7 @@ fn object_list_skips_noncurrent_rows_with_bounded_sql_work() {
         generation: Some(9999),
     });
     let page = list_page(&connection, &query, 1).unwrap();
-    assert_eq!(page.items[0].generation, 10000);
+    assert_eq!(page.items[0].generation.get(), 10000);
     assert!(page.next.is_none());
     #[expect(
         unsafe_code,
@@ -1441,7 +1441,7 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
         ..Default::default()
     };
     let mismatch = ObjectConditions {
-        if_generation_match: Some(winner.generation + 1),
+        if_generation_match: Some(winner.generation.get() + 1),
         ..Default::default()
     };
     for (conditions, error) in [
@@ -1769,7 +1769,7 @@ async fn object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot
         let target = AclTarget::Object {
             bucket: "bucket".into(),
             name: "object".into(),
-            generation: Some(current.generation),
+            generation: Some(current.generation.get()),
         };
         catalog
             .change_acl(

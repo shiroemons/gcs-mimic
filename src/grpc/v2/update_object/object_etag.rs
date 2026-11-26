@@ -51,6 +51,9 @@ async fn update_object_ignores_the_request_etag() {
 
     let stored = stored_object(&storage, "object").await.unwrap();
     assert_eq!(stored.content_language.as_deref(), Some("pt"));
-    assert_eq!(stored.metageneration, original.metageneration + 5);
+    assert_eq!(
+        stored.metageneration.get(),
+        original.metageneration.get() + 5
+    );
     storage.state.catalog.close().await.unwrap();
 }

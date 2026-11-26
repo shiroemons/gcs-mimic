@@ -19,7 +19,7 @@ async fn delete_checks_existence_authority_conditions_and_retention_in_order() {
     });
     catalog.insert_bucket(record).await.unwrap();
     let object = put(&catalog, "object", b"object").await;
-    let target = ObjectTarget::new("bucket", "object", Some(object.generation));
+    let target = ObjectTarget::new("bucket", "object", Some(object.generation.get()));
     let mut upload = permissive_upload("bucket", "held", 100);
     upload.metadata.temporary_hold = Some(true);
     catalog.put_object(upload, body(b"held")).await.unwrap();

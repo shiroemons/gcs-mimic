@@ -2,7 +2,10 @@ use super::{Catalog, CatalogError, UnixMicros, objects, unavailable, unix_micros
 use crate::storage::{BlobError, catalog::sql};
 use crate::{
     bucket::BucketAccess,
-    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, SoftDeletedRequest},
+    object::{
+        Metageneration, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget,
+        SoftDeletedRequest,
+    },
 };
 use objects::{SELECT_SOFT_DELETED_GENERATION, authorized_bucket, object_unavailable, read_object};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -221,7 +224,7 @@ fn restore_in_transaction(
     }
     published?.map_err(object_unavailable)?;
     let bucket = objects::BucketPublication::load(&transaction, &request.target.bucket)?;
-    record.metageneration = 1;
+    record.metageneration = Metageneration::INITIAL;
     record.time_created = now.time;
     record.updated = now.time;
     record.time_deleted = None;
@@ -317,7 +320,7 @@ impl Catalog {
                         &snapshot,
                         &bucket,
                         &name,
-                        stored.record.generation,
+                        stored.record.generation.get(),
                         check.access,
                     )? {
                         return Err(check.refusal());
