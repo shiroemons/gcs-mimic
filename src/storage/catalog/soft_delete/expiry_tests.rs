@@ -1,6 +1,7 @@
 //! Expiry of soft-deleted objects driven by the maintenance scheduler and an injected clock.
 
 use super::*;
+use crate::storage::catalog::read_pool::tests::assert_point_read;
 use crate::{
     bucket::SoftDeletePolicy,
     clock::{Clock, ManualClock},
@@ -113,6 +114,28 @@ async fn readable(catalog: &Catalog, bucket: &str, name: &str, generation: i64) 
         )
         .await
         .is_ok()
+}
+
+#[tokio::test]
+async fn soft_deleted_object_read_sees_the_committed_generation() {
+    let dir = TestDir::new();
+    let (catalog, _) = open_disk(&dir.0).await;
+    retaining_bucket(&catalog, "bucket", 7 * 86_400).await;
+    let generation = soft_delete(&catalog, "bucket", "retained").await;
+    assert_point_read(&catalog, async || {
+        let record = catalog
+            .get_soft_deleted_object(
+                ObjectTarget::new("bucket", "retained", generation),
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        assert_eq!(record.generation, generation);
+        assert_eq!(record.soft_delete_time, Some(start_time()));
+    })
+    .await;
+    catalog.close().await.unwrap();
 }
 
 fn memory_blobs(catalog: &Catalog) -> usize {

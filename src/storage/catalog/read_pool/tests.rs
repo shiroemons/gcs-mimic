@@ -15,7 +15,9 @@ use tokio::time::timeout;
 
 mod listings;
 mod point_reads;
-pub(in crate::storage::catalog) use point_reads::assert_point_read;
+pub(in crate::storage::catalog) use point_reads::{
+    assert_point_read, assert_point_read_with_setup,
+};
 
 /// Long enough that no test reaches it unless the behaviour under test is broken.
 const LONG: Duration = Duration::from_secs(60);

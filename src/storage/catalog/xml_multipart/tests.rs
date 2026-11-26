@@ -1,5 +1,6 @@
 use super::super::fault::{Fault, Step};
 use super::*;
+use crate::storage::catalog::read_pool::tests::assert_point_read;
 use crate::storage::test_fixtures::{PERMISSIVE, body, live, permissive_upload, read_all};
 use crate::{
     clock::{Clock, ManualClock, SystemClock},
@@ -18,7 +19,7 @@ mod maintenance;
 mod parallel;
 mod timestamps;
 
-async fn setup(clock: Arc<dyn Clock>) -> (TestDir, Catalog) {
+pub(super) async fn setup(clock: Arc<dyn Clock>) -> (TestDir, Catalog) {
     let dir = TestDir::new();
     let catalog = Catalog::open_for_server(&dir.0, clock, LocalAdmin::Enabled)
         .await
@@ -51,7 +52,7 @@ async fn upload_count(catalog: &Catalog) -> i64 {
         .unwrap()
 }
 
-async fn begin(catalog: &Catalog) -> Target {
+pub(super) async fn begin(catalog: &Catalog) -> Target {
     let options = Options {
         content_type: "text/plain".into(),
         metadata: Default::default(),
@@ -110,7 +111,7 @@ async fn upload_listing_resumes_after_its_key_and_upload_id_markers() {
     catalog.close().await.unwrap();
 }
 
-async fn put(
+pub(super) async fn put(
     catalog: &Catalog,
     target: &Target,
     number: u16,
@@ -146,6 +147,45 @@ async fn complete(catalog: &Catalog, target: &Target, etag: &str) -> Result<Obje
             64 * 1024 * 1024,
         )
         .await
+}
+
+#[tokio::test]
+async fn listings_see_committed_xml_uploads_and_parts() {
+    let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
+    let target = begin(&catalog).await;
+    let written = put(&catalog, &target, 1, b"part").await.unwrap();
+    assert_point_read(&catalog, async || {
+        let page = catalog
+            .list_xml_uploads(
+                UploadQuery {
+                    bucket: target.bucket.clone(),
+                    prefix: String::new(),
+                    delimiter: String::new(),
+                    key_marker: String::new(),
+                    upload_marker: None,
+                    limit: 1,
+                },
+                BucketAccess::Permissive,
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.uploads.len(), 1);
+        assert_eq!(page.uploads[0].target.id, target.id);
+        assert!(!page.more);
+    })
+    .await;
+    assert_point_read(&catalog, async || {
+        let page = catalog
+            .list_xml_parts(target.clone(), BucketAccess::Permissive, 0, 1)
+            .await
+            .unwrap();
+        assert_eq!(page.upload.target.id, target.id);
+        assert_eq!(page.parts.len(), 1);
+        assert_eq!(page.parts[0].etag, written.etag);
+        assert!(!page.more);
+    })
+    .await;
+    catalog.close().await.unwrap();
 }
 
 async fn bytes(catalog: &Catalog) -> Vec<u8> {
@@ -227,7 +267,7 @@ async fn part_and_completion_use_bounded_writer_jobs_under_their_leases() {
             .complete_xml_multipart(lease, parts, 64 * 1024 * 1024)
             .await
             .unwrap();
-        assert_eq!(catalog.job_counts(), (writes + 8, reads));
+        assert_eq!(catalog.job_counts(), (writes + 7, reads + 1));
         let hashes = expected.finish();
         assert_eq!((record.md5, record.crc32c), (hashes.md5, hashes.crc32c));
         catalog.close().await.unwrap();

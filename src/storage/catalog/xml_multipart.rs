@@ -1,7 +1,7 @@
 //! Persistent XML multipart state; ordinary objects appear only at completion.
 
 use super::resumable::writers::{ClaimError, KeyOrigin, WriterKey};
-use super::{Catalog, UnixMillis, objects, resumable};
+use super::{Catalog, UnixMillis, objects, read_pool::ReadOutcome, resumable};
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::{Incarnation, bucket_incarnation, connection::SerializedRead, sql};
 use crate::{
@@ -9,7 +9,7 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     hashing::Hashes,
     object::{ObjectError, ObjectRecord},
-    storage::failure::object_unavailable,
+    storage::failure::{Link, TypedSource, object_unavailable},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{fmt, path::Path, time::SystemTime};
@@ -104,6 +104,25 @@ impl From<ObjectError> for Error {
 impl From<CatalogError> for Error {
     fn from(error: CatalogError) -> Self {
         Self::Object(error.into())
+    }
+}
+
+impl TypedSource for Error {
+    fn typed_source(&self) -> Option<Link<'_>> {
+        match self {
+            Self::Object(error) => Some(Link::Object(error)),
+            Self::NoSuchUpload
+            | Self::InvalidPart
+            | Self::InvalidPartOrder
+            | Self::PartTooSmall
+            | Self::Busy => None,
+        }
+    }
+}
+
+impl ReadOutcome for Error {
+    fn retry_serialized(&self) -> bool {
+        matches!(self, Self::Object(error) if error.retry_serialized())
     }
 }
 
@@ -402,10 +421,10 @@ impl Catalog {
         limit: usize,
     ) -> Result<PartsPage, Error> {
         let now = UnixMillis::try_from(self.0.policy.clock.now())?;
-        self.run(move |connection| -> Result<_, Error> {
-            let transaction=connection.transaction().map_err(object_unavailable)?;
-            let upload=active(&transaction,&target,&access,now)?;
-            let mut parts=transaction.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated,updated_sub_milli_micros FROM xml_multipart_parts WHERE upload_id=?1 AND number>?2 ORDER BY number LIMIT ?3")
+        self.run_read(move |connection| -> Result<_, Error> {
+            let snapshot=sql::read_snapshot(connection).map_err(object_unavailable)?;
+            let upload=active(&snapshot,&target,&access,now)?;
+            let mut parts=snapshot.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated,updated_sub_milli_micros FROM xml_multipart_parts WHERE upload_id=?1 AND number>?2 ORDER BY number LIMIT ?3")
                 .and_then(|mut s|s.query_map(params![target.id,marker,limit.clamp(1,1000)+1],read_part)?.collect::<rusqlite::Result<Vec<_>>>()).map_err(object_unavailable)?;
             let more=parts.len()>limit.clamp(1,1000); if more {parts.pop();}
             Ok(PartsPage { upload, parts, more })

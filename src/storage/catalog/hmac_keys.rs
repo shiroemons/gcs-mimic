@@ -224,8 +224,8 @@ impl Catalog {
         access_id: &str,
     ) -> Result<Option<(String, String)>, CatalogError> {
         let access_id = access_id.to_owned();
-        self.run::<_, CatalogError>(move |connection| {
-            sql::row(connection, "SELECT service_account_email, secret FROM hmac_keys WHERE access_id = ?1 AND state = 'ACTIVE'", [access_id], |row| Ok((row.get(0)?, row.get(1)?))).optional()
+        self.run_read::<_, CatalogError>(move |connection| {
+            sql::row(connection, "SELECT service_account_email, secret FROM hmac_keys WHERE access_id = ?1 AND state = 'ACTIVE'", [&access_id], |row| Ok((row.get(0)?, row.get(1)?))).optional()
                 .map_err(unavailable)
         }).await
     }
@@ -271,7 +271,7 @@ impl Catalog {
     ) -> Result<HmacKeyRecord, HmacKeyError> {
         let project = project.clone();
         let access_id = access_id.to_owned();
-        self.run::<_, CatalogError>(move |connection| select(connection, &project, &access_id))
+        self.run_read::<_, CatalogError>(move |connection| select(connection, &project, &access_id))
             .await?
             .ok_or(HmacKeyError::NotFound)
     }
@@ -284,7 +284,7 @@ impl Catalog {
             .map_err(|_| CatalogError::InvalidMetadata("invalid HMAC key page size".into()))?
             .get();
         Ok(self
-            .run::<_, CatalogError>(move |connection| {
+            .run_read::<_, CatalogError>(move |connection| {
                 let mut statement = connection.prepare_cached(LIST_KEYS)?;
                 let mut items = statement
                     .query_map(
@@ -376,7 +376,49 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::catalog::read_pool::tests::assert_point_read;
     use crate::test_support::TestDir;
+
+    #[tokio::test]
+    async fn hmac_reads_see_the_committed_key() {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let project = "project".parse().unwrap();
+        let written = catalog
+            .create_hmac_key(&project, "signer@example.invalid")
+            .await
+            .unwrap();
+        let id = &written.record.access_id;
+        assert_point_read(&catalog, async || {
+            let (email, secret) = catalog.active_hmac_key(id).await.unwrap().unwrap();
+            assert_eq!(email, written.record.service_account_email);
+            assert!(secret == written.secret);
+        })
+        .await;
+        assert_point_read(&catalog, async || {
+            assert_eq!(
+                catalog.get_hmac_key(&project, id).await.unwrap(),
+                written.record
+            );
+        })
+        .await;
+        assert_point_read(&catalog, async || {
+            let page = catalog
+                .list_hmac_keys(HmacKeyListQuery {
+                    project: project.clone(),
+                    service_account_email: None,
+                    show_deleted: false,
+                    after: None,
+                    limit: 1,
+                })
+                .await
+                .unwrap();
+            assert_eq!(page.items.as_slice(), std::slice::from_ref(&written.record));
+            assert!(!page.has_more);
+        })
+        .await;
+        catalog.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn deleted_key_retention_is_bounded_per_project_without_changing_live_quota() {

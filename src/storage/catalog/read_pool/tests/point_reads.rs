@@ -7,11 +7,24 @@ pub(in crate::storage::catalog) async fn assert_point_read(
     catalog: &Catalog,
     check: impl AsyncFn(),
 ) {
+    assert_point_read_with_setup(catalog, async || (), async |()| check().await).await;
+}
+
+/// Creates and releases a fresh fixture guard on each route, so acquiring it is not a read job
+/// and holding it never prevents the exclusive reservation from finishing.
+pub(in crate::storage::catalog) async fn assert_point_read_with_setup<T>(
+    catalog: &Catalog,
+    setup: impl AsyncFn() -> T,
+    check: impl AsyncFn(T),
+) {
+    let fixture = setup().await;
     let (writes, reads) = catalog.job_counts();
-    check().await;
+    check(fixture).await;
     assert_eq!(catalog.job_counts(), (writes, reads + 1));
 
     // A held lease forces the exclusive job to reserve the gate while leaving the writer free.
+    let fixture = setup().await;
+    let (writes, reads) = catalog.job_counts();
     let lease = catalog.activity().unwrap();
     let exclusive = catalog.wait_exclusive(LONG_LIMIT.deadline());
     tokio::pin!(exclusive);
@@ -21,17 +34,19 @@ pub(in crate::storage::catalog) async fn assert_point_read(
         () = std::future::ready(()) => {}
     }
     assert!(catalog.0.admission.activity.is_reserved());
-    check().await;
-    assert_eq!(catalog.job_counts(), (writes + 1, reads + 1));
+    check(fixture).await;
+    assert_eq!(catalog.job_counts(), (writes + 1, reads));
     drop(lease);
     drop(exclusive.await.unwrap());
 
+    let fixture = setup().await;
+    let (writes, reads) = catalog.job_counts();
     let idle = &pool(catalog).shared;
     let empty = ReaderConnection::open(std::path::Path::new(":memory:")).unwrap();
     let original = idle.idle().last_mut().unwrap().connection.replace(empty);
-    check().await;
+    check(fixture).await;
     idle.idle().last_mut().unwrap().connection = original;
-    assert_eq!(catalog.job_counts(), (writes + 2, reads + 2));
+    assert_eq!(catalog.job_counts(), (writes + 1, reads + 1));
     assert_eq!(catalog.readonly_answers(), 0);
 }
 

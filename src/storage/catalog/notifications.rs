@@ -152,12 +152,12 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let id = parse_id(id);
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            authorize(&transaction, &bucket, &access)?;
+        self.run_read(move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
+            authorize(&snapshot, &bucket, &access)?;
             let Some(id) = id else { return Ok(None) };
             let stored: Option<String> = sql::optional_scalar(
-                &transaction,
+                &snapshot,
                 "SELECT config FROM bucket_notifications WHERE bucket = ?1 AND id = ?2",
                 params![bucket, id],
             )?;
@@ -173,10 +173,10 @@ impl Catalog {
     ) -> Result<Vec<NotificationRecord>, CatalogError> {
         let bucket = bucket.to_owned();
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            authorize(&transaction, &bucket, &access)?;
-            read_all(&transaction, &bucket)
+        self.run_read(move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
+            authorize(&snapshot, &bucket, &access)?;
+            read_all(&snapshot, &bucket)
         })
         .await
     }
@@ -215,6 +215,7 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::catalog::read_pool::tests::assert_point_read;
     use crate::storage::test_fixtures::PERMISSIVE;
     use crate::{bucket::BucketRecord, storage::catalog::test_fixtures::bucket as bucket_record};
     use std::collections::BTreeMap;
@@ -233,6 +234,35 @@ mod tests {
             custom_attributes: BTreeMap::from([("k".into(), "v".into())]),
             object_name_prefix: prefix.into(),
         }
+    }
+
+    #[tokio::test]
+    async fn notification_reads_see_the_committed_configuration() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog.insert_bucket(bucket("bucket")).await.unwrap();
+        let written = catalog
+            .insert_notification("bucket", config("prefix/"), PERMISSIVE)
+            .await
+            .unwrap();
+        let id = written.id.to_string();
+        assert_point_read(&catalog, async || {
+            let record = catalog
+                .get_notification("bucket", &id, PERMISSIVE)
+                .await
+                .unwrap();
+            assert_eq!(record.as_ref(), Some(&written));
+        })
+        .await;
+        assert_point_read(&catalog, async || {
+            let records = catalog
+                .list_notifications("bucket", PERMISSIVE)
+                .await
+                .unwrap();
+            assert_eq!(records.as_slice(), std::slice::from_ref(&written));
+        })
+        .await;
+        catalog.close().await.unwrap();
     }
 
     #[tokio::test]

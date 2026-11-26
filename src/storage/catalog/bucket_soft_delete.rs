@@ -332,11 +332,10 @@ impl Catalog {
         access: &BucketAccess,
     ) -> Result<SoftDeletedBucket, CatalogError> {
         let (name, access, clock) = (name.to_owned(), access.clone(), self.0.policy.clock.clone());
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
+        self.run_read(move |connection| {
             let now = unix_micros(clock.now())?;
             let version = sql::row(
-                &transaction,
+                connection,
                 SELECT_VERSION,
                 params![name, generation, now],
                 read_version,

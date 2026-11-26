@@ -24,6 +24,52 @@ struct CompletionParts {
 const OTHER_PARTS_BYTES: &str =
     "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2";
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        clock::SystemClock, storage::catalog::read_pool::tests::assert_point_read_with_setup,
+    };
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn completion_reads_the_committed_parts() {
+        let (_dir, catalog) = super::super::tests::setup(Arc::new(SystemClock)).await;
+        let target = super::super::tests::begin(&catalog).await;
+        let written = super::super::tests::put(&catalog, &target, 1, b"part")
+            .await
+            .unwrap();
+        assert_point_read_with_setup(
+            &catalog,
+            async || {
+                catalog
+                    .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+                    .await
+                    .unwrap()
+            },
+            async |lease| {
+                let parts = catalog
+                    .xml_completion_parts(
+                        &lease,
+                        CompletedPart {
+                            number: written.number,
+                            etag: written.etag.clone(),
+                        },
+                        Vec::new().into_iter(),
+                        4,
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(parts.first.blob_id, written.blob_id);
+                assert!(parts.remaining.is_empty());
+                assert_eq!(parts.total, 4);
+            },
+        )
+        .await;
+        catalog.close().await.unwrap();
+    }
+}
+
 /// Sync the directory on the blocking pool before committing the row that names the new entry.
 #[cfg(unix)]
 fn sync_staging_entry(
@@ -251,23 +297,23 @@ impl Catalog {
         &self,
         lease: &UploadLease,
         first: CompletedPart,
-        mut requested: std::vec::IntoIter<CompletedPart>,
+        requested: std::vec::IntoIter<CompletedPart>,
         max_bytes: u64,
     ) -> Result<CompletionParts, Error> {
         let target = lease.upload.target.clone();
         let access = lease.access.clone();
         let now = UnixMillis::try_from(self.0.policy.clock.now())?;
-        self.run(move |connection| -> Result<_, Error> {
-            let transaction = connection.transaction().map_err(object_unavailable)?;
-            active(&transaction, &target, &access, now)?;
+        self.run_read(move |connection| -> Result<_, Error> {
+            let snapshot = sql::read_snapshot(connection).map_err(object_unavailable)?;
+            active(&snapshot, &target, &access, now)?;
             objects::authorized_bucket(
-                &transaction,
+                &snapshot,
                 &target.bucket,
                 &access.with_permission(Permission::ObjectsCreate),
             )?;
             let mut total = 0u64;
-            let mut load = |wanted: CompletedPart, successors: usize| {
-                let stored = part(&transaction, &target.id, wanted.number)?;
+            let mut load = |wanted: &CompletedPart, successors: usize| {
+                let stored = part(&snapshot, &target.id, wanted.number)?;
                 if stored.etag != wanted.etag {
                     return Err(Error::InvalidPart);
                 }
@@ -280,10 +326,10 @@ impl Catalog {
                     .ok_or(ObjectError::TooLarge)?;
                 Ok(stored)
             };
-            let first = load(first, requested.len())?;
+            let first = load(&first, requested.len())?;
             let mut remaining = Vec::with_capacity(requested.len());
-            while let Some(wanted) = requested.next() {
-                remaining.push(load(wanted, requested.len())?);
+            for (index, wanted) in requested.as_slice().iter().enumerate() {
+                remaining.push(load(wanted, requested.len() - index - 1)?);
             }
             Ok(CompletionParts {
                 first,

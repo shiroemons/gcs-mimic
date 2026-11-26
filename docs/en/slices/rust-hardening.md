@@ -660,7 +660,7 @@ kind when constructing its `io::Error`.
 | `session_by_id`, `session_by_token` | the guarded updates stay authoritative |
 | `rewrite_buckets` | one snapshot of destination authority, conditions and both buckets' placement; registration and publication recheck destination authority |
 | `next_notification` | one statement on the main table |
-| soft-deleted gets, XML part and upload listings, HMAC key and notification reads, `xml_completion_parts` | second batch, after reading each in full |
+| soft-deleted gets, XML part and upload listings, HMAC key and notification reads, `xml_completion_parts` | one snapshot for each read that uses several statements; soft-deleted object listings still purge on the writer |
 
 The reader statement cache grows from 32 to 96 statements when listing moves.
 
@@ -678,7 +678,7 @@ the change.
 | Change | Before → after |
 | --- | --- |
 | XML part: check pending cleanup in the commit job and probe references only after an error | new part after acquiring its lease: 3 W → 2 W |
-| XML completion: reuse the rows from `xml_completion_parts` under the upload lease | disk, after acquiring the lease, publishing a new object and reclaiming one page of parts: N+8 W → 8 W |
+| XML completion: reuse the rows from `xml_completion_parts` under the upload lease | disk, after acquiring the lease, publishing a new object and reclaiming one page of parts: N+8 W → 8 W before routing the part lookup to the pool → 7 W + 1 R |
 | Maintenance: a busy sweep marks its key deferred and a release wakes only for a deferred key; a pass starts with one snapshot probe of every kind of due work and runs only the sweeps with work | about 12 W and 3 tasks per idle wake → 1 R, and no self-wake |
 | Reclamation: each retiring transaction reports whether it journaled; all sites use `reclaim_if` | 1 W, a task and a permit per commit → none when nothing was journaled |
 | Object delete: authorize once, then purge and retire under one immediate transaction | strict delete via a public bucket ACL, on a versioned bucket: 1 W both ways; 2 transactions → 1; 9 bucket queries (3 settings/project, 6 for public access prevention) → 1; 2 policy reads → 1; 4 bucket ACL decodes → 1 |
@@ -690,6 +690,7 @@ the change.
 | Rewrite, first call: source permission and pin, destination check and both buckets. Continuation: reuse the pooled token lookup for the lease, then reread under the lease | first pre-checks: 2 W + 3 R → 1 W + 2 R; completed replay after point reads moved to the pool: 1 W + 2 R → 1 W + 1 R |
 | Admin batch cleanup: one reference query and one file job for the batch | 2N → 2 |
 | Pub/Sub outbox poll on the pool | 1 W per write → 1 R |
+| Soft-deleted bucket and object gets, XML upload and part listings and completion part lookup, HMAC key reads, notification get and list | 1 W → 1 R per read |
 | Writer settings: `keep_plans_across_bindings` (QPSG) as on readers; prepared `BEGIN IMMEDIATE` and `COMMIT`; a written reason for `wal_autocheckpoint = 256` | CPU only |
 | Read cache: invalidation still swaps the map before the reply, and the stale files close in a tracked blocking task | up to 1,024 `close(2)` calls on the writer → none |
 | BLOB columns read through `get_ref` | one allocation less per row |

@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::read_pool::tests::assert_point_read;
 use crate::storage::test_fixtures::{PERMISSIVE, bucket};
 use crate::{bucket::BucketMetadataUpdate, clock::ManualClock, test_support::TestDir};
 use std::{
@@ -81,6 +82,27 @@ async fn delete(catalog: &Catalog, name: &str) -> Result<(), CatalogError> {
     catalog
         .delete_bucket(name, Default::default(), PERMISSIVE)
         .await
+}
+
+#[tokio::test]
+async fn soft_deleted_bucket_read_sees_the_committed_version() {
+    let dir = TestDir::new();
+    let (catalog, clock) = open(&dir).await;
+    catalog.insert_bucket(record("retained")).await.unwrap();
+    let written = set_retention(&catalog, "retained", 7 * DAY).await;
+    let removed_at = UNIX_EPOCH + START + Duration::from_secs(1);
+    clock.set(removed_at);
+    delete(&catalog, "retained").await.unwrap();
+    assert_point_read(&catalog, async || {
+        let deleted = catalog
+            .get_soft_deleted_bucket("retained", written.generation, PERMISSIVE)
+            .await
+            .unwrap();
+        assert_eq!(deleted.record, written);
+        assert_eq!(deleted.soft_delete_time, removed_at);
+    })
+    .await;
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]
