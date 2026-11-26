@@ -287,13 +287,8 @@ When no WAL exists, the locked main file is opened through an escaped immutable 
 avoid creating WAL/SHM sidecars on rejection; an existing WAL uses ordinary read-only mode
 so committed frames remain visible. Immutable preflight does not consider a hot rollback
 `-journal`: gcs-mimic never creates one in WAL mode, but a foreign DELETE-mode catalog could.
-The preflight closes before a single operational
-connection owns `catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
-in-memory temporary storage, query plans kept across bound values, as on the readers, and a
-256-page auto-checkpoint. The auto-checkpoint runs inside the commit that crosses it, so the
-threshold bounds the pause one request pays and the reused WAL file; `open_writable` gives the
-tradeoff. The current catalog schema version is `CATALOG_SCHEMA_VERSION` in
-`src/storage/catalog.rs`; migrations are described in their slice contracts.
+The preflight closes before the operational writer opens with the
+[settings below](#persistence-and-concurrency). Migrations are described in their slice contracts.
 Schema version 7 stored buckets, live objects, unique opaque blob references, pending blob deletions,
 seed initialization, bucket IAM policies and persistent object/policy revision
 high-water marks. It retains the bucket `(project, name)`
@@ -496,6 +491,14 @@ snapshot and its referenced blobs, protected from mutation/reclamation while
 copying. SQLite's backup API alone does not back up external bodies.
 
 ## Persistence and concurrency
+
+One operational writer connection owns `catalog.sqlite3`. It uses WAL with synchronous FULL,
+a 2 MiB page cache, a 256-statement cache, disabled mmap and in-memory temporary storage.
+Like the read connections, it keeps query plans when bound values change (SQLite QPSG).
+The commit that crosses the 256-page auto-checkpoint threshold runs a passive checkpoint
+before it returns. This keeps each checkpoint and the reused WAL file smaller at the cost of
+more frequent checkpoints. A long read can hold the WAL past the threshold.
+The schema version is `CATALOG_SCHEMA_VERSION` in `src/storage/catalog.rs`.
 
 Use generated, opaque blob identifiers. Object names such as Unicode strings, repeated slashes, encoded `%2F`, dot segments and trailing delimiters are logical keys, not native filesystem paths.
 
