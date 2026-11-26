@@ -153,7 +153,7 @@ pub(crate) struct PartLease {
     pub upload: Upload,
     access: BucketAccess,
     number: u16,
-    _guard: resumable::WriterGuard,
+    guard: std::sync::Arc<resumable::WriterGuard>,
 }
 
 /// Owns a whole upload for completion: no part is writing, and none starts until this lease
@@ -161,7 +161,7 @@ pub(crate) struct PartLease {
 pub(crate) struct UploadLease {
     pub upload: Upload,
     access: BucketAccess,
-    _guard: resumable::WriterGuard,
+    guard: std::sync::Arc<resumable::WriterGuard>,
 }
 
 /// Aborts an upload. No completion or other abort runs and no part starts until this lease
@@ -340,7 +340,7 @@ impl Catalog {
             upload,
             access,
             number,
-            _guard: guard,
+            guard: guard.into(),
         })
     }
 
@@ -358,7 +358,7 @@ impl Catalog {
         Ok(UploadLease {
             upload,
             access,
-            _guard: guard,
+            guard: guard.into(),
         })
     }
 

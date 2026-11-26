@@ -276,16 +276,18 @@ impl BlobBackend {
     pub(super) async fn stage(
         &self,
         id: &BlobId,
+        lease: objects::StageLease,
     ) -> Result<UploadSink, crate::object::ObjectError> {
         match self {
-            Self::Disk(root) => {
-                let file = objects::create_upload_stage(id.staging_path(root)).await?;
-                Ok(UploadSink::Disk(objects::StagedFile::new(
-                    file,
+            Self::Disk(root) => Ok(UploadSink::Disk(
+                objects::create_upload_stage(
+                    id.staging_path(root),
+                    lease,
                     #[cfg(test)]
-                    root,
-                )))
-            }
+                    root.clone(),
+                )
+                .await?,
+            )),
             Self::Memory(store) => Ok(UploadSink::Memory(store.stage()?)),
         }
     }
@@ -293,19 +295,21 @@ impl BlobBackend {
     pub(super) async fn stage_output(
         &self,
         id: &BlobId,
+        lease: objects::StageLease,
     ) -> Result<Output, crate::object::ObjectError> {
         match self {
-            Self::Disk(root) => {
-                let file = objects::create_upload_stage(id.staging_path(root)).await?;
-                Ok(Output::Disk(objects::StagedFile::new(
-                    file,
+            Self::Disk(root) => Ok(Output::Disk(
+                objects::create_upload_stage(
+                    id.staging_path(root),
+                    lease,
                     #[cfg(test)]
-                    root,
-                )))
-            }
+                    root.clone(),
+                )
+                .await?,
+            )),
             Self::Memory(_) => {
                 self.create_draft(id)?;
-                self.open_output(id, 0, ReadAccess::WriteOnly).await
+                self.open_output(id, 0, ReadAccess::WriteOnly, lease).await
             }
         }
     }
@@ -412,6 +416,7 @@ impl BlobBackend {
         id: &BlobId,
         offset: u64,
         read: ReadAccess,
+        lease: objects::StageLease,
     ) -> Result<Output, crate::object::ObjectError> {
         match self {
             Self::Memory(store) => Ok(Output::Memory(store.draft(&id.to_hex(), offset)?)),
@@ -419,7 +424,7 @@ impl BlobBackend {
                 #[cfg(test)]
                 let data_dir = root.clone();
                 let path = id.staging_path(root);
-                let file = crate::task::run_blocking("open-staged-output", move || {
+                let staged = crate::task::run_blocking("open-staged-output", move || {
                     let mut file = fs::OpenOptions::new()
                         .read(matches!(read, ReadAccess::ReadWrite))
                         .write(true)
@@ -431,14 +436,15 @@ impl BlobBackend {
                     #[cfg(test)]
                     super::fault::truncated(&data_dir, &file.metadata()?);
                     file.seek(io::SeekFrom::Start(offset))?;
-                    Ok(file)
+                    Ok(objects::StagedFile::new(
+                        file,
+                        lease,
+                        #[cfg(test)]
+                        &data_dir,
+                    ))
                 })
                 .await??;
-                Ok(Output::Disk(objects::StagedFile::new(
-                    file,
-                    #[cfg(test)]
-                    root,
-                )))
+                Ok(Output::Disk(staged))
             }
         }
     }

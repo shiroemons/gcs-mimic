@@ -211,7 +211,7 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    join_blocking(spawn_blocking_on(runtime, name, job)).await
+    join_blocking(&mut spawn_blocking_on(runtime, name, job)).await
 }
 
 /// Dropping the future cancels the job if it is still queued.
@@ -223,9 +223,9 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    let job = spawn_blocking_on(&tokio::runtime::Handle::current(), name, job);
+    let mut job = spawn_blocking_on(&tokio::runtime::Handle::current(), name, job);
     let _guard = AbortOnDrop(job.abort_handle());
-    join_blocking(job).await
+    join_blocking(&mut job).await
 }
 
 #[must_use = "the guard aborts the queued blocking job when dropped"]
@@ -237,7 +237,9 @@ impl Drop for AbortOnDrop {
     }
 }
 
-async fn join_blocking<T>(job: JoinHandle<Result<T, JobPanicked>>) -> Result<T, BlockingFailed> {
+pub(crate) async fn join_blocking<T>(
+    job: &mut JoinHandle<Result<T, JobPanicked>>,
+) -> Result<T, BlockingFailed> {
     job.await
         .map_err(BlockingFailed::Cancelled)?
         .map_err(BlockingFailed::Panicked)

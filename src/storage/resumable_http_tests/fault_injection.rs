@@ -8,7 +8,6 @@
 //! keep only what the write path synced, so they also fail when an fsync goes missing.
 
 use super::*;
-#[cfg(unix)]
 use crate::storage::catalog::fault::Crash;
 use crate::storage::catalog::fault::{Fault, MID_WRITE_BODY_BYTES, Step};
 use crate::storage::test_fixtures::{PERMISSIVE, live, read_all as read_body};
@@ -413,58 +412,49 @@ async fn assert_recovers_objects(snapshot: &Path, objects: &[(&str, Option<&[u8]
 
 #[tokio::test]
 async fn upload_crash_at_each_durable_step_recovers_the_old_or_new_object() {
-    let crashes = TestDir::new();
-    let h = Harness::start(1024 * 1024, Permissive, None).await;
-    assert_eq!(h.media("target", b"old").await.status, 200);
-    let body = vec![b'n'; 256 * 1024];
-    for (index, (case, step, new)) in [
-        ("staged body written, not synced", Step::BodySync, false),
-        ("staged body durable", Step::BeforePublish, false),
-        ("blob renamed, no catalog row", Step::AfterPublish, false),
-        ("publication transaction open", Step::BeforeCommit, false),
-        ("committed, old blob not reclaimed", Step::AfterCommit, true),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let snapshot = crashes.0.join(index.to_string());
-        h.inject(step, 0, Fault::Snapshot(snapshot.clone()));
-        assert_eq!(h.media("target", &body).await.status, 200, "{case}");
-        h.assert_fired(case);
-        let expected: &[u8] = if new { &body } else { b"old" };
-        assert_recovers(&snapshot, "target", Some(expected), case).await;
-        // The next iteration replaces the object again from the original bytes.
-        assert_eq!(h.media("target", b"old").await.status, 200);
-    }
-    h.stop().await;
+    upload_crash_recovery(Crash::Abort).await;
 }
 
-/// A process-abort snapshot keeps unsynced bytes and renames, so the crash test above passes
-/// without the blob fsync or the shard fsync. Power loss keeps only synced state: without
-/// the blob's `sync_all` the committed object comes back truncated, and without the shard
-/// sync after the rename its blob is back in staging, so the committed case fails.
 #[cfg(unix)]
 #[tokio::test]
 async fn upload_power_loss_at_each_durable_step_keeps_the_old_or_new_object() {
+    upload_crash_recovery(Crash::PowerLoss).await;
+}
+
+async fn upload_crash_recovery(crash: Crash) {
     let crashes = TestDir::new();
-    let h = Harness::start(1024 * 1024, Permissive, None).await;
+    let h = Harness::start(16 * 1024 * 1024, Permissive, None).await;
     assert_eq!(h.media("target", b"old").await.status, 200);
-    let body = vec![b'n'; 256 * 1024];
-    for (index, (case, step, new)) in [
-        ("staged body written, not synced", Step::BodySync, false),
-        ("staged body durable", Step::BeforePublish, false),
-        ("blob renamed, no catalog row", Step::AfterPublish, false),
-        ("publication transaction open", Step::BeforeCommit, false),
-        ("committed, old blob not reclaimed", Step::AfterCommit, true),
+    let small = vec![b'n'; MID_WRITE_BODY_BYTES];
+    let large = vec![b'n'; 9 * 1024 * 1024 + 1];
+    for (index, (case, step, skip, new)) in [
+        ("second full batch", Step::BodyWrite, 1, false),
+        ("full write-behind window", Step::BodyWriteBehind, 0, false),
+        ("buffered tail before flush", Step::BodyFlush, 0, false),
+        ("staged body written, not synced", Step::BodySync, 0, false),
+        ("staged body durable", Step::BeforePublish, 0, false),
+        ("blob renamed, no catalog row", Step::AfterPublish, 0, false),
+        ("publication transaction open", Step::BeforeCommit, 0, false),
+        (
+            "committed, old blob not reclaimed",
+            Step::AfterCommit,
+            0,
+            true,
+        ),
     ]
     .into_iter()
     .enumerate()
     {
+        let body = if step == Step::BodyWriteBehind {
+            &large
+        } else {
+            &small
+        };
         let snapshot = crashes.0.join(index.to_string());
-        h.inject(step, 0, Fault::PowerLoss(snapshot.clone()));
-        assert_eq!(h.media("target", &body).await.status, 200, "{case}");
+        h.inject(step, skip, crash.fault(snapshot.clone()));
+        assert_eq!(h.media("target", body).await.status, 200, "{case}");
         h.assert_fired(case);
-        let expected: &[u8] = if new { &body } else { b"old" };
+        let expected: &[u8] = if new { body } else { b"old" };
         assert_recovers(&snapshot, "target", Some(expected), case).await;
         assert_eq!(h.media("target", b"old").await.status, 200);
     }

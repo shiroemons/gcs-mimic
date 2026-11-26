@@ -164,12 +164,20 @@ pub(in crate::storage::catalog) fn unlink(path: &Path) -> io::Result<()> {
 /// Creates an exclusive staging file; publication checks the final name atomically.
 pub(in crate::storage::catalog) async fn create_upload_stage(
     stage: PathBuf,
-) -> Result<File, ObjectError> {
-    crate::task::run_blocking("upload-stage", move || -> io::Result<File> {
-        fs::OpenOptions::new()
+    lease: StageLease,
+    #[cfg(test)] data_dir: PathBuf,
+) -> Result<StagedFile, ObjectError> {
+    crate::task::run_blocking("upload-stage", move || -> io::Result<_> {
+        let file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(stage)
+            .open(stage)?;
+        Ok(StagedFile::new(
+            file,
+            lease,
+            #[cfg(test)]
+            &data_dir,
+        ))
     })
     .await?
     .map_err(object_unavailable)
@@ -188,8 +196,18 @@ pub(in crate::storage::catalog) struct StagedFile {
     writer: Option<BatchWriter>,
     filling: Vec<u8>,
     pending: Option<WriteJob>,
-    closed: Arc<Mutex<bool>>,
+    failed: bool,
 }
+
+/// The caller's upload admission or exclusive writer lease. The worker owns it with
+/// the descriptor, so cancellation cannot let another writer reuse the stage mid-write.
+pub(in crate::storage::catalog) type StageLease = Arc<dyn StageOwner>;
+
+pub(in crate::storage::catalog) trait StageOwner: Send + Sync {}
+impl StageOwner for crate::storage::catalog::UploadGuard {}
+impl StageOwner for crate::storage::catalog::resumable::WriterGuard {}
+#[cfg(test)]
+impl StageOwner for () {}
 
 pub(in crate::storage::catalog) const WRITE_BATCH_BYTES: usize = 64 * 1024;
 
@@ -199,6 +217,7 @@ type WriteJob = tokio::task::JoinHandle<
 
 struct BatchWriter {
     file: File,
+    _lease: StageLease,
     bytes: Vec<u8>,
     unsynced: u64,
     #[cfg(test)]
@@ -251,10 +270,15 @@ impl BatchWriter {
 }
 
 impl StagedFile {
-    pub(in crate::storage::catalog) fn new(file: File, #[cfg(test)] data_dir: &Path) -> Self {
+    pub(in crate::storage::catalog) fn new(
+        file: File,
+        lease: StageLease,
+        #[cfg(test)] data_dir: &Path,
+    ) -> Self {
         Self {
             writer: Some(BatchWriter {
                 file,
+                _lease: lease,
                 bytes: Vec::new(),
                 unsynced: 0,
                 #[cfg(test)]
@@ -262,22 +286,34 @@ impl StagedFile {
             }),
             filling: Vec::new(),
             pending: None,
-            closed: Arc::new(Mutex::new(false)),
+            failed: false,
         }
     }
 
     /// A lease stays with its supervised upload until the last submitted write has returned.
-    pub(in crate::storage::catalog) async fn settle(&mut self) -> Result<(), ObjectError> {
+    async fn settle(&mut self) -> Result<(), ObjectError> {
         let Some(job) = &mut self.pending else {
             return Ok(());
         };
-        let joined = job.await;
+        let joined = crate::task::join_blocking(job).await;
         self.pending = None;
-        let (mut writer, result) = joined
-            .map_err(crate::task::BlockingFailed::Cancelled)?
-            .map_err(crate::task::BlockingFailed::Panicked)?;
-        writer.bytes.clear();
-        self.writer = Some(writer);
+        let result = match joined {
+            Ok((mut writer, result)) => {
+                writer.bytes.clear();
+                self.writer = Some(writer);
+                result
+            }
+            Err(error) => Err(error.into()),
+        };
+        self.failed |= result.is_err();
+        result
+    }
+
+    pub(in crate::storage::catalog) async fn settle_result<T, E: From<ObjectError>>(
+        &mut self,
+        result: Result<T, E>,
+    ) -> Result<T, E> {
+        self.settle().await?;
         result
     }
 
@@ -288,13 +324,11 @@ impl StagedFile {
     ) -> Result<(), ObjectError> {
         let mut writer = self.writer.take().ok_or_else(staged_writer_unavailable)?;
         std::mem::swap(&mut self.filling, &mut writer.bytes);
-        let closed = self.closed.clone();
         self.pending = Some(crate::task::spawn_blocking_on(
             &tokio::runtime::Handle::current(),
             name,
             move || {
-                let closed = crate::sync::lock(&closed);
-                let result = if *closed { Ok(()) } else { action(&mut writer) };
+                let result = action(&mut writer);
                 (writer, result)
             },
         ));
@@ -305,6 +339,7 @@ impl StagedFile {
         &mut self,
         mut bytes: &[u8],
     ) -> Result<(), ObjectError> {
+        self.ensure_writable()?;
         while !bytes.is_empty() {
             let count = bytes.len().min(WRITE_BATCH_BYTES - self.filling.len());
             let (part, rest) = bytes.split_at(count);
@@ -324,16 +359,17 @@ impl StagedFile {
     }
 
     pub(in crate::storage::catalog) async fn make_durable(&mut self) -> Result<(), ObjectError> {
+        self.ensure_writable()?;
         self.settle().await?;
         self.submit("staged-sync", BatchWriter::make_durable)?;
         self.settle().await
     }
 
-    pub(in crate::storage::catalog) async fn truncate(
+    pub(in crate::storage::catalog) async fn rollback(
         &mut self,
         len: u64,
     ) -> Result<(), ObjectError> {
-        self.settle().await?;
+        let written = self.settle().await;
         self.filling.clear();
         self.submit("staged-truncate", move |writer| {
             writer.file.set_len(len)?;
@@ -342,10 +378,21 @@ impl StagedFile {
             std::io::Seek::seek(&mut writer.file, io::SeekFrom::Start(len))?;
             Ok(())
         })?;
-        self.settle().await
+        self.settle().await?;
+        self.submit("staged-sync", BatchWriter::make_durable)?;
+        self.settle().await?;
+        written
+    }
+
+    fn ensure_writable(&self) -> Result<(), ObjectError> {
+        if self.failed {
+            return Err(object_unavailable("staged file write previously failed"));
+        }
+        Ok(())
     }
 
     pub(in crate::storage::catalog) fn into_file(mut self) -> Result<File, ObjectError> {
+        self.ensure_writable()?;
         self.writer
             .take()
             .map(|writer| writer.file)
@@ -355,11 +402,10 @@ impl StagedFile {
 
 impl Drop for StagedFile {
     fn drop(&mut self) {
-        // Normal completion and error paths join asynchronously. If a task unwinds or the
-        // runtime stops, revoke a queued job and fence any write already inside the OS.
+        // An unstarted job can be revoked. An executing job releases the file and its
+        // lease together on the blocking pool, even during unwind or runtime shutdown.
         if let Some(job) = &self.pending {
             job.abort();
-            *crate::sync::lock(&self.closed) = true;
         }
     }
 }

@@ -57,25 +57,26 @@ impl Output {
         catalog: &Catalog,
         id: &BlobId,
         offset: u64,
+        lease: objects::StageLease,
     ) -> Result<Self, ObjectError> {
-        Self::open_with_access(catalog, id, offset, ReadAccess::WriteOnly).await
+        catalog
+            .0
+            .backend
+            .open_output(id, offset, ReadAccess::WriteOnly, lease)
+            .await
     }
 
     pub(super) async fn open_readable(
         catalog: &Catalog,
         id: &BlobId,
         offset: u64,
+        lease: objects::StageLease,
     ) -> Result<Self, ObjectError> {
-        Self::open_with_access(catalog, id, offset, ReadAccess::ReadWrite).await
-    }
-
-    async fn open_with_access(
-        catalog: &Catalog,
-        id: &BlobId,
-        offset: u64,
-        read: ReadAccess,
-    ) -> Result<Self, ObjectError> {
-        catalog.0.backend.open_output(id, offset, read).await
+        catalog
+            .0
+            .backend
+            .open_output(id, offset, ReadAccess::ReadWrite, lease)
+            .await
     }
 
     pub(super) async fn write(&mut self, bytes: &[u8]) -> Result<(), ObjectError> {
@@ -85,11 +86,14 @@ impl Output {
         }
     }
 
-    pub(super) async fn settle(&mut self) -> Result<(), ObjectError> {
-        if let Self::Disk(staged) = self {
-            staged.settle().await?;
+    pub(super) async fn settle_result<T, E: From<ObjectError>>(
+        &mut self,
+        result: Result<T, E>,
+    ) -> Result<T, E> {
+        match self {
+            Self::Disk(staged) => staged.settle_result(result).await,
+            Self::Memory(_) => result,
         }
-        Ok(())
     }
 
     pub(super) async fn finish(&mut self) -> Result<(), ObjectError> {
@@ -106,12 +110,10 @@ impl Output {
     }
 
     pub(super) async fn rollback(&mut self, offset: u64) -> Result<(), ObjectError> {
-        let written = self.settle().await;
         if let Self::Disk(staged) = self {
-            staged.truncate(offset).await?;
+            staged.rollback(offset).await?;
         }
-        self.finish().await?;
-        written
+        Ok(())
     }
 
     pub(super) async fn into_hashes(self) -> Result<(Hashes, u64), ObjectError> {

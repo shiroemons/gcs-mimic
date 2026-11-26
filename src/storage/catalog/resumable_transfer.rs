@@ -109,7 +109,13 @@ async fn receive_chunk(
 ) -> Result<Received, ObjectError> {
     let durable = lease.session.offset;
     let mut running_hash = lease.running_hasher()?;
-    let mut file = Output::open_readable(catalog, &lease.session.blob_id, durable).await?;
+    let mut file = Output::open_readable(
+        catalog,
+        &lease.session.blob_id,
+        durable,
+        lease.guard.clone(),
+    )
+    .await?;
     let closing = catalog.0.admin_shutdown.notified();
     tokio::pin!(closing);
     closing.as_mut().enable();
@@ -165,7 +171,7 @@ async fn receive_chunk(
         file.finish().await.map(|()| received)
     }
     .await;
-    let length = match transfer {
+    let length = match file.settle_result(transfer).await {
         Ok(length) => length,
         Err(error) => {
             file.rollback(durable).await?;

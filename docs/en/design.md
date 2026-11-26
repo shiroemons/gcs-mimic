@@ -667,9 +667,10 @@ counts, so admission does not scan the table.
 Share the HTTP connection limit with other uploads, 32 catalog admission slots
 and one executing SQLite job. Session creation, reads and checkpoints wait for
 catalog admission; finalization already waits for the execution slot. HTTP waits
-use the existing catalog timeout and remaining request budget. At most two copied
-64 KiB channel chunks per admitted body plus bounded hash/parser state are
-allowed; neither chunks nor whole objects may be collected in a byte vector.
+use the existing catalog timeout and remaining request budget. Each admitted
+body has two channel slots of up to 64 KiB each and bounded hash/parser state.
+Disk staging holds up to two more 64 KiB buffers, one being filled and one
+owned by a blocking write. Streaming keeps these bounds independent of object size.
 Apply `max_object_bytes` to declared total, offsets and streamed bytes using
 checked arithmetic, including unknown-length requests. Retained staging can use
 session-count times the object cap plus connection-bounded in-progress tails and live

@@ -650,8 +650,13 @@ impl Catalog {
     ) -> Result<(), ResumableError> {
         self.check_lease_owner(lease)?;
         drop(
-            super::transfer_io::Output::open(self, &lease.session.blob_id, lease.session.offset)
-                .await?,
+            super::transfer_io::Output::open(
+                self,
+                &lease.session.blob_id,
+                lease.session.offset,
+                lease.guard.clone(),
+            )
+            .await?,
         );
         Ok(())
     }
@@ -1013,6 +1018,7 @@ mod tests {
                     &session.blob_id,
                     0,
                     super::super::blob_backend::ReadAccess::WriteOnly,
+                    std::sync::Arc::new(()),
                 )
                 .await
                 .unwrap();

@@ -674,8 +674,8 @@ journal sweep in the maintenance diagnostic.
 
 - **Buffering.** It holds a std `File` and two batch buffers that grow
   lazily up to `WRITE_BATCH_BYTES` each.
-- **`write`.** It copies the frame into the batch, the same copy tokio
-  makes today. A full batch goes to one supervised blocking job, which calls
+- **`write`.** It copies each incoming frame into the current batch.
+  A full batch goes to one supervised blocking job, which calls
   `write_batch` and returns the buffer for reuse. Inside the job, in order:
   1. hit `BodyWrite`, then `write_all`;
   2. on bounded platforms, once the write-behind window fills, hit
@@ -683,21 +683,25 @@ journal sweep in the maintenance diagnostic.
 
   The receiver fills the second buffer while the job writes the first.
   Truncation, final sync and release of the upload lease wait for the write.
-  If a task unwinds, dropping the stage revokes a queued job or waits for a
-  running write before a new writer can truncate the file.
+  Dropping a stage revokes a queued job. A job already executing owns the
+  file and the upload or writer lease until it returns on the blocking pool.
+  A new writer therefore cannot truncate the stage during the old write.
+  After a worker failure, only rollback may truncate and sync the old prefix.
 - **`make_durable`.** One job drains the batch and syncs, in order:
   `BodyFlush`, the final write, `BodySync`, then `sync_all` or
   `sync_ordered`. A std write returns its error before the sync starts, so a
   failed tail can never be published as durable. AGENTS.md's flush-before-sync
   rule is reworded to "await the last write before syncing".
-- **`truncate` and `open_output`.** Each runs as one job; `open_output` goes
-  from four filesystem hops to one.
+- **Rollback and reopening.** Rollback waits for the submitted write, truncates
+  and seeks in one job, then syncs the acknowledged prefix. `open_output`
+  opens, checks, truncates and seeks in one job.
 - **Batch size.** `WRITE_BATCH_BYTES` starts at 64 KiB, today's bound in
   DESIGN-070, and moves to 256 KiB only under the measured-limit rule. The
   measured run is one 1 GiB HTTP/1 upload and 1,000 uploads of 100 KiB at
   concurrency 8, comparing server CPU seconds and wall time.
 
-  Two alternating local macOS arm64 runs used 64 KiB batches. Each cell
+  Both alternating local macOS arm64 runs used 64 KiB batches. This
+  comparison did not measure a 256 KiB pipeline. Each cell
   gives elapsed seconds / server CPU seconds for the two runs.
 
   | HTTP/1 workload | Tokio file | One write in flight |
@@ -707,8 +711,10 @@ journal sweep in the maintenance diagnostic.
 
   Awaiting each full batch before receiving another took 22.67 / 3.99 and
   1.60 / 1.20 seconds in a separate run. That wait serializes hashing and
-  disk writes. Other builds were active during three of the four alternating
-  runs, so the 68.87-second result does not isolate the cost of buffering.
+  disk writes. Other builds were active in both Tokio runs and the first
+  pipelined run. The first Tokio 1 GiB upload took 68.87 seconds with
+  four rustc processes and a linker active. The second pipelined run
+  observed no build processes.
   With one write in flight, neither paired workload exceeded its previous
   elapsed time by 10%, and average server CPU seconds fell on both.
 - **Hashing** stays per frame on the receiving task, before the copy. Moving
@@ -1043,7 +1049,7 @@ after job counts.
 
 | Slice | Scope | Measured run |
 | --- | --- | --- |
-| Coalesced staged writes | `StagedFile`, `open_output`, all upload paths | 1 GiB upload and 1,000 × 100 KiB at concurrency 8, at 64 and 256 KiB |
+| Coalesced staged writes | `StagedFile`, `open_output`, all upload paths | 1 GiB upload and 1,000 × 100 KiB at concurrency 8, with 64 KiB pipelined batches |
 | Copies in single jobs | re-hash, derived advance, XML assembly, CRC combination, the `large_futures` gate | one 1 GiB compose and one 1 GiB resumable finalization |
 | Single-source copies | publish the pin | one 1 GiB copy |
 | Multipart with `memmem` | `Delimiter`, batch parsing, the `memchr` edge | one 256 MiB multipart upload |

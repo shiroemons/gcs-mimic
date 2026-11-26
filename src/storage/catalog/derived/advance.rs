@@ -22,7 +22,7 @@ impl Catalog {
         let id = *id;
         // Detached ownership keeps cancellation from racing directory closure or cleanup.
         crate::task::spawn_supervised("derived-transfer", async move {
-            let (_permit, _guard) = (permit, guard);
+            let (_permit, guard) = (permit, std::sync::Arc::new(guard));
             let query = id;
             let backend = catalog.0.backend.clone();
             let now = UnixMillis::try_from(catalog.0.clock.now())?;
@@ -31,7 +31,7 @@ impl Catalog {
                 Ok((progress, hasher, inputs(connection, &query)?))
             }).await?;
             crate::task::run_blocking("derived-restore", move || backend.restore_draft(&query)).await??;
-            let mut output = transfer_io::Output::open(&catalog, &id, progress.offset).await?;
+            let mut output = transfer_io::Output::open(&catalog, &id, progress.offset, guard.clone()).await?;
             let target = progress.offset.saturating_add(budget).min(progress.total);
             let mut skip = progress.offset;
             let mut buffer = [0_u8; BUFFER_SIZE];
@@ -56,8 +56,7 @@ impl Catalog {
                 }
                 Ok::<_, ObjectError>(())
             }.await;
-            output.settle().await?;
-            copied?;
+            output.settle_result(copied).await?;
             output.finish().await?;
             // An ephemeral lifetime only reclaims an abandoned transfer, so progress renews it: a
             // request may copy for longer, and has a deadline of its own if configured. The time

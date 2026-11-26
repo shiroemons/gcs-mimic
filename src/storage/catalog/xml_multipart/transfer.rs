@@ -109,7 +109,7 @@ impl Catalog {
             let budget=request.max_bytes.checked_sub(retained).ok_or(ObjectError::TooLarge)?.min(MAX_PART_BYTES);
             let blob=super::super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
             let id=blob;
-            let mut file=catalog.0.backend.stage(&id).await?;
+            let mut file=catalog.0.backend.stage(&id, lease.guard.clone()).await?;
             let result=async {
                 let objects::UploadedBody{size,md5,crc32c}=objects::write_stream(&mut file,request.expected,budget,body,cancellation,&catalog,None).await?;
                 #[cfg(test)]
@@ -199,7 +199,7 @@ impl Catalog {
             let parts = catalog
                 .xml_completion_parts(&lease, parts, max_bytes)
                 .await?;
-            if let Err(error) = catalog.assemble_xml_parts(&parts, &id).await {
+            if let Err(error) = catalog.assemble_xml_parts(&lease, &parts, &id).await {
                 let orphan = id;
                 let cleanup = catalog
                     .run(move |connection| {
@@ -314,10 +314,11 @@ impl Catalog {
 
     async fn assemble_xml_parts(
         &self,
+        lease: &UploadLease,
         completion: &CompletionParts,
         id: &BlobId,
     ) -> Result<(), Error> {
-        let mut file = self.0.backend.stage_output(id).await?;
+        let mut file = self.0.backend.stage_output(id, lease.guard.clone()).await?;
         let mut hasher = Hasher::default();
         let mut buffer = [0; 64 * 1024];
         let assembled = async {
@@ -356,8 +357,7 @@ impl Catalog {
             Ok::<_, Error>(())
         }
         .await;
-        file.settle().await?;
-        assembled?;
+        file.settle_result(assembled).await?;
         file.finish().await?;
         #[cfg(unix)]
         sync_staging_entry(self, StagedEntry::Assembled).await?;

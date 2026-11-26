@@ -462,13 +462,13 @@ impl Catalog {
             .map(|replay| (replay, ring::digest::Context::new(&ring::digest::SHA256)));
         // Cancellation must not release directory ownership during publication or cleanup.
         crate::task::spawn_supervised("object-upload", async move {
-            let _permit = permit;
+            let permit = Arc::new(permit);
             let blob =
                 super::super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
             let id = blob;
             let stage = blob.staging_path(&catalog.0.data_dir);
             let published = blob.blob_path(&catalog.0.data_dir);
-            let mut file = catalog.0.backend.stage(&id).await?;
+            let mut file = catalog.0.backend.stage(&id, permit.clone()).await?;
             let result = async {
                 let uploaded = write_stream(
                     &mut file,
@@ -600,10 +600,10 @@ pub(in crate::storage::catalog) async fn write_stream(
         }
         Ok::<_, ObjectError>(expected)
     }.await;
-    if let UploadSink::Disk(staged) = &mut *file {
-        staged.settle().await?;
-    }
-    let expected = received?;
+    let expected = match file {
+        UploadSink::Disk(staged) => staged.settle_result(received).await?,
+        UploadSink::Memory(_) => received?,
+    };
     let hashes = hasher.finish();
     expected.verify(&hashes)?;
     let Hashes { md5, crc32c } = hashes;
