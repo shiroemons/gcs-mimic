@@ -619,7 +619,7 @@ fn inspect_with_xattr(
     )?;
     let write_result = write_pages(&receive, &mut output, &mut diagnostics);
     drop(receive);
-    let joined = worker.blocking_recv().map_err(io::Error::other)?;
+    let joined = worker.blocking_recv().map_err(ImportError::ScanReceive)?;
     write_result?;
     let summary = joined?;
     serde_json::to_writer(
@@ -729,13 +729,12 @@ fn spawn_scan(
             Ok(reporter.summary)
         })
         .unwrap_or_else(|cause| {
-            Err(
-                io::Error::other(crate::storage::failure::BackendCause::with_source(
+            Err(ImportFailure::Io(crate::storage::failure::IoCause::other(
+                crate::storage::failure::BackendCause::with_source(
                     "import scanner panicked",
                     cause,
-                ))
-                .into(),
-            )
+                ),
+            )))
         });
         let _ = completion.send(result);
     })?;

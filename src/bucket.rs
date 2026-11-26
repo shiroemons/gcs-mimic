@@ -1055,6 +1055,12 @@ impl CatalogError {
     }
 }
 
+impl crate::diagnostics::RuntimeFailure for CatalogError {
+    fn kind(&self) -> std::io::ErrorKind {
+        std::io::ErrorKind::Other
+    }
+}
+
 impl std::error::Error for CatalogError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.typed_source().map(Link::as_error)

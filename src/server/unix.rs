@@ -1,6 +1,9 @@
 //! Private local HTTP transport. Advertised HTTP origins never identify this socket.
 
-use crate::fsutil::NodeId;
+use crate::{
+    fsutil::NodeId,
+    task::{BlockingFailed, JobPanicked},
+};
 use std::{
     fs, io,
     os::unix::{
@@ -24,8 +27,35 @@ pub struct Listener {
     owner: Owner,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct SocketError(#[from] SocketFailure);
+
+#[derive(Debug, thiserror::Error)]
+enum SocketFailure {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error(transparent)]
+    Panicked(#[from] JobPanicked),
+    #[error(transparent)]
+    Worker(#[from] BlockingFailed),
+    #[error(transparent)]
+    Closed(#[from] tokio::sync::oneshot::error::RecvError),
+}
+
+impl crate::diagnostics::RuntimeFailure for SocketError {
+    fn kind(&self) -> io::ErrorKind {
+        match &self.0 {
+            SocketFailure::Io(error) => error.kind(),
+            SocketFailure::Panicked(_) | SocketFailure::Worker(_) | SocketFailure::Closed(_) => {
+                io::ErrorKind::Other
+            }
+        }
+    }
+}
+
 impl Listener {
-    pub async fn bind(path: &Path) -> io::Result<Self> {
+    pub async fn bind(path: &Path) -> Result<Self, SocketError> {
         let path = path.to_owned();
         let runtime = Handle::current();
         let bind_runtime = runtime.clone();
@@ -33,9 +63,11 @@ impl Listener {
         // pathname ownership. A canceled waiter drops the returned owner in the pool.
         let (send, receive) = tokio::sync::oneshot::channel();
         crate::task::spawn_blocking_on(&runtime, "unix_socket_bind", move || {
-            let result = crate::task::catch_job("unix_socket_bind", || bind(path, bind_runtime))
-                .map_err(io::Error::other)
-                .flatten();
+            let result = crate::task::catch_job("unix_socket_bind", || {
+                bind(path, bind_runtime).map_err(SocketFailure::from)
+            })
+            .map_err(SocketFailure::from)
+            .flatten();
             if let Err(Ok((socket, mut owner))) = send.send(result) {
                 drop(socket);
                 // The runtime may already be stopping. Stay in this worker
@@ -45,9 +77,9 @@ impl Listener {
                 }
             }
         });
-        let (socket, owner) = receive.await.map_err(io::Error::other)??;
+        let (socket, owner) = receive.await.map_err(SocketFailure::from)??;
         Ok(Self {
-            socket: UnixListener::from_std(socket)?,
+            socket: UnixListener::from_std(socket).map_err(SocketFailure::from)?,
             owner,
         })
     }
@@ -56,7 +88,7 @@ impl Listener {
         self.socket.poll_accept(cx).map_ok(|(stream, _)| stream)
     }
 
-    pub async fn close(self) -> io::Result<()> {
+    pub async fn close(self) -> Result<(), SocketError> {
         let Self { socket, mut owner } = self;
         drop(socket);
         if let Some(path) = owner.path.take() {
@@ -65,7 +97,7 @@ impl Listener {
                 cleanup(path, identity)
             })
             .await
-            .map_err(io::Error::other)??;
+            .map_err(SocketFailure::from)??;
         }
         Ok(())
     }
@@ -138,7 +170,7 @@ fn node(metadata: &fs::Metadata) -> NodeId {
     }
 }
 
-fn cleanup(path: PathBuf, identity: NodeId) -> io::Result<()> {
+fn cleanup(path: PathBuf, identity: NodeId) -> Result<(), SocketError> {
     let result = crate::task::catch_job("unix_socket_cleanup", || {
         match fs::symlink_metadata(&path) {
             Ok(metadata) if metadata.file_type().is_socket() && node(&metadata) == identity => {
@@ -149,13 +181,14 @@ fn cleanup(path: PathBuf, identity: NodeId) -> io::Result<()> {
             Err(error) => Err(error),
         }
     })
-    .map_err(io::Error::other)
-    .flatten();
+    .map_err(SocketFailure::from)
+    .and_then(|result| result.map_err(SocketFailure::from))
+    .map_err(SocketError);
     if let Err(error) = &result {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Error,
             crate::diagnostics::Event::UnixSocketCleanupFailed,
-            serde_json::json!({"message":"Cannot remove the owned Unix socket", "kind":format!("{:?}",error.kind())}),
+            serde_json::json!({"message":"Cannot remove the owned Unix socket", "kind":format!("{:?}",crate::diagnostics::RuntimeFailure::kind(error))}),
         );
     }
     result

@@ -343,6 +343,8 @@ impl ListenerSetting {
 }
 
 async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
+    #[cfg(unix)]
+    use gcs_mimic::diagnostics::RuntimeFailure as _;
     if let Some(_path) = config.unix_socket() {
         #[cfg(unix)]
         return server::unix::Listener::bind(_path).await.map(|listener| PrimaryListener::Unix { listener, path: _path.to_owned() }).map_err(|error| {
@@ -482,7 +484,7 @@ async fn prepare_startup(
     complete!(configure_catalog_policy(catalog, projects))?;
     complete!(catalog.start_notifications(config))
         // The generic diagnostic names the error kind; a catalog error has none of its own.
-        .map_err(|error| Diagnostics::startup_failure(&io::Error::other(error)))?;
+        .map_err(|error| Diagnostics::startup_failure(&error))?;
     // Loading has no effects; submitted administrative jobs retain their permits through close.
     let buckets = complete!(gcs_mimic::bucket_init::apply(
         catalog,
@@ -529,7 +531,7 @@ async fn close_startup(
     catalog: &Catalog,
     result: Result<(), Diagnostics>,
 ) -> Result<(), Diagnostics> {
-    merge_close_result(result, catalog.close().await.map_err(io::Error::other))
+    merge_close_result(result, catalog.close().await)
 }
 
 async fn finish_startup(

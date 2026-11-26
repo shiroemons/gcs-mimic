@@ -35,6 +35,9 @@ pub enum ImportError {
     Source(ImportFailure),
     Json(serde_json::Error),
     Integer(TryFromIntError),
+    Random(getrandom::Error),
+    ScanReceive(tokio::sync::oneshot::error::RecvError),
+    ScanStopped(tokio::sync::oneshot::error::RecvError),
     ObservationCleanup(io::Error),
     Cleanup {
         original: Box<Self>,
@@ -103,6 +106,9 @@ impl fmt::Display for ImportError {
             Self::Source(error) => error.fmt(f),
             Self::Json(error) => error.fmt(f),
             Self::Integer(error) => error.fmt(f),
+            Self::Random(error) => error.fmt(f),
+            Self::ScanReceive(error) => error.fmt(f),
+            Self::ScanStopped(_) => f.write_str("import scanner stopped without a result"),
             Self::ObservationCleanup(error) => {
                 write!(f, "remove temporary import observations: {error}")
             }
@@ -135,6 +141,9 @@ impl Error for ImportError {
             Self::Source(error) => error.source(),
             Self::Json(error) => error.source(),
             Self::Integer(error) => error.source(),
+            Self::Random(error) => error.source(),
+            Self::ScanReceive(error) => error.source(),
+            Self::ScanStopped(error) => Some(error),
             // Display includes the original and the cleanup failure. Follow the original's causes.
             Self::Cleanup { original, .. } => original.source(),
             Self::Resume(error) => error.source(),

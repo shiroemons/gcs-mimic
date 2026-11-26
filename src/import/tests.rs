@@ -53,6 +53,7 @@ async fn scanner_panics_arrive_as_typed_results() {
         scan_with_baseline(options, fail, None, ScanPurpose::Inspect).unwrap();
     while pages.recv().await.is_some() {}
     let error = completion.await.unwrap().unwrap_err();
+    assert_eq!(error.to_string(), "source I/O failure (Other)");
     assert!(
         crate::error::causes(&error)
             .any(|cause| cause.to_string().contains("import scanner panicked"))
@@ -838,7 +839,10 @@ fn source_failures_keep_their_report_keys() {
             },
             "fingerprint",
         ),
-        (ImportFailure::Io(io::ErrorKind::Other.into()), "io"),
+        (
+            ImportFailure::from(io::Error::from(io::ErrorKind::Other)),
+            "io",
+        ),
         (ImportFailure::ReportClosed, "report"),
     ] {
         assert_eq!(failure.field(), key);

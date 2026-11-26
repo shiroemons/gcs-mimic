@@ -148,9 +148,9 @@ impl Baseline {
         Ok(())
     }
 
-    fn create() -> io::Result<File> {
+    fn create() -> Result<File, ImportError> {
         let mut random = [0; 16];
-        getrandom::fill(&mut random).map_err(io::Error::other)?;
+        getrandom::fill(&mut random).map_err(ImportError::Random)?;
         let path = std::env::temp_dir().join(format!(
             "gcs-mimic-import-{}",
             crate::hashing::encode_lower(&random)
@@ -524,6 +524,9 @@ fn terminal(error: &ImportError) -> bool {
         | ImportError::Catalog(_)
         | ImportError::Json(_)
         | ImportError::Integer(_)
+        | ImportError::ScanStopped(_)
+        | ImportError::ScanReceive(_)
+        | ImportError::Random(_)
         | ImportError::ObservationCleanup(_)
         | ImportError::Cleanup { .. } => false,
     }
@@ -624,13 +627,7 @@ async fn import(
 async fn join_scan(
     worker: super::ScanWorker,
 ) -> Result<Result<Summary, ImportFailure>, ImportError> {
-    worker.await.map_err(|cause| {
-        io::Error::other(crate::storage::failure::BackendCause::with_source(
-            "import scanner stopped without a result",
-            cause,
-        ))
-        .into()
-    })
+    worker.await.map_err(ImportError::ScanStopped)
 }
 
 async fn publish(

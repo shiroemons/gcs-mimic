@@ -1061,7 +1061,7 @@ impl Entry {
         }
     }
 
-    async fn close(self) -> io::Result<()> {
+    async fn close(self) -> Result<(), transport::CloseError> {
         match self {
             Self::Http(listener, _) => listener.close().await,
             Self::Grpc(..) => Ok(()),
@@ -1213,10 +1213,7 @@ async fn serve_entries(
         result = crate::diagnostics::combine_unix_socket_cleanup(result, cleanup);
     }
     result = crate::diagnostics::combine_shutdown_results(result, background_result);
-    crate::diagnostics::combine_shutdown_results(
-        result,
-        state.catalog.close().await.map_err(io::Error::other),
-    )
+    crate::diagnostics::combine_shutdown_results(result, state.catalog.close().await)
 }
 
 /// What the accept loop shares with every connection task it starts.

@@ -152,6 +152,11 @@ pub(super) enum Stream {
     Unix(tokio::net::UnixStream),
 }
 
+#[cfg(unix)]
+pub(super) type CloseError = super::unix::SocketError;
+#[cfg(not(unix))]
+pub(super) type CloseError = io::Error;
+
 impl Listener {
     #[cfg_attr(
         not(unix),
@@ -160,7 +165,7 @@ impl Listener {
             reason = "only the Unix-socket listener awaits its close"
         )
     )]
-    pub(super) async fn close(self) -> io::Result<()> {
+    pub(super) async fn close(self) -> Result<(), CloseError> {
         match self {
             Self::Tcp(_) => Ok(()),
             #[cfg(unix)]

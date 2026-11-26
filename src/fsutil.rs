@@ -549,7 +549,10 @@ fn windows_change_time(file: &File) -> Result<i128, FsError> {
             file.as_raw_handle(),
             FileBasicInfo,
             basic.as_mut_ptr().cast(),
-            u32::try_from(std::mem::size_of::<FILE_BASIC_INFO>()).map_err(io::Error::other)?,
+            const {
+                assert!(std::mem::size_of::<FILE_BASIC_INFO>() == 40);
+                40
+            },
         )
     } == 0
     {
@@ -1150,10 +1153,7 @@ pub(crate) fn read_source_metadata<'a>(
         let length = if result < 0 {
             classify(io::Error::last_os_error())?
         } else {
-            checked_length(
-                usize::try_from(result)
-                    .map_err(|error| SourceMetadataError::Io(io::Error::other(error)))?,
-            )?
+            checked_length(result.unsigned_abs())?
         };
         length
             .map(|length| buffer.0.get(..length).ok_or(SourceMetadataError::TooLarge))

@@ -378,6 +378,14 @@ fn a_refused_scan_fails_as_its_most_severe_blocker() {
 }
 
 #[tokio::test]
+async fn a_stopped_scanner_reports_the_missing_result() {
+    let (send, worker) = tokio::sync::oneshot::channel();
+    drop(send);
+    let error = join_scan(worker).await.unwrap_err();
+    assert_eq!(error.to_string(), "import scanner stopped without a result");
+}
+
+#[tokio::test]
 async fn joining_a_scanner_does_not_block_the_async_worker() {
     let (release, blocked) = std::sync::mpsc::channel();
     let (send, worker) = tokio::sync::oneshot::channel();

@@ -259,6 +259,17 @@ impl From<Diagnostic> for Diagnostics {
     }
 }
 
+/// The I/O kind printed alongside a startup or shutdown failure.
+pub trait RuntimeFailure: std::error::Error {
+    fn kind(&self) -> io::ErrorKind;
+}
+
+impl RuntimeFailure for io::Error {
+    fn kind(&self) -> io::ErrorKind {
+        self.kind()
+    }
+}
+
 impl Diagnostics {
     pub fn error(source: DiagnosticSource, key: impl Into<String>, fix: impl Into<String>) -> Self {
         Diagnostic::new(source, key, fix).into()
@@ -266,7 +277,7 @@ impl Diagnostics {
 
     /// The advice for a startup or shutdown failure that has none of its own: its kind and
     /// message, and where to look. Every such failure is reported through this one text.
-    pub fn startup_failure(error: &io::Error) -> Self {
+    pub fn startup_failure(error: &impl RuntimeFailure) -> Self {
         Self::error(
             DiagnosticSource::Runtime,
             "startup",
@@ -321,7 +332,7 @@ impl std::error::Error for Diagnostics {}
 /// Appends a failed close to `result`, after the operation's own failure.
 pub fn combine_shutdown_results(
     result: Result<(), Diagnostics>,
-    close: io::Result<()>,
+    close: Result<(), impl RuntimeFailure>,
 ) -> Result<(), Diagnostics> {
     append_shutdown_failure(result, close, |close| {
         Diagnostic::new(
@@ -339,7 +350,7 @@ pub fn combine_shutdown_results(
 /// Unix listener has cleanup that can fail, and the stale entry, not the catalog, needs care.
 pub(crate) fn combine_unix_socket_cleanup(
     result: Result<(), Diagnostics>,
-    cleanup: io::Result<()>,
+    cleanup: Result<(), impl RuntimeFailure>,
 ) -> Result<(), Diagnostics> {
     append_shutdown_failure(result, cleanup, |cleanup| {
         Diagnostic::new(
@@ -353,10 +364,10 @@ pub(crate) fn combine_unix_socket_cleanup(
     })
 }
 
-fn append_shutdown_failure(
+fn append_shutdown_failure<E>(
     result: Result<(), Diagnostics>,
-    close: io::Result<()>,
-    describe: impl FnOnce(&io::Error) -> Diagnostic,
+    close: Result<(), E>,
+    describe: impl FnOnce(&E) -> Diagnostic,
 ) -> Result<(), Diagnostics> {
     let Err(close) = close else {
         return result;
@@ -553,7 +564,7 @@ mod tests {
                 None => assert_eq!(error.errors.len(), 1),
             }
         }
-        assert!(combine_shutdown_results(Ok(()), Ok(())).is_ok());
+        assert!(combine_shutdown_results(Ok(()), Ok::<_, io::Error>(())).is_ok());
     }
 
     #[test]

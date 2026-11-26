@@ -13,7 +13,7 @@ use crate::{
     hashing::{Hasher, Hashes},
     object::{generation::Generation, name::ObjectName, retention::ObjectRetention},
     source_tree::{self, WalkEntry, WalkError, Walker},
-    storage::failure::BackendCause,
+    storage::failure::{BackendCause, IoCause},
 };
 use serde::Serialize;
 use std::{
@@ -76,7 +76,7 @@ pub enum ImportFailure {
     SourceChanged {
         fields: Vec<ChangedField>,
     },
-    Io(io::Error),
+    Io(IoCause),
     Json(serde_json::Error),
     Corrupt {
         field: CorruptField,
@@ -141,7 +141,7 @@ impl fmt::Display for ImportFailure {
 impl std::error::Error for ImportFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io(error) => Some(error),
+            Self::Io(error) => error.source(),
             Self::Json(error) => error.source(),
             Self::Corrupt { reason, .. } => reason.source(),
             Self::SourceChanged { .. } | Self::ReportClosed => None,
@@ -155,7 +155,7 @@ impl From<serde_json::Error> for ImportFailure {
 }
 impl From<io::Error> for ImportFailure {
     fn from(error: io::Error) -> Self {
-        Self::Io(error)
+        Self::Io(error.into())
     }
 }
 
@@ -195,11 +195,12 @@ impl Fingerprint {
     /// Fingerprint of an open file. std metadata has no file identity or change
     /// time on Windows, so take the volume, file index and change time from the
     /// handle there; otherwise a same-size, same-mtime replacement goes unnoticed.
-    pub(crate) fn of_file(file: &File) -> io::Result<Self> {
+    pub(crate) fn of_file(file: &File) -> Result<Self, ImportFailure> {
         let fingerprint = Self::of(&file.metadata()?)?;
         #[cfg(windows)]
         let fingerprint = {
-            let identity = crate::fsutil::stat_identity(file).map_err(io::Error::other)?;
+            let identity = crate::fsutil::stat_identity(file)
+                .map_err(|error| ImportFailure::Io(IoCause::other(error)))?;
             Self {
                 ctime_ns: Some(identity.changed_ns),
                 inode: Some(identity.inode),
@@ -210,7 +211,7 @@ impl Fingerprint {
         Ok(fingerprint)
     }
     /// Fingerprint of the entry a path names now, without following a symlink.
-    pub(crate) fn of_path(path: &Path) -> io::Result<Self> {
+    pub(crate) fn of_path(path: &Path) -> Result<Self, ImportFailure> {
         #[cfg(windows)]
         {
             use std::os::windows::fs::OpenOptionsExt;
@@ -224,7 +225,7 @@ impl Fingerprint {
             Self::of_file(&file)
         }
         #[cfg(not(windows))]
-        Self::of(&fs::symlink_metadata(path)?)
+        Ok(Self::of(&fs::symlink_metadata(path)?)?)
     }
     /// The fields that differ from `other`.
     fn changes(&self, other: &Self) -> Vec<ChangedField> {
@@ -283,7 +284,7 @@ impl PinnedSource {
     /// mistaken for stat drift that a retry resolves. A name that is gone fails the lookup.
     pub(super) fn verify_unchanged(
         &self,
-        named: impl FnOnce() -> io::Result<Fingerprint>,
+        named: impl FnOnce() -> Result<Fingerprint, ImportFailure>,
     ) -> Result<(), ImportFailure> {
         let handle = Fingerprint::of_file(&self.file)?;
         let named = named()?;
@@ -446,7 +447,7 @@ fn sidecar(path: &Path) -> PathBuf {
 
 fn xattr_failure(error: SourceMetadataError) -> ImportFailure {
     match error {
-        SourceMetadataError::Io(error) => ImportFailure::Io(error),
+        SourceMetadataError::Io(error) => error.into(),
         SourceMetadataError::Unsupported => ImportFailure::corrupt(
             CorruptField::UserMetadata,
             "user.metadata reading is unsupported",
@@ -1363,7 +1364,7 @@ fn check_object_sidecar(path: &Path, leaf: &str) -> Result<(), ImportFailure> {
 
 fn walk_failure(error: WalkError) -> ImportFailure {
     match error {
-        WalkError::Io(error) | WalkError::Entry { error, .. } => ImportFailure::Io(error),
+        WalkError::Io(error) | WalkError::Entry { error, .. } => error.into(),
         WalkError::EntryLimit { .. } => ImportFailure::corrupt(
             CorruptField::Limits,
             "source entry limit exceeded",
