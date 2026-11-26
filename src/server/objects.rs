@@ -19,7 +19,9 @@ use crate::{
     csek::CustomerKey,
     http_header::{TextError, TextOrder},
     json::{self, ObjectRequest, UploadRequest},
-    object::{IdempotencyToken, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
+    object::{
+        IdempotencyToken, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, TextTokenError,
+    },
     storage::{MoveAccess, RestoreAccess, UploadAclSnapshot},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
@@ -249,12 +251,12 @@ async fn add_acl(
 /// The token as replay text, after the JSON header checks have validated its bytes.
 fn idempotency_token(headers: &HeaderMap) -> Result<Option<String>, ApiError> {
     let token =
-        IdempotencyToken::read_text(headers, TextOrder::ValueFirst).map_err(
+        IdempotencyToken::from_text(headers, TextOrder::ValueFirst).map_err(
             |error| match error {
-                TextError::Repeated(_) => {
+                TextTokenError::Header(TextError::Repeated(_)) => {
                     ApiError::invalid_parameter("Duplicate x-goog-gcs-idempotency-token")
                 }
-                TextError::Invalid(_) => {
+                TextTokenError::Header(TextError::Invalid(_)) | TextTokenError::Empty => {
                     ApiError::invalid_parameter("Invalid x-goog-gcs-idempotency-token")
                 }
             },

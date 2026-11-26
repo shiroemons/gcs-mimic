@@ -386,6 +386,7 @@ impl Config {
     }
 
     /// The address and scheme of the dedicated gRPC listener, when configured.
+    /// The startup binary binds the pair from one validated listener setting.
     pub fn grpc_listener(&self) -> Option<(SocketAddr, GrpcScheme)> {
         self.listeners
             .grpc()

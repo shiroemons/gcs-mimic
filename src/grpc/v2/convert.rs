@@ -454,16 +454,16 @@ pub(crate) fn object(
         soft_delete_time: record.soft_delete_time.map(Into::into),
         hard_delete_time: record.hard_delete_time.map(Into::into),
         // Hashes describe the plaintext, so an encrypted object shows them only with its key.
-        checksums: (record.customer_key_sha256.is_none() || hashes == StoredHashes::Revealed).then(
-            || pb::ObjectChecksums {
+        checksums: hashes
+            .is_visible_for(record.customer_key_sha256)
+            .then(|| pb::ObjectChecksums {
                 crc32c: Some(record.crc32c),
                 md5_hash: if record.has_md5() {
                     record.md5.to_vec()
                 } else {
                     Vec::new()
                 },
-            },
-        ),
+            }),
         customer_encryption: record
             .customer_key_sha256
             .map(|sha256| pb::CustomerEncryption {

@@ -237,7 +237,7 @@ Pending the evidence below:
 - **Idempotency token input.** JSON and XML read checks accept one opaque,
   nonblank byte value. JSON replay and XML PUT require visible text as well.
   XML copy refuses the field whenever it is present. The tests
-  `json_get_header_validation_accepts_an_obs_text_token`,
+  `json_get_accepts_an_obs_text_token`,
   `json_media_upload_requires_a_text_token`,
   `xml_get_accepts_an_obs_text_token` and `xml_put_requires_a_text_token`
   exercise the four routes with a `0xff` byte. The tests
@@ -260,9 +260,9 @@ Pending the evidence below:
   still use the authority as sent.
 - **XML precondition header diagnostics.** Object reads and deletes, bucket
   operations and object listings use precondition-specific wording for repeated
-  or non-ASCII values. PUT and resumable initiation use the upload header
-  wording. Both sets of routes reject repetitions before interpreting the
-  first value and use the same number grammar and range. Using the
+  or non-ASCII values. PUT, copy, multipart and resumable initiation use the
+  upload header wording. Both sets of routes reject repetitions before
+  interpreting the first value and use the same number grammar and range. Using the
   precondition-specific wording on every route is a candidate.
 - **JSON bucket metageneration syntax.** Bucket queries and default object ACL
   listing use the same optional `int64` grammar. Retention lock still requires
@@ -1067,7 +1067,7 @@ after job counts.
 | JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |
 | Config documents | the parse half moves to the settings layer |
 | Protobuf crate | generated code in its own crate, with the build measurement |
-| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code |
+| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` listener accessors are public for the startup binary. |
 
 ### Types, configuration and rules
 

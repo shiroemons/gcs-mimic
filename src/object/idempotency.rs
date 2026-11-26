@@ -39,21 +39,13 @@ impl<'a> IdempotencyToken<'a> {
         headers: &'a HeaderMap,
         order: TextOrder,
     ) -> Result<Option<Self>, TextTokenError> {
-        let Some(token) = Self::read_text(headers, order)? else {
+        let Some(value) = sole(headers, Self::HEADER).text(order)? else {
             return Ok(None);
         };
-        if is_blank(token.as_str().as_bytes()) {
+        if is_blank(value.as_bytes()) {
             return Err(TextTokenError::Empty);
         }
-        Ok(Some(token))
-    }
-
-    /// Decodes a field as text. A caller using this directly has already checked its nonemptiness.
-    pub(crate) fn read_text(
-        headers: &'a HeaderMap,
-        order: TextOrder,
-    ) -> Result<Option<Self>, TextError> {
-        Ok(sole(headers, Self::HEADER).text(order)?.map(Self))
+        Ok(Some(Self(value)))
     }
 
     pub(crate) fn as_str(&self) -> &'a str {

@@ -341,14 +341,14 @@ fn parse_lock_retention_policy(
     common(&mut query)?;
     let [requested, _] = BUCKET_CONDITION_PARAMETERS;
     let metageneration = query.remove(requested).ok_or_else(|| {
-        ApiError::required(
-            "ifMetagenerationMatch is required; read the bucket metageneration first",
-        )
+        ApiError::required(format!(
+            "{requested} is required; read the bucket metageneration first",
+        ))
     })?;
     // Unlike the other int64 parameters, this one keeps accepting a leading `+` (`%2B1`).
     let metageneration = Grammar::Signed
         .parse::<i64>(&metageneration)
-        .ok_or_else(|| ApiError::invalid_parameter("ifMetagenerationMatch must be an integer"))?;
+        .ok_or_else(|| ApiError::invalid_parameter(format!("{requested} must be an integer")))?;
     finish(&query)?;
     Ok(BucketRequest::LockRetentionPolicy {
         bucket,

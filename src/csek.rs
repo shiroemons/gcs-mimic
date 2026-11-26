@@ -256,6 +256,11 @@ impl StoredHashes {
             Self::Revealed
         }
     }
+
+    /// A response carrying an earlier visibility decision still reveals unencrypted hashes.
+    pub(crate) fn is_visible_for(self, stored: Option<[u8; 32]>) -> bool {
+        self == Self::Revealed || Self::for_key(stored, None) == Self::Revealed
+    }
 }
 
 /// Reading object data requires exactly the key the object was written with.
@@ -279,9 +284,8 @@ pub(crate) fn check_metadata(
 ) -> Result<StoredHashes, CsekError> {
     if supplied.is_some() {
         check_data(stored, supplied)?;
-        return Ok(StoredHashes::Revealed);
     }
-    Ok(StoredHashes::keyless(stored))
+    Ok(StoredHashes::for_key(stored, supplied))
 }
 
 /// Whether `name` is one of the three key headers under `prefix`. Other names sharing the

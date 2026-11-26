@@ -930,6 +930,13 @@ fn xml_get_accepts_an_obs_text_token() {
 }
 
 #[test]
+fn json_get_accepts_an_obs_text_token() {
+    let (_config, _data, server) = fixture();
+    let reply = request_with_obs_text_token(&server, "GET", JSON_OBJECT, ADMIN);
+    assert_eq!(reply.json_ok()["name"], "object");
+}
+
+#[test]
 fn xml_put_requires_a_text_token() {
     let (_config, _data, server) = fixture();
     let reply = request_with_obs_text_token(
