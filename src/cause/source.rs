@@ -140,7 +140,7 @@ impl fmt::Display for Link<'_> {
 
 impl fmt::Display for Source {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self.as_error(), formatter)
+        fmt::Display::fmt(&self.link(), formatter)
     }
 }
 

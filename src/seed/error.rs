@@ -67,6 +67,7 @@ impl fmt::Display for SeedError {
 
 impl SeedError {
     pub(crate) fn failed_pass_diagnostic(&self) -> String {
+        // A watch pass returns admin errors directly. Only startup wraps them in Entry or Import.
         if let Self::Admin(error) | Self::BucketName(error) = self {
             return error.diagnostic_report().to_string();
         }

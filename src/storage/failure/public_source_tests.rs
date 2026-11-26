@@ -1,4 +1,4 @@
-//! Public Display/source pairs whose observable contract is up for review in Public facade.
+//! Display/source pairs retained for public callers or existing storage diagnostics.
 
 use crate::cause::{BackendCause, BackendFailure, IoCause, Link, Source, TypedSource};
 use crate::{
@@ -65,6 +65,16 @@ const PUBLIC_PAIRS: &[Exception] = &[
             )))
         },
     },
+    // Startup follows nested seed failures to give disk, memory and fixture-specific remedies.
+    Exception {
+        matches: |outer, inner| matches!(outer.downcast_ref(), Some(SeedError::Entry { source, .. } | SeedError::Import(source)) if inner.downcast_ref().is_some_and(|cause| std::ptr::eq(source.as_ref(), cause))),
+        example: || Box::new(SeedError::Import(Box::new(SeedError::MissingRoot))),
+    },
+];
+
+// Multipart cleanup logs ObjectError directly. Revisit these private groups when converting
+// ObjectError to thiserror. BackendCause also embeds their diagnostics for public errors.
+const OBJECT_PAIRS: &[Exception] = &[
     // Object errors carry the same fixed backend guidance and database codes through object_context.
     Exception {
         matches: |outer, inner| matches!(outer.downcast_ref(), Some(ObjectError::Corrupt(cause) | ObjectError::Unavailable(cause) | ObjectError::BodyAborted(cause)) if classified(cause.typed_source(), inner)),
@@ -83,11 +93,6 @@ const PUBLIC_PAIRS: &[Exception] = &[
                 io::Error::from(io::ErrorKind::StorageFull),
             ))
         },
-    },
-    // Startup follows nested seed failures to give disk, memory and fixture-specific remedies.
-    Exception {
-        matches: |outer, inner| matches!(outer.downcast_ref(), Some(SeedError::Entry { source, .. } | SeedError::Import(source)) if inner.downcast_ref().is_some_and(|cause| std::ptr::eq(source.as_ref(), cause))),
-        example: || Box::new(SeedError::Import(Box::new(SeedError::MissingRoot))),
     },
 ];
 
@@ -144,14 +149,17 @@ fn inherits_exception(outer: &Node, payload: &Node, inner: &Node) -> bool {
         && payload
             .source()
             .is_some_and(|source| std::ptr::addr_eq(source, inner))
-        && public_pair(payload, inner)
+        && compatible_pair(payload, inner)
 }
 
-pub(crate) fn public_pair(outer: &Node, inner: &Node) -> bool {
+pub(crate) fn compatible_pair(outer: &Node, inner: &Node) -> bool {
     if let Some(payload) = transparent_payload(outer) {
         return inherits_exception(outer, payload, inner);
     }
-    PUBLIC_PAIRS.iter().any(|row| (row.matches)(outer, inner))
+    PUBLIC_PAIRS
+        .iter()
+        .chain(OBJECT_PAIRS)
+        .any(|row| (row.matches)(outer, inner))
 }
 
 #[test]
@@ -181,10 +189,12 @@ fn rollback_context_preserves_every_cause_without_repeating_its_message() {
         .downcast_ref::<RollbackError>()
         .unwrap();
     assert!(rollback.source().unwrap().is::<rusqlite::Error>());
-    assert_eq!(
-        crate::error::Report::chain(&error).to_string(),
-        format!("catalog connection is unusable: transaction could not be rolled back: {message}")
-    );
+    let expected =
+        format!("catalog connection is unusable: transaction could not be rolled back: {message}");
+    assert_eq!(crate::error::Report::chain(&error).to_string(), expected);
+    let source = Source::from(error);
+    assert_eq!(source.to_string(), expected);
+    assert_eq!(BackendCause::from_error(source).to_string(), expected);
 }
 
 #[test]
@@ -247,7 +257,7 @@ fn import_reports_a_classified_resume_cause() {
 fn a_changed_message_does_not_inherit_the_payload_exception() {
     let payload = disk_full();
     let source = payload.source().unwrap();
-    assert!(public_pair(&payload, source));
+    assert!(compatible_pair(&payload, source));
     assert!(!inherits_exception(
         &io::Error::other("different text"),
         &payload,
@@ -260,8 +270,29 @@ fn a_different_source_does_not_inherit_the_payload_exception() {
     let outer = ImportError::Catalog(disk_full());
     let other = disk_full();
     assert_eq!(outer.to_string(), other.to_string());
-    assert!(public_pair(&outer, outer.source().unwrap()));
-    assert!(!public_pair(&outer, other.source().unwrap()));
+    assert!(compatible_pair(&outer, outer.source().unwrap()));
+    assert!(!compatible_pair(&outer, other.source().unwrap()));
+}
+
+#[test]
+fn classified_exception_examples_keep_the_concrete_layer_and_its_text() {
+    for layer in [
+        Source::from(CatalogError::PreconditionFailed),
+        ObjectError::BucketNotFound.into(),
+        crate::storage::admin::AdminError::Closed.into(),
+        ResumeError::PermanentlyFailed {
+            reason: crate::storage::import_journal::JournalFailure::ElementRejected,
+        }
+        .into(),
+        ConnectionUnavailable::Panicked.into(),
+        ExecutorError::Closed.into(),
+        RollbackError::StillOpen.into(),
+    ] {
+        let cause = BackendCause::from_error(layer);
+        let inner = cause.source().unwrap();
+        assert_eq!(cause.to_string(), inner.to_string());
+        assert!(compatible_pair(&cause, inner), "{inner:?}");
+    }
 }
 
 #[test]
@@ -281,8 +312,8 @@ fn public_catalog_report_retains_its_historical_sqlite_suffix() {
 }
 
 #[test]
-fn public_source_exceptions_still_match_the_held_error_and_its_text() {
-    for row in PUBLIC_PAIRS {
+fn documented_source_exceptions_still_match_the_held_error_and_its_text() {
+    for row in PUBLIC_PAIRS.iter().chain(OBJECT_PAIRS) {
         let outer = (row.example)();
         let inner = outer.source().expect("the classified link is retained");
         assert!((row.matches)(&*outer, inner), "{outer:?} -> {inner:?}");

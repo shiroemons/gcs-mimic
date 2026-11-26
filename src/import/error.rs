@@ -341,6 +341,22 @@ mod tests {
     }
 
     #[test]
+    fn typed_cleanup_report_finishes_both_cause_chains_in_order() {
+        let catalog_failure = |detail: &'static str| {
+            ImportError::Catalog(CatalogError::from(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                detail,
+            )))
+        };
+        let error = catalog_failure("read detail")
+            .with_cleanup(CleanupOperation::Catalog, catalog_failure("close detail"));
+        assert_eq!(
+            crate::error::Report(&error).to_string(),
+            "catalog I/O: permission denied: read detail; catalog close also failed: catalog I/O: permission denied: close detail"
+        );
+    }
+
+    #[test]
     fn cleanup_forwards_the_original_errors_underlying_cause() {
         let original = CatalogError::from(io::Error::new(
             io::ErrorKind::PermissionDenied,

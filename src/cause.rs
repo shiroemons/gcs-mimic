@@ -118,10 +118,8 @@ impl Error for MemoryExhausted {
 
 /// The message and optional underlying error of an unavailable or corrupt backend.
 ///
-/// `Display` prints only the message. A cause built from an error uses that error's own
-/// `Display` text as the message, so wrapped errors render exactly as the stringified
-/// errors did before sources were kept. Equality compares messages, which is what callers
-/// and tests observe.
+/// Display and equality use the stored message. When built from a layer, the message includes
+/// any nested context that the layer historically printed.
 #[derive(Clone)]
 pub struct BackendCause {
     message: Cow<'static, str>,
@@ -137,11 +135,11 @@ impl BackendCause {
         }
     }
 
-    /// A cause whose message is the error's `Display` text.
+    /// Captures the layer's diagnostic text while preserving its concrete error.
     pub(crate) fn from_error(error: impl Into<Source>) -> Self {
         let source = error.into();
         Self {
-            message: source.link().to_string().into(),
+            message: source.to_string().into(),
             source: Some(Arc::new(source)),
         }
     }

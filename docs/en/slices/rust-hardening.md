@@ -533,8 +533,9 @@ A further split waits until after `1.0.0`:
     whose `source()` returns the cause's source.
 - `ImportError::Cleanup` carries two failures. Its journal text gives the
   original failure first and the cleanup failure second. Its `source()`
-  follows the original failure's underlying cause. Its typed report finishes
-  the original cause chain before reporting the cleanup and its causes.
+  follows the original failure's underlying cause. Only a typed `Report<ImportError>`
+  finishes the original cause chain before reporting the cleanup and its causes.
+  The CLI and journal use Display. A type-erased report follows `source()`.
 - Transparent CLI, import, resume and adapter errors forward their cause's
   source. Texts the import journal stores stay byte-identical. Storage
   classification still reads typed source links for backend guidance, SQLite
@@ -543,12 +544,14 @@ A further split waits until after `1.0.0`:
   - a test helper that fails when a link's text equals or ends with the next
     link's, called from every exhaustive error table;
   - `Report` panics on a repeat in tests. Separate test tables pin rusqlite's
-    own repeated sources and public error pairs in
-    `src/storage/failure/public_source_tests.rs`. Embedders can print these
-    errors and inspect their concrete sources. Revisit these seven groups in
-    Public facade: `BackendCause`, `IoCause`, catalog corrupt/unavailable,
-    catalog I/O, object corrupt/unavailable/body aborted, object I/O, and seed
-    entry/import. A transparent wrapper inherits an exception only for the
+    own repeated sources and the compatibility exceptions in
+    `src/storage/failure/public_source_tests.rs`. Public facade revisits five
+    groups that embedders can print and inspect (`BackendCause`, `IoCause`,
+    catalog corrupt/unavailable, catalog I/O, and seed entry/import).
+    The thiserror conversion for `ObjectError` revisits the two private groups
+    (corrupt/unavailable/body aborted and I/O). Multipart cleanup logs this
+    error's Display directly, and backend causes can embed it in public
+    diagnostics. A transparent wrapper inherits an exception only for the
     same text and the same source object;
   - the `text::error_displays_source` rule rejects a `#[error]` format that
     interpolates its own source.
