@@ -79,7 +79,7 @@ pub(super) async fn request(
     let outcome = UploadDecoder(Some(Arc::clone(&decoding)));
     let expanded = ctx
         .config
-        .max_object_bytes
+        .max_object_bytes()
         .saturating_add(crate::json::MULTIPART_FRAMING_LIMIT);
     // Stored-gzip media can be incompressible; allow bounded framing/deflate overhead on the wire.
     let budget = Budget {

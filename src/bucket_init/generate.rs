@@ -664,9 +664,9 @@ impl Document {
         parse(
             text.as_bytes(),
             form,
-            &defaults.seed_project,
+            defaults.seed_project(),
             &SystemClock,
-            &defaults.default_location,
+            defaults.default_location(),
             None,
         )
         .map_err(GenerateError::Rejected)?;

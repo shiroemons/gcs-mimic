@@ -98,7 +98,7 @@ pub(super) async fn insert(
             &mut multipart,
             &sender,
             expected,
-            ctx.config.max_object_bytes,
+            ctx.config.max_object_bytes(),
         )
         .await
         .map(UploadEnd::EofWithHashes)
@@ -180,7 +180,7 @@ fn parse(bytes: &[u8], now: SystemTime, config: &Config) -> Result<Fixture, ApiE
     metadata.acl = acl;
     let content_type = match (metadata.content_type.value(), &provenance) {
         (Some(content_type), _) => content_type.clone(),
-        (None, Provenance::Seed) => config.seed_content_type.for_name(&name).into(),
+        (None, Provenance::Seed) => config.seed_content_type().for_name(&name).into(),
         (None, Provenance::Fixture(_)) => "application/octet-stream".into(),
     };
     let name = ObjectName::new(name).map_err(failure)?;
@@ -195,7 +195,7 @@ fn parse(bytes: &[u8], now: SystemTime, config: &Config) -> Result<Fixture, ApiE
             metadata,
             expected,
             condition: None,
-            max_bytes: config.max_object_bytes,
+            max_bytes: config.max_object_bytes(),
             mode: PublishMode::Replace,
         },
     })

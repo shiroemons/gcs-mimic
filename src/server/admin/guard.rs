@@ -59,7 +59,7 @@ fn local_host(host: &str) -> bool {
 /// would match it and admit every DNS rebinding name.
 fn host_allowed(host: &str, config: &Config, endpoints: &EndpointSnapshot) -> bool {
     local_host(host)
-        || config.admin_allowed_hosts.iter().any(|name| name == host)
+        || config.admin_allowed_hosts().iter().any(|name| name == host)
         || endpoints
             .xml_virtual_host_domains
             .iter()
@@ -152,7 +152,7 @@ mod tests {
                 )))
                 .unwrap();
             let endpoints = config
-                .runtime_endpoints
+                .runtime_endpoints()
                 .snapshot(&config, "http://api.example.com")
                 .unwrap()
                 .for_request(ConnectionScheme::Http, request.uri(), request.headers());
@@ -188,10 +188,13 @@ mod tests {
             Catalog::open(&dir.0).await.unwrap(),
             Auth::permissive(),
         ));
-        let config = std::sync::Arc::new(Config {
-            admin_allowed_hosts: vec!["dev.example.com".into()],
-            ..Config::default()
-        });
+        let config = std::sync::Arc::new(
+            crate::config::ConfigDraft {
+                admin_allowed_hosts: vec!["dev.example.com".into()],
+                ..Default::default()
+            }
+            .build(),
+        );
         let endpoints = RequestEndpoints::explicit("http://api.example.com");
         let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
         let ctx = RequestCtx {

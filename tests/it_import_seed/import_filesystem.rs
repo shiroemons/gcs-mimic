@@ -162,11 +162,17 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
         assert_eq!(later.event_based_hold.as_bool(), Some(true));
         // Seed replays on imported catalogs too: fixtures without a matching file leave every
         // imported object and its source generation untouched.
-        let mut config = common::http_config();
-        config.data_dir = options.destination.clone();
         let empty_fixture = options.destination.parent().unwrap().join("empty-seed");
         fs::create_dir(&empty_fixture).unwrap();
-        config.seed_dir = Some(empty_fixture);
+        let seed_config = |seed: &std::path::Path| {
+            common::http_config_with(&[
+                "--data-dir",
+                options.destination.to_str().unwrap(),
+                "--seed-dir",
+                seed.to_str().unwrap(),
+            ])
+        };
+        let config = seed_config(&empty_fixture);
         let clock: std::sync::Arc<dyn gcs_mimic::clock::Clock> =
             std::sync::Arc::new(gcs_mimic::clock::SystemClock);
         assert!(matches!(
@@ -197,7 +203,7 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
                 .generation,
             later.generation
         );
-        config.seed_dir = Some(options.source.join("does-not-exist"));
+        let config = seed_config(&options.source.join("does-not-exist"));
         assert!(
             gcs_mimic::seed::import(&catalog, &config, &clock)
                 .await

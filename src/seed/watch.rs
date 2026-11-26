@@ -48,11 +48,11 @@ pub const MAX_WAIT: Duration = Duration::from_secs(600);
 /// unless no seed directory or no interval is configured. The passes keep a copy of the
 /// configuration without the buckets document, which only a reset to the startup state reads.
 pub fn watch(catalog: &Catalog, config: &Config, clock: Arc<dyn Clock>) {
-    let (Some(_), Some(interval)) = (&config.seed_dir, config.seed_watch_interval) else {
+    let (Some(_), Some(interval)) = (config.seed_dir(), config.seed_watch_interval()) else {
         return;
     };
     let mut copy = config.clone();
-    copy.buckets = None;
+    copy.set_startup_buckets(None);
     let config = Arc::new(copy);
     let failures = Arc::new(FailedPasses::default());
     catalog.start_seed_watch(interval, move |catalog, number| {
@@ -163,7 +163,7 @@ async fn walk_and_commit(
     clock: &Arc<dyn Clock>,
     number: u64,
 ) -> Result<LiveOutcome, SeedError> {
-    let root = config.seed_dir.as_ref().ok_or(SeedError::MissingRoot)?;
+    let root = config.seed_dir().ok_or(SeedError::MissingRoot)?;
     let admin = catalog.admin(Origin::Seed);
     let (batch, mut entries) = open_tree(&admin, config, clock, root, None).await?;
     let mut pass = Pass {
@@ -283,7 +283,7 @@ impl Pass<'_> {
     /// everything below it, as is one whose bucket was deleted, or created again, after seeding
     /// took it. A directory without a mark gets its bucket when the pass commits.
     fn bucket(&mut self, name: &BucketName) -> Result<(), SeedError> {
-        if let Some(limit) = self.config.max_buckets_per_batch
+        if let Some(limit) = self.config.max_buckets_per_batch()
             && self.buckets >= limit.get()
         {
             self.report(
@@ -302,7 +302,7 @@ impl Pass<'_> {
             }
             Mark::Unmarked => {
                 let definition =
-                    BucketDefinition::default_for(name, &self.config.seed_project, self.clock)?;
+                    BucketDefinition::default_for(name, self.config.seed_project(), self.clock)?;
                 if let Err(error) = self.batch.bucket(definition) {
                     self.unread(name.as_str(), staging_problem(error)?)?;
                     self.skipped.insert(name.as_str().to_owned());
@@ -337,7 +337,7 @@ impl Pass<'_> {
             Source::Unknown(unknown) => return self.unread(label, unknown),
         };
         let config = self.config;
-        if !metadata.is_file() || metadata.len() > config.max_object_bytes {
+        if !metadata.is_file() || metadata.len() > config.max_object_bytes() {
             return self.unread(label, SeedError::FileLimit);
         }
         let record = self.batch.record(bucket.as_str(), name.as_str());
@@ -345,11 +345,11 @@ impl Pass<'_> {
             return Ok(());
         }
         let request = Publication {
-            content_type: config.seed_content_type.for_name(&leaf).into(),
+            content_type: config.seed_content_type().for_name(&leaf).into(),
             expected: ExpectedHashes::default(),
             condition: None,
             metadata: Default::default(),
-            max_bytes: config.max_object_bytes,
+            max_bytes: config.max_object_bytes(),
             mode: PublishMode::Replace,
         };
         match self.batch.fixture(bucket, name, request, file).await {

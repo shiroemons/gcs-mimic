@@ -324,50 +324,34 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         return Ok(());
     }
     let mut report = Config::preflight_os(rest, std::env::vars_os());
-    gcs_mimic::diagnostics::set_log_level(report.config.log_level);
+    gcs_mimic::diagnostics::set_log_level(report.log_level());
     // Validate supplied TLS material before touching the catalog, seed or listener.
-    let mut security = tls::ServerSecurity::plain();
-    if report.tls_settings_valid() {
-        match tls::ServerSecurity::load(&report.config) {
-            Ok(value) => security = value,
-            Err(error) => report.diagnostics.errors.push(error.diagnostic()),
-        }
-    }
+    let security = report.load_tls();
     // Load the registry before binding so a bad identity document never reaches readiness.
     let mut auth = report.load_auth();
-    if report.default_seed_settings_valid() {
-        let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
-        report.diagnostics.warnings.extend(warnings);
-    }
+    report.resolve_default_seed();
     // Before the catalog opens, so that a refused start changes nothing.
-    if let Err(diagnostic) = gcs_mimic::seed::refuse_retired_sync(&report.config) {
-        report.diagnostics.errors.push(diagnostic);
+    if let Err(diagnostic) = gcs_mimic::seed::refuse_retired_sync(report.seed_dir()) {
+        report.record_error(diagnostic);
     }
+    let (config, mut diagnostics) = report.into_config()?;
     // The fake-gcs-server profile keeps project-owner objects, as fake-gcs-server does.
-    if report.config.compat_profile == gcs_mimic::config::CompatProfile::Native
-        && let Some(email) = report.config.local_creator_email.as_deref()
+    if config.compat_profile() == gcs_mimic::config::CompatProfile::Native
+        && let Some(email) = config.local_creator_email()
     {
         auth = auth.with_local_creator_email(email);
     }
-    if report.diagnostics.is_err() {
-        return Err(report.diagnostics.into());
-    }
-    auth = auth.with_verifier_budget(report.config.max_blocking_threads);
-    report
-        .diagnostics
+    auth = auth.with_verifier_budget(config.max_blocking_threads());
+    diagnostics
         .warnings
         .extend(gcs_mimic::fd_limit::raise_for_connections(
-            report.config.max_connections,
-            report
-                .config
-                .grpc_listen
-                .map(|_| report.config.max_grpc_streams),
+            config.max_connections(),
+            config.grpc_listen().map(|_| config.max_grpc_streams()),
         ));
-    report.diagnostics.write(io::stderr().lock())?;
-    let config = report.config;
+    diagnostics.write(io::stderr().lock())?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(config.worker_threads)
-        .max_blocking_threads(config.max_blocking_threads)
+        .worker_threads(config.worker_threads())
+        .max_blocking_threads(config.max_blocking_threads())
         .enable_all()
         .build()
         .map_err(|_| {

@@ -101,7 +101,7 @@ impl Target {
             Self::Batch
         } else if xml::buckets::matches(request.method(), request.uri(), None) {
             Self::XmlBucket
-        } else if let Some(error) = xml::unselectable_bucket(path, config.compat_profile) {
+        } else if let Some(error) = xml::unselectable_bucket(path, config.compat_profile()) {
             Self::UnnamedBucket(error)
         } else {
             Self::Json
@@ -278,7 +278,8 @@ async fn route_xml(
     }
     // CORS must also wrap invalid object names and signed queries without authorizing them.
     if selected.as_ref().is_some_and(|object| {
-        crate::bucket::name::validate_for_profile(&object.bucket, ctx.config.compat_profile).is_ok()
+        crate::bucket::name::validate_for_profile(&object.bucket, ctx.config.compat_profile())
+            .is_ok()
     }) {
         return respond_xml_cors(request, ctx, selected).await;
     }
@@ -370,7 +371,7 @@ async fn respond_xml_cors(
         return respond_routed(request, ctx, selected).await;
     };
     let RequestCtx { state, config, .. } = ctx;
-    let choice = config.effective_cors_fallback();
+    let choice = config.cors_fallback();
     let fallback = choice.fallback();
     let has_origin = request.headers().contains_key("origin");
     let kind = if request.method() == Method::OPTIONS && has_origin {
@@ -617,7 +618,7 @@ async fn respond_unselected(
         JsonRoute::Object(parsed) => respond_json_object(request, ctx, parsed).await,
         JsonRoute::Project(parsed) => respond_project(request, ctx, parsed).await,
         JsonRoute::Bucket(parsed) => {
-            respond_bucket(request, ctx, ctx.config.compat_profile, parsed).await
+            respond_bucket(request, ctx, ctx.config.compat_profile(), parsed).await
         }
     }
 }
@@ -977,8 +978,8 @@ mod tests {
     ) -> (Target, Request<()>) {
         let endpoints = EndpointSnapshot::explicit(
             "http://localhost:4443",
-            config.public_base_url.clone(),
-            config.xml_virtual_host_domains.clone(),
+            config.public_base_url().cloned(),
+            config.xml_virtual_host_domains().clone(),
         );
         let mut request = Request::builder()
             .method(method)
@@ -1097,10 +1098,11 @@ mod tests {
 
     #[test]
     fn an_authority_that_disagrees_with_host_is_unaddressable_before_any_rewrite() {
-        let config = Config {
+        let config = crate::config::ConfigDraft {
             xml_virtual_host_domains: VirtualHostDomains::of(&["storage.example.test"]),
-            ..Config::default()
-        };
+            ..Default::default()
+        }
+        .build();
         let target = "http://bucket.storage.example.test/resumable/upload/storage/v1/b/b/o?uploadType=resumable";
         let (classified, request) = classify(&config, Method::POST, target, "other.example.test");
         let Target::Unaddressable(error) = classified else {

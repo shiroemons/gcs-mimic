@@ -734,7 +734,7 @@ default-port removal and normalization idempotence through property tests;
 CLI/environment/file precedence; a 32-domain union with public/explicit merging,
 explicit duplicate rejection, longest suffixes and API-host conflicts; and IP
 warnings with the fixed ready fields. Shared startup's `ReadyEvent` emits the
-fields from `Config.public_base_url` and `Config::public_virtual_host_enabled`,
+fields from `Config::public_base_url` and `Config::public_virtual_host_enabled`,
 preserving startup ordering. DNS/IP/unset ready values, the complete ready key
 set, and invalid-origin rejection before catalog creation have process tests.
 

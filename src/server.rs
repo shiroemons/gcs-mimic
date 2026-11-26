@@ -101,7 +101,7 @@ impl WorkPools {
     pub fn new(config: &Config) -> Self {
         Self {
             gzip_decoders: Arc::new(Semaphore::new(
-                config.max_blocking_threads.div_ceil(4).max(1),
+                config.max_blocking_threads().div_ceil(4).max(1),
             )),
             unauthenticated_gzip_decoders: Arc::new(Semaphore::new(1)),
             batches: Arc::new(Semaphore::new(batch::BATCH_CONCURRENCY)),
@@ -1119,7 +1119,7 @@ async fn serve_entries(
         config,
         slots: Arc::new(SlotReclaim::default()),
     };
-    let max_connections = shared.config.max_connections;
+    let max_connections = shared.config.max_connections();
     let mut connections = JoinSet::new();
     let mut next_listener = 0;
     // Later clients stay in the listen backlog until this one has a slot, so a full server asks
@@ -1187,7 +1187,7 @@ async fn serve_entries(
         listener_cleanups.push(entry.close().await);
     }
     stop.send_replace(true);
-    let drain_result = drain_connections(&mut connections, config.shutdown_timeout).await;
+    let drain_result = drain_connections(&mut connections, config.shutdown_timeout()).await;
     let background_result = background_drain.await;
     let mut result = signal_result
         .and(drain_result)
@@ -1599,7 +1599,7 @@ impl ConnectionService {
         let finished = RequestFinished::new(activity.clone(), reads, place);
         let sent_body = has_body(request.headers());
         let endpoints = if let Ok(endpoints) = config
-            .runtime_endpoints
+            .runtime_endpoints()
             .snapshot(&config, &state.api_base_url)
         {
             endpoints.for_request(listening.scheme, request.uri(), request.headers())
@@ -1617,7 +1617,7 @@ impl ConnectionService {
         let target = routing::Target::classify(&mut request, &config, endpoints.snapshot());
         let timeout_reply = DeadlineReply::new(&request, &target);
         let format =
-            json::ResponseFormat::for_request(request.uri().query(), config.compat_profile);
+            json::ResponseFormat::for_request(request.uri().query(), config.compat_profile());
         let ctx = RequestCtx {
             state: &state,
             config: &config,
@@ -1630,7 +1630,7 @@ impl ConnectionService {
         let admitted = browser::refuse_on_trusted_listener(
             listening.role,
             &request,
-            &config.trusted_allowed_hosts,
+            config.trusted_allowed_hosts(),
         );
         // Dropping the handler cancels its work exactly as closing the
         // connection did, so an unfinished upload is still never published.
@@ -1677,10 +1677,10 @@ struct ConnectionLimits {
 impl ConnectionLimits {
     fn new(config: &Config) -> Self {
         Self {
-            header_read: config.header_read_timeout,
-            keep_alive: config.keep_alive_timeout,
-            request: config.request_timeout,
-            body_inactivity: config.body_inactivity_timeout,
+            header_read: config.header_read_timeout(),
+            keep_alive: config.keep_alive_timeout(),
+            request: config.request_timeout(),
+            body_inactivity: config.body_inactivity_timeout(),
         }
     }
 

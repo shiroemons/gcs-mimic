@@ -1862,10 +1862,11 @@ mod tests {
         let (stop, stopped) = tokio::sync::oneshot::channel();
         let running = tokio::spawn(serve(
             TcpListeners::public(listener, ListenerSecurity::Plain),
-            crate::config::Config {
+            crate::config::ConfigDraft {
                 scheme: crate::config::Scheme::Http,
                 ..Default::default()
-            },
+            }
+            .build(),
             state,
             Stop::on(async {
                 stopped.await.unwrap();

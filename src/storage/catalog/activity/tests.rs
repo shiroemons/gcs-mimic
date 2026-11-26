@@ -2,7 +2,6 @@ use super::*;
 use crate::{
     bucket::BucketAccess,
     clock::SystemClock,
-    config::Config,
     object::ObjectError,
     storage::{
         ResumableOptions,
@@ -243,10 +242,13 @@ async fn a_copy_replay_that_meets_a_starting_job_waits_for_it_instead_of_failing
 #[tokio::test]
 async fn a_client_waiting_for_a_session_writer_also_waits_out_an_exclusive_job() {
     let (_dir, catalog, _admin) = setup().await;
-    catalog.apply_session_limits(&Config {
-        catalog_wait_timeout: LONG,
-        ..Default::default()
-    });
+    catalog.apply_session_limits(
+        &crate::config::ConfigDraft {
+            catalog_wait_timeout: LONG,
+            ..Default::default()
+        }
+        .build(),
+    );
     let session = catalog
         .create_resumable_session(
             BUCKET,
@@ -581,10 +583,13 @@ async fn a_disabled_catalog_wait_leaves_administrative_waits_unlimited() {
     )
     .await
     .unwrap();
-    catalog.apply_session_limits(&Config {
-        catalog_wait_timeout: TimeLimit::DISABLED,
-        ..Default::default()
-    });
+    catalog.apply_session_limits(
+        &crate::config::ConfigDraft {
+            catalog_wait_timeout: TimeLimit::DISABLED,
+            ..Default::default()
+        }
+        .build(),
+    );
     let admin = catalog.local_admin().unwrap();
     let name = BucketName::new(BUCKET).unwrap();
     let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
@@ -668,10 +673,13 @@ async fn maintenance_skips_a_writer_while_an_exclusive_job_runs() {
 #[tokio::test]
 async fn management_calls_give_up_at_the_configured_catalog_wait() {
     let (_dir, catalog, admin) = setup().await;
-    catalog.apply_session_limits(&Config {
-        catalog_wait_timeout: TimeLimit::from_millis(50),
-        ..Default::default()
-    });
+    catalog.apply_session_limits(
+        &crate::config::ConfigDraft {
+            catalog_wait_timeout: TimeLimit::from_millis(50),
+            ..Default::default()
+        }
+        .build(),
+    );
     let name = BucketName::new(BUCKET).unwrap();
     let exclusive = catalog
         .wait_exclusive(TimeLimit::from_millis(10_000).deadline())

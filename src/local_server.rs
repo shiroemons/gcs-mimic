@@ -126,11 +126,12 @@ pub(super) fn origin(
     environment: impl IntoIterator<Item = (OsString, OsString)>,
 ) -> Result<String, Unreliable> {
     let report = Config::preflight_os(server_args, environment);
-    let origin = report.config.local_origin();
-    if report.diagnostics.is_err() {
+    let origin = report.local_origin();
+    let diagnostics = report.into_diagnostics();
+    if diagnostics.is_err() {
         Err(Unreliable {
             origin,
-            diagnostics: report.diagnostics,
+            diagnostics,
         })
     } else {
         Ok(origin)

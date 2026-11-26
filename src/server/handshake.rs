@@ -97,7 +97,7 @@ pub(super) async fn establish<S: AsyncRead + AsyncWrite + Unpin>(
         Handshake::Tls(acceptor) => acceptor,
     };
     let handshake = tokio::time::timeout_at(
-        config.tls_handshake_timeout.deadline_from(at),
+        config.tls_handshake_timeout().deadline_from(at),
         acceptor.accept(stream),
     );
     let stream = tokio::select! {
@@ -132,7 +132,7 @@ pub(super) async fn establish_tcp(
     stopping: &mut watch::Receiver<bool>,
     protocol: ListenerProtocol,
 ) -> Option<Established<TcpStream>> {
-    let first_byte_by = config.header_read_timeout.deadline_from(at);
+    let first_byte_by = config.header_read_timeout().deadline_from(at);
     let handshake = match security.select(&stream, first_byte_by, stopping).await {
         Ok(handshake) => handshake,
         Err(Undetected::Silent) => {
@@ -227,20 +227,22 @@ mod tests {
     }
 
     fn detecting() -> ListenerSecurity {
-        let config = crate::config::Config {
+        let config = crate::config::ConfigDraft {
             scheme: crate::config::Scheme::Auto,
             ..Default::default()
-        };
+        }
+        .build();
         crate::tls::ServerSecurity::load(&config).unwrap().primary
     }
 
     /// The gRPC listener under the default `grpc_scheme=auto`, beside a plain HTTP listener.
     fn detecting_grpc() -> ListenerSecurity {
-        let config = crate::config::Config {
+        let config = crate::config::ConfigDraft {
             scheme: crate::config::Scheme::Http,
             grpc_listen: Some("127.0.0.1:0".parse().unwrap()),
             ..Default::default()
-        };
+        }
+        .build();
         crate::tls::ServerSecurity::load(&config).unwrap().grpc
     }
 

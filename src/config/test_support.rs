@@ -1,11 +1,11 @@
-use super::Config;
+use super::ConfigDraft;
 use crate::{
     diagnostics::{DiagnosticSource, Diagnostics},
     test_support::TestDir,
 };
 use std::{collections::BTreeMap, fmt::Debug};
 
-type Loader = fn(&[String], &BTreeMap<String, String>) -> Result<Config, Diagnostics>;
+type Loader = fn(&[String], &BTreeMap<String, String>) -> Result<ConfigDraft, Diagnostics>;
 
 #[track_caller]
 pub(super) fn assert_precedence<T: Debug + PartialEq>(
@@ -14,7 +14,7 @@ pub(super) fn assert_precedence<T: Debug + PartialEq>(
     options: &[&str],
     expected: [T; 4],
     load: Loader,
-    value: impl Fn(Config) -> T,
+    value: impl Fn(ConfigDraft) -> T,
 ) -> Vec<String> {
     let mut cli = file_args.to_vec();
     cli.extend(options.iter().map(|option| (*option).to_owned()));
@@ -71,7 +71,7 @@ pub(super) fn assert_rejected(setting: &str, values: &[impl AsRef<str>], fix: &s
                 BTreeMap::new(),
             ),
         ] {
-            let errors = Config::load(&args, &env).unwrap_err();
+            let errors = ConfigDraft::load(&args, &env).unwrap_err();
             assert_eq!(
                 errors.errors[0].source, source,
                 "{setting}={value:?}: {errors}"

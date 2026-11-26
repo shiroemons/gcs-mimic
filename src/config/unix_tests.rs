@@ -12,8 +12,8 @@ fn unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback() {
         return;
     }
     let config = result.unwrap();
-    assert_eq!(config.unix_socket.as_deref(), Some(Path::new("private/s")));
-    assert!(config.grpc_listen.is_none());
+    assert_eq!(config.unix_socket(), Some(Path::new("private/s")));
+    assert!(config.grpc_listen().is_none());
     for (key, value) in [
         ("--listen", "127.0.0.1:0"),
         ("--listen-http", "127.0.0.1:0"),
@@ -103,7 +103,7 @@ fn a_unix_socket_serves_plain_http_under_the_default_scheme() {
         assert!(result.is_err());
         return;
     }
-    assert_eq!(result.unwrap().scheme, Scheme::Auto);
+    assert_eq!(result.unwrap().scheme(), Scheme::Auto);
     for (key, value, fix) in [
         ("--scheme", "https", "scheme=auto or http"),
         ("--scheme", "both", "scheme=auto or http"),

@@ -19,7 +19,7 @@ fn config() -> Config {
 #[test]
 fn endpoint_updates_keep_in_flight_snapshots_and_replace_only_the_implicit_public_domain() {
     let config = config();
-    let runtime = &config.runtime_endpoints;
+    let runtime = &config.runtime_endpoints();
     let old = runtime.snapshot(&config, "http://initial.invalid").unwrap();
     runtime
         .update(
@@ -53,7 +53,7 @@ fn endpoint_updates_keep_in_flight_snapshots_and_replace_only_the_implicit_publi
 #[test]
 fn invalid_endpoint_pairs_leave_both_values_unchanged() {
     let config = config();
-    let runtime = &config.runtime_endpoints;
+    let runtime = &config.runtime_endpoints();
     let before = runtime.snapshot(&config, "http://initial.invalid").unwrap();
     for (external, public) in [
         ("https://valid.invalid/proxy", "user@public.invalid"),
@@ -86,7 +86,7 @@ fn concurrent_partial_endpoint_updates_do_not_lose_the_other_field() {
     std::thread::scope(|scope| {
         scope.spawn(|| {
             config
-                .runtime_endpoints
+                .runtime_endpoints()
                 .update(
                     &config,
                     "http://initial.invalid",
@@ -97,7 +97,7 @@ fn concurrent_partial_endpoint_updates_do_not_lose_the_other_field() {
         });
         scope.spawn(|| {
             config
-                .runtime_endpoints
+                .runtime_endpoints()
                 .update(
                     &config,
                     "http://initial.invalid",
@@ -108,7 +108,7 @@ fn concurrent_partial_endpoint_updates_do_not_lose_the_other_field() {
         });
     });
     let snapshot = config
-        .runtime_endpoints
+        .runtime_endpoints()
         .snapshot(&config, "ignored")
         .unwrap();
     assert_eq!(snapshot.fixed_api_base.url, "http://mapped.invalid:9876");
@@ -142,28 +142,28 @@ fn endpoint_domain_limit_rejects_without_publishing_and_preserves_explicit_publi
     )
     .unwrap();
     let initial = config
-        .runtime_endpoints
+        .runtime_endpoints()
         .snapshot(&config, "http://initial.invalid")
         .unwrap();
     assert!(matches!(
         config
-            .runtime_endpoints
+            .runtime_endpoints()
             .update(&config, "ignored", None, Some("extra.invalid")),
         Err(EndpointError::DomainLimit)
     ));
     assert!(Arc::ptr_eq(
         &initial,
         &config
-            .runtime_endpoints
+            .runtime_endpoints()
             .snapshot(&config, "ignored")
             .unwrap()
     ));
     config
-        .runtime_endpoints
+        .runtime_endpoints()
         .update(&config, "ignored", None, Some("domain1.invalid"))
         .unwrap();
     let snapshot = config
-        .runtime_endpoints
+        .runtime_endpoints()
         .snapshot(&config, "ignored")
         .unwrap();
     assert!(
@@ -189,7 +189,7 @@ fn host_headers(hosts: &[&[u8]]) -> hyper::HeaderMap {
 
 fn advertised(config: &Config, scheme: ConnectionScheme, uri: &str, hosts: &[&[u8]]) -> String {
     config
-        .runtime_endpoints
+        .runtime_endpoints()
         .snapshot(config, FIXED)
         .unwrap()
         .for_request(scheme, &uri.parse().unwrap(), &host_headers(hosts))
@@ -230,7 +230,7 @@ fn request_host_sets_the_advertised_base_and_never_the_fixed_one() {
         );
     }
     let view = config
-        .runtime_endpoints
+        .runtime_endpoints()
         .snapshot(&config, FIXED)
         .unwrap()
         .for_request(
@@ -281,7 +281,7 @@ fn a_virtual_host_advertises_its_configured_domain_and_never_the_bucket() {
     );
     // Only this request's view changes, so the management guard's fixed base stays out of reach.
     let view = config
-        .runtime_endpoints
+        .runtime_endpoints()
         .snapshot(&config, FIXED)
         .unwrap()
         .for_request(
@@ -326,7 +326,7 @@ fn the_most_specific_domain_names_the_api_behind_a_virtual_host() {
 fn a_runtime_public_host_domain_names_the_api_behind_its_virtual_hosts() {
     let config = config();
     config
-        .runtime_endpoints
+        .runtime_endpoints()
         .update(&config, FIXED, None, Some("new.invalid:9876"))
         .unwrap();
     assert_eq!(
@@ -451,7 +451,7 @@ fn advertised_scheme_follows_the_connection_and_forwarded_headers_do_not_apply()
         (ConnectionScheme::Https, "https://gcs:4443"),
     ] {
         let view = config
-            .runtime_endpoints
+            .runtime_endpoints()
             .snapshot(&config, FIXED)
             .unwrap()
             .for_request(scheme, &uri, &headers);
@@ -468,9 +468,9 @@ fn explicit_base_ignores_the_request_host() {
         "https://advertised.invalid/api/".into(),
     ];
     let config = Config::load(&args, &BTreeMap::new()).unwrap();
-    let explicit = config.effective_api_base_url(config.listen);
+    let explicit = config.effective_api_base_url(config.listen());
     let view = config
-        .runtime_endpoints
+        .runtime_endpoints()
         .snapshot(&config, &explicit)
         .unwrap()
         .for_request(
@@ -486,7 +486,7 @@ fn explicit_base_ignores_the_request_host() {
 #[test]
 fn only_an_external_url_update_fixes_a_derived_base() {
     let config = config();
-    let runtime = &config.runtime_endpoints;
+    let runtime = &config.runtime_endpoints();
     let derived = |host: &str| {
         advertised(
             &config,
@@ -528,7 +528,7 @@ fn only_an_external_url_update_fixes_a_derived_base() {
 #[test]
 fn poisoned_endpoint_state_fails_visibly() {
     let config = config();
-    let runtime = config.runtime_endpoints.clone();
+    let runtime = config.runtime_endpoints().clone();
     assert!(
         std::thread::spawn(move || {
             let _guard = runtime.current.write().unwrap();
@@ -539,13 +539,13 @@ fn poisoned_endpoint_state_fails_visibly() {
     );
     assert!(matches!(
         config
-            .runtime_endpoints
+            .runtime_endpoints()
             .snapshot(&config, "http://initial.invalid"),
         Err(EndpointError::Poisoned)
     ));
     assert!(matches!(
         config
-            .runtime_endpoints
+            .runtime_endpoints()
             .update(&config, "http://initial.invalid", None, None),
         Err(EndpointError::Poisoned)
     ));

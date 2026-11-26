@@ -33,6 +33,7 @@ mod test_support;
 #[cfg(test)]
 mod unix_tests;
 pub use assemble::Config;
+pub(crate) use assemble::{Tls, TlsIdentity};
 #[cfg(test)]
 pub(crate) use auth::Verification;
 pub(crate) use auth::{AuthProfile, TrustedCaller};
@@ -40,8 +41,9 @@ pub use document::DocumentSource;
 pub(crate) use document::{DocumentKind, Form};
 pub use domains::VirtualHostDomains;
 use domains::{DomainLimit, Inserted};
+pub(crate) use draft::ConfigDraft;
 pub use draft::ConfigurationReport;
-use draft::{Settings, unknown_setting};
+use draft::{Settings, Validation, unknown_setting};
 pub use help::help;
 pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
@@ -287,21 +289,6 @@ pub fn loopback_if_unspecified(mut address: SocketAddr) -> SocketAddr {
     address
 }
 
-/// The PEM files the TLS listener loads.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TlsFiles<'a> {
-    /// Neither setting: the embedded public development identity.
-    Development,
-    Provided {
-        certificate: &'a Path,
-        key: &'a Path,
-    },
-}
-
-/// The TLS setting supplied without its partner.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct UnpairedTlsFile(pub(crate) Setting);
-
 /// Read only an explicitly selected helper config, without server-side validation or resources.
 pub fn read_public_base_url(path: &str) -> Result<Option<String>, Diagnostic> {
     let entries = read_config(path).map_err(|error| {
@@ -505,18 +492,18 @@ mod tests {
             "true",
         ]
         .map(str::to_owned);
-        let error = Config::load(&args, &BTreeMap::new()).unwrap_err();
+        let error = ConfigDraft::load(&args, &BTreeMap::new()).unwrap_err();
         assert!(error.to_string().contains("admin_principal"));
         let mut configured = args.to_vec();
         configured.extend(["--admin-principal".into(), "admin".into()]);
-        Config::load(&configured, &BTreeMap::new()).unwrap();
+        ConfigDraft::load(&configured, &BTreeMap::new()).unwrap();
         let args = [
             "--admin-allowed-hosts",
             "Dev.Example.com.,other.example.com",
         ]
         .map(str::to_owned);
         assert_eq!(
-            Config::load(&args, &BTreeMap::new())
+            ConfigDraft::load(&args, &BTreeMap::new())
                 .unwrap()
                 .admin_allowed_hosts,
             ["dev.example.com", "other.example.com"]
@@ -528,7 +515,10 @@ mod tests {
             "example.com,",
         ] {
             let args = ["--admin-allowed-hosts", value].map(str::to_owned);
-            assert!(Config::load(&args, &BTreeMap::new()).is_err(), "{value}");
+            assert!(
+                ConfigDraft::load(&args, &BTreeMap::new()).is_err(),
+                "{value}"
+            );
         }
     }
 
@@ -562,7 +552,7 @@ mod tests {
             ),
         ] {
             let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
-            let error = Config::load(&args, &BTreeMap::new()).unwrap_err();
+            let error = ConfigDraft::load(&args, &BTreeMap::new()).unwrap_err();
             assert!(
                 error
                     .errors
@@ -584,7 +574,7 @@ mod tests {
         ];
         let load = |options: &[&str]| {
             let args: Vec<String> = options.iter().map(|option| (*option).to_owned()).collect();
-            Config::load(&args, &BTreeMap::new())
+            ConfigDraft::load(&args, &BTreeMap::new())
         };
         let mut paired = strict.to_vec();
         paired.extend([
@@ -599,7 +589,7 @@ mod tests {
             config.trusted_principal.as_deref(),
             Some("app@example.invalid")
         );
-        let defaults = Config::default();
+        let defaults = ConfigDraft::default();
         assert_eq!(
             (defaults.trusted_listen, defaults.trusted_principal),
             (None, None)
@@ -781,7 +771,7 @@ mod tests {
             ];
             args.extend_from_slice(extra);
             let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
-            Config::load(&args, &BTreeMap::new())
+            ConfigDraft::load(&args, &BTreeMap::new())
         };
         let pair = [
             "--trusted-listen",
@@ -801,7 +791,7 @@ mod tests {
             ["storage.compose.example", "other.example"]
         );
         assert!(load(&pair).unwrap().trusted_allowed_hosts.is_empty());
-        assert!(Config::default().trusted_allowed_hosts.is_empty());
+        assert!(ConfigDraft::default().trusted_allowed_hosts.is_empty());
         let error = load(&["--trusted-allowed-hosts", "storage.compose.example"]).unwrap_err();
         assert!(
             error
@@ -873,11 +863,11 @@ mod tests {
             3,
         ));
         assert_eq!(
-            Config::default().effective_api_base_url(bound),
+            ConfigDraft::default().api_base_for_test(bound),
             "http://[fe80::1]:4443"
         );
         assert_eq!(
-            Config::default().effective_api_base_url(SocketAddr::V6(std::net::SocketAddrV6::new(
+            ConfigDraft::default().api_base_for_test(SocketAddr::V6(std::net::SocketAddrV6::new(
                 std::net::Ipv6Addr::UNSPECIFIED,
                 4443,
                 7,
@@ -899,7 +889,7 @@ mod tests {
             &env,
             &["--grpc-listen", "127.0.0.1:0"],
             [None, Some(4444), Some(5555), Some(0)],
-            Config::load,
+            ConfigDraft::load,
             |config| config.grpc_listen.map(|address| address.port()),
         );
         assert_rejected(
@@ -930,7 +920,7 @@ mod tests {
             &env,
             &["--max-grpc-streams", "30"],
             [100, 10, 20, 30],
-            Config::load,
+            ConfigDraft::load,
             |config| config.max_grpc_streams.get(),
         );
         for value in [1, 65_536] {
@@ -941,7 +931,7 @@ mod tests {
                 value.to_string(),
             ];
             assert_eq!(
-                Config::load(&args, &BTreeMap::new())
+                ConfigDraft::load(&args, &BTreeMap::new())
                     .unwrap()
                     .max_grpc_streams
                     .get(),
@@ -957,7 +947,7 @@ mod tests {
 
     #[test]
     fn grpc_scheme_follows_precedence_and_requires_grpc_listen() {
-        assert_eq!(Config::default().grpc_scheme, GrpcScheme::Auto);
+        assert_eq!(ConfigDraft::default().grpc_scheme, GrpcScheme::Auto);
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(
@@ -977,7 +967,7 @@ mod tests {
                 GrpcScheme::Tls,
                 GrpcScheme::Auto,
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| config.grpc_scheme,
         );
         assert_rejected(
@@ -988,7 +978,9 @@ mod tests {
         assert_rejected("grpc_scheme", &["tls"], "requires grpc_listen");
         // A broken listener setting is the one fault to report, not a missing listener.
         let args = ["--grpc-listen", "localhost:4444", "--grpc-scheme", "tls"].map(str::to_owned);
-        let errors = Config::load(&args, &BTreeMap::new()).unwrap_err().errors;
+        let errors = ConfigDraft::load(&args, &BTreeMap::new())
+            .unwrap_err()
+            .errors;
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert_eq!(errors[0].key, "--grpc-listen");
     }
@@ -1028,7 +1020,7 @@ mod tests {
                 .chain(grpc)
                 .map(|arg| (*arg).to_owned())
                 .collect();
-            match Config::load(&args, &BTreeMap::new()) {
+            match ConfigDraft::load(&args, &BTreeMap::new()) {
                 Ok(config) => {
                     assert!(accepted, "{grpc:?}");
                     assert_eq!(config.tls_handshake_timeout.as_millis(), 100);
@@ -1055,7 +1047,9 @@ mod tests {
             "cert.pem",
         ]
         .map(str::to_owned);
-        let errors = Config::load(&args, &BTreeMap::new()).unwrap_err().errors;
+        let errors = ConfigDraft::load(&args, &BTreeMap::new())
+            .unwrap_err()
+            .errors;
         assert!(
             errors
                 .iter()
@@ -1075,7 +1069,9 @@ mod tests {
             "200",
         ]
         .map(str::to_owned);
-        let errors = Config::load(&args, &BTreeMap::new()).unwrap_err().errors;
+        let errors = ConfigDraft::load(&args, &BTreeMap::new())
+            .unwrap_err()
+            .errors;
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert_eq!(errors[0].key, "--grpc-listen");
     }
@@ -1084,7 +1080,7 @@ mod tests {
     /// test signer selects, which config::auth::tests covers.
     #[test]
     fn signed_host_port_follows_precedence_in_both_auth_modes() {
-        assert_eq!(Config::default().signed_host_port, None);
+        assert_eq!(ConfigDraft::default().signed_host_port, None);
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         // Lenient needs signatures to verify, which permissive mode does only when asked.
@@ -1105,14 +1101,14 @@ mod tests {
                 Some(SignedHostPort::Exact),
                 Some(SignedHostPort::Lenient),
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| config.signed_host_port,
         );
         let identities = dir.0.join("identities.json");
         let lenient = |mode: &[&str]| {
             let mut args = mode.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
             args.extend(["--signed-host-port".into(), "lenient".into()]);
-            Config::load(&args, &BTreeMap::new())
+            ConfigDraft::load(&args, &BTreeMap::new())
         };
         for mode in [
             &["--auth-mode", "permissive", "--signed-urls", "verify"][..],
@@ -1141,7 +1137,7 @@ mod tests {
         // An explicit exact claims nothing, so it is accepted whatever is verified.
         let exact = ["--signed-host-port", "exact"].map(str::to_owned);
         assert_eq!(
-            Config::load(&exact, &BTreeMap::new())
+            ConfigDraft::load(&exact, &BTreeMap::new())
                 .unwrap()
                 .signed_host_port,
             Some(SignedHostPort::Exact)
@@ -1152,14 +1148,17 @@ mod tests {
             "signed_host_port must be exact or lenient",
         );
         std::fs::write(&file, r#"{"signed_host_port":true}"#).unwrap();
-        assert!(Config::load(&args, &BTreeMap::new()).is_err());
+        assert!(ConfigDraft::load(&args, &BTreeMap::new()).is_err());
     }
 
     #[test]
     fn cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles() {
         let empty = BTreeMap::new();
-        let load =
-            |args: &[String], env| Config::load(args, env).unwrap().effective_cors_fallback();
+        let load = |args: &[String], env| {
+            ConfigDraft::load(args, env)
+                .unwrap()
+                .resolved_cors_fallback()
+        };
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"cors_fallback":"allow-all"}"#).unwrap();
@@ -1175,7 +1174,7 @@ mod tests {
                 Some(CorsFallback::None),
                 Some(CorsFallback::AllowAll),
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| config.cors_fallback,
         );
         // Permissive mode allows every origin by default, as fake-gcs-server does; strict mode
@@ -1214,9 +1213,9 @@ mod tests {
             "none or allow-all",
         );
         std::fs::write(&file, r#"{"cors_fallback":true}"#).unwrap();
-        assert!(Config::load(&args[..2], &empty).is_err());
+        assert!(ConfigDraft::load(&args[..2], &empty).is_err());
         // A bare flag names the accepted value instead of an unrelated example.
-        let errors = Config::load(&["--cors-fallback".into()], &empty).unwrap_err();
+        let errors = ConfigDraft::load(&["--cors-fallback".into()], &empty).unwrap_err();
         assert!(errors.to_string().contains("--cors-fallback allow-all"));
     }
 
@@ -1242,7 +1241,7 @@ mod tests {
                 Some(TestSigner::Enabled),
                 Some(TestSigner::Disabled),
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| config.test_signer,
         );
         let empty = BTreeMap::new();
@@ -1299,7 +1298,7 @@ mod tests {
         }
         // Where signatures are ignored an enabled signer would promise what never happens.
         let ignored = ["--test-signer", "enabled"].map(str::to_owned);
-        let error = Config::load(&ignored, &empty).unwrap_err().to_string();
+        let error = ConfigDraft::load(&ignored, &empty).unwrap_err().to_string();
         assert!(
             error.contains(
                 "--test-signer: test_signer=enabled has no effect while signatures are ignored"
@@ -1384,15 +1383,15 @@ mod tests {
                 Some(SignedUrls::Ignore),
                 Some(SignedUrls::Verify),
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| config.signed_urls,
         );
         let empty = BTreeMap::new();
         let load = |args: &[&str]| {
             let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
-            Config::load(&args, &empty)
+            ConfigDraft::load(&args, &empty)
         };
-        let effective = |args: &[&str]| load(args).unwrap().effective_signed_urls();
+        let effective = |args: &[&str]| load(args).unwrap().resolved_signed_urls();
         let strict = ["--auth-mode", "strict", "--identity-file", "ids.json"];
         assert_eq!(effective(&[]), SignedUrls::Ignore);
         assert_eq!(effective(&strict), SignedUrls::Verify);
@@ -1410,7 +1409,7 @@ mod tests {
         let keys = ["--identity-file", "ids.json", "--signed-urls", "verify"];
         let config = load(&keys).unwrap();
         assert_eq!(config.auth_mode, AuthMode::Permissive);
-        assert_eq!(config.effective_signed_urls(), SignedUrls::Verify);
+        assert_eq!(config.resolved_signed_urls(), SignedUrls::Verify);
         // The creator still labels permissive writes when the file only verifies signatures.
         let creator = ["--local-creator-email", "writer@example.invalid"];
         assert!(load(&[&keys[..], &creator].concat()).is_ok());
@@ -1435,7 +1434,7 @@ mod tests {
     fn local_creator_email_defaults_validates_and_requires_the_native_profile() {
         let empty = BTreeMap::new();
         assert_eq!(
-            Config::load(&[], &empty)
+            ConfigDraft::load(&[], &empty)
                 .unwrap()
                 .local_creator_email
                 .as_deref(),
@@ -1446,18 +1445,21 @@ mod tests {
             "env@example.test".into(),
         )]);
         assert_eq!(
-            Config::load(&[], &env)
+            ConfigDraft::load(&[], &env)
                 .unwrap()
                 .local_creator_email
                 .as_deref(),
             Some("env@example.test")
         );
         let cli = ["--local-creator-email", ""].map(str::to_owned);
-        assert_eq!(Config::load(&cli, &env).unwrap().local_creator_email, None);
+        assert_eq!(
+            ConfigDraft::load(&cli, &env).unwrap().local_creator_email,
+            None
+        );
         for bad in ["plain", "a b@example.test", "@example.test", "user-x"] {
             let args = ["--local-creator-email", bad].map(str::to_owned);
             assert!(
-                Config::load(&args, &empty)
+                ConfigDraft::load(&args, &empty)
                     .unwrap_err()
                     .to_string()
                     .contains("local_creator_email"),
@@ -1476,7 +1478,7 @@ mod tests {
         ]
         .map(str::to_owned);
         assert!(
-            Config::load(&strict, &empty)
+            ConfigDraft::load(&strict, &empty)
                 .unwrap_err()
                 .to_string()
                 .contains("applies only to auth_mode=permissive")
@@ -1493,17 +1495,17 @@ mod tests {
         ]
         .map(str::to_owned);
         assert!(
-            Config::load(&strict_args, &strict_env)
+            ConfigDraft::load(&strict_args, &strict_env)
                 .unwrap_err()
                 .to_string()
                 .contains("applies only to auth_mode=permissive")
         );
         let legacy = ["--compat-profile", "fake-gcs-server"].map(str::to_owned);
-        assert!(Config::load(&legacy, &empty).is_ok());
+        assert!(ConfigDraft::load(&legacy, &empty).is_ok());
         let mut conflict = legacy.to_vec();
         conflict.extend(["--local-creator-email".into(), "a@example.test".into()]);
         assert!(
-            Config::load(&conflict, &empty)
+            ConfigDraft::load(&conflict, &empty)
                 .unwrap_err()
                 .to_string()
                 .contains("requires compat_profile=native")
@@ -1523,11 +1525,14 @@ mod tests {
             &env,
             &["--default-location", "US"],
             ["US".to_owned(), "EU".into(), "ASIA".into(), "US".into()],
-            Config::load,
+            ConfigDraft::load,
             |config| config.default_location,
         );
         std::fs::write(&file, r#"{"default_location":null}"#).unwrap();
-        assert_eq!(Config::load(&args, &empty).unwrap().default_location, "US");
+        assert_eq!(
+            ConfigDraft::load(&args, &empty).unwrap().default_location,
+            "US"
+        );
         std::fs::write(&file, r#"{"default_location":"EU"}"#).unwrap();
         assert_rejected(
             "default_location",
@@ -1536,11 +1541,14 @@ mod tests {
         );
         for value in ["US", "EU", "ASIA", "ASIA-NORTHEAST1", "EUR4", "NAM4"] {
             let args = ["--default-location", value].map(str::to_owned);
-            assert_eq!(Config::load(&args, &empty).unwrap().default_location, value);
+            assert_eq!(
+                ConfigDraft::load(&args, &empty).unwrap().default_location,
+                value
+            );
             let mut args = args.to_vec();
             args.extend(["--compat-profile".into(), "fake-gcs-server".into()]);
             assert!(
-                Config::load(&args, &empty)
+                ConfigDraft::load(&args, &empty)
                     .unwrap_err()
                     .to_string()
                     .contains("requires compat_profile=native")
@@ -1553,7 +1561,7 @@ mod tests {
         ] {
             let args = ["--default-location", value].map(str::to_owned);
             assert_eq!(
-                Config::load(&args, &empty).unwrap().default_location,
+                ConfigDraft::load(&args, &empty).unwrap().default_location,
                 expected
             );
         }
@@ -1563,9 +1571,10 @@ mod tests {
             "--compat-profile".into(),
             "fake-gcs-server".into(),
         ];
-        assert!(Config::load(&args, &empty).is_err());
+        assert!(ConfigDraft::load(&args, &empty).is_err());
         assert!(
-            Config::load(&["--compat-profile".into(), "fake-gcs-server".into()], &env).is_err()
+            ConfigDraft::load(&["--compat-profile".into(), "fake-gcs-server".into()], &env)
+                .is_err()
         );
     }
 
@@ -1586,7 +1595,7 @@ mod tests {
                 LogLevel::Error,
                 LogLevel::Warn,
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| config.log_level,
         );
         assert_rejected(
@@ -1600,7 +1609,10 @@ mod tests {
             let report = Config::preflight(&[], &env);
             assert_eq!(report.diagnostics.errors[0].key, "GCS_MIMIC_LOG_LEVEL");
             assert!(!report.diagnostics.to_string().contains("secret"));
-            assert_eq!(Config::load(&args, &env).unwrap().log_level, LogLevel::Warn);
+            assert_eq!(
+                ConfigDraft::load(&args, &env).unwrap().log_level,
+                LogLevel::Warn
+            );
         }
     }
 
@@ -1618,7 +1630,7 @@ mod tests {
                 .write_all(br#"{"worker_threads":3}"#)
                 .unwrap()
         });
-        let result = Config::load(
+        let result = ConfigDraft::load(
             &["--config".into(), file.to_str().unwrap().into()],
             &BTreeMap::new(),
         );
@@ -1651,7 +1663,7 @@ mod tests {
                 BTreeMap::new(),
             ),
         ] {
-            let loaded = Config::load(&args, &env).unwrap();
+            let loaded = ConfigDraft::load(&args, &env).unwrap();
             assert!(matches!(loaded.buckets, Some(DocumentSource::File(_))));
             let args = if source == DiagnosticSource::Cli {
                 vec!["--buckets-file".into(), "".into()]
@@ -1666,7 +1678,7 @@ mod tests {
             if source == DiagnosticSource::Config {
                 std::fs::write(&file, r#"{"buckets_file":""}"#).unwrap();
             }
-            let errors = Config::load(&args, &env).unwrap_err();
+            let errors = ConfigDraft::load(&args, &env).unwrap_err();
             assert_eq!(errors.errors.len(), 1);
             assert_eq!(errors.errors[0].source, source);
             assert_eq!(errors.errors[0].key, key);
@@ -1685,10 +1697,10 @@ mod tests {
                 Some(DocumentSource::File("env.json".into())),
                 Some(DocumentSource::File("cli.json".into())),
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| config.buckets,
         );
-        assert_eq!(Config::default().buckets, None);
+        assert_eq!(ConfigDraft::default().buckets, None);
     }
 
     #[test]
@@ -1712,7 +1724,7 @@ mod tests {
                 BucketsMode::Reconcile,
                 BucketsMode::Create,
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| config.buckets_mode,
         );
         assert_rejected(
@@ -1739,7 +1751,7 @@ mod tests {
                 BTreeMap::new(),
             ),
         ] {
-            let errors = Config::load(&args, &env).unwrap_err().errors;
+            let errors = ConfigDraft::load(&args, &env).unwrap_err().errors;
             assert_eq!(errors.len(), 1, "{errors:?}");
             assert_eq!(errors[0].key, key);
             assert!(
@@ -1748,7 +1760,7 @@ mod tests {
             );
         }
         // An invalid selector is reported once, without a second error about the mode.
-        let errors = Config::load(
+        let errors = ConfigDraft::load(
             &["--buckets-file", "", "--buckets-mode", "reconcile"].map(str::to_owned),
             &BTreeMap::new(),
         )
@@ -1798,7 +1810,7 @@ mod tests {
                 BTreeMap::new(),
             ),
         ] {
-            let errors = Config::load(&args, &env).unwrap_err().errors;
+            let errors = ConfigDraft::load(&args, &env).unwrap_err().errors;
             assert_eq!(errors.len(), 1, "{errors:?}");
             assert_eq!(errors[0].key, key);
             assert_eq!(
@@ -1831,7 +1843,7 @@ mod tests {
         ]
         .map(String::from);
         let report = Config::preflight(&args, &env);
-        assert_eq!(report.config.worker_threads, 3);
+        assert_eq!(report.draft.worker_threads, 3);
         assert_eq!(report.diagnostics.errors.len(), 4);
         assert!(report.valid(&[Setting::WorkerThreads]));
         assert!(!report.valid(&[Setting::AuthMode, Setting::TlsCert]));
@@ -1960,7 +1972,7 @@ mod tests {
                 Some("https://env.invalid".into()),
                 Some("http://storage.invalid".into()),
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| {
                 config
                     .public_base_url
@@ -1969,17 +1981,17 @@ mod tests {
         );
         let config = Config::load(&args, &env).unwrap();
         assert_eq!(
-            config.public_base_url.as_ref().map(PublicOrigin::as_str),
+            config.public_base_url().map(PublicOrigin::as_str),
             Some("http://storage.invalid")
         );
         assert!(config.public_virtual_host_enabled());
         assert_eq!(
-            *config.xml_virtual_host_domains,
+            **config.xml_virtual_host_domains(),
             ["storage.invalid", "invalid"]
         );
         args[5] = "storage.invalid,STORAGE.invalid".into();
         assert!(
-            Config::load(&args, &env)
+            ConfigDraft::load(&args, &env)
                 .unwrap_err()
                 .to_string()
                 .contains("duplicate")
@@ -1989,14 +2001,14 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         assert!(
-            Config::load(&args, &env)
+            ConfigDraft::load(&args, &env)
                 .unwrap_err()
                 .to_string()
                 .contains("at most 32")
         );
         args[3] = "http://host0.invalid".into();
         assert_eq!(
-            Config::load(&args, &env)
+            ConfigDraft::load(&args, &env)
                 .unwrap()
                 .xml_virtual_host_domains
                 .len(),
@@ -2006,7 +2018,7 @@ mod tests {
         args[5] = "invalid".into();
         args.extend(["--api-base-url".into(), "http://api.storage.invalid".into()]);
         assert!(
-            Config::load(&args, &env)
+            ConfigDraft::load(&args, &env)
                 .unwrap_err()
                 .to_string()
                 .contains("api_base_url host selects")
@@ -2032,8 +2044,9 @@ mod tests {
                     .fix
                     .contains("virtual-host routing is disabled")
             );
-            assert!(!report.config.public_virtual_host_enabled());
-            assert_eq!(*report.config.xml_virtual_host_domains, ["storage.invalid"]);
+            let config = Config::try_from(report).unwrap();
+            assert!(!config.public_virtual_host_enabled());
+            assert_eq!(**config.xml_virtual_host_domains(), ["storage.invalid"]);
         }
         for base in [
             "http://storage.invalid/path",
@@ -2093,12 +2106,12 @@ mod tests {
                 vec!["env.invalid".into()],
                 vec!["storage.example.invalid".into(), "example.invalid".into()],
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| config.xml_virtual_host_domains.to_vec(),
         );
         *args.last_mut().unwrap() = String::new();
         assert!(
-            Config::load(&args, &env)
+            ConfigDraft::load(&args, &env)
                 .unwrap()
                 .xml_virtual_host_domains
                 .is_empty()
@@ -2118,50 +2131,53 @@ mod tests {
             "a/b",
         ] {
             *args.last_mut().unwrap() = invalid.into();
-            assert!(Config::load(&args, &env).is_err(), "{invalid}");
+            assert!(ConfigDraft::load(&args, &env).is_err(), "{invalid}");
         }
         *args.last_mut().unwrap() = (0..33)
             .map(|i| format!("host{i}.invalid"))
             .collect::<Vec<_>>()
             .join(",");
-        assert!(Config::load(&args, &env).is_err());
+        assert!(ConfigDraft::load(&args, &env).is_err());
         args[3] = "example.invalid".into();
         args.extend([
             "--api-base-url".into(),
             "http://api.example.invalid:4443".into(),
         ]);
         assert!(
-            Config::load(&args, &env)
+            ConfigDraft::load(&args, &env)
                 .unwrap_err()
                 .to_string()
                 .contains("api_base_url host selects an XML virtual bucket")
         );
         *args.last_mut().unwrap() = "http://example.invalid:4443".into();
-        assert!(Config::load(&args, &env).is_ok());
+        assert!(ConfigDraft::load(&args, &env).is_ok());
         args[3] = "example.invalid,api.example.invalid".into();
         *args.last_mut().unwrap() = "http://api.example.invalid:4443".into();
-        assert!(Config::load(&args, &env).is_ok());
+        assert!(ConfigDraft::load(&args, &env).is_ok());
         std::fs::remove_file(file).unwrap();
     }
 
-    fn load_http(args: &[String], env: &BTreeMap<String, String>) -> Result<Config, Diagnostics> {
+    fn load_http(
+        args: &[String],
+        env: &BTreeMap<String, String>,
+    ) -> Result<ConfigDraft, Diagnostics> {
         let mut args = args.to_vec();
         args.extend(["--scheme".into(), "http".into()]);
-        Config::load(&args, env)
+        ConfigDraft::load(&args, env)
     }
 
     #[test]
     fn tls_configuration_precedence_and_validation() {
-        let defaults = Config::default();
+        let defaults = ConfigDraft::default();
         assert_eq!(defaults.scheme, Scheme::Auto);
         assert_eq!(defaults.api_base_url, None);
-        let loaded = Config::load(&[], &BTreeMap::new()).unwrap();
+        let loaded = ConfigDraft::load(&[], &BTreeMap::new()).unwrap();
         assert_eq!(loaded.scheme, Scheme::Auto);
         assert_eq!(loaded.tls_cert, None);
         assert_eq!(loaded.tls_key, None);
         // TLS files choose the certificate; only scheme=https refuses plain HTTP.
         assert_eq!(
-            Config::load(
+            ConfigDraft::load(
                 &[
                     "--tls-cert".into(),
                     "cert.pem".into(),
@@ -2180,7 +2196,7 @@ mod tests {
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"scheme":"https","tls_cert":"file-cert.pem","tls_key":"file-key.pem","tls_handshake_timeout_ms":100}"#).unwrap();
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
-        let loaded = Config::load(&args, &BTreeMap::new()).unwrap();
+        let loaded = ConfigDraft::load(&args, &BTreeMap::new()).unwrap();
         assert_eq!(loaded.scheme, Scheme::Https);
         assert_eq!(loaded.api_base_url, None);
         let env = BTreeMap::from([
@@ -2192,7 +2208,7 @@ mod tests {
                 "http://proxy.invalid/base".into(),
             ),
         ]);
-        let loaded = Config::load(&args, &env).unwrap();
+        let loaded = ConfigDraft::load(&args, &env).unwrap();
         assert_eq!(
             loaded.api_base_url.as_deref(),
             Some("http://proxy.invalid/base")
@@ -2218,7 +2234,7 @@ mod tests {
                 (Some("env-cert.pem".into()), Some("env-key.pem".into()), 200),
                 (Some("cli-cert.pem".into()), Some("cli-key.pem".into()), 300),
             ],
-            Config::load,
+            ConfigDraft::load,
             |config| {
                 (
                     config.tls_cert,
@@ -2252,7 +2268,7 @@ mod tests {
             ],
         ] {
             assert!(
-                Config::load(
+                ConfigDraft::load(
                     &args.into_iter().map(String::from).collect::<Vec<_>>(),
                     &BTreeMap::new()
                 )
@@ -2262,13 +2278,13 @@ mod tests {
         for invalid in ["18446744073709551616", "-1", "unlimited"] {
             let mut args = cli.clone();
             *args.last_mut().unwrap() = invalid.into();
-            assert!(Config::load(&args, &env).is_err());
+            assert!(ConfigDraft::load(&args, &env).is_err());
         }
         for bound in [0, 1, u64::MAX] {
             let mut args = cli.clone();
             *args.last_mut().unwrap() = bound.to_string();
             assert_eq!(
-                Config::load(&args, &env)
+                ConfigDraft::load(&args, &env)
                     .unwrap()
                     .tls_handshake_timeout
                     .as_millis(),
@@ -2290,17 +2306,17 @@ mod tests {
         let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
         let mut env = BTreeMap::new();
         assert_eq!(
-            Config::load(&args, &env).unwrap().effective_listen_http(),
+            Config::load(&args, &env).unwrap().listen_http(),
             Some("[::1]:8001".parse().unwrap())
         );
         env.insert("GCS_MIMIC_LISTEN_HTTP".into(), "[::1]:8002".into());
         assert_eq!(
-            Config::load(&args, &env).unwrap().effective_listen_http(),
+            Config::load(&args, &env).unwrap().listen_http(),
             Some("[::1]:8002".parse().unwrap())
         );
         args.extend(["--listen-http".into(), "[::1]:0".into()]);
         assert_eq!(
-            Config::load(&args, &env).unwrap().effective_listen_http(),
+            Config::load(&args, &env).unwrap().listen_http(),
             Some("[::1]:0".parse().unwrap())
         );
         for listen in ["127.0.0.2:4443", "[::]:0"] {
@@ -2315,12 +2331,12 @@ mod tests {
             )
             .unwrap();
             assert_eq!(
-                config.effective_listen_http(),
-                Some(SocketAddr::new(config.listen.ip(), 8000))
+                config.listen_http(),
+                Some(SocketAddr::new(config.listen().ip(), 8000))
             );
             assert!(
                 config
-                    .effective_api_base_url(config.listen)
+                    .effective_api_base_url(config.listen())
                     .starts_with("https://")
             );
         }
@@ -2342,11 +2358,11 @@ mod tests {
         ] {
             let arguments: Vec<_> = arguments.into_iter().map(str::to_owned).collect();
             assert!(
-                Config::load(&arguments, &BTreeMap::new()).is_err(),
+                ConfigDraft::load(&arguments, &BTreeMap::new()).is_err(),
                 "{arguments:?}"
             );
         }
-        let config = Config::load(
+        let config = ConfigDraft::load(
             &[
                 "--scheme".into(),
                 "both".into(),
@@ -2358,8 +2374,8 @@ mod tests {
             &BTreeMap::new(),
         )
         .unwrap();
-        assert_eq!(config.listen, config.effective_listen_http().unwrap());
-        let config = Config::load(
+        assert_eq!(config.listen, config.resolved_listen_http().unwrap());
+        let config = ConfigDraft::load(
             &[],
             &BTreeMap::from([("GCS_MIMIC_SCHEME".into(), "both".into())]),
         )
@@ -2369,7 +2385,7 @@ mod tests {
 
     #[test]
     fn compat_profile_precedence_and_validation() {
-        assert_eq!(Config::default().compat_profile, CompatProfile::Native);
+        assert_eq!(ConfigDraft::default().compat_profile, CompatProfile::Native);
         let dir = TestDir::new();
         let path = dir.0.join("config.json");
         std::fs::write(&path, r#"{"compat_profile":"fake-gcs-server"}"#).unwrap();
@@ -2413,21 +2429,24 @@ mod tests {
     #[test]
     fn seed_limits_default_to_unlimited_and_reject_values_out_of_range() {
         let limit = NonZeroUsize::new;
-        let default = Config::default();
+        let default = ConfigDraft::default();
         assert_eq!(
             (default.max_seed_entries, default.max_seed_depth),
             (None, None)
         );
         let args = ["--max-seed-entries", "20000", "--max-seed-depth", "40"].map(str::to_owned);
-        let config = Config::load(&args, &BTreeMap::new()).unwrap();
+        let config = ConfigDraft::load(&args, &BTreeMap::new()).unwrap();
         assert_eq!(
             (config.max_seed_entries, config.max_seed_depth),
             (limit(20_000), limit(40))
         );
         let env = BTreeMap::from([("GCS_MIMIC_MAX_SEED_DEPTH".to_owned(), "50".to_owned())]);
-        assert_eq!(Config::load(&[], &env).unwrap().max_seed_depth, limit(50));
+        assert_eq!(
+            ConfigDraft::load(&[], &env).unwrap().max_seed_depth,
+            limit(50)
+        );
         let args = ["--max-seed-entries", "0", "--max-seed-depth", "0"].map(str::to_owned);
-        let config = Config::load(&args, &BTreeMap::new()).unwrap();
+        let config = ConfigDraft::load(&args, &BTreeMap::new()).unwrap();
         assert_eq!(
             (config.max_seed_entries, config.max_seed_depth),
             (None, None)
@@ -2453,7 +2472,7 @@ mod tests {
                 .iter()
                 .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
                 .collect();
-            Config::load(&args, &env).unwrap().seed_watch_interval
+            ConfigDraft::load(&args, &env).unwrap().seed_watch_interval
         };
         assert_eq!(interval(&[], &[]), Some(Duration::from_secs(1)));
         assert_eq!(
@@ -2475,24 +2494,24 @@ mod tests {
     #[test]
     fn the_bucket_batch_limit_defaults_to_unlimited_and_rejects_values_out_of_range() {
         let limit = NonZeroUsize::new;
-        assert_eq!(Config::default().max_buckets_per_batch, None);
+        assert_eq!(ConfigDraft::default().max_buckets_per_batch, None);
         let args = ["--max-buckets-per-batch", "1000000"].map(str::to_owned);
-        let config = Config::load(&args, &BTreeMap::new()).unwrap();
+        let config = ConfigDraft::load(&args, &BTreeMap::new()).unwrap();
         assert_eq!(config.max_buckets_per_batch, limit(1_000_000));
         let env = BTreeMap::from([("GCS_MIMIC_MAX_BUCKETS_PER_BATCH".to_owned(), "1".to_owned())]);
         assert_eq!(
-            Config::load(&[], &env).unwrap().max_buckets_per_batch,
+            ConfigDraft::load(&[], &env).unwrap().max_buckets_per_batch,
             limit(1)
         );
         let args = ["--max-buckets-per-batch", "0"].map(str::to_owned);
-        let config = Config::load(&args, &BTreeMap::new()).unwrap();
+        let config = ConfigDraft::load(&args, &BTreeMap::new()).unwrap();
         assert_eq!(config.max_buckets_per_batch, None);
         let directory = TestDir::new();
         let file = directory.0.join("config.json");
         std::fs::write(&file, r#"{"max_buckets_per_batch":2000}"#).unwrap();
         let args = ["--config".to_owned(), file.to_str().unwrap().to_owned()];
         assert_eq!(
-            Config::load(&args, &BTreeMap::new())
+            ConfigDraft::load(&args, &BTreeMap::new())
                 .unwrap()
                 .max_buckets_per_batch,
             limit(2000)
@@ -2545,7 +2564,7 @@ mod tests {
                     BTreeMap::new(),
                 ),
             ] {
-                let errors = Config::load(&args, &env).unwrap_err().errors;
+                let errors = ConfigDraft::load(&args, &env).unwrap_err().errors;
                 assert_eq!(errors.len(), 1, "{errors:?}");
                 assert_eq!(errors[0].key, key);
                 assert_eq!(
@@ -2561,10 +2580,10 @@ mod tests {
 
     #[test]
     fn session_limits_default_to_unlimited_and_zero_stays_outside_the_config() {
-        let default = Config::default();
+        let default = ConfigDraft::default();
         assert_eq!(default.max_resumable_sessions, None);
         assert_eq!(default.max_rewrite_sessions, None);
-        type Read = fn(&Config) -> Option<NonZeroU32>;
+        type Read = fn(&ConfigDraft) -> Option<NonZeroU32>;
         let settings: [(&str, Read); 2] = [
             ("max_resumable_sessions", |config| {
                 config.max_resumable_sessions
@@ -2574,7 +2593,7 @@ mod tests {
         for (setting, read) in settings {
             let flag = format!("--{}", setting.replace('_', "-"));
             let load = |value: &str| {
-                Config::load(&[flag.clone(), value.to_owned()], &BTreeMap::new()).unwrap()
+                ConfigDraft::load(&[flag.clone(), value.to_owned()], &BTreeMap::new()).unwrap()
             };
             assert_eq!(read(&load("0")), None);
             assert_eq!(read(&load("1")), NonZeroU32::new(1));
@@ -2590,14 +2609,14 @@ mod tests {
             "9".to_owned(),
         )]);
         assert_eq!(
-            Config::load(&[], &env).unwrap().max_resumable_sessions,
+            ConfigDraft::load(&[], &env).unwrap().max_resumable_sessions,
             NonZeroU32::new(9)
         );
     }
 
     #[test]
     fn transfer_timeout_precedence_and_bounds() {
-        type Field = fn(Config) -> TimeLimit;
+        type Field = fn(ConfigDraft) -> TimeLimit;
         let settings: [(&str, u64, Field); 7] = [
             ("header_read_timeout_ms", 30_000, |config| {
                 config.header_read_timeout
@@ -2624,7 +2643,7 @@ mod tests {
         for (setting, default, limit) in settings {
             let dir = TestDir::new();
             let file = dir.0.join("config.json");
-            let value = |config: Config| limit(config).as_millis();
+            let value = |config: ConfigDraft| limit(config).as_millis();
             let flag = format!("--{}", setting.replace('_', "-"));
             let key = format!("GCS_MIMIC_{}", setting.to_ascii_uppercase());
             let args = vec!["--config".into(), file.to_str().unwrap().into()];
@@ -2698,7 +2717,7 @@ mod tests {
             (
                 "max_connections",
                 1_048_576,
-                (|config| config.max_connections as u64) as fn(Config) -> u64,
+                (|config| config.max_connections as u64) as fn(ConfigDraft) -> u64,
             ),
             ("worker_threads", 1024, |config| {
                 config.worker_threads as u64
@@ -2768,7 +2787,7 @@ mod tests {
             ("[::1]:54321", "http://[::1]:54321"),
         ] {
             assert_eq!(
-                Config::default().effective_api_base_url(bound.parse().unwrap()),
+                ConfigDraft::default().api_base_for_test(bound.parse().unwrap()),
                 expected
             );
         }
@@ -2779,12 +2798,12 @@ mod tests {
             (Scheme::Https, "https://127.0.0.1:54321"),
             (Scheme::Both, "https://127.0.0.1:54321"),
         ] {
-            let config = Config {
+            let config = ConfigDraft {
                 scheme,
-                ..Config::default()
+                ..ConfigDraft::default()
             };
             assert_eq!(
-                config.effective_api_base_url("127.0.0.1:54321".parse().unwrap()),
+                config.api_base_for_test("127.0.0.1:54321".parse().unwrap()),
                 expected,
                 "{scheme:?}"
             );
@@ -2812,7 +2831,7 @@ mod tests {
             .concat();
             let config = load_http(&explicit, &BTreeMap::new()).unwrap();
             assert_eq!(
-                config.effective_api_base_url("127.0.0.1:12345".parse().unwrap()),
+                config.api_base_for_test("127.0.0.1:12345".parse().unwrap()),
                 "https://proxy.invalid/prefix"
             );
         }
@@ -2967,7 +2986,7 @@ mod tests {
             "GCS_MIMIC_TRUSTED_LISTEN",
         ] {
             let env = BTreeMap::from([(key.to_owned(), String::new())]);
-            let errors = Config::load(&[], &env).unwrap_err();
+            let errors = ConfigDraft::load(&[], &env).unwrap_err();
             assert!(
                 errors.errors.iter().any(|error| {
                     error.source == DiagnosticSource::Environment
@@ -2993,7 +3012,7 @@ mod tests {
             (&[][..], &compose_only),
             (&flag[..], &none),
         ] {
-            let errors = Config::load(args, env).unwrap_err().to_string();
+            let errors = ConfigDraft::load(args, env).unwrap_err().to_string();
             assert!(!errors.contains(advice), "{args:?} {env:?}: {errors}");
         }
     }
@@ -3020,7 +3039,10 @@ mod tests {
             );
         }
         let env = BTreeMap::from([("GCS_MIMIC_LOCAL_CREATOR_EMAIL".to_owned(), String::new())]);
-        assert_eq!(Config::load(&[], &env).unwrap().local_creator_email, None);
+        assert_eq!(
+            ConfigDraft::load(&[], &env).unwrap().local_creator_email,
+            None
+        );
         // Only beside the listener it belongs to, which needs strict mode.
         let env = BTreeMap::from(
             [
@@ -3031,7 +3053,7 @@ mod tests {
             .map(|(key, value)| (key.to_owned(), value.to_owned())),
         );
         assert!(
-            Config::load(&[], &env)
+            ConfigDraft::load(&[], &env)
                 .unwrap()
                 .trusted_allowed_hosts
                 .is_empty()

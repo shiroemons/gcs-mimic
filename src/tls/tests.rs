@@ -4,6 +4,7 @@
 //! No X.509 parser is a direct dependency, so a minimal DER reader walks the fields used here.
 
 use super::*;
+use crate::config::ConfigDraft;
 
 #[test]
 fn server_identity_errors_retain_the_io_cause_and_distinguish_input_settings() {
@@ -55,11 +56,11 @@ fn the_http_acceptor_offers_only_http1_and_the_grpc_acceptor_only_h2() {
     let key = dir.0.join("key.pem");
     std::fs::write(&certificate, DEVELOPMENT_CERT_PEM).unwrap();
     std::fs::write(&key, DEVELOPMENT_KEY_PEM).unwrap();
-    let development = Config {
+    let development = ConfigDraft {
         grpc_listen: Some("127.0.0.1:0".parse().unwrap()),
-        ..Config::default()
+        ..Default::default()
     };
-    let provided = Config {
+    let provided = ConfigDraft {
         scheme: Scheme::Https,
         grpc_scheme: GrpcScheme::Tls,
         tls_cert: Some(certificate),
@@ -67,7 +68,7 @@ fn the_http_acceptor_offers_only_http1_and_the_grpc_acceptor_only_h2() {
         ..development.clone()
     };
     for (config, detects) in [(development, true), (provided, false)] {
-        let security = ServerSecurity::load(&config).unwrap();
+        let security = ServerSecurity::load(&config.build()).unwrap();
         assert_eq!(
             offered(&security.primary),
             (detects, vec![b"http/1.1".to_vec()])
@@ -80,11 +81,11 @@ fn the_http_acceptor_offers_only_http1_and_the_grpc_acceptor_only_h2() {
 /// listener under `auto` or `tls` loads it, and one where nothing serves TLS refuses TLS files.
 #[test]
 fn the_grpc_listener_alone_loads_the_identity() {
-    let plain_http = Config {
+    let plain_http = ConfigDraft {
         scheme: Scheme::Http,
-        ..Config::default()
+        ..Default::default()
     };
-    let security = ServerSecurity::load(&plain_http).unwrap();
+    let security = ServerSecurity::load(&plain_http.clone().build()).unwrap();
     assert!(matches!(
         (security.primary, security.grpc),
         (ListenerSecurity::Plain, ListenerSecurity::Plain)
@@ -94,30 +95,48 @@ fn the_grpc_listener_alone_loads_the_identity() {
         (GrpcScheme::H2c, ListenerSecurity::Plain),
         (GrpcScheme::Tls, ListenerSecurity::Tls(Alpn::H2)),
     ] {
-        let config = Config {
+        let config = ConfigDraft {
             grpc_listen: Some("127.0.0.1:0".parse().unwrap()),
             grpc_scheme: scheme,
             ..plain_http.clone()
         };
-        assert_eq!(ListenerSecurity::grpc(&config), grpc);
-        assert_eq!(ListenerSecurity::primary(&config), ListenerSecurity::Plain);
-        assert_eq!(serves_tls(&config), grpc != ListenerSecurity::Plain);
-        let with_files = Config {
+        assert_eq!(ListenerSecurity::grpc(Some(scheme), None), grpc);
+        assert_eq!(
+            ListenerSecurity::primary(config.scheme, None),
+            ListenerSecurity::Plain
+        );
+        assert_eq!(
+            serves_tls(config.scheme, None, Some(scheme)),
+            grpc != ListenerSecurity::Plain
+        );
+        if scheme == GrpcScheme::H2c {
+            let args = [
+                "--scheme=http",
+                "--grpc-listen=127.0.0.1:0",
+                "--grpc-scheme=h2c",
+                "--tls-cert=missing-cert.pem",
+                "--tls-key=missing-key.pem",
+            ]
+            .map(str::to_owned);
+            let diagnostics = Config::load(&args, &Default::default()).unwrap_err();
+            assert_eq!(diagnostics.errors.len(), 2);
+            assert!(
+                diagnostics
+                    .errors
+                    .iter()
+                    .all(|error| error.fix.starts_with("TLS settings require"))
+            );
+            continue;
+        }
+        let with_files = ConfigDraft {
             tls_cert: Some("missing-cert.pem".into()),
             tls_key: Some("missing-key.pem".into()),
             ..config
         };
-        let error = ServerSecurity::load(&with_files).err().unwrap();
-        match (&error, scheme) {
-            // The files are read because the gRPC listener uses them.
-            (ServerIdentityError::Certificate(cause), GrpcScheme::Auto | GrpcScheme::Tls) => {
-                assert_eq!(cause.kind(), io::ErrorKind::NotFound);
-            }
-            (ServerIdentityError::Identity(cause), GrpcScheme::H2c) => {
-                assert_eq!(cause.kind(), io::ErrorKind::InvalidInput);
-            }
-            (other, _) => panic!("{scheme:?}: {other:?}"),
-        }
+        let error = ServerSecurity::load(&with_files.build()).err().unwrap();
+        assert!(
+            matches!(error, ServerIdentityError::Certificate(cause) if cause.kind() == io::ErrorKind::NotFound)
+        );
     }
 }
 
@@ -144,14 +163,15 @@ fn a_mismatched_key_fails_with_the_tls_cause() {
         ),
     )
     .unwrap();
-    let config = Config {
+    let config = ConfigDraft {
         scheme: Scheme::Http,
         grpc_listen: Some("127.0.0.1:0".parse().unwrap()),
         grpc_scheme: GrpcScheme::Tls,
         tls_cert: Some(certificate),
         tls_key: Some(key),
-        ..Config::default()
-    };
+        ..Default::default()
+    }
+    .build();
     let error = ServerSecurity::load(&config).err().unwrap();
     assert!(
         matches!(error, ServerIdentityError::Rejected(_)),

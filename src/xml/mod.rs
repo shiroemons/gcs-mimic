@@ -540,7 +540,7 @@ fn legacy_public_authority<'a>(
     config: &Config,
     endpoints: &'a EndpointSnapshot,
 ) -> Option<&'a hyper::http::uri::Authority> {
-    if config.compat_profile != crate::config::CompatProfile::FakeGcsServer {
+    if config.compat_profile() != crate::config::CompatProfile::FakeGcsServer {
         return None;
     }
     endpoints
@@ -658,9 +658,9 @@ pub(crate) fn select_object(
     config: &Config,
 ) -> Result<Option<ObjectPath>, Error> {
     let endpoints = EndpointSnapshot::explicit(
-        &config.effective_api_base_url(config.listen),
-        config.public_base_url.clone(),
-        config.xml_virtual_host_domains.clone(),
+        &config.effective_api_base_url(config.listen()),
+        config.public_base_url().cloned(),
+        config.xml_virtual_host_domains().clone(),
     );
     select_object_with_endpoints(uri, headers, config, &endpoints)
 }
@@ -735,7 +735,7 @@ pub(crate) fn select_object_with_endpoints(
     };
     if public.is_none()
         && !is_virtual
-        && crate::bucket::name::validate_for_profile(&bucket, config.compat_profile).is_err()
+        && crate::bucket::name::validate_for_profile(&bucket, config.compat_profile()).is_err()
     {
         return Ok(None);
     }
@@ -764,7 +764,7 @@ pub(crate) fn route(
         .path()
         .get(name_start..)
         .ok_or_else(|| Error::invalid("Invalid object path"))?;
-    crate::bucket::name::validate_for_profile(&bucket, config.compat_profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, config.compat_profile())?;
     let mut query = crate::auth::signature::xml_query(uri.query().unwrap_or_default(), headers)?;
     let v2 = query
         .keys()

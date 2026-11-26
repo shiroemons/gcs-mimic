@@ -1,7 +1,6 @@
 use crate::common;
 
 use common::{CleanEnv, TestDir};
-use gcs_mimic::config::{Config, Scheme};
 use serde_json::json;
 use std::{
     fs,
@@ -15,28 +14,36 @@ fn healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin() {
         ("0.0.0.0:4443", "127.0.0.1:4443/_internal/healthcheck"),
         ("[::]:8443", "[::1]:8443/_internal/healthcheck"),
     ] {
-        let mut config = Config {
-            listen: listen.parse().unwrap(),
-            api_base_url: Some("https://advertised.invalid".into()),
-            ..Config::default()
+        let config = |scheme: &str, extra: &[&str]| {
+            let mut args = vec![
+                "--listen",
+                listen,
+                "--api-base-url=https://advertised.invalid",
+                "--scheme",
+                scheme,
+            ];
+            args.extend_from_slice(extra);
+            common::parse_config(&args)
         };
         // The default listener also accepts plain HTTP, which needs no CA.
-        assert_eq!(config.healthcheck_url(), format!("http://{expected}"));
-        config.scheme = Scheme::Https;
-        assert_eq!(config.healthcheck_url(), format!("https://{expected}"));
-        config.scheme = Scheme::Both;
-        config.listen_http = Some("[::]:8080".parse().unwrap());
         assert_eq!(
-            config.healthcheck_url(),
+            config("auto", &[]).healthcheck_url(),
+            format!("http://{expected}")
+        );
+        assert_eq!(
+            config("https", &[]).healthcheck_url(),
+            format!("https://{expected}")
+        );
+        assert_eq!(
+            config("both", &["--listen-http=[::]:8080"]).healthcheck_url(),
             "http://[::1]:8080/_internal/healthcheck"
         );
-        config.listen_http = None;
         assert_eq!(
-            config.healthcheck_url(),
-            if config.listen.is_ipv4() {
-                "http://127.0.0.1:8000/_internal/healthcheck"
-            } else {
+            config("both", &[]).healthcheck_url(),
+            if listen.starts_with('[') {
                 "http://[::1]:8000/_internal/healthcheck"
+            } else {
+                "http://127.0.0.1:8000/_internal/healthcheck"
             }
         );
     }

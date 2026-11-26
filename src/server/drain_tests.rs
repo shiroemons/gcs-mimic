@@ -71,10 +71,11 @@ async fn exhausted_accepts_pause_and_keep_serving() {
     let faults = Arc::new(std::sync::Mutex::new(
         [libc::EMFILE, libc::EMFILE, libc::EMFILE, libc::ECONNABORTED].into(),
     ));
-    let config = Config {
+    let config = crate::config::ConfigDraft {
         scheme: Scheme::Http,
-        ..Config::default()
-    };
+        ..Default::default()
+    }
+    .build();
     let security = crate::tls::ServerSecurity::load(&config).unwrap().primary;
     let server = tokio::spawn(ACCEPT_FAULTS.scope(
         faults,
@@ -148,10 +149,11 @@ async fn handler_panic_closes_only_its_connection() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     // A single slot shows that the panicked connection gave its slot back.
-    let config = Config {
+    let config = crate::config::ConfigDraft {
         max_connections: 1,
-        ..Config::default()
-    };
+        ..Default::default()
+    }
+    .build();
     let armed = Arc::new(AtomicBool::new(true));
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(FORCE_HANDLER_PANIC.scope(

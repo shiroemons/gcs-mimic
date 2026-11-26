@@ -53,7 +53,7 @@ pub async fn import(
     clock: &Arc<dyn Clock>,
 ) -> Result<SeedOutcome, SeedError> {
     let admin = catalog.admin(Origin::Seed);
-    let Some(root) = &config.seed_dir else {
+    let Some(root) = config.seed_dir() else {
         admin.finish_seed().await?;
         return Ok(SeedOutcome::Disabled);
     };
@@ -73,8 +73,8 @@ pub async fn import(
 /// workspace it kept there remains. Seeding never writes to the folder, so it cannot tidy them,
 /// and the workspace may hold the only copy of a file a write-back displaced: the operator
 /// inspects and removes them before the server starts.
-pub fn refuse_retired_sync(config: &Config) -> Result<(), Diagnostic> {
-    let Some(root) = &config.seed_dir else {
+pub fn refuse_retired_sync(root: Option<&Path>) -> Result<(), Diagnostic> {
+    let Some(root) = root else {
         return Ok(());
     };
     let left = crate::storage::retired_sync_left_in_folder(root);
@@ -100,8 +100,8 @@ pub(crate) async fn reseed(
     clock: &Arc<dyn Clock>,
     request_deadline: tokio::time::Instant,
 ) -> Result<SeedOutcome, SeedError> {
-    let root = config.seed_dir.as_ref().ok_or(SeedError::MissingRoot)?;
-    let mode = match config.backend {
+    let root = config.seed_dir().ok_or(SeedError::MissingRoot)?;
+    let mode = match config.backend() {
         crate::config::Backend::Disk => SeedMode::Merge,
         crate::config::Backend::Memory => SeedMode::Replace,
     };
@@ -144,7 +144,7 @@ pub(crate) async fn restore(
     let admin = admin
         .clone()
         .with_notification_mode(crate::notification::NotificationMode::Suppress);
-    let batch = match &config.seed_dir {
+    let batch = match config.seed_dir() {
         Some(root) => {
             stage_directory(&admin, config, clock, root, Some(request_deadline))
                 .await?
@@ -152,7 +152,7 @@ pub(crate) async fn restore(
         }
         None => {
             admin
-                .seed_batch_until(Some(request_deadline), config.max_seed_entries)
+                .seed_batch_until(Some(request_deadline), config.max_seed_entries())
                 .await?
         }
     };
@@ -300,21 +300,21 @@ async fn open_tree(
     #[cfg(test)]
     tests::injected_source_swap(root);
     let mut batch = catalog
-        .seed_batch_until(request_deadline, config.max_seed_entries)
+        .seed_batch_until(request_deadline, config.max_seed_entries())
         .await?;
     let recorded = batch.read_records().await?;
     #[cfg(unix)]
     let source_root = pin_root(&batch, root, &inspected).await?;
     let root = tokio::fs::canonicalize(root).await?;
-    if config.backend == crate::config::Backend::Disk {
-        let data = tokio::fs::canonicalize(&config.data_dir).await?;
+    if config.backend() == crate::config::Backend::Disk {
+        let data = tokio::fs::canonicalize(config.data_dir()).await?;
         if crate::source_tree::paths_overlap_canonical(&root, &data) {
             return Err(SeedError::Overlap);
         }
     }
     let limits = TreeLimits {
-        entries: config.max_seed_entries,
-        depth: config.max_seed_depth,
+        entries: config.max_seed_entries(),
+        depth: config.max_seed_depth(),
     };
     #[cfg(unix)]
     let tree = Tree::new(root, source_root, Arc::clone(clock));
@@ -356,7 +356,7 @@ async fn stage_directory(
         let Seen { label, fixture } = seen?;
         walked += 1;
         // A chosen limit already says how large a tree may be.
-        if walked == LARGE_TREE_ENTRIES + 1 && config.max_seed_entries.is_none() {
+        if walked == LARGE_TREE_ENTRIES + 1 && config.max_seed_entries().is_none() {
             warn_large_tree("seed_tree_large", "seed_dir", "max_seed_entries");
         }
         seed.entry(label, fixture).await?;
@@ -431,12 +431,12 @@ impl Seed<'_> {
     }
 
     fn bucket(&mut self, name: &BucketName) -> Result<(), SeedError> {
-        if let Some(limit) = self.config.max_buckets_per_batch
+        if let Some(limit) = self.config.max_buckets_per_batch()
             && self.buckets >= limit.get()
         {
             return Err(SeedError::BucketLimit { limit: limit.get() });
         }
-        let record = BucketDefinition::default_for(name, &self.config.seed_project, self.clock)?;
+        let record = BucketDefinition::default_for(name, self.config.seed_project(), self.clock)?;
         self.batch.bucket(record)?;
         self.buckets += 1;
         Ok(())
@@ -460,15 +460,15 @@ impl Seed<'_> {
             Source::Unknown(unknown) => return unread(label, unknown),
         };
         let config = self.config;
-        if !metadata.is_file() || metadata.len() > config.max_object_bytes {
+        if !metadata.is_file() || metadata.len() > config.max_object_bytes() {
             return Err(SeedError::FileLimit);
         }
         let request = Publication {
-            content_type: config.seed_content_type.for_name(&leaf).into(),
+            content_type: config.seed_content_type().for_name(&leaf).into(),
             expected: ExpectedHashes::default(),
             condition: None,
             metadata: Default::default(),
-            max_bytes: config.max_object_bytes,
+            max_bytes: config.max_object_bytes(),
             mode: PublishMode::Replace,
         };
         self.batch.fixture(bucket, name, request, file).await?;

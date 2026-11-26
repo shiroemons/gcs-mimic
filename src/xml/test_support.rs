@@ -54,10 +54,13 @@ impl SignedUploadFixture {
                 api_base_url: endpoints.api_base_url().to_owned(),
                 ..State::for_test(catalog, auth)
             }),
-            config: Arc::new(Config {
-                max_object_bytes: 1024 * 1024,
-                ..Config::default()
-            }),
+            config: Arc::new(
+                crate::config::ConfigDraft {
+                    max_object_bytes: 1024 * 1024,
+                    ..Default::default()
+                }
+                .build(),
+            ),
             endpoints,
             activity,
             access_id: key.record.access_id,

@@ -109,6 +109,11 @@ undeclared one, and an `xtask` test keeps this copy equal to the table in
 
 The bucket/object catalog is concrete; no generic persistence trait is frozen for future work. Recovery gates readiness. The transport-independent `auth` module resolves strict-mode callers and evaluates permissions from a pinned role snapshot; the JSON adapter maps routes to permissions and renders 401/403 errors. Catalog transactions recheck the observed bucket owner, effective project/bucket grants and overwrite-delete permission against the policy current in that transaction. Bucket insert/list remain project scoped. Whole bucket/object CRUD rows retain their existing limitations. Existing SPEC-001/002/003/004/006/007 gaps do not add bucket CRUD semantics. SPEC-008..013 record object condition precedence, direct-200 downloads, checksum/header/MIME choices and retry-token deviations; they remain open for their affected features.
 
+Input precedence and startup diagnostics operate on `ConfigDraft`.
+`Config::try_from` assembles the validated report into private listener, storage,
+endpoint and limit settings. TLS validation selects a paired identity or the
+development identity before startup loads the certificate and key.
+
 The server caps connections (default 1024), shutdown drain (5 seconds), async workers (2)
 and blocking workers (8). HTTP/1 allows at most 64 headers and returns 431 if the request
 head is still incomplete when the read buffer reaches 16 KiB. A head that completes in the

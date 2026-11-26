@@ -53,7 +53,7 @@ fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
         .ok_or_else(|| Error::invalid("x-goog-copy-source must be /BUCKET/OBJECT"))?;
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
     let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
-    crate::bucket::name::validate_for_profile(&bucket, ctx.config.compat_profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, ctx.config.compat_profile())?;
     crate::object::name::validate(&name)?;
     let generation = source_number(headers, "x-goog-copy-source-generation")?;
     let conditions = ObjectConditions {

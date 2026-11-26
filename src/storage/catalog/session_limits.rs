@@ -81,14 +81,14 @@ impl Default for SessionLimits {
 impl From<&Config> for SessionLimits {
     fn from(config: &Config) -> Self {
         Self {
-            writer_wait: WriterWait::Within(config.catalog_wait_timeout),
-            admin_wait: config.catalog_wait_timeout,
-            active_resumable: config.max_resumable_sessions,
-            active_rewrite: config.max_rewrite_sessions,
-            finished_session_bytes: match config.backend {
+            writer_wait: WriterWait::Within(config.catalog_wait_timeout()),
+            admin_wait: config.catalog_wait_timeout(),
+            active_resumable: config.max_resumable_sessions(),
+            active_rewrite: config.max_rewrite_sessions(),
+            finished_session_bytes: match config.backend() {
                 Backend::Disk => None,
                 Backend::Memory => i64::try_from(
-                    config.memory_catalog_max_bytes / MEMORY_CATALOG_FINISHED_SESSION_DIVISOR,
+                    config.memory_catalog_max_bytes() / MEMORY_CATALOG_FINISHED_SESSION_DIVISOR,
                 )
                 .ok(),
             },
@@ -126,10 +126,13 @@ mod tests {
             TimeLimit::from_millis(30_000)
         );
         for catalog_wait_timeout in [TimeLimit::from_millis(1), TimeLimit::DISABLED] {
-            let limits = SessionLimits::from(&Config {
-                catalog_wait_timeout,
-                ..Default::default()
-            });
+            let limits = SessionLimits::from(
+                &crate::config::ConfigDraft {
+                    catalog_wait_timeout,
+                    ..Default::default()
+                }
+                .build(),
+            );
             assert_eq!(limits.admin_wait, catalog_wait_timeout);
         }
     }

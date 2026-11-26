@@ -66,11 +66,11 @@ async fn execute(
                 crate::percent::Decoding::Path,
             )?,
         };
-        crate::bucket::name::validate_for_profile(&bucket, ctx.config.compat_profile)?;
+        crate::bucket::name::validate_for_profile(&bucket, ctx.config.compat_profile())?;
         return create::respond(request, &bucket, ctx, caller).await;
     }
     if let Some(path) = selected {
-        crate::bucket::name::validate_for_profile(&path.bucket, ctx.config.compat_profile)?;
+        crate::bucket::name::validate_for_profile(&path.bucket, ctx.config.compat_profile())?;
         let permission = if request.method() == Method::DELETE {
             auth::BUCKETS_DELETE
         } else {

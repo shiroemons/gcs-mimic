@@ -225,7 +225,7 @@ impl Catalog {
     /// Applied before maintenance starts; stored rules still round trip while execution is off.
     pub fn configure_lifecycle(&self, config: &crate::config::Config) {
         self.0.lifecycle.enabled.store(
-            config.lifecycle_execution == crate::config::LifecycleExecution::Enabled,
+            config.lifecycle_execution() == crate::config::LifecycleExecution::Enabled,
             Ordering::Release,
         );
     }

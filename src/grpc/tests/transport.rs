@@ -9,7 +9,7 @@ use tokio_rustls::{TlsConnector, client::TlsStream, rustls::pki_types::ServerNam
 async fn start_tls(config: Config) -> (TlsStream<TcpStream>, JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    let acceptor = ServerIdentity::load(&Config::default())
+    let acceptor = ServerIdentity::load(&crate::config::TlsIdentity::Development)
         .unwrap()
         .acceptor(Alpn::H2)
         .unwrap();
@@ -37,10 +37,11 @@ async fn start_tls(config: Config) -> (TlsStream<TcpStream>, JoinHandle<()>) {
 }
 
 fn tls_config() -> Config {
-    Config {
+    ConfigDraft {
         keep_alive_timeout: TimeLimit::from_millis(60_000),
         ..config()
     }
+    .build()
 }
 
 /// The handshake reads far more than the 24 bytes of the HTTP/2 preface from the socket, yet
@@ -105,11 +106,14 @@ async fn first_frames(client: &mut TcpStream, streams: [u32; 2]) -> [u8; 2] {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn grpc_panicking_handler_is_reported_and_spares_other_streams_and_connections() {
     const PANIC: &str = "gRPC handler fixture panic";
-    let config = Arc::new(Config {
-        header_read_timeout: TimeLimit::from_millis(60_000),
-        keep_alive_timeout: TimeLimit::from_millis(60_000),
-        ..Config::default()
-    });
+    let config = Arc::new(
+        ConfigDraft {
+            header_read_timeout: TimeLimit::from_millis(60_000),
+            keep_alive_timeout: TimeLimit::from_millis(60_000),
+            ..Default::default()
+        }
+        .build(),
+    );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let (_stop, stopping) = watch::channel(false);

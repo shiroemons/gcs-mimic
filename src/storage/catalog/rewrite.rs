@@ -1128,10 +1128,13 @@ mod tests {
     #[tokio::test]
     async fn a_configured_rewrite_cap_refuses_past_it_and_busy_expiry_does_not_block_others() {
         let (catalog, directory, clock) = fixture().await;
-        catalog.apply_session_limits(&crate::config::Config {
-            max_rewrite_sessions: std::num::NonZeroU32::new(128),
-            ..Default::default()
-        });
+        catalog.apply_session_limits(
+            &crate::config::ConfigDraft {
+                max_rewrite_sessions: std::num::NonZeroU32::new(128),
+                ..Default::default()
+            }
+            .build(),
+        );
         let mut first = None;
         for index in 0..=128 {
             let result = new_session(&catalog).await;
@@ -1364,11 +1367,14 @@ mod tests {
         )
         .await
         .unwrap();
-        catalog.apply_session_limits(&crate::config::Config {
-            backend: crate::config::Backend::Memory,
-            memory_catalog_max_bytes: BUDGET,
-            ..Default::default()
-        });
+        catalog.apply_session_limits(
+            &crate::config::ConfigDraft {
+                backend: crate::config::Backend::Memory,
+                memory_catalog_max_bytes: BUDGET,
+                ..Default::default()
+            }
+            .build(),
+        );
         catalog
             .insert_bucket(bucket("bucket", "project"))
             .await
@@ -1445,10 +1451,13 @@ mod tests {
     #[tokio::test]
     async fn a_retried_continuation_waits_for_the_request_still_running() {
         let (catalog, directory, _clock) = fixture().await;
-        catalog.apply_session_limits(&crate::config::Config {
-            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(60_000),
-            ..Default::default()
-        });
+        catalog.apply_session_limits(
+            &crate::config::ConfigDraft {
+                catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(60_000),
+                ..Default::default()
+            }
+            .build(),
+        );
         let (token, mut owner) = new_session(&catalog).await.unwrap();
         owner.disarm();
         let session = catalog.rewrite_session(&token).await.unwrap();
@@ -1478,10 +1487,13 @@ mod tests {
 
     /// A long catalog wait, so that only the behaviour under test can end a wait.
     fn apply_long_writer_wait(catalog: &Catalog) {
-        catalog.apply_session_limits(&crate::config::Config {
-            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(60_000),
-            ..Default::default()
-        });
+        catalog.apply_session_limits(
+            &crate::config::ConfigDraft {
+                catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(60_000),
+                ..Default::default()
+            }
+            .build(),
+        );
     }
 
     fn spawn_continuation(

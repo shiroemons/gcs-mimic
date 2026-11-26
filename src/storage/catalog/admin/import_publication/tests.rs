@@ -397,10 +397,13 @@ async fn import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix() 
     let (dir, catalog, admin, source) = setup(2).await;
     bucket(&admin, &source).await;
     let item = entry(&dir, &admin, 2, "object", b"retained").await;
-    catalog.apply_session_limits(&crate::config::Config {
-        catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(50),
-        ..Default::default()
-    });
+    catalog.apply_session_limits(
+        &crate::config::ConfigDraft {
+            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(50),
+            ..Default::default()
+        }
+        .build(),
+    );
     let slots = catalog
         .0
         .publication_requests

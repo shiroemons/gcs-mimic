@@ -57,7 +57,7 @@ async fn purge(
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let ctx = ctx.object(None, deadline);
     // Expiry while the purge waits for the writer connection still confirms it changed nothing.
-    let wait_deadline = deadline.min(ctx.config.catalog_wait_timeout.deadline());
+    let wait_deadline = deadline.min(ctx.config.catalog_wait_timeout().deadline());
     let outcome = ctx
         .await_session_writer(admin.purge_bucket_until(&bucket, wait_deadline))
         .await

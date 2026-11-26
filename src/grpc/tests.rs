@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::ConfigDraft;
 use crate::{server::chunk_body, test_support::eventually_async};
 use bytes::Bytes;
 mod call_metadata;
@@ -18,11 +19,11 @@ fn limit(duration: Duration) -> TimeLimit {
     TimeLimit::from_millis(duration.as_millis() as u64)
 }
 
-fn config() -> Config {
-    Config {
+fn config() -> ConfigDraft {
+    ConfigDraft {
         header_read_timeout: limit(DEADLINE),
         keep_alive_timeout: limit(DEADLINE),
-        ..Config::default()
+        ..Default::default()
     }
 }
 
@@ -80,7 +81,7 @@ where
     S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
     F: Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send + 'static,
 {
-    let config = Config {
+    let config = ConfigDraft {
         body_inactivity_timeout: limit(bound),
         ..config()
     };
@@ -88,7 +89,7 @@ where
 }
 
 async fn start_with<S, F>(
-    config: Config,
+    config: ConfigDraft,
     service: S,
 ) -> (TcpStream, watch::Sender<bool>, JoinHandle<()>)
 where
@@ -99,7 +100,7 @@ where
 }
 
 async fn start_sharing<S, F>(
-    config: Config,
+    config: ConfigDraft,
     slots: Arc<SlotReclaim>,
     service: S,
 ) -> (TcpStream, watch::Sender<bool>, JoinHandle<()>)
@@ -114,7 +115,7 @@ where
     let (server, _) = listener.accept().await.unwrap();
     let (stop, stopping) = watch::channel(false);
     let task = tokio::spawn(async move {
-        serve_accepted(server, &config, stopping, &slots, service).await;
+        serve_accepted(server, &config.build(), stopping, &slots, service).await;
     });
     (client, stop, task)
 }
@@ -465,7 +466,7 @@ async fn grpc_goaway_has_bounded_grace() {
 
 #[tokio::test]
 async fn grpc_idle_connection_outlives_the_handshake_deadline() {
-    let config = Config {
+    let config = ConfigDraft {
         keep_alive_timeout: TimeLimit::from_millis(60_000),
         ..config()
     };
@@ -480,7 +481,7 @@ async fn grpc_idle_connection_outlives_the_handshake_deadline() {
 
 #[tokio::test]
 async fn grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone() {
-    let config = Config {
+    let config = ConfigDraft {
         keep_alive_timeout: TimeLimit::from_millis(60_000),
         ..config()
     };
@@ -494,12 +495,12 @@ async fn grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone() {
 async fn grpc_disabled_and_largest_limits_keep_every_phase_open() {
     for value in [TimeLimit::DISABLED, TimeLimit::from_millis(u64::MAX)] {
         for open_stream in [true, false] {
-            let config = Config {
+            let config = ConfigDraft {
                 header_read_timeout: value,
                 keep_alive_timeout: value,
                 body_inactivity_timeout: value,
                 shutdown_timeout: limit(DEADLINE),
-                ..Config::default()
+                ..Default::default()
             };
             let (mut client, stop, mut task) = start_with(config, pending_stream).await;
             if open_stream {
@@ -524,7 +525,7 @@ async fn grpc_disabled_and_largest_limits_keep_every_phase_open() {
 }
 
 /// The server's SETTINGS names the limit, that many streams run at once, and it refuses the next.
-async fn assert_stream_limit(config: Config, limit: u32) {
+async fn assert_stream_limit(config: ConfigDraft, limit: u32) {
     let entered = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let counter = entered.clone();
     let (mut client, _stop, _task) = start_with(config, move |request| {
@@ -571,22 +572,22 @@ async fn assert_stream_limit(config: Config, limit: u32) {
 
 #[tokio::test]
 async fn grpc_stream_limit_defaults_to_100_streams_per_connection() {
-    let config = Config {
+    let config = ConfigDraft {
         // No keepalive ping can fail while the test writes every stream.
         header_read_timeout: TimeLimit::from_millis(60_000),
         keep_alive_timeout: TimeLimit::from_millis(60_000),
-        ..Config::default()
+        ..Default::default()
     };
     assert_stream_limit(config, 100).await;
 }
 
 #[tokio::test]
 async fn grpc_stream_limit_follows_the_setting() {
-    let config = Config {
+    let config = ConfigDraft {
         header_read_timeout: TimeLimit::from_millis(60_000),
         keep_alive_timeout: TimeLimit::from_millis(60_000),
         max_grpc_streams: std::num::NonZeroU32::new(2).unwrap(),
-        ..Config::default()
+        ..Default::default()
     };
     assert_stream_limit(config, 2).await;
 }
@@ -620,8 +621,8 @@ impl HoldGate {
 }
 
 /// A connection whose only closing reason in these tests is a client waiting for its slot.
-fn reclaim_config() -> Config {
-    Config {
+fn reclaim_config() -> ConfigDraft {
+    ConfigDraft {
         keep_alive_timeout: TimeLimit::from_millis(60_000),
         ..config()
     }
@@ -801,7 +802,7 @@ async fn grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace() {
 async fn grpc_silent_stream_that_raced_the_reclaim_goaway_stays_bounded() {
     let slots = Arc::<SlotReclaim>::default();
     let gate = HoldGate::default();
-    let config = Config {
+    let config = ConfigDraft {
         body_inactivity_timeout: limit(DEADLINE * 2),
         ..reclaim_config()
     };
@@ -868,7 +869,7 @@ async fn grpc_stopping_bounds_a_stream_that_raced_the_reclaim_goaway() {
 async fn grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace() {
     let slots = Arc::<SlotReclaim>::default();
     let gate = HoldGate::default();
-    let config = Config {
+    let config = ConfigDraft {
         header_read_timeout: TimeLimit::from_millis(60_000),
         ..reclaim_config()
     };
@@ -886,10 +887,10 @@ async fn grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grac
 async fn grpc_new_connection_keeps_its_slot_while_it_opens_its_first_stream() {
     let slots = Arc::<SlotReclaim>::default();
     let gate = HoldGate::default();
-    let config = Config {
+    let config = ConfigDraft {
         header_read_timeout: TimeLimit::from_millis(60_000),
         keep_alive_timeout: TimeLimit::from_millis(60_000),
-        ..Config::default()
+        ..Default::default()
     };
     let _waiting = slots.request();
     let (mut client, _stop, task) = start_sharing(config, slots.clone(), gate.service()).await;
@@ -920,10 +921,10 @@ async fn grpc_connection_that_never_opens_a_stream_joins_the_idle_line() {
 /// The grace before joining the line must not stretch a shorter keep-alive limit.
 #[tokio::test]
 async fn grpc_keep_alive_shorter_than_the_first_stream_grace_still_closes_on_time() {
-    let config = Config {
+    let config = ConfigDraft {
         header_read_timeout: TimeLimit::from_millis(60_000),
         keep_alive_timeout: limit(DEADLINE),
-        ..Config::default()
+        ..Default::default()
     };
     let (mut client, _stop, task) = start_with(config, pending_stream).await;
     handshake(&mut client).await;

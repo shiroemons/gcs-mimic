@@ -465,11 +465,11 @@ mod tests {
             prop_assert!(signed.starts_with(&prefix));
             let mut headers = hyper::HeaderMap::new();
             headers.insert("host", origin.authority().as_str().parse().unwrap());
-            let config = crate::config::Config {
+            let config = crate::config::ConfigDraft {
                 compat_profile: crate::config::CompatProfile::FakeGcsServer,
                 xml_virtual_host_domains: origin.dns_name().map_or_default(|name| crate::config::VirtualHostDomains::of(&[name])),
                 public_base_url: Some(origin), ..Default::default()
-            };
+            }.build();
             let selected = crate::xml::select_object(&url.parse().unwrap(), &headers, &config).unwrap().unwrap();
             prop_assert_eq!(selected.bucket, "my-bucket");
         }

@@ -2270,10 +2270,11 @@ const BUSY: &str = "Object storage is unavailable: upload session is busy; wait 
 /// Applies the session settings a server applies at startup, with `wait_millis` as
 /// catalog_wait_timeout_ms. A catalog no server configured has no wait budget.
 fn as_server(storage: &Storage, wait_millis: u64) {
-    let config = crate::config::Config {
+    let config = crate::config::ConfigDraft {
         catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(wait_millis),
         ..Default::default()
-    };
+    }
+    .build();
     storage.state.catalog.apply_session_limits(&config);
 }
 

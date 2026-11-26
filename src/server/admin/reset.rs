@@ -103,7 +103,7 @@ async fn clear(
 ) -> Result<Response<Full<Bytes>>, ApiError> {
     let ctx = ctx.object(None, deadline);
     // Expiry before exclusive ownership can still confirm that reset made no changes.
-    let wait_deadline = deadline.min(ctx.config.catalog_wait_timeout.deadline());
+    let wait_deadline = deadline.min(ctx.config.catalog_wait_timeout().deadline());
     let result = ctx
         .await_session_writer(admin.reset_until(wait_deadline))
         .await

@@ -424,7 +424,7 @@ pub(crate) async fn respond(
         length_range,
     } = headers(
         request.headers(),
-        config.max_object_bytes,
+        config.max_object_bytes(),
         signing,
         Framing::Required,
     )?;
@@ -455,7 +455,7 @@ pub(crate) async fn respond(
             content_type,
             expected,
             conditions,
-            max_bytes: config.max_object_bytes,
+            max_bytes: config.max_object_bytes(),
             metadata,
             access,
         },

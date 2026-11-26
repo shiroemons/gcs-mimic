@@ -584,7 +584,7 @@ struct TranslationBase {
 impl TranslationBase {
     fn new(entries: &[Input], flags: &BTreeMap<ServerFlag, &Input>) -> Self {
         let listen = native_value(entries, Setting::Listen).map_or_else(
-            || Some(crate::config::Config::default().listen),
+            || Some(crate::config::ConfigDraft::default().listen),
             |address| address.parse().ok(),
         );
         let http_ip = native_value(entries, Setting::ListenHttp)
@@ -899,7 +899,7 @@ pub fn cli_diagnostics(args: &[String]) -> Diagnostics {
 /// Adopts `default_seed_dir` as the seed root when no explicit seed is configured. The image
 /// sets it to `/data`, so a fake-gcs-server style mount loads without another variable, while a
 /// `/data` used as the data directory keeps its existing role.
-pub fn resolve_default_seed(config: &mut crate::config::Config) -> Vec<Diagnostic> {
+pub(crate) fn resolve_default_seed(config: &mut crate::config::ConfigDraft) -> Vec<Diagnostic> {
     let Some(candidate) = config.default_seed_dir.clone() else {
         return Vec::new();
     };
@@ -1005,10 +1005,10 @@ mod tests {
         ]);
         let report = crate::config::Config::preflight(&[], &env);
         assert_eq!(emitted(&report.diagnostics), "");
-        assert!(matches!(report.config.scheme, crate::config::Scheme::Auto));
+        assert!(matches!(report.draft().scheme, crate::config::Scheme::Auto));
         assert_eq!(
-            report.config.listen,
-            crate::config::Config::default().listen
+            report.draft().listen,
+            crate::config::ConfigDraft::default().listen
         );
     }
 
@@ -1121,7 +1121,7 @@ mod tests {
         assert_eq!(server_arguments(&args), Some(args.as_slice()));
         let report = crate::config::Config::preflight(&args, &image);
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-        let config = &report.config;
+        let config = &report.draft();
         assert!(matches!(config.scheme, crate::config::Scheme::Http));
         assert_eq!(config.listen.to_string(), "0.0.0.0:4443");
         assert_eq!(
@@ -1159,15 +1159,15 @@ mod tests {
         // A flag outranks the environment without a conflict to report.
         let report = crate::config::Config::preflight(&strings(&["-port", "8080"]), &image);
         assert_eq!(emitted(&report.diagnostics), "");
-        assert_eq!(report.config.listen.to_string(), "0.0.0.0:8080");
+        assert_eq!(report.draft().listen.to_string(), "0.0.0.0:8080");
         let report = crate::config::Config::preflight(
             &strings(&["-host", "localhost", "-port", "8080"]),
             &image,
         );
-        assert_eq!(report.config.listen.to_string(), "127.0.0.1:8080");
+        assert_eq!(report.draft().listen.to_string(), "127.0.0.1:8080");
         let report =
             crate::config::Config::preflight(&strings(&["--listen", "127.0.0.3:9000"]), &image);
-        assert_eq!(report.config.listen.to_string(), "127.0.0.3:9000");
+        assert_eq!(report.draft().listen.to_string(), "127.0.0.3:9000");
         let report = crate::config::Config::preflight(
             &strings(&["-backend", "memory", "-filesystem-root", "/storage"]),
             &BTreeMap::new(),
@@ -1175,10 +1175,10 @@ mod tests {
         assert!(report.diagnostics.is_err());
         has(&report.diagnostics, "-filesystem-root", "--data-dir");
         assert_eq!(
-            report.config.data_dir,
-            crate::config::Config::default().data_dir
+            report.draft().data_dir,
+            crate::config::ConfigDraft::default().data_dir
         );
-        assert_eq!(report.config.backend, crate::config::Backend::Memory);
+        assert_eq!(report.draft().backend, crate::config::Backend::Memory);
         let report = crate::config::Config::preflight(
             &strings(&["-scheme", "http", "-event.pubsub-topic", "uploads"]),
             &BTreeMap::new(),
@@ -1239,15 +1239,15 @@ mod tests {
         ] {
             let report = crate::config::Config::preflight(&strings(args), &BTreeMap::new());
             assert_eq!(emitted(&report.diagnostics), "", "{args:?}");
-            assert!(matches!(report.config.scheme, crate::config::Scheme::Http));
-            assert_eq!(report.config.listen.to_string(), "127.0.0.1:9000");
+            assert!(matches!(report.draft().scheme, crate::config::Scheme::Http));
+            assert_eq!(report.draft().listen.to_string(), "127.0.0.1:9000");
         }
         // Only the first equals sign separates the name, so a value may contain others.
         let report =
             crate::config::Config::preflight(&strings(&["--seed-dir=a=b"]), &BTreeMap::new());
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
         assert_eq!(
-            report.config.seed_dir.as_deref(),
+            report.draft().seed_dir.as_deref(),
             Some(std::path::Path::new("a=b"))
         );
         let report = crate::config::Config::preflight(&strings(&["--scheme"]), &BTreeMap::new());
@@ -1277,7 +1277,7 @@ mod tests {
                     "{args:?}: {}",
                     report.diagnostics
                 );
-                assert_eq!(report.config.max_connections, 10);
+                assert_eq!(report.draft().max_connections, 10);
                 continue;
             }
             let errors = &report.diagnostics.errors;
@@ -1325,7 +1325,7 @@ mod tests {
                     report.diagnostics
                 );
                 assert!(report.diagnostics.warnings.is_empty());
-                format!("{:?}", report.config)
+                format!("{:?}", report.draft())
             });
             assert!(
                 configurations.iter().all(|c| *c == configurations[0]),
@@ -1352,7 +1352,7 @@ mod tests {
             let report = crate::config::Config::preflight(&strings(args), &env);
             assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
             assert_eq!(
-                report.config.public_base_url.as_ref().unwrap().as_str(),
+                report.draft().public_base_url.as_ref().unwrap().as_str(),
                 "http://gcs:4443"
             );
             assert!(
@@ -1392,7 +1392,7 @@ mod tests {
         let listen = |args: &[&str], env: &BTreeMap<String, String>| {
             let report = crate::config::Config::preflight(&strings(args), env);
             assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-            report.config.listen.to_string()
+            report.draft().listen.to_string()
         };
         // The emulator accepts unauthenticated requests, so a port alone must not expose it.
         assert_eq!(listen(&["--port", "9000"], &none), "127.0.0.1:9000");
@@ -1416,14 +1416,14 @@ mod tests {
 
         let args = strings(&["--listen", "127.0.0.3:4000", "--port", "9000"]);
         let report = crate::config::Config::preflight(&args, &none);
-        assert_eq!(report.config.listen.to_string(), "127.0.0.3:9000");
+        assert_eq!(report.draft().listen.to_string(), "127.0.0.3:9000");
         assert!(emitted(&report.diagnostics).contains("overrides --listen"));
 
         let http = |env: &BTreeMap<String, String>| {
             let args = strings(&["--scheme", "both", "--port-http", "9001"]);
             let report = crate::config::Config::preflight(&args, env);
             assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-            report.config.listen_http.unwrap().to_string()
+            report.draft().listen_http.unwrap().to_string()
         };
         assert_eq!(http(&none), "127.0.0.1:9001");
         assert_eq!(http(&image), "0.0.0.0:9001");
@@ -1438,7 +1438,7 @@ mod tests {
         let args = strings(&["--host", "127.0.0.2", "--port", "9000"]);
         let report = crate::config::Config::preflight(&args, &broken);
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-        assert_eq!(report.config.listen.to_string(), "127.0.0.2:9000");
+        assert_eq!(report.draft().listen.to_string(), "127.0.0.2:9000");
     }
 
     #[test]
@@ -1555,7 +1555,7 @@ mod tests {
         let advice = emitted(&report.diagnostics);
         assert!(advice.contains("--public-base-url 'http://Storage.Invalid:80'"));
         assert_eq!(
-            report.config.public_base_url.as_ref().unwrap().as_str(),
+            report.draft().public_base_url.as_ref().unwrap().as_str(),
             "http://storage.invalid"
         );
         // Helper commands have no server settings, so alias flags still fail there.
@@ -1618,7 +1618,7 @@ mod tests {
             .fix;
         assert!(cors.contains("cannot preserve"));
         assert!(cors.contains("--cors-fallback allow-all"), "{cors}");
-        assert_eq!(report.config.cors_fallback, None);
+        assert_eq!(report.draft().cors_fallback, None);
     }
 
     #[test]
@@ -1652,9 +1652,9 @@ mod tests {
             &BTreeMap::new(),
         );
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-        assert_eq!(report.config.listen.to_string(), "127.0.0.2:8080");
+        assert_eq!(report.draft().listen.to_string(), "127.0.0.2:8080");
         assert_eq!(
-            report.config.seed_dir.as_deref(),
+            report.draft().seed_dir.as_deref(),
             Some(std::path::Path::new("fixtures"))
         );
         let report =
@@ -1665,8 +1665,8 @@ mod tests {
             &BTreeMap::new(),
         );
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-        assert!(matches!(report.config.scheme, crate::config::Scheme::Http));
-        assert_eq!(report.config.listen.to_string(), "[::1]:9000");
+        assert!(matches!(report.draft().scheme, crate::config::Scheme::Http));
+        assert_eq!(report.draft().listen.to_string(), "[::1]:9000");
     }
 
     #[test]
@@ -1675,7 +1675,7 @@ mod tests {
         let report = crate::config::Config::preflight(&args, &BTreeMap::new());
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
         assert_eq!(
-            report.config.listen_http.map(|a| a.to_string()).as_deref(),
+            report.draft().listen_http.map(|a| a.to_string()).as_deref(),
             Some("[::1]:9000")
         );
         let advice = helper_advice(&args);
@@ -1721,7 +1721,7 @@ mod tests {
         )];
         let report = crate::config::Config::preflight_os(&strings(&["--worker-threads", "3"]), env);
         assert!(!report.diagnostics.is_err());
-        assert_eq!(report.config.worker_threads, 3);
+        assert_eq!(report.draft().worker_threads, 3);
         let directory = crate::test_support::TestDir::new();
         let file = directory.0.join("config.json");
         std::fs::write(&file, "{}").unwrap();
@@ -1782,7 +1782,7 @@ mod tests {
         std::fs::write(root.join("legacy/object"), "fixture").unwrap();
         let legacy = root.join("legacy");
         let resolve = |data_dir: std::path::PathBuf, default: &std::path::Path| {
-            let mut config = crate::config::Config {
+            let mut config = crate::config::ConfigDraft {
                 data_dir,
                 default_seed_dir: Some(default.to_owned()),
                 ..Default::default()
@@ -1820,7 +1820,7 @@ mod tests {
             assert_eq!(seed, None);
             assert!(warnings[0].fix.contains("Cannot inspect"));
         }
-        let mut explicit = crate::config::Config {
+        let mut explicit = crate::config::ConfigDraft {
             data_dir: root.join("native"),
             seed_dir: Some(root.join("empty")),
             default_seed_dir: Some(legacy),
@@ -1831,7 +1831,7 @@ mod tests {
             explicit.seed_dir.as_deref(),
             Some(root.join("empty").as_path())
         );
-        let mut unset = crate::config::Config {
+        let mut unset = crate::config::ConfigDraft {
             data_dir: root.join("native"),
             ..Default::default()
         };
@@ -1855,7 +1855,7 @@ mod tests {
             let args = strings(&["-location", value]);
             let report = crate::config::Config::preflight(&args, &BTreeMap::new());
             assert!(report.diagnostics.is_err());
-            assert_eq!(report.config.default_location, "US");
+            assert_eq!(report.draft().default_location, "US");
             assert_eq!(report.diagnostics.errors[0].key, "-location");
             let advice = if let Some(expected) = expected {
                 let advice = emitted(&report.diagnostics);

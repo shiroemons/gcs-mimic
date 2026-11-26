@@ -461,7 +461,6 @@ mod tests {
     use crate::{
         bucket::BucketAccess,
         clock::SystemClock,
-        config::Config,
         storage::{
             ResumableOptions,
             admin::LocalAdmin,
@@ -538,10 +537,13 @@ mod tests {
         )
         .await
         .unwrap();
-        catalog.apply_session_limits(&Config {
-            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(wait_ms),
-            ..Default::default()
-        });
+        catalog.apply_session_limits(
+            &crate::config::ConfigDraft {
+                catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(wait_ms),
+                ..Default::default()
+            }
+            .build(),
+        );
         catalog
             .insert_bucket(bucket("bucket", "project"))
             .await

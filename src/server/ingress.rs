@@ -474,10 +474,11 @@ mod tests {
     #[test]
     fn work_pools_scale_with_blocking_threads_and_do_not_share_permits() {
         for (threads, expected) in [(1, 1), (8, 2), (16, 4)] {
-            let config = Config {
+            let config = crate::config::ConfigDraft {
                 max_blocking_threads: threads,
-                ..Config::default()
-            };
+                ..Default::default()
+            }
+            .build();
             let pools = WorkPools::new(&config);
             assert_eq!(pools.gzip_decoders.available_permits(), expected);
             assert_eq!(pools.unauthenticated_gzip_decoders.available_permits(), 1);
@@ -568,7 +569,7 @@ mod tests {
             let state = Arc::new(State::for_test(Catalog::open(&dir.0).await.unwrap(), auth));
             let config = Arc::new(Config::default());
             let endpoints = config
-                .runtime_endpoints
+                .runtime_endpoints()
                 .snapshot(&config, "http://localhost")
                 .unwrap()
                 .without_request();

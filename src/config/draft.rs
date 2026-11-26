@@ -1,38 +1,264 @@
 use super::*;
 
-impl Config {
+use super::assemble::{Listeners, Tls};
+
+#[derive(Clone, Debug)]
+pub(crate) struct ConfigDraft {
+    pub(crate) log_level: LogLevel,
+    pub(crate) listen: SocketAddr,
+    pub(crate) listen_http: Option<SocketAddr>,
+    pub(crate) grpc_listen: Option<SocketAddr>,
+    /// How `grpc_listen` secures its connections; validation requires `grpc_listen` with it.
+    pub(crate) grpc_scheme: GrpcScheme,
+    /// A plain HTTP listener for the application's own servers on a private network, where a
+    /// request without credentials acts as `trusted_principal`. Strict mode only.
+    pub(crate) trusted_listen: Option<SocketAddr>,
+    pub(crate) unix_socket: Option<PathBuf>,
+    pub(crate) scheme: Scheme,
+    pub(crate) tls_cert: Option<PathBuf>,
+    pub(crate) tls_key: Option<PathBuf>,
+    pub(crate) tls_handshake_timeout: TimeLimit,
+    pub(crate) data_dir: PathBuf,
+    pub(crate) backend: Backend,
+    pub(crate) memory_max_bytes: u64,
+    pub(crate) memory_catalog_max_bytes: u64,
+    pub(crate) seed_dir: Option<PathBuf>,
+    /// Fallback seed root used only when it exists and is disjoint from the data directory.
+    pub(crate) default_seed_dir: Option<PathBuf>,
+    pub(crate) seed_project: String,
+    pub(crate) seed_content_type: crate::mime::SeedContentType,
+    /// Files and directories a seed tree may hold; `None` stops at none. A seed is one atomic
+    /// publication, so its memory grows with the tree until it commits.
+    pub(crate) max_seed_entries: Option<NonZeroUsize>,
+    /// Directory levels a seed tree may nest below a bucket; `None` leaves that to the object
+    /// name's 1024 bytes.
+    pub(crate) max_seed_depth: Option<NonZeroUsize>,
+    /// How long the passes that replay `seed_dir` while the server runs wait between each other;
+    /// `None` replays the tree only at startup.
+    pub(crate) seed_watch_interval: Option<std::time::Duration>,
+    /// Buckets one initialization file or one seed may declare; other buckets of the server do
+    /// not count, and `None` stops at none. Either is one atomic publication, so its memory grows
+    /// with the batch.
+    pub(crate) max_buckets_per_batch: Option<NonZeroUsize>,
+    pub(crate) default_location: String,
+    /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
+    pub(crate) default_soft_delete_retention_seconds: Option<NonZeroU64>,
+    pub(crate) lifecycle_execution: LifecycleExecution,
+    /// The bucket initialization document, from `buckets_file` or `buckets`.
+    pub(crate) buckets: Option<DocumentSource>,
+    /// What the buckets document does to existing buckets; it governs both document settings.
+    pub(crate) buckets_mode: BucketsMode,
+    pub(crate) api_base_url: Option<String>,
+    pub(crate) public_base_url: Option<PublicOrigin>,
+    /// Local management routes are disabled unless the operator explicitly enables them.
+    pub(crate) admin_enabled: bool,
+    pub(crate) admin_principal: Option<String>,
+    pub(crate) admin_allowed_hosts: Vec<String>,
+    /// The registered identity that requests without credentials on `trusted_listen` act as.
+    pub(crate) trusted_principal: Option<String>,
+    /// Dotted DNS names the trusted listener also accepts as Host, beyond IP literals,
+    /// `localhost` names and single-label names.
+    pub(crate) trusted_allowed_hosts: Vec<String>,
+    /// Email recorded as the creator (owner and ACL OWNER entry) of objects written without
+    /// authentication; `None` disables it, as the setting's empty value asks. Never an
+    /// authorization input.
+    pub(crate) local_creator_email: Option<String>,
+    pub(crate) runtime_endpoints: RuntimeEndpoints,
+    pub(crate) pubsub_emulator_host: Option<String>,
+    pub(crate) event_pubsub_project_id: String,
+    pub(crate) event_pubsub_topic: String,
+    pub(crate) event_bucket: String,
+    pub(crate) event_object_prefix: String,
+    pub(crate) event_list: String,
+    pub(crate) xml_virtual_host_domains: VirtualHostDomains,
+    pub(crate) max_connections: usize,
+    /// Streams each gRPC connection may run at once. Each can buffer a request message of up to
+    /// 4 MiB and its encoded response, so lowering this limits a connection's memory.
+    pub(crate) max_grpc_streams: NonZeroU32,
+    pub(crate) max_object_bytes: u64,
+    /// Active resumable uploads a server keeps; `None` leaves them unlimited, since expiry
+    /// reclaims the disk they use.
+    pub(crate) max_resumable_sessions: Option<NonZeroU32>,
+    /// Unfinished rewrites a server keeps; `None` leaves them unlimited.
+    pub(crate) max_rewrite_sessions: Option<NonZeroU32>,
+    pub(crate) worker_threads: usize,
+    pub(crate) max_blocking_threads: usize,
+    // Cloud Storage documents no seconds for these and asks for "reasonably long" upload
+    // timeouts, so the defaults are local choices that a slow client should not reach.
+    /// Waiting for a request head: on a new connection, and once a next request has started.
+    pub(crate) header_read_timeout: TimeLimit,
+    /// Silence while a request body on any route or a response body is in flight.
+    pub(crate) body_inactivity_timeout: TimeLimit,
+    /// A handler's time before its response starts, apart from waits for request body bytes.
+    pub(crate) request_timeout: TimeLimit,
+    pub(crate) keep_alive_timeout: TimeLimit,
+    pub(crate) object_request_timeout: TimeLimit,
+    pub(crate) catalog_wait_timeout: TimeLimit,
+    pub(crate) shutdown_timeout: TimeLimit,
+    pub(crate) auth_mode: AuthMode,
+    pub(crate) compat_profile: CompatProfile,
+    /// The explicit `cors_fallback` setting; [`Config::cors_fallback`] applies the
+    /// authentication mode's default.
+    pub(crate) cors_fallback: Option<CorsFallback>,
+    /// The explicit `signed_host_port` setting, whether V4 verification also accepts a canonical
+    /// host without the request Host's port; loading applies the default, lenient wherever the
+    /// built-in test signer is enabled.
+    pub(crate) signed_host_port: Option<SignedHostPort>,
+    /// The identity registry, from `identity_file` or `identities`; loaded once at startup.
+    pub(crate) identities: Option<DocumentSource>,
+    /// The explicit `test_signer` setting; validation selects the profile's default with
+    /// [`TestSignerChoice::select`](crate::auth::TestSignerChoice::select), which loading the
+    /// identity document settles in strict mode.
+    pub(crate) test_signer: Option<TestSigner>,
+    /// The explicit `signed_urls` setting; [`Config::signed_urls`] applies the
+    /// profile's default.
+    pub(crate) signed_urls: Option<SignedUrls>,
+}
+
+impl Default for ConfigDraft {
+    fn default() -> Self {
+        Self {
+            log_level: LogLevel::Info,
+            listen: SocketAddr::from(([127, 0, 0, 1], 4443)),
+            listen_http: None,
+            grpc_listen: None,
+            grpc_scheme: GrpcScheme::Auto,
+            trusted_listen: None,
+            unix_socket: None,
+            scheme: Scheme::Auto,
+            tls_cert: None,
+            tls_key: None,
+            tls_handshake_timeout: TimeLimit::from_millis(5_000),
+            data_dir: PathBuf::from("data"),
+            backend: Backend::Disk,
+            memory_max_bytes: crate::memory_limit::default_budget(),
+            memory_catalog_max_bytes: 16 * 1024 * 1024,
+            seed_dir: None,
+            default_seed_dir: None,
+            seed_project: "local-project".into(),
+            seed_content_type: crate::mime::SeedContentType::Extension,
+            max_seed_entries: None,
+            max_seed_depth: None,
+            seed_watch_interval: Some(std::time::Duration::from_secs(1)),
+            max_buckets_per_batch: None,
+            default_location: "US".into(),
+            // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,
+            // so a local disk or RAM budget is not spent on bytes nobody will restore.
+            default_soft_delete_retention_seconds: None,
+            lifecycle_execution: LifecycleExecution::default(),
+            buckets: None,
+            buckets_mode: BucketsMode::default(),
+            api_base_url: None,
+            public_base_url: None,
+            admin_enabled: false,
+            admin_principal: None,
+            admin_allowed_hosts: Vec::new(),
+            trusted_principal: None,
+            trusted_allowed_hosts: Vec::new(),
+            local_creator_email: Some(DEFAULT_LOCAL_CREATOR_EMAIL.into()),
+            runtime_endpoints: RuntimeEndpoints::default(),
+            pubsub_emulator_host: None,
+            event_pubsub_project_id: String::new(),
+            event_pubsub_topic: String::new(),
+            event_bucket: String::new(),
+            event_object_prefix: String::new(),
+            event_list: notifications::DEFAULT_EVENT_LIST.into(),
+            xml_virtual_host_domains: VirtualHostDomains::default(),
+            max_connections: 1024,
+            max_grpc_streams: DEFAULT_MAX_GRPC_STREAMS,
+            max_object_bytes: setting::MAX_OBJECT_BYTES,
+            max_resumable_sessions: None,
+            max_rewrite_sessions: None,
+            worker_threads: default_worker_threads(),
+            // The catalog keeps one blocking thread busy (including its commit fsync);
+            // the rest serve tokio::fs reads, writes and syncs for every connection, so
+            // one slow fsync must not stall all other transfers. Still bounded.
+            max_blocking_threads: 8,
+            header_read_timeout: TimeLimit::from_millis(30_000),
+            body_inactivity_timeout: TimeLimit::DISABLED,
+            // Longer than the catalog wait, so a waiting request reports that wait's own failure.
+            request_timeout: TimeLimit::from_millis(180_000),
+            keep_alive_timeout: TimeLimit::from_millis(120_000),
+            // Accepting 5 TiB objects rules out a fixed bound on a whole transfer.
+            object_request_timeout: TimeLimit::DISABLED,
+            catalog_wait_timeout: TimeLimit::from_millis(120_000),
+            shutdown_timeout: TimeLimit::from_millis(5_000),
+            auth_mode: AuthMode::Permissive,
+            compat_profile: CompatProfile::Native,
+            cors_fallback: None,
+            signed_host_port: None,
+            identities: None,
+            test_signer: None,
+            signed_urls: None,
+        }
+    }
+}
+
+impl ConfigDraft {
+    pub(super) fn resolved_listen_http(&self) -> Option<SocketAddr> {
+        (self.scheme == Scheme::Both).then(|| {
+            self.listen_http
+                .unwrap_or_else(|| SocketAddr::new(self.listen.ip(), 8000))
+        })
+    }
+
+    pub(super) fn resolved_signed_urls(&self) -> SignedUrls {
+        SignedUrls::resolve(self.signed_urls, self.auth_mode)
+    }
+
+    pub(super) fn resolved_cors_fallback(&self) -> CorsFallbackChoice {
+        CorsFallbackChoice::select(self.cors_fallback, self.auth_mode)
+    }
+
+    pub(super) fn grpc_security_scheme(&self) -> Option<GrpcScheme> {
+        self.grpc_listen.map(|_| self.grpc_scheme)
+    }
+
+    fn api_base(&self, bound: SocketAddr) -> String {
+        self.api_base_url
+            .clone()
+            .unwrap_or_else(|| super::assemble::bound_api_base(self.scheme, bound))
+    }
+
     pub(super) fn from_inputs(mut inputs: Inputs) -> ConfigurationReport {
         let invalid_file_fields = read_selected_config(&mut inputs);
         inputs.resolve_server_flags();
         let settings = collect_settings(&mut inputs);
-        let mut report = ConfigurationReport {
-            config: Self::default(),
+        let mut report = Validation {
+            draft: Self::default(),
             diagnostics: inputs.diagnostics,
             invalid: invalid_file_fields
                 .into_iter()
                 .filter(|key| !settings.contains_key(key))
                 .collect(),
             auth_profile: None,
-            settings: Settings::new(),
         };
         report.apply_settings(&settings);
-        report.config.runtime_endpoints =
-            RuntimeEndpoints::new(report.config.xml_virtual_host_domains.clone());
+        report.draft.runtime_endpoints =
+            RuntimeEndpoints::new(report.draft.xml_virtual_host_domains.clone());
         report.check_document_sources(&settings);
         report.check_buckets_mode(&settings);
         report.check_profile_settings(&settings);
         report.check_backend(&settings);
-        report.check_tls(&settings);
-        report.check_listeners(&settings);
+        let tls = report.check_tls(&settings);
+        let listeners = report.check_listeners(&settings);
         report.check_grpc_settings(&settings);
         report.check_public_base_url(&settings);
         report.check_api_base_url(&settings);
         report.check_auth(&settings);
         report.check_trusted_listener(&settings);
-        report.check_notifications(&settings);
+        let notifications = report.check_notifications(&settings);
         report.explain_empty_environment_values(&settings);
-        report.settings = settings;
-        report
+        ConfigurationReport {
+            draft: report.draft,
+            diagnostics: report.diagnostics,
+            invalid: report.invalid,
+            auth_profile: report.auth_profile,
+            settings,
+            tls,
+            listeners,
+            notifications,
+        }
     }
 }
 
@@ -150,7 +376,11 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
 /// caller applies it to a candidate copy and keeps the copy only on success.
 /// `value` is borrowed: an inline document may be 1 GiB, and only the setting that stores it
 /// needs its own copy.
-fn apply_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
+fn apply_setting(
+    config: &mut ConfigDraft,
+    setting: Setting,
+    value: &str,
+) -> Result<(), SettingFix> {
     let key = setting.as_str();
     match setting {
         // A configuration file selects where the others come from; it never holds a value.
@@ -420,25 +650,61 @@ fn non_empty<'a>(key: &str, value: &'a str) -> Result<&'a str, SettingFix> {
 }
 
 pub struct ConfigurationReport {
-    pub config: Config,
-    pub diagnostics: Diagnostics,
+    pub(super) draft: ConfigDraft,
+    pub(crate) diagnostics: Diagnostics,
     pub(super) invalid: BTreeSet<Setting>,
     /// Set by validation only when the authentication settings are valid and agree.
     pub(super) auth_profile: Option<AuthProfile>,
     /// The inputs validation read, so that a diagnostic after loading can still name the one
     /// that caused it.
     pub(super) settings: Settings,
+    pub(super) tls: Option<Tls>,
+    pub(super) listeners: Listeners,
+    pub(super) notifications: crate::notification::Runtime,
 }
 
 impl ConfigurationReport {
-    pub(crate) fn valid(&self, settings: &[Setting]) -> bool {
-        !self.any_invalid(settings)
+    pub fn into_diagnostics(self) -> Diagnostics {
+        self.diagnostics
     }
 
-    pub(super) fn any_invalid(&self, settings: &[Setting]) -> bool {
+    pub fn record_error(&mut self, diagnostic: Diagnostic) {
+        self.diagnostics.errors.push(diagnostic);
+    }
+
+    pub(crate) fn valid(&self, settings: &[Setting]) -> bool {
         settings
             .iter()
-            .any(|setting| self.invalid.contains(setting))
+            .all(|setting| !self.invalid.contains(setting))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn draft(&self) -> &ConfigDraft {
+        &self.draft
+    }
+
+    pub fn log_level(&self) -> LogLevel {
+        self.draft.log_level
+    }
+
+    pub fn seed_dir(&self) -> Option<&Path> {
+        self.draft.seed_dir.as_deref()
+    }
+
+    pub fn local_origin(&self) -> String {
+        super::assemble::local_origin(
+            self.draft.listen,
+            self.draft.resolved_listen_http(),
+            self.draft.scheme,
+        )
+    }
+
+    pub fn resolve_default_seed(&mut self) {
+        if self.default_seed_settings_valid() {
+            self.diagnostics
+                .warnings
+                .extend(crate::config_input::resolve_default_seed(&mut self.draft));
+        }
     }
 
     /// Whether the settings that select the TLS identity are valid, so that loading it can fail
@@ -458,6 +724,43 @@ impl ConfigurationReport {
         self.valid(&[Setting::DataDir, Setting::SeedDir, Setting::DefaultSeedDir])
     }
 
+    pub fn load_tls(&mut self) -> crate::tls::ServerSecurity {
+        if !self.tls_settings_valid() {
+            return crate::tls::ServerSecurity::plain();
+        }
+        match crate::tls::ServerSecurity::load_settings(
+            self.draft.scheme,
+            self.draft.unix_socket.as_deref(),
+            self.draft.grpc_security_scheme(),
+            self.tls.as_ref(),
+        ) {
+            Ok(security) => security,
+            Err(error) => {
+                self.diagnostics.errors.push(error.diagnostic());
+                crate::tls::ServerSecurity::plain()
+            }
+        }
+    }
+}
+
+pub(super) struct Validation {
+    pub(super) draft: ConfigDraft,
+    pub(super) diagnostics: Diagnostics,
+    pub(super) invalid: BTreeSet<Setting>,
+    pub(super) auth_profile: Option<AuthProfile>,
+}
+
+impl Validation {
+    pub(super) fn valid(&self, settings: &[Setting]) -> bool {
+        !self.any_invalid(settings)
+    }
+
+    pub(super) fn any_invalid(&self, settings: &[Setting]) -> bool {
+        settings
+            .iter()
+            .any(|setting| self.invalid.contains(setting))
+    }
+
     fn apply_settings(&mut self, settings: &Settings) {
         for (&setting, input) in settings {
             if let Some(invalid) = input.invalid {
@@ -474,9 +777,9 @@ impl ConfigurationReport {
             if setting == Setting::Config {
                 continue;
             }
-            let mut candidate = self.config.clone();
+            let mut candidate = self.draft.clone();
             match apply_setting(&mut candidate, setting, &input.value) {
-                Ok(()) => self.config = candidate,
+                Ok(()) => self.draft = candidate,
                 Err(SettingFix(fix)) => {
                     self.invalid.insert(setting);
                     self.diagnostics
@@ -516,7 +819,7 @@ impl ConfigurationReport {
 
     /// The mode only changes what a buckets document does, so naming it without one is a mistake.
     fn check_buckets_mode(&mut self, settings: &Settings) {
-        if self.config.buckets.is_none()
+        if self.draft.buckets.is_none()
             && self.valid(&[Setting::BucketsFile, Setting::Buckets])
             && let Some(input) = settings.get(&Setting::BucketsMode)
             && self.invalid.insert(Setting::BucketsMode)
@@ -531,7 +834,7 @@ impl ConfigurationReport {
 
     /// Settings that the compatibility profile or the authentication mode leaves without effect.
     fn check_profile_settings(&mut self, settings: &Settings) {
-        let config = &self.config;
+        let config = &self.draft;
         if config.compat_profile == CompatProfile::FakeGcsServer
             && let Some(input) = settings.get(&Setting::DefaultLocation)
             && !self.invalid.contains(&Setting::DefaultLocation)
@@ -558,8 +861,7 @@ impl ConfigurationReport {
         // Strict mode records the registered caller, so a creator address would be silently unused.
         // A permissive identity document that only verifies signatures leaves the creator in use.
         if (config.auth_mode == AuthMode::Strict
-            || (config.identities.is_some()
-                && config.effective_signed_urls() == SignedUrls::Ignore))
+            || (config.identities.is_some() && config.resolved_signed_urls() == SignedUrls::Ignore))
             && config.local_creator_email.is_some()
             && let Some(input) = settings.get(&Setting::LocalCreatorEmail)
             && !self.invalid.contains(&Setting::LocalCreatorEmail)
@@ -589,13 +891,15 @@ impl ConfigurationReport {
         }
     }
 
-    fn check_tls(&mut self, settings: &Settings) {
-        let config = &self.config;
+    fn check_tls(&mut self, settings: &Settings) -> Option<Tls> {
+        let config = &self.draft;
         // Without a listener that serves TLS every TLS setting would be silently ignored. The
         // gRPC listener uses the same identity, so it alone gives them an effect.
         // A Unix socket, which is never inspected, excludes every TCP listener, so no scheme or
         // gRPC listener can give the settings a use beside it.
-        let plain_only = (!crate::tls::serves_tls(config)).then_some(
+        let plain_only = (!crate::tls::serves_tls(
+            config.scheme, config.unix_socket.as_deref(), config.grpc_security_scheme(),
+        )).then_some(
             if config.unix_socket.is_some() {
                 "A Unix socket serves plain HTTP only; remove TLS settings or listen on TCP."
             } else {
@@ -604,7 +908,7 @@ impl ConfigurationReport {
         );
         if let Some(fix) = plain_only {
             if self.any_invalid(&[Setting::Scheme, Setting::GrpcListen, Setting::GrpcScheme]) {
-                return;
+                return None;
             }
             for setting in [
                 Setting::TlsCert,
@@ -620,11 +924,13 @@ impl ConfigurationReport {
                     self.invalid.insert(setting);
                 }
             }
-            return;
+            return None;
         }
-        if let Err(UnpairedTlsFile(present)) = config.tls_files()
-            && !self.any_invalid(&[Setting::Scheme, Setting::TlsCert, Setting::TlsKey])
-        {
+        let present = match Tls::select(config) {
+            Ok(tls) => return Some(tls),
+            Err(setting) => setting,
+        };
+        if !self.any_invalid(&[Setting::Scheme, Setting::TlsCert, Setting::TlsKey]) {
             if let Some(input) = settings.get(&present) {
                 self.diagnostics.errors.push(Diagnostic::new(
                     input.source,
@@ -634,6 +940,7 @@ impl ConfigurationReport {
             }
             self.invalid.insert(present);
         }
+        None
     }
 
     /// Without a gRPC listener these settings would silently do nothing, and a typo in the
@@ -658,11 +965,12 @@ impl ConfigurationReport {
         }
     }
 
-    fn check_listeners(&mut self, settings: &Settings) {
-        if self.config.unix_socket.is_some() {
+    fn check_listeners(&mut self, settings: &Settings) -> Listeners {
+        let listeners = Listeners::from(&self.draft);
+        if self.draft.unix_socket.is_some() {
             let fix = if !cfg!(unix) {
                 Some("unix_socket requires a Unix platform; no TCP fallback is used.")
-            } else if matches!(self.config.scheme, Scheme::Https | Scheme::Both) {
+            } else if matches!(self.draft.scheme, Scheme::Https | Scheme::Both) {
                 Some(
                     "unix_socket serves plain HTTP and requires scheme=auto or http; advertised HTTP(S) origins remain independent.",
                 )
@@ -689,15 +997,15 @@ impl ConfigurationReport {
                     .errors
                     .push(Diagnostic::new(input.source, &input.key, fix));
             }
-            return;
+            return listeners;
         }
         if self.any_invalid(&[Setting::Scheme, Setting::Listen, Setting::ListenHttp]) {
-            return;
+            return listeners;
         }
-        let config = &self.config;
+        let config = &self.draft;
         let fix = if config.scheme != Scheme::Both && config.listen_http.is_some() {
             Some("listen_http requires scheme=both; remove listen_http or use --scheme both.")
-        } else if config.listen.port() != 0 && config.effective_listen_http() == Some(config.listen)
+        } else if config.listen.port() != 0 && config.resolved_listen_http() == Some(config.listen)
         {
             Some(
                 "listen and listen_http must use different nonzero endpoints; use --listen-http 127.0.0.1:8001 or port 0.",
@@ -718,10 +1026,11 @@ impl ConfigurationReport {
             }
             self.invalid.insert(Setting::ListenHttp);
         }
+        listeners
     }
 
     fn check_public_base_url(&mut self, settings: &Settings) {
-        let config = &mut self.config;
+        let config = &mut self.draft;
         if !self.invalid.contains(&Setting::PublicBaseUrl)
             && let Some(input) = settings.get(&Setting::PublicBaseUrl)
             && let Some(origin) = config.public_base_url.as_ref()
@@ -742,13 +1051,13 @@ impl ConfigurationReport {
     }
 
     fn check_api_base_url(&mut self, settings: &Settings) {
-        let config = &self.config;
+        let config = &self.draft;
         if !self.any_invalid(&[
             Setting::ApiBaseUrl,
             Setting::XmlVirtualHostDomains,
             Setting::Listen,
         ]) && config
-            .effective_api_base_url(config.listen)
+            .api_base(config.listen)
             .parse::<hyper::Uri>()
             .ok()
             .and_then(|api| api.authority().cloned())
@@ -769,7 +1078,7 @@ impl ConfigurationReport {
 
     fn check_auth(&mut self, settings: &Settings) {
         self.check_admin_auth(settings);
-        let config = &self.config;
+        let config = &self.draft;
         if let Some(input) = settings.get(&Setting::AdminPrincipal)
             && !self.invalid.contains(&Setting::AdminPrincipal)
         {
@@ -805,7 +1114,7 @@ impl ConfigurationReport {
             settings.contains_key(&principal),
         );
         let collision = self.trusted_listen_collision();
-        let rejected = match (self.config.auth_mode, named, collision) {
+        let rejected = match (self.draft.auth_mode, named, collision) {
             (_, (false, false), _) => return,
             (AuthMode::Permissive, _, _) if self.valid(&[Setting::AuthMode]) => [listen, principal]
                 .map(|setting| {
@@ -848,7 +1157,7 @@ impl ConfigurationReport {
     /// fixed port can collide. The example starts above 4443 and 4444, the main and trusted ports
     /// that the recipes and the README already use, the second also for gRPC.
     fn trusted_listen_collision(&self) -> Option<(Setting, SocketAddr)> {
-        let config = &self.config;
+        let config = &self.draft;
         if config.unix_socket.is_some()
             || !self.valid(&[
                 Setting::TrustedListen,
@@ -865,7 +1174,7 @@ impl ConfigurationReport {
             .filter(|address| address.port() != 0)?;
         let others = [
             (Setting::Listen, Some(config.listen)),
-            (Setting::ListenHttp, config.effective_listen_http()),
+            (Setting::ListenHttp, config.resolved_listen_http()),
             (Setting::GrpcListen, config.grpc_listen),
         ];
         let (setting, _) = others.iter().find(|(_, other)| *other == Some(address))?;
@@ -879,13 +1188,31 @@ impl ConfigurationReport {
     }
 
     fn check_admin_auth(&mut self, settings: &Settings) {
-        if self.config.auth_mode == AuthMode::Strict
-            && self.config.admin_enabled
-            && self.config.admin_principal.is_none()
+        if self.draft.auth_mode == AuthMode::Strict
+            && self.draft.admin_enabled
+            && self.draft.admin_principal.is_none()
             && let Some(input) = settings.get(&Setting::AdminEnabled)
         {
             self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
                 "admin_enabled in strict mode requires admin_principal; set --admin-principal to the registered instance administrator"));
         }
+    }
+}
+
+#[cfg(test)]
+impl ConfigDraft {
+    pub(super) fn load(
+        args: &[String],
+        env: &BTreeMap<String, String>,
+    ) -> Result<Self, Diagnostics> {
+        let report = Config::preflight(args, env);
+        if report.diagnostics.is_err() {
+            return Err(report.diagnostics);
+        }
+        Ok(report.draft)
+    }
+
+    pub(super) fn api_base_for_test(&self, bound: SocketAddr) -> String {
+        self.api_base(bound)
     }
 }

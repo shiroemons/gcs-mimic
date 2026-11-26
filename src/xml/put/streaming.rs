@@ -93,7 +93,7 @@ async fn http_framed(
     sha256: Option<[u8; 32]>,
     length_range: Option<LengthRange>,
 ) -> Result<(), Error> {
-    let limit = ctx.config.max_object_bytes;
+    let limit = ctx.config.max_object_bytes();
     // Stop at the first byte past the range instead of staging the rest of the body.
     let cap = length_range.map_or(limit, |range| range.cap(limit));
     match stream_upload(body, sender, cap, sha256).await {

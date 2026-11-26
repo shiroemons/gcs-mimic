@@ -1,269 +1,493 @@
 use super::*;
+use crate::{mime::SeedContentType, notification};
+use std::time::Duration;
 
+/// Settings that have passed configuration validation.
 #[derive(Clone, Debug)]
 pub struct Config {
-    pub log_level: LogLevel,
-    pub listen: SocketAddr,
-    pub listen_http: Option<SocketAddr>,
-    pub grpc_listen: Option<SocketAddr>,
-    /// How `grpc_listen` secures its connections; validation requires `grpc_listen` with it.
-    pub grpc_scheme: GrpcScheme,
-    /// A plain HTTP listener for the application's own servers on a private network, where a
-    /// request without credentials acts as `trusted_principal`. Strict mode only.
-    pub trusted_listen: Option<SocketAddr>,
-    pub unix_socket: Option<PathBuf>,
-    pub scheme: Scheme,
-    pub tls_cert: Option<PathBuf>,
-    pub tls_key: Option<PathBuf>,
-    pub tls_handshake_timeout: TimeLimit,
-    pub data_dir: PathBuf,
-    pub backend: Backend,
-    pub memory_max_bytes: u64,
-    pub memory_catalog_max_bytes: u64,
-    pub seed_dir: Option<PathBuf>,
-    /// Fallback seed root used only when it exists and is disjoint from the data directory.
-    pub default_seed_dir: Option<PathBuf>,
-    pub seed_project: String,
-    pub seed_content_type: crate::mime::SeedContentType,
-    /// Files and directories a seed tree may hold; `None` stops at none. A seed is one atomic
-    /// publication, so its memory grows with the tree until it commits.
-    pub max_seed_entries: Option<NonZeroUsize>,
-    /// Directory levels a seed tree may nest below a bucket; `None` leaves that to the object
-    /// name's 1024 bytes.
-    pub max_seed_depth: Option<NonZeroUsize>,
-    /// How long the passes that replay `seed_dir` while the server runs wait between each other;
-    /// `None` replays the tree only at startup.
-    pub seed_watch_interval: Option<std::time::Duration>,
-    /// Buckets one initialization file or one seed may declare; other buckets of the server do
-    /// not count, and `None` stops at none. Either is one atomic publication, so its memory grows
-    /// with the batch.
-    pub max_buckets_per_batch: Option<NonZeroUsize>,
-    pub default_location: String,
-    /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
-    pub default_soft_delete_retention_seconds: Option<NonZeroU64>,
-    pub lifecycle_execution: LifecycleExecution,
-    /// The bucket initialization document, from `buckets_file` or `buckets`.
-    pub buckets: Option<DocumentSource>,
-    /// What the buckets document does to existing buckets; it governs both document settings.
-    pub buckets_mode: BucketsMode,
-    pub api_base_url: Option<String>,
-    pub public_base_url: Option<PublicOrigin>,
-    /// Local management routes are disabled unless the operator explicitly enables them.
-    pub admin_enabled: bool,
-    pub admin_principal: Option<String>,
-    pub admin_allowed_hosts: Vec<String>,
-    /// The registered identity that requests without credentials on `trusted_listen` act as.
-    pub trusted_principal: Option<String>,
-    /// Dotted DNS names the trusted listener also accepts as Host, beyond IP literals,
-    /// `localhost` names and single-label names.
-    pub trusted_allowed_hosts: Vec<String>,
-    /// Email recorded as the creator (owner and ACL OWNER entry) of objects written without
-    /// authentication; `None` disables it, as the setting's empty value asks. Never an
-    /// authorization input.
-    pub local_creator_email: Option<String>,
-    pub runtime_endpoints: RuntimeEndpoints,
-    pub pubsub_emulator_host: Option<String>,
-    pub event_pubsub_project_id: String,
-    pub event_pubsub_topic: String,
-    pub event_bucket: String,
-    pub event_object_prefix: String,
-    pub event_list: String,
-    pub xml_virtual_host_domains: VirtualHostDomains,
-    pub max_connections: usize,
-    /// Streams each gRPC connection may run at once. Each can buffer a request message of up to
-    /// 4 MiB and its encoded response, so lowering this limits a connection's memory.
-    pub max_grpc_streams: NonZeroU32,
-    pub max_object_bytes: u64,
-    /// Active resumable uploads a server keeps; `None` leaves them unlimited, since expiry
-    /// reclaims the disk they use.
-    pub max_resumable_sessions: Option<NonZeroU32>,
-    /// Unfinished rewrites a server keeps; `None` leaves them unlimited.
-    pub max_rewrite_sessions: Option<NonZeroU32>,
-    pub worker_threads: usize,
-    pub max_blocking_threads: usize,
-    // Cloud Storage documents no seconds for these and asks for "reasonably long" upload
-    // timeouts, so the defaults are local choices that a slow client should not reach.
-    /// Waiting for a request head: on a new connection, and once a next request has started.
-    pub header_read_timeout: TimeLimit,
-    /// Silence while a request body on any route or a response body is in flight.
-    pub body_inactivity_timeout: TimeLimit,
-    /// A handler's time before its response starts, apart from waits for request body bytes.
-    pub request_timeout: TimeLimit,
-    pub keep_alive_timeout: TimeLimit,
-    pub object_request_timeout: TimeLimit,
-    pub catalog_wait_timeout: TimeLimit,
-    pub shutdown_timeout: TimeLimit,
-    pub auth_mode: AuthMode,
-    pub compat_profile: CompatProfile,
-    /// The explicit `cors_fallback` setting; [`Config::effective_cors_fallback`] applies the
-    /// authentication mode's default.
-    pub cors_fallback: Option<CorsFallback>,
-    /// The explicit `signed_host_port` setting, whether V4 verification also accepts a canonical
-    /// host without the request Host's port; loading applies the default, lenient wherever the
-    /// built-in test signer is enabled.
-    pub signed_host_port: Option<SignedHostPort>,
-    /// The identity registry, from `identity_file` or `identities`; loaded once at startup.
-    pub identities: Option<DocumentSource>,
-    /// The explicit `test_signer` setting; validation selects the profile's default with
-    /// [`TestSignerChoice::select`](crate::auth::TestSignerChoice::select), which loading the
-    /// identity document settles in strict mode.
-    pub test_signer: Option<TestSigner>,
-    /// The explicit `signed_urls` setting; [`Config::effective_signed_urls`] applies the
-    /// profile's default.
-    pub signed_urls: Option<SignedUrls>,
+    listeners: Listeners,
+    tls: Option<Tls>,
+    storage: Storage,
+    seed: Seed,
+    endpoints: Endpoints,
+    admin: Admin,
+    notifications: notification::Runtime,
+    limits: Limits,
+    timeouts: Timeouts,
+    auth: AuthSettings,
+    log_level: LogLevel,
+    compat_profile: CompatProfile,
+    cors_fallback: CorsFallbackChoice,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct Listeners {
+    listen: SocketAddr,
+    scheme: Scheme,
+    transport: Bindings,
+}
+
+#[derive(Clone, Debug)]
+enum Bindings {
+    Tcp {
+        http: Option<SocketAddr>,
+        grpc: Option<GrpcListener>,
+        trusted: Option<TrustedListener>,
+    },
+    Unix(PathBuf),
+}
+
+#[derive(Clone, Debug)]
+struct GrpcListener {
+    address: SocketAddr,
+    scheme: GrpcScheme,
+}
+
+#[derive(Clone, Debug)]
+struct TrustedListener {
+    address: SocketAddr,
+    allowed_hosts: Vec<String>,
+}
+
+impl From<&ConfigDraft> for Listeners {
+    fn from(draft: &ConfigDraft) -> Self {
+        let transport = match &draft.unix_socket {
+            Some(path) => Bindings::Unix(path.clone()),
+            None => Bindings::Tcp {
+                http: draft.resolved_listen_http(),
+                grpc: draft.grpc_listen.map(|address| GrpcListener {
+                    address,
+                    scheme: draft.grpc_scheme,
+                }),
+                trusted: draft.trusted_listen.map(|address| TrustedListener {
+                    address,
+                    allowed_hosts: draft.trusted_allowed_hosts.clone(),
+                }),
+            },
+        };
+        Self {
+            listen: draft.listen,
+            scheme: draft.scheme,
+            transport,
+        }
+    }
+}
+
+impl Listeners {
+    fn http(&self) -> Option<SocketAddr> {
+        match &self.transport {
+            Bindings::Tcp { http, .. } => *http,
+            Bindings::Unix(_) => None,
+        }
+    }
+
+    fn grpc(&self) -> Option<&GrpcListener> {
+        match &self.transport {
+            Bindings::Tcp { grpc, .. } => grpc.as_ref(),
+            Bindings::Unix(_) => None,
+        }
+    }
+
+    fn trusted(&self) -> Option<&TrustedListener> {
+        match &self.transport {
+            Bindings::Tcp { trusted, .. } => trusted.as_ref(),
+            Bindings::Unix(_) => None,
+        }
+    }
+
+    fn unix_socket(&self) -> Option<&Path> {
+        match &self.transport {
+            Bindings::Tcp { .. } => None,
+            Bindings::Unix(path) => Some(path),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Tls {
+    identity: TlsIdentity,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum TlsIdentity {
+    Development,
+    Provided { certificate: PathBuf, key: PathBuf },
+}
+
+impl Tls {
+    pub(super) fn select(draft: &ConfigDraft) -> Result<Self, Setting> {
+        let identity = match (&draft.tls_cert, &draft.tls_key) {
+            (None, None) => TlsIdentity::Development,
+            (Some(certificate), Some(key)) => TlsIdentity::Provided {
+                certificate: certificate.clone(),
+                key: key.clone(),
+            },
+            (Some(_), None) => return Err(Setting::TlsCert),
+            (None, Some(_)) => return Err(Setting::TlsKey),
+        };
+        Ok(Self { identity })
+    }
+
+    pub(crate) fn identity(&self) -> &TlsIdentity {
+        &self.identity
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Storage {
+    data_dir: PathBuf,
+    backend: Backend,
+    memory_max_bytes: u64,
+    memory_catalog_max_bytes: u64,
+    default_location: String,
+    default_soft_delete_retention_seconds: Option<NonZeroU64>,
+    lifecycle_execution: LifecycleExecution,
+    buckets: Option<DocumentSource>,
+    buckets_mode: BucketsMode,
+}
+
+#[derive(Clone, Debug)]
+struct Seed {
+    dir: Option<PathBuf>,
+    default_dir: Option<PathBuf>,
+    project: String,
+    content_type: SeedContentType,
+    watch_interval: Option<Duration>,
+}
+
+#[derive(Clone, Debug)]
+struct Endpoints {
+    api_base_url: Option<String>,
+    public_base_url: Option<PublicOrigin>,
+    xml_virtual_host_domains: VirtualHostDomains,
+    runtime: RuntimeEndpoints,
+}
+
+#[derive(Clone, Debug)]
+struct Admin {
+    enabled: bool,
+    principal: Option<String>,
+    allowed_hosts: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct Limits {
+    max_connections: usize,
+    max_grpc_streams: NonZeroU32,
+    max_object_bytes: u64,
+    max_resumable_sessions: Option<NonZeroU32>,
+    max_rewrite_sessions: Option<NonZeroU32>,
+    max_seed_entries: Option<NonZeroUsize>,
+    max_seed_depth: Option<NonZeroUsize>,
+    max_buckets_per_batch: Option<NonZeroUsize>,
+    worker_threads: usize,
+    max_blocking_threads: usize,
+}
+
+#[derive(Clone, Debug)]
+struct Timeouts {
+    tls_handshake: TimeLimit,
+    header_read: TimeLimit,
+    body_inactivity: TimeLimit,
+    request: TimeLimit,
+    keep_alive: TimeLimit,
+    object_request: TimeLimit,
+    catalog_wait: TimeLimit,
+    shutdown: TimeLimit,
+}
+
+#[derive(Clone, Debug)]
+struct AuthSettings {
+    mode: AuthMode,
+    local_creator_email: Option<String>,
+    signed_urls: SignedUrls,
+}
+
+impl TryFrom<ConfigurationReport> for Config {
+    type Error = Diagnostics;
+
+    fn try_from(report: ConfigurationReport) -> Result<Self, Self::Error> {
+        report.into_config().map(|(config, _)| config)
+    }
+}
+
+impl ConfigurationReport {
+    /// Assembles the configuration and returns the startup notices to report before serving.
+    pub fn into_config(self) -> Result<(Config, Diagnostics), Diagnostics> {
+        if self.diagnostics.is_err() {
+            return Err(self.diagnostics);
+        }
+        let config = Config::assemble(self.draft, self.listeners, self.tls, self.notifications);
+        Ok((config, self.diagnostics))
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            log_level: LogLevel::Info,
-            listen: SocketAddr::from(([127, 0, 0, 1], 4443)),
-            listen_http: None,
-            grpc_listen: None,
-            grpc_scheme: GrpcScheme::Auto,
-            trusted_listen: None,
-            unix_socket: None,
-            scheme: Scheme::Auto,
-            tls_cert: None,
-            tls_key: None,
-            tls_handshake_timeout: TimeLimit::from_millis(5_000),
-            data_dir: PathBuf::from("data"),
-            backend: Backend::Disk,
-            memory_max_bytes: crate::memory_limit::default_budget(),
-            memory_catalog_max_bytes: 16 * 1024 * 1024,
-            seed_dir: None,
-            default_seed_dir: None,
-            seed_project: "local-project".into(),
-            seed_content_type: crate::mime::SeedContentType::Extension,
-            max_seed_entries: None,
-            max_seed_depth: None,
-            seed_watch_interval: Some(std::time::Duration::from_secs(1)),
-            max_buckets_per_batch: None,
-            default_location: "US".into(),
-            // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,
-            // so a local disk or RAM budget is not spent on bytes nobody will restore.
-            default_soft_delete_retention_seconds: None,
-            lifecycle_execution: LifecycleExecution::default(),
-            buckets: None,
-            buckets_mode: BucketsMode::default(),
-            api_base_url: None,
-            public_base_url: None,
-            admin_enabled: false,
-            admin_principal: None,
-            admin_allowed_hosts: Vec::new(),
-            trusted_principal: None,
-            trusted_allowed_hosts: Vec::new(),
-            local_creator_email: Some(DEFAULT_LOCAL_CREATOR_EMAIL.into()),
-            runtime_endpoints: RuntimeEndpoints::default(),
-            pubsub_emulator_host: None,
-            event_pubsub_project_id: String::new(),
-            event_pubsub_topic: String::new(),
-            event_bucket: String::new(),
-            event_object_prefix: String::new(),
-            event_list: notifications::DEFAULT_EVENT_LIST.into(),
-            xml_virtual_host_domains: VirtualHostDomains::default(),
-            max_connections: 1024,
-            max_grpc_streams: DEFAULT_MAX_GRPC_STREAMS,
-            max_object_bytes: setting::MAX_OBJECT_BYTES,
-            max_resumable_sessions: None,
-            max_rewrite_sessions: None,
-            worker_threads: default_worker_threads(),
-            // The catalog keeps one blocking thread busy (including its commit fsync);
-            // the rest serve tokio::fs reads, writes and syncs for every connection, so
-            // one slow fsync must not stall all other transfers. Still bounded.
-            max_blocking_threads: 8,
-            header_read_timeout: TimeLimit::from_millis(30_000),
-            body_inactivity_timeout: TimeLimit::DISABLED,
-            // Longer than the catalog wait, so a waiting request reports that wait's own failure.
-            request_timeout: TimeLimit::from_millis(180_000),
-            keep_alive_timeout: TimeLimit::from_millis(120_000),
-            // Accepting 5 TiB objects rules out a fixed bound on a whole transfer.
-            object_request_timeout: TimeLimit::DISABLED,
-            catalog_wait_timeout: TimeLimit::from_millis(120_000),
-            shutdown_timeout: TimeLimit::from_millis(5_000),
-            auth_mode: AuthMode::Permissive,
-            compat_profile: CompatProfile::Native,
-            cors_fallback: None,
-            signed_host_port: None,
-            identities: None,
-            test_signer: None,
-            signed_urls: None,
-        }
+        let draft = ConfigDraft::default();
+        let listeners = Listeners::from(&draft);
+        let tls = Tls {
+            identity: TlsIdentity::Development,
+        };
+        Self::assemble(
+            draft,
+            listeners,
+            Some(tls),
+            notification::Runtime::default(),
+        )
     }
+}
+
+#[cfg(test)]
+impl ConfigDraft {
+    pub(crate) fn build(self) -> Config {
+        let listeners = Listeners::from(&self);
+        let tls = crate::tls::serves_tls(
+            self.scheme,
+            self.unix_socket.as_deref(),
+            self.grpc_security_scheme(),
+        )
+        .then(|| Tls::select(&self).unwrap());
+        let notifications = self.notification_runtime().unwrap();
+        Config::assemble(self, listeners, tls, notifications)
+    }
+}
+
+macro_rules! getters {
+    ($($name:ident: $ty:ty = $($field:ident).+;)*) => {
+        $(pub fn $name(&self) -> $ty { self.$($field).+ })*
+    };
 }
 
 impl Config {
     pub const HEALTHCHECK_PATH: &str = "/_internal/healthcheck";
 
-    /// Whether signed XML requests verify, after the profile's default.
-    pub fn effective_signed_urls(&self) -> SignedUrls {
-        SignedUrls::resolve(self.signed_urls, self.auth_mode)
+    fn assemble(
+        draft: ConfigDraft,
+        listeners: Listeners,
+        tls: Option<Tls>,
+        notifications: notification::Runtime,
+    ) -> Self {
+        let cors_fallback = draft.resolved_cors_fallback();
+        let signed_urls = draft.resolved_signed_urls();
+        Self {
+            listeners,
+            tls,
+            storage: Storage {
+                data_dir: draft.data_dir,
+                backend: draft.backend,
+                memory_max_bytes: draft.memory_max_bytes,
+                memory_catalog_max_bytes: draft.memory_catalog_max_bytes,
+                default_location: draft.default_location,
+                default_soft_delete_retention_seconds: draft.default_soft_delete_retention_seconds,
+                lifecycle_execution: draft.lifecycle_execution,
+                buckets: draft.buckets,
+                buckets_mode: draft.buckets_mode,
+            },
+            seed: Seed {
+                dir: draft.seed_dir,
+                default_dir: draft.default_seed_dir,
+                project: draft.seed_project,
+                content_type: draft.seed_content_type,
+                watch_interval: draft.seed_watch_interval,
+            },
+            endpoints: Endpoints {
+                api_base_url: draft.api_base_url,
+                public_base_url: draft.public_base_url,
+                xml_virtual_host_domains: draft.xml_virtual_host_domains,
+                runtime: draft.runtime_endpoints,
+            },
+            admin: Admin {
+                enabled: draft.admin_enabled,
+                principal: draft.admin_principal,
+                allowed_hosts: draft.admin_allowed_hosts,
+            },
+            notifications,
+            limits: Limits {
+                max_connections: draft.max_connections,
+                max_grpc_streams: draft.max_grpc_streams,
+                max_object_bytes: draft.max_object_bytes,
+                max_resumable_sessions: draft.max_resumable_sessions,
+                max_rewrite_sessions: draft.max_rewrite_sessions,
+                max_seed_entries: draft.max_seed_entries,
+                max_seed_depth: draft.max_seed_depth,
+                max_buckets_per_batch: draft.max_buckets_per_batch,
+                worker_threads: draft.worker_threads,
+                max_blocking_threads: draft.max_blocking_threads,
+            },
+            timeouts: Timeouts {
+                tls_handshake: draft.tls_handshake_timeout,
+                header_read: draft.header_read_timeout,
+                body_inactivity: draft.body_inactivity_timeout,
+                request: draft.request_timeout,
+                keep_alive: draft.keep_alive_timeout,
+                object_request: draft.object_request_timeout,
+                catalog_wait: draft.catalog_wait_timeout,
+                shutdown: draft.shutdown_timeout,
+            },
+            auth: AuthSettings {
+                mode: draft.auth_mode,
+                local_creator_email: draft.local_creator_email,
+                signed_urls,
+            },
+            log_level: draft.log_level,
+            compat_profile: draft.compat_profile,
+            cors_fallback,
+        }
     }
 
-    /// XML/public CORS for buckets without stored rules, after the authentication mode's
-    /// default. Derived from the final mode, so a configuration built in code agrees with one
-    /// that validation produced.
-    pub fn effective_cors_fallback(&self) -> CorsFallbackChoice {
-        CorsFallbackChoice::select(self.cors_fallback, self.auth_mode)
+    getters! {
+        log_level: LogLevel = log_level;
+        listen: SocketAddr = listeners.listen;
+        scheme: Scheme = listeners.scheme;
+        backend: Backend = storage.backend;
+        memory_max_bytes: u64 = storage.memory_max_bytes;
+        memory_catalog_max_bytes: u64 = storage.memory_catalog_max_bytes;
+        seed_content_type: SeedContentType = seed.content_type;
+        seed_watch_interval: Option<Duration> = seed.watch_interval;
+        default_soft_delete_retention_seconds: Option<NonZeroU64> = storage.default_soft_delete_retention_seconds;
+        lifecycle_execution: LifecycleExecution = storage.lifecycle_execution;
+        buckets_mode: BucketsMode = storage.buckets_mode;
+        admin_enabled: bool = admin.enabled;
+        max_connections: usize = limits.max_connections;
+        max_grpc_streams: NonZeroU32 = limits.max_grpc_streams;
+        max_object_bytes: u64 = limits.max_object_bytes;
+        max_resumable_sessions: Option<NonZeroU32> = limits.max_resumable_sessions;
+        max_rewrite_sessions: Option<NonZeroU32> = limits.max_rewrite_sessions;
+        max_seed_entries: Option<NonZeroUsize> = limits.max_seed_entries;
+        max_seed_depth: Option<NonZeroUsize> = limits.max_seed_depth;
+        max_buckets_per_batch: Option<NonZeroUsize> = limits.max_buckets_per_batch;
+        worker_threads: usize = limits.worker_threads;
+        max_blocking_threads: usize = limits.max_blocking_threads;
+        tls_handshake_timeout: TimeLimit = timeouts.tls_handshake;
+        header_read_timeout: TimeLimit = timeouts.header_read;
+        body_inactivity_timeout: TimeLimit = timeouts.body_inactivity;
+        request_timeout: TimeLimit = timeouts.request;
+        keep_alive_timeout: TimeLimit = timeouts.keep_alive;
+        object_request_timeout: TimeLimit = timeouts.object_request;
+        catalog_wait_timeout: TimeLimit = timeouts.catalog_wait;
+        shutdown_timeout: TimeLimit = timeouts.shutdown;
+        auth_mode: AuthMode = auth.mode;
+        signed_urls: SignedUrls = auth.signed_urls;
+        compat_profile: CompatProfile = compat_profile;
+        cors_fallback: CorsFallbackChoice = cors_fallback;
+    }
+
+    pub fn listen_http(&self) -> Option<SocketAddr> {
+        self.listeners.http()
+    }
+
+    pub fn grpc_listen(&self) -> Option<SocketAddr> {
+        self.listeners.grpc().map(|listener| listener.address)
+    }
+
+    pub fn grpc_scheme(&self) -> GrpcScheme {
+        self.grpc_security_scheme().unwrap_or(GrpcScheme::Auto)
+    }
+
+    pub(crate) fn grpc_security_scheme(&self) -> Option<GrpcScheme> {
+        self.listeners.grpc().map(|listener| listener.scheme)
+    }
+
+    pub fn trusted_listen(&self) -> Option<SocketAddr> {
+        self.listeners.trusted().map(|listener| listener.address)
+    }
+
+    pub fn unix_socket(&self) -> Option<&Path> {
+        self.listeners.unix_socket()
+    }
+
+    pub(crate) fn tls(&self) -> Option<&Tls> {
+        self.tls.as_ref()
+    }
+
+    pub fn data_dir(&self) -> &Path {
+        &self.storage.data_dir
+    }
+
+    pub fn seed_dir(&self) -> Option<&Path> {
+        self.seed.dir.as_deref()
+    }
+
+    pub fn default_seed_dir(&self) -> Option<&Path> {
+        self.seed.default_dir.as_deref()
+    }
+
+    pub fn seed_project(&self) -> &str {
+        &self.seed.project
+    }
+
+    pub fn default_location(&self) -> &str {
+        &self.storage.default_location
+    }
+
+    pub fn buckets(&self) -> Option<&DocumentSource> {
+        self.storage.buckets.as_ref()
+    }
+
+    /// Retains the buckets document that startup actually applied, for future resets.
+    pub fn set_startup_buckets(&mut self, document: Option<DocumentSource>) {
+        self.storage.buckets = document;
+    }
+
+    pub fn api_base_url(&self) -> Option<&str> {
+        self.endpoints.api_base_url.as_deref()
+    }
+
+    pub fn public_base_url(&self) -> Option<&PublicOrigin> {
+        self.endpoints.public_base_url.as_ref()
+    }
+
+    pub fn xml_virtual_host_domains(&self) -> &VirtualHostDomains {
+        &self.endpoints.xml_virtual_host_domains
+    }
+
+    pub fn runtime_endpoints(&self) -> &RuntimeEndpoints {
+        &self.endpoints.runtime
+    }
+
+    pub fn admin_principal(&self) -> Option<&str> {
+        self.admin.principal.as_deref()
+    }
+
+    pub fn admin_allowed_hosts(&self) -> &[String] {
+        &self.admin.allowed_hosts
+    }
+
+    pub fn trusted_allowed_hosts(&self) -> &[String] {
+        self.listeners
+            .trusted()
+            .map_or(&[], |listener| listener.allowed_hosts.as_slice())
+    }
+
+    pub fn local_creator_email(&self) -> Option<&str> {
+        self.auth.local_creator_email.as_deref()
+    }
+
+    pub(crate) fn notification_runtime(&self) -> &notification::Runtime {
+        &self.notifications
     }
 
     pub fn healthcheck_url(&self) -> String {
         format!("{}{}", self.local_origin(), Self::HEALTHCHECK_PATH)
     }
 
-    /// The origin through which a client on this host reaches the server, which the healthcheck
-    /// probes.
     pub fn local_origin(&self) -> String {
-        let listen = loopback_if_unspecified(self.effective_listen_http().unwrap_or(self.listen));
-        // Plain HTTP wherever a listener accepts it, so the client needs no CA.
-        let scheme = match self.scheme {
-            Scheme::Auto | Scheme::Http | Scheme::Both => "http",
-            Scheme::Https => "https",
-        };
-        format!("{scheme}://{listen}")
-    }
-
-    pub fn effective_listen_http(&self) -> Option<SocketAddr> {
-        (self.scheme == Scheme::Both).then(|| {
-            self.listen_http
-                .unwrap_or_else(|| SocketAddr::new(self.listen.ip(), 8000))
-        })
+        local_origin(self.listen(), self.listen_http(), self.scheme())
     }
 
     pub fn effective_api_base_url(&self, bound: SocketAddr) -> String {
-        self.api_base_url.clone().unwrap_or_else(|| {
-            format!(
-                "{}://{}",
-                self.scheme.primary(),
-                loopback_if_unspecified(SocketAddr::new(bound.ip(), bound.port()))
-            )
-        })
+        self.api_base_url()
+            .map_or_else(|| bound_api_base(self.scheme(), bound), str::to_owned)
     }
 
     pub fn public_virtual_host_enabled(&self) -> bool {
-        self.public_base_url
-            .as_ref()
+        self.public_base_url()
             .is_some_and(|origin| origin.dns_name().is_some())
     }
 
-    /// `tls_cert` and `tls_key` name one identity, so one without the other is an error rather
-    /// than a fallback to the development identity.
-    pub(crate) fn tls_files(&self) -> Result<TlsFiles<'_>, UnpairedTlsFile> {
-        match (&self.tls_cert, &self.tls_key) {
-            (None, None) => Ok(TlsFiles::Development),
-            (Some(certificate), Some(key)) => Ok(TlsFiles::Provided { certificate, key }),
-            (Some(_), None) => Err(UnpairedTlsFile(Setting::TlsCert)),
-            (None, Some(_)) => Err(UnpairedTlsFile(Setting::TlsKey)),
-        }
-    }
-
     pub fn load(args: &[String], env: &BTreeMap<String, String>) -> Result<Self, Diagnostics> {
-        let report = Self::preflight(args, env);
-        if report.diagnostics.is_err() {
-            Err(report.diagnostics)
-        } else {
-            Ok(report.config)
-        }
+        Self::preflight(args, env).try_into()
     }
 
     pub(crate) fn preflight(
@@ -273,7 +497,7 @@ impl Config {
         let mut inputs = Inputs::default();
         inputs.cli(args, CliCommand::Serve);
         inputs.environment(env);
-        Self::from_inputs(inputs)
+        ConfigDraft::from_inputs(inputs)
     }
 
     pub fn preflight_os(
@@ -283,6 +507,23 @@ impl Config {
         let mut inputs = Inputs::default();
         inputs.cli(args, CliCommand::Serve);
         inputs.environment_os(env);
-        Self::from_inputs(inputs)
+        ConfigDraft::from_inputs(inputs)
     }
+}
+
+pub(super) fn local_origin(listen: SocketAddr, http: Option<SocketAddr>, scheme: Scheme) -> String {
+    let listen = loopback_if_unspecified(http.unwrap_or(listen));
+    let scheme = match scheme {
+        Scheme::Auto | Scheme::Http | Scheme::Both => "http",
+        Scheme::Https => "https",
+    };
+    format!("{scheme}://{listen}")
+}
+
+pub(super) fn bound_api_base(scheme: Scheme, bound: SocketAddr) -> String {
+    format!(
+        "{}://{}",
+        scheme.primary(),
+        loopback_if_unspecified(SocketAddr::new(bound.ip(), bound.port()))
+    )
 }

@@ -169,22 +169,19 @@ fn seed_configuration_precedence_and_validation() {
     .unwrap();
     let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
     let defaults = common::load_http_config(&[], &BTreeMap::new()).unwrap();
-    assert_eq!(defaults.seed_dir, None);
-    assert_eq!(defaults.default_seed_dir, None);
-    assert_eq!(defaults.seed_project, "local-project");
+    assert_eq!(defaults.seed_dir(), None);
+    assert_eq!(defaults.default_seed_dir(), None);
+    assert_eq!(defaults.seed_project(), "local-project");
     assert_eq!(
-        defaults.seed_content_type,
+        defaults.seed_content_type(),
         gcs_mimic::mime::SeedContentType::Extension
     );
     let loaded = common::load_http_config(&args, &BTreeMap::new()).unwrap();
-    assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("file-seed")));
+    assert_eq!(loaded.seed_dir(), Some(Path::new("file-seed")));
+    assert_eq!(loaded.default_seed_dir(), Some(Path::new("file-default")));
+    assert_eq!(loaded.seed_project(), "file-project");
     assert_eq!(
-        loaded.default_seed_dir.as_deref(),
-        Some(Path::new("file-default"))
-    );
-    assert_eq!(loaded.seed_project, "file-project");
-    assert_eq!(
-        loaded.seed_content_type,
+        loaded.seed_content_type(),
         gcs_mimic::mime::SeedContentType::OctetStream
     );
     let env = BTreeMap::from([
@@ -194,14 +191,11 @@ fn seed_configuration_precedence_and_validation() {
         ("GCS_MIMIC_SEED_CONTENT_TYPE".into(), "extension".into()),
     ]);
     let loaded = common::load_http_config(&args, &env).unwrap();
-    assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("env-seed")));
+    assert_eq!(loaded.seed_dir(), Some(Path::new("env-seed")));
+    assert_eq!(loaded.default_seed_dir(), Some(Path::new("env-default")));
+    assert_eq!(loaded.seed_project(), "env-project");
     assert_eq!(
-        loaded.default_seed_dir.as_deref(),
-        Some(Path::new("env-default"))
-    );
-    assert_eq!(loaded.seed_project, "env-project");
-    assert_eq!(
-        loaded.seed_content_type,
+        loaded.seed_content_type(),
         gcs_mimic::mime::SeedContentType::Extension
     );
     args.extend([
@@ -215,14 +209,11 @@ fn seed_configuration_precedence_and_validation() {
         "octet-stream".into(),
     ]);
     let loaded = common::load_http_config(&args, &env).unwrap();
-    assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("cli-seed")));
+    assert_eq!(loaded.seed_dir(), Some(Path::new("cli-seed")));
+    assert_eq!(loaded.default_seed_dir(), Some(Path::new("cli-default")));
+    assert_eq!(loaded.seed_project(), "cli-project");
     assert_eq!(
-        loaded.default_seed_dir.as_deref(),
-        Some(Path::new("cli-default"))
-    );
-    assert_eq!(loaded.seed_project, "cli-project");
-    assert_eq!(
-        loaded.seed_content_type,
+        loaded.seed_content_type(),
         gcs_mimic::mime::SeedContentType::OctetStream
     );
     for (key, invalid) in [

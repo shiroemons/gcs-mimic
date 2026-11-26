@@ -3,6 +3,7 @@
 //! deletion needs.
 
 use super::*;
+use crate::config::ConfigDraft;
 // Only a Unix walk proves a name absent, so the tests of deletions run there alone.
 #[cfg(unix)]
 use crate::object::MapPatch;
@@ -46,7 +47,7 @@ async fn watched() -> Watched {
     watched_with(|_| {}).await
 }
 
-async fn watched_with(configure: impl FnOnce(&mut Config)) -> Watched {
+async fn watched_with(configure: impl FnOnce(&mut ConfigDraft)) -> Watched {
     let dir = TestDir::new();
     let seed = dir.0.join("seed");
     std::fs::create_dir_all(seed.join("bucket")).unwrap();
@@ -55,14 +56,15 @@ async fn watched_with(configure: impl FnOnce(&mut Config)) -> Watched {
     }
     let data = dir.0.join("data");
     std::fs::create_dir(&data).unwrap();
-    let mut config = Config {
+    let mut config = ConfigDraft {
         data_dir: data,
         seed_dir: Some(seed.clone()),
-        ..Config::default()
+        ..Default::default()
     };
     configure(&mut config);
+    let config = config.build();
     let clock = Arc::new(ManualClock::new(SystemTime::now()));
-    let catalog = Catalog::open_with_clock(&config.data_dir, clock.clone())
+    let catalog = Catalog::open_with_clock(config.data_dir(), clock.clone())
         .await
         .unwrap();
     let shared: Arc<dyn Clock> = clock.clone();
@@ -184,11 +186,11 @@ impl Watched {
                 &bucket,
                 &object,
                 Publication {
-                    content_type: self.config.seed_content_type.for_name(name).into(),
+                    content_type: self.config.seed_content_type().for_name(name).into(),
                     expected: ExpectedHashes::default(),
                     condition: None,
                     metadata: Default::default(),
-                    max_bytes: self.config.max_object_bytes,
+                    max_bytes: self.config.max_object_bytes(),
                     mode: PublishMode::Replace,
                 },
                 std::fs::File::open(&path).unwrap(),
@@ -553,7 +555,7 @@ async fn a_directory_away_while_the_api_replaces_its_bucket_keeps_the_api_object
         .ensure_bucket(
             BucketDefinition::default_for(
                 &BucketName::new("bucket").unwrap(),
-                &watched.config.seed_project,
+                watched.config.seed_project(),
                 &crate::clock::SystemClock,
             )
             .unwrap(),
@@ -631,7 +633,7 @@ async fn an_unreadable_directory_keeps_the_bucket_the_api_deleted_or_created_aga
                 .ensure_bucket(
                     BucketDefinition::default_for(
                         &BucketName::new("bucket").unwrap(),
-                        &watched.config.seed_project,
+                        watched.config.seed_project(),
                         &crate::clock::SystemClock,
                     )
                     .unwrap(),

@@ -1,6 +1,4 @@
-use super::{
-    Config, ConfigurationReport, Diagnostic, DiagnosticSource, Setting, SettingFix, Settings,
-};
+use super::{ConfigDraft, Diagnostic, DiagnosticSource, Setting, SettingFix, Settings, Validation};
 use crate::bucket::name::MAX_BUCKET_NAME_BYTES;
 use crate::notification::{
     self, Endpoint, Event, EventTypes, GlobalConfig, NotificationConfig, NotificationError,
@@ -123,7 +121,7 @@ fn event_list(list: &str) -> Result<Option<EventTypes>, EventSettingsError> {
         .map(Some)
 }
 
-impl Config {
+impl ConfigDraft {
     pub(crate) fn notification_runtime(&self) -> Result<Runtime, EventSettingsError> {
         let endpoint = self
             .pubsub_emulator_host
@@ -195,25 +193,28 @@ const EVENT_SETTINGS: [Setting; 6] = [
     Setting::EventList,
 ];
 
-impl ConfigurationReport {
-    pub(super) fn check_notifications(&mut self, settings: &Settings) {
+impl Validation {
+    pub(super) fn check_notifications(&mut self, settings: &Settings) -> Runtime {
         if self.any_invalid(&EVENT_SETTINGS) {
-            return;
+            return Runtime::default();
         }
-        if let Err(error) = self.config.notification_runtime() {
-            let input = error
-                .settings()
-                .iter()
-                .chain(&EVENT_SETTINGS)
-                .find_map(|setting| settings.get(setting));
-            let (source, key) = input.map_or(
-                (DiagnosticSource::Config, Setting::EventPubsubTopic.as_str()),
-                |input| (input.source, input.key.as_str()),
-            );
-            self.diagnostics
-                .errors
-                .push(Diagnostic::new(source, key, error.to_string()));
-        }
+        let error = match self.draft.notification_runtime() {
+            Ok(runtime) => return runtime,
+            Err(error) => error,
+        };
+        let input = error
+            .settings()
+            .iter()
+            .chain(&EVENT_SETTINGS)
+            .find_map(|setting| settings.get(setting));
+        let (source, key) = input.map_or(
+            (DiagnosticSource::Config, Setting::EventPubsubTopic.as_str()),
+            |input| (input.source, input.key.as_str()),
+        );
+        self.diagnostics
+            .errors
+            .push(Diagnostic::new(source, key, error.to_string()));
+        Runtime::default()
     }
 }
 

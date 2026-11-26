@@ -3,7 +3,6 @@ use crate::object::Patch;
 use crate::{
     bucket::BucketAccess,
     clock::ManualClock,
-    config::Config,
     object::ObjectError,
     storage::catalog::{
         ResumableError,
@@ -47,11 +46,14 @@ async fn finished_sessions_stay_inside_a_small_memory_catalog_budget() {
         )
         .await
         .unwrap();
-        catalog.apply_session_limits(&Config {
-            backend: crate::config::Backend::Memory,
-            memory_catalog_max_bytes: BUDGET,
-            ..Default::default()
-        });
+        catalog.apply_session_limits(
+            &crate::config::ConfigDraft {
+                backend: crate::config::Backend::Memory,
+                memory_catalog_max_bytes: BUDGET,
+                ..Default::default()
+            }
+            .build(),
+        );
         catalog
             .insert_bucket(bucket("bucket", "project"))
             .await
@@ -310,9 +312,12 @@ async fn kept_counts_follow_every_transition_and_are_rebuilt_on_open() {
 #[tokio::test]
 async fn a_configured_limit_refuses_only_past_it_and_never_blocks_reopening() {
     let (dir, clock) = (TestDir::new(), Arc::new(ManualClock::new(UNIX_EPOCH)));
-    let limited = |limit| Config {
-        max_resumable_sessions: NonZeroU32::new(limit),
-        ..Default::default()
+    let limited = |limit| {
+        crate::config::ConfigDraft {
+            max_resumable_sessions: NonZeroU32::new(limit),
+            ..Default::default()
+        }
+        .build()
     };
     let catalog = open_with_bucket(&dir, &clock).await;
     catalog.apply_session_limits(&limited(2));

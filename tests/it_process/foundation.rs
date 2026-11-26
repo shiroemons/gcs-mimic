@@ -8,7 +8,6 @@ use gcs_mimic::{
     config_input::RenamedEnvironmentVariable,
     server::{self, State},
     storage::Catalog,
-    time_limit::TimeLimit,
 };
 use std::{
     collections::BTreeMap,
@@ -699,7 +698,7 @@ async fn start(
         clock: Arc::new(FixedClock),
         catalog: Catalog::open(&dir.0).await.unwrap(),
         api_base_url: config.effective_api_base_url(address),
-        default_location: config.default_location.clone(),
+        default_location: config.default_location().to_owned(),
         auth: Default::default(),
     });
     let (stop, shutdown) = oneshot::channel();
@@ -1263,7 +1262,7 @@ async fn shutdown_stops_accepting_on_original_listener() {
         clock: Arc::new(FixedClock),
         catalog: Catalog::open(&dir.0).await.unwrap(),
         api_base_url: config.effective_api_base_url(address),
-        default_location: config.default_location.clone(),
+        default_location: config.default_location().to_owned(),
         auth: Default::default(),
     });
     let (stop, shutdown) = oneshot::channel();
@@ -1330,7 +1329,7 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
         clock: Arc::new(FixedClock),
         catalog,
         api_base_url: config.effective_api_base_url(listener.local_addr().unwrap()),
-        default_location: config.default_location.clone(),
+        default_location: config.default_location().to_owned(),
         auth: Default::default(),
     });
     let security = gcs_mimic::tls::ServerSecurity::load(&config).unwrap();
@@ -1393,11 +1392,8 @@ fn exchange(connection: &mut BufReader<TcpStream>, request: &[u8]) -> String {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn keep_alive_serves_sequential_requests_until_idle_timeout() {
-    let config = Config {
-        keep_alive_timeout: TimeLimit::from_millis(500),
-        max_object_bytes: 16,
-        ..common::http_config()
-    };
+    let config =
+        common::http_config_with(&["--keep-alive-timeout-ms=500", "--max-object-bytes=16"]);
     let (address, _, stop, task, _dir) = start(config).await;
     let mut connection = BufReader::new(stream(address));
     let bucket = r#"{"name":"keep-alive-bucket"}"#;
@@ -1450,11 +1446,8 @@ async fn keep_alive_serves_sequential_requests_until_idle_timeout() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn full_server_reclaims_idle_keep_alive_slots_for_waiting_clients() {
-    let config = Config {
-        max_connections: 1,
-        keep_alive_timeout: TimeLimit::from_millis(60_000),
-        ..common::http_config()
-    };
+    let config =
+        common::http_config_with(&["--max-connections=1", "--keep-alive-timeout-ms=60000"]);
     let (address, _, stop, task, _dir) = start(config).await;
     let health = b"GET /_internal/health HTTP/1.1\r\nHost: localhost\r\n\r\n";
     let mut idle = BufReader::new(stream(address));
@@ -1513,11 +1506,8 @@ fn quiet(connection: &BufReader<TcpStream>, wait: Duration) -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn full_server_closes_only_the_oldest_idle_connection_per_waiting_client() {
-    let config = Config {
-        max_connections: 3,
-        keep_alive_timeout: TimeLimit::from_millis(60_000),
-        ..common::http_config()
-    };
+    let config =
+        common::http_config_with(&["--max-connections=3", "--keep-alive-timeout-ms=60000"]);
     let (address, _, stop, task, _dir) = start(config).await;
     let mut idle = idle_connections(address, 3);
     let mut waiting = BufReader::new(stream(address));
@@ -1543,10 +1533,7 @@ async fn full_server_closes_only_the_oldest_idle_connection_per_waiting_client()
 /// A request that finishes within one poll of the connection still starts a new idle period.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn each_request_renews_the_keep_alive_deadline() {
-    let config = Config {
-        keep_alive_timeout: TimeLimit::from_millis(2000),
-        ..common::http_config()
-    };
+    let config = common::http_config_with(&["--keep-alive-timeout-ms=2000"]);
     let (address, _, stop, task, _dir) = start(config).await;
     let mut connection = BufReader::new(stream(address));
     for _ in 0..5 {
@@ -1559,11 +1546,8 @@ async fn each_request_renews_the_keep_alive_deadline() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn full_server_without_a_waiting_client_keeps_its_idle_connections() {
-    let config = Config {
-        max_connections: 2,
-        keep_alive_timeout: TimeLimit::from_millis(60_000),
-        ..common::http_config()
-    };
+    let config =
+        common::http_config_with(&["--max-connections=2", "--keep-alive-timeout-ms=60000"]);
     let (address, _, stop, task, _dir) = start(config).await;
     let mut idle = idle_connections(address, 2);
     for connection in &mut idle {
@@ -1576,11 +1560,8 @@ async fn full_server_without_a_waiting_client_keeps_its_idle_connections() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_connection_receiving_its_next_request_passes_the_wake_to_the_next_idle_one() {
-    let config = Config {
-        max_connections: 2,
-        keep_alive_timeout: TimeLimit::from_millis(60_000),
-        ..common::http_config()
-    };
+    let config =
+        common::http_config_with(&["--max-connections=2", "--keep-alive-timeout-ms=60000"]);
     let (address, _, stop, task, _dir) = start(config).await;
     let mut idle = idle_connections(address, 2);
     let (head, rest) = HEALTH.split_at(10);
@@ -1598,11 +1579,8 @@ async fn a_connection_receiving_its_next_request_passes_the_wake_to_the_next_idl
 /// A wake sent while no connection was idle goes to the first one that turns idle.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_waiting_client_gets_the_slot_of_a_request_that_finishes_later() {
-    let config = Config {
-        max_connections: 1,
-        keep_alive_timeout: TimeLimit::from_millis(60_000),
-        ..common::http_config()
-    };
+    let config =
+        common::http_config_with(&["--max-connections=1", "--keep-alive-timeout-ms=60000"]);
     let (address, _, stop, task, _dir) = start(config).await;
     let mut busy = BufReader::new(stream(address));
     let (head, rest) = HEALTH.split_at(HEALTH.len() - 2);
@@ -1622,12 +1600,11 @@ async fn a_waiting_client_gets_the_slot_of_a_request_that_finishes_later() {
 /// The wake also outlives a client that got its slot another way, and must not close anything.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stale_wake_does_not_close_the_next_idle_connection() {
-    let config = Config {
-        max_connections: 1,
-        header_read_timeout: TimeLimit::from_millis(500),
-        keep_alive_timeout: TimeLimit::from_millis(60_000),
-        ..common::http_config()
-    };
+    let config = common::http_config_with(&[
+        "--max-connections=1",
+        "--header-read-timeout-ms=500",
+        "--keep-alive-timeout-ms=60000",
+    ]);
     let (address, _, stop, task, _dir) = start(config).await;
     let mut stalled = stream(address);
     stalled.write_all(&HEALTH[..10]).unwrap();
@@ -1692,11 +1669,7 @@ fn startup_warns_when_the_hard_limit_keeps_connections_short_of_descriptors() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn connection_limit_deadline_and_shutdown_release_idle_clients() {
-    let config = Config {
-        max_connections: 1,
-        header_read_timeout: TimeLimit::from_millis(300),
-        ..common::http_config()
-    };
+    let config = common::http_config_with(&["--max-connections=1", "--header-read-timeout-ms=300"]);
     let (address, _, stop, task, _dir) = start(config).await;
     let mut first = stream(address);
     first
@@ -1749,27 +1722,27 @@ fn config_precedence_validation_and_size_limit() {
         ("GCS_MIMIC_CONFIG".into(), "missing-file".into()),
     ]);
     let config = common::load_http_config(&args, &env).unwrap();
-    assert_eq!(config.max_connections, 6);
-    assert_eq!(config.listen.port(), 1234);
+    assert_eq!(config.max_connections(), 6);
+    assert_eq!(config.listen().port(), 1234);
     assert_eq!(
         common::load_http_config(
             &args[..2],
             &BTreeMap::from([("GCS_MIMIC_MAX_CONNECTIONS".into(), "5".into())])
         )
         .unwrap()
-        .max_connections,
+        .max_connections(),
         5
     );
     assert_eq!(
         common::load_http_config(&args[..2], &BTreeMap::new())
             .unwrap()
-            .max_connections,
+            .max_connections(),
         4
     );
     assert_eq!(
         common::load_http_config(&[], &BTreeMap::new())
             .unwrap()
-            .max_connections,
+            .max_connections(),
         1024
     );
     for (key, value) in [

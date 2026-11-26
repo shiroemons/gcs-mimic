@@ -99,7 +99,7 @@ impl<'a> RequestCtx<'a> {
 
     /// Starts an object request deadline of `object_request_timeout_ms` from now.
     pub(crate) fn start_object_deadline(self, watch: DeadlineWatch) -> Instant {
-        let deadline = self.config.object_request_timeout.deadline();
+        let deadline = self.config.object_request_timeout().deadline();
         let watched = match watch {
             DeadlineWatch::Enforced => Some(deadline),
             DeadlineWatch::CatalogOnly => None,
@@ -148,7 +148,7 @@ impl ObjectCtx<'_> {
     ) -> Result<T, E> {
         await_upload_catalog(
             operation,
-            self.config.catalog_wait_timeout,
+            self.config.catalog_wait_timeout(),
             self.deadline,
             self.activity,
         )
@@ -165,7 +165,7 @@ impl ObjectCtx<'_> {
     ) -> Result<T, E> {
         await_upload_catalog(
             operation,
-            self.config.catalog_wait_timeout.doubled(),
+            self.config.catalog_wait_timeout().doubled(),
             self.deadline,
             self.activity,
         )

@@ -32,7 +32,7 @@ impl JsonRoute {
     /// also below a bucket path), so the first match in this order wins, and this order is part
     /// of the wire contract.
     pub(super) fn parse(method: &Method, uri: &Uri, config: &Config) -> Option<Self> {
-        let profile = config.compat_profile;
+        let profile = config.compat_profile();
         json::acl::route_acl(method, uri, profile)
             .map(Self::Acl)
             .or_else(|| unsupported::route(method, uri).map(Self::Unsupported))
@@ -42,7 +42,7 @@ impl JsonRoute {
             .or_else(|| json::route_object_with_profile(method, uri, profile).map(Self::Object))
             .or_else(|| json::route_project(method, uri, profile).map(Self::Project))
             .or_else(|| {
-                json::route_with_profile(method, uri, profile, &config.seed_project)
+                json::route_with_profile(method, uri, profile, config.seed_project())
                     .map(Self::Bucket)
             })
     }

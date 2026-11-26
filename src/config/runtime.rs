@@ -265,12 +265,12 @@ impl RuntimeEndpoints {
         }
         let initial = Arc::new(EndpointSnapshot {
             fixed_api_base: ApiBase::try_from(api_base_url)?,
-            api_base_source: match config.api_base_url {
+            api_base_source: match config.api_base_url() {
                 Some(_) => ApiBaseSource::Explicit,
                 None => ApiBaseSource::Derived,
             },
-            public_base_url: config.public_base_url.clone(),
-            xml_virtual_host_domains: config.xml_virtual_host_domains.clone(),
+            public_base_url: config.public_base_url().cloned(),
+            xml_virtual_host_domains: config.xml_virtual_host_domains().clone(),
         });
         let mut current = self.current.write().map_err(|_| EndpointError::Poisoned)?;
         Ok(current.get_or_insert(initial).clone())
@@ -296,12 +296,12 @@ impl RuntimeEndpoints {
             if authority.as_str().contains('@') || value.contains(['/', '?', '#']) {
                 return Err(EndpointError::PublicHost);
             }
-            let scheme = config.scheme.primary();
+            let scheme = config.scheme().primary();
             candidate.public_base_url = Some(PublicOrigin::parse(&format!("{scheme}://{value}"))?);
             candidate.xml_virtual_host_domains = self
                 .declared_domains
                 .as_deref()
-                .unwrap_or(&config.xml_virtual_host_domains)
+                .unwrap_or_else(|| config.xml_virtual_host_domains())
                 .clone();
             if let Some(domain) = candidate
                 .public_base_url

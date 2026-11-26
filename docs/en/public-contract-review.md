@@ -73,7 +73,7 @@ Any `GCS_MIMIC_*` name that is not a setting stops `serve` and makes `healthchec
 
 ### Server options
 
-Every name below is declared in `src/config/setting.rs`, and its default is in `Config::default` in `src/config/assemble.rs`. The table gives the JSON key; the flag and variable follow the spelling rules. "Code" is the file that parses the value. Exception: `config` has no JSON key.
+Every name below is declared in `src/config/setting.rs`, with defaults in `ConfigDraft::default` in `src/config/draft.rs`. The table gives the JSON key. Flags and variables follow the spelling rules. "Code" is the file that parses the value. The `config` option has no JSON key.
 
 | Setting | Default | Accepted | Code | Documents | Agree |
 | --- | --- | --- | --- | --- | --- |

@@ -440,7 +440,7 @@ fn the_implicit_projects_come_from_the_parse_the_initializer_validates() {
         let auth = report.load_auth();
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
         assert!(
-            matches!(report.config.buckets, Some(DocumentSource::Parsed(_))),
+            matches!(report.draft.buckets, Some(DocumentSource::Parsed(_))),
             "{args:?}"
         );
         let app = auth
@@ -461,7 +461,7 @@ fn the_implicit_projects_come_from_the_parse_the_initializer_validates() {
         without_built_in.load_auth();
         assert!(
             !matches!(
-                without_built_in.config.buckets,
+                without_built_in.draft.buckets,
                 Some(DocumentSource::Parsed(_))
             ),
             "{args:?}"

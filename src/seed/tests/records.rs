@@ -29,7 +29,12 @@ async fn live(catalog: &Catalog, name: &str) -> Option<ObjectRecord> {
 
 /// Writes `body` at `bucket/name` the way an API client would, with the content type and
 /// metadata a replay would write, so that only the generation tells it from seeding's own.
-async fn api_write(catalog: &Catalog, config: &Config, name: &str, body: &[u8]) -> ObjectRecord {
+async fn api_write(
+    catalog: &Catalog,
+    config: &ConfigDraft,
+    name: &str,
+    body: &[u8],
+) -> ObjectRecord {
     let dir = TestDir::new();
     let path = dir.0.join("body");
     std::fs::write(&path, body).unwrap();
@@ -52,7 +57,7 @@ async fn api_write(catalog: &Catalog, config: &Config, name: &str, body: &[u8]) 
         .unwrap()
 }
 
-fn remove(config: &Config, relative: &str) {
+fn remove(config: &ConfigDraft, relative: &str) {
     let path = config.seed_dir.as_ref().unwrap().join(relative);
     if path.is_dir() {
         std::fs::remove_dir_all(path).unwrap();
@@ -67,16 +72,22 @@ fn remove(config: &Config, relative: &str) {
 async fn a_restart_deletes_the_object_of_a_file_removed_while_stopped() {
     let (_dir, config) = fixture();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     remove(&config, "bucket/b");
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert!(live(&catalog, "b").await.is_none());
     assert!(live(&catalog, "a").await.is_some());
     assert!(live(&catalog, "c").await.is_some());
 
     // A file back with the body seeding deleted is published again.
     std::fs::write(config.seed_dir.as_ref().unwrap().join("bucket/b"), "b").unwrap();
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert!(live(&catalog, "b").await.is_some());
     catalog.close().await.unwrap();
 }
@@ -89,7 +100,9 @@ async fn a_deletion_that_fails_reports_its_own_cause_and_changes_nothing() {
     use crate::storage::fault;
     let (_dir, config) = fixture();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     remove(&config, "bucket/b");
     fault::arm(
         &config.data_dir,
@@ -97,7 +110,9 @@ async fn a_deletion_that_fails_reports_its_own_cause_and_changes_nothing() {
         0,
         fault::Fault::RollBack,
     );
-    let error = import(&catalog, &config, &clock()).await.unwrap_err();
+    let error = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap_err();
     let causes: Vec<String> = crate::error::causes(&error)
         .map(ToString::to_string)
         .collect();
@@ -110,7 +125,9 @@ async fn a_deletion_that_fails_reports_its_own_cause_and_changes_nothing() {
         "{causes:?}"
     );
     assert!(live(&catalog, "b").await.is_some());
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert!(live(&catalog, "b").await.is_none());
     catalog.close().await.unwrap();
 }
@@ -120,9 +137,13 @@ async fn a_deletion_that_fails_reports_its_own_cause_and_changes_nothing() {
 async fn a_removed_bucket_directory_keeps_its_bucket() {
     let (_dir, config) = fixture();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     remove(&config, "bucket");
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     for name in ["a", "b", "c"] {
         assert!(live(&catalog, name).await.is_none(), "{name}");
     }
@@ -137,17 +158,23 @@ async fn a_removed_bucket_directory_keeps_its_bucket() {
 async fn a_restart_keeps_an_api_write_at_the_name_of_a_removed_file() {
     let (_dir, config) = fixture();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     let written = api_write(&catalog, &config, "b", b"b").await;
     remove(&config, "bucket/b");
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert_eq!(
         live(&catalog, "b").await.unwrap().generation,
         written.generation
     );
     // Forgotten, the name is a new file when one returns, as it would have been had it stayed.
     std::fs::write(config.seed_dir.as_ref().unwrap().join("bucket/b"), "other").unwrap();
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert_ne!(
         live(&catalog, "b").await.unwrap().generation,
         written.generation
@@ -170,7 +197,9 @@ async fn the_first_start_with_records_claims_no_object_it_did_not_publish() {
         .await
         .unwrap();
     let older = api_write(&catalog, &config, "a", b"a").await;
-    let outcome = import(&catalog, &config, &clock()).await.unwrap();
+    let outcome = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert!(matches!(
         outcome,
         SeedOutcome::Imported {
@@ -180,7 +209,9 @@ async fn the_first_start_with_records_claims_no_object_it_did_not_publish() {
         }
     ));
     remove(&config, "bucket/a");
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert_eq!(
         live(&catalog, "a").await.unwrap().generation,
         older.generation
@@ -195,7 +226,9 @@ async fn the_first_start_with_records_claims_no_object_it_did_not_publish() {
 async fn a_file_missing_only_after_the_listing_keeps_its_object_at_a_reseed() {
     let (_dir, config) = fixture();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     let before = live(&catalog, "b").await.unwrap();
     let file = std::fs::canonicalize(config.seed_dir.as_ref().unwrap())
         .unwrap()
@@ -207,10 +240,14 @@ async fn a_file_missing_only_after_the_listing_keeps_its_object_at_a_reseed() {
     ));
     let admin = catalog.admin(Origin::Seed);
     let deadline = crate::test_support::hang_deadline();
-    reseed(&admin, &config, &clock(), deadline).await.unwrap();
+    reseed(&admin, &config.clone().build(), &clock(), deadline)
+        .await
+        .unwrap();
     assert_eq!(live(&catalog, "b").await.unwrap(), before);
     std::fs::write(&file, "b").unwrap();
-    let outcome = reseed(&admin, &config, &clock(), deadline).await.unwrap();
+    let outcome = reseed(&admin, &config.clone().build(), &clock(), deadline)
+        .await
+        .unwrap();
     assert!(
         matches!(outcome, SeedOutcome::Imported { unchanged: 3, .. }),
         "{outcome:?}"
@@ -218,7 +255,9 @@ async fn a_file_missing_only_after_the_listing_keeps_its_object_at_a_reseed() {
     assert_eq!(live(&catalog, "b").await.unwrap(), before);
     // Still seeding's own, the object goes once the file is removed before a replay.
     remove(&config, "bucket/b");
-    reseed(&admin, &config, &clock(), deadline).await.unwrap();
+    reseed(&admin, &config.clone().build(), &clock(), deadline)
+        .await
+        .unwrap();
     assert!(live(&catalog, "b").await.is_none());
     catalog.close().await.unwrap();
 }
@@ -228,11 +267,15 @@ async fn a_file_missing_only_after_the_listing_keeps_its_object_at_a_reseed() {
 async fn a_reseed_deletes_the_object_of_a_removed_file() {
     let (_dir, config) = fixture();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     remove(&config, "bucket/c");
     let admin = catalog.admin(Origin::Seed);
     let deadline = crate::test_support::hang_deadline();
-    reseed(&admin, &config, &clock(), deadline).await.unwrap();
+    reseed(&admin, &config.clone().build(), &clock(), deadline)
+        .await
+        .unwrap();
     assert!(live(&catalog, "c").await.is_none());
     catalog.close().await.unwrap();
 }

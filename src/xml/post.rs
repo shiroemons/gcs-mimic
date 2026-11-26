@@ -663,7 +663,7 @@ pub(crate) async fn respond(
 ) -> Result<Response<ResponseBody>, Error> {
     let RequestCtx { state, config, .. } = ctx;
     let bucket = object.bucket.clone();
-    crate::bucket::name::validate_for_profile(&bucket, config.compat_profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, config.compat_profile())?;
     // POST Object takes every option from the form; query options belong to other operations.
     if let Some(query) = request.uri().query() {
         let key = query.split('&').next().unwrap_or_default();
@@ -727,7 +727,7 @@ pub(crate) async fn respond(
             content_type,
             expected: ExpectedHashes::default(),
             conditions: ObjectConditions::default(),
-            max_bytes: config.max_object_bytes,
+            max_bytes: config.max_object_bytes(),
             metadata,
             access,
         },
@@ -812,7 +812,7 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
         declared_length,
     } = limits;
     let caller = ctx.caller;
-    let max_bytes = ctx.config.max_object_bytes;
+    let max_bytes = ctx.config.max_object_bytes();
     let streaming = async {
         let mut size = 0_u64;
         while let Some(bytes) = parser.next_chunk().await? {

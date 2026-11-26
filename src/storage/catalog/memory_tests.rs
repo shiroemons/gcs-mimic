@@ -752,8 +752,8 @@ async fn ram_full_catalog_resets_many_objects_without_growing_a_deletion_journal
 async fn ram_default_budgets_accept_one_thousand_small_objects_and_report_database_pages() {
     let config = crate::config::Config::default();
     let catalog = Catalog::open_memory_for_server(
-        config.memory_max_bytes,
-        config.memory_catalog_max_bytes,
+        config.memory_max_bytes(),
+        config.memory_catalog_max_bytes(),
         Arc::new(SystemClock),
         admin::LocalAdmin::Enabled,
     )

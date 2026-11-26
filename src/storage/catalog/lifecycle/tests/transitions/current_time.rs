@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::{Config, LifecycleExecution};
+use crate::config::LifecycleExecution;
 
 fn old_class_delete_rules() -> Vec<Value> {
     vec![
@@ -38,7 +38,7 @@ async fn enabling_or_replacing_rules_evaluates_current_class_candidates() {
         let (catalog, clock) = memory().await;
         create(&catalog, old_class_delete_rules()).await;
         let original = put(&catalog, "object").await;
-        let config = Config {
+        let config = crate::config::ConfigDraft {
             lifecycle_execution: if mode == "disabled" {
                 LifecycleExecution::Disabled
             } else {
@@ -46,7 +46,7 @@ async fn enabling_or_replacing_rules_evaluates_current_class_candidates() {
             },
             ..Default::default()
         };
-        catalog.configure_lifecycle(&config);
+        catalog.configure_lifecycle(&config.clone().build());
         clock.advance(DAY * 100);
         if mode == "replace" {
             rules(
@@ -60,10 +60,13 @@ async fn enabling_or_replacing_rules_evaluates_current_class_candidates() {
                 LifecycleOutcome::Disabled
             ));
             assert_eq!(current(&catalog, "object").await, original);
-            catalog.configure_lifecycle(&Config {
-                lifecycle_execution: LifecycleExecution::Enabled,
-                ..config
-            });
+            catalog.configure_lifecycle(
+                &crate::config::ConfigDraft {
+                    lifecycle_execution: LifecycleExecution::Enabled,
+                    ..config
+                }
+                .build(),
+            );
         }
         let outcome = execute(&catalog).await;
         assert_eq!((outcome.transitioned, outcome.deleted), (1, 0), "{mode}");

@@ -472,17 +472,19 @@ async fn legacy_header_clock_skew_answers_request_time_too_skewed() {
 /// Whether the Host or the path named the bucket decides the resource a V2 signature covers.
 #[test]
 fn object_paths_name_their_bucket_source() {
-    let virtual_hosts = Config {
+    let virtual_hosts = crate::config::ConfigDraft {
         xml_virtual_host_domains: VirtualHostDomains::of(&["storage.example.test"]),
-        ..Config::default()
-    };
-    let legacy_public = Config {
+        ..Default::default()
+    }
+    .build();
+    let legacy_public = crate::config::ConfigDraft {
         compat_profile: crate::config::CompatProfile::FakeGcsServer,
         public_base_url: Some(
             crate::url::PublicOrigin::parse("http://storage.local:4443").unwrap(),
         ),
-        ..Config::default()
-    };
+        ..Default::default()
+    }
+    .build();
     // The public Host's root names the empty bucket by its path, which validation refuses later.
     for (config, host, path, expected) in [
         (

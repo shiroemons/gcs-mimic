@@ -2,12 +2,12 @@ use super::*;
 
 #[test]
 fn no_selected_source_events_disables_the_global_rule_without_enabling_all_events() {
-    let mut config = Config {
+    let mut config = ConfigDraft {
         pubsub_emulator_host: Some("127.0.0.1:8085".into()),
         event_pubsub_project_id: "local".into(),
         event_pubsub_topic: "events".into(),
         event_list: "none".into(),
-        ..Config::default()
+        ..ConfigDraft::default()
     };
     let runtime = config.notification_runtime().unwrap();
     assert!(runtime.endpoint.is_some());
@@ -46,7 +46,7 @@ fn alias_events_and_emulator_host_apply_with_native_precedence() {
     ]
     .map(str::to_owned)
     .to_vec();
-    let config = Config::load(&args, &env).unwrap();
+    let config = ConfigDraft::load(&args, &env).unwrap();
     let runtime = config.notification_runtime().unwrap();
     assert!(runtime.endpoint.is_some());
     let global = runtime.global.unwrap();
@@ -75,7 +75,7 @@ fn event_settings_never_fall_back_to_production_or_ignore_incomplete_filters() {
             .into_iter()
             .flat_map(|(key, value)| [key.into(), value.into()])
             .collect();
-        assert!(Config::load(&args, &BTreeMap::new()).is_err());
+        assert!(ConfigDraft::load(&args, &BTreeMap::new()).is_err());
     }
 }
 
@@ -149,7 +149,7 @@ fn event_setting_failures_name_their_setting_and_fix() {
             .iter()
             .flat_map(|(key, value)| [(*key).to_owned(), value.clone()])
             .collect();
-        let diagnostics = Config::load(&args, &BTreeMap::new()).unwrap_err();
+        let diagnostics = ConfigDraft::load(&args, &BTreeMap::new()).unwrap_err();
         let errors: Vec<(&str, &str)> = diagnostics
             .errors
             .iter()
@@ -168,7 +168,7 @@ fn native_emulator_host_wins_over_standard_alias_in_both_environment_readers() {
             "127.0.0.1:8086".into(),
         ),
     ]);
-    let config = Config::load(&[], &env).unwrap();
+    let config = ConfigDraft::load(&[], &env).unwrap();
     assert_eq!(
         config.pubsub_emulator_host.as_deref(),
         Some("127.0.0.1:8086")
@@ -183,7 +183,7 @@ fn native_emulator_host_wins_over_standard_alias_in_both_environment_readers() {
             ("PUBSUB_EMULATOR_HOST", "127.0.0.1:8085"),
         ],
     ] {
-        let report = Config::preflight_os(
+        let report = crate::config::Config::preflight_os(
             &[],
             entries
                 .into_iter()
@@ -191,7 +191,7 @@ fn native_emulator_host_wins_over_standard_alias_in_both_environment_readers() {
         );
         assert!(!report.diagnostics.is_err());
         assert_eq!(
-            report.config.pubsub_emulator_host.as_deref(),
+            report.draft.pubsub_emulator_host.as_deref(),
             Some("127.0.0.1:8086")
         );
     }

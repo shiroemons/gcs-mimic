@@ -23,7 +23,7 @@ async fn stalled_chunk(h: &Harness, path: &str) -> TcpStream {
 
 /// Serves with the writer wait the server configures at startup.
 async fn with_writer_wait(catalog_wait_timeout_ms: u64) -> Arc<Harness> {
-    let config = Config {
+    let config = crate::config::ConfigDraft {
         max_object_bytes: 1024 * 1024,
         catalog_wait_timeout: gcs_mimic::time_limit::TimeLimit::from_millis(
             catalog_wait_timeout_ms,
@@ -31,7 +31,7 @@ async fn with_writer_wait(catalog_wait_timeout_ms: u64) -> Arc<Harness> {
         ..Default::default()
     };
     let h = Harness::start_with_config(Permissive, None, config.clone()).await;
-    h.state.catalog.apply_session_limits(&config);
+    h.state.catalog.apply_session_limits(&config.build());
     Arc::new(h)
 }
 

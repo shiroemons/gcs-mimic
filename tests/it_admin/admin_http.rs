@@ -812,13 +812,13 @@ fn local_admin_configuration_is_explicit_and_obeys_native_precedence() {
     std::fs::write(&path, br#"{"admin_enabled":true}"#).unwrap();
     let args = ["--config".into(), path.to_str().unwrap().into()];
     let mut environment = std::collections::BTreeMap::new();
-    assert!(!Config::default().admin_enabled);
-    assert!(Config::load(&args, &environment).unwrap().admin_enabled);
+    assert!(!Config::default().admin_enabled());
+    assert!(Config::load(&args, &environment).unwrap().admin_enabled());
     environment.insert("GCS_MIMIC_ADMIN_ENABLED".into(), "false".into());
-    assert!(!Config::load(&args, &environment).unwrap().admin_enabled);
+    assert!(!Config::load(&args, &environment).unwrap().admin_enabled());
     let mut args = args.to_vec();
     args.extend(["--admin-enabled".into(), "true".into()]);
-    assert!(Config::load(&args, &environment).unwrap().admin_enabled);
+    assert!(Config::load(&args, &environment).unwrap().admin_enabled());
     assert!(Config::load(&["--admin-enabled".into(), "yes".into()], &environment).is_err());
 }
 

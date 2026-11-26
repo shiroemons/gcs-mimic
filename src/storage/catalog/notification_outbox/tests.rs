@@ -206,7 +206,7 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
                 b"seed bytes",
             )
             .unwrap();
-            let config = crate::config::Config {
+            let config = crate::config::ConfigDraft {
                 backend: if memory {
                     crate::config::Backend::Memory
                 } else {
@@ -215,7 +215,8 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
                 data_dir: dir.0.clone(),
                 seed_dir: Some(seed_directory.0.clone()),
                 ..Default::default()
-            };
+            }
+            .build();
             let clock: std::sync::Arc<dyn crate::clock::Clock> = std::sync::Arc::new(SystemClock);
             crate::seed::import(&catalog, &config, &clock)
                 .await

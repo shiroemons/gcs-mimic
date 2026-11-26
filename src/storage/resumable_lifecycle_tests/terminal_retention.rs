@@ -1,8 +1,5 @@
 use super::*;
-use gcs_mimic::{
-    config::Config,
-    storage::{ResumableChunk, ResumableOptions, ResumableSession, SessionState},
-};
+use gcs_mimic::storage::{ResumableChunk, ResumableOptions, ResumableSession, SessionState};
 use std::num::NonZeroU32;
 
 async fn create(
@@ -119,10 +116,13 @@ async fn a_configured_cap_applies_only_to_active_sessions() {
     let dir = TestDir::new();
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
-    catalog.apply_session_limits(&Config {
-        max_resumable_sessions: NonZeroU32::new(2),
-        ..Default::default()
-    });
+    catalog.apply_session_limits(
+        &crate::config::ConfigDraft {
+            max_resumable_sessions: NonZeroU32::new(2),
+            ..Default::default()
+        }
+        .build(),
+    );
     // Finished records never count against it, or every upload would fail once two had finished.
     for _ in 0..3 {
         let session = create(&catalog, &clock).await.unwrap();

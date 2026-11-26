@@ -36,11 +36,21 @@ pub(crate) fn without_acl(mut value: serde_json::Value) -> serde_json::Value {
 }
 
 pub(crate) fn http_config() -> gcs_mimic::config::Config {
-    gcs_mimic::config::Config {
-        scheme: gcs_mimic::config::Scheme::Http,
-        api_base_url: Some("http://127.0.0.1:4443".into()),
-        ..Default::default()
-    }
+    http_config_with(&[])
+}
+
+pub(crate) fn http_config_with(options: &[&str]) -> gcs_mimic::config::Config {
+    let mut args = vec!["--scheme=http", "--api-base-url=http://127.0.0.1:4443"];
+    args.extend_from_slice(options);
+    parse_config(&args)
+}
+
+pub(crate) fn parse_config(args: &[&str]) -> gcs_mimic::config::Config {
+    gcs_mimic::config::Config::load(
+        &args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+        &Default::default(),
+    )
+    .unwrap()
 }
 
 pub(crate) fn load_http_config(

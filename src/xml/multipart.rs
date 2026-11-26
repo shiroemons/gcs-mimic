@@ -178,7 +178,7 @@ impl Write {
 
     fn max_body(&self, config: &crate::config::Config) -> u64 {
         match self {
-            Self::Part { .. } => config.max_object_bytes.min(storage::MAX_PART_BYTES),
+            Self::Part { .. } => config.max_object_bytes().min(storage::MAX_PART_BYTES),
             Self::Complete { .. } => MANIFEST_LIMIT as u64,
             Self::Begin | Self::Abort { .. } => 0,
         }
@@ -483,7 +483,7 @@ async fn upload_part(
         lease,
         storage::PartUpload {
             expected: headers.expected,
-            max_bytes: ctx.config.max_object_bytes,
+            max_bytes: ctx.config.max_object_bytes(),
         },
         body,
     );
@@ -491,7 +491,7 @@ async fn upload_part(
         stream_upload(
             request.into_body(),
             &sender,
-            ctx.config.max_object_bytes.min(storage::MAX_PART_BYTES),
+            ctx.config.max_object_bytes().min(storage::MAX_PART_BYTES),
             headers.sha256,
         )
         .await
@@ -539,7 +539,7 @@ async fn complete(
     let record = ctx
         .state
         .catalog
-        .complete_xml_multipart(lease, parts, ctx.config.max_object_bytes)
+        .complete_xml_multipart(lease, parts, ctx.config.max_object_bytes())
         .await
         .map_err(|error| storage_error(error, ctx))?;
     drop(wait);

@@ -14,7 +14,7 @@ async fn a_multipart_completion_past_the_catalog_wait_reports_its_commit() {
     let h = Harness::start_with_config(
         Permissive,
         None,
-        Config {
+        crate::config::ConfigDraft {
             catalog_wait_timeout: TimeLimit::from_millis(BUDGET_MILLIS),
             ..Default::default()
         },
@@ -109,7 +109,8 @@ async fn stalled_part(h: &Harness, path: &str, start: &[u8], rest: usize) -> Tcp
 /// not make the others wait, let alone answer 503 once the catalog wait runs out.
 #[tokio::test]
 async fn a_part_succeeds_while_other_parts_of_its_upload_stay_stalled_on_the_wire() {
-    let h = Harness::start_with_config(Permissive, None, Config::default()).await;
+    let h =
+        Harness::start_with_config(Permissive, None, crate::config::ConfigDraft::default()).await;
     let id = upload_id(h.request("POST", "/bucket/parallel?uploads", "", b"").await);
     let part = |number: u16| format!("/bucket/parallel?partNumber={number}&uploadId={id}");
     let mut first = stalled_part(&h, &part(1), b"one", 4).await;
@@ -152,7 +153,7 @@ async fn only_a_conflicting_request_answers_503_past_the_catalog_wait() {
     let h = Harness::start_with_config(
         Permissive,
         None,
-        Config {
+        crate::config::ConfigDraft {
             catalog_wait_timeout: TimeLimit::from_millis(2_000),
             ..Default::default()
         },
@@ -190,7 +191,8 @@ async fn only_a_conflicting_request_answers_503_past_the_catalog_wait() {
 /// stalled body would fail the guard here.
 #[tokio::test]
 async fn an_abort_answers_while_a_part_stays_stalled_on_the_wire_and_the_part_then_fails() {
-    let h = Harness::start_with_config(Permissive, None, Config::default()).await;
+    let h =
+        Harness::start_with_config(Permissive, None, crate::config::ConfigDraft::default()).await;
     let id = upload_id(h.request("POST", "/bucket/aborted?uploads", "", b"").await);
     let part = |number: u16| format!("/bucket/aborted?partNumber={number}&uploadId={id}");
     assert_eq!(h.request("PUT", &part(2), "", b"stored").await.status, 200);
@@ -226,7 +228,8 @@ async fn an_abort_answers_while_a_part_stays_stalled_on_the_wire_and_the_part_th
 
 #[tokio::test]
 async fn a_part_disconnected_on_the_wire_gives_back_its_number_and_staged_bytes() {
-    let h = Harness::start_with_config(Permissive, None, Config::default()).await;
+    let h =
+        Harness::start_with_config(Permissive, None, crate::config::ConfigDraft::default()).await;
     let id = upload_id(h.request("POST", "/bucket/cut?uploads", "", b"").await);
     let path = format!("/bucket/cut?partNumber=1&uploadId={id}");
     let client = stalled_part(&h, &path, b"start", 100).await;
@@ -248,7 +251,7 @@ async fn a_part_disconnected_on_the_wire_gives_back_its_number_and_staged_bytes(
 }
 
 async fn saturable() -> Arc<Harness> {
-    let config = Config {
+    let config = crate::config::ConfigDraft {
         max_connections: 2 * REQUESTS,
         max_object_bytes: 1024,
         ..Default::default()

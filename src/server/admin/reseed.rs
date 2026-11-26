@@ -39,7 +39,7 @@ async fn reseed(
             "Reseed does not accept query parameters",
         ));
     }
-    if ctx.config.seed_dir.is_none() {
+    if ctx.config.seed_dir().is_none() {
         return Err(ApiError::invalid_argument(
             "Configure seed_dir at startup before reseeding",
         ));
@@ -394,7 +394,6 @@ mod tests {
     async fn reseed_keeps_project_mismatch_typed_until_http_classification() {
         use crate::{
             clock::SystemClock,
-            config::Config,
             storage::{
                 Catalog,
                 admin::{BucketDefinition, BucketName, Origin},
@@ -417,11 +416,12 @@ mod tests {
             )
             .await
             .unwrap();
-        let config = Config {
+        let config = crate::config::ConfigDraft {
             data_dir: data.0.clone(),
             seed_dir: Some(source.0.clone()),
             ..Default::default()
-        };
+        }
+        .build();
         let error = crate::seed::reseed(
             &admin,
             &config,

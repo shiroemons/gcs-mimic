@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::ConfigDraft;
 #[cfg(unix)]
 use crate::storage::admin::ObjectName;
 use crate::{clock::SystemClock, test_support::TestDir};
@@ -40,7 +41,7 @@ fn clock() -> Arc<dyn Clock> {
     Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()))
 }
 
-fn fixture() -> (TestDir, Config) {
+fn fixture() -> (TestDir, ConfigDraft) {
     let dir = TestDir::new();
     let seed = dir.0.join("seed");
     std::fs::create_dir_all(seed.join("bucket")).unwrap();
@@ -49,10 +50,10 @@ fn fixture() -> (TestDir, Config) {
     }
     let data = dir.0.join("data");
     std::fs::create_dir(&data).unwrap();
-    let config = Config {
+    let config = ConfigDraft {
         data_dir: data,
         seed_dir: Some(seed),
-        ..Config::default()
+        ..Default::default()
     };
     (dir, config)
 }
@@ -65,7 +66,9 @@ async fn seed_complete(catalog: &Catalog) -> bool {
 async fn a_complete_walk_imports_every_fixture_and_marks_the_seed_complete() {
     let (_dir, config) = fixture();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    let outcome = import(&catalog, &config, &clock()).await.unwrap();
+    let outcome = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert!(matches!(
         outcome,
         SeedOutcome::Imported {
@@ -98,11 +101,15 @@ async fn a_tree_past_the_former_limits_seeds_and_a_named_limit_still_stops_it() 
     .await
     .unwrap();
     config.max_seed_entries = NonZeroUsize::new(10_000);
-    let error = import(&catalog, &config, &clock()).await.unwrap_err();
+    let error = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("10000 entries"), "{error}");
     assert!(error.to_string().contains("max_seed_entries"), "{error}");
     config.max_seed_entries = None;
-    let outcome = import(&catalog, &config, &clock()).await.unwrap();
+    let outcome = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     let SeedOutcome::Imported { objects, .. } = outcome else {
         panic!("a configured seed directory imports");
     };
@@ -123,11 +130,15 @@ async fn the_depth_limit_comes_from_the_configuration_and_its_failure_names_the_
     std::fs::write(nested.join("deep"), b"deep").unwrap();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
     config.max_seed_depth = NonZeroUsize::new(2);
-    let error = import(&catalog, &config, &clock()).await.unwrap_err();
+    let error = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("2 directory levels"), "{error}");
     assert!(error.to_string().contains("max_seed_depth"), "{error}");
     config.max_seed_depth = NonZeroUsize::new(3);
-    import(&catalog, &config, &clock()).await.unwrap();
+    import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     catalog.close().await.unwrap();
 }
 
@@ -140,14 +151,18 @@ async fn the_bucket_limit_comes_from_the_configuration_and_its_failure_names_the
     }
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
     config.max_buckets_per_batch = NonZeroUsize::new(2);
-    let error = import(&catalog, &config, &clock()).await.unwrap_err();
+    let error = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("exceeds 2 buckets"), "{error}");
     assert!(
         error.to_string().contains("max_buckets_per_batch"),
         "{error}"
     );
     config.max_buckets_per_batch = NonZeroUsize::new(3);
-    let outcome = import(&catalog, &config, &clock()).await.unwrap();
+    let outcome = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     let SeedOutcome::Imported { buckets, .. } = outcome else {
         panic!("a configured seed directory imports");
     };
@@ -165,13 +180,17 @@ async fn a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_r
     }
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
     config.max_buckets_per_batch = NonZeroUsize::new(1000);
-    let error = import(&catalog, &config, &clock()).await.unwrap_err();
+    let error = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap_err();
     assert!(
         error.to_string().contains("exceeds 1000 buckets"),
         "{error}"
     );
     config.max_buckets_per_batch = None;
-    let outcome = import(&catalog, &config, &clock()).await.unwrap();
+    let outcome = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert!(matches!(
         outcome,
         SeedOutcome::Imported {
@@ -181,7 +200,9 @@ async fn a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_r
     ));
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    let outcome = import(&catalog, &config, &clock()).await.unwrap();
+    let outcome = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert!(matches!(outcome, SeedOutcome::Imported { buckets: 0, .. }));
     catalog.close().await.unwrap();
 }
@@ -202,7 +223,9 @@ async fn an_unreadable_fixture_fails_as_tree_io_with_its_permission_kind() {
         return;
     }
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    let failure = import(&catalog, &config, &clock()).await.unwrap_err();
+    let failure = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap_err();
     let mut error = &failure;
     while let SeedError::Import(source) | SeedError::Entry { source, .. } = error {
         error = source.as_ref();
@@ -239,7 +262,9 @@ async fn a_fixture_that_fails_to_open_for_a_moment_is_opened_again_and_seeded() 
     let bucket = config.seed_dir.as_ref().unwrap().join("bucket");
     let settling = crate::fsutil::FailingOpens::vanishing(&bucket, "b", 3);
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    let outcome = import(&catalog, &config, &clock()).await.unwrap();
+    let outcome = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert!(
         matches!(
             outcome,
@@ -267,7 +292,9 @@ async fn a_fixture_that_keeps_failing_to_open_fails_startup_and_leaves_the_seed_
     let bucket = config.seed_dir.as_ref().unwrap().join("bucket");
     let _vanishing = crate::fsutil::FailingOpens::vanishing(&bucket, "b", usize::MAX);
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    let failure = import(&catalog, &config, &clock()).await.unwrap_err();
+    let failure = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap_err();
     let SeedError::Import(entry) = &failure else {
         panic!("{failure:?}");
     };
@@ -300,7 +327,9 @@ async fn a_fixture_removed_after_the_listing_is_left_out_and_the_rest_is_seeded(
         Box::new(move || std::fs::remove_file(target).unwrap()),
     ));
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    let outcome = import(&catalog, &config, &clock()).await.unwrap();
+    let outcome = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap();
     assert!(
         matches!(
             outcome,
@@ -352,7 +381,9 @@ async fn a_directory_replaced_after_the_listing_fails_startup_as_a_changed_tree(
             }),
         ));
         let catalog = Catalog::open(&config.data_dir).await.unwrap();
-        let failure = import(&catalog, &config, &clock()).await.unwrap_err();
+        let failure = import(&catalog, &config.clone().build(), &clock())
+            .await
+            .unwrap_err();
         assert!(
             matches!(innermost(&failure), SeedError::TreeChanged),
             "root {replaces_root}: {failure:?}"
@@ -379,7 +410,9 @@ async fn a_root_replaced_before_it_is_pinned_fails_startup_as_a_changed_tree() {
         }),
     ));
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    let failure = import(&catalog, &config, &clock()).await.unwrap_err();
+    let failure = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap_err();
     assert!(
         matches!(innermost(&failure), SeedError::TreeChanged),
         "{failure:?}"
@@ -398,7 +431,9 @@ async fn a_walk_that_panics_midway_fails_the_seed_and_leaves_it_incomplete() {
         .unwrap_or_else(PoisonError::into_inner)
         .push((root, 2));
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    let error = import(&catalog, &config, &clock()).await.unwrap_err();
+    let error = import(&catalog, &config.clone().build(), &clock())
+        .await
+        .unwrap_err();
     assert!(
         error
             .to_string()
@@ -420,7 +455,9 @@ async fn seed_root_leaf_and_ancestor_symlink_swaps_never_publish_external_canari
     for level in [0, 1, 2] {
         let (_dir, config) = fixture();
         let catalog = Catalog::open(&config.data_dir).await.unwrap();
-        import(&catalog, &config, &clock()).await.unwrap();
+        import(&catalog, &config.clone().build(), &clock())
+            .await
+            .unwrap();
         let admin = catalog.admin(Origin::Seed);
         let bucket = BucketName::new("bucket").unwrap();
         let name = ObjectName::new("a").unwrap();
@@ -450,7 +487,11 @@ async fn seed_root_leaf_and_ancestor_symlink_swaps_never_publish_external_canari
                 std::os::unix::fs::symlink(target, selected).unwrap();
             }),
         ));
-        assert!(import(&catalog, &config, &clock()).await.is_err());
+        assert!(
+            import(&catalog, &config.clone().build(), &clock())
+                .await
+                .is_err()
+        );
         assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
         let (_, mut reader) = admin.open_object(&bucket, &name, None).await.unwrap();
         assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"a"[..]);

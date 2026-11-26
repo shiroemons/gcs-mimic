@@ -712,10 +712,13 @@ async fn a_seed_commit_and_a_publication_behind_it_end_by_their_deadlines() {
         )
         .await
         .unwrap();
-    catalog.apply_session_limits(&crate::config::Config {
-        catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(500),
-        ..Default::default()
-    });
+    catalog.apply_session_limits(
+        &crate::config::ConfigDraft {
+            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(500),
+            ..Default::default()
+        }
+        .build(),
+    );
     // The publication holds a lease the commit must drain and waits for the batch slot the commit
     // holds. Neither can finish the other, so only the deadline may end this.
     let worker = admin.clone();

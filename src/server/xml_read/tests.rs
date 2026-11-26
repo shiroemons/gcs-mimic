@@ -14,12 +14,15 @@ async fn xml_read_validators_wrap_routed_public_and_virtual_host_responses() {
         Catalog::open(&dir.0).await.unwrap(),
         Auth::permissive(),
     ));
-    let config = std::sync::Arc::new(Config {
-        xml_virtual_host_domains: VirtualHostDomains::of(&["storage.invalid"]),
-        ..Config::default()
-    });
+    let config = std::sync::Arc::new(
+        crate::config::ConfigDraft {
+            xml_virtual_host_domains: VirtualHostDomains::of(&["storage.invalid"]),
+            ..Default::default()
+        }
+        .build(),
+    );
     let endpoints = config
-        .runtime_endpoints
+        .runtime_endpoints()
         .snapshot(&config, "http://localhost")
         .unwrap()
         .without_request();
@@ -129,7 +132,7 @@ async fn encrypted_head_validators_do_not_bypass_data_key_checks() {
     ));
     let config = std::sync::Arc::new(Config::default());
     let endpoints = config
-        .runtime_endpoints
+        .runtime_endpoints()
         .snapshot(&config, "http://localhost")
         .unwrap()
         .without_request();

@@ -115,7 +115,7 @@ pub(crate) async fn execute(
         deadline,
         activity,
     } = budget;
-    let catalog_timeout = config.catalog_wait_timeout;
+    let catalog_timeout = config.catalog_wait_timeout();
     if replay.is_none() {
         await_upload_catalog(
             catalog.check_upload(
@@ -135,7 +135,7 @@ pub(crate) async fn execute(
     let wait = begin_catalog_wait(activity).await;
     let transfer = tokio::time::timeout_at(
         deadline,
-        catalog.begin_derived_ephemeral(vec![source.whole()], config.max_object_bytes),
+        catalog.begin_derived_ephemeral(vec![source.whole()], config.max_object_bytes()),
     )
     .await
     .map_err(|_| object_unavailable(BackendFailure::CopyDeadline))??;
@@ -286,10 +286,11 @@ mod tests {
         let (reached, observed) = oneshot::channel();
         let (resume, paused) = oneshot::channel();
         let request = tokio::spawn(async move {
-            let config = Config {
+            let config = crate::config::ConfigDraft {
                 catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(wait_ms),
                 ..Default::default()
-            };
+            }
+            .build();
             let (activity, _updates) = watch::channel(ObjectActivity::default());
             let checkpoint = Checkpoint {
                 after_bytes,

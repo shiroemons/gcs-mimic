@@ -1,4 +1,4 @@
-use super::{ConfigurationReport, Diagnostic, Setting, Settings};
+use super::{Diagnostic, Setting, Settings, Validation};
 
 super::string_enum! {
     pub enum Backend {
@@ -14,9 +14,9 @@ super::string_enum! {
     }
 }
 
-impl ConfigurationReport {
+impl Validation {
     pub(super) fn check_backend(&mut self, settings: &Settings) {
-        if self.config.backend == Backend::Memory {
+        if self.draft.backend == Backend::Memory {
             return;
         }
         for setting in [Setting::MemoryMaxBytes, Setting::MemoryCatalogMaxBytes] {
@@ -32,7 +32,6 @@ impl ConfigurationReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
     use std::{collections::BTreeMap, num::NonZeroU64};
 
     /// `filesystem` is fake-gcs-server's word, so only its command-line flag translates it.
@@ -55,14 +54,19 @@ mod tests {
                 BTreeMap::new(),
             ),
         ] {
-            let errors = Config::load(&args, &env).unwrap_err().errors;
+            let errors = super::super::ConfigDraft::load(&args, &env)
+                .unwrap_err()
+                .errors;
             assert_eq!(errors.len(), 1, "{errors:?}");
             assert_eq!(errors[0].key, key);
             assert_eq!(errors[0].fix, fix);
         }
         for flag in ["-backend", "--backend"] {
-            let config = Config::load(&[flag.into(), "filesystem".into()], &BTreeMap::new())
-                .unwrap_or_else(|error| panic!("{flag}: {error}"));
+            let config = super::super::ConfigDraft::load(
+                &[flag.into(), "filesystem".into()],
+                &BTreeMap::new(),
+            )
+            .unwrap_or_else(|error| panic!("{flag}: {error}"));
             assert_eq!(config.backend, Backend::Disk);
         }
         super::super::test_support::assert_rejected(
@@ -83,7 +87,7 @@ mod tests {
             &BTreeMap::from([("GCS_MIMIC_LIFECYCLE_EXECUTION".into(), "enabled".into())]),
             &["--lifecycle-execution", "disabled"],
             [Enabled, Disabled, Enabled, Disabled],
-            Config::load,
+            super::super::ConfigDraft::load,
             |config| config.lifecycle_execution,
         );
         super::super::test_support::assert_rejected(
@@ -96,7 +100,7 @@ mod tests {
     #[test]
     fn every_backend_defaults_soft_delete_off_unless_the_setting_is_explicit() {
         let load = |args: &[&str], env: &[(&str, &str)]| {
-            Config::load(
+            super::super::ConfigDraft::load(
                 &args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
                 &env.iter()
                     .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
@@ -134,7 +138,11 @@ mod tests {
 
     #[test]
     fn memory_defaults_aliases_budgets_and_unsupported_startup_options() {
-        let config = Config::load(&["-backend".into(), "memory".into()], &BTreeMap::new()).unwrap();
+        let config = super::super::ConfigDraft::load(
+            &["-backend".into(), "memory".into()],
+            &BTreeMap::new(),
+        )
+        .unwrap();
         assert_eq!(config.backend, Backend::Memory);
         assert_eq!(
             config.memory_max_bytes,
@@ -147,7 +155,7 @@ mod tests {
             vec!["--backend", "memory", "--memory-catalog-max-bytes", "1024"],
         ] {
             assert!(
-                Config::load(
+                super::super::ConfigDraft::load(
                     &args.into_iter().map(str::to_owned).collect::<Vec<_>>(),
                     &BTreeMap::new()
                 )
@@ -158,10 +166,12 @@ mod tests {
             ("GCS_MIMIC_BACKEND".into(), "memory".into()),
             ("GCS_MIMIC_MEMORY_MAX_BYTES".into(), "2000".into()),
         ]);
-        let config = Config::load(&["--memory-max-bytes".into(), "3000".into()], &env).unwrap();
+        let config =
+            super::super::ConfigDraft::load(&["--memory-max-bytes".into(), "3000".into()], &env)
+                .unwrap();
         assert_eq!(config.backend, Backend::Memory);
         assert_eq!(config.memory_max_bytes, 3000);
-        let config = Config::load(
+        let config = super::super::ConfigDraft::load(
             &[
                 "--backend".into(),
                 "memory".into(),

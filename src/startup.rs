@@ -131,9 +131,9 @@ impl ReadyTransport {
             Self::Tcp { listen, .. } => config.effective_api_base_url(*listen),
             #[cfg(unix)]
             Self::Unix { .. } => config
-                .api_base_url
-                .clone()
-                .unwrap_or_else(|| "http://localhost".into()),
+                .api_base_url()
+                .unwrap_or("http://localhost")
+                .to_owned(),
         }
     }
 }
@@ -186,8 +186,8 @@ impl ReadyEvent {
             executable: "gcs-mimic",
             version: gcs_mimic::VERSION,
             healthcheck_path: Config::HEALTHCHECK_PATH,
-            admin_enabled: config.admin_enabled,
-            lifecycle_execution: config.lifecycle_execution.as_str(),
+            admin_enabled: config.admin_enabled(),
+            lifecycle_execution: config.lifecycle_execution().as_str(),
             message,
             listen,
             listeners,
@@ -198,35 +198,35 @@ impl ReadyEvent {
             transport,
             unix_socket,
             data_directory,
-            max_connections: config.max_connections,
-            max_object_bytes: config.max_object_bytes,
-            backend: config.backend.as_str(),
-            memory_max_bytes: config.memory_max_bytes,
-            memory_catalog_max_bytes: config.memory_catalog_max_bytes,
-            worker_threads: config.worker_threads,
-            max_blocking_threads: config.max_blocking_threads,
-            header_read_timeout_ms: config.header_read_timeout,
-            body_inactivity_timeout_ms: config.body_inactivity_timeout,
-            request_timeout_ms: config.request_timeout,
-            keep_alive_timeout_ms: config.keep_alive_timeout,
-            object_request_timeout_ms: config.object_request_timeout,
-            catalog_wait_timeout_ms: config.catalog_wait_timeout,
-            shutdown_timeout_ms: config.shutdown_timeout,
+            max_connections: config.max_connections(),
+            max_object_bytes: config.max_object_bytes(),
+            backend: config.backend().as_str(),
+            memory_max_bytes: config.memory_max_bytes(),
+            memory_catalog_max_bytes: config.memory_catalog_max_bytes(),
+            worker_threads: config.worker_threads(),
+            max_blocking_threads: config.max_blocking_threads(),
+            header_read_timeout_ms: config.header_read_timeout(),
+            body_inactivity_timeout_ms: config.body_inactivity_timeout(),
+            request_timeout_ms: config.request_timeout(),
+            keep_alive_timeout_ms: config.keep_alive_timeout(),
+            object_request_timeout_ms: config.object_request_timeout(),
+            catalog_wait_timeout_ms: config.catalog_wait_timeout(),
+            shutdown_timeout_ms: config.shutdown_timeout(),
             auth_mode: auth.mode().as_str(),
             identities: auth.identity_count(),
             test_signer: auth.test_signer().as_str(),
             signed_urls: auth.signed_urls().as_str(),
             seed,
             buckets,
-            scheme: config.scheme.as_str(),
-            grpc_scheme: config.grpc_listen.map(|_| config.grpc_scheme.as_str()),
-            tls_handshake_timeout_ms: config.tls_handshake_timeout,
+            scheme: config.scheme().as_str(),
+            grpc_scheme: config.grpc_listen().map(|_| config.grpc_scheme().as_str()),
+            tls_handshake_timeout_ms: config.tls_handshake_timeout(),
             public_base_url: config
-                .public_base_url
+                .public_base_url()
                 .as_ref()
                 .map(|origin| origin.as_str().to_owned()),
             public_virtual_host_enabled: config.public_virtual_host_enabled(),
-            cors_fallback: config.effective_cors_fallback().fallback().as_str(),
+            cors_fallback: config.cors_fallback().fallback().as_str(),
             signed_host_port: auth.host_port_policy().setting().as_str(),
             signed_host_port_signers: auth.host_port_policy().lenient_signers(),
             api_base_url,
@@ -334,13 +334,13 @@ impl ListenerSetting {
 }
 
 async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
-    if let Some(_path) = &config.unix_socket {
+    if let Some(_path) = config.unix_socket() {
         if matches!(
-            config.scheme,
+            config.scheme(),
             gcs_mimic::config::Scheme::Https | gcs_mimic::config::Scheme::Both
-        ) || config.listen_http.is_some()
-            || config.grpc_listen.is_some()
-            || config.trusted_listen.is_some()
+        ) || config.listen_http().is_some()
+            || config.grpc_listen().is_some()
+            || config.trusted_listen().is_some()
         {
             return Err(Diagnostics::error(
                 DiagnosticSource::Listener,
@@ -349,7 +349,7 @@ async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
             ));
         }
         #[cfg(unix)]
-        return server::unix::Listener::bind(_path).await.map(|listener| PrimaryListener::Unix { listener, path: _path.clone() }).map_err(|error| {
+        return server::unix::Listener::bind(_path).await.map(|listener| PrimaryListener::Unix { listener, path: _path.to_owned() }).map_err(|error| {
             Diagnostics::error(DiagnosticSource::Listener, "unix_socket", format!(
                 "Cannot bind Unix socket ({:?}); use a new short pathname in an existing private 0700 directory owned by the server user; never reuse an existing entry.", error.kind()))
         });
@@ -360,7 +360,7 @@ async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
             "Unix sockets are unsupported on this platform; no TCP fallback is used.",
         ));
     }
-    bind_configured_listener(config.listen, ListenerSetting::Listen)
+    bind_configured_listener(config.listen(), ListenerSetting::Listen)
         .await
         .map(PrimaryListener::Tcp)
 }
@@ -371,19 +371,19 @@ async fn open_catalog(
     shutdown: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<()>>>,
 ) -> Result<PhaseResult<Catalog>, Diagnostics> {
     let opening = async {
-        let admin = if config.admin_enabled {
+        let admin = if config.admin_enabled() {
             gcs_mimic::storage::admin::LocalAdmin::Enabled
         } else {
             gcs_mimic::storage::admin::LocalAdmin::Disabled
         };
-        let opened = match config.backend {
+        let opened = match config.backend() {
             gcs_mimic::config::Backend::Disk => {
-                Catalog::open_for_server(&config.data_dir, clock, admin).await
+                Catalog::open_for_server(config.data_dir(), clock, admin).await
             }
             gcs_mimic::config::Backend::Memory => {
                 Catalog::open_memory_for_server(
-                    config.memory_max_bytes,
-                    config.memory_catalog_max_bytes,
+                    config.memory_max_bytes(),
+                    config.memory_catalog_max_bytes(),
                     clock,
                     admin,
                 )
@@ -400,10 +400,10 @@ async fn open_catalog(
                     serde_json::json!({"data_dir":path.to_string_lossy(),"message":format!("created a new empty catalog at {}", path.display())}),
                 );
             }
-            catalog.set_default_soft_delete_retention(match config.compat_profile {
+            catalog.set_default_soft_delete_retention(match config.compat_profile() {
                 gcs_mimic::config::CompatProfile::FakeGcsServer => None,
                 gcs_mimic::config::CompatProfile::Native => {
-                    config.default_soft_delete_retention_seconds
+                    config.default_soft_delete_retention_seconds()
                 }
             });
             catalog.apply_session_limits(config);
@@ -511,10 +511,10 @@ async fn prepare_startup(
     // Bind/TIME_WAIT has no catalog effects and owns its socket locally.
     let listeners = complete!(async {
         let primary = bind_primary(config).await?;
-        let http =
-            bind_optional(config.effective_listen_http(), ListenerSetting::ListenHttp).await?;
-        let trusted = bind_optional(config.trusted_listen, ListenerSetting::TrustedListen).await?;
-        let grpc = bind_optional(config.grpc_listen, ListenerSetting::GrpcListen).await?;
+        let http = bind_optional(config.listen_http(), ListenerSetting::ListenHttp).await?;
+        let trusted =
+            bind_optional(config.trusted_listen(), ListenerSetting::TrustedListen).await?;
+        let grpc = bind_optional(config.grpc_listen(), ListenerSetting::GrpcListen).await?;
         Ok::<_, Diagnostics>(BoundListeners {
             primary,
             http,
@@ -600,8 +600,8 @@ pub(crate) async fn serve(
     };
     // Only a reset to the startup state reads the document again, so a server without local
     // administration does not keep a document of up to 1 GiB for its lifetime.
-    if config.admin_enabled {
-        config.buckets = buckets_document.map(gcs_mimic::config::DocumentSource::Parsed);
+    if config.admin_enabled() {
+        config.set_startup_buckets(buckets_document.map(gcs_mimic::config::DocumentSource::Parsed));
     }
     let ready = match ready_event(&config, &auth, &catalog, &listeners, seed, buckets) {
         Ok(ready) => ready,
@@ -618,7 +618,7 @@ pub(crate) async fn serve(
         clock,
         catalog,
         api_base_url: ready.api_base_url,
-        default_location: config.default_location.clone(),
+        default_location: config.default_location().to_owned(),
         auth,
     });
     // Readiness must follow every fallible startup step.
@@ -666,7 +666,7 @@ fn ready_transport(
             let listen = ListenerSetting::Listen.local_addr(primary)?;
             let mut entries = vec![ReadyListener {
                 listen,
-                scheme: config.scheme.primary(),
+                scheme: config.scheme().primary(),
             }];
             if let Some(http) = &listeners.http {
                 entries.push(ReadyListener {
@@ -677,7 +677,7 @@ fn ready_transport(
             if let Some(grpc) = &listeners.grpc {
                 entries.push(ReadyListener {
                     listen: ListenerSetting::GrpcListen.local_addr(grpc)?,
-                    scheme: config.grpc_scheme.listener_scheme(),
+                    scheme: config.grpc_scheme().listener_scheme(),
                 });
             }
             Ok(ReadyTransport::Tcp {
@@ -938,7 +938,6 @@ mod tests {
     use crate::test_support::TestDir;
     use gcs_mimic::{
         clock::{Clock, SystemClock},
-        config::DocumentSource,
         storage::Catalog,
     };
     use std::{
@@ -1103,12 +1102,17 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let directory = TestDir::new();
         fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o700)).unwrap();
-        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let _occupied = match std::net::TcpListener::bind(Config::default().listen()) {
+            Ok(listener) => Some(listener),
+            Err(error) if error.kind() == io::ErrorKind::AddrInUse => None,
+            Err(error) => panic!("{error}"),
+        };
         let catalog = Catalog::open(&directory.0).await.unwrap();
-        let mut config = directory.config();
-        config.listen = occupied.local_addr().unwrap();
-        config.scheme = gcs_mimic::config::Scheme::Http;
-        config.unix_socket = Some(directory.0.join("s"));
+        let socket = directory.0.join("s");
+        let config = test_config(
+            &directory.0,
+            &["--scheme=http", "--unix-socket", socket.to_str().unwrap()],
+        );
         let shutdown = std::future::pending();
         tokio::pin!(shutdown);
         let result = tokio::time::timeout(
@@ -1133,7 +1137,7 @@ mod tests {
         let PrimaryListener::Unix { listener, path } = listeners.primary else {
             panic!("TCP fallback")
         };
-        assert_eq!(Some(path), config.unix_socket);
+        assert_eq!(Some(path.as_path()), config.unix_socket());
         listener.close().await.unwrap();
         catalog.close().await.unwrap();
     }
@@ -1142,7 +1146,7 @@ mod tests {
     async fn grpc_listener_disabled_by_default_and_bound_after_initialization() {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
-        let mut config = dir.config();
+        let config = dir.config();
         let shutdown = std::future::pending();
         tokio::pin!(shutdown);
         let PhaseResult::Complete(bound) = prepare_startup(
@@ -1159,8 +1163,16 @@ mod tests {
         assert!(bound.listeners.grpc.is_none());
         assert!(bound.listeners.trusted.is_none());
         drop(bound);
-        config.grpc_listen = Some("127.0.0.1:0".parse().unwrap());
-        config.buckets = Some(DocumentSource::File(dir.0.join("missing-buckets.json")));
+        let missing = dir.0.join("missing-buckets.json");
+        let config = test_config(
+            &dir.0,
+            &[
+                "--listen=127.0.0.1:0",
+                "--grpc-listen=127.0.0.1:0",
+                "--buckets-file",
+                missing.to_str().unwrap(),
+            ],
+        );
         let error = prepare_startup(
             &catalog,
             &config,
@@ -1172,7 +1184,10 @@ mod tests {
         .err()
         .unwrap();
         assert!(error.to_string().contains("buckets_file"));
-        config.buckets = None;
+        let config = test_config(
+            &dir.0,
+            &["--listen=127.0.0.1:0", "--grpc-listen=127.0.0.1:0"],
+        );
         let PhaseResult::Complete(bound) = prepare_startup(
             &catalog,
             &config,
@@ -1295,8 +1310,15 @@ mod tests {
             .unwrap();
         let shutdown = std::future::pending();
         tokio::pin!(shutdown);
-        let mut config = dir.config();
-        config.seed_dir = Some(dir.0.join("missing-seed"));
+        let missing_seed = dir.0.join("missing-seed");
+        let config = test_config(
+            &dir.0,
+            &[
+                "--listen=127.0.0.1:0",
+                "--seed-dir",
+                missing_seed.to_str().unwrap(),
+            ],
+        );
         let failure = prepare_startup(
             &catalog,
             &config,
@@ -1316,7 +1338,14 @@ mod tests {
         // The missing root above proves the import gate runs before seeding; replay now reads
         // the seed root on every start, so the completed startup needs an existing one.
         let seed = TestDir::new();
-        config.seed_dir = Some(seed.0.clone());
+        let config = test_config(
+            &dir.0,
+            &[
+                "--listen=127.0.0.1:0",
+                "--seed-dir",
+                seed.0.to_str().unwrap(),
+            ],
+        );
         let started = prepare_startup(
             &reopened,
             &config,
@@ -1333,12 +1362,14 @@ mod tests {
 
     impl TestDir {
         fn config(&self) -> Config {
-            Config {
-                data_dir: self.0.clone(),
-                listen: "127.0.0.1:0".parse().unwrap(),
-                ..Config::default()
-            }
+            test_config(&self.0, &["--listen=127.0.0.1:0"])
         }
+    }
+
+    fn test_config(data_dir: &std::path::Path, options: &[&str]) -> Config {
+        let mut args = vec!["--data-dir".into(), data_dir.to_str().unwrap().to_owned()];
+        args.extend(options.iter().map(|option| (*option).to_owned()));
+        Config::load(&args, &Default::default()).unwrap()
     }
 
     #[tokio::test]
@@ -1554,11 +1585,13 @@ mod tests {
             .unwrap();
         runtime.block_on(async {
             let dir = TestDir::new();
-            let mut config = dir.config();
-            config.data_dir = dir.0.join("data");
-            config.seed_dir = Some(dir.0.join("fixtures"));
-            fs::create_dir_all(dir.0.join("fixtures/seed-bucket")).unwrap();
-            let catalog = Catalog::open(&config.data_dir).await.unwrap();
+            let seed = dir.0.join("fixtures");
+            let config = test_config(
+                &dir.0.join("data"),
+                &["--listen=127.0.0.1:0", "--seed-dir", seed.to_str().unwrap()],
+            );
+            fs::create_dir_all(seed.join("seed-bucket")).unwrap();
+            let catalog = Catalog::open(config.data_dir()).await.unwrap();
             catalog
                 .configure_public_access_prevention(&["old-project".into()])
                 .await
@@ -1604,7 +1637,7 @@ mod tests {
             })
             .await;
             assert!(matches!(
-                File::open(config.data_dir.join("catalog.lock"))
+                File::open(config.data_dir().join("catalog.lock"))
                     .unwrap()
                     .try_lock(),
                 Err(std::fs::TryLockError::WouldBlock)
@@ -1615,7 +1648,7 @@ mod tests {
                 .unwrap()
                 .unwrap();
             blocker.await.unwrap();
-            let reopened = Catalog::open(&config.data_dir).await.unwrap();
+            let reopened = Catalog::open(config.data_dir()).await.unwrap();
             assert!(
                 reopened
                     .admin(gcs_mimic::storage::admin::Origin::Seed)
@@ -1626,7 +1659,7 @@ mod tests {
             );
             reopened.close().await.unwrap();
             let connection =
-                rusqlite::Connection::open(config.data_dir.join("catalog.sqlite3")).unwrap();
+                rusqlite::Connection::open(config.data_dir().join("catalog.sqlite3")).unwrap();
             assert_eq!(
                 connection
                     .query_row("SELECT complete FROM startup_seed", [], |row| row
@@ -1641,16 +1674,21 @@ mod tests {
     #[tokio::test]
     async fn shutdown_during_initializer_validation_never_publishes_or_runs_seed() {
         let dir = TestDir::new();
-        let mut config = dir.config();
-        config.data_dir = dir.0.join("data");
         let buckets = dir.0.join("buckets.json");
         fs::write(
             &buckets,
             r#"{"version":1,"buckets":[{"name":"pending-bucket"}]}"#,
         )
         .unwrap();
-        config.buckets = Some(DocumentSource::File(buckets));
-        let catalog = Catalog::open(&config.data_dir).await.unwrap();
+        let config = test_config(
+            &dir.0.join("data"),
+            &[
+                "--listen=127.0.0.1:0",
+                "--buckets-file",
+                buckets.to_str().unwrap(),
+            ],
+        );
+        let catalog = Catalog::open(config.data_dir()).await.unwrap();
         let (entered, validating) = tokio::sync::oneshot::channel();
         let (release, released) = mpsc::channel();
         let clock = Arc::new(RecoveryClock {
@@ -1672,7 +1710,7 @@ mod tests {
         }
         release.send(()).unwrap();
         close_startup(&catalog, Ok(())).await.unwrap();
-        let reopened = Catalog::open(&config.data_dir).await.unwrap();
+        let reopened = Catalog::open(config.data_dir()).await.unwrap();
         assert!(
             reopened
                 .admin(gcs_mimic::storage::admin::Origin::BucketInit)
@@ -1714,8 +1752,8 @@ mod tests {
         assert!(!retained.is_healthy());
         let reopened = Catalog::open(&dir.0).await.unwrap();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let mut config = dir.config();
-        config.listen = listener.local_addr().unwrap();
+        let listen = listener.local_addr().unwrap().to_string();
+        let config = test_config(&dir.0, &["--listen", &listen]);
         let failure = prepare_startup(
             &reopened,
             &config,

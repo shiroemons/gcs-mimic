@@ -1198,9 +1198,9 @@ async fn read(
     clock: Arc<dyn Clock>,
 ) -> Result<Read, Diagnostics> {
     let setting = DocumentKind::Buckets.setting(source.form());
-    let project = config.seed_project.clone();
-    let default_location = config.default_location.clone();
-    let bucket_limit = config.max_buckets_per_batch;
+    let project = config.seed_project().to_owned();
+    let default_location = config.default_location().to_owned();
+    let bucket_limit = config.max_buckets_per_batch();
     let (document, entries) = crate::task::run_blocking("bucket-initializer", move || {
         // Parsing first keeps the bytes, which loading the parse validates without a second read.
         let document = parse_document(&source, bucket_limit)?;
@@ -1237,7 +1237,7 @@ pub async fn apply(
     config: &crate::config::Config,
     clock: Arc<dyn Clock>,
 ) -> Result<Initialized, Diagnostics> {
-    let Some(source) = config.buckets.clone() else {
+    let Some(source) = config.buckets().cloned() else {
         return Ok(Initialized {
             outcome: InitOutcome::Disabled,
             document: None,
@@ -1249,7 +1249,7 @@ pub async fn apply(
         prepared,
         setting,
     } = read(source, config, clock).await?;
-    let (bucket_limit, mode) = (config.max_buckets_per_batch, config.buckets_mode);
+    let (bucket_limit, mode) = (config.max_buckets_per_batch(), config.buckets_mode());
     let report = catalog
         .admin(Origin::BucketInit)
         .initialize_buckets(targets, move |observed| {
@@ -1278,7 +1278,7 @@ pub(crate) async fn restoration(
     config: &crate::config::Config,
     clock: Arc<dyn Clock>,
 ) -> Result<Option<Initialization>, Diagnostics> {
-    let Some(source) = config.buckets.clone() else {
+    let Some(source) = config.buckets().cloned() else {
         return Ok(None);
     };
     let Read {
@@ -1287,7 +1287,7 @@ pub(crate) async fn restoration(
         setting,
         ..
     } = read(source, config, clock).await?;
-    let (bucket_limit, mode) = (config.max_buckets_per_batch, config.buckets_mode);
+    let (bucket_limit, mode) = (config.max_buckets_per_batch(), config.buckets_mode());
     let plan = move |observed| {
         // The cleared catalog has no bucket to keep or reconcile, so the warnings a startup
         // reports about existing buckets cannot arise.

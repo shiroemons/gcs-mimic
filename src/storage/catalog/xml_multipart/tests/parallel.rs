@@ -2,7 +2,7 @@
 
 use super::super::super::fault::Crash;
 use super::*;
-use crate::{config::Config, hashing::Hasher, test_support::HANG_GUARD, time_limit::TimeLimit};
+use crate::{hashing::Hasher, test_support::HANG_GUARD, time_limit::TimeLimit};
 use bytes::Bytes;
 use std::any::Any;
 use tokio::task::JoinHandle;
@@ -15,10 +15,13 @@ const PATIENT_MILLIS: u64 = 120_000;
 
 async fn patient(clock: Arc<dyn Clock>) -> (TestDir, Catalog) {
     let (dir, catalog) = setup(clock).await;
-    catalog.apply_session_limits(&Config {
-        catalog_wait_timeout: TimeLimit::from_millis(PATIENT_MILLIS),
-        ..Default::default()
-    });
+    catalog.apply_session_limits(
+        &crate::config::ConfigDraft {
+            catalog_wait_timeout: TimeLimit::from_millis(PATIENT_MILLIS),
+            ..Default::default()
+        }
+        .build(),
+    );
     (dir, catalog)
 }
 
@@ -379,10 +382,13 @@ async fn a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget
     ] {
         for (budget, expected_busy) in [(60_000, false), (20, true)] {
             let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
-            catalog.apply_session_limits(&Config {
-                catalog_wait_timeout: TimeLimit::from_millis(budget),
-                ..Default::default()
-            });
+            catalog.apply_session_limits(
+                &crate::config::ConfigDraft {
+                    catalog_wait_timeout: TimeLimit::from_millis(budget),
+                    ..Default::default()
+                }
+                .build(),
+            );
             let target = begin(&catalog).await;
             let held = holder.lease(catalog.clone(), target.clone()).await.unwrap();
             let waiting = tokio::spawn(contender.lease(catalog.clone(), target.clone()));

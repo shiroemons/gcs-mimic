@@ -149,7 +149,7 @@ pub(super) async fn respond(
         execute(
             job,
             state.catalog.clone(),
-            config.max_object_bytes,
+            config.max_object_bytes(),
             ctx.endpoints.api_base_url().to_owned(),
         ),
     )

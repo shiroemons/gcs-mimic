@@ -55,11 +55,12 @@ impl Server {
         catalog.insert_bucket(bucket).await.unwrap();
         let registry = Registry::parse(br#"{"identities":[{"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}}]}"#).unwrap();
         let state = Arc::new(State::for_test(catalog, Auth::strict(registry)));
-        let config = Config {
+        let config = crate::config::ConfigDraft {
             header_read_timeout: TimeLimit::from_millis(60_000),
             keep_alive_timeout: TimeLimit::from_millis(60_000),
-            ..Config::default()
-        };
+            ..Default::default()
+        }
+        .build();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let socket = TcpStream::connect(listener.local_addr().unwrap())
             .await

@@ -1,4 +1,4 @@
-use crate::config::{Config, GrpcScheme, Scheme, TlsFiles, UnpairedTlsFile};
+use crate::config::{Config, GrpcScheme, Scheme, Tls, TlsIdentity};
 use crate::diagnostics::{Diagnostic, DiagnosticSource};
 use std::{io, path::Path, sync::Arc};
 use tokio_rustls::{
@@ -141,18 +141,13 @@ pub(crate) struct ServerIdentity {
 impl ServerIdentity {
     /// The configured identity: `tls_cert` and `tls_key`, or the public development identity
     /// when neither is set.
-    pub(crate) fn load(config: &Config) -> Result<Self, ServerIdentityError> {
-        match config.tls_files() {
-            Ok(TlsFiles::Development) => Self::from_pem(DEVELOPMENT_CERT_PEM, DEVELOPMENT_KEY_PEM),
-            Ok(TlsFiles::Provided { certificate, key }) => Self::from_pem(
+    pub(crate) fn load(identity: &TlsIdentity) -> Result<Self, ServerIdentityError> {
+        match identity {
+            TlsIdentity::Development => Self::from_pem(DEVELOPMENT_CERT_PEM, DEVELOPMENT_KEY_PEM),
+            TlsIdentity::Provided { certificate, key } => Self::from_pem(
                 &read_pem(certificate).map_err(ServerIdentityError::Certificate)?,
                 &read_pem(key).map_err(ServerIdentityError::PrivateKey)?,
             ),
-            // Validation reports this first; a configuration built in code still gets an error.
-            Err(UnpairedTlsFile(_)) => Err(ServerIdentityError::Identity(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "tls_cert and tls_key must be supplied together",
-            ))),
         }
     }
 
@@ -205,27 +200,27 @@ pub enum ListenerSecurity<T = TlsAcceptor> {
 
 impl ListenerSecurity<Alpn> {
     /// The primary listener's plan. A `scheme=both` HTTP listener is always plain.
-    pub(crate) fn primary(config: &Config) -> Self {
-        match config.scheme {
+    fn primary(scheme: Scheme, unix_socket: Option<&Path>) -> Self {
+        match scheme {
             Scheme::Http => Self::Plain,
             // Validation refuses TLS files with a Unix socket, which is never inspected.
-            Scheme::Auto if config.unix_socket.is_some() => Self::Plain,
+            Scheme::Auto if unix_socket.is_some() => Self::Plain,
             Scheme::Auto => Self::Detect(Alpn::Http1),
             Scheme::Https | Scheme::Both => Self::Tls(Alpn::Http1),
         }
     }
 
     /// The gRPC listener's plan; plain while there is no gRPC listener.
-    pub(crate) fn grpc(config: &Config) -> Self {
+    fn grpc(scheme: Option<GrpcScheme>, unix_socket: Option<&Path>) -> Self {
         // Validation refuses grpc_listen beside a Unix socket, which excludes every TCP listener,
         // so the setting never gives the TLS settings a use there.
-        if config.grpc_listen.is_none() || config.unix_socket.is_some() {
+        if unix_socket.is_some() {
             return Self::Plain;
         }
-        match config.grpc_scheme {
-            GrpcScheme::Auto => Self::Detect(Alpn::H2),
-            GrpcScheme::H2c => Self::Plain,
-            GrpcScheme::Tls => Self::Tls(Alpn::H2),
+        match scheme {
+            Some(GrpcScheme::Auto) => Self::Detect(Alpn::H2),
+            None | Some(GrpcScheme::H2c) => Self::Plain,
+            Some(GrpcScheme::Tls) => Self::Tls(Alpn::H2),
         }
     }
 
@@ -246,8 +241,13 @@ impl ListenerSecurity<Alpn> {
 }
 
 /// Whether some listener serves TLS, so that the TLS settings take effect.
-pub(crate) fn serves_tls(config: &Config) -> bool {
-    ListenerSecurity::primary(config).uses_tls() || ListenerSecurity::grpc(config).uses_tls()
+pub(crate) fn serves_tls(
+    scheme: Scheme,
+    unix_socket: Option<&Path>,
+    grpc: Option<GrpcScheme>,
+) -> bool {
+    ListenerSecurity::primary(scheme, unix_socket).uses_tls()
+        || ListenerSecurity::grpc(grpc, unix_socket).uses_tls()
 }
 
 /// How the TCP listeners secure their connections, all with one identity.
@@ -269,23 +269,27 @@ impl ServerSecurity {
 
     /// Loads the identity once, and only when some listener serves TLS.
     pub fn load(config: &Config) -> Result<Self, ServerIdentityError> {
-        let primary = ListenerSecurity::primary(config);
-        let grpc = ListenerSecurity::grpc(config);
-        if !primary.uses_tls() && !grpc.uses_tls() {
-            // Validation refuses TLS files that no listener uses; a configuration built in code
-            // still gets an error rather than silently ignoring them.
-            if !matches!(config.tls_files(), Ok(TlsFiles::Development)) {
-                return Err(ServerIdentityError::Identity(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "TLS files require scheme=auto, https or both, or grpc_listen with grpc_scheme=auto or tls",
-                )));
-            }
+        Self::load_settings(
+            config.scheme(),
+            config.unix_socket(),
+            config.grpc_security_scheme(),
+            config.tls(),
+        )
+    }
+
+    pub(crate) fn load_settings(
+        scheme: Scheme,
+        unix_socket: Option<&Path>,
+        grpc: Option<GrpcScheme>,
+        tls: Option<&Tls>,
+    ) -> Result<Self, ServerIdentityError> {
+        let Some(tls) = tls else {
             return Ok(Self::plain());
-        }
-        let identity = ServerIdentity::load(config)?;
+        };
+        let identity = ServerIdentity::load(tls.identity())?;
         Ok(Self {
-            primary: primary.secure(&identity)?,
-            grpc: grpc.secure(&identity)?,
+            primary: ListenerSecurity::primary(scheme, unix_socket).secure(&identity)?,
+            grpc: ListenerSecurity::grpc(grpc, unix_socket).secure(&identity)?,
         })
     }
 }

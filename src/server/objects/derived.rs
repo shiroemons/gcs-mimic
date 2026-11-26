@@ -255,7 +255,7 @@ pub(super) async fn compose(
             } else {
                 crate::storage::SourceDisposal::Keep
             },
-            ctx.config.max_object_bytes,
+            ctx.config.max_object_bytes(),
         )
         .await
         .map_err(|error| {

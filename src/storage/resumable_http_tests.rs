@@ -16,7 +16,6 @@ use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
     auth::{Auth, Registry},
     clock::{Clock, ManualClock},
-    config::Config,
     server::{State, Stop, TcpListeners, serve},
     storage::Catalog,
     tls::ListenerSecurity,
@@ -238,7 +237,7 @@ impl Harness {
         Self::start_with_config(
             auth,
             base,
-            Config {
+            crate::config::ConfigDraft {
                 max_object_bytes: max,
                 catalog_wait_timeout: gcs_mimic::time_limit::TimeLimit::from_millis(
                     catalog_wait_timeout_ms,
@@ -248,7 +247,11 @@ impl Harness {
         )
         .await
     }
-    async fn start_with_config(auth: AuthProfile, base: Option<&str>, config: Config) -> Self {
+    async fn start_with_config(
+        auth: AuthProfile,
+        base: Option<&str>,
+        config: crate::config::ConfigDraft,
+    ) -> Self {
         let dir = TestDir::new();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap().to_string();
@@ -267,11 +270,12 @@ impl Harness {
             api_base_url: base.trim_end_matches('/').into(),
             ..State::for_test(catalog, auth)
         });
-        let config = Config {
+        let config = crate::config::ConfigDraft {
             scheme: gcs_mimic::config::Scheme::Http,
             api_base_url: Some(state.api_base_url.clone()),
             ..config
-        };
+        }
+        .build();
         let (stop, rx) = oneshot::channel();
         let running = state.clone();
         let server = tokio::spawn(async move {
@@ -947,10 +951,13 @@ async fn initiation_checks_strict_create_and_overwrite_permissions_before_stagin
 #[tokio::test]
 async fn initiation_session_cap_and_status_prefix_are_bounded() {
     let h = Harness::start(1024 * 1024, Permissive, None).await;
-    h.state.catalog.apply_session_limits(&Config {
-        max_resumable_sessions: std::num::NonZeroU32::new(128),
-        ..Default::default()
-    });
+    h.state.catalog.apply_session_limits(
+        &crate::config::ConfigDraft {
+            max_resumable_sessions: std::num::NonZeroU32::new(128),
+            ..Default::default()
+        }
+        .build(),
+    );
     let reply = h.initiate("name=object", "", b"").await;
     let path = h.path(&reply);
     let id = reply.headers["location"]
@@ -2244,12 +2251,13 @@ async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_wr
             Auth::permissive(),
         )
     });
-    let config = Config {
+    let config = crate::config::ConfigDraft {
         scheme: gcs_mimic::config::Scheme::Http,
         api_base_url: Some(h.base.clone()),
         max_object_bytes: 1024 * 1024,
         ..Default::default()
-    };
+    }
+    .build();
     let (stop, rx) = oneshot::channel();
     let state = h.state.clone();
     h.stop = stop;

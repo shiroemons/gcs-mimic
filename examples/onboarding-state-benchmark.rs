@@ -266,10 +266,11 @@ fn prepare(path: &Path, count: usize) {
             while let Some(result) = uploads.join_next().await {
                 result.unwrap();
             }
-            let config = gcs_mimic::config::Config {
-                data_dir: path.into(),
-                ..Default::default()
-            };
+            let config = gcs_mimic::config::Config::load(
+                &["--data-dir".into(), path.to_str().unwrap().into()],
+                &Default::default(),
+            )
+            .unwrap();
             let clock: std::sync::Arc<dyn gcs_mimic::clock::Clock> =
                 std::sync::Arc::new(gcs_mimic::clock::SystemClock);
             gcs_mimic::seed::import(&catalog, &config, &clock)

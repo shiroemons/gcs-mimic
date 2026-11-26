@@ -36,7 +36,7 @@ pub(super) async fn initiate(
     let response_fields =
         crate::percent::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
     let resumable::UploadHeaders { mime, total } =
-        resumable::headers(request.headers(), config.max_object_bytes)?;
+        resumable::headers(request.headers(), config.max_object_bytes())?;
     let key = json::request_key(request.headers())?;
     let origin = resumable::single(request.headers(), "origin")?.map(str::to_owned);
     let metadata_type = resumable::single(request.headers(), "content-type")?.map(str::to_owned);
@@ -528,7 +528,7 @@ async fn session_framing(
     target: &SessionTarget<'_>,
     ctx: ObjectCtx<'_>,
 ) -> Result<(Option<Range>, Option<u64>), ApiError> {
-    let framing = chunk_framing(headers, ctx.config.max_object_bytes);
+    let framing = chunk_framing(headers, ctx.config.max_object_bytes());
     // The recordings prove a terminal JSON session failure for malformed syntax and for a
     // chunk that overruns its declared total.
     if target.name.is_none() && framing.is_err() && resumable::range_fails_session(headers) {
@@ -579,7 +579,7 @@ pub(crate) async fn transfer(
         range,
         length,
         &position,
-        config.max_object_bytes,
+        config.max_object_bytes(),
         &target,
     ) {
         Ok(plan) => plan,
@@ -753,7 +753,7 @@ async fn stream_chunk(
     progress: watch::Receiver<ChunkWait>,
 ) -> Result<Written, ApiError> {
     let producer = async {
-        stream_upload(body, &sender, ctx.config.max_object_bytes, None)
+        stream_upload(body, &sender, ctx.config.max_object_bytes(), None)
             .await
             .map(|_| UploadEnd::Eof)
     };

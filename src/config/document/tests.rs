@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::Config;
 use crate::{
     config::{AuthProfile, BucketsMode, read_public_base_url, test_support::assert_precedence},
     diagnostics::DiagnosticSource,
@@ -25,7 +26,7 @@ struct Sources<'a> {
     flag: &'a str,
     variable: &'a str,
     values: [&'a str; 3],
-    field: fn(Config) -> Option<DocumentSource>,
+    field: fn(ConfigDraft) -> Option<DocumentSource>,
 }
 
 fn assert_sources_follow_precedence(sources: Sources<'_>, expected: [&str; 3]) {
@@ -40,7 +41,7 @@ fn assert_sources_follow_precedence(sources: Sources<'_>, expected: [&str; 3]) {
         &env,
         &[sources.flag, sources.values[2]],
         [None, inline(file_text), inline(env_text), inline(cli_text)],
-        Config::load,
+        ConfigDraft::load,
         sources.field,
     );
 }
@@ -105,7 +106,7 @@ fn blank_and_invalid_bucket_shorthand_fail_with_the_setting() {
         ("   ", "buckets must not be empty"),
         ("Uploads", "read as comma-separated bucket names"),
     ] {
-        let errors = Config::load(&strings(&["--buckets", value]), &BTreeMap::new())
+        let errors = ConfigDraft::load(&strings(&["--buckets", value]), &BTreeMap::new())
             .unwrap_err()
             .errors;
         assert!(
@@ -131,7 +132,7 @@ fn a_config_file_holds_the_document_as_an_object_or_a_string() {
         format!(r#"{{"buckets": {repeated}, "identities": {IDENTITIES}}}"#),
     )
     .unwrap();
-    let config = Config::load(&args, &empty).unwrap_err();
+    let config = ConfigDraft::load(&args, &empty).unwrap_err();
     // Identities without strict mode are rejected; the documents themselves were read.
     assert!(
         config
@@ -143,7 +144,7 @@ fn a_config_file_holds_the_document_as_an_object_or_a_string() {
         format!(r#"{{"auth_mode":"strict","buckets": {repeated}, "identities": {IDENTITIES}}}"#),
     )
     .unwrap();
-    let config = Config::load(&args, &empty).unwrap();
+    let config = ConfigDraft::load(&args, &empty).unwrap();
     assert_eq!(config.buckets, inline(repeated));
     assert_eq!(config.identities, inline(IDENTITIES));
     std::fs::write(
@@ -152,7 +153,7 @@ fn a_config_file_holds_the_document_as_an_object_or_a_string() {
             .to_string(),
     )
     .unwrap();
-    let config = Config::load(&args, &empty).unwrap();
+    let config = ConfigDraft::load(&args, &empty).unwrap();
     assert_eq!(config.buckets, inline(BUCKETS));
     assert_eq!(config.identities, inline(IDENTITIES));
     // The URL helper reads the same file, so it accepts what the server accepts.
@@ -160,7 +161,7 @@ fn a_config_file_holds_the_document_as_an_object_or_a_string() {
     for value in ["1", "[]", "true", "null"] {
         for setting in ["identities", "buckets"] {
             std::fs::write(&file, format!(r#"{{"{setting}": {value}}}"#)).unwrap();
-            let errors = Config::load(&args, &empty).unwrap_err().errors;
+            let errors = ConfigDraft::load(&args, &empty).unwrap_err().errors;
             assert_eq!(errors.len(), 1, "{setting}={value}: {errors:?}");
             assert_eq!(errors[0].source, DiagnosticSource::Config);
             assert_eq!(errors[0].key, setting);
@@ -203,7 +204,7 @@ fn an_empty_inline_document_is_rejected_from_every_source() {
                 BTreeMap::new(),
             ),
         ] {
-            let errors = Config::load(&args, &env).unwrap_err().errors;
+            let errors = ConfigDraft::load(&args, &env).unwrap_err().errors;
             assert_eq!(errors.len(), 1, "{key}: {errors:?}");
             assert_eq!((errors[0].source, errors[0].key.as_str()), (source, key));
             assert!(
@@ -250,7 +251,7 @@ fn naming_both_settings_of_a_document_fails_and_names_both() {
     }
     // The settings may come from different sources; precedence never picks one of them.
     let env = BTreeMap::from([("GCS_MIMIC_BUCKETS".to_owned(), BUCKETS.to_owned())]);
-    let errors = Config::load(&strings(&["--buckets-file", "b.json"]), &env)
+    let errors = ConfigDraft::load(&strings(&["--buckets-file", "b.json"]), &env)
         .unwrap_err()
         .errors;
     assert_eq!(errors.len(), 1, "{errors:?}");
@@ -324,9 +325,12 @@ fn the_buckets_mode_accepts_either_document_setting() {
         &["--buckets", BUCKETS, "--buckets-mode", "create"][..],
         &["--buckets-file", "b.json", "--buckets-mode", "create"],
     ] {
-        assert!(Config::load(&strings(args), &empty).is_ok(), "{args:?}");
+        assert!(
+            ConfigDraft::load(&strings(args), &empty).is_ok(),
+            "{args:?}"
+        );
     }
-    let errors = Config::load(&strings(&["--buckets-mode", "create"]), &empty)
+    let errors = ConfigDraft::load(&strings(&["--buckets-mode", "create"]), &empty)
         .unwrap_err()
         .errors;
     assert!(
@@ -334,7 +338,7 @@ fn the_buckets_mode_accepts_either_document_setting() {
         "{errors:?}"
     );
     // An invalid inline document is reported once, without a second error about the mode.
-    let errors = Config::load(
+    let errors = ConfigDraft::load(
         &strings(&["--buckets", "", "--buckets-mode", "reconcile"]),
         &empty,
     )
@@ -371,7 +375,7 @@ fn the_buckets_mode_is_the_same_for_a_file_and_an_inline_document() {
             BucketsMode::Create,
         ),
     ] {
-        let config = Config::load(&strings(args), &empty).unwrap();
+        let config = ConfigDraft::load(&strings(args), &empty).unwrap();
         let source = config.buckets.as_ref().unwrap();
         assert_eq!(source.form(), form, "{args:?}");
         assert_eq!(config.buckets_mode, expected, "{args:?}");
@@ -382,7 +386,7 @@ fn the_buckets_mode_is_the_same_for_a_file_and_an_inline_document() {
 /// document text instead of copying a buckets document of up to 1 GiB once per setting.
 #[test]
 fn a_configuration_copy_shares_its_inline_documents() {
-    let config = Config::load(
+    let config = ConfigDraft::load(
         &strings(&[
             "--auth-mode",
             "strict",
@@ -414,7 +418,7 @@ fn debug_output_never_shows_inline_text() {
     let debug = format!("{source:?}");
     assert!(!debug.contains("secret-token"), "{debug}");
     assert!(debug.contains(&IDENTITIES.len().to_string()), "{debug}");
-    let config = Config::load(
+    let config = ConfigDraft::load(
         &strings(&["--auth-mode", "strict", "--identities", IDENTITIES]),
         &BTreeMap::new(),
     )

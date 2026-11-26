@@ -72,7 +72,7 @@ pub(super) async fn insert(
     } = target;
     let mut metadata = crate::object::ObjectMetadataUpdate::default();
     json::declare_content_encoding(&mut metadata, content_encoding)?;
-    let max_bytes = ctx.config.max_object_bytes;
+    let max_bytes = ctx.config.max_object_bytes();
     let content_type = json::upload_content_type(request.headers())?;
     // A media upload verifies no declared hash; see `upload_content_type`.
     let expected = ExpectedHashes::default();
@@ -151,7 +151,7 @@ pub(super) async fn multipart(
         };
         return insert(request, ctx, access, target).await;
     }
-    let max_bytes = ctx.config.max_object_bytes;
+    let max_bytes = ctx.config.max_object_bytes();
     let catalog = &ctx.state.catalog;
     json::upload_content_type(request.headers())?;
     let key = json::request_key(request.headers())?;
@@ -244,7 +244,7 @@ async fn stream_multipart<B: Body<Data = Bytes> + Unpin>(
     sender: UploadSender,
     expected: ExpectedHashes,
 ) -> Result<ObjectRecord, ApiError> {
-    let max_bytes = ctx.config.max_object_bytes;
+    let max_bytes = ctx.config.max_object_bytes();
     let streaming = async {
         let mut size = 0_u64;
         while let Some(bytes) = multipart.next_chunk().await? {

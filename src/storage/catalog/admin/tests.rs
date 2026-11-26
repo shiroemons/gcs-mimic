@@ -912,10 +912,13 @@ async fn a_cancelled_management_call_gives_up_its_place_and_nothing_else() {
 async fn admin_publication_times_out_at_the_configured_catalog_wait() {
     const WAIT: Duration = Duration::from_millis(50);
     let (_dir, catalog, admin, bucket, name) = setup().await;
-    catalog.apply_session_limits(&crate::config::Config {
-        catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(50),
-        ..Default::default()
-    });
+    catalog.apply_session_limits(
+        &crate::config::ConfigDraft {
+            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(50),
+            ..Default::default()
+        }
+        .build(),
+    );
     let slots = catalog
         .0
         .admin_uploads

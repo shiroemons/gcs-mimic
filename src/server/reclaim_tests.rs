@@ -225,11 +225,12 @@ impl MixedServer {
         let http = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let grpc = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let (http_address, grpc_address) = (http.local_addr().unwrap(), grpc.local_addr().unwrap());
-        let config = Config {
+        let config = crate::config::ConfigDraft {
             max_connections,
             keep_alive_timeout: TimeLimit::from_millis(600_000),
-            ..Config::default()
-        };
+            ..Default::default()
+        }
+        .build();
         let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
         let listeners = TcpListeners {
             public: vec![(http, ListenerSecurity::Plain)],

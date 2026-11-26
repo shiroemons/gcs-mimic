@@ -4,7 +4,7 @@
 //! supply bucket initialization. Both forms load and validate the same document, so they differ
 //! only in where the text comes from and in the setting that diagnostics name.
 
-use super::{Config, ConfigurationReport, Diagnostic, Setting, SettingFix, Settings};
+use super::{ConfigDraft, Diagnostic, Setting, SettingFix, Settings, Validation};
 use serde_json::value::RawValue;
 use std::{fmt, path::PathBuf, sync::Arc};
 
@@ -87,7 +87,7 @@ impl DocumentKind {
     }
 
     /// The field of `config` that holds this document.
-    fn source(self, config: &mut Config) -> &mut Option<DocumentSource> {
+    fn source(self, config: &mut ConfigDraft) -> &mut Option<DocumentSource> {
         match self {
             Self::Identities => &mut config.identities,
             Self::Buckets => &mut config.buckets,
@@ -97,7 +97,7 @@ impl DocumentKind {
     /// Records the path or text that `form`'s setting names.
     pub(super) fn apply(
         self,
-        config: &mut Config,
+        config: &mut ConfigDraft,
         form: Form,
         value: &str,
     ) -> Result<(), SettingFix> {
@@ -159,7 +159,7 @@ pub(super) fn member_text(raw: &RawValue) -> Option<String> {
     }
 }
 
-impl ConfigurationReport {
+impl Validation {
     /// A document has one source, so naming both of its settings is a conflict rather than a
     /// precedence to resolve. Both settings become invalid, so nothing loads either one.
     pub(super) fn check_document_sources(&mut self, settings: &Settings) {

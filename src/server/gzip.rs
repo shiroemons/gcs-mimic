@@ -144,7 +144,7 @@ pub(super) fn response(
         Response::new(body(
             reader,
             record.size,
-            ctx.config.max_object_bytes,
+            ctx.config.max_object_bytes(),
             ctx.activity,
         ))
     };

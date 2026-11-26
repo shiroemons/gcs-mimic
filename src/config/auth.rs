@@ -2,8 +2,8 @@
 //! use [`AuthProfile::select`], so the pairing rules live in one place.
 
 use super::{
-    Config, ConfigurationReport, Diagnostic, DiagnosticSource, DocumentKind, DocumentSource, Form,
-    Setting, Settings,
+    ConfigDraft, ConfigurationReport, Diagnostic, DiagnosticSource, DocumentKind, DocumentSource,
+    Form, Setting, Settings, Validation,
 };
 use crate::auth::{
     Auth, AuthMode, BuiltIn, SignedUrls, TRUSTED_APP_ID, TestSigner, TestSignerChoice,
@@ -33,7 +33,7 @@ pub(crate) enum TrustedCaller {
 }
 
 impl TrustedCaller {
-    fn select(config: &Config) -> Self {
+    fn select(config: &ConfigDraft) -> Self {
         match (config.trusted_listen, &config.trusted_principal) {
             (None, _) => Self::Anonymous,
             (Some(_), Some(principal)) => Self::Named(principal.clone()),
@@ -173,18 +173,18 @@ impl AuthProfile {
     /// Whether strict mode may start without an identity document: the settings ask for a
     /// built-in identity, the trusted listener's application or an explicitly enabled test
     /// signer, so the server has a caller to authorize.
-    fn built_in_only(config: &Config) -> bool {
+    fn built_in_only(config: &ConfigDraft) -> bool {
         TrustedCaller::select(config) == TrustedCaller::BuiltIn
             || config.test_signer == Some(TestSigner::Enabled)
     }
 
     /// The profile the configuration selects, or every setting that contradicts it.
-    pub(super) fn select(config: &Config) -> Result<Self, Vec<Mismatch>> {
+    pub(super) fn select(config: &ConfigDraft) -> Result<Self, Vec<Mismatch>> {
         let verification = Verification {
             test_signer: TestSignerChoice::select(
                 config.test_signer,
                 config.auth_mode,
-                config.effective_signed_urls(),
+                config.resolved_signed_urls(),
             ),
             signed_host_port: config.signed_host_port,
         };
@@ -237,11 +237,11 @@ impl AuthProfile {
     }
 }
 
-impl ConfigurationReport {
+impl Validation {
     /// Rejects mismatched profiles, so a registry is never silently ignored or missing and a
     /// signature setting never claims what the profile does not do.
     pub(super) fn check_profile_pairing(&mut self, settings: &Settings) {
-        match AuthProfile::select(&self.config) {
+        match AuthProfile::select(&self.draft) {
             Ok(profile) if !self.any_invalid(&PROFILE_SETTINGS) => {
                 self.auth_profile = Some(profile);
             }
@@ -263,7 +263,9 @@ impl ConfigurationReport {
             }
         }
     }
+}
 
+impl ConfigurationReport {
     /// The profile to load, when the authentication settings are valid; only tests read it,
     /// because loading takes it from the report itself.
     #[cfg(test)]
@@ -358,7 +360,7 @@ impl ConfigurationReport {
                     .join(", ")
             )
         };
-        let (setting, cause, remedy) = match (self.config.test_signer, registry) {
+        let (setting, cause, remedy) = match (self.draft.test_signer, registry) {
             (Some(_), _) => (
                 Setting::TestSigner,
                 "test_signer=enabled in strict mode".to_owned(),
@@ -401,7 +403,7 @@ impl ConfigurationReport {
         };
         if self.valid(&[Setting::AdminPrincipal])
             && let (Some(principal), Some(principals)) =
-                (&self.config.admin_principal, auth.principals())
+                (&self.draft.admin_principal, auth.principals())
             && !principals.iter().any(|identity| identity.id() == principal)
         {
             self.diagnostics.errors.push(Diagnostic::new(
@@ -412,7 +414,7 @@ impl ConfigurationReport {
         }
         // Only strict mode loads a trusted principal; elsewhere validation rejected the setting.
         if self.valid(&[Setting::TrustedPrincipal])
-            && let Some(principal) = self.config.trusted_principal.as_deref()
+            && let Some(principal) = self.draft.trusted_principal.as_deref()
             && auth.principals().is_some()
             && auth.trusted_principal() != Some(principal)
         {
@@ -433,10 +435,10 @@ impl ConfigurationReport {
     fn parse_buckets_document(&mut self) {
         // Conflicting or invalid document settings were already reported, and nothing loads them.
         if self.valid(&[Setting::BucketsFile, Setting::Buckets])
-            && let Some(source) = &self.config.buckets
+            && let Some(source) = &self.draft.buckets
         {
-            match crate::bucket_init::parse_document(source, self.config.max_buckets_per_batch) {
-                Ok(document) => self.config.buckets = Some(DocumentSource::Parsed(document)),
+            match crate::bucket_init::parse_document(source, self.draft.max_buckets_per_batch) {
+                Ok(document) => self.draft.buckets = Some(DocumentSource::Parsed(document)),
                 Err(diagnostics) => self.diagnostics.errors.extend(diagnostics.errors),
             }
         }
@@ -446,11 +448,11 @@ impl ConfigurationReport {
     /// and the project of every bucket the parsed buckets document creates, so that the
     /// application can manage the buckets its own setup declares and nothing else.
     fn implicit_projects(&self) -> BTreeSet<String> {
-        let mut projects = match &self.config.buckets {
+        let mut projects = match &self.draft.buckets {
             Some(DocumentSource::Parsed(document)) => document.projects().clone(),
             Some(DocumentSource::File(_) | DocumentSource::Inline(_)) | None => BTreeSet::new(),
         };
-        projects.insert(self.config.seed_project.clone());
+        projects.insert(self.draft.seed_project.clone());
         projects
     }
 }

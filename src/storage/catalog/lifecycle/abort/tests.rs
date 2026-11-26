@@ -598,7 +598,7 @@ async fn assert_missing_xml_operations(
         endpoints: &endpoints,
         activity: &activity,
         caller: None,
-        deadline: config.object_request_timeout.deadline(),
+        deadline: config.object_request_timeout().deadline(),
     };
     for (method, query, bytes) in [
         ("PUT", "&partNumber=1", "part"),
@@ -684,11 +684,11 @@ async fn multipart_abort_disabled_execution_preserves_uploads_until_enabled() {
     let (catalog, clock) = memory().await;
     create(&catalog, vec![abort(json!({"age":1}))]).await;
     begin(&catalog, "object").await;
-    let mut config = crate::config::Config {
+    let mut config = crate::config::ConfigDraft {
         lifecycle_execution: crate::config::LifecycleExecution::Disabled,
         ..Default::default()
     };
-    catalog.configure_lifecycle(&config);
+    catalog.configure_lifecycle(&config.clone().build());
     clock.advance(DAY);
     let outcome = catalog.run_lifecycle_now().await.unwrap();
     assert!(matches!(outcome, LifecycleOutcome::Disabled));
@@ -703,7 +703,7 @@ async fn multipart_abort_disabled_execution_preserves_uploads_until_enabled() {
         1
     );
     config.lifecycle_execution = crate::config::LifecycleExecution::Enabled;
-    catalog.configure_lifecycle(&config);
+    catalog.configure_lifecycle(&config.clone().build());
     let result = catalog.run_lifecycle_now().await.unwrap();
     assert_eq!(serde_json::to_value(result).unwrap()["aborted"], 1);
     assert_eq!(

@@ -226,13 +226,13 @@ async fn render_part(
     // Each part renders in the layout its own (inherited-or-overridden) prettyPrint selects, not
     // the layout of the envelope request.
     let format =
-        json::ResponseFormat::for_request(part.request.uri().query(), ctx.config.compat_profile);
+        json::ResponseFormat::for_request(part.request.uri().query(), ctx.config.compat_profile());
     let Part { id, request } = part;
     json::with_format(format, async move {
         let response = tokio::select! {
             biased;
             response = dispatch(request, ctx) => response,
-            expiry = super::batch_part_expired(ctx.activity, ctx.config.request_timeout) => {
+            expiry = super::batch_part_expired(ctx.activity, ctx.config.request_timeout()) => {
                 super::batch_part_timeout(expiry)
             }
         };
@@ -392,7 +392,7 @@ mod tests {
                 Auth::permissive(),
             ));
             let endpoints = config
-                .runtime_endpoints
+                .runtime_endpoints()
                 .snapshot(&config, "http://localhost")
                 .unwrap()
                 .without_request();
@@ -542,10 +542,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_part_past_the_request_limit_answers_alone_and_later_parts_still_run() {
-        let harness = Harness::start(Config {
-            request_timeout: TimeLimit::from_millis(100),
-            ..Config::default()
-        })
+        let harness = Harness::start(
+            crate::config::ConfigDraft {
+                request_timeout: TimeLimit::from_millis(100),
+                ..Default::default()
+            }
+            .build(),
+        )
         .await;
         harness.objects(&["a"]).await;
         let decoders = harness.state.pools.gzip_decoders.available_permits();
@@ -599,10 +602,13 @@ mod tests {
         use crate::storage::fault::{Fault, Step};
         use std::sync::{Mutex, mpsc};
 
-        let harness = Harness::start(Config {
-            request_timeout: TimeLimit::from_millis(100),
-            ..Config::default()
-        })
+        let harness = Harness::start(
+            crate::config::ConfigDraft {
+                request_timeout: TimeLimit::from_millis(100),
+                ..Default::default()
+            }
+            .build(),
+        )
         .await;
         harness.objects(&["a"]).await;
         let (entered, reached) = tokio::sync::oneshot::channel();
@@ -645,16 +651,22 @@ mod tests {
     #[tokio::test]
     async fn catalog_deletes_waiting_for_admission_expire_without_mutation() {
         for uri in ["/storage/v1/b/bucket/o/a", "/bucket/a"] {
-            let mut harness = Harness::start(Config {
-                request_timeout: TimeLimit::from_millis(100),
-                ..Config::default()
-            })
+            let mut harness = Harness::start(
+                crate::config::ConfigDraft {
+                    request_timeout: TimeLimit::from_millis(100),
+                    ..Default::default()
+                }
+                .build(),
+            )
             .await;
             harness.objects(&["a"]).await;
-            let budget = std::mem::replace(
-                &mut Arc::make_mut(&mut harness.config).catalog_wait_timeout,
-                TimeLimit::from_millis(1),
-            );
+            let short = crate::config::ConfigDraft {
+                request_timeout: TimeLimit::from_millis(100),
+                catalog_wait_timeout: TimeLimit::from_millis(1),
+                ..Default::default()
+            }
+            .build();
+            let original = std::mem::replace(&mut harness.config, Arc::new(short));
             let admission = harness.state.catalog.hold_admission();
             // No filesystem work can start while admission is held, so only the controlled
             // catalog budget can end this wait, without a detached commit behind its reply.
@@ -662,7 +674,7 @@ mod tests {
             let rendered = render_part(delete_part(uri), harness.ctx(), &harness.activity).await;
             tokio::time::resume();
             drop(admission);
-            Arc::make_mut(&mut harness.config).catalog_wait_timeout = budget;
+            harness.config = original;
             let rendered = String::from_utf8(rendered).unwrap();
             assert!(
                 rendered.contains("HTTP/1.1 503 Service Unavailable"),
@@ -698,10 +710,11 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-        let config = Config {
+        let config = crate::config::ConfigDraft {
             body_inactivity_timeout: TimeLimit::from_millis(100),
-            ..Config::default()
-        };
+            ..Default::default()
+        }
+        .build();
         let server = tokio::spawn(super::super::serve(
             super::super::TcpListeners::public(listener, crate::tls::ListenerSecurity::Plain),
             config,
@@ -814,7 +827,7 @@ mod tests {
         ));
         let config = Arc::new(Config::default());
         let endpoints = config
-            .runtime_endpoints
+            .runtime_endpoints()
             .snapshot(&config, "http://localhost")
             .unwrap()
             .without_request();
@@ -863,10 +876,13 @@ mod tests {
         assert!(read.load(Ordering::Acquire));
         drop(response);
 
-        let short = Arc::new(Config {
-            object_request_timeout: crate::time_limit::TimeLimit::from_millis(1),
-            ..Config::clone(&config)
-        });
+        let short = Arc::new(
+            crate::config::ConfigDraft {
+                object_request_timeout: crate::time_limit::TimeLimit::from_millis(1),
+                ..Default::default()
+            }
+            .build(),
+        );
         let permits = state
             .pools
             .batches

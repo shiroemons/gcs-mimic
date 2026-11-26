@@ -101,10 +101,10 @@ impl StorageRouter {
         Self {
             legacy: v1::service(
                 state.clone(),
-                config.max_object_bytes,
-                config.compat_profile,
+                config.max_object_bytes(),
+                config.compat_profile(),
             ),
-            service: v2::service(state, config.max_object_bytes, config.compat_profile),
+            service: v2::service(state, config.max_object_bytes(), config.compat_profile()),
         }
     }
 
@@ -288,13 +288,13 @@ fn http2_builder(config: &Config) -> http2::Builder<SupervisedExecutor> {
     // a bucket that large takes more, up to the response limit in `v2`. A lower max_grpc_streams brings
     // all of that down.
     builder
-        .max_concurrent_streams(config.max_grpc_streams.get())
+        .max_concurrent_streams(config.max_grpc_streams().get())
         .max_header_list_size(16 * 1024)
         .max_send_buf_size(64 * 1024)
         .timer(TokioTimer::new());
     // A zero interval would ping in a loop and a zero timeout would fail the first ping, so a
     // disabled wait turns pings off and leaves dead peers to TCP keep-alive.
-    match config.header_read_timeout.duration() {
+    match config.header_read_timeout().duration() {
         Some(wait) => builder.keep_alive_interval(wait).keep_alive_timeout(wait),
         None => builder.keep_alive_interval(None::<Duration>),
     };
@@ -352,7 +352,7 @@ async fn serve_with_service<S, F>(
         streams: 0,
         last_frame: Instant::now(),
     });
-    let header_read = config.header_read_timeout;
+    let header_read = config.header_read_timeout();
     let reads = Arc::new(ReadActivity::default());
     let peer_wait = header_read.duration().unwrap_or(DRAIN_GRACE);
     let idle_grace = peer_wait.min(DRAIN_GRACE);
@@ -381,14 +381,14 @@ async fn serve_with_service<S, F>(
                     let (event, message) = if error.is_timeout() {
                         ("grpc_keepalive_timeout", "gRPC peer did not acknowledge an HTTP/2 keepalive ping; check the client connection or raise header_read_timeout_ms, for example 60000".to_owned())
                     } else {
-                        ("grpc_connection_failed", format!("gRPC connection failed; {}", client_advice(config.grpc_scheme)))
+                        ("grpc_connection_failed", format!("gRPC connection failed; {}", client_advice(config.grpc_scheme())))
                     };
                     crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, event, serde_json::json!({"message":message,"cause":error.to_string()}));
                 }
                 break;
             }
             Ok(()) = stopping.changed() => {
-                let deadline = Instant::now() + shutdown_grace(peer_wait, config.shutdown_timeout);
+                let deadline = Instant::now() + shutdown_grace(peer_wait, config.shutdown_timeout());
                 let deadline = match phase {
                     ConnectionPhase::ClosingIdle | ConnectionPhase::Draining => idle.deadline().min(deadline),
                     ConnectionPhase::Handshake
@@ -410,8 +410,8 @@ async fn serve_with_service<S, F>(
                 phase.after_stream_activity(activity.streams, slots);
                 let deadline = match (&phase, activity.streams) {
                     (ConnectionPhase::ClosingIdle, 0) => Instant::now() + idle_grace,
-                    (_, 0) => config.keep_alive_timeout.deadline_from(activity.last_frame),
-                    (_, _) => config.body_inactivity_timeout.deadline_from(activity.last_frame),
+                    (_, 0) => config.keep_alive_timeout().deadline_from(activity.last_frame),
+                    (_, _) => config.body_inactivity_timeout().deadline_from(activity.last_frame),
                 };
                 idle.as_mut().reset(deadline);
             }
@@ -419,7 +419,7 @@ async fn serve_with_service<S, F>(
                 if reads.total() >= HTTP2_PREFACE_BYTES {
                     let since = Instant::now();
                     phase = ConnectionPhase::AwaitingFirstStream { since };
-                    idle.as_mut().reset(config.keep_alive_timeout.deadline_from(since).min(since + idle_grace));
+                    idle.as_mut().reset(config.keep_alive_timeout().deadline_from(since).min(since + idle_grace));
                 }
             }
             () = phase.idle_turn() => {
@@ -437,7 +437,7 @@ async fn serve_with_service<S, F>(
                 let (next, wait) = match (&phase, streams) {
                     (ConnectionPhase::AwaitingFirstStream { since }, _) => {
                         // Keep-alive may have run out first, and then this deadline fires at once.
-                        idle.as_mut().reset(config.keep_alive_timeout.deadline_from(*since));
+                        idle.as_mut().reset(config.keep_alive_timeout().deadline_from(*since));
                         phase = ConnectionPhase::Idle { turn: slots.join_line() };
                         continue;
                     }
@@ -446,7 +446,7 @@ async fn serve_with_service<S, F>(
                         break;
                     }
                     (ConnectionPhase::Handshake, _) => {
-                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_handshake_timeout", serde_json::json!({"message":format!("gRPC client sent no HTTP/2 preface before header_read_timeout_ms; sending GOAWAY; {}, or raise header_read_timeout_ms, for example 60000", client_advice(config.grpc_scheme))}));
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_handshake_timeout", serde_json::json!({"message":format!("gRPC client sent no HTTP/2 preface before header_read_timeout_ms; sending GOAWAY; {}, or raise header_read_timeout_ms, for example 60000", client_advice(config.grpc_scheme()))}));
                         (ConnectionPhase::Draining, peer_wait)
                     }
                     (ConnectionPhase::Idle { .. } | ConnectionPhase::Streaming, 0) => {
