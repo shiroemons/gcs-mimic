@@ -82,7 +82,7 @@ impl Catalog {
         on_eof: impl FnOnce(&InputReader) -> ObjectError,
     ) -> Result<(), ObjectError> {
         while remaining != 0 {
-            if self.0.admission.slots.is_closed() {
+            if self.is_closing() {
                 return Err(object_unavailable("catalog is closing"));
             }
             let length =

@@ -533,8 +533,7 @@ impl Catalog {
             self.0.maintenance.health.clone(),
             move || {
                 let inner = weak.upgrade()?;
-                (!inner.shutdown.token.is_cancelled())
-                    .then(|| maintenance_loop(weak.clone(), wake.clone()))
+                (!inner.is_closing()).then(|| maintenance_loop(weak.clone(), wake.clone()))
             },
         );
     }
@@ -576,7 +575,7 @@ async fn maintenance_loop(
         let Some(inner) = weak.upgrade() else {
             return;
         };
-        if inner.shutdown.token.is_cancelled() {
+        if inner.is_closing() {
             return;
         }
         #[cfg(test)]
@@ -617,7 +616,12 @@ async fn maintenance_loop(
         tokio::select! {
             () = shutdown.cancelled() => return,
             () = notified => {}
-            Some(()) = async { sleep?.await; Some(()) } => {}
+            () = async {
+                match sleep {
+                    Some(sleep) => sleep.await,
+                    None => std::future::pending().await,
+                }
+            } => {}
         }
     }
 }
@@ -626,6 +630,31 @@ async fn maintenance_loop(
 mod tests {
     use super::*;
     use std::fs;
+
+    #[tokio::test]
+    async fn a_cancelled_catalog_never_starts_another_maintenance_pass() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog.inject_maintenance_panics(1);
+        catalog.0.shutdown.token.cancel();
+        assert!(!catalog.0.admission.slots.is_closed());
+        let scheduler = maintenance_loop(
+            Arc::downgrade(&catalog.0),
+            catalog.0.maintenance.wake.clone(),
+        );
+        tokio::time::timeout(Duration::from_secs(5), scheduler)
+            .await
+            .unwrap();
+        assert_eq!(
+            catalog
+                .0
+                .maintenance
+                .panics
+                .load(std::sync::atomic::Ordering::Acquire),
+            1
+        );
+        catalog.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn expired_resumable_runs_only_session_cleanup_and_leaves_future_work_asleep() {

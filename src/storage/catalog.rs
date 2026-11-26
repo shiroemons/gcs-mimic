@@ -231,6 +231,12 @@ impl Drop for Inner {
     }
 }
 
+impl Inner {
+    fn is_closing(&self) -> bool {
+        self.shutdown.token.is_cancelled()
+    }
+}
+
 #[derive(Default)]
 struct UploadState {
     active: usize,
@@ -319,7 +325,7 @@ impl Catalog {
     /// Whether shutdown started closing the catalog. An unhealthy catalog also refuses work, so
     /// only this tells a stopping server from a failing one.
     pub(crate) fn is_closing(&self) -> bool {
-        self.0.shutdown.token.is_cancelled()
+        self.0.is_closing()
     }
 
     pub fn is_healthy(&self) -> bool {

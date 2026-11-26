@@ -203,10 +203,13 @@ Decided by the owner on 2026-11-26:
   - The whole-object CRC32C is computed by combining the part CRCs instead,
     which drops a pass without weakening anything.
 
+Decided by the coordinator on 2026-11-27:
+
+- **Lifecycle setup and close both failing.** Startup appends the close
+  diagnostic after the storage diagnostic and still exits with code 1.
+
 Pending the evidence below:
 
-- If lifecycle initialization and the subsequent close both fail, startup now
-  appends the close diagnostic after the storage diagnostic and still exits with code 1.
 - **Custom time in import preflight and publication.** Preflight accepts year
   `0000` (such as `0000-12-31T23:59:59Z`) and fractions with ten or more
   digits and only zeros after the sixth digit (such as
@@ -760,7 +763,11 @@ rusqlite writes that bypass those helpers.
   tracker, closes the read pool, drains the writer and runs the last job.
   Every waiter selects on `token.cancelled()`, so the seven hand-sent wakeups
   and six semaphore drains go. A parent passes its tracker token to a child
-  before spawning, so the count cannot reach zero early. The server's
+  before spawning, so the count cannot reach zero early. New admissions cannot
+  take a token once draining starts. Journal reclamation can originate from an
+  admitted request or an already running maintenance pass without a request
+  token. It may join cleanup while an owner remains, and cannot restart a
+  drained tracker. The server's
   `watch::Receiver<bool>` flags can become child tokens afterwards.
 
 ## Body I/O and protocol adapters

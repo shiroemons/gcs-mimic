@@ -293,7 +293,7 @@ impl Catalog {
     /// A closing catalog, an exclusive job and a writer that failed to roll back turn hits away just
     /// as they do pooled reads.
     fn cache_available(&self) -> bool {
-        !self.0.admission.slots.is_closed()
+        !self.is_closing()
             && !self.0.admission.activity.is_reserved()
             && !self.0.writer.resources.is_poisoned()
     }

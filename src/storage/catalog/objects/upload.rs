@@ -393,9 +393,12 @@ impl Catalog {
 
     fn counted_upload(&self, activity: Activity) -> Result<UploadGuard, ObjectError> {
         let mut uploads = crate::sync::lock(&self.0.admission.uploads);
-        let task = self.0.shutdown.tasks.track().ok_or_else(|| {
-            object_unavailable(crate::cause::BackendFailure::CatalogClosed)
-        })?;
+        let task = self
+            .0
+            .shutdown
+            .tasks
+            .track()
+            .ok_or_else(|| object_unavailable(crate::cause::BackendFailure::CatalogClosed))?;
         if !self.is_healthy() {
             return Err(object_unavailable(
                 crate::cause::BackendFailure::CatalogClosed,

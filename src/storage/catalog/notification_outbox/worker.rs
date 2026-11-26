@@ -50,7 +50,7 @@ impl Catalog {
         let wake = self.0.notifications.wake.clone();
         crate::task::spawn_restarting("notification-publisher", health.clone(), move || {
             let inner = weak.upgrade()?;
-            (!inner.shutdown.token.is_cancelled())
+            (!inner.is_closing())
                 .then(|| run(weak.clone(), wake.clone(), endpoint.clone(), health.clone()))
         });
         Ok(())
@@ -68,7 +68,7 @@ async fn run(
         tokio::pin!(changed);
         changed.as_mut().enable();
         let Some(inner) = weak.upgrade() else { return };
-        if inner.shutdown.token.is_cancelled() {
+        if inner.is_closing() {
             return;
         }
         let catalog = Catalog(inner);
@@ -92,7 +92,12 @@ async fn run(
         tokio::select! {
             () = shutdown.cancelled() => return,
             () = changed => {}
-            Some(()) = async { tokio::time::sleep(delay?).await; Some(()) } => {}
+            () = async {
+                match delay {
+                    Some(delay) => tokio::time::sleep(delay).await,
+                    None => std::future::pending().await,
+                }
+            } => {}
         }
     }
 }
@@ -179,6 +184,47 @@ mod tests {
             assert_eq!(error.to_string(), "invalid Pub/Sub topic", "{stored}");
         }
         assert!(queued_topic("//pubsub.googleapis.com/projects/p/topics/topic").is_ok());
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_blocked_attempt_emits_no_catalog_retry() {
+        const CHILD: &str = "GCSM_TEST_BLOCKED_NOTIFICATION_CLOSE";
+        if std::env::var_os(CHILD).is_none() {
+            let name = std::thread::current().name().unwrap().to_owned();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &name, "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+            assert!(
+                !String::from_utf8_lossy(&output.stderr).contains("notification_catalog_retry")
+            );
+            return;
+        }
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let deadline = TimeLimit::from_millis(10_000).deadline();
+        let exclusive = catalog.wait_exclusive(deadline).await.unwrap();
+        let worker = run(
+            Arc::downgrade(&catalog.0),
+            catalog.0.notifications.wake.clone(),
+            Endpoint::parse("127.0.0.1:1").unwrap(),
+            TaskHealth::default(),
+        );
+        tokio::pin!(worker);
+        tokio::select! {
+            biased;
+            () = &mut worker => panic!("publisher left before cancellation"),
+            () = std::future::ready(()) => {}
+        }
+        assert_eq!(catalog.0.notifications.attempts.available_permits(), 0);
+        catalog.0.shutdown.token.cancel();
+        assert!(!catalog.0.admission.slots.is_closed());
+        tokio::time::timeout_at(deadline, worker).await.unwrap();
+        drop(exclusive);
+        catalog.close().await.unwrap();
     }
 
     /// Enough failed passes turn readiness off, so a reset must not count as one.

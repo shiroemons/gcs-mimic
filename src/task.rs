@@ -30,7 +30,7 @@ pub(crate) struct TaskToken {
     _receiver: tokio::sync::watch::Receiver<()>,
 }
 
-/// While draining, an existing owner can hand off work but an empty tracker cannot reopen.
+/// Tracks ownership without enabling tokio-util's `rt` feature or changing supervised spawning.
 pub(crate) struct TaskTracker {
     root: std::sync::Mutex<Option<Arc<TaskToken>>>,
     work: std::sync::Weak<TaskToken>,
@@ -53,6 +53,12 @@ impl Default for TaskTracker {
 
 impl TaskTracker {
     pub(crate) fn track(&self) -> Option<Arc<TaskToken>> {
+        crate::sync::lock(&self.root).clone()
+    }
+
+    /// A committed transaction can join cleanup until the last owner releases the catalog.
+    /// The journal also serves maintenance passes, which have no request token to inherit.
+    pub(crate) fn track_cleanup(&self) -> Option<Arc<TaskToken>> {
         self.work.upgrade()
     }
 
@@ -512,8 +518,11 @@ pub(crate) mod tests {
             () = &mut draining => panic!("active parent was skipped"),
             () = std::future::ready(()) => {}
         }
+        assert!(tracker.track().is_none());
+        let cleanup = tracker.track_cleanup().unwrap();
         let child = Arc::clone(&parent);
         drop(parent);
+        drop(cleanup);
         tokio::select! {
             biased;
             () = &mut draining => panic!("detached child was skipped"),
@@ -522,7 +531,22 @@ pub(crate) mod tests {
         drop(child);
         draining.await;
         assert!(tracker.track().is_none());
+        assert!(tracker.track_cleanup().is_none());
         tracker.drain().await;
+    }
+
+    #[tokio::test]
+    async fn a_panicking_supervised_task_releases_its_shutdown_token() {
+        let tracker = TaskTracker::default();
+        let token = tracker.track().unwrap();
+        let panicking = spawn_supervised("test-tracked-panic", async move {
+            let _token = token;
+            panic!("injected tracked panic");
+        });
+        assert!(panicking.await.unwrap_err().is_panic());
+        tokio::time::timeout(Duration::from_secs(5), tracker.drain())
+            .await
+            .unwrap();
     }
 
     static PANICS: Mutex<Vec<(&'static str, String)>> = Mutex::new(Vec::new());
