@@ -220,6 +220,8 @@ fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
     let connection = Connection::open(path)?;
     connection.busy_timeout(Duration::from_secs(5))?;
     connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
+    // The readers and the RAM catalog's writer already run every catalog statement this way.
+    sql::keep_plans_across_bindings(&connection)?;
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;
                  PRAGMA cache_size = -2048;
@@ -235,6 +237,12 @@ fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
             ));
         }
     }
+    // The commit that takes the WAL past the auto-checkpoint threshold runs a passive checkpoint
+    // on the writer before it returns, so one request pays for copying those pages into the
+    // database and syncing it. 256 pages, 1 MiB at the default page size, keeps that pause and the
+    // WAL file, which SQLite reuses rather than truncates, at a quarter of SQLite's default
+    // 1000 pages, at the cost of checkpointing four times as often. A long read on the pool can
+    // still hold the WAL past it, as it would at any threshold.
     connection.execute_batch("PRAGMA synchronous = FULL; PRAGMA wal_autocheckpoint = 256;")?;
     Ok(connection)
 }
