@@ -512,7 +512,7 @@ A further split waits until after `1.0.0`:
   `InvalidProjectId::MESSAGE`. Import reports render the fixed metadata
   validator's error directly and use the model's bucket name validator.
 - **Cause vocabulary.** `BackendCause`, `IoCause`, `BackendFailure`,
-  `MemoryExhausted`, `Source`, `Link` and a `Layer` trait move to the
+  `MemoryBudget`, `MemoryExhausted`, `Source`, `Link` and a `Layer` trait move to the
   foundation module `cause`.
   - `Source` holds `Box<dyn Layer>` instead of a closed list of upstream
     types, which removes the failure–bucket–object cycle.

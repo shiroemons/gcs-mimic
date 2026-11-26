@@ -33,6 +33,7 @@ pub struct CodecError(Kind);
 enum Kind {
     #[error(transparent)]
     Timestamp(TimestampError),
+    /// A bucket timestamp outside this platform's clock; the inner error names the range.
     #[error("bucket timestamp is outside this platform's range")]
     BucketTimeRange(#[source] TimestampError),
     #[error(transparent)]
