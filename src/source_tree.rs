@@ -24,7 +24,7 @@ fn canonical_destination(path: &Path) -> io::Result<PathBuf> {
             let parent = path
                 .parent()
                 .filter(|p| !p.as_os_str().is_empty())
-                .unwrap_or(Path::new("."));
+                .unwrap_or_else(|| Path::new("."));
             let leaf = path.file_name().ok_or(error)?;
             Ok(fs::canonicalize(parent)?.join(leaf))
         }

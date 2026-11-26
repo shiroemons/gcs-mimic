@@ -31,6 +31,7 @@ pub(crate) enum RequestBody {
 /// A request body arriving from the client. Every adapter reads through here, so the
 /// connection's watchdog learns from one place when a request is waiting on the client:
 /// a stalled body on any route is then bounded by body inactivity, not by the request deadline.
+#[must_use = "dropping the body ends transport body-read tracking"]
 pub(crate) struct TransportBody<B = Incoming> {
     body: B,
     activity: watch::Sender<ObjectActivity>,

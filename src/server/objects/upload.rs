@@ -21,10 +21,7 @@ use hyper::{
 use std::future::Future;
 
 fn content_length(headers: &HeaderMap) -> Option<u64> {
-    headers
-        .get("content-length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<u64>().ok())
+    headers.get("content-length")?.to_str().ok()?.parse().ok()
 }
 
 /// The replay identity of one upload: the client's idempotency token and the exact request a

@@ -158,6 +158,7 @@ impl Store {
     }
 }
 
+#[must_use = "dropping an uncommitted checkpoint rolls back its changes"]
 pub(in crate::storage) struct Checkpoint {
     store: Arc<Store>,
     id: String,
@@ -216,6 +217,7 @@ impl Drop for Checkpoint {
     }
 }
 
+#[must_use = "dropping the draft returns it to the store at its acknowledged offset"]
 pub(in crate::storage) struct Draft {
     store: Arc<Store>,
     id: String,

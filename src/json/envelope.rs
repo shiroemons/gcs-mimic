@@ -49,10 +49,8 @@ fn is_json_api(path: &str) -> bool {
 
 /// The `ETag` header of a resource response: the resource's own `etag`, unquoted as the body has it.
 pub(crate) fn etag_header(resource: &Value) -> Option<HeaderValue> {
-    resource
-        .get("etag")
-        .and_then(Value::as_str)
-        .and_then(|etag| HeaderValue::from_str(etag).ok())
+    let etag = resource.get("etag")?.as_str()?;
+    HeaderValue::from_str(etag).ok()
 }
 
 /// What a JSON API path call asks for: an object download keeps its own media headers.

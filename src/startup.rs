@@ -193,7 +193,7 @@ impl ReadyEvent {
             listeners,
             trusted_listen,
             trusted_principal: trusted_listen
-                .and(auth.trusted_principal())
+                .and_then(|_| auth.trusted_principal())
                 .map(str::to_owned),
             transport,
             unix_socket,

@@ -123,6 +123,7 @@ fn bind(path: PathBuf, runtime: Handle) -> io::Result<(StdListener, Owner)> {
     Ok((socket, owner))
 }
 
+#[must_use = "dropping the owner schedules cleanup of the bound Unix socket"]
 struct Owner {
     path: Option<PathBuf>,
     /// The socket file this server bound; cleanup removes the path only while it names it.

@@ -518,7 +518,7 @@ impl Call {
             parts,
             length,
             end: ChunkEnd::Exact {
-                total: total.or(finish.then_some(written)),
+                total: total.or_else(|| finish.then_some(written)),
                 finalize: finish,
             },
         })

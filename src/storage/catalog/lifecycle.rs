@@ -55,6 +55,7 @@ pub(super) fn rules_written() {
     RULES_WRITTEN.set(RuleWrites::Written);
 }
 
+#[must_use = "dropping the guard ends lifecycle rule-write tracking"]
 pub(super) struct RuleWriteScope;
 
 impl RuleWriteScope {
@@ -407,6 +408,7 @@ impl Catalog {
     }
 }
 
+#[must_use = "dropping an incomplete scan guard schedules another maintenance pass"]
 struct ScanGuard<'a> {
     inner: &'a Inner,
     complete: bool,

@@ -177,6 +177,7 @@ impl Shared {
 /// A reader away from the idle list. Dropping it returns the reader on every path out of a job,
 /// including a caller that went away, and only then frees the slot, so a read granted the slot
 /// finds either an idle reader or room to start one.
+#[must_use = "dropping the checkout releases the reader's slot"]
 struct Checkout {
     reader: Option<Reader>,
     shared: Arc<Shared>,

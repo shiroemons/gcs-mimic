@@ -4,6 +4,7 @@ use super::*;
 /// Names the expired-transfer sweep in the maintenance log.
 const DERIVED_SWEEP: &str = "derived transfer";
 
+#[must_use = "dropping an armed guard schedules transfer cleanup"]
 pub(crate) struct DerivedRequestGuard {
     catalog: Catalog,
     id: Option<BlobId>,

@@ -798,13 +798,13 @@ try_from = "i64")]`.
 
 | Lint | Where |
 | --- | --- |
-| `clippy::significant_drop_in_scrutinee` | gate; finds the read-pool lock |
+| `clippy::significant_drop_in_scrutinee` | gate; the read-pool lock already drops before branching |
 | `clippy::or_fun_call` | gate; 9 sites |
 | `clippy::ignore_without_reason` | workspace deny; no site |
-| `clippy::return_and_then` | gate; counted at slice start |
+| `clippy::return_and_then` | gate; 8 sites at slice start |
 | `clippy::large_futures` | gate, after the body I/O slices |
 | `disallowed-methods`: `serde_json::Map::remove`, `std::io::Error::other`, plain lock methods | each with its slice |
-| `[lints.cargo] unused_dependencies` | workspace; Cargo 1.100.0 reports an unused dependency (checked 2026-11-26) |
+| `cargo::unused_dependencies` | workspace deny; available in Cargo 1.100.0 |
 
 All of these exist in the pinned Clippy and Cargo 1.100.0 (checked
 2026-11-26). Each rule gets its row in the Rules table.

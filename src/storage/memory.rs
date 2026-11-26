@@ -42,6 +42,7 @@ struct Chunk {
     reservation: Reservation,
 }
 
+#[must_use = "dropping the reservation releases the memory budget charge"]
 struct Reservation {
     budget: Arc<Budget>,
     charge: u64,

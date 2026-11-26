@@ -11,6 +11,9 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 serde_json = "1.0.154"
 
+[workspace.lints.cargo]
+unused_dependencies = "deny"
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 # Every `pub` item must be reachable from a crate root; default to pub(crate).
@@ -23,6 +26,7 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 redundant_clone = "deny"
+ignore_without_reason = "deny"
 # "Idiomatic Rust" in AGENTS.md, for the patterns Clippy can decide. Each passes on every
 # workspace target, so a new occurrence fails `cargo clippy` in tests and tools as well.
 # Borrow by default: copies and allocations the code does not need.

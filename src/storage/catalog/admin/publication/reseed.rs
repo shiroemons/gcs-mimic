@@ -73,6 +73,7 @@ impl From<SeedEntry> for BatchPublication {
     }
 }
 
+#[must_use = "dropping an unfinished batch schedules cleanup of its staged data"]
 pub(crate) struct SeedBatch {
     admin: Admin,
     buckets: Vec<BucketDefinition>,

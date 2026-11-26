@@ -319,6 +319,7 @@ pub(super) enum CommitFailure<E> {
 
 /// One consistent view across a read's statements. `Connection::transaction` parses `BEGIN` and
 /// `ROLLBACK` again on every call, which is a real share of a point read; these stay prepared.
+#[must_use = "dropping the snapshot ends the read transaction"]
 pub(super) struct ReadSnapshot<'a>(&'a Connection);
 
 pub(super) fn read_snapshot(connection: &Connection) -> rusqlite::Result<ReadSnapshot<'_>> {

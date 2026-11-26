@@ -280,7 +280,7 @@ fn parse_bucket_update(
             body.get("defaultEventBasedHold"),
             "defaultEventBasedHold",
         )?
-        .or(omitted_clears.then_some(false)),
+        .or_else(|| omitted_clears.then_some(false)),
         public_access_prevention: parse_public_access_prevention(body.get("iamConfiguration"))?,
         uniform_bucket_level_access_enabled: parse_uniform_access(body.get("iamConfiguration"))?,
         rpo: parse_rpo(body.get("rpo"))?,

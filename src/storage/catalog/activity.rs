@@ -31,6 +31,7 @@ use tokio::{
 
 /// A read lease on the activity gate. Dropping it wakes an exclusive job waiting for leases to
 /// drain, which costs a fence and one atomic load while no such job waits.
+#[must_use = "dropping the lease lets exclusive catalog work proceed"]
 pub(super) struct Activity {
     lease: Option<OwnedRwLockReadGuard<()>>,
     reservations: Arc<Reservations>,
@@ -141,6 +142,7 @@ impl ActivityGate {
 
 /// An exclusive job's place in line. It ends on every path out of the job: success, an expired
 /// wait, a closed catalog and a dropped future.
+#[must_use = "dropping the reservation gives up the exclusive job's place in line"]
 struct Reservation(Arc<Reservations>);
 
 impl Drop for Reservation {

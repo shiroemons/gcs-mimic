@@ -299,6 +299,7 @@ enum UploadSlot {
     },
 }
 
+#[must_use = "dropping the guard releases upload admission"]
 pub(crate) struct UploadGuard {
     slot: UploadSlot,
     replay: Option<upload_replay::UploadReplay>,

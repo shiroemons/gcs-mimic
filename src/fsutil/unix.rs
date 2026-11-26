@@ -85,6 +85,7 @@ pub(crate) fn each_name(
         }
         return Err(error);
     }
+    #[must_use = "dropping the guard closes the directory stream"]
     struct Directory(*mut libc::DIR);
     impl Drop for Directory {
         fn drop(&mut self) {

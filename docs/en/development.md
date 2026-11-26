@@ -386,6 +386,8 @@ resolves types and paths, so it cannot be fooled by naming, and its
 `#[expect]` already checks staleness. The text rules cover only what Clippy
 cannot express.
 
+The table also includes workspace checks that Cargo and Clippy enforce directly.
+
 | Rule | Rejects |
 | --- | --- |
 | `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic` | Panics reachable from requests. |
@@ -407,6 +409,11 @@ cannot express.
 | `clippy::try_err` | `Err(e)?`, which hides a plain `return Err(e)`. |
 | `clippy::trivially_copy_pass_by_ref` | `&T` parameters for a small `Copy` type; pass it by value. A signature that a trait or a closure type dictates takes a reasoned `#[expect]`. |
 | `clippy::unnecessary_wraps` | Functions that always return `Ok` or `Some`; return the plain value. A signature fixed by a trait or by sibling functions with one shape takes a reasoned `#[expect]`. |
+| `clippy::significant_drop_in_scrutinee` | Drop-sensitive temporaries, such as lock guards, held through a branch that may need the same resource. Extract the value in a separate statement to release the guard before branching. |
+| `clippy::or_fun_call` | Eager fallback or chained calls that run even when their result is discarded. Evaluate them only when needed. |
+| `clippy::return_and_then` | A final `and_then` closure that hides an early exit expressed directly with `?`. |
+| `clippy::ignore_without_reason` | Ignored tests with no explanation. Workspace Clippy requires a reason so maintainers can tell when to re-enable a test. |
+| `cargo::unused_dependencies` | Declared dependencies Cargo can prove no selected package target uses. The workspace denies them because they add needless build work. |
 | `text::path_attribute` | `#[path]` module attributes. |
 | `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`, plus associated `type Err = String` and `type Error = String`. |
 | `text::static_str_error` | `Result<_, &'static str>` in signatures/aliases and associated static-string error types. |
@@ -422,6 +429,9 @@ cannot express.
 | `text::adapter_dependency` | One adapter (`src/json`, `src/xml`, `src/grpc`) naming another: `crate::` or `$crate::` paths, top-level members of `use crate::{..}` groups, and `super::` or `self::` paths resolved from the file's module path. Adapters that depend on each other cannot be reasoned about or replaced separately; move the shared piece to a lower module in the same change. |
 | `text::layer_dependency` | A module naming a module in a higher layer of the [module layer table](design.md#implemented-foundation-and-extension-boundaries), found the same way; a re-export counts where it is written. An upward reference ties a lower module to everything above it, and a cycle through it keeps either side from being changed or tested alone. A per-file ratchet over the references that existed when the rule arrived; kept apart from the adapter rule so a file cannot trade one forbidden edge for the other under an unchanged count. The gate also fails when `src/lib.rs` declares a module outside `#[cfg(test)]` that `xtask/src/lint/layers.rs` gives no layer, or a layer names an undeclared module. |
 | `text::sync_without_flush` | `.sync_all().await` or `.sync_data().await` after an awaited write in the same function with no `.flush().await` or `.shutdown().await` in between. |
+
+Drop guards use `#[must_use = "..."]` to explain what ends when the guard is
+dropped. Bind a guard for the lifetime of the operation it protects.
 
 `unreachable_pub` and `clippy::redundant_clone` pass on every workspace target,
 so `[workspace.lints]` denies them and the plain

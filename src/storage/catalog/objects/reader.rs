@@ -62,6 +62,7 @@ impl ReaderData {
 
 /// The filled start of a read buffer. A pooled one returns to its pool when the last `Bytes` over
 /// it drops.
+#[must_use = "dropping the buffer returns its allocation when it came from the pool"]
 struct ReadBuffer {
     bytes: Vec<u8>,
     filled: usize,
