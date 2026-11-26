@@ -910,9 +910,12 @@ impl fmt::Display for ApiError {
 impl std::error::Error for ApiError {}
 
 #[cfg(test)]
+pub(crate) mod test_support;
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::failure::wording::safe_backend_cause;
+    use crate::storage::failure::{test_support::denied, wording::safe_backend_cause};
     use serde_json::{Value, json};
 
     /// A tester whose Docker disk filled under `backend=disk` was told about RAM budgets first;
@@ -992,17 +995,6 @@ mod tests {
         );
         let unrelated = ApiError::invalid_parameter(OBJECT_NOT_FOUND);
         assert!(!unrelated.is_missing_object());
-    }
-
-    fn denied(id: Option<&str>) -> Box<Denied> {
-        let identity = id.map(|id| {
-            crate::auth::Identity::from_upload_snapshot(&json!({"id": id, "projects": {}})).unwrap()
-        });
-        Denied::new(
-            identity.as_ref(),
-            crate::auth::BUCKETS_GET,
-            crate::auth::denied::Resource::in_bucket(crate::auth::BUCKETS_GET, "bucket"),
-        )
     }
 
     /// The logged event names the anonymous caller the response answers, with the refused

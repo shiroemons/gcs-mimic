@@ -255,14 +255,17 @@ impl JsonErrorResponse for ApiError {
 }
 
 #[cfg(test)]
+mod golden_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::api_error::ErrorKind;
     use crate::{
-        auth::{AuthFailure, Denied},
+        auth::AuthFailure,
         bucket::CatalogError,
         object::ObjectError,
-        storage::failure::BackendFailure,
+        storage::failure::{BackendFailure, test_support::denied},
     };
 
     #[test]
@@ -281,17 +284,6 @@ mod tests {
         let mut bare = vec![b'x'; QUOTED_BODY_LIMIT];
         bare.push(b'x');
         assert!(parse(&bare).message.len() < 1024);
-    }
-
-    fn denied(id: Option<&str>) -> Box<Denied> {
-        let identity = id.map(|id| {
-            crate::auth::Identity::from_upload_snapshot(&json!({"id": id, "projects": {}})).unwrap()
-        });
-        Denied::new(
-            identity.as_ref(),
-            crate::auth::BUCKETS_GET,
-            crate::auth::denied::Resource::in_bucket(crate::auth::BUCKETS_GET, "bucket"),
-        )
     }
 
     /// Every error enum renders a refused permission as the documented 403 `forbidden` reason
