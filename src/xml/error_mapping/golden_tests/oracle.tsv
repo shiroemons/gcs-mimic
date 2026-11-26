@@ -1,0 +1,152 @@
+AuthFailure::LoginRequired	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthFailure::LoginRequired	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthFailure::InvalidCredentials	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthFailure::InvalidCredentials	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthFailure::Denied	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthFailure::Denied	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthFailure::Denied(anonymous)	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthFailure::Denied(anonymous)	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthFailure::Forbidden	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthFailure::Forbidden	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthError::Failure(InvalidCredentials)	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthError::Failure(InvalidCredentials)	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthError::Unavailable(CatalogClosed)	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthError::Unavailable(CatalogClosed)	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthError::Unavailable(private cause)	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+AuthError::Unavailable(private cause)	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+InvalidDigest::InvalidDigest	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+InvalidDigest::InvalidDigest	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+ProfileNameError::Native	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+ProfileNameError::Native	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+ProfileNameError::FakeGcsServer	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+ProfileNameError::FakeGcsServer	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+MalformedEncoding::MalformedEncoding	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+MalformedEncoding::MalformedEncoding	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+QueryError::TooLong	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+QueryError::TooLong	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+QueryError::Duplicate	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+QueryError::Duplicate	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+QueryError::Malformed	via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+QueryError::Malformed	anonymous caller, via ApiError	XML maps this input directly, including the caller-specific reply; the extra JSON round trip only duplicated those rows.
+PageTokenError::BucketCursor	*	XML lists report an invalid XML page token using their own code and wording.
+PageTokenError::ObjectCursor(named)	*	XML lists report an invalid XML page token using their own code and wording.
+PageTokenError::ObjectCursor(unnamed)	*	XML lists report an invalid XML page token using their own code and wording.
+PageTokenError::Project	*	XML lists report an invalid XML page token using their own code and wording.
+PageTokenError::BucketName	*	XML lists report an invalid XML page token using their own code and wording.
+ConflictingAcl::ConflictingAcl	*	The JSON acl plus predefinedAcl combination is not parsed on this route.
+GlobError::TooLong	*	XML listing accepts its XML parameters and never parses the JSON matchGlob expression.
+GlobError::InvalidSyntax	*	XML listing accepts its XML parameters and never parses the JSON matchGlob expression.
+GlobError::UnclosedClass	*	XML listing accepts its XML parameters and never parses the JSON matchGlob expression.
+GlobError::UnclosedBrace	*	XML listing accepts its XML parameters and never parses the JSON matchGlob expression.
+UrlError::InvalidBaseUrl	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::UnsupportedBaseUrl	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::MissingAuthority	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::MissingScheme	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidBasePort	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::OriginHasPath	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::OriginPortZero	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidOriginIpv6	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::AmbiguousNumericHost	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidOriginAuthority	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidDnsName	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidBucket	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidObject	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::ReservedNamespace	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::VirtualHostPathPrefix	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::VirtualHostBucketNotDns	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidVirtualHostPort	*	URL configuration and JSON link construction do not send this error through this adapter.
+ListQueryError::SoftDeletedWithVersions	*	The XML list parser has its own supported options and refusals.
+ListQueryError::FoldersAsPrefixesNeedSlash	*	The XML list parser has its own supported options and refusals.
+ListQueryError::GlobNeedsSlashDelimiter	*	The XML list parser has its own supported options and refusals.
+UntestablePermission::Unsupported	*	XML does not implement the JSON IAM testPermissions method.
+UntestablePermission::Unknown	*	XML does not implement the JSON IAM testPermissions method.
+UntestablePermission::ProjectScoped	*	XML does not implement the JSON IAM testPermissions method.
+PolicyInputError::InvalidInput	*	XML does not decode a JSON IAM policy or its bindings.
+PolicyInputError::UnsupportedInput	*	XML does not decode a JSON IAM policy or its bindings.
+ApiError::new(401 unauthorized)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(404 notFound)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(408 requestTimeout)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(410 gone)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(413 uploadTooLarge)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(416 requestedRangeNotSatisfiable)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(429 rateLimitExceeded)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(500 internalError)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(501 notImplemented)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(504 deadlineExceeded)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::backend(CatalogClosed)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::catalog_backend(CatalogClosed)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::metadata(ClassLocation)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::metadata(StorageClassRequiresZone)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::metadata(LongLanguage)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::missing_bucket()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::missing_object()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::named_missing_object()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::precondition_not_held()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::not_modified()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::conflicting_preconditions()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::write_not_modified()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::malformed_json()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::legacy_parse_error()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::unsupported_message()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::field_mask_syntax()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter().at_parameter(listed)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter().at_parameter(unlisted)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid().at(POLICY_ETAG_FIELD)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::precondition_not_held().at_if_match()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::new(412).at_if_match()	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(404).with_plain(NOT_FOUND_HTML)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(404).with_plain(NOT_FOUND_TEXT)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::invalid_parameter().with_plain(BAD_CONTENT_TYPE_TEXT)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter().with_plain(CONTENT_RANGE_TEXT)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter().with_plain(MISSING_END_BOUNDARY_TEXT)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter().with_plain(BAD_REQUEST_TEXT)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::undecodable_body()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::session_protocol()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::content_disagrees()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::required()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::method_not_allowed(with Allow)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::method_not_allowed(without Allow)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::service_unavailable()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_stored_header()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_long()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_unsigned()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid().html_typed()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::missing_object_name()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::for_upload(class location)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::for_upload(other)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::invalid()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_argument()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::forbidden()	*	Caller-specific domain cases exercise real authorization; invoking a JSON response modifier is oracle-only.
+ApiError::for_anonymous_caller(anonymous denial)	*	Caller-specific domain cases exercise real authorization; invoking a JSON response modifier is oracle-only.
+ApiError::for_anonymous_caller(principal denial)	*	Caller-specific domain cases exercise real authorization; invoking a JSON response modifier is oracle-only.
+ApiError::for_anonymous_caller(forbidden)	*	Caller-specific domain cases exercise real authorization; invoking a JSON response modifier is oracle-only.
+ApiError::for_anonymous_caller(not found)	*	Caller-specific domain cases exercise real authorization; invoking a JSON response modifier is oracle-only.
+ApiError::unsupported()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::unsupported_object()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::naming_object(missing object)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::naming_object(markup in the name)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::naming_object(already named)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::naming_object(other error)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::cancelled_upload()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ResumableError::NotFound	via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::NotFound	anonymous caller, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::NotFound	named object, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Gone	via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Gone	anonymous caller, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Gone	named object, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Cancelled	via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Cancelled	anonymous caller, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Cancelled	named object, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::InvalidContentRange	via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::InvalidContentRange	anonymous caller, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::InvalidContentRange	named object, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Overrun	via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Overrun	anonymous caller, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Overrun	named object, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Invalid	via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Invalid	anonymous caller, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Invalid	named object, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Object(PreconditionFailed)	via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Object(PreconditionFailed)	anonymous caller, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.
+ResumableError::Object(PreconditionFailed)	named object, via ApiError	XML maps session failures directly; the corresponding direct, anonymous and named documents pin the same bytes.

@@ -1,19 +1,10 @@
-//! Pins the Storage v2 status of every error the shared error is built from: its code, its
-//! message and its details' bytes. A domain error the gRPC adapter maps itself is rendered both
-//! directly and through the shared error, the old mapping the direct ones replaced, and each
-//! path again as an anonymous caller; an object failure is also rendered through the helpers of
-//! the handlers that name the object they act on. See [`crate::api_error::test_support`] for
-//! regenerating the golden file.
+//! Pins the code, message and details of typed Storage failures, including caller-specific replies.
 
 use super::*;
 use crate::{
-    api_error::{
-        ApiError,
-        test_support::{KindCoverage, Transcript, constructor_cases},
-    },
+    api_error::test_support::Transcript,
     auth::Caller,
     grpc::v2::object_io::{named_object_status, naming_object, object_status},
-    server::anonymous_error,
     storage::failure::test_support::{self as domain, Case, copies},
 };
 use std::{collections::HashMap, fmt::Write as _};
@@ -158,27 +149,15 @@ fn canonical_error_info(info: &ErrorInfo) -> Vec<u8> {
 
 struct Golden {
     transcript: Transcript,
-    kinds: KindCoverage,
 }
 
 impl Golden {
-    /// The shared error's status, plainly and for an anonymous caller.
-    fn shared_status(&mut self, shared: ApiError) {
-        self.kinds.record(&shared);
-        self.transcript
-            .render("via ApiError", rendering(&Status::from(shared.clone())));
-        self.transcript.render(
-            "anonymous caller, via ApiError",
-            rendering(&Status::from(anonymous_error(shared, ANONYMOUS))),
-        );
-    }
-
     /// Object failures, which handlers also map through the helpers that name the object.
     fn objects(&mut self) {
         let named = naming_object("bucket", "object");
         let named_status = named_object_status("bucket", "object");
-        for (label, [direct, by_name, plain, by_name_status, refused, shared]) in
-            copies::<ObjectError, 6>(domain::object_cases)
+        for (label, [direct, by_name, plain, by_name_status, refused]) in
+            copies::<ObjectError, 5>(domain::object_cases)
         {
             self.transcript.case("ObjectError", label);
             let transcript = &mut self.transcript;
@@ -193,34 +172,60 @@ impl Golden {
                 "anonymous caller",
                 rendering(&anonymous(Status::from(refused), ANONYMOUS)),
             );
-            self.shared_status(ApiError::from(shared));
         }
     }
 
-    /// Errors the gRPC adapter maps itself with `direct` and through the shared error.
-    fn mapped<E>(&mut self, section: &str, cases: fn() -> Vec<Case<E>>, direct: fn(E) -> Status)
-    where
-        ApiError: From<E>,
-    {
-        for (label, [plain, refused, shared]) in copies::<E, 3>(cases) {
-            self.transcript.case(section, label);
-            self.transcript.render("direct", rendering(&direct(plain)));
-            self.transcript.render(
-                "anonymous caller",
-                rendering(&anonymous(direct(refused), ANONYMOUS)),
-            );
-            self.shared_status(ApiError::from(shared));
+    fn direct(&mut self, section: &str, label: &str, plain: Status, refused: Status) {
+        self.transcript.case(section, label);
+        self.transcript.render("direct", rendering(&plain));
+        self.transcript.render(
+            "anonymous caller",
+            rendering(&anonymous(refused, ANONYMOUS)),
+        );
+    }
+
+    fn mapped<E>(&mut self, section: &str, cases: fn() -> Vec<Case<E>>, direct: fn(E) -> Status) {
+        for (label, [plain, refused]) in copies(cases) {
+            self.direct(section, label, direct(plain), direct(refused));
         }
     }
 
-    /// Errors that reach the gRPC adapter only as the shared error.
-    fn shared<E>(&mut self, section: &str, cases: Vec<Case<E>>)
-    where
-        ApiError: From<E>,
-    {
+    fn catalog(&mut self) {
+        for (label, [plain, refused, legacy, legacy_anonymous]) in copies(domain::catalog_cases) {
+            self.direct("CatalogError", label, plain.into(), refused.into());
+            if matches!(legacy, CatalogError::NotModified) {
+                self.service_replies(
+                    crate::grpc::v1::conditional_bucket_error(legacy),
+                    crate::grpc::v1::conditional_bucket_error(legacy_anonymous),
+                );
+            } else if matches!(
+                legacy,
+                CatalogError::Denied(_)
+                    | CatalogError::Forbidden
+                    | CatalogError::Unavailable(_)
+                    | CatalogError::Io(_)
+                    | CatalogError::Corrupt(_)
+            ) {
+                self.service_replies(
+                    crate::grpc::v1::access_status(legacy, None),
+                    crate::grpc::v1::access_status(legacy_anonymous, ANONYMOUS),
+                );
+            }
+        }
+    }
+
+    // Keep the original fixture labels for replies formerly reached through shared HTTP errors.
+    fn service_replies(&mut self, plain: Status, refused: Status) {
+        self.transcript.render("via ApiError", rendering(&plain));
+        self.transcript
+            .render("anonymous caller, via ApiError", rendering(&refused));
+    }
+
+    fn service<E: Into<ServiceError>>(&mut self, section: &str, cases: Vec<Case<E>>) {
         for case in cases {
             self.transcript.case(section, case.label);
-            self.shared_status(ApiError::from(case.error));
+            let plain = Status::from(case.error.into());
+            self.service_replies(plain.clone(), anonymous(plain, ANONYMOUS));
         }
     }
 }
@@ -233,10 +238,9 @@ async fn every_error_keeps_its_storage_v2_status() {
             "every_error_keeps_its_storage_v2_status",
             "The Storage v2 status of each error: code, message and details. ErrorInfo metadata is shown and encoded in key order, because the server writes its hash map in an order that varies.",
         ),
-        kinds: KindCoverage::default(),
     };
     golden.objects();
-    golden.mapped("CatalogError", domain::catalog_cases, Status::from);
+    golden.catalog();
     golden.mapped("AuthFailure", domain::auth_failure_cases, Status::from);
     golden.mapped(
         "AuthError",
@@ -260,24 +264,22 @@ async fn every_error_keeps_its_storage_v2_status() {
         list_query_status,
     );
     golden.mapped("GlobError", domain::glob_cases, |error| glob_status(&error));
-    golden.shared("ResumableError", domain::resumable_cases());
-    for case in domain::body_cases() {
-        let shared = ApiError::from(case.error);
-        assert_eq!(
-            rendering(&Status::from(ServiceError::Body(case.error))),
-            rendering(&Status::from(shared.clone())),
-            "{}",
-            case.label
-        );
-        golden.transcript.case("BodyError", case.label);
-        golden.shared_status(shared);
-    }
-    golden.shared("QueryError", domain::query_cases());
-    golden.shared("InvalidDigest", domain::digest_cases());
-    golden.shared("TimeOutOfRange", domain::time_cases());
-    golden.shared("ConflictingAcl", domain::conflicting_acl_cases());
-    golden.shared("UrlError", domain::url_cases());
-    golden.shared("ApiError", constructor_cases());
+    golden.service(
+        "ResumableError",
+        domain::resumable_cases()
+            .into_iter()
+            .filter(|case| {
+                !matches!(
+                    case.error,
+                    crate::storage::ResumableError::NotFound
+                        | crate::storage::ResumableError::Cancelled
+                        | crate::storage::ResumableError::Gone
+                )
+            })
+            .collect(),
+    );
+    golden.service("BodyError", domain::body_cases());
+    golden.service("TimeOutOfRange", domain::time_cases());
     for (label, error) in crate::api_error::test_support::bucket_service_errors() {
         golden.transcript.case("bucket", label);
         golden
@@ -294,6 +296,7 @@ async fn every_error_keeps_its_storage_v2_status() {
             .transcript
             .render("response", rendering(&Status::from(error)));
     }
-    golden.kinds.assert_complete();
-    golden.transcript.assert_golden(GOLDEN);
+    golden
+        .transcript
+        .assert_live_golden(GOLDEN, include_str!("golden_tests/oracle.tsv"));
 }

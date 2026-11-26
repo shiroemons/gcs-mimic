@@ -1,7 +1,5 @@
 //! XML objects. Shared authorization, generation selection and bytes live in storage.
 
-#[cfg(test)]
-use crate::api_error::{ApiError, ErrorKind};
 use crate::{
     config::{Config, EndpointSnapshot},
     hashing::Hashes,
@@ -401,57 +399,6 @@ fn document_response(body: impl Into<Bytes>) -> Response<Full<Bytes>> {
 
 /// The `Cache-Control` Cloud Storage sends with XML API lists, errors and private objects.
 pub(crate) const PRIVATE_CACHE_CONTROL: &str = "private, max-age=0";
-
-#[cfg(test)]
-impl From<ApiError> for Error {
-    fn from(error: ApiError) -> Self {
-        if error.kind == ErrorKind::UniformAccessAcl {
-            return Self::uniform_access_acl();
-        }
-        if error.kind == ErrorKind::ClassLocation {
-            return Self::class_location(error.message);
-        }
-        // XML reference-status pairs invalid/unsupported auth headers with 400; 401 covers expiry.
-        #[expect(
-            clippy::wildcard_enum_match_arm,
-            reason = "every other error kind keeps the shared status mapping"
-        )]
-        let code = match error.status {
-            StatusCode::UNAUTHORIZED if error.kind == ErrorKind::Required => {
-                XmlCode::AuthenticationRequired
-            }
-            StatusCode::UNAUTHORIZED => XmlCode::InvalidAuthentication,
-            StatusCode::FORBIDDEN if error.kind == ErrorKind::RetentionNotMet => {
-                XmlCode::RetentionPolicyNotMet
-            }
-            StatusCode::FORBIDDEN if error.kind == ErrorKind::ActiveHold => {
-                XmlCode::ObjectUnderActiveHold
-            }
-            StatusCode::FORBIDDEN => XmlCode::AccessDenied,
-            StatusCode::NOT_FOUND if error.is_missing_bucket() => XmlCode::NoSuchBucket,
-            StatusCode::NOT_FOUND => XmlCode::NoSuchKey,
-            StatusCode::PRECONDITION_FAILED => XmlCode::PreconditionFailed,
-            StatusCode::RANGE_NOT_SATISFIABLE => XmlCode::InvalidRange,
-            StatusCode::REQUEST_TIMEOUT => XmlCode::UploadBrokenConnection,
-            StatusCode::SERVICE_UNAVAILABLE => XmlCode::ServiceUnavailable,
-            _ => match error.kind {
-                ErrorKind::Csek(error) => XmlCode::Csek(error),
-                _ => XmlCode::forwarded(error.status),
-            },
-        };
-        let message = if error.is_missing_object() {
-            NO_SUCH_KEY.to_owned()
-        } else if error.status == StatusCode::PRECONDITION_FAILED {
-            PRECONDITION_NOT_HELD.to_owned()
-        } else {
-            error.message
-        };
-        // shortcut: auth wording and error precedence are local choices.
-        let mut xml = Self::new(code, message);
-        xml.denied = error.denied;
-        xml
-    }
-}
 
 pub(crate) fn reserved_path(path: &str) -> bool {
     [

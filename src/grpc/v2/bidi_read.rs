@@ -605,7 +605,6 @@ async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api_error::ApiError;
     use crate::grpc::test_support::assert_code;
     use crate::grpc::v2::access_status;
     use crate::storage::test_fixtures::PERMISSIVE;
@@ -998,21 +997,15 @@ mod tests {
     #[test]
     fn bidi_shared_error_status() {
         let unsupported = access_status(
-            ApiError::new(
-                hyper::StatusCode::NOT_IMPLEMENTED,
-                "notImplemented",
-                "Unsupported setting",
-            ),
+            crate::object::ObjectError::UnsupportedMetadata("setting".into()),
             None,
         );
         assert_eq!(unsupported.code(), tonic::Code::Unimplemented);
         assert!(!unsupported.details().is_empty());
         assert_eq!(
             access_status(
-                ApiError::new(
-                    hyper::StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "Storage unavailable"
+                crate::object::ObjectError::Unavailable(
+                    crate::storage::failure::BackendFailure::CatalogClosed.into()
                 ),
                 None
             )

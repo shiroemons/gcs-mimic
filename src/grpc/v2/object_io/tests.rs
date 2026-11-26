@@ -834,18 +834,11 @@ async fn grpc_io_write_object_answers_a_refused_finishing_message_at_once() {
 #[test]
 fn grpc_io_range_and_masks() {
     assert_eq!(
-        Status::from(crate::api_error::ApiError::new(
-            hyper::StatusCode::NOT_MODIFIED,
-            "notModified",
-            "Object condition matched"
-        ))
-        .code(),
+        Status::from(crate::object::ObjectError::NotModified).code(),
         tonic::Code::FailedPrecondition
     );
-    let unsupported = Status::from(crate::api_error::ApiError::new(
-        hyper::StatusCode::NOT_IMPLEMENTED,
-        "notImplemented",
-        "Unsupported object option",
+    let unsupported = Status::from(crate::object::ObjectError::UnsupportedMetadata(
+        "option".into(),
     ));
     assert_eq!(unsupported.code(), tonic::Code::Unimplemented);
     assert!(!unsupported.details().is_empty());

@@ -7,9 +7,7 @@ use crate::{
 
 #[test]
 fn storage_capacity_failures_keep_the_xml_service_unavailable_contract() {
-    let error = Error::from(ApiError::from(ObjectError::Io(
-        std::io::ErrorKind::StorageFull.into(),
-    )));
+    let error = Error::from(ObjectError::Io(std::io::ErrorKind::StorageFull.into()));
     assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(error.code.as_str(), "ServiceUnavailable");
     assert!(error.message.starts_with("Storage capacity exhausted;"));
@@ -108,14 +106,14 @@ fn xml_codes_preserve_exceptional_statuses_and_spelling() {
         StatusCode::NOT_IMPLEMENTED,
         StatusCode::GATEWAY_TIMEOUT,
     ] {
-        let error = Error::from(ApiError::new(status, "other", "message"));
+        let error = Error::new(XmlCode::forwarded(status), "message");
         assert_eq!(error.status(), status);
         assert_eq!(error.code.as_str(), "InvalidArgument");
     }
 }
 
 #[tokio::test]
-async fn typed_json_errors_keep_the_xml_status_code_and_document() {
+async fn domain_errors_keep_the_xml_status_code_and_document() {
     let denied = |id: Option<&str>| {
         let identity = id.map(|id| {
             crate::auth::Identity::from_upload_snapshot(
@@ -129,52 +127,51 @@ async fn typed_json_errors_keep_the_xml_status_code_and_document() {
             crate::auth::denied::Resource::in_bucket(crate::auth::OBJECTS_GET, "bucket"),
         )
     };
-    for (mut json, status, code, message) in [
+    for (error, status, code, message) in [
         (
-            ApiError::from(CatalogError::Denied(denied(Some("viewer@example.invalid")))),
+            Error::from(CatalogError::Denied(denied(Some("viewer@example.invalid")))),
             StatusCode::FORBIDDEN,
             "AccessDenied",
             "viewer@example.invalid does not have storage.objects.get access to the Google Cloud Storage object. Permission 'storage.objects.get' denied on resource (or it may not exist).",
         ),
         (
-            ApiError::from(ObjectError::Denied(denied(None))).for_anonymous_caller(),
+            Error::from(ObjectError::Denied(denied(None)))
+                .for_caller(Some(crate::auth::Caller::Anonymous)),
             StatusCode::UNAUTHORIZED,
             "AuthenticationRequired",
             "Anonymous caller does not have storage.objects.get access to the Google Cloud Storage object. Permission 'storage.objects.get' denied on resource (or it may not exist).",
         ),
         (
-            ApiError::from(AuthFailure::LoginRequired),
+            Error::from(AuthFailure::LoginRequired),
             StatusCode::UNAUTHORIZED,
             "AuthenticationRequired",
             "Login Required",
         ),
         (
-            ApiError::from(AuthFailure::InvalidCredentials),
+            Error::from(AuthFailure::InvalidCredentials),
             StatusCode::BAD_REQUEST,
             "InvalidAuthentication",
             "Invalid Credentials",
         ),
         (
-            ApiError::from(CatalogError::NotFound),
+            Error::from(CatalogError::NotFound),
             StatusCode::NOT_FOUND,
             "NoSuchBucket",
             "The specified bucket does not exist.",
         ),
         (
-            ApiError::from(ObjectError::ObjectNotFound).naming_object("bucket", "object"),
+            Error::from(ObjectError::ObjectNotFound),
             StatusCode::NOT_FOUND,
             "NoSuchKey",
             NO_SUCH_KEY,
         ),
         (
-            ApiError::from(CsekError::KeyIncorrect),
+            Error::from(CsekError::KeyIncorrect),
             StatusCode::BAD_REQUEST,
             "CustomerEncryptionKeyIsIncorrect",
             "The provided encryption key is incorrect.",
         ),
     ] {
-        json.reason = "unrelatedReason";
-        let error = Error::from(json);
         let response = error.response(ErrorBody::Include);
         assert_eq!(response.status(), status);
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
@@ -186,130 +183,13 @@ async fn typed_json_errors_keep_the_xml_status_code_and_document() {
     }
 }
 
-/// The XML adapter answers domain errors itself; each answer must stay the one the JSON error
-/// conversion produced, including the anonymous caller's `AuthenticationRequired`.
 #[test]
-fn domain_errors_answer_as_their_json_conversion_did() {
-    use crate::{
-        auth::{AuthError, Caller},
-        object::{ComponentFailure, ComponentFailureKind},
-        storage::failure::BackendCause,
-    };
-    fn same(direct: Error, converted: Error) {
-        assert_eq!(
-            (&direct.code, &direct.message, &direct.details),
-            (&converted.code, &converted.message, &converted.details)
-        );
-        assert_eq!(
-            direct.denied.map(|denied| denied.to_string()),
-            converted.denied.map(|denied| denied.to_string())
-        );
-    }
-    let denied = |id: Option<&str>| {
-        let identity = id.map(|id| {
-            crate::auth::Identity::from_upload_snapshot(
-                &serde_json::json!({"id": id, "projects": {}}),
-            )
-            .unwrap()
-        });
-        crate::auth::Denied::new(
-            identity.as_ref(),
-            crate::auth::OBJECTS_GET,
-            crate::auth::denied::Resource::in_bucket(crate::auth::OBJECTS_GET, "bucket"),
-        )
-    };
-    let backend = || BackendCause::from_error(std::io::Error::other("disk gone"));
-    let catalog = || {
-        [
-            CatalogError::AlreadyExists,
-            CatalogError::NotFound,
-            CatalogError::RestoreConflict,
-            CatalogError::NotEmpty,
-            CatalogError::PreconditionFailed,
-            CatalogError::NotModified,
-            CatalogError::Denied(denied(Some("viewer@example.invalid"))),
-            CatalogError::Denied(denied(None)),
-            CatalogError::Forbidden,
-            CatalogError::RetentionPolicyNotSet,
-            CatalogError::PublicAccessPrevention,
-            CatalogError::InvalidMetadata("bad value".into()),
-            CatalogError::UnsupportedMetadata("rpo".into()),
-            CatalogError::Io(std::io::ErrorKind::StorageFull.into()),
-            CatalogError::Io(std::io::ErrorKind::PermissionDenied.into()),
-            CatalogError::Unavailable(backend()),
-            CatalogError::Corrupt(backend()),
-            CatalogError::AuthenticationAlreadyConfigured,
-        ]
-    };
-    let object = || {
-        [
-            ObjectError::BucketNotFound,
-            ObjectError::ObjectNotFound,
-            ObjectError::Component(Box::new(ComponentFailure {
-                bucket: "bucket".into(),
-                name: "part".into(),
-                kind: ComponentFailureKind::NotFound,
-            })),
-            ObjectError::DerivedTransferNotFound,
-            ObjectError::DerivedTransferExpired,
-            ObjectError::DerivedTransferBusy,
-            ObjectError::DerivedTransferIncomplete,
-            ObjectError::NotModified,
-            ObjectError::WriteNotModified,
-            ObjectError::PreconditionFailed,
-            ObjectError::SourceNotModified,
-            ObjectError::ObjectNotSoftDeleted,
-            ObjectError::PublicAccessPrevention,
-            ObjectError::Denied(denied(None)),
-            ObjectError::OverwriteForbidden(denied(Some("writer@example.invalid"))),
-            ObjectError::Forbidden,
-            ObjectError::UnlockedRetentionOverrideRequired,
-            ObjectError::LockedRetention,
-            ObjectError::UnsupportedMetadata("rpo".into()),
-            ObjectError::InvalidDerivedArgument("bad source".into()),
-            ObjectError::InvalidFixedMetadata("bad type".into()),
-            ObjectError::ChecksumMismatch,
-            ObjectError::UniformAccessPredefinedAcl,
-            ObjectError::UniformAccessAclUpdate,
-            ObjectError::CustomerEncryption(CsekError::KeyIncorrect),
-            ObjectError::TooLarge,
-            ObjectError::Io(std::io::ErrorKind::StorageFull.into()),
-            ObjectError::Unavailable(backend()),
-            ObjectError::Corrupt(backend()),
-        ]
-    };
-    let auth = || {
-        [
-            AuthFailure::LoginRequired,
-            AuthFailure::InvalidCredentials,
-            AuthFailure::Denied(denied(None)),
-            AuthFailure::Forbidden,
-        ]
-    };
-    for caller in [None, Some(Caller::Anonymous)] {
-        let json = |error: ApiError| Error::from(crate::server::anonymous_error(error, caller));
-        for (direct, converted) in catalog().into_iter().zip(catalog()) {
-            same(
-                Error::from(direct).for_caller(caller),
-                json(ApiError::from(converted)),
-            );
-        }
-        for (direct, converted) in object().into_iter().zip(object()) {
-            same(
-                Error::from(direct).for_caller(caller),
-                json(ApiError::from(converted)),
-            );
-        }
-        for (direct, converted) in auth().into_iter().zip(auth()) {
-            same(
-                Error::from(direct).for_caller(caller),
-                json(ApiError::from(converted)),
-            );
-        }
-        same(
-            Error::from(AuthError::Unavailable(backend())).for_caller(caller),
-            json(ApiError::from(AuthError::Unavailable(backend()))),
-        );
+fn anonymous_refusals_keep_the_anonymous_identity_for_logging() {
+    use crate::storage::failure::test_support::{VIEWER, denied};
+    for id in [None, Some(VIEWER)] {
+        let error = Error::from(ObjectError::Denied(denied(id)))
+            .for_caller(Some(crate::auth::Caller::Anonymous));
+        assert!(error.denied.unwrap().is_anonymous());
     }
 }
 

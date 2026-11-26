@@ -645,30 +645,37 @@ fn unguided_backend_failures_log_only_their_allowlisted_cause() {
     assert_eq!(logged, expected);
 }
 
-/// Authentication failures map to statuses directly; each status stays the one the JSON error
-/// conversion produced.
 #[test]
-fn authentication_failures_answer_as_their_json_conversion_did() {
+fn authentication_failures_preserve_their_codes_messages_and_empty_details() {
     use crate::auth::AuthFailure;
-    let denied = || {
-        crate::auth::Denied::new(
-            None,
-            crate::auth::OBJECTS_GET,
-            crate::auth::denied::Resource::in_bucket(crate::auth::OBJECTS_GET, "bucket"),
-        )
-    };
-    let failures = || {
-        [
+    let denied = domain::denied(None);
+    let message = denied.to_string();
+    for (failure, code, message) in [
+        (
             AuthFailure::LoginRequired,
+            Code::Unauthenticated,
+            wording::LOGIN_REQUIRED,
+        ),
+        (
             AuthFailure::InvalidCredentials,
-            AuthFailure::Denied(denied()),
+            Code::Unauthenticated,
+            wording::INVALID_CREDENTIALS,
+        ),
+        (
+            AuthFailure::Denied(denied),
+            Code::PermissionDenied,
+            &message,
+        ),
+        (
             AuthFailure::Forbidden,
-        ]
-    };
-    for (direct, converted) in failures().into_iter().zip(failures()) {
+            Code::PermissionDenied,
+            wording::FORBIDDEN,
+        ),
+    ] {
+        let status = Status::from(failure);
         assert_eq!(
-            Reply::of(&Status::from(direct)),
-            Reply::of(&Status::from(crate::api_error::ApiError::from(converted)))
+            (status.code(), status.message(), status.details()),
+            (code, message, &[][..])
         );
     }
 }

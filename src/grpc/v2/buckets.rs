@@ -2912,16 +2912,14 @@ mod tests {
             Code::Unauthenticated,
         );
         assert_eq!(
-            Status::from(crate::api_error::ApiError::new(
-                hyper::StatusCode::SERVICE_UNAVAILABLE,
-                "backendError",
-                "catalog unavailable"
+            Status::from(CatalogError::Unavailable(
+                crate::storage::failure::BackendFailure::CatalogClosed.into()
             ))
             .code(),
             Code::Unavailable
         );
         assert_eq!(
-            Status::from(crate::api_error::ApiError::unsupported("callback")).code(),
+            Status::from(CatalogError::UnsupportedMetadata("callback".into())).code(),
             Code::Unimplemented
         );
         storage.state.catalog.close().await.unwrap();

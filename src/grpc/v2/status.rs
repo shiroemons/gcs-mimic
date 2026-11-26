@@ -380,47 +380,6 @@ impl From<crate::csek::CsekError> for Status {
     }
 }
 
-#[cfg(test)]
-impl From<crate::api_error::ApiError> for Status {
-    fn from(mut error: crate::api_error::ApiError) -> Self {
-        // A storage error that a handler turned into the shared error, such as one that names its
-        // object, must still report what the direct conversion above reports.
-        if let crate::api_error::ErrorKind::Csek(error) = error.kind {
-            return customer_encryption(error);
-        }
-        // The JSON API answers a write's matching not-match condition with 304; gRPC words it
-        // as a read's.
-        if error.kind == crate::api_error::ErrorKind::WriteNotModified {
-            return not_modified();
-        }
-        if error.kind == crate::api_error::ErrorKind::NotModified {
-            error.message = NOT_MODIFIED.into();
-        }
-        // Cloud Storage repeats this refusal in a BadRequest (recorded 2026-11-17).
-        if error.kind == crate::api_error::ErrorKind::ClassLocation {
-            return invalid_field(error.message);
-        }
-        if error.kind == crate::api_error::ErrorKind::Unsupported {
-            return unsupported_message(error.message);
-        }
-        match error.status.as_u16() {
-            400 => Status::invalid_argument(error.message),
-            401 => Status::unauthenticated(error.message),
-            403 => Status::permission_denied(error.message),
-            404 => Status::not_found(error.message),
-            409 => Status::already_exists(error.message),
-            304 | 410 | 412 => Status::failed_precondition(error.message),
-            413 | 429 => Status::resource_exhausted(error.message),
-            416 => Status::out_of_range(error.message),
-            499 => Status::cancelled(error.message),
-            501 => unsupported_message(error.message),
-            503 => Status::unavailable(error.message),
-            504 => Status::deadline_exceeded(error.message),
-            _ => Status::internal(error.message),
-        }
-    }
-}
-
 /// Object-level permissions are decided only after the catalog selects a generation and its
 /// ACL, past the handlers' bucket-stage anonymous mapping; apply JSON's rule to the whole RPC.
 pub(crate) fn anonymous(status: Status, caller: Option<crate::auth::Caller<'_>>) -> Status {
@@ -541,7 +500,6 @@ mod golden_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hyper::StatusCode;
 
     fn rpc_status(status: &Status) -> RpcStatus {
         RpcStatus::decode(status.details()).unwrap()
@@ -596,36 +554,31 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_json_errors_keep_their_messages_and_details() {
-        for (label, error, message) in [
+    fn unsupported_inputs_keep_their_messages_and_details() {
+        for (label, actual, message) in [
             (
                 "bucket",
-                crate::api_error::ApiError::unsupported("storageClass requires a region or zone"),
+                Status::from(CatalogError::UnsupportedMetadata(
+                    "storageClass requires a region or zone".into(),
+                )),
                 "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name).",
             ),
             (
                 "object",
-                crate::api_error::ApiError::unsupported_object("metadata"),
+                Status::from(ObjectError::UnsupportedMetadata("metadata".into())),
                 "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl).",
             ),
             (
                 "custom",
-                crate::api_error::ApiError::unsupported_message(
-                    "gcs-mimic does not support this setting; omit it.",
-                ),
+                unsupported_message("gcs-mimic does not support this setting; omit it.".into()),
                 "gcs-mimic does not support this setting; omit it.",
             ),
             (
                 "plain 501",
-                crate::api_error::ApiError::new(
-                    StatusCode::NOT_IMPLEMENTED,
-                    "notImplemented",
-                    "Unsupported object option",
-                ),
+                unsupported_message("Unsupported object option".into()),
                 "Unsupported object option",
             ),
         ] {
-            let actual = Status::from(error);
             let expected = unsupported("example");
             assert_eq!(actual.code(), expected.code(), "{label}");
             assert_eq!(actual.message(), message, "{label}");
@@ -664,14 +617,9 @@ mod tests {
         let pap = Status::from(crate::bucket::CatalogError::PublicAccessPrevention);
         assert_eq!(pap.code(), Code::FailedPrecondition);
         assert_eq!(pap.message(), "Public access prevention is enforced");
-        let not_empty = Status::from(crate::api_error::ApiError::new(
-            StatusCode::PRECONDITION_FAILED,
-            "conditionNotMet",
-            "bucket must be empty prior to deletion",
-        ));
         assert_eq!(
             not_empty.message(),
-            "bucket must be empty prior to deletion"
+            "The bucket you tried to delete is not empty."
         );
     }
 

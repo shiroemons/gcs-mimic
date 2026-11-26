@@ -1,0 +1,293 @@
+ObjectError::BucketNotFound	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::BucketNotFound	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ObjectNotFound	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ObjectNotFound	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::PreconditionFailed	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::PreconditionFailed	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Component(NotFound)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Component(NotFound)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Component(GenerationMismatch)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Component(GenerationMismatch)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::PublicAccessPrevention	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::PublicAccessPrevention	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::OverwriteForbidden	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::OverwriteForbidden	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ActiveHold(Temporary)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ActiveHold(Temporary)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ActiveHold(EventBased)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ActiveHold(EventBased)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ObjectRetentionNotMet	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ObjectRetentionNotMet	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::UnlockedRetentionOverrideRequired	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::UnlockedRetentionOverrideRequired	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::LockedRetention	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::LockedRetention	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ObjectNotSoftDeleted	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ObjectNotSoftDeleted	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::SoftDeletePolicyRequired(List)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::SoftDeletePolicyRequired(List)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::SoftDeletePolicyRequired(Get)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::SoftDeletePolicyRequired(Get)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::SoftDeletePolicyRequired(Restore)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::SoftDeletePolicyRequired(Restore)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Denied	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Denied	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Denied(anonymous)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Denied(anonymous)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Forbidden	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Forbidden	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::NotModified	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::NotModified	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::WriteNotModified	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::WriteNotModified	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::SourceNotModified	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::SourceNotModified	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ChecksumMismatch	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ChecksumMismatch	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::HashMismatch(Crc32c)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::HashMismatch(Crc32c)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::HashMismatch(Md5)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::HashMismatch(Md5)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::TooLarge	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::TooLarge	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::InvalidFixedMetadata	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::InvalidFixedMetadata	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::UniformAccessPredefinedAcl	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::UniformAccessPredefinedAcl	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::UniformAccessAclUpdate	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::UniformAccessAclUpdate	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Metadata(ClassLocation)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Metadata(ClassLocation)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Metadata(StorageClassRequiresZone)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Metadata(StorageClassRequiresZone)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Metadata(LongLanguage)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Metadata(LongLanguage)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::InvalidDerivedArgument	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::InvalidDerivedArgument	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ComposeClassMismatch	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::ComposeClassMismatch	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::DerivedTransferNotFound	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::DerivedTransferNotFound	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::DerivedTransferExpired	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::DerivedTransferExpired	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::DerivedTransferBusy	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::DerivedTransferBusy	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::DerivedTransferIncomplete	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::DerivedTransferIncomplete	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::UnsupportedMetadata	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::UnsupportedMetadata	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::CustomerEncryption(KeyIncorrect)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::CustomerEncryption(KeyIncorrect)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::BodyAborted	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::BodyAborted	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Io(StorageFull)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Io(StorageFull)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Io(memory blobs)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Io(memory blobs)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Io(memory catalog)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Io(memory catalog)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Io(PermissionDenied)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Io(PermissionDenied)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Io(with context)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Io(with context)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Corrupt(CatalogClosed)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Corrupt(CatalogClosed)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Corrupt(private cause)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Corrupt(private cause)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Unavailable(CatalogClosed)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Unavailable(CatalogClosed)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Unavailable(MissingCompletion)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Unavailable(MissingCompletion)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Unavailable(private cause)	via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+ObjectError::Unavailable(private cause)	anonymous caller, via ApiError	Object RPCs use object_status or named_object_status, including after ACL evaluation; neither converts a JSON error.
+CatalogError::AuthenticationAlreadyConfigured	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::AuthenticationAlreadyConfigured	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::AlreadyExists	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::AlreadyExists	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::NotFound	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::NotFound	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::NotEmpty	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::NotEmpty	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::RestoreConflict	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::RestoreConflict	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::PreconditionFailed	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::PreconditionFailed	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::PublicAccessPrevention	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::PublicAccessPrevention	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::RetentionPolicyLocked	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::RetentionPolicyLocked	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::RetentionPolicyNotSet	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::RetentionPolicyNotSet	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::InvalidMetadata	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::InvalidMetadata	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::Metadata(ClassLocation)	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::Metadata(ClassLocation)	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::Metadata(StorageClassRequiresZone)	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::Metadata(StorageClassRequiresZone)	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::Metadata(AutoclassTerminal)	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::Metadata(AutoclassTerminal)	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::UnsupportedMetadata	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::UnsupportedMetadata	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::NewerSchema	via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+CatalogError::NewerSchema	anonymous caller, via ApiError	Bucket authorization never returns this operation-specific failure; bucket RPCs use the direct catalog mapping.
+AuthFailure::LoginRequired	via ApiError	RPC permission checks use the typed authentication failure and caller mapping.
+AuthFailure::LoginRequired	anonymous caller, via ApiError	RPC permission checks use the typed authentication failure and caller mapping.
+AuthFailure::InvalidCredentials	via ApiError	RPC permission checks use the typed authentication failure and caller mapping.
+AuthFailure::InvalidCredentials	anonymous caller, via ApiError	RPC permission checks use the typed authentication failure and caller mapping.
+AuthFailure::Denied	via ApiError	RPC permission checks use the typed authentication failure and caller mapping.
+AuthFailure::Denied	anonymous caller, via ApiError	RPC permission checks use the typed authentication failure and caller mapping.
+AuthFailure::Denied(anonymous)	via ApiError	RPC permission checks use the typed authentication failure and caller mapping.
+AuthFailure::Denied(anonymous)	anonymous caller, via ApiError	RPC permission checks use the typed authentication failure and caller mapping.
+AuthFailure::Forbidden	via ApiError	RPC permission checks use the typed authentication failure and caller mapping.
+AuthFailure::Forbidden	anonymous caller, via ApiError	RPC permission checks use the typed authentication failure and caller mapping.
+AuthError::Failure(InvalidCredentials)	via ApiError	The authentication interceptor uses auth_error for this failure.
+AuthError::Failure(InvalidCredentials)	anonymous caller, via ApiError	The authentication interceptor uses auth_error for this failure.
+AuthError::Unavailable(CatalogClosed)	via ApiError	The authentication interceptor uses auth_error for this failure.
+AuthError::Unavailable(CatalogClosed)	anonymous caller, via ApiError	The authentication interceptor uses auth_error for this failure.
+AuthError::Unavailable(private cause)	via ApiError	The authentication interceptor uses auth_error for this failure.
+AuthError::Unavailable(private cause)	anonymous caller, via ApiError	The authentication interceptor uses auth_error for this failure.
+CsekError::AlgorithmInvalid	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::AlgorithmInvalid	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::KeyFormatInvalid	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::KeyFormatInvalid	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::KeySha256Invalid	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::KeySha256Invalid	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::KeyIncorrect	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::KeyIncorrect	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::ResourceIsEncrypted	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::ResourceIsEncrypted	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::ResourceNotEncrypted	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+CsekError::ResourceNotEncrypted	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PageTokenError::BucketCursor	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PageTokenError::BucketCursor	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PageTokenError::ObjectCursor(named)	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PageTokenError::ObjectCursor(named)	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PageTokenError::ObjectCursor(unnamed)	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PageTokenError::ObjectCursor(unnamed)	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PageTokenError::Project	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PageTokenError::Project	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PageTokenError::BucketName	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PageTokenError::BucketName	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+InvalidProjectId::InvalidProjectId	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+InvalidProjectId::InvalidProjectId	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+ProfileNameError::Native	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+ProfileNameError::Native	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+ProfileNameError::FakeGcsServer	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+ProfileNameError::FakeGcsServer	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+MalformedEncoding::MalformedEncoding	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+MalformedEncoding::MalformedEncoding	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+UntestablePermission::Unsupported	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+UntestablePermission::Unsupported	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+UntestablePermission::Unknown	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+UntestablePermission::Unknown	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+UntestablePermission::ProjectScoped	via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+UntestablePermission::ProjectScoped	anonymous caller, via ApiError	The RPC uses its typed parameter conversion; the additional JSON round trip was test-only.
+PolicyInputError::InvalidInput	via ApiError	The IAM handler uses the policy error's direct Storage status and details.
+PolicyInputError::InvalidInput	anonymous caller, via ApiError	The IAM handler uses the policy error's direct Storage status and details.
+PolicyInputError::UnsupportedInput	via ApiError	The IAM handler uses the policy error's direct Storage status and details.
+PolicyInputError::UnsupportedInput	anonymous caller, via ApiError	The IAM handler uses the policy error's direct Storage status and details.
+ListQueryError::SoftDeletedWithVersions	via ApiError	ListObjects maps query failures with list_query_status.
+ListQueryError::SoftDeletedWithVersions	anonymous caller, via ApiError	ListObjects maps query failures with list_query_status.
+ListQueryError::FoldersAsPrefixesNeedSlash	via ApiError	ListObjects maps query failures with list_query_status.
+ListQueryError::FoldersAsPrefixesNeedSlash	anonymous caller, via ApiError	ListObjects maps query failures with list_query_status.
+ListQueryError::GlobNeedsSlashDelimiter	via ApiError	ListObjects maps query failures with list_query_status.
+ListQueryError::GlobNeedsSlashDelimiter	anonymous caller, via ApiError	ListObjects maps query failures with list_query_status.
+GlobError::TooLong	via ApiError	ListObjects maps its match_glob failures with glob_status.
+GlobError::TooLong	anonymous caller, via ApiError	ListObjects maps its match_glob failures with glob_status.
+GlobError::InvalidSyntax	via ApiError	ListObjects maps its match_glob failures with glob_status.
+GlobError::InvalidSyntax	anonymous caller, via ApiError	ListObjects maps its match_glob failures with glob_status.
+GlobError::UnclosedClass	via ApiError	ListObjects maps its match_glob failures with glob_status.
+GlobError::UnclosedClass	anonymous caller, via ApiError	ListObjects maps its match_glob failures with glob_status.
+GlobError::UnclosedBrace	via ApiError	ListObjects maps its match_glob failures with glob_status.
+GlobError::UnclosedBrace	anonymous caller, via ApiError	ListObjects maps its match_glob failures with glob_status.
+ResumableError::NotFound	*	Write and status queries use their own session statuses and termination details.
+ResumableError::Gone	*	Write and status queries use their own session statuses and termination details.
+ResumableError::Cancelled	*	Write and status queries use their own session statuses and termination details.
+QueryError::TooLong	*	Storage RPC parameters come from protobuf messages, not a URL query.
+QueryError::Duplicate	*	Storage RPC parameters come from protobuf messages, not a URL query.
+QueryError::Malformed	*	Storage RPC parameters come from protobuf messages, not a URL query.
+InvalidDigest::InvalidDigest	*	Storage RPC checksums are protobuf values, not JSON base64 digest strings.
+ConflictingAcl::ConflictingAcl	*	The JSON acl plus predefinedAcl combination is not parsed on this route.
+UrlError::InvalidBaseUrl	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::UnsupportedBaseUrl	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::MissingAuthority	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::MissingScheme	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidBasePort	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::OriginHasPath	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::OriginPortZero	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidOriginIpv6	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::AmbiguousNumericHost	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidOriginAuthority	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidDnsName	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidBucket	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidObject	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::ReservedNamespace	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::VirtualHostPathPrefix	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::VirtualHostBucketNotDns	*	URL configuration and JSON link construction do not send this error through this adapter.
+UrlError::InvalidVirtualHostPort	*	URL configuration and JSON link construction do not send this error through this adapter.
+ApiError::new(401 unauthorized)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(404 notFound)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(408 requestTimeout)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(410 gone)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(413 uploadTooLarge)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(416 requestedRangeNotSatisfiable)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(429 rateLimitExceeded)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(500 internalError)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(501 notImplemented)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(504 deadlineExceeded)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::backend(CatalogClosed)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::catalog_backend(CatalogClosed)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::metadata(ClassLocation)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::metadata(StorageClassRequiresZone)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::metadata(LongLanguage)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::missing_bucket()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::missing_object()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::named_missing_object()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::precondition_not_held()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::not_modified()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::conflicting_preconditions()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::write_not_modified()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::malformed_json()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::legacy_parse_error()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::unsupported_message()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::field_mask_syntax()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter().at_parameter(listed)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter().at_parameter(unlisted)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid().at(POLICY_ETAG_FIELD)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::precondition_not_held().at_if_match()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::new(412).at_if_match()	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(404).with_plain(NOT_FOUND_HTML)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::new(404).with_plain(NOT_FOUND_TEXT)	*	This is a constructed HTTP response, not a request to this adapter; its domain errors have their own cases.
+ApiError::invalid_parameter().with_plain(BAD_CONTENT_TYPE_TEXT)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter().with_plain(CONTENT_RANGE_TEXT)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter().with_plain(MISSING_END_BOUNDARY_TEXT)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_parameter().with_plain(BAD_REQUEST_TEXT)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::undecodable_body()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::session_protocol()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::content_disagrees()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::required()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::method_not_allowed(with Allow)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::method_not_allowed(without Allow)	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::service_unavailable()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_stored_header()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_long()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_unsigned()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid().html_typed()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::missing_object_name()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::for_upload(class location)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::for_upload(other)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::invalid()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::invalid_argument()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::forbidden()	*	Caller-specific domain cases exercise real authorization; invoking a JSON response modifier is oracle-only.
+ApiError::for_anonymous_caller(anonymous denial)	*	Caller-specific domain cases exercise real authorization; invoking a JSON response modifier is oracle-only.
+ApiError::for_anonymous_caller(principal denial)	*	Caller-specific domain cases exercise real authorization; invoking a JSON response modifier is oracle-only.
+ApiError::for_anonymous_caller(forbidden)	*	Caller-specific domain cases exercise real authorization; invoking a JSON response modifier is oracle-only.
+ApiError::for_anonymous_caller(not found)	*	Caller-specific domain cases exercise real authorization; invoking a JSON response modifier is oracle-only.
+ApiError::unsupported()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::unsupported_object()	*	Only the JSON adapter uses this constructor as a JSON response; the recorded route invoked the reverse conversion in isolation.
+ApiError::naming_object(missing object)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::naming_object(markup in the name)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::naming_object(already named)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::naming_object(other error)	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.
+ApiError::cancelled_upload()	*	The domain or session cases cover the failure; this case only composes JSON constructors and modifiers.

@@ -190,10 +190,13 @@ async fn backend_guidance_wire_responses_are_stable_across_protocols() {
     use http_body_util::BodyExt;
     use hyper::{HeaderMap, StatusCode};
 
-    for (failure, message) in guidance_failures() {
-        let error = crate::api_error::ApiError::from(failure);
-        let grpc: hyper::Response<tonic::body::Body> =
-            tonic::Status::from(error.clone()).into_http();
+    for (((grpc, message), (xml, xml_message)), (json, json_message)) in guidance_failures()
+        .into_iter()
+        .zip(guidance_failures())
+        .zip(guidance_failures())
+    {
+        assert_eq!((xml_message, json_message), (message, message));
+        let grpc: hyper::Response<tonic::body::Body> = tonic::Status::from(grpc).into_http();
         assert_eq!(grpc.status(), StatusCode::OK);
         let expected: HeaderMap = [
             ("content-type", "application/grpc".to_owned()),
@@ -218,7 +221,7 @@ async fn backend_guidance_wire_responses_are_stable_across_protocols() {
                 .is_empty()
         );
 
-        let xml = crate::xml::Error::from(error.clone()).response(crate::xml::ErrorBody::Include);
+        let xml = crate::xml::Error::from(xml).response(crate::xml::ErrorBody::Include);
         assert_eq!(xml.status(), StatusCode::SERVICE_UNAVAILABLE);
         let body = format!(
             "<?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>{message}</Message></Error>"
@@ -239,7 +242,7 @@ async fn backend_guidance_wire_responses_are_stable_across_protocols() {
         assert_eq!(xml.headers(), &expected);
         assert_eq!(xml.into_body().collect().await.unwrap().to_bytes(), body);
 
-        let json = error.into_response();
+        let json = crate::ApiError::from(json).into_response();
         assert_eq!(json.status(), StatusCode::SERVICE_UNAVAILABLE);
         let expected: HeaderMap = [
             ("content-type", "application/json; charset=UTF-8"),

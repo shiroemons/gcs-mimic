@@ -1,19 +1,11 @@
-//! Pins the XML API's answer to every error the shared error is built from: the status, each
-//! header in the order it is sent and the exact document. A domain error the XML adapter maps
-//! itself is rendered both directly and through the shared error, the old mapping the direct
-//! ones replaced, and each path again as an anonymous caller and, for an object failure, with
-//! the requested object named. See [`crate::api_error::test_support`] for regenerating the
-//! golden file.
+//! Pins XML status, headers and document bytes on the domain and shared request paths.
 
 use super::super::{Error, ErrorBody};
 use crate::{
-    api_error::{
-        ApiError,
-        test_support::{KindCoverage, Transcript, constructor_cases, http_response},
-    },
+    api_error::test_support::{Transcript, http_response},
     auth::Caller,
     object::name::InvalidObjectName,
-    server::anonymous_error,
+    service::ServiceError,
     storage::failure::test_support::{self as domain, Case, case, copies, every_variant},
 };
 
@@ -34,17 +26,19 @@ enum Naming {
 
 struct Golden {
     transcript: Transcript,
-    kinds: KindCoverage,
 }
 
 impl Golden {
-    /// Errors the XML adapter maps itself and through the shared error.
-    async fn mapped<E>(&mut self, section: &str, cases: fn() -> Vec<Case<E>>, naming: Naming)
-    where
+    async fn mapped<E>(
+        &mut self,
+        section: &str,
+        cases: fn() -> Vec<Case<E>>,
+        naming: Naming,
+        service: Option<fn(E) -> ServiceError>,
+    ) where
         Error: From<E>,
-        ApiError: From<E>,
     {
-        for (label, [direct, refused, named, shared]) in copies::<E, 4>(cases) {
+        for (label, [direct, refused, named, shared, anon, by_name]) in copies(cases) {
             self.transcript.case(section, label);
             let transcript = &mut self.transcript;
             transcript.render("direct", document(Error::from(direct)).await);
@@ -58,36 +52,29 @@ impl Golden {
                     document(Error::from(named).naming_object("bucket", "object")).await,
                 );
             }
-            self.shared_documents(ApiError::from(shared), naming).await;
-        }
-    }
-
-    /// Errors that reach the XML adapter only as the shared error.
-    async fn shared<E>(&mut self, section: &str, cases: Vec<Case<E>>, naming: Naming)
-    where
-        ApiError: From<E>,
-    {
-        for case in cases {
-            self.transcript.case(section, case.label);
-            self.shared_documents(ApiError::from(case.error), naming)
-                .await;
-        }
-    }
-
-    /// The shared error's documents, as the XML handlers that convert it send them.
-    async fn shared_documents(&mut self, shared: ApiError, naming: Naming) {
-        self.kinds.record(&shared);
-        let transcript = &mut self.transcript;
-        transcript.render("via ApiError", document(Error::from(shared.clone())).await);
-        transcript.render(
-            "anonymous caller, via ApiError",
-            document(Error::from(anonymous_error(shared.clone(), ANONYMOUS))).await,
-        );
-        if naming == Naming::Object {
-            transcript.render(
-                "named object, via ApiError",
-                document(Error::from(shared).naming_object("bucket", "object")).await,
-            );
+            if let Some(service) = service {
+                transcript.render(
+                    "via ApiError",
+                    document(<Error as From<ServiceError>>::from(service(shared))).await,
+                );
+                transcript.render(
+                    "anonymous caller, via ApiError",
+                    document(
+                        <Error as From<ServiceError>>::from(service(anon)).for_caller(ANONYMOUS),
+                    )
+                    .await,
+                );
+                if naming == Naming::Object {
+                    transcript.render(
+                        "named object, via ApiError",
+                        document(
+                            <Error as From<ServiceError>>::from(service(by_name))
+                                .naming_object("bucket", "object"),
+                        )
+                        .await,
+                    );
+                }
+            }
         }
     }
 
@@ -147,82 +134,95 @@ async fn every_error_keeps_its_xml_response() {
             "every_error_keeps_its_xml_response",
             "The XML API's answer to each error: status, headers in the order they are sent, and the document's bytes.",
         ),
-        kinds: KindCoverage::default(),
     };
     golden
-        .mapped("ObjectError", domain::object_cases, Naming::Object)
-        .await;
-    golden
-        .mapped("CatalogError", domain::catalog_cases, Naming::None)
-        .await;
-    golden
-        .mapped("AuthFailure", domain::auth_failure_cases, Naming::None)
-        .await;
-    golden
-        .mapped("AuthError", domain::auth_error_cases, Naming::None)
-        .await;
-    golden
-        .mapped("CsekError", domain::csek_cases, Naming::None)
-        .await;
-    golden
-        .mapped("BodyError", domain::body_cases, Naming::None)
-        .await;
-    golden
-        .mapped("TimeOutOfRange", domain::time_cases, Naming::None)
-        .await;
-    golden
-        .mapped("InvalidDigest", domain::digest_cases, Naming::None)
-        .await;
-    golden
-        .mapped("InvalidProjectId", domain::project_cases, Naming::None)
-        .await;
-    golden
-        .mapped("ProfileNameError", domain::bucket_name_cases, Naming::None)
-        .await;
-    golden
-        .mapped("MalformedEncoding", domain::encoding_cases, Naming::None)
-        .await;
-    golden
-        .mapped("QueryError", domain::query_cases, Naming::None)
-        .await;
-    golden
-        .mapped("ResumableError", domain::resumable_cases, Naming::Object)
-        .await;
-    golden
-        .shared("PageTokenError", domain::page_token_cases(), Naming::None)
-        .await;
-    golden
-        .shared(
-            "ConflictingAcl",
-            domain::conflicting_acl_cases(),
-            Naming::None,
+        .mapped(
+            "ObjectError",
+            domain::object_cases,
+            Naming::Object,
+            Some(ServiceError::from),
         )
         .await;
     golden
-        .shared("GlobError", domain::glob_cases(), Naming::None)
-        .await;
-    golden
-        .shared("UrlError", domain::url_cases(), Naming::None)
-        .await;
-    golden
-        .shared("ListQueryError", domain::list_query_cases(), Naming::None)
-        .await;
-    golden
-        .shared(
-            "UntestablePermission",
-            domain::untestable_permission_cases(),
+        .mapped(
+            "CatalogError",
+            domain::catalog_cases,
             Naming::None,
+            Some(ServiceError::from),
         )
         .await;
     golden
-        .shared(
-            "PolicyInputError",
-            domain::policy_input_cases(),
+        .mapped(
+            "AuthFailure",
+            domain::auth_failure_cases,
             Naming::None,
+            None,
         )
         .await;
     golden
-        .shared("ApiError", constructor_cases(), Naming::Object)
+        .mapped("AuthError", domain::auth_error_cases, Naming::None, None)
+        .await;
+    golden
+        .mapped(
+            "CsekError",
+            domain::csek_cases,
+            Naming::None,
+            Some(ServiceError::from),
+        )
+        .await;
+    golden
+        .mapped(
+            "BodyError",
+            domain::body_cases,
+            Naming::None,
+            Some(ServiceError::from),
+        )
+        .await;
+    golden
+        .mapped(
+            "TimeOutOfRange",
+            domain::time_cases,
+            Naming::None,
+            Some(ServiceError::from),
+        )
+        .await;
+    golden
+        .mapped("InvalidDigest", domain::digest_cases, Naming::None, None)
+        .await;
+    golden
+        .mapped(
+            "InvalidProjectId",
+            domain::project_cases,
+            Naming::None,
+            Some(ServiceError::from),
+        )
+        .await;
+    golden
+        .mapped(
+            "ProfileNameError",
+            domain::bucket_name_cases,
+            Naming::None,
+            None,
+        )
+        .await;
+    golden
+        .mapped(
+            "MalformedEncoding",
+            domain::encoding_cases,
+            Naming::None,
+            None,
+        )
+        .await;
+    golden
+        .mapped("QueryError", domain::query_cases, Naming::None, None)
+        .await;
+    golden
+        .mapped(
+            "ResumableError",
+            domain::resumable_cases,
+            Naming::Object,
+            None,
+        )
         .await;
     golden
         .direct("InvalidObjectName", object_name_cases())
@@ -270,6 +270,7 @@ async fn every_error_keeps_its_xml_response() {
         let error = crate::xml::put::content_type_and_hashes(&headers).unwrap_err();
         golden.transcript.render("response", document(error).await);
     }
-    golden.kinds.assert_complete();
-    golden.transcript.assert_golden(GOLDEN);
+    golden
+        .transcript
+        .assert_live_golden(GOLDEN, include_str!("golden_tests/oracle.tsv"));
 }

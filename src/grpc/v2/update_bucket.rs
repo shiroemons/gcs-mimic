@@ -131,7 +131,6 @@ mod tests {
     use super::super::object_update::from_proto as object_patch;
     use super::super::test_support::{RESOURCE, setup, upload};
     use super::*;
-    use crate::api_error::ApiError;
     use crate::grpc::test_support::{self as fixtures, assert_code, assert_unsupported};
     use crate::grpc::validate::strict_conditions;
     use crate::json;
@@ -237,11 +236,9 @@ mod tests {
 
     #[test]
     fn grpc_masks_reject_unsupported_and_accept_defaults() {
-        let status = Status::from(ApiError::new(
-            hyper::StatusCode::NOT_IMPLEMENTED,
-            "notImplemented",
-            "Unsupported operation; use JSON instead",
-        ));
+        let status = crate::grpc::v2::status::unsupported_message(
+            "Unsupported operation; use JSON instead".into(),
+        );
         assert_eq!(status.code(), Code::Unimplemented);
         let details = <crate::grpc::generated::google::rpc::Status as prost::Message>::decode(
             status.details(),
@@ -252,12 +249,7 @@ mod tests {
             "type.googleapis.com/google.rpc.ErrorInfo"
         );
         assert_eq!(
-            Status::from(ApiError::new(
-                hyper::StatusCode::GONE,
-                "gone",
-                "Expired session; restart the request"
-            ))
-            .code(),
+            crate::grpc::v2::object_io::session_status(crate::storage::ResumableError::Gone).code(),
             Code::FailedPrecondition
         );
         // A member that versioning and iam_config do not have names no field (recorded
