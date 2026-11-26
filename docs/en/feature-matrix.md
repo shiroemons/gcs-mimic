@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 0 | 0 | 97 | 10 | 0 | 203 |
 | behavior | 201 | 0 | 0 | 79 | 42 | 0 | 80 |
-| project_requirement | 99 | 5 | 0 | 45 | 33 | 0 | 16 |
+| project_requirement | 100 | 6 | 0 | 45 | 33 | 0 | 16 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 61 | 28 | 18 | 0 | 0 |
 | behavior | 80 | 70 | 48 | 3 | 0 | 0 |
-| project_requirement | 21 | 0 | 0 | 0 | 0 | 78 |
+| project_requirement | 22 | 0 | 0 | 0 | 0 | 78 |
 
 ## api_operation
 
@@ -928,6 +928,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-097 | Separate method and behavior coverage | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-098 | Independent conformance and property tests | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-099 | Docker and generated-document CI gates | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-105 | Internal Rust hardening before the 1.0.0 release candidate | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 
 ### Resource efficiency
 

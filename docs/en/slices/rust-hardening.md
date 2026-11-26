@@ -1,0 +1,986 @@
+# Internal Rust hardening before 1.0.0
+
+DESIGN-105 collects the internal changes made before the first `1.0.0` release
+candidate: module layering, the error model, how catalog work is routed, body
+I/O, types and configuration, duplicated rules, lints and tests. Apart from the
+decisions under [Behavior decisions](#behavior-decisions), nothing here changes
+documented behavior. The [feature ledger](../../../compatibility/features.json)
+owns the status; this page is the design. The first slice creates the
+verification record, `docs/en/evidence/rust-hardening.md`, and every slice
+adds what it ran there.
+
+## Why now
+
+The [1.0.0 gate](../release-policy.md#the-100-gate) does not require internal
+refactors. They land before the release candidate anyway, so that the
+seven-day soak and the final-source verification run on the code that ships,
+and `1.x` patch releases do not carry large internal diffs.
+
+An audit of the source at `4f398afd1` (2026-11-26) found the lint gate and
+conventions strict and generic tuning done: no unbounded buffering, no crash-safety
+defect and little copied code (jscpd: 0.35 % of production lines). The problems
+are structural:
+
+- **The single writer thread does work that does not need it.**
+  - XML multipart part commits and completions sync the staging directory
+    inside the writer job (`src/storage/catalog/xml_multipart/transfer.rs`),
+    which [design](../design.md) forbids; `derived/begin.rs` does it on the
+    blocking pool.
+  - Reads that change nothing run on the writer: object and bucket listing,
+    ACL reads and projections, `has_bucket_permission`, gRPC readable opens,
+    resumable and rewrite session lookups, and the notification outbox poll.
+- **Requests make more catalog round trips than they need.**
+  - `projection=full`, which the pinned Go SDK sends on get, list, patch,
+    insert and rewrite, adds a writer job per call; JSON `buckets.list` with
+    it costs two jobs per bucket, while gRPC already uses the bulk
+    `bucket_acl_projections`.
+  - Every writer release wakes the maintenance pass, which then runs about a
+    dozen writer jobs even when nothing is due, and wakes itself again.
+  - Nine commit sites schedule blob reclamation whether or not anything was
+    journaled.
+  - Delete reads its bucket row three times and decodes the bucket policy and
+    ACL up to four times; XML completion re-reads every part row.
+- **Body I/O pays one blocking-pool hop per network frame.** Uploads write each
+  frame through `tokio::fs::File`, which copies it and spawns a blocking job
+  per call. Re-hashing and assembly loop over tokio reads with 64 KiB stack
+  arrays inside async functions (futures of 65,696 and 67,832 bytes).
+  Multipart and batch parsing search delimiters byte window by byte window and
+  copy the body in 8 KiB pieces. gRPC `ReadObject` still pushes through a task
+  and a channel, while HTTP already pulls.
+- **Lower layers depend on adapters.**
+  - 38 production files outside `src/json` name `crate::json`, including
+    storage, auth, import, config and notification.
+  - `storage::catalog::admin` builds a bucket by rendering JSON text and
+    parsing it back.
+  - gRPC and XML reach the JSON adapter through `src/server`, which the current
+    `text::json_adapter_dependency` rule cannot see.
+- **The shared error type is the JSON adapter's.** `ApiError` carries an HTTP
+  status, a plain-text flag and an HTML flag. About 340 functions return it,
+  including domain code. gRPC maps it back by matching HTTP status numbers.
+  Non-HTTP callers extract `.message`, which is stringification the lint
+  cannot see. Display and `source()` conventions drift, so `Report` has to
+  remove repeated text.
+- **Types carry less than they could.** `ObjectRecord` stores names as
+  `String` and generations as `i64` although validated types exist.
+  `Config` has 65 public fields with `effective_*` fallbacks. A completed
+  resumable session keeps its state and its stored resource in two fields that
+  must be set together.
+- **The same rule is written in several places.** Default content type, single
+  header values, idempotency tokens, calendar math, host normalization, page
+  caps, `Expires`, `x-goog-meta-*`, XML precondition headers, and CSEK hash
+  visibility each have two to ten copies.
+
+## What stays fixed
+
+These do not change, and each slice proves it:
+
+- the CLI, settings, defaults, help text and diagnostics names;
+- the data directory: SQLite schema and column values, the JSON stored in TEXT
+  columns, blob layout and replay fingerprints;
+- wire responses: HTTP status, headers and body bytes, XML codes, gRPC codes,
+  messages and details;
+- the seven contract event names and the ready event;
+- bounded streaming, durability ordering, authorization and checksums.
+
+Human-oriented diagnostic wording is not contract
+([release policy](../release-policy.md)), but slices keep it identical unless
+they say otherwise.
+
+Proof, in this order:
+
+1. Golden tests record today's output before the code that produces it moves:
+   - error responses for every domain error on all three adapters;
+   - stored completion bytes, upload replay documents and fingerprints;
+   - the bucket record that the JSON round trip in `admin.rs` produces.
+2. Existing tests pass unchanged. A negative test is never removed or
+   weakened; a test whose body becomes too small to reach its fault point grows
+   its body instead.
+3. Every changed durable write path gets the failed-write, failed-flush or
+   failed-sync tests and the `Fault::PowerLoss` snapshot and restart tests that
+   [AGENTS.md](../../../AGENTS.md) requires, through the seams in
+   `src/storage/catalog/fault.rs`.
+4. Every slice passes `just check`, which also runs Clippy for every release
+   target. Each phase ends with the full test suite and `just check-sdk`.
+
+Measurement follows the project rule: no harness, no repeated samples and no
+gate. A slice whose purpose is performance records one short run at local
+scale as a fact in the verification record.
+
+## Decisions
+
+### Decided by the owner on 2026-11-26
+
+- **Error boilerplate.** Adopt `thiserror` 2.x as a direct dependency.
+  - Checked 2026-11-26: 2.0.21, MIT OR Apache-2.0, Rust 1.77.
+  - syn 2 is already built for normal builds, so the edge adds two packages.
+  - It is admitted through the [dependency policy](../dependency-policy.md)
+    at the start of its slice, after checking the latest release again.
+- **Crate structure.** Move the generated protobuf code (about 14,000 lines)
+  into its own workspace crate. Enforce every other boundary with layer rules
+  inside the single crate. No further split before `1.0.0`; the reasons are
+  under [Crate structure](#crate-structure).
+- **Measured limits.** A change that raises a memory bound or changes
+  SDK-visible pacing is adopted only when one short measured run shows a gain,
+  and it updates the documented bound in the same change. This covers:
+  - the write batch size;
+  - the HTTP/1 connection read buffer;
+  - the gRPC read message size;
+  - typed serialization of list items.
+- **Single-source copies** publish the pinned source blob instead of copying
+  its bytes, where the destination bytes equal the source bytes
+  ([design](#single-source-copies)).
+
+### Decided by this design
+
+These change no documented behavior:
+
+- **Advisory upload check.** It stays on the writer. Moving it to the read
+  pool was tried and rejected in
+  [write-path performance](../evidence/write-path-performance.md): integration
+  tests require the check to queue behind the writer.
+- **Reset and reseed** keep their unlinks and directory syncs inside their
+  exclusive writer job, under an explicit allowance. These operations already
+  hold every other request back.
+- **Delete** runs its expiry purge inside the delete's own immediate
+  transaction, with the delete under a savepoint, so a failed precondition
+  still commits the purge. Crash states shrink: purge and delete commit
+  together or not at all.
+- **Bulk ACL projections.** Under a concurrent bucket delete, a listed bucket
+  whose ACL projection disappears is returned without ACL fields instead of
+  failing the whole list with 404. Today that difference is reachable only in
+  this race.
+- **In-process derived transfers.** Single-request derived transfers keep their
+  offset and hasher in memory instead of rereading the checkpoint.
+  - Crash recovery already discards these rows without reading the offset
+    (`derived/recovery.rs`), so recovery does not change.
+  - The in-process invariant documented in `derived/advance.rs` is restated.
+- **Shutdown tracking.** It uses `tokio_util::sync::CancellationToken`, with
+  `tokio-util` promoted from the lockfile (it adds no package), plus a small
+  task tracker in `src/task.rs`.
+  - `TaskTracker` would need the `rt` feature, which adds `futures-util`.
+  - Its spawn would also bypass the supervised-spawn rule.
+- **JSON responses** stay `serde_json::Value` trees. Only list items may move to
+  typed serialization, and only under the measured-limit rule above. Field
+  order is pinned by the golden tests either way.
+- **Test layout.** Tests move to the repository's majority layout, a
+  `#[cfg(test)] mod tests;` declaration with the tests in `foo/tests.rs` (a
+  `foo/tests/` directory when large), with an inline module allowed under
+  about 200 lines. The 39 `*_tests.rs` files and 3 `*_tests/` directories move
+  in one mechanical slice at the end, renaming their ledger test IDs.
+  An `xtask` check then refuses new ones.
+
+### Behavior decisions
+
+These change an observable answer. They ship together, with a release note and
+ledger updates, in the last `0.x` minor release before the release candidate.
+
+Decided by the owner on 2026-11-26:
+
+- **Which field an input error names.**
+  - With `serde_json`'s `preserve_order`, `Map::remove` is `swap_remove`: it
+    moves the last key into the removed one's place.
+  - So an error naming "the first remaining field" does not follow request
+    order (for example `json/derived_metadata.rs`).
+  - Inputs use `shift_remove`, and `Map::remove` is disallowed, so errors name
+    the first invalid field in request order.
+- **XML HEAD with a missing blob.** HEAD opens the blob it never reads.
+  - HEAD now answers from metadata, as the JSON metadata GET already does.
+  - Only a blob missing at runtime changes the answer, from 503 to 200.
+- **XML resumable completion headers.**
+  - The completion sends one combined `x-goog-hash: crc32c=..,md5=..` field,
+    while every other XML response sends one field per algorithm.
+  - It also omits the CSEK response headers.
+  - Both follow Google's XML header reference and the pinned SDKs' hash
+    parsers. If those do not settle the field format, the completion keeps
+    its current format and shares only the ETag rule.
+- **Per-part MD5 at XML multipart completion stays.**
+  - Completion keeps verifying every part's stored MD5 and CRC32C.
+  - AGENTS.md forbids weakening a checksum for speed without a documented
+    profile and tradeoff, and the gain is small at local scale.
+  - The whole-object CRC32C is computed by combining the part CRCs instead,
+    which drops a pass without weakening anything.
+
+Pending the evidence below:
+
+- **Negative and zero preconditions on JSON routes.**
+  - Today the JSON media, multipart, get and delete routes compare
+    `ifGenerationMatch=-1` against the object, so it fails with 412.
+  - JSON compose and resumable initiation refuse negative values with 400,
+    and so does the XML API (both documented). gRPC compares, which is also
+    documented.
+  - The evidence comes only from the sources that
+    [development](../development.md#no-live-cloud-storage-contact) names:
+    - the pinned SDK sources, for whether they validate or forward a negative
+      value;
+    - the request-preconditions documentation;
+    - the storage.proto comments.
+
+    Nothing contacts Cloud Storage.
+  - The evidence and a recommendation go to the owner before the behavior
+    slice. The candidate is: if no pinned SDK relies on comparison, refuse
+    negative values on every JSON object route with compose's wording, through
+    one `PreconditionPolicy` shared by JSON and XML. Otherwise keep today's
+    behavior and record each route's policy as a local choice.
+
+## Module layers
+
+A module may name modules in its own layer and in lower layers. The three
+adapters must not name each other.
+
+| Layer | Modules |
+| --- | --- |
+| foundation | `base64`, `hex`, `percent`, `decimal`, `clock`, `hashing`, `serde_util`, `error`, `task`, `diagnostics`, `fsutil`, `bounded_body`, `bounded_file`, `time_limit`, `memory_limit`, `fd_limit`, `net`, `match_glob`, `source_tree`, `mime`, `http_conditions`, new `choice`, new `cause`, new `http_header` |
+| model | `project`, `acl`, `bucket`, `object`, `metadata_error`, `etag`, `csek`, `auth`, `url`, `notification`, `time_format`, new `profile`, new `input` |
+| settings | `config`, `config_input`, `tls` |
+| storage | `storage`, `import`, `seed`, `bucket_init` |
+| service | `page_token`, `multipart`, new `service` (logic the adapters share, and `ServiceError`) |
+| adapters (isolated) | `json`, `xml`, `grpc` |
+| transport | `server` |
+| application | new `app` (today's binary modules) |
+
+### Rules in `xtask`
+
+`text::json_adapter_dependency` is replaced by two rules:
+
+- `text::adapter_dependency` rejects production code in one adapter that names
+  another. Nothing violates it today, so it is zero tolerance from the start.
+- `text::layer_dependency` rejects a reference to a higher layer.
+  - It is ratcheted per file over today's findings, about 106 sites in 60
+    files.
+  - It becomes zero tolerance when its last baseline row goes.
+  - Keeping it separate from the adapter rule stops a file from trading one
+    forbidden edge for another under an unchanged count.
+
+The rules live in `xtask/src/lint/layers.rs`:
+
+- A table names each layer, its modules and whether peers may depend on each
+  other.
+- References are taken from `crate::m`, `$crate::m`, the top-level members of
+  `use crate::{..}`, and `super::` or `self::` chains resolved from the file
+  path. A re-export is reported where it is written, so a lower module cannot
+  forward an upward dependency.
+- The rules skip test files, `#[cfg(test)]` items, comments, strings,
+  `src/lib.rs` and the binary's modules.
+- The gate fails when a module declared in `src/lib.rs` has no layer, or a
+  layer names an undeclared module.
+- A test checks that the layer table in [design](../design.md) matches the
+  `xtask` table.
+
+The Rules table in [development](../development.md) loses the JSON row and
+gains both rules; AGENTS.md's adapter rule is reworded.
+
+### Moves
+
+None of these changes behavior. Re-exports keep the paths that `src/main.rs`
+and `tests/` use until the facade slice. Each move fixes the moved code's
+upward references in the same change, because the ratchet refuses findings in
+new files.
+
+| What | From → to |
+| --- | --- |
+| `string_enum!`, `InvalidChoice` | `config` → `choice` |
+| RFC 3339 parser (`parse_timestamp` and its helpers) | `import::codec` → `time_format` |
+| `CompatProfile` | `config` → `profile` |
+| `AuthProfile`, `TrustedCaller` | `config` → `auth` |
+| `validate_dns_name`; `reserved_path` | `config`; `xml` → `url` |
+| `bucket_for_authority`, `request_authority`, `virtual_host_api_authority` | `xml` → `config::domains` |
+| `json::validate_project`, `json::validate_bucket_name` | callers use `auth::validate_project_id` and `bucket::name::validate` |
+| `Projection` | `json::query` → `acl` |
+| `DestinationLocation`, `derived_component_count` | `json::derived_metadata` → `object::derived` |
+| `validate_fixed_metadata`, `parse_insert_with_profile` | `json` → `object`, `bucket::resource` |
+| Bucket defaults built by rendering JSON (`admin.rs`, `import/filesystem.rs`) | build the record through `bucket::resource` |
+| `AdminGrant` | `storage::admin` → `bucket` |
+| Range and transcoding negotiation (`range_request`, `Transcoding`, `Gunzip` and their helpers) | `json::objects` → `service::media` |
+| JSON_API_V1 notification payload | the outbox receives a renderer at catalog open |
+| HMAC lookup in `auth::signature` | an `HmacKeys` trait implemented by `Catalog` |
+| Shared request pieces in `server` (access checks, request context, response bodies, `chunk_body`, `object_body`, uploads, copy, the resumable engine, `State`) | `service` |
+| gRPC HTTP/2 connection serving | `grpc` → `server::grpc_listener` |
+| JSON handlers in `server`; `server::xml_read` | `json::handler`; `xml::read` |
+
+Before moving the shared server pieces, a slice settles where `RequestBody`
+and JSON link rebasing in `RequestCtx` go, so that `xml` can import them without
+reaching `json`.
+
+### File splits
+
+- `src/server.rs` (2,480 lines) splits into `accept`, `slots`, `connection`,
+  `deadline` and `probe` under `src/server/`.
+- `src/auth/mod.rs` splits into `permission`, `identity`, `choices`, `error`,
+  `registry` and `authenticate`, with its inline tests in `auth/tests.rs`.
+  The module path does not change, so its ledger IDs stay.
+- `src/fsutil.rs` keeps neutral types and selects per-OS modules
+  (`unix`, `linux`, `apple`, `windows`, `unsupported`). `cfg_select!` replaces
+  attribute chains where a function body chooses per target.
+
+### Public surface
+
+- **Binary.** The binary's modules (about 4,000 lines) move into the library as
+  `app`, and `src/main.rs` keeps only the allocator, the THP call and
+  `gcs_mimic::app::main()`.
+- **Tests and examples.** A `#[doc(hidden)] pub mod testing` re-exports
+  exactly what `tests/` and `examples/` use.
+- **Everything else** becomes private, so `unreachable_pub` and `dead_code`
+  start reporting. Items only tests use move under `cfg(test)` or go.
+- **Misplaced tests.** Integration tests that only call library functions move
+  into the library.
+
+### Crate structure
+
+The generated protobuf code moves into a workspace crate that depends only on
+`prost` and `tonic`. The slice records one build measurement (a clean build,
+and an incremental build after editing a non-protobuf file) as a fact.
+
+A further split waits until after `1.0.0`:
+
+- **Cycles.** The cycles this design removes have to go first anyway.
+- **Test seams.** The 673 `cfg(test)` seams, including the fault seam
+  referenced from 113 files, cannot cross crates without a feature. That
+  feature would likely unify into the binary the integration tests start.
+- **Tooling.** The lint gate, baselines, dependency detector and scripts all
+  assume one crate.
+- **Ledger IDs.** About 500 test IDs would lose their module prefix.
+
+## Error model
+
+- **Neutral errors.** Domain and shared code return typed, protocol-neutral
+  errors, and each adapter maps them once with exhaustive matches.
+- **Model layer.** `input::InputError { kind, message, field }` carries
+  rejected request input. Its message names the rejected value and is the text
+  every adapter sends.
+- **Service layer.** `service::ServiceError` gathers what shared logic and
+  parsers return:
+  - `Input`, `Project` and `Auth`;
+  - `Catalog`, `Object` and `Resumable`;
+  - `Multipart`, `UploadHeader` and `Body`;
+  - `Csek`, `StoredHeader` and `Time`.
+
+  A size test decides which variants are boxed.
+- **JSON.** `ApiError` moves to `src/json/error.rs` with private fields. Its
+  status, reason, location, plain and HTML choices are made in the JSON
+  mapping from the domain variant, reproducing today's constructor calls.
+  `ErrorKind` variants that exist only for reverse mapping are deleted.
+- **gRPC and XML.** `From<ApiError>` for `Status` and for the XML error are
+  deleted. A new failure class then fails to compile in every adapter instead
+  of falling through to `Status::internal`. XML keeps HTTP statuses for its
+  own codes.
+- **`.message` extraction** goes: `url.rs`, `config.rs`, `storage::catalog::admin`,
+  `import/filesystem.rs`, `seed/error.rs`, `auth`'s registry and
+  `notification::event` use the typed validators and keep their texts.
+- **Cause vocabulary.** `BackendCause`, `IoCause`, `BackendFailure`,
+  `MemoryExhausted`, `Source`, `Link` and a `Layer` trait move to the
+  foundation module `cause`.
+  - `Source` holds `Box<dyn Layer>` instead of a closed list of upstream
+    types, which removes the failure–bucket–object cycle.
+  - `storage::failure` keeps the one `fn unavailable`, `Classified` and the
+    context helpers.
+  - `Link::Resume` goes: `resume_import` returns its `ResumeError` directly.
+
+### Display and `source()`
+
+- **Convention.** A cause's text appears once in a report. Each error is
+  exactly one of:
+  - a **leaf** with no source;
+  - a **wrapper** whose Display describes only its own layer and whose
+    `source()` returns the cause;
+  - **transparent**, whose Display is the cause's (optionally prefixed) and
+    whose `source()` returns the cause's source.
+- **Today's exceptions are fixed.** `CliError`, `ImportError::Cleanup`,
+  `ResumeError::Catalog` and the storage chains currently break it. Texts the
+  import journal stores stay byte-identical.
+- **Enforcement:**
+  - a test helper that fails when a link's text equals or ends with the next
+    link's, called from every exhaustive error table;
+  - `Report` panics on a repeat in tests;
+  - the `text::error_displays_source` rule rejects a `#[error]` format that
+    interpolates its own source.
+- **`Report`** then becomes a plain join, and `json::notifications::error_chain`
+  uses it.
+- **thiserror.** Types are converted module by module. `#[from]` never replaces
+  a `classified_from!` conversion, and the ten `TypedSource` types keep their
+  hand-written `source()`.
+
+### `io::Error::other`
+
+About 83 production sites remain once tests and doc comments are excluded:
+
+| Kind of site | Replacement |
+| --- | --- |
+| Broken invariants with literal text (RAM backend drafts, durability, reader) | `BlobError::{Missing, Poisoned, Closed}` and small typed errors |
+| Wrapped allocation and integer conversions | `BlobError::{Allocation, Size}` with the std error as source |
+| Concrete crate errors wrapped in `io::Error` (shutdown, startup, import, TLS, publisher, healthcheck probe) | typed `PublishError`, `ProbeError`, `TlsError`, `ImportError` variants and a typed shutdown result |
+| HTTP client protocol failures with literal text | `PublishError` and `ProbeError` variants |
+| Task and channel plumbing | typed up to the function that must return `io::Result` |
+| Input limits inside stream bodies | a typed refusal up to the `AsyncRead` or `chunk_body` boundary |
+
+Every new storage variant classifies as `Classified::Io` with kind `Other`, so
+the wire text `storage I/O error (other error)` is unchanged.
+`std::io::Error::other` then joins `disallowed-methods`, with a reasoned
+expectation where a trait requires `io::Error`.
+
+## Catalog execution
+
+### Rules
+
+- **Routing.** A catalog closure runs as a writer job if it can change rows,
+  main or TEMP, or reads a writer-only TEMP table (`resumable_session_counts`,
+  `notification_runtime`, `lifecycle_quarantine`). Every other closure runs
+  on the read pool, unless a named reason in `SerializedRead` keeps it on the
+  writer. The reasons are the advisory upload check and its XML equivalents,
+  and the writer-only TEMP tables.
+- **Snapshot.** A pooled read that issues more than one statement opens
+  `sql::read_snapshot` first.
+- **Thread I/O.** No closure on an executor thread, writer or reader, reaches
+  a durability seam: `sync_dir`, `unlink`, `publish_blob`, a file sync or a
+  staged-file finish.
+  - Allowed: hard-link pins, opening an immutable descriptor inside a
+    transaction, RAM-backend publication, and reset and reseed under their
+    allowance.
+- **Ordering.** What a commit depends on for durability finishes on the
+  blocking pool before the commit job is queued. Reclamation runs after the
+  reply, and only when the transaction journaled something.
+
+### Why pooled reads stay consistent
+
+- **Read-your-writes.** A WAL reader sees every commit that finished before
+  its first statement. The writer replies only after COMMIT returns, so a read
+  that starts after its caller learned of a write sees it.
+- **Concurrent writes.** Writes the caller has not been told about may or may
+  not be visible, as through the serialized path today.
+- **Authorization.** It does not weaken: the moved reads are advisory or
+  decorate a response, and every mutation re-checks inside its writer
+  transaction.
+- **Unlinked blobs.** A blob unlinked after a pooled snapshot fails its open,
+  and the read retries on the serialized path, as reads do today.
+
+### Enforcement
+
+- `run_serialized_read(reason, op)` gives its closure `&Connection` only, so
+  `transaction()` and `immediate()` do not compile there. Test builds also
+  assert that its change count did not move.
+- `fault::record_catalog_thread_io` records caller locations at every
+  durability seam, including `BlobBackend::create_draft`,
+  `StagedFile::finish` and the blob directory sync. In test builds,
+  `Catalog::close()` panics when its data directory recorded executor-thread
+  I/O outside an allowance. Every test that closes a catalog then checks the
+  rule; this would have caught the XML multipart sync.
+- A test-build counter of `SQLITE_READONLY` answers on the read pool is
+  asserted zero at close, which catches a moved job that secretly writes.
+  Production still falls back to the writer silently.
+- **End state.** `sql::exec`, the journal helpers and savepoints take a
+  prepared `&WriteTx`, so a pooled read cannot call them at all.
+
+### Jobs that move to the read pool
+
+| Job | Note |
+| --- | --- |
+| `has_bucket_permission`, `get_policy` | `read_snapshot` instead of a transaction |
+| `read_acl`, ACL projections, `bucket_acl_projections`, `object_acl_snapshot` | the snapshot is cloned inside the closure |
+| `list_buckets_page_among` | one statement |
+| `list_objects`, live and versions | under `read_snapshot`, so the page and the bucket metageneration agree; the soft-deleted listing purges and stays on the writer |
+| gRPC `open_readable`, `get_readable` | a test pins the answer when finalization unlinks between snapshot and open |
+| `session_by_id`, `session_by_token` | the guarded updates stay authoritative |
+| `next_notification` | one statement on the main table |
+| soft-deleted gets, XML part and upload listings, HMAC key and notification reads, `xml_completion_total` | second batch, after reading each in full |
+
+The reader statement cache grows from 32 to 96 statements when listing moves.
+
+### Round trips
+
+W counts writer jobs and R counts reader jobs.
+
+| Change | Before → after |
+| --- | --- |
+| XML part: sync on the blocking pool before the commit job; the pending check inside the commit job; the reference probe only after an error | 3 W, one holding a directory sync → 2 W |
+| XML completion: reuse the part rows `xml_completion_total` read, under the upload lease; sync off the writer | about N+6 W → about 6 W |
+| Maintenance: a busy sweep marks its key deferred and a release wakes only for a deferred key; a pass starts with one snapshot probe of every kind of due work and runs only the sweeps with work | about 12 W and 3 tasks per idle wake → 1 R, and no self-wake |
+| Reclamation: each retiring transaction reports whether it journaled; all sites use `reclaim_if` | 1 W, a task and a permit per commit → none when nothing was journaled |
+| Delete: one `BucketAuthority` (bucket row, policy, public access prevention and ACL decoded once); purge inside the delete transaction | 2 transactions, the row read 3 times, the ACL decoded up to 4 times → 1 transaction, everything once |
+| Upload publish: the authorized publication carries the bucket's project | 2 bucket reads → 1 |
+| `projection=full`: no extra permission check; buckets.list and buckets.get use the bulk projection; object projections on the pool | buckets.list 2N W → 1 R; buckets.get 1 R + 2 W → 2 R; object get and list +1 W → +1 R |
+| Rewrite, first call: permission and both buckets read on the pool; continuation lookup on the pool | 2 W + 3 R → 1 W + 2 R; continuation 2 W → 1 R + 1 W |
+| Admin batch cleanup: one reference query and one file job for the batch | 2N → 2 |
+| Pub/Sub outbox poll on the pool | 1 W per write → 1 R |
+| Writer settings: `keep_plans_across_bindings` (QPSG) as on readers; prepared `BEGIN IMMEDIATE` and `COMMIT`; a written reason for `wal_autocheckpoint = 256` | CPU only |
+| Read cache: invalidation still swaps the map before the reply, and the stale files close in a tracked blocking task | up to 1,024 `close(2)` calls on the writer → none |
+| BLOB columns read through `get_ref` | one allocation less per row |
+| Lifecycle scan: statements batched per page | to count at slice start |
+
+`read_pool.rs` stops holding the idle-pool mutex while it starts an executor
+thread: the pop moves into its own statement. The derived sweep's leading
+`reclaim_pending` duplicates the final journal sweep and goes unless a pin
+depends on that order, which the slice checks first.
+
+### Catalog structure and shutdown
+
+- **`Inner` split.** Its fifty fields group into:
+  - immutable `Policy`;
+  - `Storage`, `Writer` and `Reads`;
+  - `Admission` and `AdminState`;
+  - `WriterRegistry`, with the deferred flag;
+  - `Maintenance` and `Notifications`;
+  - `Shutdown`.
+
+  Behavior moves onto these structs, which shrinks the 54-file `impl Catalog`.
+- **`CatalogOptions`.** `Catalog::open(backing, CatalogOptions)` receives:
+  - clock and principals;
+  - session limits and default soft-delete retention;
+  - lifecycle execution;
+  - parent public-access-prevention projects;
+  - notification endpoint;
+  - local admin.
+
+  Inside open, before the executor starts, it installs the parent
+  public-access-prevention table and reconciles authentication. That removes:
+  - the `OnceLock`s and the `AtomicU64` retention;
+  - `AuthenticationAlreadyConfigured`;
+  - the silent `unwrap_or_default()` of session limits;
+  - sixteen `.get().cloned()` sites.
+
+  Startup keeps its order and diagnostics. No typestate: hundreds of tests use
+  `Catalog` directly, and a typestate would only guard two start calls.
+- **Shutdown.** `close()` cancels one token, closes admission, waits for the
+  tracker, closes the read pool, drains the writer and runs the last job.
+  Every waiter selects on `token.cancelled()`, so the seven hand-sent wakeups
+  and six semaphore drains go. A parent passes its tracker token to a child
+  before spawning, so the count cannot reach zero early. The server's
+  `watch::Receiver<bool>` flags can become child tokens afterwards.
+
+## Body I/O and protocol adapters
+
+### Coalesced staged writes
+
+`StagedFile` in `objects/durability.rs` keeps its name and gets new internals.
+
+- **Buffering.** It holds a std `File` and a batch buffer that grows
+  lazily up to `WRITE_BATCH_BYTES`.
+- **`write`.** It copies the frame into the batch, the same copy tokio
+  makes today. A full batch goes to one `run_blocking` job, which calls
+  `write_batch` and returns the buffer for reuse. Inside the job, in order:
+  1. hit `BodyWrite`, then `write_all`;
+  2. on bounded platforms, once the write-behind window fills, hit
+     `BodyWriteBehind`, run `sync_data` and record the sync.
+
+  No write is in flight between calls, which removes an orphan-write hazard
+  on resumable truncation.
+- **`make_durable`.** One job drains the batch and syncs, in order:
+  `BodyFlush`, the final write, `BodySync`, then `sync_all` or
+  `sync_ordered`. A std write returns its error before the sync starts, so a
+  failed tail can never be published as durable. AGENTS.md's flush-before-sync
+  rule is reworded to "await the last write before syncing".
+- **`truncate` and `open_output`.** Each runs as one job; `open_output` goes
+  from four filesystem hops to one.
+- **Batch size.** `WRITE_BATCH_BYTES` starts at 64 KiB, today's bound in
+  DESIGN-070, and moves to 256 KiB only under the measured-limit rule. The
+  measured run is one 1 GiB HTTP/1 upload and 1,000 uploads of 100 KiB at
+  concurrency 8, comparing server CPU seconds and wall time.
+- **Hashing** stays per frame on the receiving task, before the copy. Moving
+  it into the batch job would hold the eight shared blocking threads longer
+  under concurrent uploads. Size checks and checksum verification keep their
+  order: verify, then make durable.
+- **Fault tests.** Tests that inject a fault mid-body grow their bodies to at
+  least three batches, so the fault still lands mid-body.
+
+### Single blocking jobs for copies
+
+- **Re-hash.** Resumable finalization re-hashes in one job that reads
+  positionally from offset 0 into a pooled 1 MiB heap buffer.
+  - The pool is the existing `LARGE_BUFFERS`.
+  - Its memory is bounded by the blocking threads, not by requests.
+  - The re-hash itself is kept, as
+    [resumable upload](resumable-upload.md) requires.
+- **Derived advance.** One job restores the draft, opens the output, copies
+  the source and makes the output durable. Admission is checked every 1 MiB,
+  and the memory backend's `yield_now` goes.
+- **XML assembly.** It reads its part rows once, then runs one job per part
+  (copy and verify) and a final durable job. The whole-object CRC32C comes from
+  combining part CRCs (`compose_crc32c::combine`).
+- **Large stack frames.** These remove the 64 KiB stack arrays from every
+  async function. `clippy::large_futures` then joins the gate, with a reasoned
+  expectation or `Box::pin` at the request dispatch for futures of 17–24 KB.
+
+### Single-source copies
+
+Derived transfers already pin each source with a hard link before copying it
+(`derived/source.rs`). Soft-delete restore already publishes such a pin as a
+live blob (`publish_pinned`).
+
+- **When it applies.** One source, and destination bytes equal to the source
+  bytes: `objects.copy`, XML copy, and a rewrite that keeps location, storage
+  class and stored bytes.
+- **What it does.** The transfer publishes the pin as the destination blob and
+  records the source's stored hashes.
+  - These paths already finish in one call, so call counts, `done`,
+    `totalBytesRewritten` and rewrite tokens do not change.
+  - No bytes are copied, so the copied-bytes verification has nothing to
+    check. The source hashes were verified when the source was written.
+  - The memory backend shares the stored bytes.
+- **Checks at slice start:**
+  - whether a customer-key change alters stored bytes (if so, that rewrite
+    keeps the copy);
+  - that nothing else on these paths, such as gzip transcoding, alters bytes.
+- **Tests.** Publication gets the crash and `Fault::PowerLoss` tests at the
+  rename and directory-sync seams.
+
+### Pull-based gRPC `ReadObject`
+
+- **The stream.** `ReadObjectStream` implements `Stream` over `ObjectReader`
+  with three states: idle, reading (a boxed future returning the reader and
+  the next chunk) and finished.
+  - It tries a read already at hand first, as the HTTP body does.
+  - The metadata rides on the first data message, and an empty object still
+    gets one message.
+  - `ObjectReader` takes a two-variant `FrameLimit { Http, Grpc }`, so both
+    protocols share one implementation.
+- **Cancellation.** It drops the stream, and no task or file outlives it.
+  Today the task reads one more chunk after a cancel.
+- **Panics.** A panic resets the HTTP/2 stream through the supervised executor.
+  Today the client can see a short read that ends cleanly.
+- **Message size.** It stays 64 KiB unless the measured run (one 1 GiB
+  `ReadObject` over h2c at 64 KiB and 256 KiB, with RSS at 32 streams) shows a
+  gain. Adopting a larger size updates the memory estimate in `src/grpc/mod.rs`.
+- **Boxing.** The response body is boxed once instead of twice.
+- **Scope.** `BidiReadObject` stays push-based.
+
+### Multipart and batch parsing
+
+`memchr` (2.8.3, already locked) becomes a direct dependency under the
+dependency policy.
+
+- **`multipart::Delimiter`.** It holds the delimiter and a
+  `memmem::Finder`, used by both multipart and batch parsing.
+- **Body mode** emits zero-copy slices of the received frame.
+  - It keeps a carry of fewer bytes than the delimiter.
+  - It searches the seam between the carry and the next frame in a scratch
+    buffer of at most about 140 bytes.
+- **Header mode** copies only what lines need, as today.
+- **Tests.** The existing tests that parse at every split width cover seams
+  and carries. A property test compares random splits of bodies full of
+  delimiter prefixes against the whole-body parse. A test asserting 8 KiB
+  chunks pinned the old copy size, not a behavior; it now asserts the frame
+  size and the carry bound.
+
+### Smaller items
+
+| Item | Design |
+| --- | --- |
+| gRPC resumable tail | a `BytesMut` reserved once per stream, split when whole granules persist; each byte is copied once |
+| Deadline renewal per frame | a per-connection progress clock; the watch notifies only on state changes, and an expiring deadline re-arms from the last frame instead of expiring. Same expiry instant. Lands last among performance slices, and only if its measured run shows a gain |
+| Query parsed three to five times per request | parsed once into `RequestCtx` on first use, so the first error appears where it does today; `percent` clones a key only for a duplicate error |
+| ACL subjects built for every listed object | built only for `projection=full` |
+| `diagnostics::emit` | checks the level before locking stderr; per-connection debug events are built only when enabled |
+| XML writer | escapes through a `fmt::Write` adapter and copies runs between special bytes found with `memchr3` |
+| Strict JWT verification | a bounded cache of RSA results keyed by message and signature digests; expiry, issuer and audience are checked every request. Adopted only if verifier keys cannot change at runtime, or keyed by key-set generation if they can |
+| gRPC upload hashing | the intake stops hashing and passes the expected hashes; the catalog's mismatch maps to today's gRPC wording in the write adapters |
+| HTTP/1 head limit | the comment on `CONNECTION_READ_BUFFER` states that it is also the head limit (431); a test sends a 40 KiB head. `MAX_QUERY_BYTES` stays, since it still bounds gRPC v1 |
+| `CONNECTION_READ_BUFFER` | stays 16 KiB unless the measured run (one 1 GiB upload at 16 and 64 KiB) shows a gain after coalescing. Raising it also raises the documented header limit, which the same change updates |
+
+## Types, configuration and duplicated rules
+
+### Record types
+
+Persisted bytes do not change: names stay TEXT, generations INTEGER, custom
+time its original text, completions the same TEXT. JSON in TEXT columns keeps
+its bytes through `#[serde(transparent)]` and `#[serde(into = "i64",
+try_from = "i64")]`.
+
+- **Buckets.** `BucketKey(String)` is the stored bucket name, never
+  re-validated when read. `AdmittedBucket` is a request's name, admitted under
+  the server's compatibility profile; `BucketName` converts into it.
+- **Objects.** `ObjectKey<'a> { bucket: &BucketKey, name: &str }` replaces
+  the 83 `(bucket, name)` parameter pairs. `ObjectTarget` is its owned form.
+- **Generations.** `Generation` and a new `Metageneration` come from one macro
+  with SQL and serde conversions; a value of 0 or less fails decoding.
+  Precondition values stay `i64`, because 0 and negatives mean something there.
+- **Custom time.** `CustomTime { text, instant }` is parsed once, ordered by
+  instant and rendered as its text. It replaces four re-parses.
+  - Before it lands, a property test shows that every value import accepts
+    also parses as `CustomTime`.
+  - Replay fingerprints keep hashing the text.
+- **Resumable completion.** `SessionState::Complete(StoredCompletion)` with
+  `Json(Map)` and `Proto(Vec<u8>)` replaces the separate `completion` field.
+  - The stored text tells the variants apart: an object is JSON and an array
+    of integers is gRPC.
+  - A session URI used across adapters fails typed instead of serving the
+    wrong shape.
+
+### Configuration
+
+- **Draft.** Today's `Config` becomes `ConfigDraft`. Every `check_*` keeps
+  working on it, so diagnostics stay byte-identical.
+- **Assembly.** `TryFrom<ConfigurationReport> for Config` builds nested types:
+  - `Listeners`, `GrpcListener` and `TrustedListener`;
+  - `Tls` with a `TlsIdentity`;
+  - `Storage`, `Seed`, `Endpoints` and `Admin`;
+  - `notifications::Runtime`;
+  - `Limits`, `Timeouts` and `AuthSettings`.
+
+  The checks that settle a pairing return their typed piece, so assembly needs
+  no `unwrap`.
+- **What goes.**
+  - The `effective_*` methods become resolved fields. The one that depends on
+    the bound address stays a method.
+  - TLS pairing is checked once.
+  - Fields become private behind accessors.
+- **Tests.** Unit tests build drafts. Integration tests load configurations
+  through the real parser.
+- **Files.** `config.rs` splits into `config/draft.rs` and
+  `config/assemble.rs`.
+
+### One implementation per rule
+
+| Rule | Shared home |
+| --- | --- |
+| Single header value (absent, one, repeated) | `http_header::sole` |
+| Idempotency token | `object::IdempotencyToken`; each adapter keeps its messages, and XML copy still refuses any token |
+| Anonymous canned ACL refusal and the uniform-access precheck | `acl::refuse_anonymous_canned_acl`, `BucketRecord::uniform_access` |
+| CSEK hash visibility | `csek::StoredHashes::for_key`, used by the JSON resource |
+| Default content type | `object::content_type::{DEFAULT, or_default}` |
+| Calendar math | `time_format::civil`, after a property test against the old code |
+| XML precondition headers | `xml::conditions(headers, messages)`, keeping both message sets |
+| Bucket conditions from the query | `json::query::bucket_conditions` and one table of parameter names |
+| Host lowercase and trailing-dot removal | `net::normalized_host` |
+| List page cap of 1,000 | `page_token::MAX_PAGE`, only where it is the list cap |
+| `Expires` header | `time_format::http_date_value` |
+| `x-goog-meta-*` headers | `object::upload_headers::custom_metadata_headers` |
+| `text/plain; charset=utf-8` | `mime::TEXT_PLAIN_UTF8` |
+| Percent unescaping in import | `percent::decode_bytes` |
+| XML resumable ETag | `xml::Validators`, shared with `object_etag` |
+| Same name, different constants | renamed apart (`UNIFORM_ACCESS_UPDATE_ACL`, `upload_content_type`) |
+
+### Robustness helpers
+
+- **Guards.** The 31 drop guards get `#[must_use]` with a message.
+- **Poisoned locks.** Recovery goes through `crate::sync::{lock, read, write}`,
+  which recover and report each lock once. All 45 sites migrate, and the plain
+  lock methods then join `disallowed-methods`.
+- **String enums.** `string_enum!` moves to `choice` with optional serde and
+  SQL arms. It absorbs `serialize_as_str!`, `sql::text_enum!` and
+  `storage_classes!`, and the plain hand-written `FromStr` impls.
+- **Diagnostic events.** Names live in `diagnostics::Event`, with the seven
+  contract names marked and pinned by a test.
+- **CLI dispatch.** The arguments are collected once and matched on literal
+  slices. The parsing order and output are the same, and clap is still not
+  used.
+
+## Lints, tests and newer Rust
+
+### Lints
+
+| Lint | Where |
+| --- | --- |
+| `clippy::significant_drop_in_scrutinee` | gate; finds the read-pool lock |
+| `clippy::or_fun_call` | gate; 9 sites |
+| `clippy::ignore_without_reason` | workspace deny; no site |
+| `clippy::return_and_then` | gate; counted at slice start |
+| `clippy::large_futures` | gate, after the body I/O slices |
+| `disallowed-methods`: `serde_json::Map::remove`, `std::io::Error::other`, plain lock methods | each with its slice |
+| `[lints.cargo] unused_dependencies` | workspace; Cargo 1.100.0 reports an unused dependency (checked 2026-11-26) |
+
+All of these exist in the pinned Clippy and Cargo 1.100.0 (checked
+2026-11-26). Each rule gets its row in the Rules table.
+
+### Property tests
+
+These start DESIGN-098 for parsers:
+
+- `percent`, `base64`, `page_token` and `decimal`: round trips, never
+  panicking on arbitrary input, and the grammar boundaries;
+- `time_format` and `civil`: round trips and order;
+- multipart: any split equals the whole-body parse;
+- `CustomTime` against the import grammar.
+
+### Test helpers
+
+- **Clocks.** One `ManualClock`, with a read counter, replaces the in-crate
+  test clocks.
+- **Shared helpers.** `tests/common` gets one clock and one base64 helper
+  instead of nine copies.
+- **Fixtures.** Record builders under `cfg(test)` replace full `ObjectRecord`
+  literals, and replace `json::parse_insert` as a bucket fixture in 27 files.
+
+### Newer Rust
+
+Checked on rustc 1.100.0 on 2026-11-26.
+
+- **`std::assert_matches!`** (with `use std::assert_matches;`) replaces 475
+  `assert!(matches!(..))` sites in one mechanical commit, so failures print
+  the value.
+- **`str` and `[u8]` `trim_prefix` and `trim_suffix`** replace
+  `strip_*().unwrap_or(..)`.
+- **`cfg_select!`** is used inside function bodies in `fsutil` and
+  `storage::catalog::fault`.
+- **if-let guards, `fmt::from_fn`, `Duration::from_mins`, `map_or_default`
+  and `extract_if`** are used where a slice already edits the code.
+- **`core::mem::DropGuard`** is used only for closure-only cleanup in new code.
+  The existing guards carry state and methods.
+
+## Implementation order
+
+- **Branches.** Each phase is one pull request into `main`, and each slice in
+  it is one commit or a short series. A slice that moves code never also
+  changes its logic.
+- **Phase order.** The phases run in the order below.
+  - Golden tests come first, so later phases have something to compare against.
+  - Catalog and body I/O come before the large moves, so their diffs stay
+    reviewable.
+  - Type changes come after the catalog API settles.
+- **Checks.** Every slice runs:
+  - `cargo xtask lint`, lowering baselines in the same change;
+  - `cargo test -p xtask`;
+  - the affected tests and `just check`.
+- **Doc search.** Before finishing, each slice searches `README.md`,
+  `docs/en`, `docs/ja`, `compatibility` and the SDK READMEs for the names it
+  moved.
+
+### Safety nets
+
+| Slice | Scope | Acceptance |
+| --- | --- | --- |
+| Error goldens | shared case builders; JSON status, headers and body bytes for every domain error and modifier; XML bytes; gRPC `Status` for every constructor; a cross-adapter input matrix; old mappings kept as a test oracle until the error slices finish | the goldens pass on today's code |
+| Persisted-format goldens | stored completion text, upload replay documents, replay fingerprints, the bucket record built through JSON in `admin.rs` | pass on today's code |
+| Layer and adapter rules | `xtask` rules, baseline, Rules table, the layer table in design, AGENTS.md | `cargo xtask lint --baseline` equals the committed file |
+
+### Quick wins
+
+| Slice | Scope | Acceptance and docs |
+| --- | --- | --- |
+| Writer-thread I/O | XML part and completion syncs on the blocking pool; the read-pool pop; the close-time thread-I/O assertion with the reset and reseed allowance | new failed-sync, crash and power-loss tests for both XML paths; the full suite passes the assertion; design "Persistence and concurrency" states the rule |
+| Writer settings | QPSG, reader cache, the `wal_autocheckpoint` reason | existing suite |
+| Lint quick wins | `significant_drop_in_scrutinee`, `or_fun_call`, `ignore_without_reason`, `return_and_then`, `unused_dependencies`, `#[must_use]` on guards | Rules table |
+| Small fixes | the head-limit comment and 40 KiB head test; the diagnostics level check; `public-contract-review.md` names schema version 57 where the code writes 59 | — |
+
+### Catalog round trips
+
+| Slice | Scope |
+| --- | --- |
+| Point reads on the pool | `run_serialized_read`, the read-only detector, the first batch of moved jobs |
+| Bulk ACL projections | JSON buckets.list and buckets.get, object projections on the pool |
+| Listings on the pool | `list_objects` and gRPC readable opens |
+| Conditional reclamation | `reclaim_if` at every site |
+| Maintenance on demand | the deferred flag and the probe |
+| XML part rows once | completion reuses its rows; the part probe only after an error |
+| Delete and upload authority | `BucketAuthority`; purge inside the delete transaction |
+| Rewrite pre-checks | permission, buckets and continuation lookup on the pool |
+| Admin batch cleanup | one reference query and one file job per batch |
+| Stale read-cache files | closed off the writer |
+| Prepared write transactions | `WriteTx` with prepared `BEGIN IMMEDIATE`, `COMMIT` and `ROLLBACK`, then `sql::exec(&WriteTx)` |
+| Remaining reads and lifecycle | the second batch of moved reads; lifecycle statements per page; BLOB `get_ref` |
+
+Each slice adds tests for each moved read:
+
+- the pooled-read counter rises;
+- a write followed by a read sees the write;
+- an exclusive reservation sends the read to the writer;
+- a failing reader falls back;
+- the read-only counter stays at zero.
+
+Each slice also adds a test-build writer-job counter that pins its before and
+after job counts.
+
+### Body I/O slices
+
+| Slice | Scope | Measured run |
+| --- | --- | --- |
+| Coalesced staged writes | `StagedFile`, `open_output`, all upload paths | 1 GiB upload and 1,000 × 100 KiB at concurrency 8, at 64 and 256 KiB |
+| Copies in single jobs | re-hash, derived advance, XML assembly, CRC combination, the `large_futures` gate | one 1 GiB compose and one 1 GiB resumable finalization |
+| Single-source copies | publish the pin | one 1 GiB copy |
+| Multipart with `memmem` | `Delimiter`, batch parsing, the `memchr` edge | one 256 MiB multipart upload |
+| Pull-based `ReadObject` | the stream, `FrameLimit`, single boxing | 1 GiB at 64 and 256 KiB, RSS at 32 streams |
+| Small items | resumable tail, query once, lazy ACL subjects, XML writer, JWT cache, gRPC intake hashing | metadata GET and listing 1,000 objects at concurrency 8 |
+| Lazy deadline renewal | progress clock and re-arming | 1 GiB upload and download, CPU and context switches; dropped if no gain |
+
+### Error model slices
+
+| Slice | Scope |
+| --- | --- |
+| Display and source convention | the test helper, strict `Report` in tests, the four fixes, `error_chain` replaced |
+| thiserror | the dependency records; used for new and changed types |
+| Typed validators | the `.message` sites; `ApiError` out of the source list |
+| `ServiceError` and `InputError` | bucket resource parsing, admin defaults and import through the domain call; the adapter mappings |
+| Typed upload and multipart errors | upload headers, stored headers, multipart, upload failures |
+| `ApiError` inside JSON | the shared helpers return service errors; both `From<ApiError>` impls deleted; private fields; `ErrorKind` pruned; oracle removed |
+| `io::Error::other` | three commits (RAM backend; startup, shutdown, import and fsutil; publisher, probe and TLS), then the `disallowed-methods` entry |
+| Cause vocabulary | the `cause` module, `Layer`, the storage chain convention, plain `Report` |
+| thiserror conversion | module by module, then `text::error_displays_source` |
+
+### Layers and structure
+
+| Slice | Scope |
+| --- | --- |
+| Foundation moves | `choice`, the RFC 3339 parser, private `fsutil` and `net` |
+| Model value types | `profile`, URL helpers, auth choices, validator callers |
+| JSON-owned rules out of `json` | `Projection`, component counting, fixed metadata, bucket insert parsing, the two JSON round trips, authority helpers |
+| Notification renderer | injected at catalog open |
+| `auth` split and `HmacKeys` | — |
+| `fsutil` per OS | `cfg_select!` inside bodies; `scripts/check-cross.sh` and the portability CI job |
+| `service`, part one | the shared request pieces and `State`; ledger IDs under `server::copy` become `service::copy` |
+| gRPC listener | into `server` |
+| JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |
+| Config documents | the parse half moves to the settings layer |
+| Protobuf crate | generated code in its own crate, with the build measurement |
+| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code |
+
+### Types, configuration and rules
+
+| Slice | Scope |
+| --- | --- |
+| Neutral helpers | `http_header::sole`, `IdempotencyToken`, `normalized_host`, `http_date_value`, `TEXT_PLAIN_UTF8`, renamed constants, `decode_bytes` |
+| Calendar and property tests | `time_format::civil` and the property tests |
+| Domain consolidation | content type, CSEK hashes, canned ACL, bucket conditions, `x-goog-meta-*`, XML preconditions, the XML resumable ETag |
+| Generation types | `Generation`, `Metageneration` |
+| `CustomTime` | — |
+| Bucket and object keys | catalog signatures first, then each adapter |
+| `StoredCompletion` | — |
+| Configuration | `ConfigDraft`, assembly, nested types, private fields |
+| Enums and events | `choice` arms, merged macros, `diagnostics::Event` |
+| Test hygiene | clocks, base64, record fixtures, `assert_matches!` |
+| Newer Rust and CLI | `trim_*`, literal CLI matching, lock helpers |
+
+### Catalog structure
+
+| Slice | Scope |
+| --- | --- |
+| `CatalogOptions` and `Inner` | options at open, sub-structs |
+| Shutdown | token, tracker, `close`, the `tokio-util` edge |
+| In-process derived state | compose and multi-step copies keep offset and hasher in memory |
+
+### Last
+
+| Slice | Scope |
+| --- | --- |
+| Behavior decisions | the owner's choices, with ledger rows, gaps, release note and docs |
+| Test layout | `*_tests.rs` files and directories moved, ledger IDs renamed, the `xtask` check |
+| Final verification | full suite, `just check-sdk`, the nine-SDK scorecard |
+
+The release candidate then follows the [release policy](../release-policy.md#the-100-gate).
+
+## Acceptance cases
+
+The ledger records these as DESIGN-105 cases:
+
+| Case | Accepted when |
+| --- | --- |
+| `DESIGN-105-GOLDENS` | Error, persisted-format and bucket-default goldens recorded before the code moved pass after every slice. |
+| `DESIGN-105-WRITER-IO` | No executor thread reaches a durability seam outside the reset and reseed allowance; every test that closes a catalog checks it. |
+| `DESIGN-105-READ-ROUTING` | Read-only jobs run on the read pool, see completed writes, fall back under exclusive reservations and failures, and never answer `SQLITE_READONLY`. |
+| `DESIGN-105-ROUND-TRIPS` | Writer and reader job counts per operation match the round-trip table. |
+| `DESIGN-105-BODY-IO` | Staged writes and copies run as bounded blocking jobs, with failed-write, failed-sync, crash and power-loss coverage for each path. |
+| `DESIGN-105-PROTOCOL` | Multipart and batch parsing, gRPC `ReadObject` and the smaller adapter items keep their wire behavior. |
+| `DESIGN-105-LAYERS` | The layer and adapter rules are zero tolerance. |
+| `DESIGN-105-ERRORS` | Adapters map protocol-neutral errors exhaustively; `ApiError` is private to JSON; chains repeat no text; `io::Error::other` remains only under reasoned expectations. |
+| `DESIGN-105-TYPES` | Records, sessions and configuration carry the typed fields above with unchanged persisted bytes and diagnostics. |
+| `DESIGN-105-RULES` | Each rule in the consolidation table has one implementation. |
+| `DESIGN-105-LINTS` | The new lints are in the gate and the property tests pass. |
+| `DESIGN-105-LIFECYCLE` | The catalog opens with fixed options and shuts down through one token and tracker. |
+| `DESIGN-105-SURFACE` | Only `app` and `testing` are public. |
+| `DESIGN-105-BEHAVIOR` | The owner's behavior decisions ship with tests, ledger updates and a release note. |
+
+## Limits
+
+- **Not a performance program.** Measured runs are single facts at local
+  scale, not baselines or gates.
+- **Supply-chain policy is out of scope.** Cargo 1.100.0 has a
+  `min-publish-age` resolver gate (`registry.global-min-publish-age`). Adopting
+  it is a supply-chain policy change for the owner, not part of this program.
+- **Left in place.** `BidiReadObject`, the write path's per-frame hashing and
+  the upload advisory check keep their current design.
