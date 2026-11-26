@@ -64248,7 +64248,10 @@
           "id": "DESIGN-105-LINTS",
           "description": "The new lints are in the gate and the parser property tests pass.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": [
+            "lint::tests::every_gate_rule_has_one_row_in_the_development_guide",
+            "lint::tests::workspace_denied_lints_are_not_downgraded_by_the_gate"
+          ]
         },
         {
           "id": "DESIGN-105-LIFECYCLE",
@@ -64298,7 +64301,11 @@
         "lint::layers::tests::every_library_module_has_exactly_one_layer",
         "lint::layers::tests::the_design_guide_shows_the_same_layer_table",
         "lint::layers::tests::both_rules_take_a_reasoned_suppression",
-        "lint::tests::test_items_include_multi_line_attributes_after_the_cfg"
+        "lint::tests::test_items_include_multi_line_attributes_after_the_cfg",
+        "server::protocol_tests::http1_rejects_a_40_kib_request_header",
+        "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
+        "lint::tests::every_gate_rule_has_one_row_in_the_development_guide",
+        "lint::tests::workspace_denied_lints_are_not_downgraded_by_the_gate"
       ],
       "verification": [
         {
@@ -64344,6 +64351,18 @@
             "storage::catalog::xml_multipart::tests::completion_durable_step_failures_preserve_old_or_confirm_committed_generation",
             "storage::catalog::xml_multipart::tests::multipart_part_and_completion_crash_and_power_loss_snapshots_recover",
             "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins"
+          ]
+        },
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; just check",
+          "result": "PASS",
+          "verified_at": "2026-11-26",
+          "artifact": "docs/en/evidence/rust-hardening.md",
+          "test_ids": [
+            "server::protocol_tests::http1_rejects_a_40_kib_request_header",
+            "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
+            "lint::tests::every_gate_rule_has_one_row_in_the_development_guide",
+            "lint::tests::workspace_denied_lints_are_not_downgraded_by_the_gate"
           ]
         }
       ],
