@@ -1096,12 +1096,18 @@ mod tests {
         }
     }
     async fn fixture() -> (Catalog, std::path::PathBuf, Arc<ManualClock>) {
+        fixture_with_limits(None).await
+    }
+
+    async fn fixture_with_limits(
+        limits: Option<&crate::config::Config>,
+    ) -> (Catalog, std::path::PathBuf, Arc<ManualClock>) {
         let directory = std::env::temp_dir().join(format!(
             "gcs-mimic-rewrite-{}",
             RewriteToken::generate().unwrap()
         ));
         let clock = Arc::new(ManualClock::new(UNIX_EPOCH + Duration::from_millis(1000)));
-        let catalog = Catalog::open_with_clock(&directory, clock.clone())
+        let catalog = Catalog::open_disk_with_limits(&directory, clock.clone(), limits)
             .await
             .unwrap();
         catalog
@@ -1492,14 +1498,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_configured_rewrite_cap_refuses_past_it_and_busy_expiry_does_not_block_others() {
-        let (catalog, directory, clock) = fixture().await;
-        catalog.apply_session_limits(
-            &crate::config::ConfigDraft {
-                max_rewrite_sessions: std::num::NonZeroU32::new(128),
-                ..Default::default()
-            }
-            .build(),
-        );
+        let config = crate::config::ConfigDraft {
+            max_rewrite_sessions: std::num::NonZeroU32::new(128),
+            ..Default::default()
+        }
+        .build();
+        let (catalog, directory, clock) = fixture_with_limits(Some(&config)).await;
         let mut first = None;
         for index in 0..=128 {
             let result = new_session(&catalog).await;
@@ -1773,22 +1777,23 @@ mod tests {
     #[tokio::test]
     async fn finished_rewrites_stay_inside_a_small_memory_catalog_budget() {
         const BUDGET: u64 = 1024 * 1024;
-        let catalog = Catalog::open_memory_for_server(
-            64 * 1024 * 1024,
-            BUDGET,
+        let config = crate::config::ConfigDraft {
+            backend: crate::config::Backend::Memory,
+            memory_catalog_max_bytes: BUDGET,
+            ..Default::default()
+        }
+        .build();
+        let catalog = Catalog::open_server_with_limits(
+            crate::storage::CatalogBacking::Memory {
+                blob_bytes: 64 * 1024 * 1024,
+                catalog_bytes: BUDGET,
+            },
             Arc::new(crate::clock::SystemClock),
             crate::storage::admin::LocalAdmin::Disabled,
+            Some(&config),
         )
         .await
         .unwrap();
-        catalog.apply_session_limits(
-            &crate::config::ConfigDraft {
-                backend: crate::config::Backend::Memory,
-                memory_catalog_max_bytes: BUDGET,
-                ..Default::default()
-            }
-            .build(),
-        );
         catalog
             .insert_bucket(bucket("bucket", "project"))
             .await
@@ -1864,14 +1869,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_retried_continuation_waits_for_the_request_still_running() {
-        let (catalog, directory, _clock) = fixture().await;
-        catalog.apply_session_limits(
-            &crate::config::ConfigDraft {
-                catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(60_000),
-                ..Default::default()
-            }
-            .build(),
-        );
+        let config = crate::config::ConfigDraft {
+            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(60_000),
+            ..Default::default()
+        }
+        .build();
+        let (catalog, directory, _clock) = fixture_with_limits(Some(&config)).await;
         let (token, mut owner) = new_session(&catalog).await.unwrap();
         owner.disarm();
         let session = catalog.rewrite_session(&token).await.unwrap();
@@ -1900,14 +1903,12 @@ mod tests {
     }
 
     /// A long catalog wait, so that only the behaviour under test can end a wait.
-    fn apply_long_writer_wait(catalog: &Catalog) {
-        catalog.apply_session_limits(
-            &crate::config::ConfigDraft {
-                catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(60_000),
-                ..Default::default()
-            }
-            .build(),
-        );
+    fn long_writer_wait() -> crate::config::Config {
+        crate::config::ConfigDraft {
+            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(60_000),
+            ..Default::default()
+        }
+        .build()
     }
 
     fn spawn_continuation(
@@ -1940,8 +1941,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_retried_continuation_waits_for_the_step_its_cancelled_request_left_running() {
-        let (catalog, directory, _clock) = fixture().await;
-        apply_long_writer_wait(&catalog);
+        let (catalog, directory, _clock) = fixture_with_limits(Some(&long_writer_wait())).await;
         let (token, mut owner) = new_session(&catalog).await.unwrap();
         owner.disarm();
         let session = catalog.rewrite_session(&token).await.unwrap();
@@ -1967,8 +1967,7 @@ mod tests {
     async fn a_retry_during_a_detached_publication_returns_the_stored_result() {
         use crate::storage::catalog::fault::{Fault, Step};
         use std::sync::Mutex;
-        let (catalog, directory, _clock) = fixture().await;
-        apply_long_writer_wait(&catalog);
+        let (catalog, directory, _clock) = fixture_with_limits(Some(&long_writer_wait())).await;
         let (token, mut owner) = new_session(&catalog).await.unwrap();
         owner.disarm();
         let session = catalog.rewrite_session(&token).await.unwrap();
@@ -1998,8 +1997,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_retried_continuation_finishes_ahead_of_a_job_draining_its_lease() {
-        let (catalog, directory, _clock) = fixture().await;
-        apply_long_writer_wait(&catalog);
+        let (catalog, directory, _clock) = fixture_with_limits(Some(&long_writer_wait())).await;
         let (token, mut owner) = new_session(&catalog).await.unwrap();
         owner.disarm();
         let session = catalog.rewrite_session(&token).await.unwrap();

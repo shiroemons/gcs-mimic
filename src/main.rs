@@ -120,7 +120,7 @@ fn main() -> ExitCode {
 enum CliError {
     Diagnostics(Diagnostics),
     /// Authentication setup failed at startup: its diagnostics are reported, and its catalog
-    /// causes remain the error's source. Boxed because it holds two catalog errors.
+    /// cause remains the error's source.
     Authentication(Box<startup::CatalogAuthenticationFailure>),
     /// A failure without advice of its own, such as a closed standard stream.
     Io(io::Error),

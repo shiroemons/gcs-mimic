@@ -75,7 +75,11 @@ async fn an_orphan_object_cannot_take_the_empty_catalog_authentication_path() {
     ));
     drop(connection);
     catalog.close().await.unwrap();
-    assert!(open(&data, &Auth::permissive()).await.is_err());
+    let failure = open(&data, &Auth::permissive()).await.err().unwrap();
+    assert!(
+        matches!(&failure, crate::storage::CatalogOpenError::Storage(CatalogError::Unavailable(reason)) if reason == &"invalid generation allocator state"),
+        "{failure:?}"
+    );
 }
 
 #[tokio::test]
@@ -101,7 +105,7 @@ async fn partial_startup_reconciliation_does_not_union_an_already_bound_bucket_a
     catalog.close().await.unwrap();
     assert!(matches!(
         open(&data, &original).await,
-        Err(crate::storage::CatalogOpenError::Authentication(_))
+        Err(crate::storage::CatalogOpenError::Authentication(CatalogError::Corrupt(reason))) if reason == "invalid stored ACL"
     ));
     let catalog = Catalog::open(&data.0).await.unwrap();
     catalog

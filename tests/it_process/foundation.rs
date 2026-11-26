@@ -907,6 +907,73 @@ fn dual_listener_shares_state_and_https_primary_resumable_origin() {
     }
 }
 
+#[tokio::test]
+async fn authentication_reconciliation_failure_reports_the_catalog_remedy_and_exits() {
+    use gcs_mimic::{
+        auth::Auth,
+        bucket::CatalogError,
+        clock::SystemClock,
+        storage::{CatalogBacking, CatalogOpenError, CatalogOptions, admin::BucketDefinition},
+    };
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let name = BucketName::new("broken-bucket").unwrap();
+    catalog
+        .admin(Origin::Seed)
+        .ensure_bucket(BucketDefinition::default_for(&name, "project", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+    rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap().execute_batch(
+        "UPDATE buckets SET acl_policy_bound=0; INSERT OR REPLACE INTO acl_bucket_entries VALUES ('broken-bucket','bucket','[{}]');"
+    ).unwrap();
+
+    let (stop, stopping) = tokio::sync::oneshot::channel();
+    stop.send(()).unwrap();
+    let stopped = CatalogOptions::for_server(
+        &Config::default(),
+        &Auth::permissive(),
+        Arc::new(SystemClock),
+    )
+    .stop_after_recovery(stopping);
+    assert!(matches!(
+        Catalog::open_with_options(CatalogBacking::Disk(&dir.0), stopped).await,
+        Err(CatalogOpenError::Interrupted {
+            created_directory: None
+        })
+    ));
+    let options = CatalogOptions::for_server(
+        &Config::default(),
+        &Auth::permissive(),
+        Arc::new(SystemClock),
+    );
+    assert!(
+        matches!(Catalog::open_with_options(CatalogBacking::Disk(&dir.0), options).await,
+        Err(CatalogOpenError::Authentication(CatalogError::Corrupt(reason))) if reason == "invalid stored ACL")
+    );
+    let output = common::server_command()
+        .clean_env()
+        .args([
+            "serve",
+            "--scheme=http",
+            "--listen=127.0.0.1:0",
+            "--data-dir",
+        ])
+        .arg(&dir.0)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        concat!(
+            r#"{"event":"diagnostics","level":"error","diagnostics":[{"source":"catalog","key":"data_dir","fix":"Cannot reconcile stored bucket IAM and ACL state; inspect the catalog or restore a valid backup before restarting."}]}"#,
+            "\n"
+        )
+    );
+    Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
+}
+
 #[test]
 fn startup_configuration_diagnostics_keep_their_bytes_and_exit_code() {
     let dir = TestDir::new();

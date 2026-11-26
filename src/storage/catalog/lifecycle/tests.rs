@@ -6,13 +6,10 @@ use crate::{
         MapPatch, ObjectMetadataUpdate, Patch,
         retention::{ObjectRetention, RetentionMode},
     },
-    storage::{
-        admin::LocalAdmin,
-        catalog::{
-            fault::{self, Crash, Fault, Step},
-            test_fixtures::{
-                PERMISSIVE, PERMISSIVE_RESTORE, body, bucket, live, permissive_upload, version,
-            },
+    storage::catalog::{
+        fault::{self, Crash, Fault, Step},
+        test_fixtures::{
+            PERMISSIVE, PERMISSIVE_RESTORE, body, bucket, live, permissive_upload, version,
         },
     },
     test_support::TestDir,
@@ -60,24 +57,19 @@ fn only_undecodable_stored_columns_make_a_version_unreadable() {
 
 async fn disk(data: &TestDir) -> (Catalog, Arc<ManualClock>) {
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH + DAY));
-    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+    let catalog = Catalog::open_lifecycle_disk(&data.0, clock.clone())
         .await
         .unwrap();
-    catalog.configure_lifecycle(&Default::default());
+
     (catalog, clock)
 }
 
 async fn memory() -> (Catalog, Arc<ManualClock>) {
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH + DAY));
-    let catalog = Catalog::open_memory_for_server(
-        64 * 1024 * 1024,
-        16 * 1024 * 1024,
-        clock.clone(),
-        LocalAdmin::Enabled,
-    )
-    .await
-    .unwrap();
-    catalog.configure_lifecycle(&Default::default());
+    let catalog =
+        Catalog::open_lifecycle_memory(clock.clone(), crate::config::LifecycleExecution::Enabled)
+            .await
+            .unwrap();
     (catalog, clock)
 }
 
@@ -865,7 +857,10 @@ async fn an_unconfigured_catalog_never_executes_stored_rules() {
     catalog.maintain_resumable_sessions().await.unwrap();
     assert!(exists(&catalog, live("bucket", "object")).await);
     assert_eq!(catalog.0.maintenance.lifecycle.state().scans, 0);
-    catalog.configure_lifecycle(&Default::default());
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open_lifecycle_disk(&data.0, clock.clone())
+        .await
+        .unwrap();
     assert_eq!(execute(&catalog).await.deleted, 1);
     catalog.close().await.unwrap();
 }
@@ -996,7 +991,7 @@ async fn restart_rebuilds_the_schedule_from_stored_rules_and_recomputes_the_dead
     put(&catalog, "object").await;
     catalog.run_lifecycle_now().await.unwrap();
     catalog.close().await.unwrap();
-    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+    let catalog = Catalog::open_lifecycle_disk(&data.0, clock.clone())
         .await
         .unwrap();
     assert!(
@@ -1007,7 +1002,6 @@ async fn restart_rebuilds_the_schedule_from_stored_rules_and_recomputes_the_dead
             .armed
             .load(Ordering::Acquire)
     );
-    catalog.configure_lifecycle(&Default::default());
     assert_eq!(
         catalog.maintain_resumable_sessions().await.unwrap(),
         Some(clock.now() + DAY)
@@ -1020,16 +1014,13 @@ async fn restart_rebuilds_the_schedule_from_stored_rules_and_recomputes_the_dead
 
 #[tokio::test]
 async fn disabled_execution_preserves_rules_and_objects_even_on_a_forced_pass() {
-    let (catalog, clock) = memory().await;
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH + DAY));
+    let catalog =
+        Catalog::open_lifecycle_memory(clock.clone(), crate::config::LifecycleExecution::Disabled)
+            .await
+            .unwrap();
     create(&catalog, vec![delete(json!({"age":1}))]).await;
     put(&catalog, "object").await;
-    catalog.configure_lifecycle(
-        &crate::config::ConfigDraft {
-            lifecycle_execution: crate::config::LifecycleExecution::Disabled,
-            ..Default::default()
-        }
-        .build(),
-    );
     clock.advance(DAY);
     assert!(matches!(
         catalog.run_lifecycle_now().await.unwrap(),
@@ -1170,8 +1161,10 @@ async fn lifecycle_crash_and_power_loss_snapshots_restart_idempotently() {
             assert_eq!(execute(&catalog).await.deleted, 1);
             assert_eq!(fault::pending(&data.0), 0);
             catalog.close().await.unwrap();
-            let recovered = Catalog::open_with_clock(&snapshot.0, clock).await.unwrap();
-            recovered.configure_lifecycle(&Default::default());
+            let recovered = Catalog::open_lifecycle_disk(&snapshot.0, clock)
+                .await
+                .unwrap();
+
             assert_eq!(
                 execute(&recovered).await.deleted,
                 u64::from(step == Step::LifecycleCommit)

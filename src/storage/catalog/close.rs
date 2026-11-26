@@ -51,7 +51,7 @@ impl Catalog {
         }
         let execution = drain(&self.0.writer.execution, 1).await?;
         // Once every cache producer has stopped, release the files before directory ownership.
-        self.0.reads.cache.invalidate(&self.0.reads.runtime);
+        self.0.reads.invalidate();
         self.0.reads.cache.drain().await?;
         let inner = self.0.clone();
         let closed = self

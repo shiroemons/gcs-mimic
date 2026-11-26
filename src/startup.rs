@@ -369,49 +369,64 @@ async fn open_catalog(
     clock: Arc<dyn Clock>,
     shutdown: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<()>>>,
 ) -> Result<PhaseResult<Catalog>, crate::CliError> {
+    let (stop, stopping) = tokio::sync::oneshot::channel();
     let opening = async {
-        let admin = if config.admin_enabled() {
-            gcs_mimic::storage::admin::LocalAdmin::Enabled
-        } else {
-            gcs_mimic::storage::admin::LocalAdmin::Disabled
-        };
-        let options = CatalogOptions::authenticated(clock, admin, auth);
+        let options = CatalogOptions::for_server(config, auth, clock).stop_after_recovery(stopping);
         let opened = Catalog::open_with_options(config.into(), options).await;
-        // Applied before seeding, bucket files and listeners create any bucket. The reference
-        // emulator profile never gets a default policy.
-        if let Ok(catalog) = &opened {
-            if let Some((path, DataDirState::Created)) = catalog.data_directory() {
-                gcs_mimic::diagnostics::emit(
-                    gcs_mimic::diagnostics::LogLevel::Info,
-                    Event::DataDirCreated,
-                    serde_json::json!({"data_dir":path.to_string_lossy(),"message":format!("created a new empty catalog at {}", path.display())}),
-                );
+        let created = match &opened {
+            Ok(catalog) => catalog
+                .data_directory()
+                .and_then(|(path, state)| (state == DataDirState::Created).then_some(path)),
+            Err(CatalogOpenError::Interrupted { created_directory }) => {
+                created_directory.as_deref()
             }
-            catalog.set_default_soft_delete_retention(match config.compat_profile() {
-                gcs_mimic::config::CompatProfile::FakeGcsServer => None,
-                gcs_mimic::config::CompatProfile::Native => {
-                    config.default_soft_delete_retention_seconds()
-                }
-            });
-            catalog.apply_session_limits(config);
-            catalog.configure_lifecycle(config);
+            Err(_) => None,
+        };
+        if let Some(path) = created {
+            gcs_mimic::diagnostics::emit(
+                gcs_mimic::diagnostics::LogLevel::Info,
+                Event::DataDirCreated,
+                serde_json::json!({"data_dir":path.to_string_lossy(),"message":format!("created a new empty catalog at {}", path.display())}),
+            );
         }
-        opened.map_err(|error| match error {
-            CatalogOpenError::Storage(cause) => crate::CliError::from(catalog_open_failure(&cause)),
-            CatalogOpenError::Authentication(cause) => {
-                authentication::Failure::new(cause, None).into()
-            }
-        })
+        opened
     };
     tokio::pin!(opening);
     // Dropping this borrowed wait keeps the pinned owner alive for the required recovery drain.
     match race(CancelSafe(opening.as_mut()), shutdown).await {
-        Ok(PhaseResult::Complete(result)) => result.map(PhaseResult::Complete),
+        Ok(PhaseResult::Complete(result)) => {
+            result.map(PhaseResult::Complete).map_err(open_failure)
+        }
         interrupted => {
-            let catalog = opening.await?;
-            finish_startup(&catalog, interrupted.map(|_| ())).await?;
+            let _ = stop.send(());
+            match opening.await {
+                Ok(catalog) => finish_startup(&catalog, interrupted.map(|_| ())).await?,
+                Err(
+                    CatalogOpenError::Interrupted { .. }
+                    | CatalogOpenError::Authentication(_)
+                    | CatalogOpenError::ImportInProgress
+                    | CatalogOpenError::ImportState(_)
+                    | CatalogOpenError::ParentPolicy(_),
+                ) => {
+                    interrupted?;
+                }
+                Err(CatalogOpenError::Storage(cause)) => {
+                    return Err(catalog_open_failure(&cause).into());
+                }
+            }
             Ok(PhaseResult::Stopped)
         }
+    }
+}
+
+fn open_failure(error: CatalogOpenError) -> crate::CliError {
+    match error {
+        CatalogOpenError::Interrupted { .. } => io::Error::from(io::ErrorKind::Interrupted).into(),
+        CatalogOpenError::Storage(cause) => catalog_open_failure(&cause).into(),
+        CatalogOpenError::Authentication(cause) => authentication::Failure::new(cause).into(),
+        CatalogOpenError::ImportState(_) => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "Cannot inspect import state; inspect the native catalog before restarting.").into(),
+        CatalogOpenError::ImportInProgress => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "Import is incomplete; resume the same unchanged source export with the import command before serving this destination. Do not remove the import marker.").into(),
+        CatalogOpenError::ParentPolicy(_) => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "Cannot configure catalog policy; inspect the native catalog and identity policy before restarting.").into(),
     }
 }
 
@@ -441,17 +456,9 @@ fn catalog_open_failure(error: &CatalogError) -> Diagnostics {
     Diagnostics::error(DiagnosticSource::Catalog, "data_dir", fix)
 }
 
-async fn configure_catalog_policy(
-    catalog: &Catalog,
-    projects: &[String],
-) -> Result<(), Diagnostics> {
-    catalog.configure_public_access_prevention(projects).await.map_err(|_| Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "Cannot configure catalog policy; inspect the native catalog and identity policy before restarting."))
-}
-
 async fn prepare_startup(
     catalog: &Catalog,
     config: &Config,
-    projects: &[String],
     clock: Arc<dyn Clock>,
     mut shutdown: Pin<&mut impl Future<Output = io::Result<()>>>,
 ) -> Result<PhaseResult<BoundStartup>, Diagnostics> {
@@ -463,25 +470,6 @@ async fn prepare_startup(
             }
         };
     }
-    match complete!(catalog.import_journal().in_progress()) {
-        Ok(false) => {}
-        Ok(true) => {
-            return Err(Diagnostics::error(
-                DiagnosticSource::Catalog,
-                "data_dir",
-                "Import is incomplete; resume the same unchanged source export with the import command before serving this destination. Do not remove the import marker.",
-            ));
-        }
-        Err(_) => {
-            return Err(Diagnostics::error(
-                DiagnosticSource::Catalog,
-                "data_dir",
-                "Cannot inspect import state; inspect the native catalog before restarting.",
-            ));
-        }
-    }
-    // PAP's submitted SQLite job owns its execution permit until completion.
-    complete!(configure_catalog_policy(catalog, projects))?;
     complete!(catalog.start_notifications(config))
         // The generic diagnostic names the error kind; a catalog error has none of its own.
         .map_err(|error| Diagnostics::startup_failure(&error))?;
@@ -581,15 +569,7 @@ pub(crate) async fn serve(
         seed,
         buckets,
         buckets_document,
-    } = match prepare_startup(
-        &catalog,
-        &config,
-        auth.public_access_prevention_projects(),
-        clock.clone(),
-        shutdown.as_mut(),
-    )
-    .await
-    {
+    } = match prepare_startup(&catalog, &config, clock.clone(), shutdown.as_mut()).await {
         Ok(PhaseResult::Complete(bound)) => bound,
         result => return Ok(finish_startup(&catalog, result.map(|_| ())).await?),
     };
@@ -944,7 +924,6 @@ mod tests {
     use std::{
         fs::{self, File},
         sync::{Arc, Mutex, mpsc},
-        task::Poll,
         time::{Duration, SystemTime},
     };
 
@@ -1120,13 +1099,7 @@ mod tests {
         tokio::pin!(shutdown);
         let result = tokio::time::timeout(
             Duration::from_secs(2),
-            prepare_startup(
-                &catalog,
-                &config,
-                &[],
-                Arc::new(SystemClock),
-                shutdown.as_mut(),
-            ),
+            prepare_startup(&catalog, &config, Arc::new(SystemClock), shutdown.as_mut()),
         )
         .await
         .unwrap()
@@ -1152,15 +1125,11 @@ mod tests {
         let config = dir.config();
         let shutdown = std::future::pending();
         tokio::pin!(shutdown);
-        let PhaseResult::Complete(bound) = prepare_startup(
-            &catalog,
-            &config,
-            &[],
-            Arc::new(SystemClock),
-            shutdown.as_mut(),
-        )
-        .await
-        .unwrap() else {
+        let PhaseResult::Complete(bound) =
+            prepare_startup(&catalog, &config, Arc::new(SystemClock), shutdown.as_mut())
+                .await
+                .unwrap()
+        else {
             panic!("unexpected stop");
         };
         assert!(bound.listeners.grpc.is_none());
@@ -1176,30 +1145,20 @@ mod tests {
                 missing.to_str().unwrap(),
             ],
         );
-        let error = prepare_startup(
-            &catalog,
-            &config,
-            &[],
-            Arc::new(SystemClock),
-            shutdown.as_mut(),
-        )
-        .await
-        .err()
-        .unwrap();
+        let error = prepare_startup(&catalog, &config, Arc::new(SystemClock), shutdown.as_mut())
+            .await
+            .err()
+            .unwrap();
         assert!(error.to_string().contains("buckets_file"));
         let config = test_config(
             &dir.0,
             &["--listen=127.0.0.1:0", "--grpc-listen=127.0.0.1:0"],
         );
-        let PhaseResult::Complete(bound) = prepare_startup(
-            &catalog,
-            &config,
-            &[],
-            Arc::new(SystemClock),
-            shutdown.as_mut(),
-        )
-        .await
-        .unwrap() else {
+        let PhaseResult::Complete(bound) =
+            prepare_startup(&catalog, &config, Arc::new(SystemClock), shutdown.as_mut())
+                .await
+                .unwrap()
+        else {
             panic!("unexpected stop");
         };
         let listener = bound.listeners.grpc.as_ref().unwrap();
@@ -1322,10 +1281,10 @@ mod tests {
                 missing_seed.to_str().unwrap(),
             ],
         );
-        let failure = prepare_startup(
-            &catalog,
+        catalog.close().await.unwrap();
+        let failure = open_catalog(
             &config,
-            &vec!["project".into(); 65],
+            &Auth::permissive(),
             Arc::new(SystemClock),
             shutdown.as_mut(),
         )
@@ -1333,7 +1292,6 @@ mod tests {
         .err()
         .unwrap();
         assert!(failure.to_string().contains("Import is incomplete"));
-        finish_startup(&catalog, Err(failure)).await.unwrap_err();
         assert!(!catalog.is_healthy());
         let reopened = Catalog::open(&dir.0).await.unwrap();
         assert!(reopened.import_journal().in_progress().await.unwrap());
@@ -1349,15 +1307,9 @@ mod tests {
                 seed.0.to_str().unwrap(),
             ],
         );
-        let started = prepare_startup(
-            &reopened,
-            &config,
-            &[],
-            Arc::new(SystemClock),
-            shutdown.as_mut(),
-        )
-        .await
-        .unwrap();
+        let started = prepare_startup(&reopened, &config, Arc::new(SystemClock), shutdown.as_mut())
+            .await
+            .unwrap();
         assert!(matches!(started, PhaseResult::Complete(_)));
         drop(started);
         reopened.close().await.unwrap();
@@ -1387,87 +1339,6 @@ mod tests {
             .await,
             Ok(PhaseResult::Stopped)
         ));
-    }
-
-    #[tokio::test]
-    async fn authentication_setup_failure_keeps_catalog_cause_closes_and_selects_diagnostics() {
-        use std::error::Error;
-
-        let directory = TestDir::new();
-        let catalog = Catalog::open_for_server(
-            &directory.0,
-            Arc::new(SystemClock),
-            gcs_mimic::storage::admin::LocalAdmin::Disabled,
-        )
-        .await
-        .unwrap();
-        let cause = CatalogError::from(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "injected reconciliation read failure",
-        ));
-        let failure = authentication::close(&catalog, cause).await;
-        let cause = failure
-            .source()
-            .unwrap()
-            .downcast_ref::<CatalogError>()
-            .unwrap();
-        assert_eq!(
-            cause
-                .source()
-                .unwrap()
-                .downcast_ref::<io::Error>()
-                .unwrap()
-                .kind(),
-            io::ErrorKind::PermissionDenied
-        );
-        assert!(failure.cleanup_cause().is_none());
-        assert!(!catalog.is_healthy());
-        let cli = crate::CliError::from(failure);
-        let diagnostics = cli.diagnostics().unwrap();
-        assert_eq!(diagnostics.errors[0].source, DiagnosticSource::Catalog);
-        assert_eq!(diagnostics.errors[0].key, "data_dir");
-        // A failure without advice of its own falls back to the generic runtime diagnostic.
-        assert!(
-            crate::CliError::Io(io::Error::other("x"))
-                .diagnostics()
-                .is_none()
-        );
-        let reopened = Catalog::open(&directory.0).await.unwrap();
-        reopened.close().await.unwrap();
-    }
-
-    #[test]
-    fn authentication_setup_failure_keeps_primary_and_cleanup_causes_separate() {
-        use std::error::Error;
-
-        let failure = CatalogAuthenticationFailure::new(
-            CatalogError::Corrupt("bad stored ACL".into()),
-            Some(CatalogError::from(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "injected close failure",
-            ))),
-        );
-        assert!(matches!(
-            failure.source().unwrap().downcast_ref::<CatalogError>(),
-            Some(CatalogError::Corrupt(_))
-        ));
-        assert_eq!(failure.diagnostics().errors[0].key, "data_dir");
-        assert_eq!(
-            failure.diagnostics().errors[0].source,
-            DiagnosticSource::Catalog
-        );
-        assert_eq!(failure.diagnostics().errors[1].key, "data_dir");
-        assert_eq!(
-            failure
-                .cleanup_cause()
-                .unwrap()
-                .source()
-                .unwrap()
-                .downcast_ref::<io::Error>()
-                .unwrap()
-                .kind(),
-            io::ErrorKind::PermissionDenied
-        );
     }
 
     #[tokio::test]
@@ -1521,12 +1392,19 @@ mod tests {
     }
 
     struct RecoveryClock {
+        skip_recovery: AtomicBool,
         entered: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
         release: Mutex<mpsc::Receiver<()>>,
     }
 
     impl Clock for RecoveryClock {
         fn now(&self) -> SystemTime {
+            if self
+                .skip_recovery
+                .swap(false, std::sync::atomic::Ordering::AcqRel)
+            {
+                return SystemTime::now();
+            }
             if let Some(entered) = self.entered.lock().unwrap().take() {
                 let _ = entered.send(());
                 let _ = self
@@ -1542,10 +1420,24 @@ mod tests {
     #[tokio::test]
     async fn shutdown_during_recovery_drains_open_before_unlocking() {
         let dir = TestDir::new();
+        use gcs_mimic::storage::admin::{BucketDefinition, BucketName, Origin};
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let name = BucketName::new("broken-bucket").unwrap();
+        catalog
+            .admin(Origin::Seed)
+            .ensure_bucket(BucketDefinition::default_for(&name, "project", &SystemClock).unwrap())
+            .await
+            .unwrap();
+        catalog.close().await.unwrap();
+        // Starting reconciliation after the signal would fail on this legacy ACL.
+        rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap().execute_batch(
+            "UPDATE buckets SET acl_policy_bound=0; INSERT OR REPLACE INTO acl_bucket_entries VALUES ('broken-bucket','bucket','[{}]');"
+        ).unwrap();
         let config = dir.config();
         let (entered, recovering) = tokio::sync::oneshot::channel();
         let (release, released) = mpsc::channel();
         let clock = Arc::new(RecoveryClock {
+            skip_recovery: AtomicBool::new(false),
             entered: Mutex::new(Some(entered)),
             release: Mutex::new(released),
         });
@@ -1584,99 +1476,89 @@ mod tests {
         reopened.close().await.unwrap();
     }
 
-    #[test]
-    fn shutdown_during_policy_configuration_drains_owned_work() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .max_blocking_threads(1)
-            .enable_all()
-            .build()
+    #[tokio::test]
+    async fn shutdown_during_policy_configuration_drains_owned_work() {
+        use gcs_mimic::storage::admin::{BucketDefinition, BucketName, Origin};
+        let dir = TestDir::new();
+        let seed = dir.0.join("fixtures");
+        let data = dir.0.join("data");
+        let config = test_config(
+            &data,
+            &["--listen=127.0.0.1:0", "--seed-dir", seed.to_str().unwrap()],
+        );
+        fs::create_dir_all(seed.join("seed-bucket")).unwrap();
+        let catalog = Catalog::open(&data).await.unwrap();
+        let name = BucketName::new("existing-bucket").unwrap();
+        catalog
+            .admin(Origin::Seed)
+            .ensure_bucket(BucketDefinition::default_for(&name, "project", &SystemClock).unwrap())
+            .await
             .unwrap();
-        runtime.block_on(async {
-            let dir = TestDir::new();
-            let seed = dir.0.join("fixtures");
-            let config = test_config(
-                &dir.0.join("data"),
-                &["--listen=127.0.0.1:0", "--seed-dir", seed.to_str().unwrap()],
-            );
-            fs::create_dir_all(seed.join("seed-bucket")).unwrap();
-            let catalog = Catalog::open(config.data_dir()).await.unwrap();
-            catalog
-                .configure_public_access_prevention(&["old-project".into()])
-                .await
-                .unwrap();
-            let (release, released) = mpsc::channel();
-            let (entered, blocked) = tokio::sync::oneshot::channel();
-            let blocker = tokio::task::spawn_blocking(move || {
-                entered.send(()).unwrap();
-                released.recv_timeout(Duration::from_secs(10)).unwrap();
-            });
-            blocked.await.unwrap();
-            {
-                let projects = ["new-project".into()];
-                let (signal, shutdown) = tokio::sync::oneshot::channel();
-                let shutdown = async { shutdown.await.map_err(io::Error::other) };
-                tokio::pin!(shutdown);
-                let work = prepare_startup(
-                    &catalog,
-                    &config,
-                    &projects,
-                    Arc::new(SystemClock),
-                    shutdown.as_mut(),
-                );
-                tokio::pin!(work);
-                std::future::poll_fn(|cx| {
-                    assert!(work.as_mut().poll(cx).is_pending());
-                    Poll::Ready(())
-                })
-                .await;
-                signal.send(()).unwrap();
-                assert!(matches!(
-                    tokio::time::timeout(Duration::from_secs(2), work)
-                        .await
-                        .unwrap(),
-                    Ok(PhaseResult::Stopped)
-                ));
-            }
-            let close = close_startup(&catalog, Ok(()));
-            tokio::pin!(close);
-            std::future::poll_fn(|cx| {
-                assert!(close.as_mut().poll(cx).is_pending());
-                Poll::Ready(())
-            })
-            .await;
-            assert!(matches!(
-                File::open(config.data_dir().join("catalog.lock"))
-                    .unwrap()
-                    .try_lock(),
-                Err(std::fs::TryLockError::WouldBlock)
-            ));
-            release.send(()).unwrap();
-            tokio::time::timeout(Duration::from_secs(5), close)
+        catalog.close().await.unwrap();
+
+        let (entered, configuring) = tokio::sync::oneshot::channel();
+        let (release, released) = mpsc::channel();
+        let clock = Arc::new(RecoveryClock {
+            skip_recovery: AtomicBool::new(true),
+            entered: Mutex::new(Some(entered)),
+            release: Mutex::new(released),
+        });
+        let (signal, shutdown) = tokio::sync::oneshot::channel();
+        let (observed, stopping) = tokio::sync::oneshot::channel();
+        let work = tokio::spawn(async move {
+            let mut report = Config::preflight_os(&["--auth-mode=strict".into(), "--identities".into(), r#"{"identities":[{"id":"reader@example.test","tokens":[]}],"public_access_prevention_projects":["project"]}"#.into()], []);
+            let auth = report.load_auth();
+            report.into_config().unwrap();
+            let shutdown = async {
+                shutdown.await.map_err(io::Error::other)?;
+                observed.send(()).unwrap();
+                Ok(())
+            };
+            tokio::pin!(shutdown);
+            open_catalog(&config, &auth, clock, shutdown.as_mut()).await
+        });
+        let guard = Duration::from_secs(30);
+        tokio::time::timeout(guard, configuring)
+            .await
+            .unwrap()
+            .unwrap();
+        signal.send(()).unwrap();
+        tokio::time::timeout(guard, stopping)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!work.is_finished());
+        assert!(matches!(
+            File::open(data.join("catalog.lock")).unwrap().try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+        release.send(()).unwrap();
+        assert!(matches!(
+            tokio::time::timeout(guard, work)
                 .await
                 .unwrap()
-                .unwrap();
-            blocker.await.unwrap();
-            let reopened = Catalog::open(config.data_dir()).await.unwrap();
-            assert!(
-                reopened
-                    .admin(gcs_mimic::storage::admin::Origin::Seed)
-                    .get_bucket(&gcs_mimic::storage::admin::BucketName::new("seed-bucket").unwrap())
-                    .await
-                    .unwrap()
-                    .is_none()
-            );
-            reopened.close().await.unwrap();
-            let connection =
-                rusqlite::Connection::open(config.data_dir().join("catalog.sqlite3")).unwrap();
-            assert_eq!(
-                connection
-                    .query_row("SELECT complete FROM startup_seed", [], |row| row
-                        .get::<_, i64>(0))
-                    .unwrap(),
-                0,
-                "seed must not run after interrupted PAP"
-            );
-        });
+                .unwrap()
+                .unwrap(),
+            PhaseResult::Stopped
+        ));
+        let reopened = Catalog::open(&data).await.unwrap();
+        assert!(
+            reopened
+                .admin(Origin::Seed)
+                .get_bucket(&BucketName::new("seed-bucket").unwrap())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        reopened.close().await.unwrap();
+        let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT complete FROM startup_seed", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
     }
 
     #[tokio::test]
@@ -1700,6 +1582,7 @@ mod tests {
         let (entered, validating) = tokio::sync::oneshot::channel();
         let (release, released) = mpsc::channel();
         let clock = Arc::new(RecoveryClock {
+            skip_recovery: AtomicBool::new(false),
             entered: Mutex::new(Some(entered)),
             release: Mutex::new(released),
         });
@@ -1707,7 +1590,7 @@ mod tests {
         let shutdown = async { shutdown.await.map_err(io::Error::other) };
         tokio::pin!(shutdown);
         {
-            let work = prepare_startup(&catalog, &config, &[], clock, shutdown.as_mut());
+            let work = prepare_startup(&catalog, &config, clock, shutdown.as_mut());
             tokio::pin!(work);
             tokio::select! {
                 _ = validating => {},
@@ -1733,48 +1616,37 @@ mod tests {
     #[tokio::test]
     async fn startup_failures_close_catalog_even_with_live_handles() {
         let dir = TestDir::new();
-        let catalog = Catalog::open(&dir.0).await.unwrap();
-        let retained = catalog.clone();
         let config = dir.config();
         let shutdown = std::future::pending();
         tokio::pin!(shutdown);
-        let failure = prepare_startup(
-            &catalog,
-            &config,
-            &["bad project".into()],
-            Arc::new(SystemClock),
-            shutdown.as_mut(),
-        )
-        .await
-        .err()
-        .expect("PAP failure");
-        let diagnostics = &failure;
+        let mut options =
+            CatalogOptions::for_server(&config, &Auth::permissive(), Arc::new(SystemClock));
+        options.parent_projects.push("bad project".into());
+        let failure = Catalog::open_with_options((&config).into(), options)
+            .await
+            .err()
+            .expect("PAP failure");
+        let error = open_failure(failure);
+        let diagnostics = error.diagnostics().unwrap();
         assert_eq!(diagnostics.errors[0].source, DiagnosticSource::Catalog);
         assert_eq!(diagnostics.errors[0].key, "data_dir");
-        let error = finish_startup(&catalog, Err(failure)).await.unwrap_err();
         assert!(
             error
                 .to_string()
                 .contains("Cannot configure catalog policy")
         );
-        assert!(!retained.is_healthy());
         let reopened = Catalog::open(&dir.0).await.unwrap();
+        let retained = reopened.clone();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let listen = listener.local_addr().unwrap().to_string();
         let config = test_config(&dir.0, &["--listen", &listen]);
-        let failure = prepare_startup(
-            &reopened,
-            &config,
-            &[],
-            Arc::new(SystemClock),
-            shutdown.as_mut(),
-        )
-        .await
-        .err()
-        .expect("bind failure");
+        let failure = prepare_startup(&reopened, &config, Arc::new(SystemClock), shutdown.as_mut())
+            .await
+            .err()
+            .expect("bind failure");
         assert!(failure.to_string().contains("Address already in use"));
         finish_startup(&reopened, Err(failure)).await.unwrap_err();
-        assert!(!reopened.is_healthy());
+        assert!(!retained.is_healthy());
         let latest = Catalog::open(&dir.0).await.unwrap();
         latest.close().await.unwrap();
     }

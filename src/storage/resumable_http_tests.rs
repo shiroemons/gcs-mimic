@@ -235,7 +235,7 @@ impl Harness {
         base: Option<&str>,
         catalog_wait_timeout_ms: u64,
     ) -> Self {
-        Self::start_with_config(
+        Self::open(
             auth,
             base,
             crate::config::ConfigDraft {
@@ -245,6 +245,7 @@ impl Harness {
                 ),
                 ..Default::default()
             },
+            None,
         )
         .await
     }
@@ -253,12 +254,22 @@ impl Harness {
         base: Option<&str>,
         config: crate::config::ConfigDraft,
     ) -> Self {
+        let limits = config.clone().build();
+        Self::open(auth, base, config, Some(&limits)).await
+    }
+
+    async fn open(
+        auth: AuthProfile,
+        base: Option<&str>,
+        config: crate::config::ConfigDraft,
+        limits: Option<&crate::config::Config>,
+    ) -> Self {
         let dir = TestDir::new();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap().to_string();
         let base = base.map_or_else(|| format!("http://{address}"), str::to_owned);
         let clock = Arc::new(ManualClock::new(SystemTime::now()));
-        let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        let catalog = Catalog::open_disk_with_limits(&dir.0, clock.clone(), limits)
             .await
             .unwrap();
         seed_bucket(&catalog).await;
@@ -951,14 +962,16 @@ async fn initiation_checks_strict_create_and_overwrite_permissions_before_stagin
 
 #[tokio::test]
 async fn initiation_session_cap_and_status_prefix_are_bounded() {
-    let h = Harness::start(1024 * 1024, Permissive, None).await;
-    h.state.catalog.apply_session_limits(
-        &crate::config::ConfigDraft {
+    let h = Harness::start_with_config(
+        Permissive,
+        None,
+        crate::config::ConfigDraft {
+            max_object_bytes: 1024 * 1024,
             max_resumable_sessions: std::num::NonZeroU32::new(128),
             ..Default::default()
-        }
-        .build(),
-    );
+        },
+    )
+    .await;
     let reply = h.initiate("name=object", "", b"").await;
     let path = h.path(&reply);
     let id = reply.headers["location"]

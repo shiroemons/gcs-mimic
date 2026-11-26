@@ -25,8 +25,17 @@ fn element(ordinal: i64) -> ImportElement {
     }
 }
 async fn setup(count: i64) -> (TestDir, Catalog, Admin, ImportBinding) {
+    setup_with_limits(count, None).await
+}
+
+async fn setup_with_limits(
+    count: i64,
+    limits: Option<&crate::config::Config>,
+) -> (TestDir, Catalog, Admin, ImportBinding) {
     let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let catalog = Catalog::open_disk_with_limits(&dir.0, std::sync::Arc::new(SystemClock), limits)
+        .await
+        .unwrap();
     let admin = catalog.admin(Origin::Import);
     let source = binding(count);
     catalog
@@ -427,16 +436,14 @@ async fn import_publication_progress_rejects_foreign_project_records_and_failure
 
 #[tokio::test]
 async fn import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix() {
-    let (dir, catalog, admin, source) = setup(2).await;
+    let config = crate::config::ConfigDraft {
+        catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(50),
+        ..Default::default()
+    }
+    .build();
+    let (dir, catalog, admin, source) = setup_with_limits(2, Some(&config)).await;
     bucket(&admin, &source).await;
     let item = entry(&dir, &admin, 2, "object", b"retained").await;
-    catalog.apply_session_limits(
-        &crate::config::ConfigDraft {
-            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(50),
-            ..Default::default()
-        }
-        .build(),
-    );
     let slots = catalog
         .0
         .admin

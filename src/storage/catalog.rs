@@ -9,10 +9,7 @@ use crate::storage::failure::{BackendCause, BackendFailure, unavailable};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, types::Type};
 use std::{
     path::{Path, PathBuf},
-    sync::{
-        Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, AtomicU64},
-    },
+    sync::{Arc, Mutex, atomic::AtomicBool},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{Notify, Semaphore};

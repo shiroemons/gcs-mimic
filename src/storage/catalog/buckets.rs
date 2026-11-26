@@ -19,23 +19,8 @@ const SELECT_BUCKET: &str = concat!(
 );
 
 impl Catalog {
-    /// Sets the soft delete retention that a bucket created without a policy receives. The
-    /// server applies its configuration before any bucket is created; an embedded catalog keeps
-    /// `None`, which leaves such buckets without a policy.
-    pub fn set_default_soft_delete_retention(&self, retention: Option<NonZeroU64>) {
-        self.0.policy.default_soft_delete_retention.store(
-            retention.map_or(0, NonZeroU64::get),
-            std::sync::atomic::Ordering::Relaxed,
-        );
-    }
-
     pub(crate) fn default_soft_delete_retention(&self) -> Option<NonZeroU64> {
-        NonZeroU64::new(
-            self.0
-                .policy
-                .default_soft_delete_retention
-                .load(std::sync::atomic::Ordering::Relaxed),
-        )
+        self.0.policy.default_soft_delete_retention
     }
 
     pub(crate) async fn insert_bucket(

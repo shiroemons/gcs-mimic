@@ -97,22 +97,8 @@ impl From<&Config> for SessionLimits {
 }
 
 impl Catalog {
-    /// Applies the server's session settings, once, before it accepts requests. The first call
-    /// decides: a limit that changed under running requests would apply to only some of them.
-    pub fn apply_session_limits(&self, config: &Config) {
-        self.0
-            .policy
-            .session_limits
-            .get_or_init(|| SessionLimits::from(config));
-    }
-
     pub(super) fn session_limits(&self) -> SessionLimits {
-        self.0
-            .policy
-            .session_limits
-            .get()
-            .copied()
-            .unwrap_or_default()
+        self.0.policy.session_limits
     }
 
     /// When an administrative wait that starts now must end.

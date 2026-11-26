@@ -101,11 +101,23 @@ async fn setup_with_clock(
     versioning: Versioning,
     clock: Arc<dyn crate::clock::Clock>,
 ) -> Catalog {
-    let catalog = Catalog::open_memory_for_server(
-        budget,
-        1024 * 1024,
+    setup_with_limits(budget, versioning, clock, None).await
+}
+
+async fn setup_with_limits(
+    budget: u64,
+    versioning: Versioning,
+    clock: Arc<dyn crate::clock::Clock>,
+    limits: Option<&crate::config::Config>,
+) -> Catalog {
+    let catalog = Catalog::open_server_with_limits(
+        crate::storage::CatalogBacking::Memory {
+            blob_bytes: budget,
+            catalog_bytes: 1024 * 1024,
+        },
         clock.clone(),
         admin::LocalAdmin::Enabled,
+        limits,
     )
     .await
     .unwrap();

@@ -517,6 +517,32 @@ async fn set_members(catalog: &Catalog, role: &str, member: &str) {
         .unwrap();
 }
 
+#[tokio::test]
+async fn the_first_pooled_read_observes_the_parent_policy_installed_at_open() {
+    let dir = TestDir::new();
+    let catalog = open_with_object(&dir).await;
+    set_members(&catalog, "roles/storage.objectViewer", "allUsers").await;
+    assert!(publicly_readable(&catalog).await);
+    catalog.close().await.unwrap();
+
+    let mut options = crate::storage::CatalogOptions::embedded(
+        Arc::new(crate::clock::SystemClock),
+        crate::storage::admin::LocalAdmin::Disabled,
+    );
+    options.parent_projects.push("project".into());
+    let reopened =
+        Catalog::open_with_options(crate::storage::CatalogBacking::Disk(&dir.0), options)
+            .await
+            .unwrap();
+    let before = reopened.pooled_reads();
+    assert!(!publicly_readable(&reopened).await);
+    assert!(reopened.pooled_reads() > before);
+    let admission = reopened.hold_admission();
+    assert!(!publicly_readable(&reopened).await);
+    drop(admission);
+    reopened.close().await.unwrap();
+}
+
 /// A connection that already served reads must pick up a later change of the simulated parent
 /// policy, which lives in each connection's own TEMP table.
 #[tokio::test]

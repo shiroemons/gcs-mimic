@@ -278,6 +278,12 @@ impl ReadCache {
     }
 }
 
+impl super::state::Reads {
+    pub(super) fn invalidate(&self) {
+        self.cache.invalidate(&self.runtime);
+    }
+}
+
 /// Whether this read's answer depends on nothing but committed state.
 pub(super) fn is_shareable(target: &ObjectTarget, access: &BucketAccess) -> bool {
     target.generation.is_none() && matches!(access, BucketAccess::Permissive)

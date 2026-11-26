@@ -1,4 +1,4 @@
-use super::super::tests::{body, request, setup};
+use super::super::tests::{body, request, setup, setup_with_limits};
 use super::*;
 use crate::object::{MapPatch, Patch};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
@@ -799,7 +799,12 @@ async fn a_reset_drains_the_publications_waiting_in_line() {
 
 #[tokio::test]
 async fn a_seed_commit_and_a_publication_behind_it_end_by_their_deadlines() {
-    let (dir, catalog, admin, _, _) = setup().await;
+    let config = crate::config::ConfigDraft {
+        catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(500),
+        ..Default::default()
+    }
+    .build();
+    let (dir, catalog, admin, _, _) = setup_with_limits(Some(&config)).await;
     let mut batch = admin.seed_batch().await.unwrap();
     let input = entry(&admin, &dir.0, "behind", b"behind").await;
     batch
@@ -811,13 +816,6 @@ async fn a_seed_commit_and_a_publication_behind_it_end_by_their_deadlines() {
         )
         .await
         .unwrap();
-    catalog.apply_session_limits(
-        &crate::config::ConfigDraft {
-            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(500),
-            ..Default::default()
-        }
-        .build(),
-    );
     // The publication holds a lease the commit must drain and waits for the batch slot the commit
     // holds. Neither can finish the other, so only the deadline may end this.
     let worker = admin.clone();

@@ -263,8 +263,21 @@ fn object_errors_keep_the_v2_unsupported_metadata_wording() {
 }
 
 pub(super) async fn setup(strict: bool) -> (TestDir, Storage) {
+    setup_with_limits(strict, None).await
+}
+
+pub(super) async fn setup_with_limits(
+    strict: bool,
+    limits: Option<&crate::config::Config>,
+) -> (TestDir, Storage) {
     let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let catalog = Catalog::open_disk_with_limits(
+        &dir.0,
+        std::sync::Arc::new(crate::clock::SystemClock),
+        limits,
+    )
+    .await
+    .unwrap();
     let storage = storage_over(catalog, strict).await;
     (dir, storage)
 }

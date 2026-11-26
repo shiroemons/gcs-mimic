@@ -14,14 +14,12 @@ const PART_LIMIT: u64 = 64 * 1024 * 1024;
 const PATIENT_MILLIS: u64 = 120_000;
 
 async fn patient(clock: Arc<dyn Clock>) -> (TestDir, Catalog) {
-    let (dir, catalog) = setup(clock).await;
-    catalog.apply_session_limits(
-        &crate::config::ConfigDraft {
-            catalog_wait_timeout: TimeLimit::from_millis(PATIENT_MILLIS),
-            ..Default::default()
-        }
-        .build(),
-    );
+    let config = crate::config::ConfigDraft {
+        catalog_wait_timeout: TimeLimit::from_millis(PATIENT_MILLIS),
+        ..Default::default()
+    }
+    .build();
+    let (dir, catalog) = setup_with_limits(clock, Some(&config)).await;
     (dir, catalog)
 }
 
@@ -422,14 +420,12 @@ async fn a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget
         (Claim::Abort, Claim::Part(1)),
     ] {
         for (budget, expected_busy) in [(60_000, false), (20, true)] {
-            let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
-            catalog.apply_session_limits(
-                &crate::config::ConfigDraft {
-                    catalog_wait_timeout: TimeLimit::from_millis(budget),
-                    ..Default::default()
-                }
-                .build(),
-            );
+            let config = crate::config::ConfigDraft {
+                catalog_wait_timeout: TimeLimit::from_millis(budget),
+                ..Default::default()
+            }
+            .build();
+            let (_dir, catalog) = setup_with_limits(Arc::new(SystemClock), Some(&config)).await;
             let target = begin(&catalog).await;
             let held = holder.lease(catalog.clone(), target.clone()).await.unwrap();
             let waiting = tokio::spawn(contender.lease(catalog.clone(), target.clone()));

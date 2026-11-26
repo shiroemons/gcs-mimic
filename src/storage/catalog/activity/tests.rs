@@ -27,10 +27,19 @@ const BUCKET: &str = "activity-bucket";
 const LONG: TimeLimit = TimeLimit::from_millis(60_000);
 
 async fn setup() -> (TestDir, Catalog, Admin) {
+    setup_with_limits(None).await
+}
+
+async fn setup_with_limits(limits: Option<&crate::config::Config>) -> (TestDir, Catalog, Admin) {
     let dir = TestDir::new();
-    let catalog = Catalog::open_for_server(&dir.0, Arc::new(SystemClock), LocalAdmin::Enabled)
-        .await
-        .unwrap();
+    let catalog = Catalog::open_server_with_limits(
+        crate::storage::CatalogBacking::Disk(&dir.0),
+        Arc::new(SystemClock),
+        LocalAdmin::Enabled,
+        limits,
+    )
+    .await
+    .unwrap();
     let admin = catalog.local_admin().unwrap();
     admin
         .ensure_bucket(
@@ -248,14 +257,12 @@ async fn a_copy_replay_that_meets_a_starting_job_waits_for_it_instead_of_failing
 
 #[tokio::test]
 async fn a_client_waiting_for_a_session_writer_also_waits_out_an_exclusive_job() {
-    let (_dir, catalog, _admin) = setup().await;
-    catalog.apply_session_limits(
-        &crate::config::ConfigDraft {
-            catalog_wait_timeout: LONG,
-            ..Default::default()
-        }
-        .build(),
-    );
+    let config = crate::config::ConfigDraft {
+        catalog_wait_timeout: LONG,
+        ..Default::default()
+    }
+    .build();
+    let (_dir, catalog, _admin) = setup_with_limits(Some(&config)).await;
     let session = catalog
         .create_resumable_session(
             BUCKET,
@@ -582,21 +589,22 @@ async fn an_exclusive_job_starts_as_soon_as_the_job_holding_the_gate_ends() {
 
 #[tokio::test(start_paused = true)]
 async fn a_disabled_catalog_wait_leaves_administrative_waits_unlimited() {
-    let catalog = Catalog::open_memory_for_server(
-        1024,
-        1024 * 1024,
+    let config = crate::config::ConfigDraft {
+        catalog_wait_timeout: TimeLimit::DISABLED,
+        ..Default::default()
+    }
+    .build();
+    let catalog = Catalog::open_server_with_limits(
+        crate::storage::CatalogBacking::Memory {
+            blob_bytes: 1024,
+            catalog_bytes: 1024 * 1024,
+        },
         Arc::new(SystemClock),
         LocalAdmin::Enabled,
+        Some(&config),
     )
     .await
     .unwrap();
-    catalog.apply_session_limits(
-        &crate::config::ConfigDraft {
-            catalog_wait_timeout: TimeLimit::DISABLED,
-            ..Default::default()
-        }
-        .build(),
-    );
     let admin = catalog.local_admin().unwrap();
     let name = BucketName::new(BUCKET).unwrap();
     let execution = catalog
@@ -693,14 +701,12 @@ async fn maintenance_skips_a_writer_while_an_exclusive_job_runs() {
 
 #[tokio::test]
 async fn management_calls_give_up_at_the_configured_catalog_wait() {
-    let (_dir, catalog, admin) = setup().await;
-    catalog.apply_session_limits(
-        &crate::config::ConfigDraft {
-            catalog_wait_timeout: TimeLimit::from_millis(50),
-            ..Default::default()
-        }
-        .build(),
-    );
+    let config = crate::config::ConfigDraft {
+        catalog_wait_timeout: TimeLimit::from_millis(50),
+        ..Default::default()
+    }
+    .build();
+    let (_dir, catalog, admin) = setup_with_limits(Some(&config)).await;
     let name = BucketName::new(BUCKET).unwrap();
     let exclusive = catalog
         .wait_exclusive(TimeLimit::from_millis(10_000).deadline())

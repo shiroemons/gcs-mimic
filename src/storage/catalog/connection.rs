@@ -135,7 +135,8 @@ impl Inner {
             Err(poisoned) => {
                 let resources = poisoned.into_inner();
                 if let Some(resources) = resources.as_ref() {
-                    self.end_abandoned_transaction(&resources.connection)
+                    self.writer
+                        .end_abandoned_transaction(&resources.connection)
                         .map_err(ConnectionUnavailable::Unrecovered)?;
                 }
                 self.writer.resources.clear_poison();
@@ -172,9 +173,9 @@ impl Inner {
         // Before the caller can learn the outcome, so a read after this write misses the cache. A
         // rollback also counts as a change, which only costs some cached answers.
         if connection.total_changes() != changes_before {
-            self.reads.cache.invalidate(&self.reads.runtime);
+            self.reads.invalidate();
             if rules_written {
-                self.lifecycle_rules_changed();
+                self.maintenance.lifecycle_rules_changed();
             } else {
                 self.maintenance.lifecycle.on_write(&self.maintenance.wake);
             }
@@ -182,7 +183,7 @@ impl Inner {
         match outcome {
             Ok(result) => Ok(result),
             Err(payload) => {
-                if self.end_abandoned_transaction(connection).is_err() {
+                if self.writer.end_abandoned_transaction(connection).is_err() {
                     // Unwinding with the guard held poisons the mutex on purpose.
                     std::panic::resume_unwind(payload);
                 }
@@ -190,7 +191,9 @@ impl Inner {
             }
         }
     }
+}
 
+impl super::state::Writer {
     /// Transaction guards roll back on drop, including during a panic.
     /// A raw `BEGIN` or a failed drop-time rollback can leave one open.
     #[cfg_attr(
@@ -203,7 +206,6 @@ impl Inner {
     fn end_abandoned_transaction(&self, connection: &Connection) -> Result<(), RollbackError> {
         #[cfg(test)]
         if self
-            .writer
             .fail_rollback
             .load(std::sync::atomic::Ordering::Acquire)
         {

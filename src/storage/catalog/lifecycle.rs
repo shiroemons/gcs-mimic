@@ -113,7 +113,7 @@ impl Drop for RuleWriteScope {
 pub(super) struct LifecycleSchedule {
     armed: AtomicBool,
     dirty: AtomicBool,
-    enabled: AtomicBool,
+    execution: crate::config::LifecycleExecution,
     state: Mutex<ScheduleState>,
     pass: tokio::sync::Semaphore,
 }
@@ -127,7 +127,10 @@ struct ScheduleState {
 }
 
 impl LifecycleSchedule {
-    pub(super) fn open(connection: &mut Connection) -> Result<Self, CatalogError> {
+    pub(super) fn open(
+        connection: &mut Connection,
+        execution: crate::config::LifecycleExecution,
+    ) -> Result<Self, CatalogError> {
         sql::exec_on_writer(
             connection,
             "CREATE TEMP TABLE lifecycle_quarantine (bucket TEXT NOT NULL, incarnation TEXT NOT NULL, name TEXT NOT NULL, generation INTEGER NOT NULL, revision TEXT NOT NULL, PRIMARY KEY (bucket, incarnation, name, generation)) WITHOUT ROWID",
@@ -137,14 +140,14 @@ impl LifecycleSchedule {
         Ok(Self {
             armed: AtomicBool::new(armed),
             dirty: AtomicBool::new(armed),
-            enabled: AtomicBool::new(false),
+            execution,
             state: Mutex::new(ScheduleState::default()),
             pass: tokio::sync::Semaphore::new(1),
         })
     }
 
     pub(super) fn scheduled_at(&self, now: SystemTime) -> Option<SystemTime> {
-        if !self.enabled.load(Ordering::Acquire) {
+        if self.execution == crate::config::LifecycleExecution::Disabled {
             return None;
         }
         let state = self.state();
@@ -175,14 +178,11 @@ impl LifecycleSchedule {
     }
 }
 
-impl Inner {
+impl super::state::Maintenance {
     /// Called on the writer after a transaction stores rules, even if a prior scan disarmed us.
     pub(super) fn lifecycle_rules_changed(&self) {
-        self.maintenance
-            .lifecycle
-            .armed
-            .store(true, Ordering::Release);
-        self.maintenance.lifecycle.on_write(&self.maintenance.wake);
+        self.lifecycle.armed.store(true, Ordering::Release);
+        self.lifecycle.on_write(&self.wake);
     }
 }
 
@@ -275,14 +275,6 @@ pub(super) enum Pass {
 }
 
 impl Catalog {
-    /// Applied before maintenance starts; stored rules still round trip while execution is off.
-    pub fn configure_lifecycle(&self, config: &crate::config::Config) {
-        self.0.maintenance.lifecycle.enabled.store(
-            config.lifecycle_execution() == crate::config::LifecycleExecution::Enabled,
-            Ordering::Release,
-        );
-    }
-
     pub(crate) async fn run_lifecycle_now(&self) -> Result<LifecycleOutcome, CatalogError> {
         let outcome = self.run_lifecycle(Pass::Forced).await;
         if let Ok(LifecycleOutcome::Executed(counts)) = &outcome {
@@ -295,7 +287,7 @@ impl Catalog {
     pub(super) async fn run_lifecycle(&self, pass: Pass) -> Result<LifecycleOutcome, CatalogError> {
         let schedule = &self.0.maintenance.lifecycle;
         let _pass = schedule.pass.acquire().await.map_err(unavailable)?;
-        if !schedule.enabled.load(Ordering::Acquire) {
+        if schedule.execution == crate::config::LifecycleExecution::Disabled {
             return Ok(LifecycleOutcome::Disabled);
         }
         let now = self.0.policy.clock.now();

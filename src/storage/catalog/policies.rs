@@ -254,36 +254,41 @@ pub(super) fn check_access_with_public<'a>(
     Ok(DeletePermission::Granted)
 }
 
+pub(super) fn install_parent_policy(
+    connection: &mut Connection,
+    parent_policy: &super::read_pool::ParentPolicy,
+    projects: &[String],
+) -> Result<(), CatalogError> {
+    let transaction = sql::deferred_write(connection)?;
+    sql::exec(
+        &transaction,
+        "DELETE FROM parent_public_access_prevention",
+        [],
+    )?;
+    for project in projects {
+        crate::json::validate_project(project)
+            .map_err(|_| CatalogError::InvalidMetadata("Invalid parent policy project".into()))?;
+        sql::exec(
+            &transaction,
+            "INSERT OR IGNORE INTO parent_public_access_prevention VALUES (?1)",
+            [project],
+        )?;
+    }
+    transaction.commit().map_err(unavailable)?;
+    parent_policy.publish(projects);
+    Ok(())
+}
+
 impl Catalog {
-    /// Install a startup-only local simulation of effective parent policy; never persisted as bucket metadata.
-    pub async fn configure_public_access_prevention(
+    #[cfg(test)]
+    pub(crate) async fn configure_public_access_prevention(
         &self,
         projects: &[String],
     ) -> Result<(), CatalogError> {
         let projects = projects.to_vec();
         let parent_policy = self.0.reads.parent_policy.clone();
-        self.run(move |connection| {
-            let transaction = sql::deferred_write(connection)?;
-            sql::exec(
-                &transaction,
-                "DELETE FROM parent_public_access_prevention",
-                [],
-            )?;
-            for project in &projects {
-                crate::json::validate_project(project).map_err(|_| {
-                    CatalogError::InvalidMetadata("Invalid parent policy project".into())
-                })?;
-                sql::exec(
-                    &transaction,
-                    "INSERT OR IGNORE INTO parent_public_access_prevention VALUES (?1)",
-                    [project],
-                )?;
-            }
-            transaction.commit().map_err(unavailable)?;
-            parent_policy.publish(&projects);
-            Ok(())
-        })
-        .await
+        self.run(move |connection| install_parent_policy(connection, &parent_policy, &projects))
+            .await
     }
 
     pub(crate) async fn bucket_access<'a>(

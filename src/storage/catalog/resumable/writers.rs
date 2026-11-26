@@ -264,6 +264,8 @@ struct WholeUploadTurn<'a> {
 impl Drop for WholeUploadTurn<'_> {
     fn drop(&mut self) {
         self.catalog
+            .0
+            .writers
             .registry_for_release()
             .settle_upload(self.id, |upload| upload.whole_waiting -= 1);
         self.catalog.0.writers.released.notify_waiters();
@@ -294,7 +296,7 @@ impl WriterGuard {
 impl Drop for WriterGuard {
     fn drop(&mut self) {
         let retry = {
-            let mut writers = self.catalog.registry_for_release();
+            let mut writers = self.catalog.0.writers.registry_for_release();
             writers.release(&self.key);
             writers.take_deferred(&self.key)
         };
@@ -312,19 +314,21 @@ impl Drop for WriterGuard {
     }
 }
 
-impl Catalog {
+impl super::super::state::WriterRegistry {
     /// The registry for a new claim. A poisoned registry refuses claims, and `is_healthy` reports
     /// it.
     fn registry_for_claim(&self) -> Result<MutexGuard<'_, SessionWriters>, ClaimError> {
-        crate::sync::lock_checked(&self.0.writers.sessions).map_err(|_| ClaimError::Poisoned)
+        crate::sync::lock_checked(&self.sessions).map_err(|_| ClaimError::Poisoned)
     }
 
     /// The registry for a release, which runs in `Drop` and cannot fail: the holder's own entry is
     /// still valid after another holder panicked.
     fn registry_for_release(&self) -> MutexGuard<'_, SessionWriters> {
-        crate::sync::lock_for_cleanup(&self.0.writers.sessions)
+        crate::sync::lock_for_cleanup(&self.sessions)
     }
+}
 
+impl Catalog {
     /// Whether any session or transfer writer is held right now.
     #[cfg(test)]
     pub(crate) fn has_session_writers(&self) -> bool {
@@ -375,7 +379,10 @@ impl Catalog {
         key: WriterKey,
         origin: KeyOrigin,
     ) -> Result<WriterGuard, ClaimError> {
-        self.registry_for_claim()?.claim_from(&key, origin)?;
+        self.0
+            .writers
+            .registry_for_claim()?
+            .claim_from(&key, origin)?;
         Ok(WriterGuard {
             catalog: self.clone(),
             key,
@@ -455,7 +462,11 @@ impl Catalog {
         &'a self,
         id: &'a str,
     ) -> Result<WholeUploadTurn<'a>, ClaimError> {
-        self.registry_for_claim()?.upload(id).whole_waiting += 1;
+        self.0
+            .writers
+            .registry_for_claim()?
+            .upload(id)
+            .whole_waiting += 1;
         Ok(WholeUploadTurn { catalog: self, id })
     }
 
@@ -612,21 +623,22 @@ mod tests {
     }
 
     async fn open(wait_ms: u64) -> (Catalog, String) {
-        let catalog = Catalog::open_memory_for_server(
-            1024,
-            1024 * 1024,
+        let config = crate::config::ConfigDraft {
+            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(wait_ms),
+            ..Default::default()
+        }
+        .build();
+        let catalog = Catalog::open_server_with_limits(
+            crate::storage::CatalogBacking::Memory {
+                blob_bytes: 1024,
+                catalog_bytes: 1024 * 1024,
+            },
             Arc::new(SystemClock),
             LocalAdmin::Disabled,
+            Some(&config),
         )
         .await
         .unwrap();
-        catalog.apply_session_limits(
-            &crate::config::ConfigDraft {
-                catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(wait_ms),
-                ..Default::default()
-            }
-            .build(),
-        );
         catalog
             .insert_bucket(bucket("bucket", "project"))
             .await

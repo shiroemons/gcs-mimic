@@ -4,7 +4,7 @@
 //! the RPC service as a client sends it. Where Cloud Storage's answer was recorded (2026-11-18)
 //! the case says so; the other codes and the precedence are the emulator's.
 
-use super::super::tests::{HeldOpen, Hold, setup, spec};
+use super::super::tests::{HeldOpen, Hold, setup, setup_with_limits, spec};
 use super::*;
 use crate::grpc::test_support::{bucket_routing, key_params, routed_rpc_status};
 use crate::grpc::v2::test_support::{UNDISPATCHED, undispatched};
@@ -2296,13 +2296,12 @@ const BUSY: &str = "Object storage is unavailable: upload session is busy; wait 
 
 /// Applies the session settings a server applies at startup, with `wait_millis` as
 /// catalog_wait_timeout_ms. A catalog no server configured has no wait budget.
-fn as_server(storage: &Storage, wait_millis: u64) {
-    let config = crate::config::ConfigDraft {
+fn wait_config(wait_millis: u64) -> crate::config::Config {
+    crate::config::ConfigDraft {
         catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(wait_millis),
         ..Default::default()
     }
-    .build();
-    storage.state.catalog.apply_session_limits(&config);
+    .build()
 }
 
 /// A server lets a message for a session another stream holds wait for the lease, up to
@@ -2310,8 +2309,7 @@ fn as_server(storage: &Storage, wait_millis: u64) {
 /// lease: it answers meanwhile with the persisted size and the checksums of the persisted bytes.
 #[tokio::test]
 async fn grpc_resumable_write_waits_for_a_leased_session() {
-    let (_dir, storage) = setup(false).await;
-    as_server(&storage, 60_000);
+    let (_dir, storage) = setup_with_limits(false, Some(&wait_config(60_000))).await;
     for (rpc, upload) in leasable_uploads(&storage, "waiting").await {
         let held = lease(&storage, &upload).await;
         let messages = [resume(&upload, GRANULE_SIZE, b"def").finish()];
@@ -2352,10 +2350,8 @@ async fn grpc_resumable_write_waits_for_a_leased_session() {
 /// session as it was; once the lease is free the same message continues the upload.
 #[tokio::test]
 async fn grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable() {
-    let (_dir, storage) = setup(false).await;
+    let (_dir, storage) = setup_with_limits(false, Some(&wait_config(100))).await;
     let uploads = leasable_uploads(&storage, "busy").await;
-    // Applied after the sessions are set up, which the short budget would also bound.
-    as_server(&storage, 100);
     refuse_while_leased(&storage, uploads).await;
     storage.state.catalog.close().await.unwrap();
 }

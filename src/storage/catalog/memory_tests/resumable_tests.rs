@@ -392,14 +392,12 @@ async fn ram_resumable_cancelled_request_discards_tail_and_keeps_the_previous_ha
 
 #[tokio::test]
 async fn ram_resumable_session_limit_and_expiry_recycle_all_staging_capacity() {
-    let catalog = setup(256 * 1024, Off).await;
-    catalog.apply_session_limits(
-        &crate::config::ConfigDraft {
-            max_resumable_sessions: std::num::NonZeroU32::new(128),
-            ..Default::default()
-        }
-        .build(),
-    );
+    let config = crate::config::ConfigDraft {
+        max_resumable_sessions: std::num::NonZeroU32::new(128),
+        ..Default::default()
+    }
+    .build();
+    let catalog = setup_with_limits(256 * 1024, Off, Arc::new(SystemClock), Some(&config)).await;
     for _ in 0..128 {
         session(&catalog).await;
     }

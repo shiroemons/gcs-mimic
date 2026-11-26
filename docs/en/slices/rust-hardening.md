@@ -720,7 +720,7 @@ rusqlite writes that bypass those helpers.
   - `Shutdown`.
 
   Behavior moves onto these structs, which shrinks the 54-file `impl Catalog`.
-- **`CatalogOptions`.** `Catalog::open(backing, CatalogOptions)` receives:
+- **`CatalogOptions`.** `Catalog::open_with_options(backing, CatalogOptions)` receives:
   - clock and principals;
   - session limits and default soft-delete retention;
   - lifecycle execution;
@@ -735,6 +735,7 @@ rusqlite writes that bypass those helpers.
   - the silent `unwrap_or_default()` of session limits;
   - sixteen `.get().cloned()` sites.
 
+  The existing `Catalog::open(path)` convenience constructor retains the embedded defaults.
   Authentication is supplied at open, so reconfiguration is unreachable and its error variant and adapter golden cases are removed.
   Startup keeps its order and diagnostics. No typestate: hundreds of tests use
   `Catalog` directly, and a typestate would only guard two start calls.

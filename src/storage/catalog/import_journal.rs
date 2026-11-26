@@ -283,6 +283,10 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
         "invalid import journal state")
 }
 
+pub(super) fn in_progress(connection: &Connection) -> Result<bool, CatalogError> {
+    Ok(progress(connection)?.is_some_and(|state| state.is_open()))
+}
+
 fn progress(connection: &Connection) -> Result<Option<ImportProgress>, CatalogError> {
     connection.query_row(
         "SELECT source, fingerprint, expected, cursor, active, failure FROM import_journal WHERE singleton = 1",
@@ -456,9 +460,7 @@ impl ImportJournal {
     }
 
     pub async fn in_progress(&self) -> Result<bool, AdminError> {
-        self.0
-            .run_admin(|connection| Ok(progress(connection)?.is_some_and(|state| state.is_open())))
-            .await
+        self.0.run_admin(|connection| in_progress(connection)).await
     }
 
     pub async fn begin(&self, binding: ImportBinding) -> Result<ImportProgress, AdminError> {

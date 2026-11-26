@@ -115,7 +115,15 @@ async fn deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts
         Some(Some(DIGEST))
     );
 
-    catalog.set_default_soft_delete_retention(std::num::NonZeroU64::new(3600));
+    catalog.close().await.unwrap();
+    let mut options = crate::storage::CatalogOptions::embedded(
+        std::sync::Arc::new(SystemClock),
+        crate::storage::admin::LocalAdmin::Disabled,
+    );
+    options.default_soft_delete_retention = std::num::NonZeroU64::new(3600);
+    let catalog = Catalog::open_with_options(crate::storage::CatalogBacking::Disk(&dir.0), options)
+        .await
+        .unwrap();
     create(&catalog, "retained-bucket").await;
     let generation = catalog
         .get_bucket("retained-bucket", PERMISSIVE)

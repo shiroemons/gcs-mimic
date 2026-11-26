@@ -19,10 +19,10 @@ async fn upgrading_stored_rules_after_their_deadlines_transitions_before_old_cla
     connection.pragma_update(None, "user_version", 52).unwrap();
     drop(connection);
     clock.advance(DAY * 100);
-    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+    let catalog = Catalog::open_lifecycle_disk(&data.0, clock.clone())
         .await
         .unwrap();
-    catalog.configure_lifecycle(&Default::default());
+
     let outcome = execute(&catalog).await;
     assert_eq!((outcome.transitioned, outcome.deleted), (1, 0));
     let changed = current(&catalog, "object").await;
@@ -47,10 +47,10 @@ async fn schema_52_migrates_null_class_times_and_executes_stored_rules() {
     crate::storage::catalog::test_support::downgrade_storage_class_updated_schema(&connection);
     connection.pragma_update(None, "user_version", 52).unwrap();
     drop(connection);
-    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+    let catalog = Catalog::open_lifecycle_disk(&data.0, clock.clone())
         .await
         .unwrap();
-    catalog.configure_lifecycle(&Default::default());
+
     assert_eq!(current(&catalog, "object").await, original);
     let mut serialized = serde_json::to_value(&original).unwrap();
     serialized

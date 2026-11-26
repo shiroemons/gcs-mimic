@@ -19,7 +19,7 @@ impl Catalog {
     ) -> Result<(), CatalogError> {
         let runtime = config.notification_runtime();
         self.configure_notifications(runtime).await?;
-        if let Some(endpoint) = runtime.endpoint.clone() {
+        if let Some(endpoint) = self.0.notifications.endpoint.clone() {
             self.start_notification_publisher(endpoint)?;
         }
         Ok(())
@@ -31,7 +31,7 @@ impl Catalog {
         &self,
         topic: &Topic,
     ) -> Result<(), crate::notification::TopicCheckError> {
-        match self.0.notifications.endpoint.get() {
+        match self.0.notifications.endpoint.as_ref() {
             Some(endpoint) => endpoint.topic_exists(topic).await,
             None => Ok(()),
         }
@@ -44,8 +44,6 @@ impl Catalog {
         if self.0.notifications.started.swap(true, Ordering::AcqRel) {
             return Err(unavailable("notification publisher already started"));
         }
-        // The swap above makes this the only writer, so the set cannot lose a race.
-        let _ = self.0.notifications.endpoint.set(endpoint.clone());
         let health = TaskHealth::default();
         self.watch_background_task(health.clone());
         let weak = Arc::downgrade(&self.0);

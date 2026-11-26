@@ -9,8 +9,7 @@ async fn with_writer_wait(catalog_wait_timeout_ms: u64) -> Arc<Harness> {
         ),
         ..Default::default()
     };
-    let h = Harness::start_with_config(Permissive, None, config.clone()).await;
-    h.state.catalog.apply_session_limits(&config.build());
+    let h = Harness::start_with_config(Permissive, None, config).await;
     Arc::new(h)
 }
 

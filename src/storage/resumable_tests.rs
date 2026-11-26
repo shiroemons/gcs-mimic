@@ -127,14 +127,19 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
 #[tokio::test]
 async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
     let dir = TestDir::new();
-    let catalog = setup(&dir, Arc::new(ManualClock::new(UNIX_EPOCH))).await;
-    catalog.apply_session_limits(
-        &crate::config::ConfigDraft {
-            max_resumable_sessions: std::num::NonZeroU32::new(128),
-            ..Default::default()
-        }
-        .build(),
-    );
+    let config = crate::config::ConfigDraft {
+        max_resumable_sessions: std::num::NonZeroU32::new(128),
+        ..Default::default()
+    }
+    .build();
+    let catalog = Catalog::open_disk_with_limits(
+        &dir.0,
+        Arc::new(ManualClock::new(UNIX_EPOCH)),
+        Some(&config),
+    )
+    .await
+    .unwrap();
+    seed_bucket(&catalog).await;
     for _ in 0..127 {
         catalog
             .create_resumable_session(

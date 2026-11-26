@@ -287,7 +287,7 @@ local handling from real Google/iOS verification. See the [final evidence](evide
 
 ## Implemented bucket catalog and recovery
 
-`Catalog::open` creates the data directory and acquires an exclusive OS lock on
+Server startup passes the selected backing and fixed `CatalogOptions` to `Catalog::open_with_options`. Authentication reconciliation and installation of the parent public access prevention policy finish before the catalog executor starts. The embedded `Catalog::open` creates the data directory and acquires an exclusive OS lock on
 `catalog.lock`; the lock file is never unlinked. A read-only preflight connection checks
 existing version, integrity and schema before the operational read-write connection opens.
 When no WAL exists, the locked main file is opened through an escaped immutable URI to

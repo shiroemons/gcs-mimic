@@ -332,7 +332,8 @@ impl Catalog {
     }
 
     /// Issues local management authority only while opening the operator-owned catalog.
-    pub async fn open_for_server(
+    #[cfg(test)]
+    pub(crate) async fn open_for_server(
         data_dir: impl AsRef<Path>,
         clock: Arc<dyn Clock>,
         local_admin: admin::LocalAdmin,
@@ -364,7 +365,8 @@ impl Catalog {
     }
 
     /// Opens an isolated volatile catalog without reading or creating a data directory.
-    pub async fn open_memory_for_server(
+    #[cfg(test)]
+    pub(crate) async fn open_memory_for_server(
         max_bytes: u64,
         catalog_max_bytes: u64,
         clock: Arc<dyn Clock>,
@@ -381,6 +383,8 @@ impl Catalog {
         .map_err(CatalogOpenError::into_cause)
     }
 
+    /// Recovers the selected backend and reconciles its configured principals and parent policy
+    /// before starting the executor. Errors identify the startup phase that needs attention.
     pub async fn open_with_options(
         backing: CatalogBacking<'_>,
         options: CatalogOptions,
@@ -411,6 +415,7 @@ impl Catalog {
         Self::open_options(backing, options).await
     }
 
+    #[cfg(test)]
     pub(super) async fn open_backend(
         backing: Backing,
         clock: Arc<dyn Clock>,
@@ -429,6 +434,12 @@ impl Catalog {
             clock,
             local_admin,
             principals,
+            session_limits,
+            default_soft_delete_retention,
+            lifecycle: lifecycle_execution,
+            pubsub_endpoint,
+            parent_projects,
+            mut stop,
         } = options;
         crate::task::run_blocking("catalog-open", move || -> Result<Self, CatalogOpenError> {
             let OpenedStorage {
@@ -453,11 +464,24 @@ impl Catalog {
                 }
                 crate::config::Backend::Disk => recover_on_open(&mut connection, &backend, &*clock)?,
             }
-            if let Some(profile @ (principals::Profile::Strict(_) | principals::Profile::Permissive { .. })) = &principals {
-                profile.reconcile(&mut connection, &*clock).map_err(CatalogOpenError::Authentication)?;
+            if stop.as_mut().is_some_and(|signal| signal.try_recv().is_ok()) {
+                let created_directory = (data_dir_state == DataDirState::Created && !backend.is_memory()).then_some(data_dir);
+                return Err(CatalogOpenError::Interrupted { created_directory });
+            }
+            match &principals {
+                Some(profile @ (principals::Profile::Strict(_) | principals::Profile::Permissive { .. })) => {
+                    profile.reconcile(&mut connection, &*clock).map_err(CatalogOpenError::Authentication)?;
+                    if import_journal::in_progress(&connection).map_err(CatalogOpenError::ImportState)? {
+                        return Err(CatalogOpenError::ImportInProgress);
+                    }
+                }
+                None | Some(principals::Profile::TrustedLocal) => {}
             }
             let parent_policy = Arc::<read_pool::ParentPolicy>::default();
-            let lifecycle = lifecycle::LifecycleSchedule::open(&mut connection)?;
+            if !parent_projects.is_empty() {
+                policies::install_parent_policy(&mut connection, &parent_policy, &parent_projects).map_err(CatalogOpenError::ParentPolicy)?;
+            }
+            let lifecycle = lifecycle::LifecycleSchedule::open(&mut connection, lifecycle_execution)?;
             // An in-memory database exists only inside the writer's connection.
             let read_pool = match backend.kind() {
                 crate::config::Backend::Memory => None,
@@ -470,8 +494,8 @@ impl Catalog {
                 policy: state::Policy {
                     principals,
                     clock,
-                    session_limits: OnceLock::new(),
-                    default_soft_delete_retention: AtomicU64::new(0),
+                    session_limits,
+                    default_soft_delete_retention,
                 },
                 storage: state::Storage {
                     backend,
@@ -489,6 +513,7 @@ impl Catalog {
                 },
                 reads: state::Reads {
                     pool: read_pool,
+                    #[cfg(test)]
                     parent_policy,
                     cache: read_cache::ReadCache::new(crate::fd_limit::cacheable_files()),
                     runtime: tokio::runtime::Handle::current(),
@@ -501,23 +526,8 @@ impl Catalog {
                     #[cfg(test)]
                     waiters: std::sync::atomic::AtomicUsize::new(0),
                 },
-                admin: state::AdminState {
-                    uploads: Arc::new(Semaphore::new(ADMIN_UPLOADS as usize)),
-                    reads: Arc::new(Semaphore::new(ADMIN_READS as usize)),
-                    staged_handles: Arc::new(Semaphore::new(STAGED_HANDLES as usize)),
-                    publication_batch: Arc::new(Semaphore::new(1)),
-                    seed_commit: Arc::new(Semaphore::new(1)),
-                    publication_requests: Arc::new(Semaphore::new(PUBLICATION_REQUESTS as usize)),
-                    file_workers: admin::FileWorkers::new().map_err(CatalogError::from)?,
-                    grant: admin::startup_grant(local_admin),
-                    seed_watch: Arc::default(),
-                    #[cfg(test)]
-                    cleanup_tasks: Default::default(),
-                },
-                writers: state::WriterRegistry {
-                    sessions: Mutex::new(Default::default()),
-                    released: Notify::new(),
-                },
+                admin: state::AdminState::new(local_admin)?,
+                writers: state::WriterRegistry::default(),
                 maintenance: state::Maintenance {
                     wake: Arc::new(Notify::new()),
                     derived_wake: Notify::new(),
@@ -532,13 +542,10 @@ impl Catalog {
                 notifications: state::Notifications {
                     wake: Arc::new(Notify::new()),
                     started: AtomicBool::new(false),
-                    endpoint: OnceLock::new(),
+                    endpoint: pubsub_endpoint,
                     attempts: Arc::new(Semaphore::new(1)),
                 },
-                shutdown: state::Shutdown {
-                    admin_wake: Notify::new(),
-                    background_health: Mutex::new(Vec::new()),
-                },
+                shutdown: state::Shutdown::default(),
             })))
         })
         .await.map_err(CatalogError::from)?

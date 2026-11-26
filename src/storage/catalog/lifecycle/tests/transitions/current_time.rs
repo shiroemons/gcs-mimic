@@ -1,5 +1,4 @@
 use super::*;
-use crate::config::LifecycleExecution;
 
 fn old_class_delete_rules() -> Vec<Value> {
     vec![
@@ -35,18 +34,19 @@ async fn a_late_first_pass_transitions_before_an_old_class_delete() {
 #[tokio::test]
 async fn enabling_or_replacing_rules_evaluates_current_class_candidates() {
     for mode in ["disabled", "replace"] {
-        let (catalog, clock) = memory().await;
+        let data = TestDir::new();
+        let clock = Arc::new(ManualClock::new(UNIX_EPOCH + DAY));
+        let mut catalog = if mode == "disabled" {
+            Catalog::open_with_clock(&data.0, clock.clone())
+                .await
+                .unwrap()
+        } else {
+            Catalog::open_lifecycle_disk(&data.0, clock.clone())
+                .await
+                .unwrap()
+        };
         create(&catalog, old_class_delete_rules()).await;
         let original = put(&catalog, "object").await;
-        let config = crate::config::ConfigDraft {
-            lifecycle_execution: if mode == "disabled" {
-                LifecycleExecution::Disabled
-            } else {
-                LifecycleExecution::Enabled
-            },
-            ..Default::default()
-        };
-        catalog.configure_lifecycle(&config.clone().build());
         clock.advance(DAY * 100);
         if mode == "replace" {
             rules(
@@ -60,13 +60,10 @@ async fn enabling_or_replacing_rules_evaluates_current_class_candidates() {
                 LifecycleOutcome::Disabled
             ));
             assert_eq!(current(&catalog, "object").await, original);
-            catalog.configure_lifecycle(
-                &crate::config::ConfigDraft {
-                    lifecycle_execution: LifecycleExecution::Enabled,
-                    ..config
-                }
-                .build(),
-            );
+            catalog.close().await.unwrap();
+            catalog = Catalog::open_lifecycle_disk(&data.0, clock.clone())
+                .await
+                .unwrap();
         }
         let outcome = execute(&catalog).await;
         assert_eq!((outcome.transitioned, outcome.deleted), (1, 0), "{mode}");

@@ -117,14 +117,15 @@ async fn sessions_past_the_former_caps_survive_reopening_and_stay_usable() {
 async fn a_configured_cap_applies_only_to_active_sessions() {
     let dir = TestDir::new();
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
-    let catalog = setup(&dir, clock.clone()).await;
-    catalog.apply_session_limits(
-        &crate::config::ConfigDraft {
-            max_resumable_sessions: NonZeroU32::new(2),
-            ..Default::default()
-        }
-        .build(),
-    );
+    let config = crate::config::ConfigDraft {
+        max_resumable_sessions: NonZeroU32::new(2),
+        ..Default::default()
+    }
+    .build();
+    let catalog = Catalog::open_disk_with_limits(&dir.0, clock.clone(), Some(&config))
+        .await
+        .unwrap();
+    seed_bucket(&catalog).await;
     // Finished records never count against it, or every upload would fail once two had finished.
     for _ in 0..3 {
         let session = create(&catalog, &clock).await.unwrap();

@@ -108,10 +108,10 @@ async fn transition_crash_and_power_loss_restart_converge_without_rewriting_or_d
             assert_eq!(execute(&catalog).await.transitioned, 1);
             assert_eq!(fault::pending(&data.0), 0);
             catalog.close().await.unwrap();
-            let recovered = Catalog::open_with_clock(&snapshot.0, clock.clone())
+            let recovered = Catalog::open_lifecycle_disk(&snapshot.0, clock.clone())
                 .await
                 .unwrap();
-            recovered.configure_lifecycle(&Default::default());
+
             assert_eq!(
                 execute(&recovered).await.transitioned,
                 u64::from(step == Step::LifecycleCommit)

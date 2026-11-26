@@ -5,10 +5,8 @@ use super::*;
 pub(super) struct Policy {
     pub(super) principals: Option<principals::Profile>,
     pub(super) clock: Arc<dyn Clock>,
-    pub(super) session_limits: OnceLock<session_limits::SessionLimits>,
-    /// Retention a new bucket without an explicit softDeletePolicy receives, an
-    /// `Option<NonZeroU64>` in atomic form: read it through `default_soft_delete_retention()`.
-    pub(super) default_soft_delete_retention: AtomicU64,
+    pub(super) session_limits: session_limits::SessionLimits,
+    pub(super) default_soft_delete_retention: Option<std::num::NonZeroU64>,
 }
 
 pub(super) struct Storage {
@@ -31,6 +29,7 @@ pub(super) struct Writer {
 pub(super) struct Reads {
     /// Absent for a RAM catalog, whose database exists only inside the writer's connection.
     pub(super) pool: Option<read_pool::ReadPool>,
+    #[cfg(test)]
     pub(super) parent_policy: Arc<read_pool::ParentPolicy>,
     pub(super) cache: read_cache::ReadCache,
     pub(super) runtime: tokio::runtime::Handle,
@@ -64,6 +63,25 @@ pub(super) struct AdminState {
     pub(super) cleanup_tasks: std::sync::atomic::AtomicUsize,
 }
 
+impl AdminState {
+    pub(super) fn new(local_admin: admin::LocalAdmin) -> Result<Self, CatalogError> {
+        Ok(Self {
+            uploads: Arc::new(Semaphore::new(open::ADMIN_UPLOADS as usize)),
+            reads: Arc::new(Semaphore::new(open::ADMIN_READS as usize)),
+            staged_handles: Arc::new(Semaphore::new(open::STAGED_HANDLES as usize)),
+            publication_batch: Arc::new(Semaphore::new(1)),
+            seed_commit: Arc::new(Semaphore::new(1)),
+            publication_requests: Arc::new(Semaphore::new(open::PUBLICATION_REQUESTS as usize)),
+            file_workers: admin::FileWorkers::new()?,
+            grant: admin::startup_grant(local_admin),
+            seed_watch: Arc::default(),
+            #[cfg(test)]
+            cleanup_tasks: Default::default(),
+        })
+    }
+}
+
+#[derive(Default)]
 pub(super) struct WriterRegistry {
     pub(super) sessions: Mutex<resumable::writers::SessionWriters>,
     /// Wakes requests waiting for a writer. One waker serves every session: a release with no
@@ -87,11 +105,11 @@ pub(super) struct Maintenance {
 pub(super) struct Notifications {
     pub(super) wake: Arc<Notify>,
     pub(super) started: AtomicBool,
-    /// The local Pub/Sub emulator, set once when the publisher starts; also answers topic lookups.
-    pub(super) endpoint: OnceLock<crate::notification::Endpoint>,
+    pub(super) endpoint: Option<crate::notification::Endpoint>,
     pub(super) attempts: Arc<Semaphore>,
 }
 
+#[derive(Default)]
 pub(super) struct Shutdown {
     pub(super) admin_wake: Notify,
     /// Workers started beside the catalog whose health readiness also reports. Each worker

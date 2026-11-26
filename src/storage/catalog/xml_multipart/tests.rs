@@ -20,10 +20,22 @@ mod parallel;
 mod timestamps;
 
 pub(super) async fn setup(clock: Arc<dyn Clock>) -> (TestDir, Catalog) {
+    setup_with_limits(clock, None).await
+}
+
+async fn setup_with_limits(
+    clock: Arc<dyn Clock>,
+    limits: Option<&crate::config::Config>,
+) -> (TestDir, Catalog) {
     let dir = TestDir::new();
-    let catalog = Catalog::open_for_server(&dir.0, clock, LocalAdmin::Enabled)
-        .await
-        .unwrap();
+    let catalog = Catalog::open_server_with_limits(
+        crate::storage::CatalogBacking::Disk(&dir.0),
+        clock,
+        LocalAdmin::Enabled,
+        limits,
+    )
+    .await
+    .unwrap();
     let admin = catalog.local_admin().unwrap();
     admin
         .ensure_bucket(

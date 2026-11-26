@@ -3,14 +3,11 @@ use crate::{
     bucket::{BucketAccess, BucketMetadataUpdate},
     clock::{Clock, ManualClock},
     object::ObjectTarget,
-    storage::{
-        admin::LocalAdmin,
-        catalog::{
-            fault::{self, Crash, Fault, Step},
-            lifecycle::{ACTION_LIMIT, COALESCE, LifecycleOutcome, Pass},
-            test_fixtures::{PERMISSIVE, body, bucket, permissive_upload},
-            xml_multipart::{self, CompletedPart, Options, PartUpload, Target},
-        },
+    storage::catalog::{
+        fault::{self, Crash, Fault, Step},
+        lifecycle::{ACTION_LIMIT, COALESCE, LifecycleOutcome, Pass},
+        test_fixtures::{PERMISSIVE, body, bucket, permissive_upload},
+        xml_multipart::{self, CompletedPart, Options, PartUpload, Target},
     },
     test_support::TestDir,
 };
@@ -28,24 +25,19 @@ const MICROSECOND: Duration = Duration::from_micros(1);
 
 async fn memory() -> (Catalog, Arc<ManualClock>) {
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH + DAY));
-    let catalog = Catalog::open_memory_for_server(
-        64 * 1024 * 1024,
-        16 * 1024 * 1024,
-        clock.clone(),
-        LocalAdmin::Enabled,
-    )
-    .await
-    .unwrap();
-    catalog.configure_lifecycle(&Default::default());
+    let catalog =
+        Catalog::open_lifecycle_memory(clock.clone(), crate::config::LifecycleExecution::Enabled)
+            .await
+            .unwrap();
     (catalog, clock)
 }
 
 async fn disk(data: &TestDir) -> (Catalog, Arc<ManualClock>) {
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH + DAY));
-    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+    let catalog = Catalog::open_lifecycle_disk(&data.0, clock.clone())
         .await
         .unwrap();
-    catalog.configure_lifecycle(&Default::default());
+
     (catalog, clock)
 }
 
@@ -751,14 +743,13 @@ async fn multipart_abort_completion_lease_wins_or_missing_id_prevents_completion
 
 #[tokio::test]
 async fn multipart_abort_disabled_execution_preserves_uploads_until_enabled() {
-    let (catalog, clock) = memory().await;
+    let data = TestDir::new();
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH + DAY));
+    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+        .await
+        .unwrap();
     create(&catalog, vec![abort(json!({"age":1}))]).await;
     begin(&catalog, "object").await;
-    let mut config = crate::config::ConfigDraft {
-        lifecycle_execution: crate::config::LifecycleExecution::Disabled,
-        ..Default::default()
-    };
-    catalog.configure_lifecycle(&config.clone().build());
     clock.advance(DAY);
     let outcome = catalog.run_lifecycle_now().await.unwrap();
     assert!(matches!(outcome, LifecycleOutcome::Disabled));
@@ -772,8 +763,10 @@ async fn multipart_abort_disabled_execution_preserves_uploads_until_enabled() {
         count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
         1
     );
-    config.lifecycle_execution = crate::config::LifecycleExecution::Enabled;
-    catalog.configure_lifecycle(&config.clone().build());
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open_lifecycle_disk(&data.0, clock.clone())
+        .await
+        .unwrap();
     let result = catalog.run_lifecycle_now().await.unwrap();
     assert_eq!(serde_json::to_value(result).unwrap()["aborted"], 1);
     assert_eq!(
@@ -1117,10 +1110,10 @@ async fn multipart_abort_restart_mid_pass_and_power_loss_recover_the_deletion_jo
             assert_eq!(execute(&catalog).await.aborted, 129);
             assert_eq!(fault::pending(&data.0), 0);
             catalog.close().await.unwrap();
-            let recovered = Catalog::open_with_clock(&snapshot.0, clock.clone())
+            let recovered = Catalog::open_lifecycle_disk(&snapshot.0, clock.clone())
                 .await
                 .unwrap();
-            recovered.configure_lifecycle(&Default::default());
+
             assert_eq!(
                 execute(&recovered).await.aborted,
                 u64::from(step == Step::LifecycleCommit)

@@ -95,6 +95,62 @@ pub(crate) fn permissive_upload<'a>(
     }
 }
 
+impl crate::storage::Catalog {
+    pub(crate) async fn open_lifecycle_disk(
+        path: &std::path::Path,
+        clock: std::sync::Arc<dyn crate::clock::Clock>,
+    ) -> Result<Self, crate::storage::CatalogOpenError> {
+        let mut options =
+            super::CatalogOptions::embedded(clock, super::admin::LocalAdmin::Disabled);
+        options.principals = Some(super::principals::Profile::TrustedLocal);
+        options.lifecycle = crate::config::LifecycleExecution::Enabled;
+        Self::open_with_options(super::CatalogBacking::Disk(path), options).await
+    }
+
+    pub(crate) async fn open_lifecycle_memory(
+        clock: std::sync::Arc<dyn crate::clock::Clock>,
+        execution: crate::config::LifecycleExecution,
+    ) -> Result<Self, crate::storage::CatalogOpenError> {
+        let mut options = super::CatalogOptions::embedded(clock, super::admin::LocalAdmin::Enabled);
+        options.lifecycle = execution;
+        Self::open_with_options(
+            super::CatalogBacking::Memory {
+                blob_bytes: 64 * 1024 * 1024,
+                catalog_bytes: 16 * 1024 * 1024,
+            },
+            options,
+        )
+        .await
+    }
+
+    pub(crate) async fn open_disk_with_limits(
+        path: &std::path::Path,
+        clock: std::sync::Arc<dyn crate::clock::Clock>,
+        config: Option<&crate::config::Config>,
+    ) -> Result<Self, crate::storage::CatalogOpenError> {
+        let mut options =
+            super::CatalogOptions::embedded(clock, super::admin::LocalAdmin::Disabled);
+        options.principals = Some(super::principals::Profile::TrustedLocal);
+        if let Some(config) = config {
+            options.session_limits = config.into();
+        }
+        Self::open_with_options(super::CatalogBacking::Disk(path), options).await
+    }
+
+    pub(crate) async fn open_server_with_limits(
+        backing: super::CatalogBacking<'_>,
+        clock: std::sync::Arc<dyn crate::clock::Clock>,
+        admin: super::admin::LocalAdmin,
+        config: Option<&crate::config::Config>,
+    ) -> Result<Self, crate::storage::CatalogOpenError> {
+        let mut options = super::CatalogOptions::embedded(clock, admin);
+        if let Some(config) = config {
+            options.session_limits = config.into();
+        }
+        Self::open_with_options(backing, options).await
+    }
+}
+
 pub(crate) fn bucket(name: &str, project: &str) -> BucketRecord {
     BucketRecord {
         name: name.into(),
@@ -226,15 +282,10 @@ pub(crate) async fn lifecycle_transitioned_object() -> (ObjectRecord, ObjectReco
     let clock = Arc::new(ManualClock::new(
         UNIX_EPOCH + Duration::from_micros(1_234_567),
     ));
-    let catalog = Catalog::open_memory_for_server(
-        64 * 1024 * 1024,
-        16 * 1024 * 1024,
-        clock.clone(),
-        super::admin::LocalAdmin::Enabled,
-    )
-    .await
-    .unwrap();
-    catalog.configure_lifecycle(&Default::default());
+    let catalog =
+        Catalog::open_lifecycle_memory(clock.clone(), crate::config::LifecycleExecution::Enabled)
+            .await
+            .unwrap();
     let mut record = bucket("bucket", "project");
     record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![
         serde_json::json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":1}}),

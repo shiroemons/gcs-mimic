@@ -23,7 +23,17 @@ async fn open(dir: &TestDir, clock: &Arc<ManualClock>) -> Catalog {
 }
 
 async fn open_with_bucket(dir: &TestDir, clock: &Arc<ManualClock>) -> Catalog {
-    let catalog = open(dir, clock).await;
+    bucket_with_limits(dir, clock, None).await
+}
+
+async fn bucket_with_limits(
+    dir: &TestDir,
+    clock: &Arc<ManualClock>,
+    limits: Option<&crate::config::Config>,
+) -> Catalog {
+    let catalog = Catalog::open_disk_with_limits(&dir.0, clock.clone(), limits)
+        .await
+        .unwrap();
     catalog
         .insert_bucket(bucket("bucket", "project"))
         .await
@@ -38,22 +48,23 @@ async fn open_with_bucket(dir: &TestDir, clock: &Arc<ManualClock>) -> Catalog {
 async fn finished_sessions_stay_inside_a_small_memory_catalog_budget() {
     const BUDGET: u64 = 1024 * 1024;
     for (metadata_bytes, sessions) in [(0, 1_500), (30_000, 300)] {
-        let catalog = Catalog::open_memory_for_server(
-            64 * 1024 * 1024,
-            BUDGET,
+        let config = crate::config::ConfigDraft {
+            backend: crate::config::Backend::Memory,
+            memory_catalog_max_bytes: BUDGET,
+            ..Default::default()
+        }
+        .build();
+        let catalog = Catalog::open_server_with_limits(
+            crate::storage::CatalogBacking::Memory {
+                blob_bytes: 64 * 1024 * 1024,
+                catalog_bytes: BUDGET,
+            },
             Arc::new(crate::clock::SystemClock),
             crate::storage::admin::LocalAdmin::Disabled,
+            Some(&config),
         )
         .await
         .unwrap();
-        catalog.apply_session_limits(
-            &crate::config::ConfigDraft {
-                backend: crate::config::Backend::Memory,
-                memory_catalog_max_bytes: BUDGET,
-                ..Default::default()
-            }
-            .build(),
-        );
         catalog
             .insert_bucket(bucket("bucket", "project"))
             .await
@@ -319,8 +330,8 @@ async fn a_configured_limit_refuses_only_past_it_and_never_blocks_reopening() {
         }
         .build()
     };
-    let catalog = open_with_bucket(&dir, &clock).await;
-    catalog.apply_session_limits(&limited(2));
+    let config = limited(2);
+    let catalog = bucket_with_limits(&dir, &clock, Some(&config)).await;
     let first = create(&catalog, &clock).await.unwrap();
     create(&catalog, &clock).await.unwrap();
     assert_refused(create(&catalog, &clock).await);
@@ -332,8 +343,10 @@ async fn a_configured_limit_refuses_only_past_it_and_never_blocks_reopening() {
     create(&catalog, &clock).await.unwrap();
     catalog.close().await.unwrap();
     // More sessions than a lowered limit is a valid catalog: only new ones are refused.
-    let catalog = open(&dir, &clock).await;
-    catalog.apply_session_limits(&limited(1));
+    let config = limited(1);
+    let catalog = Catalog::open_disk_with_limits(&dir.0, clock.clone(), Some(&config))
+        .await
+        .unwrap();
     assert_refused(create(&catalog, &clock).await);
     catalog.close().await.unwrap();
     let catalog = open(&dir, &clock).await;
