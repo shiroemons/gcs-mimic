@@ -716,6 +716,48 @@ mod tests {
         }
     }
 
+    /// `upload_replays.completion` stores a whole `ObjectRecord`; a retry after an upgrade must
+    /// still decode what an earlier release wrote, so its exact text is fixed.
+    #[test]
+    fn completion_documents_keep_their_stored_bytes() {
+        use crate::storage::test_fixtures::{bare_object_record, populated_object_record};
+        let bare = Completion {
+            record: bare_object_record(),
+            acl: None,
+            source: None,
+        };
+        let populated = Completion {
+            record: populated_object_record(),
+            acl: Some(vec![crate::acl::AclEntry {
+                entity: "allUsers".parse().unwrap(),
+                role: crate::acl::AclRole::Reader,
+            }]),
+            source: Some(CopySource {
+                bucket: "source-bucket".into(),
+                name: "source.txt".into(),
+                generation: 5,
+            }),
+        };
+        for (completion, expected) in [(bare, BARE_COMPLETION), (populated, POPULATED_COMPLETION)] {
+            let stored = serde_json::to_string(&completion).unwrap();
+            assert_eq!(stored, expected);
+            let decoded = decode_completion(expected, 0).unwrap();
+            assert_eq!(decoded.record, completion.record);
+            assert_eq!(decoded.acl, completion.acl);
+            assert_eq!(
+                decoded
+                    .source
+                    .map(|source| (source.bucket, source.name, source.generation)),
+                completion
+                    .source
+                    .map(|source| (source.bucket, source.name, source.generation))
+            );
+        }
+    }
+
+    const BARE_COMPLETION: &str = r#"{"record":{"bucket":"bucket","name":"bare.txt","generation":1700000000123456,"metageneration":1,"owner":null,"content_type":"application/octet-stream","content_encoding":null,"content_disposition":null,"content_language":null,"cache_control":null,"metadata":{},"size":3,"md5":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"md5_availability":"Available","crc32c":7,"component_count":null,"storage_class":"STANDARD","time_created":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456000},"time_storage_class_updated":null,"updated":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456000},"time_deleted":null,"soft_delete_time":null,"hard_delete_time":null,"event_based_hold":null,"temporary_hold":null,"event_based_hold_release_time":null,"custom_time":null,"retention_expiration_time":null,"retention":null,"customer_key_sha256":null},"acl":null}"#;
+    const POPULATED_COMPLETION: &str = r#"{"record":{"bucket":"bucket","name":"folder/full object.txt","generation":1700000000123456,"metageneration":3,"owner":{"kind":"Principal","id":"uploader","entity":"user-uploader@example.test"},"content_type":"text/plain","content_encoding":"gzip","content_disposition":"inline","content_language":"en","cache_control":"private","metadata":{"alpha":"one","beta":"two"},"size":11,"md5":[3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],"md5_availability":"Unavailable","crc32c":123,"component_count":2,"storage_class":"NEARLINE","time_created":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456000},"time_storage_class_updated":{"secs_since_epoch":1700000100,"nanos_since_epoch":1000},"updated":{"secs_since_epoch":1700000200,"nanos_since_epoch":2000},"time_deleted":{"secs_since_epoch":1700000300,"nanos_since_epoch":3000},"soft_delete_time":{"secs_since_epoch":1700000300,"nanos_since_epoch":3000},"hard_delete_time":{"secs_since_epoch":1700900300,"nanos_since_epoch":3000},"event_based_hold":true,"temporary_hold":false,"event_based_hold_release_time":{"secs_since_epoch":1700000250,"nanos_since_epoch":4000},"custom_time":"2026-01-02T03:04:05.123456789Z","retention_expiration_time":{"secs_since_epoch":1800000000,"nanos_since_epoch":5000},"retention":{"mode":"Locked","retain_until":{"secs":1900000000,"nanos":123456789}},"customer_key_sha256":[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2]},"acl":[{"entity":"allUsers","role":"READER"}],"source":{"bucket":"source-bucket","name":"source.txt","generation":5}}"#;
+
     /// A replayable upload records its ACL once, and a handler can read it only afterwards.
     #[test]
     fn acl_snapshot_keeps_its_first_recording() {

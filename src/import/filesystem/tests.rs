@@ -194,6 +194,55 @@ fn bucket_record(name: &str, created_timestamp: Option<&str>, digest: [u8; 32]) 
     }))
 }
 
+/// `publish_bucket` builds its bucket by rendering a JSON insert body and parsing it back, with
+/// the clock read at that point. This feeds the same body shape with a fixed instant, so the
+/// record the round trip yields is pinned field by field for both the unset and enabled
+/// versioning bodies.
+#[test]
+fn import_bucket_json_round_trip_keeps_every_field() {
+    let at = UNIX_EPOCH + Duration::from_micros(1_700_000_000_123_456);
+    let expected = |versioning| crate::bucket::BucketRecord {
+        name: "imported-bucket".into(),
+        project: "local-project".into(),
+        location: "US".parse().unwrap(),
+        storage_class: crate::bucket::StorageClass::Standard,
+        autoclass: None,
+        labels: Default::default(),
+        cors: Vec::new(),
+        lifecycle: Default::default(),
+        retention_policy: None,
+        soft_delete_policy: None,
+        object_retention_enabled: false,
+        versioning,
+        default_event_based_hold: false,
+        public_access_prevention: crate::bucket::PublicAccessPrevention::Inherited,
+        uniform_bucket_level_access_locked_time: None,
+        metageneration: 1,
+        generation: 0,
+        time_created: at,
+        updated: at,
+    };
+    for (body, versioning) in [
+        (
+            serde_json::json!({"name":"imported-bucket","defaultEventBasedHold":false}),
+            crate::bucket::Versioning::Unset,
+        ),
+        (
+            serde_json::json!({"name":"imported-bucket","defaultEventBasedHold":false,"versioning":{"enabled":true}}),
+            crate::bucket::Versioning::Enabled,
+        ),
+    ] {
+        let parsed =
+            crate::json::parse_insert(body.to_string().as_bytes(), "local-project", at).unwrap();
+        assert_eq!(parsed, expected(versioning), "{body}");
+    }
+    // A held default is carried through the same body.
+    let held = serde_json::json!({"name":"imported-bucket","defaultEventBasedHold":true});
+    let parsed =
+        crate::json::parse_insert(held.to_string().as_bytes(), "local-project", at).unwrap();
+    assert!(parsed.default_event_based_hold);
+}
+
 /// A resume compares each committed element's journal digest with the one its source has now, so
 /// the digest keeps the bytes earlier releases wrote: a change here strands every unfinished
 /// import they started.

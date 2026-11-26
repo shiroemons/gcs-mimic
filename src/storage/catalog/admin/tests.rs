@@ -34,6 +34,42 @@ fn bucket_definition_requires_matching_canonical_location_and_type() {
     }
 }
 
+/// The default record is rendered as JSON and parsed back today. Every field is pinned, so a
+/// change that builds the record directly can be compared against what the round trip yields.
+#[test]
+fn default_bucket_definition_keeps_every_field() {
+    let at = std::time::UNIX_EPOCH + Duration::from_micros(1_700_000_000_123_456);
+    let clock = crate::clock::ManualClock::new(at);
+    let name = BucketName::try_from("default-bucket").unwrap();
+    let definition = BucketDefinition::default_for(&name, "default-project", &clock).unwrap();
+    let expected = BucketRecord {
+        name: "default-bucket".into(),
+        project: "default-project".into(),
+        location: "US".parse().unwrap(),
+        storage_class: crate::bucket::StorageClass::Standard,
+        autoclass: None,
+        labels: BTreeMap::new(),
+        cors: Vec::new(),
+        lifecycle: Default::default(),
+        retention_policy: None,
+        soft_delete_policy: None,
+        object_retention_enabled: false,
+        versioning: crate::bucket::Versioning::Unset,
+        default_event_based_hold: false,
+        public_access_prevention: crate::bucket::PublicAccessPrevention::Inherited,
+        uniform_bucket_level_access_locked_time: None,
+        metageneration: 1,
+        generation: 0,
+        time_created: at,
+        updated: at,
+    };
+    assert_eq!(definition.record(), &expected);
+    assert_eq!(
+        definition.record().location.kind(),
+        crate::bucket::LocationKind::MultiRegion
+    );
+}
+
 #[test]
 fn administrative_diagnostics_keep_their_existing_messages() {
     for (error, expected) in [

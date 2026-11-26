@@ -914,4 +914,34 @@ mod tests {
             crate::api_error::ErrorKind::Backend(BackendFailure::UploadWaitTimeout)
         ));
     }
+
+    /// `resumable_sessions.completion` holds the rendered resource as JSON text, and a retry
+    /// after an upgrade reads it back, so the text an earlier release wrote is fixed. The JSON
+    /// adapter writes it for XML uploads as well; XML renders its own response from the record.
+    #[test]
+    fn json_completion_keeps_the_text_stored_in_sqlite() {
+        use crate::storage::test_fixtures::{bare_object_record, populated_object_record};
+        let base = "http://localhost:4443/".to_owned();
+        let mut keyed = ResumableOptions::new(BucketAccess::Permissive);
+        keyed.metadata.customer_key_sha256 = Some([2; 32]);
+        for (options, record, expected) in [
+            (
+                ResumableOptions::new(BucketAccess::Permissive),
+                bare_object_record(),
+                BARE_RESOURCE,
+            ),
+            (keyed, populated_object_record(), POPULATED_RESOURCE),
+        ] {
+            let stored = completion_renderer(&options, base.clone())(&record)
+                .unwrap()
+                .to_string();
+            assert_eq!(stored, expected);
+            // The catalog reads the column back with `serde_json::from_str`.
+            let reread: serde_json::Value = serde_json::from_str(expected).unwrap();
+            assert_eq!(reread.to_string(), expected);
+        }
+    }
+
+    const BARE_RESOURCE: &str = r#"{"kind":"storage#object","id":"bucket/bare.txt/1700000000123456","selfLink":"http://localhost:4443/storage/v1/b/bucket/o/bare.txt","mediaLink":"http://localhost:4443/download/storage/v1/b/bucket/o/bare.txt?generation=1700000000123456&alt=media","name":"bare.txt","bucket":"bucket","generation":"1700000000123456","metageneration":"1","contentType":"application/octet-stream","storageClass":"STANDARD","size":"3","md5Hash":"AQEBAQEBAQEBAQEBAQEBAQ==","crc32c":"AAAABw==","etag":"CMDEgMHBxIIDEAE=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:13:20.123Z","timeStorageClassUpdated":"2023-11-14T22:13:20.123Z","timeFinalized":"2023-11-14T22:13:20.123Z"}"#;
+    const POPULATED_RESOURCE: &str = r#"{"kind":"storage#object","id":"bucket/folder/full object.txt/1700000000123456","selfLink":"http://localhost:4443/storage/v1/b/bucket/o/folder%2Ffull%20object.txt","mediaLink":"http://localhost:4443/download/storage/v1/b/bucket/o/folder%2Ffull%20object.txt?generation=1700000000123456&alt=media","name":"folder/full object.txt","bucket":"bucket","generation":"1700000000123456","metageneration":"3","contentType":"text/plain","storageClass":"NEARLINE","size":"11","contentEncoding":"gzip","etag":"CMDEgMHBxIIDEAM=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:16:40.000Z","timeStorageClassUpdated":"2023-11-14T22:15:00.000Z","timeFinalized":"2023-11-14T22:13:20.123Z","componentCount":2,"contentDisposition":"inline","contentLanguage":"en","cacheControl":"private","metadata":{"alpha":"one","beta":"two"},"eventBasedHold":true,"temporaryHold":false,"retentionExpirationTime":"2030-03-17T17:46:40.123Z","retention":{"mode":"Locked","retainUntilTime":"2030-03-17T17:46:40.123Z"},"customTime":"2026-01-02T03:04:05.123456789Z","timeDeleted":"2023-11-14T22:18:20.000Z","softDeleteTime":"2023-11-14T22:18:20.000Z","hardDeleteTime":"2023-11-25T08:18:20.000Z","customerEncryption":{"encryptionAlgorithm":"AES256","keySha256":"AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="},"crc32c":"AAAAew=="}"#;
 }
