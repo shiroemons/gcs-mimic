@@ -101,11 +101,14 @@ impl Executor {
         job: impl FnOnce() -> (T, Flow) + Send + 'static,
     ) -> Result<T, ExecutorError> {
         let (reply, result) = oneshot::channel();
+        let runtime = tokio::runtime::Handle::try_current().ok();
         let job: Job = Box::new(move || {
             // The job's captured state is dropped before the reply is sent, so a caller woken by
             // the reply observes released resources, such as the directory lock after close.
             if let Ok((value, flow)) = crate::task::catch_job("gcs-mimic-catalog", job) {
-                let _ = reply.send(Ok(value));
+                if let Err(Ok(unclaimed)) = reply.send(Ok(value)) {
+                    drop_unclaimed(runtime.as_ref(), unclaimed);
+                }
                 flow
             } else {
                 let _ = reply.send(Err(ExecutorError::Panicked));
@@ -118,6 +121,20 @@ impl Executor {
             .map_err(|_| ExecutorError::Closed)?;
         // A queued job is dropped unrun only when the thread stops after closing the catalog.
         result.await.map_err(|_| ExecutorError::Closed)?
+    }
+}
+
+/// Drops a reply whose caller was cancelled on the blocking pool of the caller's runtime. Such a
+/// value can own files, as a pinned derived source does, and dropping it here would make every
+/// job queued behind this one wait for the device. A caller outside Tokio has no pool to hand it
+/// to, so its value drops here.
+fn drop_unclaimed<T: Send + 'static>(runtime: Option<&tokio::runtime::Handle>, value: T) {
+    if let Some(runtime) = runtime {
+        drop(crate::task::spawn_blocking_on(
+            runtime,
+            "catalog-unclaimed-reply",
+            move || drop(value),
+        ));
     }
 }
 
@@ -164,6 +181,43 @@ mod tests {
         finished
             .recv_timeout(std::time::Duration::from_secs(5))
             .unwrap();
+    }
+
+    /// Reports the thread that drops it.
+    struct DropProbe(std::sync::mpsc::Sender<std::thread::ThreadId>);
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.0.send(std::thread::current().id()).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn a_reply_the_cancelled_caller_never_takes_is_dropped_off_the_catalog_thread() {
+        let executor = Executor::start("test-executor").unwrap();
+        let catalog_thread = executor.run(|| std::thread::current().id()).await.unwrap();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let (dropped, dropper) = std::sync::mpsc::channel();
+        let (started, running) = oneshot::channel();
+        let call = executor.run(move || {
+            started.send(()).unwrap();
+            held.recv().unwrap();
+            DropProbe(dropped)
+        });
+        let mut call = Box::pin(call);
+        tokio::select! {
+            _ = &mut call => unreachable!("the job is still held"),
+            started = running => started.unwrap(),
+        }
+        drop(call);
+        release.send(()).unwrap();
+        let dropping_thread = tokio::task::spawn_blocking(move || {
+            dropper.recv_timeout(std::time::Duration::from_secs(5))
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert_ne!(dropping_thread, catalog_thread);
     }
 
     #[test]

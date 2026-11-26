@@ -235,43 +235,69 @@ impl Catalog {
         }
         let activity = std::sync::Arc::new(self.await_activity(Work::New).await?);
         let backend = self.0.backend.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            sources
-                .into_iter()
-                .map(|source| {
-                    let objects::StoredObject {
-                        record: object,
-                        blob: original,
-                    } = objects::selected(
-                        &transaction,
-                        &source.target.bucket,
-                        &source.target.name,
-                        source.target.generation,
-                        source.conditions,
-                        role.request(),
-                        &source.access,
-                    )
-                    .map_err(|error| match role {
-                        SourceRole::Copied => error,
-                        SourceRole::Component => name_component(&transaction, &source, error),
-                    })?;
-                    super::super::customer_keys::check(&object, key)?;
-                    let id = random_id()?;
-                    backend.pin(&original, &id)?;
-                    #[cfg(all(test, unix))]
-                    if let super::super::BlobBackend::Disk(root) = &backend {
-                        fault::file_created(&id.staging_path(root));
+        let (pinned, failure) = self
+            .run(move |connection| -> Result<_, ObjectError> {
+                let transaction = connection.transaction()?;
+                let mut pinned = Vec::with_capacity(sources.len());
+                for source in sources {
+                    match pin_source(&transaction, &backend, &source, key, role, &activity) {
+                        Ok(source) => pinned.push(source),
+                        Err(error) => return Ok((pinned, Some(error))),
                     }
-                    Ok(DerivedSource {
-                        object,
-                        backend: Some(backend.clone()),
-                        id,
-                        _activity: activity.clone(),
-                    })
-                })
-                .collect()
-        })
-        .await
+                }
+                Ok((pinned, None))
+            })
+            .await?;
+        let Some(error) = failure else {
+            return Ok(pinned);
+        };
+        // The pins a failed batch already made are unlinked on the blocking pool rather than in
+        // the writer job, so the requests queued behind that job do not wait for the device.
+        let released =
+            crate::task::run_blocking("derived-source-release", move || drop(pinned)).await;
+        if let Err(released) = released {
+            deferred_cleanup(&released);
+        }
+        Err(error)
     }
+}
+
+/// Selects one source in the resolving transaction and links its immutable bytes.
+fn pin_source(
+    transaction: &rusqlite::Transaction<'_>,
+    backend: &super::super::BlobBackend,
+    source: &DerivedSourceSpec,
+    key: Option<crate::csek::CustomerKey>,
+    role: SourceRole,
+    activity: &std::sync::Arc<super::super::Activity>,
+) -> Result<DerivedSource, ObjectError> {
+    let objects::StoredObject {
+        record: object,
+        blob: original,
+    } = objects::selected(
+        transaction,
+        &source.target.bucket,
+        &source.target.name,
+        source.target.generation,
+        source.conditions,
+        role.request(),
+        &source.access,
+    )
+    .map_err(|error| match role {
+        SourceRole::Copied => error,
+        SourceRole::Component => name_component(transaction, source, error),
+    })?;
+    super::super::customer_keys::check(&object, key)?;
+    let id = random_id()?;
+    backend.pin(&original, &id)?;
+    #[cfg(all(test, unix))]
+    if let super::super::BlobBackend::Disk(root) = backend {
+        fault::file_created(&id.staging_path(root));
+    }
+    Ok(DerivedSource {
+        object,
+        backend: Some(backend.clone()),
+        id,
+        _activity: activity.clone(),
+    })
 }

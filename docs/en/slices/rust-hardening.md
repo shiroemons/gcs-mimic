@@ -458,11 +458,16 @@ expectation where a trait requires `io::Error`.
   `transaction()` and `immediate()` do not compile there. Test builds also
   assert that its change count did not move.
 - `fault::record_catalog_thread_io` records caller locations at every
-  durability seam, including `BlobBackend::create_draft`,
-  `StagedFile::finish` and the blob directory sync. In test builds,
-  `Catalog::close()` panics when its data directory recorded executor-thread
-  I/O outside an allowance. Every test that closes a catalog then checks the
-  rule; this would have caught the XML multipart sync.
+  synchronous durability seam: `sync_dir`, `unlink`, `publish_blob`,
+  `BlobBackend::create_draft` and the file syncs of appendable data, derived
+  recovery, admin publication and the retired manifest. Asynchronous seams
+  such as `StagedFile` cannot run inside an executor job, which is a
+  synchronous closure. In test builds, `Catalog::close()` panics when its data
+  directory recorded executor-thread I/O outside an allowance. Every test that
+  closes a catalog then checks the rule; its first full run found the partial
+  pins a failed source batch unlinked inside the writer job.
+- A reply whose caller was cancelled is dropped on the blocking pool, so a
+  returned value that owns files never releases them on the executor thread.
 - A test-build counter of `SQLITE_READONLY` answers on the read pool is
   asserted zero at close, which catches a moved job that secretly writes.
   Production still falls back to the writer silently.
@@ -844,7 +849,7 @@ Checked on rustc 1.100.0 on 2026-11-26.
 
 | Slice | Scope | Acceptance and docs |
 | --- | --- | --- |
-| Writer-thread I/O | XML part and completion syncs on the blocking pool; the read-pool pop; the close-time thread-I/O assertion with the reset and reseed allowance | new failed-sync, crash and power-loss tests for both XML paths; the full suite passes the assertion; design "Persistence and concurrency" states the rule |
+| Writer-thread I/O | XML part and completion syncs on the blocking pool; a failed source batch's pins and unclaimed replies released there; the read-pool pop; the close-time thread-I/O assertion with the reset and reseed allowance | new failed-sync, crash and power-loss tests for both XML paths; the full suite passes the assertion; design "Persistence and concurrency" states the rule |
 | Writer settings | QPSG, reader cache, the `wal_autocheckpoint` reason | existing suite |
 | Lint quick wins | `significant_drop_in_scrutinee`, `or_fun_call`, `ignore_without_reason`, `return_and_then`, `unused_dependencies`, `#[must_use]` on guards | Rules table |
 | Small fixes | the head-limit comment and 40 KiB head test; the diagnostics level check; `public-contract-review.md` names schema version 57 where the code writes 59 | — |

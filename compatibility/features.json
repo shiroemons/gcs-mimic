@@ -64135,9 +64135,9 @@
       "interface": "Project source code and validation",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://rust-lang.github.io/api-guidelines/",
         "https://sqlite.org/wal.html"
@@ -64161,8 +64161,18 @@
         {
           "id": "DESIGN-105-WRITER-IO",
           "description": "No catalog executor thread reaches a durability seam outside the reset and reseed allowance, and every test that closes a catalog checks it.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::tests::close_fails_naming_the_job_that_synced_without_an_allowance",
+            "storage::catalog::tests::a_job_under_the_exclusive_reclaim_allowance_may_sync_and_close_succeeds",
+            "storage::catalog::tests::the_allowance_ends_with_its_guard",
+            "storage::catalog::executor::tests::a_reply_the_cancelled_caller_never_takes_is_dropped_off_the_catalog_thread",
+            "storage::catalog::xml_multipart::tests::part_and_completion_sync_their_staging_entries_off_the_catalog_threads",
+            "storage::catalog::xml_multipart::tests::part_durable_step_failures_keep_prior_part_and_cleanup_after_restart",
+            "storage::catalog::xml_multipart::tests::completion_durable_step_failures_preserve_old_or_confirm_committed_generation",
+            "storage::catalog::xml_multipart::tests::multipart_part_and_completion_crash_and_power_loss_snapshots_recover",
+            "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins"
+          ]
         },
         {
           "id": "DESIGN-105-READ-ROUTING",
@@ -64237,12 +64247,40 @@
           "test_ids": []
         }
       ],
-      "test_ids": [],
-      "verification": [],
+      "test_ids": [
+        "storage::catalog::tests::close_fails_naming_the_job_that_synced_without_an_allowance",
+        "storage::catalog::tests::a_job_under_the_exclusive_reclaim_allowance_may_sync_and_close_succeeds",
+        "storage::catalog::tests::the_allowance_ends_with_its_guard",
+        "storage::catalog::executor::tests::a_reply_the_cancelled_caller_never_takes_is_dropped_off_the_catalog_thread",
+        "storage::catalog::xml_multipart::tests::part_and_completion_sync_their_staging_entries_off_the_catalog_threads",
+        "storage::catalog::xml_multipart::tests::part_durable_step_failures_keep_prior_part_and_cleanup_after_restart",
+        "storage::catalog::xml_multipart::tests::completion_durable_step_failures_preserve_old_or_confirm_committed_generation",
+        "storage::catalog::xml_multipart::tests::multipart_part_and_completion_crash_and_power_loss_snapshots_recover",
+        "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast",
+          "result": "PASS",
+          "verified_at": "2026-11-26",
+          "artifact": "docs/en/evidence/rust-hardening.md",
+          "test_ids": [
+            "storage::catalog::tests::close_fails_naming_the_job_that_synced_without_an_allowance",
+            "storage::catalog::tests::a_job_under_the_exclusive_reclaim_allowance_may_sync_and_close_succeeds",
+            "storage::catalog::tests::the_allowance_ends_with_its_guard",
+            "storage::catalog::executor::tests::a_reply_the_cancelled_caller_never_takes_is_dropped_off_the_catalog_thread",
+            "storage::catalog::xml_multipart::tests::part_and_completion_sync_their_staging_entries_off_the_catalog_threads",
+            "storage::catalog::xml_multipart::tests::part_durable_step_failures_keep_prior_part_and_cleanup_after_restart",
+            "storage::catalog::xml_multipart::tests::completion_durable_step_failures_preserve_old_or_confirm_committed_generation",
+            "storage::catalog::xml_multipart::tests::multipart_part_and_completion_crash_and_power_loss_snapshots_recover",
+            "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-11-26"
     },
     {
       "id": "UX-001",

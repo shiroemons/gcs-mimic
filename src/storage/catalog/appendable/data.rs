@@ -71,6 +71,8 @@ impl Data {
         file.set_len(size)?;
         #[cfg(test)]
         super::super::fault::truncated(root, &file.metadata()?);
+        #[cfg(test)]
+        super::super::fault::record_catalog_thread_io(&path);
         file.sync_data()?;
         #[cfg(test)]
         super::super::fault::file_synced(root, &file.metadata()?);
@@ -126,6 +128,8 @@ impl Data {
                 data_dir,
                 ..
             } => {
+                #[cfg(test)]
+                super::super::fault::record_catalog_thread_io(data_dir);
                 file.sync_data()?;
                 #[cfg(test)]
                 super::super::fault::file_synced(data_dir, &file.metadata()?);

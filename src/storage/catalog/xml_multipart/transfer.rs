@@ -18,6 +18,53 @@ pub(crate) struct PartUpload {
 const OTHER_PARTS_BYTES: &str =
     "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2";
 
+/// The staging entry whose row is about to commit.
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug)]
+enum StagedEntry {
+    Part,
+    Assembled,
+}
+
+#[cfg(unix)]
+impl StagedEntry {
+    fn task_name(self) -> &'static str {
+        match self {
+            Self::Part => "xml-multipart-part-sync",
+            Self::Assembled => "xml-multipart-assemble-sync",
+        }
+    }
+
+    #[cfg(test)]
+    fn step(self) -> super::super::fault::Step {
+        match self {
+            Self::Part => super::super::fault::Step::MultipartPartSync,
+            Self::Assembled => super::super::fault::Step::MultipartAssembleSync,
+        }
+    }
+}
+
+/// Makes a new staging entry durable before the row that names it commits. The sync runs on the
+/// blocking pool rather than in the writer job, so requests queued behind that job do not wait
+/// for the storage device. RAM has no staging directory, so it skips the pool as well.
+#[cfg(unix)]
+async fn sync_staging_entry(catalog: &Catalog, entry: StagedEntry) -> Result<(), ObjectError> {
+    if catalog.0.backend.is_memory() {
+        return Ok(());
+    }
+    let backend = catalog.0.backend.clone();
+    #[cfg(test)]
+    let data_dir = catalog.0.data_dir.clone();
+    crate::task::run_blocking(entry.task_name(), move || {
+        #[cfg(test)]
+        super::super::fault::hit(&data_dir, entry.step()).map_err(object_unavailable)?;
+        backend.sync_staging_dir().map_err(object_unavailable)
+    })
+    .await
+    .map_err(object_unavailable)
+    .flatten()
+}
+
 fn publication_error(error: Error) -> ObjectError {
     match error {
         Error::NoSuchUpload => ObjectError::DerivedTransferNotFound,
@@ -65,10 +112,9 @@ impl Catalog {
                 let access=lease.access.clone();
                 let clock=catalog.0.clock.clone();
                 #[cfg(unix)]
-                let backend=catalog.0.backend.clone();
+                sync_staging_entry(&catalog, StagedEntry::Part).await?;
                 catalog.run(move |connection| -> Result<_, Error> {
                     if let objects::UploadSink::Memory(stage)=file { stage.publish(id.to_hex()).map_err(object_unavailable)?; }
-                    #[cfg(unix)] backend.sync_staging_dir().map_err(object_unavailable)?;
                     #[cfg(test)] super::super::fault::hit(&data_dir,super::super::fault::Step::Checkpoint).map_err(object_unavailable)?;
                     let transaction=sql::immediate(connection).map_err(object_unavailable)?;
                     let now=StoredTime::try_from(clock.now())?;
@@ -292,13 +338,11 @@ impl Catalog {
         }
         file.finish().await?;
         #[cfg(unix)]
-        let backend = self.0.backend.clone();
+        sync_staging_entry(self, StagedEntry::Assembled).await?;
         let id = *id;
         let now = UnixMillis::try_from(self.0.clock.now())?;
         let (state, crc32c) = hasher.md5_state();
         self.run(move |connection| {
-            #[cfg(unix)]
-            backend.sync_staging_dir()?;
             sql::exec(
                 connection,
                 "INSERT INTO derived_transfers VALUES (?1,?2,?2,?3,?4,1,?5,?6,0)",

@@ -488,6 +488,8 @@ fn fill_stage(
     #[cfg(test)]
     super::super::fault::hit(data_dir, super::super::fault::Step::BodySync)
         .map_err(objects_error)?;
+    #[cfg(test)]
+    super::super::fault::record_catalog_thread_io(data_dir);
     target.sync_all()?;
     #[cfg(test)]
     super::super::fault::file_synced(data_dir, &target.metadata()?);

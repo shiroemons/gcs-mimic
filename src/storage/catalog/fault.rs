@@ -35,6 +35,7 @@ use crate::storage::failure::{BackendCause, Classified, StorageCause};
 use std::{
     cell::Cell,
     fs, io,
+    panic::Location,
     path::{Path, PathBuf},
     sync::{Mutex, PoisonError},
 };
@@ -77,6 +78,14 @@ pub(crate) enum Step {
     MultipartReclaimSync,
     /// After durable multipart removal, before deleting its journal rows.
     MultipartReclaimForget,
+    /// After an XML part's file is durable, before the staging directory sync that its row
+    /// depends on (Unix only, like the sync).
+    #[cfg(unix)]
+    MultipartPartSync,
+    /// After an assembled XML multipart file is durable, before the staging directory sync that
+    /// its transfer row depends on (Unix only, like the sync).
+    #[cfg(unix)]
+    MultipartAssembleSync,
     /// Before restoring an active resumable upload's published file to staging.
     ResumableRecoveryRename,
     #[cfg(unix)]
@@ -227,16 +236,43 @@ static ARMED: Mutex<Vec<Armed>> = Mutex::new(Vec::new());
 
 thread_local! {
     static ON_CATALOG_THREAD: Cell<bool> = const { Cell::new(false) };
+    static CATALOG_IO_ALLOWED: Cell<Option<CatalogIo>> = const { Cell::new(None) };
 }
 
-static CATALOG_IO: Mutex<Vec<(PathBuf, usize)>> = Mutex::new(Vec::new());
+/// Where each data directory's executor threads reached a durability seam outside an allowance.
+type CatalogIoSites = Vec<(PathBuf, Vec<&'static Location<'static>>)>;
+
+static CATALOG_IO: Mutex<CatalogIoSites> = Mutex::new(Vec::new());
+
+/// Why an executor job may reach a durability seam. Every job queued behind such a job waits
+/// for the storage device, so only jobs that already hold every request back may do it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CatalogIo {
+    /// Reset and reseed reclaim journaled blobs inside their exclusive writer job.
+    ExclusiveReclaim,
+}
+
+/// Allows durability I/O on the current executor thread until it is dropped.
+#[must_use = "the allowance ends when the guard is dropped"]
+pub(crate) struct CatalogIoAllowance(Option<CatalogIo>);
+
+pub(crate) fn allow_catalog_io(reason: CatalogIo) -> CatalogIoAllowance {
+    CatalogIoAllowance(CATALOG_IO_ALLOWED.replace(Some(reason)))
+}
+
+impl Drop for CatalogIoAllowance {
+    fn drop(&mut self) {
+        CATALOG_IO_ALLOWED.set(self.0);
+    }
+}
 
 pub(crate) fn enter_catalog_thread() {
     ON_CATALOG_THREAD.set(true);
 }
 
+#[track_caller]
 pub(crate) fn record_catalog_thread_io(path: &Path) {
-    if !ON_CATALOG_THREAD.get() {
+    if !ON_CATALOG_THREAD.get() || CATALOG_IO_ALLOWED.get().is_some() {
         return;
     }
     let Some(root) = path
@@ -246,22 +282,38 @@ pub(crate) fn record_catalog_thread_io(path: &Path) {
         return;
     };
     let root = key(root);
-    let mut counts = CATALOG_IO.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some((_, count)) = counts.iter_mut().find(|(entry, _)| entry == &root) {
-        *count += 1;
+    let site = Location::caller();
+    let mut recorded = CATALOG_IO.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((_, sites)) = recorded.iter_mut().find(|(entry, _)| entry == &root) {
+        sites.push(site);
     } else {
-        counts.push((root, 1));
+        recorded.push((root, vec![site]));
     }
 }
 
-pub(crate) fn catalog_thread_io(root: &Path) -> usize {
+fn catalog_thread_io_sites(root: &Path) -> Vec<&'static Location<'static>> {
     let root = key(root);
     CATALOG_IO
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .iter()
         .find(|(entry, _)| entry == &root)
-        .map_or(0, |(_, count)| *count)
+        .map_or_else(Vec::new, |(_, sites)| sites.clone())
+}
+
+pub(crate) fn catalog_thread_io(root: &Path) -> usize {
+    catalog_thread_io_sites(root).len()
+}
+
+/// Fails the test when an executor job of this data directory reached a durability seam outside
+/// an allowance. [`super::Catalog::close`] calls it, so every test that closes its catalog checks
+/// that writer and reader jobs leave file synchronization to the blocking pool.
+pub(crate) fn assert_no_catalog_thread_io(root: &Path) {
+    let sites = catalog_thread_io_sites(root);
+    assert!(
+        sites.is_empty(),
+        "catalog executor jobs reached durability seams at {sites:?}"
+    );
 }
 
 fn armed() -> std::sync::MutexGuard<'static, Vec<Armed>> {

@@ -250,6 +250,9 @@ const CASCADED: &[&str] = &[
 /// that holds exclusive ownership past the commit that journaled them may call this: it does
 /// not check references, because nothing can have reused the IDs since.
 pub(super) fn reclaim(connection: &mut Connection, data_dir: &Path) -> Result<(), CatalogError> {
+    #[cfg(test)]
+    let _exclusive =
+        super::super::fault::allow_catalog_io(super::super::fault::CatalogIo::ExclusiveReclaim);
     loop {
         let ids = connection
             .prepare_cached(

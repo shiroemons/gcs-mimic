@@ -303,6 +303,8 @@ impl<'a> Manifest<'a> {
             .map_err(|error| failed("flush", &staged)(error.into_error()))?;
         #[cfg(test)]
         fault::hit_io(data_dir, Step::RetiredManifestSync).map_err(failed("sync", &staged))?;
+        #[cfg(test)]
+        fault::record_catalog_thread_io(data_dir);
         file.sync_all().map_err(failed("sync", &staged))?;
         let metadata = file.metadata().map_err(failed("sync", &staged))?;
         #[cfg(test)]

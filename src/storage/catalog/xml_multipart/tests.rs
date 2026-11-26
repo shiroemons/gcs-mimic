@@ -277,6 +277,18 @@ async fn cancelled_abort_reclaims_every_batch_without_another_request() {
 }
 
 #[cfg(unix)]
+#[tokio::test]
+async fn part_and_completion_sync_their_staging_entries_off_the_catalog_threads() {
+    let (dir, catalog) = setup(Arc::new(SystemClock)).await;
+    let target = begin(&catalog).await;
+    let part = put(&catalog, &target, 1, b"part").await.unwrap();
+    complete(&catalog, &target, &part.etag).await.unwrap();
+    assert_eq!(bytes(&catalog).await, b"part");
+    assert_eq!(super::super::fault::catalog_thread_io(&dir.0), 0);
+    catalog.close().await.unwrap();
+}
+
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multipart_reclamation_leaves_catalog_available_and_syncs_the_batch_once() {
     let (dir, catalog) = setup(Arc::new(SystemClock)).await;
@@ -406,6 +418,8 @@ async fn part_durable_step_failures_keep_prior_part_and_cleanup_after_restart() 
         Step::BodyWrite,
         Step::BodyFlush,
         Step::BodySync,
+        #[cfg(unix)]
+        Step::MultipartPartSync,
         Step::Checkpoint,
         Step::BeforeCommit,
         Step::AfterCommit,
@@ -538,6 +552,8 @@ async fn completion_durable_step_failures_preserve_old_or_confirm_committed_gene
         Step::BodyWrite,
         Step::BodyFlush,
         Step::BodySync,
+        #[cfg(unix)]
+        Step::MultipartAssembleSync,
         Step::BeforePublish,
         Step::AfterPublish,
         Step::BeforeCommit,
@@ -587,6 +603,7 @@ async fn multipart_part_and_completion_crash_and_power_loss_snapshots_recover() 
                     Step::BodyWrite,
                     Step::BodyFlush,
                     Step::BodySync,
+                    Step::MultipartAssembleSync,
                     Step::BeforePublish,
                     Step::AfterPublish,
                     Step::BeforeCommit,
@@ -597,6 +614,7 @@ async fn multipart_part_and_completion_crash_and_power_loss_snapshots_recover() 
                     Step::BodyWrite,
                     Step::BodyFlush,
                     Step::BodySync,
+                    Step::MultipartPartSync,
                     Step::Checkpoint,
                     Step::BeforeCommit,
                     Step::AfterCommit,
