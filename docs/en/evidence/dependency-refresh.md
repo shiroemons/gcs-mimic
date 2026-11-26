@@ -1603,14 +1603,14 @@ With both thiserror and memchr declared directly, the release-scoped check at
 reported 143 `CURRENT` lines, including both crates, and exited 1 for the same
 three Go module updates.
 
-## Catalog cancellation on 2026-11-27
+## Catalog cancellation on 2026-11-26
 
 The Cargo index listed `tokio-util` 0.7.20 as the latest stable, non-yanked
 release. The MIT-licensed registry archive was 149,783 bytes and its SHA-256
 matched the existing lockfile. The direct dependency disables default features
 and enables no optional features.
 
-`cargo xtask dependencies check --scope release` exited 0 with 45 `CURRENT`
-lines. The full check reported 144 `CURRENT` lines, including `tokio-util`,
+`cargo xtask dependencies check --scope release` at 16:29:39 UTC exited 0 with
+45 `CURRENT` lines. The full check at 16:25:20 UTC reported 144 `CURRENT` lines, including `tokio-util`,
 and exited 1 because the three development Go modules still pinned
 cloud.google.com/go/storage v1.71.0 while v1.71.1 was available.
