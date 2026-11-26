@@ -386,14 +386,16 @@ impl<F: Future> Future for Supervised<F> {
 impl<F> Drop for Supervised<F> {
     fn drop(&mut self) {
         // Aborts and runtime shutdown drop unfinished tasks; shutdown makes this routine.
-        if !self.finished && crate::diagnostics::enabled(crate::diagnostics::LogLevel::Debug) {
-            crate::diagnostics::emit(
+        if !self.finished {
+            crate::diagnostics::emit_lazy(
                 crate::diagnostics::LogLevel::Debug,
                 "background_task_cancelled",
-                serde_json::json!({
-                    "message": format!("background task {} was cancelled", self.name),
-                    "task": self.name,
-                }),
+                || {
+                    serde_json::json!({
+                        "message": format!("background task {} was cancelled", self.name),
+                        "task": self.name,
+                    })
+                },
             );
         }
     }

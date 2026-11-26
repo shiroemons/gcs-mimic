@@ -1480,8 +1480,8 @@ mod reclaim_tests;
 #[cfg(test)]
 mod upload_frame_tests;
 
-/// hyper's per-connection read buffer limit also bounds the entire HTTP/1 request head,
-/// including the request line. A head still incomplete at the limit gets 431.
+/// hyper returns 431 when the HTTP/1 request head is still incomplete at the read buffer limit.
+/// A head that completes in the same read can reach about twice the limit.
 ///
 /// For request bodies, the limit bounds how much hyper reserves before each read. A read
 /// fills the buffer's spare capacity, which can grow to about twice this value, so HTTP/1
