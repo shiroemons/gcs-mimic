@@ -311,7 +311,7 @@ an XML virtual bucket uses the configured domain with the same port, never the
 bucket label. An invalid or missing Host falls back to the base resolved
 from the bound listener. Forwarded and X-Forwarded-* headers never apply, because
 no proxy is trusted. A runtime `externalUrl` or an explicit `api_base_url` fixes
-the origin instead. `src/config.rs` and `src/url.rs::normalize_base_url` accept
+the origin instead. `src/config/draft.rs` and `src/url.rs::normalize_base_url` accept
 absolute HTTP(S), reject credentials/query/fragment and trim trailing slashes; a
 configured proxy prefix is preserved and the proxy must strip it before
 forwarding. Public-object URL configuration grants no permission and does not

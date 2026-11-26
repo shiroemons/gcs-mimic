@@ -14,9 +14,9 @@ text::layer_dependency	src/bucket/lifecycle.rs	1
 text::layer_dependency	src/bucket/name.rs	1
 text::layer_dependency	src/bucket/resource.rs	2
 text::layer_dependency	src/bucket_init.rs	1
-text::layer_dependency	src/config.rs	2
 text::layer_dependency	src/config/auth.rs	1
 text::layer_dependency	src/config/document.rs	2
+text::layer_dependency	src/config/draft.rs	2
 text::layer_dependency	src/config/runtime.rs	3
 text::layer_dependency	src/config_input/options.rs	2
 text::layer_dependency	src/diagnostics.rs	2

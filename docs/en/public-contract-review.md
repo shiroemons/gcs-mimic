@@ -63,9 +63,9 @@ A bare `gcs-mimic` exits 1 and names `serve`. `gcs-mimic serve --version`, `heal
 | --- | --- | --- |
 | Server option | `--foo-bar` or `-foo-bar`; value after a space or `=`. Since `0.20.0` an underscore spelling such as `--max_connections` stops startup and names the hyphenated option (candidate 13) | `src/config_input.rs` `Inputs::cli` |
 | Environment | `GCS_MIMIC_FOO_BAR`; the suffix is lowercased and must match a setting exactly | `src/config_input.rs` `Inputs::environment_os` |
-| JSON key | `foo_bar` | `src/config.rs` `read_selected_config` |
-| Precedence | CLI, then environment, then JSON file, then default | `src/config.rs` `collect_settings` |
-| Duplicates | A repeated native option is an error. A repeated alias flag takes the last value (observed) | `src/config.rs` `collect_settings`; `src/config_input.rs` `translate_aliases` |
+| JSON key | `foo_bar` | `src/config/draft.rs` `read_selected_config` |
+| Precedence | CLI, then environment, then JSON file, then default | `src/config/draft.rs` `collect_settings` |
+| Duplicates | A repeated native option is an error. A repeated alias flag takes the last value (observed) | `src/config/draft.rs` `collect_settings`; `src/config_input.rs` `translate_aliases` |
 | Limits | At most 1024 supplied settings across sources; keys at most 256 bytes | `src/config_input.rs` `Inputs::push` |
 | Helper commands | Each has its own grammar; see [helper options](#helper-command-options) | `src/main.rs`, `src/import/mod.rs` |
 
@@ -73,66 +73,66 @@ Any `GCS_MIMIC_*` name that is not a setting stops `serve` and makes `healthchec
 
 ### Server options
 
-Every name below is declared in `src/config/setting.rs`, and its default is in `Config::default` in `src/config.rs`. The table gives the JSON key; the flag and variable follow the spelling rules. "Code" is the file that parses the value. Exception: `config` has no JSON key.
+Every name below is declared in `src/config/setting.rs`, and its default is in `Config::default` in `src/config/assemble.rs`. The table gives the JSON key; the flag and variable follow the spelling rules. "Code" is the file that parses the value. Exception: `config` has no JSON key.
 
 | Setting | Default | Accepted | Code | Documents | Agree |
 | --- | --- | --- | --- | --- | --- |
-| `config` | none | Path to a JSON file | `src/config.rs` | H, L, N, C, F | Yes |
+| `config` | none | Path to a JSON file | `src/config/draft.rs` | H, L, N, C, F | Yes |
 | `log_level` | `info` | `debug`, `info`, `warn`, `error`; `warning` means `warn` | `src/diagnostics.rs` | H, L, N, C, F, R | Yes |
-| `listen` | `127.0.0.1:4443`; image `0.0.0.0:4443` | `IP:PORT`, port 0 allowed | `src/config.rs` | H, L, N, C, F, R | Yes |
-| `listen_http` | Primary IP, port 8000, with `scheme=both` only | `IP:PORT`; an error without `scheme=both` | `src/config.rs` | H, L, N, F, R | Yes |
-| `grpc_listen` | none | `IP:PORT`, plaintext h2c; from `0.27.0` also gRPC over TLS, as `grpc_scheme` selects | `src/config.rs` | H, L, N, C, F, R | Yes |
-| `grpc_scheme` | `auto` (added in `0.27.0`) | `auto`, `h2c`, `tls`; needs `grpc_listen` | `src/config.rs`, `src/tls.rs` | H, L, N, S `grpc-tls.md` | Yes |
-| `trusted_listen` | none | `IP:PORT`; strict mode only | `src/config.rs` | H, L, N, C, F, R | Yes |
-| `unix_socket` | none | Path; needs `scheme=http` and no TCP listener setting; Unix only | `src/config.rs` | H, L, S `unix-http-transport.md` | Yes |
-| `scheme` | `https` | `http`, `https`, `both` | `src/config.rs` | H, L, N, C, F, R | Yes |
-| `tls_cert` | Embedded development certificate | PEM path, at most 1 MiB; needs `tls_key`; an error with `scheme=http`, from `0.27.0` only when no gRPC listener serves TLS either | `src/config.rs`, `src/tls.rs` | H, L, N, F | Yes |
-| `tls_key` | Embedded test key | PEM path, at most 1 MiB; needs `tls_cert`; an error with `scheme=http`, from `0.27.0` only when no gRPC listener serves TLS either | `src/config.rs`, `src/tls.rs` | H, L, N, F | Yes |
-| `tls_handshake_timeout_ms` | 5000 | Unsigned integer, 0 disables; an error with `scheme=http`, from `0.27.0` only when no gRPC listener serves TLS either | `src/config.rs` | H, L, N | Yes |
-| `data_dir` | `data`; image `/var/lib/gcs-mimic` | Nonempty path | `src/config.rs` | H, L, N, C, F | Yes |
+| `listen` | `127.0.0.1:4443`; image `0.0.0.0:4443` | `IP:PORT`, port 0 allowed | `src/config/draft.rs` | H, L, N, C, F, R | Yes |
+| `listen_http` | Primary IP, port 8000, with `scheme=both` only | `IP:PORT`; an error without `scheme=both` | `src/config/draft.rs` | H, L, N, F, R | Yes |
+| `grpc_listen` | none | `IP:PORT`, plaintext h2c; from `0.27.0` also gRPC over TLS, as `grpc_scheme` selects | `src/config/draft.rs` | H, L, N, C, F, R | Yes |
+| `grpc_scheme` | `auto` (added in `0.27.0`) | `auto`, `h2c`, `tls`; needs `grpc_listen` | `src/config/draft.rs`, `src/tls.rs` | H, L, N, S `grpc-tls.md` | Yes |
+| `trusted_listen` | none | `IP:PORT`; strict mode only | `src/config/draft.rs` | H, L, N, C, F, R | Yes |
+| `unix_socket` | none | Path; needs `scheme=http` and no TCP listener setting; Unix only | `src/config/draft.rs` | H, L, S `unix-http-transport.md` | Yes |
+| `scheme` | `https` | `http`, `https`, `both` | `src/config/draft.rs` | H, L, N, C, F, R | Yes |
+| `tls_cert` | Embedded development certificate | PEM path, at most 1 MiB; needs `tls_key`; an error with `scheme=http`, from `0.27.0` only when no gRPC listener serves TLS either | `src/config/draft.rs`, `src/tls.rs` | H, L, N, F | Yes |
+| `tls_key` | Embedded test key | PEM path, at most 1 MiB; needs `tls_cert`; an error with `scheme=http`, from `0.27.0` only when no gRPC listener serves TLS either | `src/config/draft.rs`, `src/tls.rs` | H, L, N, F | Yes |
+| `tls_handshake_timeout_ms` | 5000 | Unsigned integer, 0 disables; an error with `scheme=http`, from `0.27.0` only when no gRPC listener serves TLS either | `src/config/draft.rs` | H, L, N | Yes |
+| `data_dir` | `data`; image `/var/lib/gcs-mimic` | Nonempty path | `src/config/draft.rs` | H, L, N, C, F | Yes |
 | `backend` | `disk` | `disk`, `memory`; `filesystem` stops startup and names `disk` (the flag translates it) | `src/config/storage.rs` | H, L, N, F, R | Yes |
 | `memory_max_bytes` | Half of available memory after 32 MiB, 64 MiB to 1 GiB; 1 GiB where memory is not read | 1 to 2^40; needs `backend=memory` | `src/config/storage.rs`, `src/memory_limit.rs` | H, L | 15 |
 | `memory_catalog_max_bytes` | 16777216 | 1048576 to 2^40; needs `backend=memory` | `src/config/storage.rs` | H, L | Yes |
-| `seed_dir` | none | Nonempty path | `src/config.rs` | H, L, N, C, F, S `seed.md` | 2 |
-| `default_seed_dir` | none; image `/data` | Nonempty path | `src/config.rs`, `src/config_input.rs` | H, L, N, C, F | Yes |
-| `seed_project` | `local-project` | A valid project | `src/config.rs` | H, L, N, C, F | Yes |
+| `seed_dir` | none | Nonempty path | `src/config/draft.rs` | H, L, N, C, F, S `seed.md` | 2 |
+| `default_seed_dir` | none; image `/data` | Nonempty path | `src/config/draft.rs`, `src/config_input.rs` | H, L, N, C, F | Yes |
+| `seed_project` | `local-project` | A valid project | `src/config/draft.rs` | H, L, N, C, F | Yes |
 | `seed_content_type` | `extension` | `extension`, `octet-stream` | `src/mime.rs` | H, L, N, C, F | Yes |
-| `max_seed_entries` | 0 (unlimited) | 0 to 2^64-1 | `src/config.rs` | H, L, N, F | Yes |
-| `max_seed_depth` | 0 (unlimited) | 0 to 1024 | `src/config.rs` | H, L, N, F | Yes |
-| `seed_watch_interval_ms` (added in `0.28.0`) | 1000 | 0 to 86400000; 0 replays `seed_dir` only at startup | `src/config.rs` | H, N, S `seed.md` | Yes |
-| `default_location` | `US` | Names in `src/bucket.rs`, case-insensitive; native profile only | `src/config.rs`, `src/bucket.rs` | H, L, C, F | 3 |
-| `default_soft_delete_retention_seconds` | 0 (off) | 0 to 7776000; a positive value needs the native profile | `src/config.rs`, `src/bucket.rs` | H, L, N, C, F | Yes |
-| `lifecycle_execution` | `enabled` | `enabled` or `disabled`. CLI `--lifecycle-execution`, environment `GCS_MIMIC_LIFECYCLE_EXECUTION`, JSON `lifecycle_execution` | `src/config.rs`, `src/storage/catalog/lifecycle.rs` | H, N, F, S `lifecycle-execution.md` | Yes |
+| `max_seed_entries` | 0 (unlimited) | 0 to 2^64-1 | `src/config/draft.rs` | H, L, N, F | Yes |
+| `max_seed_depth` | 0 (unlimited) | 0 to 1024 | `src/config/draft.rs` | H, L, N, F | Yes |
+| `seed_watch_interval_ms` (added in `0.28.0`) | 1000 | 0 to 86400000; 0 replays `seed_dir` only at startup | `src/config/draft.rs` | H, N, S `seed.md` | Yes |
+| `default_location` | `US` | Names in `src/bucket.rs`, case-insensitive; native profile only | `src/config/draft.rs`, `src/bucket.rs` | H, L, C, F | 3 |
+| `default_soft_delete_retention_seconds` | 0 (off) | 0 to 7776000; a positive value needs the native profile | `src/config/draft.rs`, `src/bucket.rs` | H, L, N, C, F | Yes |
+| `lifecycle_execution` | `enabled` | `enabled` or `disabled`. CLI `--lifecycle-execution`, environment `GCS_MIMIC_LIFECYCLE_EXECUTION`, JSON `lifecycle_execution` | `src/config/draft.rs`, `src/storage/catalog/lifecycle.rs` | H, N, F, S `lifecycle-execution.md` | Yes |
 | `buckets_file` | none | Path; not with `buckets` | `src/config/document.rs` | H, L, N, C, F, S `bucket-initialization.md` | Yes |
 | `buckets` | none | The document inline, or comma-separated bucket names (a value not starting with `{`) that expand to a document creating each with default settings; not with `buckets_file` | `src/config/document.rs`, `src/bucket_init/shorthand.rs` | H, L, N, C, F, R, S `bucket-initialization.md` | 7 |
-| `buckets_mode` | `reconcile` | `create`, `reconcile`; needs a document. `buckets_file_mode`, its name before `0.20.0`, stops startup | `src/config.rs` | H, L, N, C, F | Yes |
-| `max_buckets_per_batch` | 0 (unlimited) | 0 to 2^64-1 | `src/config.rs` | H, L, N, F | Yes |
-| `api_base_url` | Each request's Host | Absolute HTTP(S) base without credentials, query or fragment | `src/config.rs`, `src/url.rs` | H, L, N, C, F | Yes |
-| `public_base_url` | none | HTTP(S) origin | `src/config.rs`, `src/url.rs` | H, L, F | Yes |
-| `xml_virtual_host_domains` | none | Up to 32 comma-separated DNS names; empty is allowed | `src/config.rs` | H, L, C, S `xml-virtual-host.md` | Yes |
-| `admin_enabled` | `false` | `true`, `false` | `src/config.rs` | H, L, N, C | Yes |
-| `admin_principal` | none | Registered identity; needs strict mode and `admin_enabled` | `src/config.rs`, `src/config/auth.rs` | H, L, S `runtime-admin-endpoints.md` | Yes |
-| `admin_allowed_hosts` | none | Up to 32 comma-separated DNS names; empty is allowed | `src/config.rs` | H, L, C, F | Yes |
-| `trusted_principal` | Built-in `trusted-app@gcs-mimic.invalid` | Registered identity or enabled test signer; needs `trusted_listen` | `src/config.rs`, `src/config/auth.rs` | H, L, N, C, F | Yes |
-| `trusted_allowed_hosts` | none | Up to 32 comma-separated DNS names; empty is allowed; needs `trusted_listen` | `src/config.rs` | H, L, N, C, F | 9 |
-| `local_creator_email` | `local-user@gcs-mimic.invalid` | Email or empty; a non-empty value needs native permissive mode | `src/config.rs` | H, L, N, C, F | Yes |
-| `max_connections` | 1024 | 1 to 1048576 | `src/config.rs` | H, L, N, F | Yes |
-| `max_grpc_streams` | 100 | 1 to 65536; needs `grpc_listen` | `src/config.rs` | H, L, N, F | Yes |
-| `max_object_bytes` | 5497558138880 | 1 to 5497558138880 | `src/config.rs` | H, L, N, F | Yes |
-| `max_resumable_sessions` | 0 (unlimited) | 0 to 4294967295 | `src/config.rs` | H, L, N, F | Yes |
-| `max_rewrite_sessions` | 0 (unlimited) | 0 to 4294967295 | `src/config.rs` | H, L, N, F | Yes |
-| `worker_threads` | Available CPUs, 2 to 8 | 1 to 1024 | `src/config.rs` | H, L, N | Yes |
-| `max_blocking_threads` | 8 | 1 to 1024 | `src/config.rs` | H, L, N | Yes |
-| `header_read_timeout_ms` | 30000 | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, F | Yes |
-| `body_inactivity_timeout_ms` | 0 (off) | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, C, F | Yes |
-| `request_timeout_ms` | 180000 | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, F | Yes |
-| `keep_alive_timeout_ms` | 120000 | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, F | Yes |
-| `object_request_timeout_ms` | 0 (off) | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, F | Yes |
-| `catalog_wait_timeout_ms` | 120000 | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, F | Yes |
-| `shutdown_timeout_ms` | 5000 | Unsigned integer, 0 disables | `src/config.rs` | H, L, N | Yes |
+| `buckets_mode` | `reconcile` | `create`, `reconcile`; needs a document. `buckets_file_mode`, its name before `0.20.0`, stops startup | `src/config/draft.rs` | H, L, N, C, F | Yes |
+| `max_buckets_per_batch` | 0 (unlimited) | 0 to 2^64-1 | `src/config/draft.rs` | H, L, N, F | Yes |
+| `api_base_url` | Each request's Host | Absolute HTTP(S) base without credentials, query or fragment | `src/config/draft.rs`, `src/url.rs` | H, L, N, C, F | Yes |
+| `public_base_url` | none | HTTP(S) origin | `src/config/draft.rs`, `src/url.rs` | H, L, F | Yes |
+| `xml_virtual_host_domains` | none | Up to 32 comma-separated DNS names; empty is allowed | `src/config/draft.rs` | H, L, C, S `xml-virtual-host.md` | Yes |
+| `admin_enabled` | `false` | `true`, `false` | `src/config/draft.rs` | H, L, N, C | Yes |
+| `admin_principal` | none | Registered identity; needs strict mode and `admin_enabled` | `src/config/draft.rs`, `src/config/auth.rs` | H, L, S `runtime-admin-endpoints.md` | Yes |
+| `admin_allowed_hosts` | none | Up to 32 comma-separated DNS names; empty is allowed | `src/config/draft.rs` | H, L, C, F | Yes |
+| `trusted_principal` | Built-in `trusted-app@gcs-mimic.invalid` | Registered identity or enabled test signer; needs `trusted_listen` | `src/config/draft.rs`, `src/config/auth.rs` | H, L, N, C, F | Yes |
+| `trusted_allowed_hosts` | none | Up to 32 comma-separated DNS names; empty is allowed; needs `trusted_listen` | `src/config/draft.rs` | H, L, N, C, F | 9 |
+| `local_creator_email` | `local-user@gcs-mimic.invalid` | Email or empty; a non-empty value needs native permissive mode | `src/config/draft.rs` | H, L, N, C, F | Yes |
+| `max_connections` | 1024 | 1 to 1048576 | `src/config/draft.rs` | H, L, N, F | Yes |
+| `max_grpc_streams` | 100 | 1 to 65536; needs `grpc_listen` | `src/config/draft.rs` | H, L, N, F | Yes |
+| `max_object_bytes` | 5497558138880 | 1 to 5497558138880 | `src/config/draft.rs` | H, L, N, F | Yes |
+| `max_resumable_sessions` | 0 (unlimited) | 0 to 4294967295 | `src/config/draft.rs` | H, L, N, F | Yes |
+| `max_rewrite_sessions` | 0 (unlimited) | 0 to 4294967295 | `src/config/draft.rs` | H, L, N, F | Yes |
+| `worker_threads` | Available CPUs, 2 to 8 | 1 to 1024 | `src/config/draft.rs` | H, L, N | Yes |
+| `max_blocking_threads` | 8 | 1 to 1024 | `src/config/draft.rs` | H, L, N | Yes |
+| `header_read_timeout_ms` | 30000 | Unsigned integer, 0 disables | `src/config/draft.rs` | H, L, N, F | Yes |
+| `body_inactivity_timeout_ms` | 0 (off) | Unsigned integer, 0 disables | `src/config/draft.rs` | H, L, N, C, F | Yes |
+| `request_timeout_ms` | 180000 | Unsigned integer, 0 disables | `src/config/draft.rs` | H, L, N, F | Yes |
+| `keep_alive_timeout_ms` | 120000 | Unsigned integer, 0 disables | `src/config/draft.rs` | H, L, N, F | Yes |
+| `object_request_timeout_ms` | 0 (off) | Unsigned integer, 0 disables | `src/config/draft.rs` | H, L, N, F | Yes |
+| `catalog_wait_timeout_ms` | 120000 | Unsigned integer, 0 disables | `src/config/draft.rs` | H, L, N, F | Yes |
+| `shutdown_timeout_ms` | 5000 | Unsigned integer, 0 disables | `src/config/draft.rs` | H, L, N | Yes |
 | `auth_mode` | `permissive` | `permissive`, `strict` | `src/auth/mod.rs`, `src/config/auth.rs` | H, L, N, C, R | Yes |
-| `compat_profile` | `native` | `native`, `fake-gcs-server`; `legacy-emulator`, its name before `0.20.0`, stops startup | `src/config.rs` | H, L, N, C, F | Yes |
-| `cors_fallback` | `allow-all` permissive, `none` strict | `none`, `allow-all` | `src/config.rs` | H, L, N, C, F | Yes |
+| `compat_profile` | `native` | `native`, `fake-gcs-server`; `legacy-emulator`, its name before `0.20.0`, stops startup | `src/config/draft.rs` | H, L, N, C, F | Yes |
+| `cors_fallback` | `allow-all` permissive, `none` strict | `none`, `allow-all` | `src/config/draft.rs` | H, L, N, C, F | Yes |
 | `signed_host_port` | `lenient` where the test signer is enabled, else `exact` | `exact`, `lenient` | `src/auth/signature.rs` | H, L, N, C, F | Yes |
 | `identity_file` | none | Path, at most 16 MiB; not with `identities` | `src/config/document.rs`, `src/auth/mod.rs` | H, L, N, C, F | Yes |
 | `identities` | none | The registry inline; not with `identity_file` | `src/config/document.rs`, `src/auth/mod.rs` | H, L, N, C, F | 7 |
@@ -181,7 +181,7 @@ The native-equivalent block is one `info` diagnostic with key `native_equivalent
 
 ### Healthcheck URL selection
 
-Without `--url`, `healthcheck` chooses its target as follows (`src/main.rs` `healthcheck`, `probe_url`; `src/local_server.rs` `origin`, `with_container_fallback`, `container_server_args`; `src/config.rs` `healthcheck_url`). C and S `option-aliases.md` describe it; H does not (disagreement 17).
+Without `--url`, `healthcheck` chooses its target as follows (`src/main.rs` `healthcheck`, `probe_url`; `src/local_server.rs` `origin`, `with_container_fallback`, `container_server_args`; `src/config/assemble.rs` `healthcheck_url`). C and S `option-aliases.md` describe it; H does not (disagreement 17).
 
 1. It runs the server's configuration validation over the environment and the selected JSON file. An invalid configuration exits 1 without any probe, which is why an unknown `GCS_MIMIC_*` name fails it.
 2. It probes `/_internal/healthcheck` at the configured listener. A wildcard address becomes loopback, `scheme=both` selects the HTTP listener, and every scheme but `https` is probed over plain HTTP.
@@ -193,7 +193,7 @@ An explicit `--url` skips all three steps. Step 3 is what lets the image's `HEAL
 
 | Variable | Effect | Defined in | Documented in | Agree |
 | --- | --- | --- | --- | --- |
-| `PUBSUB_EMULATOR_HOST` | Same as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`, which wins when both are set | `src/config_input.rs`, `src/config.rs` | H, L, F | Yes |
+| `PUBSUB_EMULATOR_HOST` | Same as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`, which wins when both are set | `src/config_input.rs`, `src/config/draft.rs` | H, L, F | Yes |
 | `GCSM_ENDPOINT` | Address for the client programs in `examples/`. The server ignores it | `examples/*`, for example `examples/go/main.go` | `examples/README.md` and each example's README, `docs/en/getting-started.md` | Yes |
 | `GCSM_GRPC_ENDPOINT` | gRPC address for `examples/rust`. The server ignores it | `examples/rust/src/main.rs` | `examples/rust/README.md` | Yes |
 | `GCSM_BINARY` | Executable that the Go packages start, used as given; they still remove every `GCS_MIMIC_*` name from the child they start | `go/internal/mimicproc/download.go` | `go/README.md` | Yes |
