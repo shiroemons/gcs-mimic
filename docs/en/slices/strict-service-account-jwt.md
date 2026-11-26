@@ -56,6 +56,8 @@ Every production bearer path uses the server's injected clock, including JSON,
 XML, forms, compressed requests, admin routes and both gRPC adapters. The
 SystemClock convenience wrapper exists only in tests. Registry keys and tokens
 are loaded once before readiness; file changes take effect after restart.
+Each registry remembers up to 64 verified pairs of message and signature
+digests. Every request still validates the header, claims, time and issuer.
 RSA verification shares the instance's bounded blocking budget with XML signatures;
 anonymous and static-token requests need no cryptographic permit.
 Rotate by registering both public keys, restarting, switching the client, then

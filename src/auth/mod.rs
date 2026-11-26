@@ -668,6 +668,7 @@ pub struct Registry {
     ids: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
     signing_keys: SigningKeys,
+    verified_signatures: jwt::VerifiedSignatures,
     public_access_prevention_projects: Vec<String>,
     /// The identity that requests without credentials on the trusted listener act as.
     trusted: Option<usize>,
@@ -771,6 +772,7 @@ impl Registry {
             ids: HashMap::new(),
             tokens: HashMap::new(),
             signing_keys: SigningKeys::default(),
+            verified_signatures: jwt::VerifiedSignatures::default(),
             public_access_prevention_projects: Vec::new(),
             trusted: None,
         }
@@ -812,6 +814,7 @@ impl Registry {
             ids: HashMap::with_capacity(entries.len()),
             tokens: HashMap::new(),
             signing_keys: SigningKeys::default(),
+            verified_signatures: jwt::VerifiedSignatures::default(),
             public_access_prevention_projects,
             trusted: None,
         };
@@ -1084,7 +1087,7 @@ enum Profile {
     /// A verified signature grants nothing an unsigned request lacks.
     VerifyingPermissive(SigningKeys),
     /// Registered principals and their grants authorize every request.
-    Strict(Registry),
+    Strict(Box<Registry>),
 }
 
 /// The active authentication profile. The default is permissive.
@@ -1119,7 +1122,7 @@ impl Auth {
     }
 
     pub fn strict(registry: Registry) -> Self {
-        Self::with_profile(Profile::Strict(registry))
+        Self::with_profile(Profile::Strict(Box::new(registry)))
     }
 
     fn with_profile(profile: Profile) -> Self {
@@ -1161,7 +1164,7 @@ impl Auth {
                     trusted,
                     implicit_projects,
                 )?;
-                (Profile::Strict(registry), signer, verification)
+                (Profile::Strict(Box::new(registry)), signer, verification)
             }
         };
         Ok(Self {

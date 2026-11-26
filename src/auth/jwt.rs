@@ -6,11 +6,42 @@ use super::{
     test_signer,
 };
 use crate::clock::Clock;
+use ring::digest::{SHA256, digest};
 use serde::Deserialize;
-use std::{sync::Arc, time::UNIX_EPOCH};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+    time::UNIX_EPOCH,
+};
 
 pub(super) const MAX_TOKEN_BYTES: usize = 8192;
 const SCOPE: &str = "https://www.googleapis.com/auth/devstorage.full_control";
+
+type SignatureKey = ([u8; 32], [u8; 32]);
+const CACHE_CAPACITY: usize = 64;
+
+/// Each registry owns its cache alongside the immutable issuer keys.
+#[derive(Debug, Default)]
+pub(super) struct VerifiedSignatures(Mutex<VecDeque<SignatureKey>>);
+
+impl VerifiedSignatures {
+    fn remember(&self, key: SignatureKey) {
+        let mut entries = crate::sync::lock(&self.0);
+        if entries.contains(&key) {
+            return;
+        }
+        if entries.len() == CACHE_CAPACITY {
+            entries.pop_front();
+        }
+        entries.push_back(key);
+    }
+}
+
+fn sha256(bytes: &[u8]) -> [u8; 32] {
+    let mut hash = [0; 32];
+    hash.copy_from_slice(digest(&SHA256, bytes).as_ref());
+    hash
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -33,6 +64,7 @@ struct Claims {
 
 pub(super) struct Candidate<'a> {
     identity: &'a Identity,
+    verified: &'a VerifiedSignatures,
     keys: Arc<[PublicKey]>,
     message: String,
     signature: Vec<u8>,
@@ -80,6 +112,7 @@ impl<'a> Candidate<'a> {
         let identity = registry.identity(&issuer).ok_or(Rejection::Unsupported)?;
         Ok(Self {
             identity,
+            verified: &registry.verified_signatures,
             keys: Arc::clone(keys),
             message: message.into(),
             signature,
@@ -129,10 +162,15 @@ impl<'a> Candidate<'a> {
     ) -> Result<Option<&'a Identity>, AuthError> {
         let Self {
             identity,
+            verified,
             keys,
             message,
             signature,
         } = self;
+        let key = (sha256(message.as_bytes()), sha256(&signature));
+        if crate::sync::lock(&verified.0).contains(&key) {
+            return Ok(Some(identity));
+        }
         let valid = verifiers
             .run(move || {
                 keys.iter()
@@ -142,6 +180,9 @@ impl<'a> Candidate<'a> {
             .map_err(|error| {
                 AuthError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
             })?;
+        if valid {
+            verified.remember(key);
+        }
         Ok(valid.then_some(identity))
     }
 }

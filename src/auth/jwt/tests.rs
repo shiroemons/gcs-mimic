@@ -14,11 +14,9 @@ const NOW: u64 = 1_793_361_600;
 #[tokio::test]
 async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it() {
     let auth = Auth::strict(registry(&[PUBLIC], &["opaque-token"])).with_verifier_budget(2);
+    let signed = token(&claims());
     let mut headers = HeaderMap::new();
-    headers.insert(
-        "authorization",
-        format!("Bearer {}", token(&claims())).parse().unwrap(),
-    );
+    headers.insert("authorization", format!("Bearer {signed}").parse().unwrap());
     let caller = auth
         .authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public)
         .await
@@ -48,6 +46,15 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
     });
     let resolve = async {
         ready.await.unwrap();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                authenticate(&auth, &signed, &Fixed(NOW))
+            )
+            .await
+            .unwrap()
+            .is_some()
+        );
         headers.insert("authorization", "Bearer opaque-token".parse().unwrap());
         let caller = tokio::time::timeout(
             Duration::from_secs(1),
@@ -205,6 +212,22 @@ async fn a_verified_signature_does_not_authorize_other_claims_or_a_future_issue_
                 .is_none()
         );
     }
+}
+
+#[test]
+fn verified_signature_cache_evicts_the_oldest_distinct_entry() {
+    let cache = VerifiedSignatures::default();
+    let entry = |index: usize| (sha256(&index.to_be_bytes()), sha256(b"signature"));
+    for index in 0..CACHE_CAPACITY {
+        cache.remember(entry(index));
+    }
+    cache.remember(entry(1));
+    cache.remember(entry(CACHE_CAPACITY));
+    let entries = crate::sync::lock(&cache.0);
+    assert_eq!(entries.len(), CACHE_CAPACITY);
+    assert!(!entries.contains(&entry(0)));
+    assert!(entries.contains(&entry(1)));
+    assert!(entries.contains(&entry(CACHE_CAPACITY)));
 }
 
 #[tokio::test]
