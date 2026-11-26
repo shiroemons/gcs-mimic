@@ -144,7 +144,7 @@ mod tests {
         let error = route(&Method::GET, &uri, CompatProfile::Native)
             .unwrap()
             .unwrap_err();
-        assert_eq!(error.status, StatusCode::METHOD_NOT_ALLOWED);
-        assert_eq!(error.allow, Some("POST"));
+        assert_eq!(error.status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(error.allow(), Some("POST"));
     }
 }

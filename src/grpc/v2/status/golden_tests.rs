@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::{
-    api_error::test_support::Transcript,
     auth::Caller,
+    error::golden_tests::Transcript,
     grpc::v2::object_io::{named_object_status, naming_object, object_status},
     storage::failure::test_support::{self as domain, Case, copies},
 };
@@ -280,16 +280,16 @@ async fn every_error_keeps_its_storage_v2_status() {
     );
     golden.service("BodyError", domain::body_cases());
     golden.service("TimeOutOfRange", domain::time_cases());
-    for (label, error) in crate::api_error::test_support::bucket_service_errors() {
+    for (label, error) in crate::error::golden_tests::bucket_service_errors() {
         golden.transcript.case("bucket", label);
         golden
             .transcript
             .render("response", rendering(&Status::from(error)));
     }
-    for (label, error) in crate::api_error::test_support::upload::cases()
+    for (label, error) in crate::error::golden_tests::upload::cases()
         .await
         .into_iter()
-        .chain(crate::api_error::test_support::upload::hash_cases())
+        .chain(crate::error::golden_tests::upload::hash_cases())
     {
         golden.transcript.case("upload", label);
         golden

@@ -72,6 +72,9 @@ fn upstream_repeat(outer: &(dyn Error + 'static), inner: &(dyn Error + 'static))
 }
 
 #[cfg(test)]
+pub(crate) mod golden_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::io;

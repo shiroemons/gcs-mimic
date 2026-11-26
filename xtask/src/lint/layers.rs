@@ -93,7 +93,7 @@ const LAYERS: [Layer; 7] = [
     Layer {
         name: "service",
         peers: Peers::Shared,
-        modules: &["page_token", "multipart", "api_error", "service"],
+        modules: &["page_token", "multipart", "service"],
     },
     Layer {
         name: "adapters",

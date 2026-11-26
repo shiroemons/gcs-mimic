@@ -2,7 +2,7 @@
 
 use super::{RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, ResponseBody, boxed, empty_response};
 use crate::json::JsonErrorResponse;
-use crate::{api_error::ApiError, auth, config::EndpointError};
+use crate::{ApiError, auth, config::EndpointError};
 use http_body_util::Full;
 use hyper::{Method, Request, Response, StatusCode, body::Bytes};
 use serde::Deserialize;
@@ -527,7 +527,7 @@ mod tests {
         }
         let error = encode(&Unencodable).unwrap_err();
         assert_eq!(
-            (error.status, error.reason, error.message.as_str()),
+            (error.status(), error.reason(), error.message()),
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "backendError",
@@ -544,10 +544,12 @@ mod tests {
                 let expected = answers(&error)[column];
                 let label = format!("{route:?} {error:?}");
                 let answer = route.answer(error);
-                if (answer.status, answer.reason, answer.message.as_str()) != expected {
+                if (answer.status(), answer.reason(), answer.message()) != expected {
                     mismatches.push(format!(
                         "{label}: {} {} {:?}",
-                        answer.status, answer.reason, answer.message
+                        answer.status(),
+                        answer.reason(),
+                        answer.message()
                     ));
                 }
             }

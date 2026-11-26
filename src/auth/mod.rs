@@ -1559,8 +1559,8 @@ mod tests {
             assert!(Permission::parse_testable(permission.as_str()).is_none());
             let query = format!("permissions={permission}");
             let error = crate::json::test_permissions_query(Some(&query)).unwrap_err();
-            assert_eq!(error.status, hyper::StatusCode::BAD_REQUEST);
-            assert_eq!(error.reason, "badRequest");
+            assert_eq!(error.status(), hyper::StatusCode::BAD_REQUEST);
+            assert_eq!(error.reason(), "badRequest");
             let object_uri = format!("/storage/v1/b/bucket/o/object/iam/testPermissions?{query}")
                 .parse()
                 .unwrap();

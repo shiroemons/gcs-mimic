@@ -99,7 +99,7 @@ fn unsatisfiable_ranges_are_their_own_error() {
     assert_eq!(RangeRequest::Single("-5").resolve(0), Ok(None));
     let error = ApiError::from(UnsatisfiableRange);
     assert_eq!(
-        (error.status, error.reason, error.message.as_str()),
+        (error.status(), error.reason(), error.message()),
         (
             StatusCode::RANGE_NOT_SATISFIABLE,
             "requestedRangeNotSatisfiable",
@@ -225,7 +225,11 @@ fn obj_route_001_media_upload_metadata_download_delete() {
                 ),
             )
             .unwrap_err();
-            assert_eq!(error.reason, "invalidParameter", "{upload_type} {invalid}");
+            assert_eq!(
+                error.reason(),
+                "invalidParameter",
+                "{upload_type} {invalid}"
+            );
         }
     }
     for prefix in ["", "/download"] {
@@ -278,7 +282,7 @@ fn obj_route_002_namespace_and_method_boundaries() {
         );
     }
     let error = request(Method::POST, "/storage/v1/b/abc/o/file").unwrap_err();
-    assert_eq!(error.status, StatusCode::NOT_FOUND);
+    assert_eq!(error.status(), StatusCode::NOT_FOUND);
     let response = error.into_response();
     assert_eq!(
         response.headers()["content-type"],
@@ -295,7 +299,7 @@ fn obj_route_002_namespace_and_method_boundaries() {
         ("/storage/v1/b/abc/o", Method::HEAD, "GET"),
     ] {
         let error = request(method, path).unwrap_err();
-        assert_eq!(error.status, StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(error.status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(error.into_response().headers()["allow"], allow);
     }
     assert!(matches!(
@@ -320,7 +324,7 @@ fn obj_route_002_namespace_and_method_boundaries() {
     assert_eq!(
         request(Method::HEAD, "/download/storage/v1/b/abc/o/file")
             .unwrap_err()
-            .status,
+            .status(),
         StatusCode::BAD_REQUEST
     );
     assert!(matches!(
@@ -355,7 +359,7 @@ fn object_paths_are_claimed_from_raw_segments_before_decoding() {
     ] {
         let error = request(method, path).unwrap_err();
         assert_eq!(
-            (error.reason, error.message.as_str()),
+            (error.reason(), error.message()),
             ("invalidParameter", message),
             "{path}"
         );
@@ -403,7 +407,7 @@ fn obj_name_001_exactly_once_decoding_and_utf8_boundaries() {
         "猫".repeat(342),
     ] {
         assert_eq!(
-            validate_object_name(&name).unwrap_err().status,
+            validate_object_name(&name).unwrap_err().status(),
             StatusCode::BAD_REQUEST,
             "{name:?}"
         );
@@ -425,7 +429,7 @@ fn obj_name_001_exactly_once_decoding_and_utf8_boundaries() {
         assert_eq!(
             request(Method::GET, &format!("/storage/v1/b/abc/o/{raw}"))
                 .unwrap_err()
-                .status,
+                .status(),
             StatusCode::BAD_REQUEST,
             "{raw}"
         );
@@ -469,7 +473,11 @@ fn obj_query_001_required_upload_and_unsupported_types() {
     ] {
         let error =
             request(Method::POST, &format!("/upload/storage/v1/b/abc/o?{query}")).unwrap_err();
-        assert_eq!((error.status, error.reason), (status, reason), "{query}");
+        assert_eq!(
+            (error.status(), error.reason()),
+            (status, reason),
+            "{query}"
+        );
     }
     // objects.insert ignores a parameter it does not declare (case obj-undeclared-query-writes).
     let plain_insert = request(
@@ -498,7 +506,7 @@ fn obj_query_001_required_upload_and_unsupported_types() {
                     &format!("/storage/v1/b/abc/o/file?{key}={value}")
                 )
                 .unwrap_err()
-                .status,
+                .status(),
                 StatusCode::BAD_REQUEST,
                 "{key}"
             );
@@ -575,11 +583,11 @@ fn api_key_parameter_is_accepted_and_ignored_on_object_routes() {
             let error =
                 request(method.clone(), &format!("{path}&key=value&{parameter}=")).unwrap_err();
             assert_eq!(
-                error.status,
+                error.status(),
                 StatusCode::BAD_REQUEST,
                 "{method} {path} {parameter}"
             );
-            assert!(error.message.contains(parameter));
+            assert!(error.message().contains(parameter));
         }
     }
 }
@@ -609,7 +617,7 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
                     &format!("/storage/v1/b/abc/o/file?{key}={value}")
                 )
                 .unwrap_err()
-                .status,
+                .status(),
                 StatusCode::BAD_REQUEST,
                 "{key}={value}"
             );
@@ -642,7 +650,7 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
         assert_eq!(
             request(Method::GET, &format!("/storage/v1/b/abc/o/file?{query}"))
                 .unwrap_err()
-                .status,
+                .status(),
             StatusCode::BAD_REQUEST,
             "{query}"
         );
@@ -723,7 +731,7 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
         )
         .unwrap_err();
         assert_eq!(
-            (error.status, error.reason),
+            (error.status(), error.reason()),
             (StatusCode::BAD_REQUEST, "notDownload")
         );
     }
@@ -732,7 +740,7 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
     assert!(validate_object_get_headers(&headers).is_ok());
     let headers = header_map([("x-goog-meta-example", "value")]);
     assert_eq!(
-        ApiError::from(upload_content_type(&headers).unwrap_err()).status,
+        ApiError::from(upload_content_type(&headers).unwrap_err()).status(),
         StatusCode::BAD_REQUEST
     );
 }
@@ -766,13 +774,13 @@ fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditio
         );
         let error = ApiError::from(upload_content_type(&headers).unwrap_err());
         assert_eq!(
-            (error.status, error.reason),
+            (error.status(), error.reason()),
             (StatusCode::BAD_REQUEST, "invalidParameter"),
             "{values:?}"
         );
         let error = validate_object_get_headers(&headers).unwrap_err();
         assert_eq!(
-            (error.status, error.reason),
+            (error.status(), error.reason()),
             (StatusCode::BAD_REQUEST, "invalidParameter"),
             "{values:?}"
         );
@@ -851,7 +859,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         assert!(upload_content_type(&headers).is_ok(), "{name}");
         let error = ApiError::from(super::request_key(&headers).unwrap_err());
         assert_eq!(
-            (error.status, error.reason),
+            (error.status(), error.reason()),
             (StatusCode::BAD_REQUEST, reason),
             "{name}"
         );
@@ -863,7 +871,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     ] {
         let headers = header_map([(name, "AES256")]);
         assert_eq!(
-            ApiError::from(upload_content_type(&headers).unwrap_err()).reason,
+            ApiError::from(upload_content_type(&headers).unwrap_err()).reason(),
             "badRequest",
             "{name}"
         );
@@ -876,7 +884,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     ] {
         let headers = header_map([(name, value)]);
         assert_eq!(
-            ApiError::from(upload_content_type(&headers).unwrap_err()).status,
+            ApiError::from(upload_content_type(&headers).unwrap_err()).status(),
             StatusCode::BAD_REQUEST,
             "{name}"
         );
@@ -909,14 +917,14 @@ fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected()
         let headers = header_map([(key, "\"value\"")]);
         assert!(validate_object_get_headers(&headers).is_ok(), "{key}");
         assert_eq!(
-            ApiError::from(upload_content_type(&headers).unwrap_err()).status,
+            ApiError::from(upload_content_type(&headers).unwrap_err()).status(),
             StatusCode::BAD_REQUEST,
             "{key}"
         );
     }
     let headers = header_map([("x-goog-encryption-key-sha256", "value")]);
     assert_eq!(
-        validate_object_get_headers(&headers).unwrap_err().status,
+        validate_object_get_headers(&headers).unwrap_err().status(),
         StatusCode::BAD_REQUEST
     );
 }
@@ -1012,7 +1020,7 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
         ),
     ] {
         let error = ApiError::from(error);
-        assert_eq!(error.status.as_u16(), status);
+        assert_eq!(error.status().as_u16(), status);
         // Cloud Storage names the `If-Match` header for every failed precondition.
         let mut item = json!({"message":message,"domain":"global","reason":reason});
         if status == 412 && reason == "conditionNotMet" {

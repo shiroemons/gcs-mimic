@@ -378,7 +378,7 @@ impl<'a> ObjectPath<'a> {
             if matches!(self, Self::Object { .. }) && *method == Method::POST {
                 return Err(
                     ApiError::new(StatusCode::NOT_FOUND, "notFound", "Not Found")
-                        .with_plain(&crate::api_error::NOT_FOUND_HTML),
+                        .with_plain(&crate::json::error::NOT_FOUND_HTML),
                 );
             }
             return Err(ApiError::method_not_allowed(
@@ -579,7 +579,7 @@ fn parse_predefined_acl(
 /// The upload front end's answer to an upload type it does not serve: a bare text page.
 pub(crate) fn unsupported_upload_type() -> ApiError {
     ApiError::invalid_parameter("uploadType must be media, multipart or resumable")
-        .with_plain(&crate::api_error::BAD_REQUEST_TEXT)
+        .with_plain(&crate::json::error::BAD_REQUEST_TEXT)
 }
 
 fn parse_upload_query(

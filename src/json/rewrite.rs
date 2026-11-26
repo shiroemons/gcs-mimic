@@ -255,7 +255,7 @@ mod tests {
                 .unwrap()
                 .err()
                 .unwrap()
-                .status,
+                .status(),
                 StatusCode::BAD_REQUEST
             );
         }

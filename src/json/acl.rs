@@ -493,8 +493,8 @@ mod tests {
             ),
         ] {
             let error = parse_entries(&serde_json::from_str(input).unwrap(), kind).unwrap_err();
-            assert_eq!(error.status, hyper::StatusCode::BAD_REQUEST, "{input}");
-            assert_eq!(error.message, expected, "{input}");
+            assert_eq!(error.status(), hyper::StatusCode::BAD_REQUEST, "{input}");
+            assert_eq!(error.message(), expected, "{input}");
         }
     }
 
@@ -589,7 +589,7 @@ mod tests {
             ),
         ] {
             let error = route(Method::GET, path).unwrap().unwrap_err();
-            assert_eq!(error.reason, reason, "{path}");
+            assert_eq!(error.reason(), reason, "{path}");
         }
         // The Requester Pays billing project is ignored, as on every JSON method. A condition or
         // generation the bucket ACL list does not declare is an undeclared parameter, which
@@ -639,9 +639,10 @@ mod tests {
                 let fake = route_acl(&method, &uri, CompatProfile::FakeGcsServer).unwrap();
                 if collection.ends_with("/defaultObjectAcl") || method == Method::PATCH {
                     let error = fake.unwrap_err();
-                    assert_eq!(error.reason, "invalidParameter", "{method} {uri}");
+                    assert_eq!(error.reason(), "invalidParameter", "{method} {uri}");
                     assert_eq!(
-                        error.message, "Unknown query parameter for this method: gcsmimicUnknown",
+                        error.message(),
+                        "Unknown query parameter for this method: gcsmimicUnknown",
                         "{method} {uri}"
                     );
                 } else {
@@ -655,7 +656,7 @@ mod tests {
             .unwrap();
         for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
             let error = route_acl(&Method::GET, &uri, profile).unwrap().unwrap_err();
-            assert_eq!(error.reason, "badRequest", "{profile:?}");
+            assert_eq!(error.reason(), "badRequest", "{profile:?}");
         }
     }
 
@@ -730,7 +731,7 @@ mod tests {
             ),
         ] {
             let error = parse_acl_body(body, kind, operation).unwrap_err();
-            assert_eq!(error.reason, reason, "{}", String::from_utf8_lossy(body));
+            assert_eq!(error.reason(), reason, "{}", String::from_utf8_lossy(body));
         }
         assert!(
             parse_acl_body(

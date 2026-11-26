@@ -71,7 +71,7 @@ async fn a_revoked_json_destination_grant_prevents_session_registration() {
     release.send(()).unwrap();
     let error = worker.await.unwrap().err().unwrap();
     assert_eq!(
-        (error.status, error.reason),
+        (error.status(), error.reason()),
         (StatusCode::FORBIDDEN, "forbidden")
     );
     assert_eq!(catalog.pending_faults(), 1);

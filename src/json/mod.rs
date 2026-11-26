@@ -6,7 +6,7 @@
 //! The caller performs catalog operations and atomic condition checks, then renders metadata
 //! with [`bucket_resource_with_profile`] / [`bucket_list_with_profile`] using its advertised endpoint.
 //! [`encode_page_token`] creates project/prefix-bound continuation cursors.
-//! [`error`] renders the shared [`ApiError`] as the JSON error envelope and its HTTP responses.
+//! [`error`] renders the [`ApiError`] as the JSON error envelope and its HTTP responses.
 //! The supported subset and deviations are recorded in `docs/en/slices/json-bucket-crud.md`.
 
 pub(crate) mod acl;
@@ -17,7 +17,7 @@ pub(crate) mod cors;
 mod csek;
 mod derived_metadata;
 mod envelope;
-mod error;
+pub(crate) mod error;
 mod fields;
 mod format;
 mod iam;
@@ -37,7 +37,6 @@ pub(crate) mod resumable;
 pub(crate) mod resumable_cancel;
 pub(crate) mod rewrite;
 
-use crate::api_error::ApiError;
 pub(crate) use crate::object::WriteMode;
 pub use buckets::parse_insert;
 pub(crate) use buckets::{
@@ -60,6 +59,7 @@ pub(crate) use envelope::{
     Call as EnvelopeCall, RESOURCE_CACHE_CONTROL, ResponseCache, apply as apply_envelope,
     etag_header, forbid_caching,
 };
+pub use error::ApiError;
 pub(crate) use error::{JsonErrorResponse, MEDIA_ERROR_CACHE_CONTROL, parse_error};
 pub(crate) use fields::{FieldSelection, Fields, Schema};
 pub(crate) use format::{ResponseFormat, render_body, with_format};

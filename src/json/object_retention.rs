@@ -119,7 +119,11 @@ mod tests {
             json!({"mode":"Unlocked","retainUntilTime":"2030-01-01T00:00:00Z","extra":1}),
             json!({"mode":"Unlocked","retainUntilTime":"2030-01-01T00:00:00Z","retentionExpirationTime":"2020-01-01T00:00:00Z"}),
         ] {
-            assert_eq!(parse(&invalid).unwrap_err().reason, "invalid", "{invalid}");
+            assert_eq!(
+                parse(&invalid).unwrap_err().reason(),
+                "invalid",
+                "{invalid}"
+            );
         }
     }
 
@@ -173,7 +177,7 @@ mod tests {
             "9999-12-31T23:59:59.999Z"
         );
         assert_eq!(
-            parsed_render("10000-01-01T00:00:00Z").unwrap_err().reason,
+            parsed_render("10000-01-01T00:00:00Z").unwrap_err().reason(),
             "invalid"
         );
     }

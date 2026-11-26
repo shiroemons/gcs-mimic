@@ -3,7 +3,7 @@
 //! returns.
 
 use super::host;
-use crate::{api_error::ApiError, auth::ListenerRole};
+use crate::{ApiError, auth::ListenerRole};
 use hyper::{HeaderMap, Request, StatusCode, header::HeaderValue};
 
 /// Whether a browser sent the request on a page's behalf. Browsers add `Origin` to every request
@@ -108,7 +108,7 @@ mod tests {
     ) -> Option<StatusCode> {
         refuse_on_trusted_listener(listener, request, allowed)
             .err()
-            .map(|error| error.status)
+            .map(|error| error.status())
     }
 
     #[test]

@@ -13,7 +13,7 @@ use super::{
 };
 use crate::json::JsonErrorResponse;
 use crate::{
-    api_error::ApiError,
+    ApiError,
     auth::Caller,
     bucket::{BucketAccess, CatalogError, CorsRule, cors::CorsRequest},
     config::{CompatProfile, Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
@@ -922,30 +922,18 @@ pub(crate) async fn bucket_answer(
     profile: CompatProfile,
 ) -> Response<Full<Bytes>> {
     let response = result
-        .map_err(|error| legacy_bucket_error(error, profile))
+        .map_err(|error| {
+            if profile == CompatProfile::FakeGcsServer {
+                error.for_legacy_bucket()
+            } else {
+                error
+            }
+        })
         .unwrap_or_else(ApiError::into_response);
     if profile == CompatProfile::FakeGcsServer && response.status() != StatusCode::NOT_MODIFIED {
         return legacy_bucket_body(response).await;
     }
     response
-}
-
-/// fake-gcs-server reports these bucket errors with its own reasons and messages.
-fn legacy_bucket_error(mut error: ApiError, profile: CompatProfile) -> ApiError {
-    // Only 400 errors carry these kinds.
-    if profile == CompatProfile::FakeGcsServer
-        && matches!(
-            error.kind,
-            crate::api_error::ErrorKind::InvalidArgument
-                | crate::api_error::ErrorKind::LegacyParseError
-        )
-    {
-        error.reason = "invalid";
-    }
-    if profile == CompatProfile::FakeGcsServer && error.is_missing_bucket() {
-        error.message = "Not Found".into();
-    }
-    error
 }
 
 /// fake-gcs-server ends bucket bodies with a newline and labels them plain JSON.

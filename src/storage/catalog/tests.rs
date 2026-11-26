@@ -84,7 +84,7 @@ async fn unknown_catalog_classes_fail_bucket_and_object_read_paths() {
     let error = catalog.get_bucket("bucket", PERMISSIVE).await.unwrap_err();
     assert!(matches!(error, CatalogError::Corrupt(_)));
     assert_eq!(
-        crate::api_error::ApiError::from(error).message,
+        crate::ApiError::from(error).message(),
         "Bucket catalog is unavailable"
     );
     let error = catalog
@@ -114,7 +114,7 @@ async fn unknown_catalog_classes_fail_bucket_and_object_read_paths() {
         .unwrap_err();
     assert!(matches!(error, ObjectError::Corrupt(_)));
     assert_eq!(
-        crate::api_error::ApiError::from(error).message,
+        crate::ApiError::from(error).message(),
         "Object storage is unavailable: stored data is corrupt; restore a valid data directory"
     );
     let error = catalog
@@ -818,7 +818,7 @@ async fn stored_bucket_location_outside_the_table_is_corruption() {
             "{location} {kind}: {error:?}"
         );
         assert_eq!(
-            crate::api_error::ApiError::from(error).message,
+            crate::ApiError::from(error).message(),
             "Bucket catalog is unavailable"
         );
     }

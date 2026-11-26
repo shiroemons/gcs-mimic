@@ -375,7 +375,7 @@ mod tests {
         ] {
             let mut upload = RelatedUpload::new(Full::new(Bytes::copy_from_slice(body)), &boundary);
             let error = upload.metadata().await.unwrap_err();
-            assert_eq!(error.reason, "invalidParameter", "{}", String::from_utf8_lossy(body));
+            assert_eq!(error.reason(), "invalidParameter", "{}", String::from_utf8_lossy(body));
         }
         let mut alone = RelatedUpload::new(
             Full::new(Bytes::from_static(
@@ -385,7 +385,7 @@ mod tests {
         );
         let error = alone.metadata().await.unwrap_err();
         assert_eq!(
-            (error.status, error.reason),
+            (error.status(), error.reason()),
             (StatusCode::BAD_REQUEST, "invalidPayloadSize")
         );
     }
@@ -408,7 +408,7 @@ mod tests {
                 if length == JSON_CAP {
                     assert_eq!(result.unwrap().len(), length);
                 } else {
-                    assert_eq!(result.unwrap_err().status, StatusCode::PAYLOAD_TOO_LARGE);
+                    assert_eq!(result.unwrap_err().status(), StatusCode::PAYLOAD_TOO_LARGE);
                 }
             }
         }

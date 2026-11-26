@@ -1,22 +1,566 @@
-//! How the JSON API sends the common error: the error envelope, the bare text pages of the
-//! upload front end, the media download's plain answers and the wording of a body that is not
-//! JSON. The error itself, its kinds and the conversions from domain errors live in
-//! [`crate::api_error`], which the XML and gRPC adapters map to their own answers.
+//! Cloud Storage JSON errors, their domain mappings and their HTTP responses.
 
 use crate::{
-    api_error::{ApiError, BAD_CONTENT_TYPE_TEXT, MISSING_END_BOUNDARY_TEXT, PlainCache},
+    auth::{AuthFailure, Denied},
     bounded_body::BodyError,
+    bucket::CatalogError,
     input::{InputError, InputKind},
     multipart::MultipartError,
     object::{
+        ObjectError,
         media_headers::{NO_STORE_CACHE_CONTROL, StoredHeaderError},
         upload_headers::UploadHeaderError,
     },
     service::ServiceError,
+    storage::failure::{
+        BackendCause, BackendFailure,
+        wording::{self, BUCKET_NOT_FOUND, BackendNotice, OBJECT_NOT_FOUND, PRECONDITION_NOT_HELD},
+    },
 };
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
 use serde_json::{Map, Value, json};
+
+/// A refusal rendered by a Cloud Storage JSON handler.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{status}: {message}")]
+pub struct ApiError {
+    kind: ErrorKind,
+    status: StatusCode,
+    reason: &'static str,
+    message: String,
+    allow: Option<&'static str>,
+    /// The `locationType`/`location` pair of the error item, if any. A reference keeps the error
+    /// small, which `Result` returns throughout the crate depend on.
+    location: Option<&'static ErrorLocation>,
+    /// Cloud Storage answered some failures with a bare text page instead of a JSON envelope.
+    plain: Option<&'static PlainText>,
+    /// Cloud Storage's upload front end sent some JSON error envelopes as `text/html`.
+    html_typed: bool,
+    /// The refused permission behind a denial, logged when the response leaves so that a
+    /// probe which discards the denial logs nothing.
+    denied: Option<Box<Denied>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ErrorKind {
+    Backend(BackendFailure),
+    MissingBucket,
+    MissingObject,
+    NamedMissingObject,
+    Required,
+    RetentionNotMet,
+    ActiveHold,
+    Csek(crate::csek::CsekError),
+    Unsupported,
+    CancelledUpload,
+    IncompleteBody,
+    InvalidArgument,
+    UniformAccessAcl,
+    ClassLocation,
+    LegacyParseError,
+    MalformedJson,
+    FieldMaskSyntax,
+    PreconditionFailed,
+    NotModified,
+    WriteNotModified,
+    Other,
+}
+
+/// A bare text error page: the front end's answer to a request no JSON handler claims.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PlainText {
+    pub(crate) content_type: &'static str,
+    /// The page text; `None` sends the error's own message.
+    pub(crate) body: Option<&'static str>,
+    /// Whether the page carries the JSON API's no-store cache headers.
+    pub(crate) cache: PlainCache,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum PlainCache {
+    NoStore,
+    Unspecified,
+}
+
+/// `POST` to an object resource, which has no such method.
+pub(crate) const NOT_FOUND_HTML: PlainText = PlainText {
+    content_type: "text/html; charset=UTF-8",
+    body: Some("Not Found"),
+    cache: PlainCache::NoStore,
+};
+
+/// An upload request that names no session the server knows.
+pub(crate) const NOT_FOUND_TEXT: PlainText = PlainText {
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
+    body: Some("Not Found"),
+    cache: PlainCache::Unspecified,
+};
+
+/// A multipart upload whose `Content-Type` carries no boundary.
+pub(crate) const BAD_CONTENT_TYPE_TEXT: PlainText = PlainText {
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
+    body: Some("Bad content type.  Please use multipart."),
+    cache: PlainCache::Unspecified,
+};
+
+/// A resumable chunk whose `Content-Range` Cloud Storage could not use.
+pub(crate) const CONTENT_RANGE_TEXT: PlainText = PlainText {
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
+    body: Some("Failed to parse Content-Range header."),
+    cache: PlainCache::Unspecified,
+};
+
+/// A multipart upload body that ends before its closing delimiter (recorded 2026-11-13).
+pub(crate) const MISSING_END_BOUNDARY_TEXT: PlainText = PlainText {
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
+    body: Some("Missing end boundary in multipart body."),
+    cache: PlainCache::Unspecified,
+};
+
+/// A transport-compressed request body that does not decode, which Cloud Storage's front end
+/// refuses before routing or authenticating the request (recorded 2026-11-25).
+pub(crate) const DECOMPRESS_TEXT: PlainText = PlainText {
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
+    body: Some("Could not decompress request body."),
+    cache: PlainCache::Unspecified,
+};
+
+/// A session-protocol failure that has no recorded text of its own. The recorded failures
+/// of a continuation (an unusable `Content-Range`, an unknown session) are bare `text/plain`
+/// pages without cache fields, so the other protocol errors (an inconsistent total, a gap in
+/// the offsets, a finished or cancelled session) use the same form with the message they
+/// already had. The form is inferred; only the two wordings above were recorded.
+pub(crate) const SESSION_MESSAGE_TEXT: PlainText = PlainText {
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
+    body: None,
+    cache: PlainCache::Unspecified,
+};
+
+/// An upload request whose `uploadType` is not one of the three.
+pub(crate) const BAD_REQUEST_TEXT: PlainText = PlainText {
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
+    body: Some("Bad Request"),
+    cache: PlainCache::Unspecified,
+};
+
+/// Where a rejected value was sent: `locationType` and `location` of an error item.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ErrorLocation {
+    pub kind: &'static str,
+    pub name: &'static str,
+}
+
+pub(crate) const AUTHORIZATION_HEADER: ErrorLocation = ErrorLocation {
+    kind: "header",
+    name: "Authorization",
+};
+pub(crate) const IF_MATCH_HEADER: ErrorLocation = ErrorLocation {
+    kind: "header",
+    name: "If-Match",
+};
+/// An IAM policy body's `etag` member, which Cloud Storage reported as `locationType: other`.
+pub(crate) const POLICY_ETAG_FIELD: ErrorLocation = ErrorLocation {
+    kind: "other",
+    name: "etag",
+};
+
+/// Const constructor for the query-parameter entries of [`PARAMETERS`].
+const fn parameter_location(name: &'static str) -> ErrorLocation {
+    ErrorLocation {
+        kind: "parameter",
+        name,
+    }
+}
+
+/// The JSON API query parameters whose rejection Cloud Storage reports with a `parameter`
+/// location. A fixed table lets the error keep a `&'static` reference to the location instead of
+/// owning the client-supplied name.
+static PARAMETERS: [ErrorLocation; 37] = [
+    parameter_location("alt"),
+    parameter_location("fields"),
+    parameter_location("generation"),
+    parameter_location("ifGenerationMatch"),
+    parameter_location("ifGenerationNotMatch"),
+    parameter_location("ifMetagenerationMatch"),
+    parameter_location("ifMetagenerationNotMatch"),
+    parameter_location("ifSourceGenerationMatch"),
+    parameter_location("ifSourceGenerationNotMatch"),
+    parameter_location("ifSourceMetagenerationMatch"),
+    parameter_location("ifSourceMetagenerationNotMatch"),
+    parameter_location("maxResults"),
+    parameter_location("pageToken"),
+    parameter_location("permissions"),
+    parameter_location("predefinedAcl"),
+    parameter_location("destinationPredefinedAcl"),
+    parameter_location("predefinedDefaultObjectAcl"),
+    parameter_location("project"),
+    parameter_location("projection"),
+    parameter_location("serviceAccountEmail"),
+    parameter_location("showDeletedKeys"),
+    parameter_location("softDeleted"),
+    parameter_location("sourceGeneration"),
+    parameter_location("userProject"),
+    parameter_location("delimiter"),
+    parameter_location("prefix"),
+    parameter_location("startOffset"),
+    parameter_location("endOffset"),
+    parameter_location("versions"),
+    parameter_location("kmsKeyName"),
+    parameter_location("enableObjectRetention"),
+    parameter_location("returnPartialSuccess"),
+    parameter_location("prettyPrint"),
+    parameter_location("includeFoldersAsPrefixes"),
+    parameter_location("includeTrailingDelimiter"),
+    parameter_location("overrideUnlockedRetention"),
+    parameter_location("copySourceAcl"),
+];
+
+impl ErrorLocation {
+    /// The `parameter` location for a query parameter name, if it is one the API names.
+    pub(crate) fn parameter(name: &str) -> Option<&'static ErrorLocation> {
+        PARAMETERS.iter().find(|location| location.name == name)
+    }
+}
+
+impl ApiError {
+    /// The HTTP status sent by the JSON handler.
+    pub fn status(&self) -> StatusCode {
+        self.status
+    }
+    /// The reason in the JSON error item.
+    pub fn reason(&self) -> &'static str {
+        self.reason
+    }
+    /// The message associated with the rejected request.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+    /// The location of the rejected input, when the response identifies it.
+    pub fn location(&self) -> Option<&'static ErrorLocation> {
+        self.location
+    }
+    /// The allowed methods sent with a method refusal, when present.
+    pub fn allow(&self) -> Option<&'static str> {
+        self.allow
+    }
+
+    #[cfg(test)]
+    pub(crate) fn backend_failure(&self) -> Option<BackendFailure> {
+        if let ErrorKind::Backend(failure) = self.kind {
+            Some(failure)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn for_legacy_bucket(mut self) -> Self {
+        if matches!(
+            self.kind,
+            ErrorKind::InvalidArgument | ErrorKind::LegacyParseError
+        ) {
+            self.reason = "invalid";
+        }
+        if self.is_missing_bucket() {
+            self.message = "Not Found".into();
+        }
+        self
+    }
+
+    fn backend(backend: &BackendCause) -> Self {
+        wording::object_backend(backend).into()
+    }
+
+    fn catalog_backend(backend: &BackendCause) -> Self {
+        wording::catalog_backend(backend).into()
+    }
+
+    /// An unclassified protocol error; use a named constructor for a semantic error kind.
+    pub(crate) fn new(
+        status: StatusCode,
+        reason: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: ErrorKind::Other,
+            status,
+            reason,
+            message: message.into(),
+            allow: None,
+            location: None,
+            plain: None,
+            html_typed: false,
+            denied: None,
+        }
+    }
+
+    fn with_kind(mut self, kind: ErrorKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    /// A semantic metadata refusal; `unsupported` words a recognized setting gcs-mimic lacks in
+    /// the API that refused it.
+    fn metadata(
+        error: &crate::metadata_error::MetadataError,
+        unsupported: fn(&str) -> Self,
+    ) -> Self {
+        let message = error.to_string();
+        if matches!(
+            error,
+            crate::metadata_error::MetadataError::ClassLocation(_)
+        ) {
+            Self::invalid(message).with_kind(ErrorKind::ClassLocation)
+        } else if error.unsupported() {
+            unsupported(&message)
+        } else {
+            Self::invalid(message)
+        }
+    }
+
+    fn missing_bucket() -> Self {
+        Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
+            .with_kind(ErrorKind::MissingBucket)
+    }
+
+    fn missing_object() -> Self {
+        Self::new(StatusCode::NOT_FOUND, "notFound", OBJECT_NOT_FOUND)
+            .with_kind(ErrorKind::MissingObject)
+    }
+
+    fn named_missing_object(bucket: &str, name: &str) -> Self {
+        Self::missing_object().naming_object(bucket, name)
+    }
+
+    fn precondition_not_held() -> Self {
+        Self::new(
+            StatusCode::PRECONDITION_FAILED,
+            "conditionNotMet",
+            PRECONDITION_NOT_HELD,
+        )
+        .with_kind(ErrorKind::PreconditionFailed)
+    }
+
+    pub(crate) fn not_modified() -> Self {
+        Self::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
+            .with_kind(ErrorKind::NotModified)
+    }
+
+    /// A Match and NotMatch condition on the same value of a move, which Cloud Storage refuses
+    /// as a conflict before evaluating either (recorded 2026-11-15).
+    pub(crate) fn conflicting_preconditions() -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "conflict",
+            "Found conflicting object preconditions. Mutually exclusive fields cannot be set simultaneously.",
+        )
+    }
+
+    /// The JSON API returns 304 when a write's not-match condition names the current value.
+    fn write_not_modified() -> Self {
+        Self::not_modified().with_kind(ErrorKind::WriteNotModified)
+    }
+
+    /// A request body that is not JSON, with the wording the JSON adapter quotes for it.
+    pub(crate) fn malformed_json(message: impl Into<String>) -> Self {
+        Self::invalid(message).with_kind(ErrorKind::MalformedJson)
+    }
+
+    pub(crate) fn legacy_parse_error(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "parseError", message)
+            .with_kind(ErrorKind::LegacyParseError)
+    }
+
+    pub(crate) fn unsupported_message(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "badRequest", message).with_kind(ErrorKind::Unsupported)
+    }
+
+    pub(crate) fn field_mask_syntax(message: impl Into<String>) -> Self {
+        Self::invalid_parameter(message)
+            .with_kind(ErrorKind::FieldMaskSyntax)
+            .at_parameter("fields")
+    }
+
+    /// Names the rejected query parameter in the error item (`locationType: parameter`). A name
+    /// outside the API's parameter table leaves the error without a location.
+    pub(crate) fn at_parameter(mut self, name: &str) -> Self {
+        self.location = ErrorLocation::parameter(name);
+        self
+    }
+
+    /// Names where the rejected value was sent (the error item's `locationType`/`location`).
+    pub(crate) fn at(mut self, location: &'static ErrorLocation) -> Self {
+        self.location = Some(location);
+        self
+    }
+
+    /// Names the `If-Match` header: Cloud Storage reports every failed precondition there, even
+    /// when the condition was a query parameter.
+    pub(crate) fn at_if_match(self) -> Self {
+        self.at(&IF_MATCH_HEADER)
+    }
+
+    /// Sends the error as `page`, the bare text page Cloud Storage's front end answered with.
+    pub(crate) fn with_plain(mut self, page: &'static PlainText) -> Self {
+        self.plain = Some(page);
+        self
+    }
+
+    pub(crate) fn invalid_parameter(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalidParameter", message)
+    }
+
+    /// A transport-compressed request body that does not decode; see [`DECOMPRESS_TEXT`].
+    pub(crate) fn undecodable_body() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "badRequest",
+            "Could not decompress request body.",
+        )
+        .with_plain(&DECOMPRESS_TEXT)
+    }
+
+    /// A body `name` or `bucket` that disagrees with the resource the path names, worded as
+    /// Cloud Storage words it for bucket and object PATCH and PUT.
+    pub(crate) fn content_disagrees(content: &str, parameter: &str) -> Self {
+        Self::invalid_parameter(format!(
+            "Value '{content}' in content does not agree with value '{parameter}'. This can happen when a value set through a parameter is inconsistent with a value set in the request."
+        ))
+    }
+
+    pub(crate) fn required(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "required", message).with_kind(ErrorKind::Required)
+    }
+
+    pub(crate) fn method_not_allowed(
+        message: impl Into<String>,
+        allow: Option<&'static str>,
+    ) -> Self {
+        Self {
+            allow,
+            ..Self::new(StatusCode::METHOD_NOT_ALLOWED, "methodNotAllowed", message)
+        }
+    }
+
+    pub(crate) fn service_unavailable(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, "backendError", message)
+    }
+
+    pub(crate) fn invalid_stored_header() -> Self {
+        Self::service_unavailable(crate::object::media_headers::StoredHeaderError::MESSAGE)
+    }
+
+    /// A numeric query parameter Cloud Storage could not parse as a signed 64-bit integer.
+    pub(crate) fn invalid_long(value: &str) -> Self {
+        Self::invalid_parameter(format!("Invalid long value: '{value}'."))
+    }
+
+    /// A numeric query parameter Cloud Storage could not parse as an unsigned integer.
+    pub(crate) fn invalid_unsigned(value: &str) -> Self {
+        Self::invalid_parameter(format!("Invalid unsigned integer value: '{value}'."))
+    }
+
+    /// The same JSON envelope, labelled `text/html` as the upload front end did for request
+    /// problems it found before reaching the storage handler.
+    pub(crate) fn html_typed(mut self) -> Self {
+        self.html_typed = true;
+        self
+    }
+
+    /// An upload's refusal as the upload front end labels it: a class the bucket's location
+    /// cannot hold left as `text/html` too (recorded 2026-11-17 on a multipart insert), although
+    /// gcs-mimic finds it in the catalog.
+    pub(crate) fn for_upload(self) -> Self {
+        if self.kind == ErrorKind::ClassLocation {
+            self.html_typed()
+        } else {
+            self
+        }
+    }
+
+    /// A session-protocol failure (a `Content-Range` that cannot be used, a gap or total that
+    /// disagrees with the session): the upload front end answered these with a bare `text/plain`
+    /// page, so the message leaves as that page with no error `reason`. Failures of other kinds
+    /// (checksums, headers, preconditions) keep their JSON envelope, because SDKs read the
+    /// `reason` from it.
+    pub(crate) fn session_protocol(message: impl Into<String>) -> Self {
+        Self::invalid_parameter(message).with_plain(&SESSION_MESSAGE_TEXT)
+    }
+
+    /// An upload that names no object.
+    pub(crate) fn missing_object_name() -> Self {
+        Self::required("You must specify an object name.").html_typed()
+    }
+
+    /// A rejected value in the request body or a bucket setting. Cloud Storage reports these as
+    /// `invalid` (recorded 2026-10-31), where `invalidArgument` is a gRPC-style name.
+    pub(crate) fn invalid(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalid", message)
+    }
+
+    pub(crate) fn invalid_argument(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalidArgument", message)
+            .with_kind(ErrorKind::InvalidArgument)
+    }
+
+    /// A refusal that no Cloud Storage permission names keeps the documented example message.
+    pub(crate) fn forbidden() -> Self {
+        Self::new(StatusCode::FORBIDDEN, "forbidden", wording::FORBIDDEN)
+    }
+
+    /// The 401 `required` an anonymous caller receives in place of a 403. A refused
+    /// permission keeps its message, which names the anonymous caller; any other refusal
+    /// becomes the documented `Login Required` example.
+    pub(crate) fn for_anonymous_caller(self) -> Self {
+        let mut error = Self::from(AuthFailure::LoginRequired);
+        if let Some(denied) = self.denied {
+            if denied.is_anonymous() {
+                error.message = denied.to_string();
+            }
+            // A refusal can name a stored principal, such as the identity a resumable session
+            // keeps. The response answers the anonymous caller, so the logged event names that
+            // caller too rather than an identity the request never presented.
+            error.denied = Some(denied.into_anonymous());
+        }
+        error
+    }
+
+    pub fn unsupported(name: &str) -> Self {
+        Self::unsupported_message(wording::unsupported_bucket_setting(name))
+    }
+
+    pub fn unsupported_object(name: &str) -> Self {
+        Self::unsupported_message(wording::unsupported_object_setting(name))
+    }
+
+    /// Whether this is a missing-bucket error, in either the bucket or the object wording.
+    fn is_missing_bucket(&self) -> bool {
+        self.kind == ErrorKind::MissingBucket
+    }
+
+    /// Whether this is the catalog's missing-object error, before or after it names the object.
+    fn is_missing_object(&self) -> bool {
+        matches!(
+            self.kind,
+            ErrorKind::MissingObject | ErrorKind::NamedMissingObject
+        )
+    }
+
+    /// Cloud Storage names the requested object in its not-found message, which the catalog
+    /// error cannot do because it does not know which request selected the object.
+    pub(crate) fn naming_object(mut self, bucket: &str, name: &str) -> Self {
+        // An error that already names its object, such as a copy source, keeps that name.
+        if self.kind == ErrorKind::MissingObject {
+            self.message = wording::missing_named_object(bucket, name);
+            self.kind = ErrorKind::NamedMissingObject;
+        }
+        self
+    }
+}
+
+mod domain;
+#[cfg(test)]
+mod domain_tests;
 
 impl From<InputError> for ApiError {
     fn from(input: InputError) -> Self {
@@ -241,9 +785,7 @@ pub(crate) fn parse_error(input: &[u8], cause: &serde_json::Error) -> ApiError {
     ))
 }
 
-/// The JSON API's answers to the shared error. A trait in this module rather than methods on
-/// the error, so that only code that names the JSON adapter can render one: the XML and gRPC
-/// adapters map the error to their own answers and must not reach this rendering.
+/// HTTP renderings used by JSON handlers and their media download endpoints.
 pub(crate) trait JsonErrorResponse {
     /// The error envelope: `{"error": {"code", "message", "errors": [..]}}`.
     fn value(&self) -> Value;
@@ -366,7 +908,6 @@ mod golden_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api_error::ErrorKind;
     use crate::{
         auth::AuthFailure,
         bucket::CatalogError,
@@ -385,7 +926,6 @@ mod tests {
         long.push(b'x');
         let error = parse(&long);
         assert!(error.message.len() < 1024, "{}", error.message.len());
-        assert_eq!(error.kind, ErrorKind::MalformedJson);
         // The bare-key form walks the body by character before it can report anything.
         let mut bare = vec![b'x'; QUOTED_BODY_LIMIT];
         bare.push(b'x');
@@ -435,7 +975,6 @@ mod tests {
                 "domain": "global", "reason": "required", "locationType": "header",
                 "location": "Authorization"}]}})
         );
-        assert_eq!(anonymous.kind, ErrorKind::Required);
         // Another 403, or a refusal naming a stored principal, keeps the documented example.
         let login_required = ApiError::from(AuthFailure::LoginRequired);
         for error in [
@@ -446,7 +985,6 @@ mod tests {
         ] {
             let error = error.for_anonymous_caller();
             assert_eq!(error.value(), login_required.value());
-            assert_eq!(error.kind, ErrorKind::Required);
         }
     }
 
@@ -457,7 +995,6 @@ mod tests {
             parse_error(input.as_bytes(), &cause)
         };
         let error = parse("{not json");
-        assert_eq!(error.kind, ErrorKind::MalformedJson);
         assert_eq!((error.status.as_u16(), error.reason), (400, "invalid"));
         assert_eq!(
             error.message,

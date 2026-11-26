@@ -58709,7 +58709,7 @@
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
             "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-            "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "json::error::domain_tests::backend_causes_are_actionable_and_private_details_stay_private",
             "obj_http_additional_upload_waits_for_advisory_check",
             "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
           ]
@@ -58769,7 +58769,7 @@
         "upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion",
         "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
         "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-        "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+        "json::error::domain_tests::backend_causes_are_actionable_and_private_details_stay_private",
         "obj_http_additional_upload_waits_for_advisory_check",
         "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission",
         "TestObjectResumableWriter",
@@ -58809,7 +58809,7 @@
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
             "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-            "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "json::error::domain_tests::backend_causes_are_actionable_and_private_details_stay_private",
             "obj_http_additional_upload_waits_for_advisory_check",
             "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
           ]
@@ -58942,7 +58942,7 @@
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
             "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-            "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "json::error::domain_tests::backend_causes_are_actionable_and_private_details_stay_private",
             "obj_http_additional_upload_waits_for_advisory_check",
             "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
           ]
@@ -59006,7 +59006,7 @@
         "upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion",
         "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
         "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-        "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+        "json::error::domain_tests::backend_causes_are_actionable_and_private_details_stay_private",
         "obj_http_additional_upload_waits_for_advisory_check",
         "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission",
         "TestObjectResumableWriter",
@@ -59060,7 +59060,7 @@
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
             "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-            "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "json::error::domain_tests::backend_causes_are_actionable_and_private_details_stay_private",
             "obj_http_additional_upload_waits_for_advisory_check",
             "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
           ]

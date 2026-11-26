@@ -255,7 +255,7 @@ async fn deleting_a_listed_bucket_omits_only_its_acl_fields() {
         add_full_projection(&state, None, &mut single, base)
             .await
             .unwrap_err()
-            .status,
+            .status(),
         StatusCode::NOT_FOUND
     );
     add_full_projection(&state, Some(Caller::Anonymous), &mut single, base)

@@ -6,7 +6,7 @@ use crate::server::upload_drive::{
     CatalogWait, UploadEnd, UploadSender, drive_upload, upload_channel,
 };
 use crate::{
-    api_error::ApiError,
+    ApiError,
     bucket::BucketAccess,
     csek::CustomerKey,
     json::{self, UploadRequest},

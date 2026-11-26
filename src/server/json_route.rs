@@ -6,7 +6,7 @@
 
 use super::unsupported;
 use crate::{
-    api_error::ApiError,
+    ApiError,
     config::Config,
     json::{self, BucketRequest, Fields, ObjectRequest, ProjectRequest},
 };

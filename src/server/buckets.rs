@@ -9,7 +9,7 @@ use super::{
     read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
 };
 use crate::{
-    api_error::ApiError,
+    ApiError,
     auth::{self, Caller},
     bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError, UniformAccess},
     config::CompatProfile,

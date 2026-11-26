@@ -309,15 +309,13 @@ owner with the error slice that touches it:
   `PolicyInputError::UnsupportedInput` goes through `ApiError::unsupported`,
   which says "does not support bucket API setting role roles/owner; omit this
   setting". The direct gRPC mapping names the IAM role.
-- **XML `NotModified` through the shared mapping carries a body.** The mapping
-  answers 304 with a 112-byte `InvalidArgument` document. XML reads answer 304
-  themselves before it, so this is only reachable if another path maps the
-  error.
-- **gRPC through `ApiError` turns 409 into `ALREADY_EXISTS`.** For example
-  `CatalogError::NotEmpty` is `FAILED_PRECONDITION` through the direct mapping
-  and `ALREADY_EXISTS` with another message through `ApiError`. Which gRPC
-  paths reach the `ApiError` route is checked in the error slices, which
-  remove it.
+- **XML conditional reads** answer 304 before serializing an error document.
+  The former reverse conversion could build a 112-byte `InvalidArgument`
+  document from a synthetic JSON 304. No XML read sent it.
+- **Deleting a nonempty bucket over gRPC** returns `FAILED_PRECONDITION` in
+  both Storage APIs. Only the former test oracle turned JSON's 409 into
+  `ALREADY_EXISTS`. Legacy conditional bucket writes keep their failed-condition
+  wording, and legacy anonymous bucket authorization names the refused permission.
 
 ## Module layers
 
@@ -468,7 +466,7 @@ A further split waits until after `1.0.0`:
   `Object`, `Resumable` and `Csek`. Session hash and metadata refusals use
   `SessionHeader` so XML can distinguish them from ordinary PUT header errors. The size test bounds `ServiceError` at 56
   bytes; both the object and resumable failures are boxed to meet that bound.
-- **JSON.** `ApiError` moves to `src/json/error.rs` with private fields. Its
+- **JSON.** `ApiError` lives in `src/json/error.rs` with private fields. Its
   status, reason, location, plain and HTML choices are made in the JSON
   mapping from the domain variant, reproducing today's constructor calls.
   `ErrorKind` variants that exist only for reverse mapping are deleted.

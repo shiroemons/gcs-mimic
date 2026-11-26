@@ -501,9 +501,9 @@ mod tests {
             ),
         ] {
             let error = ApiError::from(HmacKeyError::Catalog(cause));
-            assert_eq!(error.status, status);
-            assert_eq!(error.reason, reason);
-            assert!(error.message.starts_with(message), "{error:?}");
+            assert_eq!(error.status(), status);
+            assert_eq!(error.reason(), reason);
+            assert!(error.message().starts_with(message), "{error:?}");
         }
     }
 
@@ -608,13 +608,13 @@ mod tests {
                     .unwrap()
                     .unwrap_err();
                 assert_eq!(
-                    error.status,
+                    error.status(),
                     StatusCode::METHOD_NOT_ALLOWED,
                     "{method} {path}"
                 );
-                assert_eq!(error.allow, Some(allow), "{method} {path}");
+                assert_eq!(error.allow(), Some(allow), "{method} {path}");
                 assert_eq!(
-                    error.message,
+                    error.message(),
                     "HTTP method is not supported for this project endpoint"
                 );
             }
@@ -624,19 +624,19 @@ mod tests {
     #[test]
     fn rejects_invalid_methods_and_queries() {
         let error = route(Method::PATCH, "/storage/v1/projects/p/hmacKeys/a").unwrap_err();
-        assert_eq!(error.status, StatusCode::METHOD_NOT_ALLOWED);
-        assert_eq!(error.allow, Some("GET, DELETE, PUT"));
+        assert_eq!(error.status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(error.allow(), Some("GET, DELETE, PUT"));
         let error = route(Method::POST, "/storage/v1/projects/p/serviceAccount").unwrap_err();
-        assert_eq!(error.allow, Some("GET"));
+        assert_eq!(error.allow(), Some("GET"));
         let error = route(Method::POST, "/storage/v1/projects/p/hmacKeys").unwrap_err();
-        assert_eq!(error.reason, "required");
+        assert_eq!(error.reason(), "required");
         for path in [
             "/storage/v1/projects/p/hmacKeys?serviceAccountEmail=no-at",
             "/storage/v1/projects/p/hmacKeys?serviceAccountEmail=a%40b%40c",
             "/storage/v1/projects/p/hmacKeys?serviceAccountEmail=%40b",
         ] {
             assert_eq!(
-                route(Method::POST, path).unwrap_err().reason,
+                route(Method::POST, path).unwrap_err().reason(),
                 "invalidParameter",
                 "{path}"
             );
@@ -653,7 +653,7 @@ mod tests {
                     &format!("/storage/v1/projects/p/hmacKeys?{query}")
                 )
                 .unwrap_err()
-                .reason,
+                .reason(),
                 "invalidParameter",
                 "{query}"
             );
@@ -677,7 +677,8 @@ mod tests {
             assert!(route(Method::GET, path).is_ok(), "{path}");
             let error = route_in(CompatProfile::FakeGcsServer, Method::GET, path).unwrap_err();
             assert_eq!(
-                error.message, "Unknown query parameter for this method: gcsmimicUnknown",
+                error.message(),
+                "Unknown query parameter for this method: gcsmimicUnknown",
                 "{path}"
             );
         }
@@ -687,7 +688,7 @@ mod tests {
                 "/storage/v1/projects/p/serviceAccount?callback=p"
             )
             .unwrap_err()
-            .reason,
+            .reason(),
             "badRequest"
         );
         assert!(
@@ -760,7 +761,7 @@ mod tests {
             (br#"{"#, "parseError"),
         ] {
             assert_eq!(
-                parse_hmac_key_update(body).unwrap_err().reason,
+                parse_hmac_key_update(body).unwrap_err().reason(),
                 reason,
                 "{}",
                 String::from_utf8_lossy(body)

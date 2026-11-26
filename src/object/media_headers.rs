@@ -117,7 +117,7 @@ mod tests {
         let source = std::error::Error::source(&error).expect("stored header error has a source");
         assert!(source.is::<hyper::header::InvalidHeaderValue>());
         assert_eq!(
-            crate::api_error::ApiError::from(error).status,
+            crate::ApiError::from(error).status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
     }

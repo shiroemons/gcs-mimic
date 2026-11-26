@@ -13,8 +13,7 @@ use super::{
     retention_access, validate_bodyless_post,
 };
 use crate::{
-    api_error::ApiError,
-    auth,
+    ApiError, auth,
     bucket::{BucketAccess, CatalogError},
     csek::CustomerKey,
     http_header::{TextError, TextOrder},

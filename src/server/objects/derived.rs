@@ -3,8 +3,7 @@
 use super::{AclSource, Written, idempotency_token};
 use crate::server::RequestBody as Incoming;
 use crate::{
-    api_error::ApiError,
-    auth,
+    ApiError, auth,
     bucket::BucketAccess,
     csek::{CopyKeys, CustomerKey},
     json,
@@ -260,7 +259,7 @@ pub(super) async fn compose(
         .await
         .map_err(|error| {
             let error = ApiError::from(error);
-            if error.status == hyper::StatusCode::PRECONDITION_FAILED {
+            if error.status() == hyper::StatusCode::PRECONDITION_FAILED {
                 error.at_if_match()
             } else {
                 error

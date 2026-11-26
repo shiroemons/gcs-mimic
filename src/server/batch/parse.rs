@@ -1,5 +1,5 @@
 use super::{Part, RequestBody, invalid};
-use crate::api_error::ApiError;
+use crate::ApiError;
 use crate::http_header::{TextError, TextOrder, sole};
 use crate::multipart::Delimiter;
 use http_body_util::Full;
@@ -363,7 +363,7 @@ mod tests {
         headers.append("content-type", HeaderValue::from_bytes(&[0xff]).unwrap());
         headers.append("content-type", HeaderValue::from_static("application/http"));
         assert_eq!(
-            single(&headers, "content-type").unwrap_err().message,
+            single(&headers, "content-type").unwrap_err().message(),
             "Duplicate batch framing header"
         );
     }
@@ -377,7 +377,7 @@ mod tests {
             None,
             "http://localhost",
         )
-        .unwrap_or_else(|error| panic!("{}", error.message));
+        .unwrap_or_else(|error| panic!("{}", error.message()));
         let mut bodies = Vec::new();
         for part in parts {
             let RequestBody::Buffered(body) = part.request.into_body() else {

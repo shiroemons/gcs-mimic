@@ -285,7 +285,7 @@ fn duplicate_field_scan_handles_escaped_keys_nested_objects_and_truncated_string
         r#"{"key":"escaped\""#,
     ] {
         let error = validate_duplicate_fields(input.as_bytes()).unwrap_err();
-        assert_eq!(error.status, hyper::StatusCode::BAD_REQUEST, "{input}");
+        assert_eq!(error.status(), hyper::StatusCode::BAD_REQUEST, "{input}");
     }
 }
 

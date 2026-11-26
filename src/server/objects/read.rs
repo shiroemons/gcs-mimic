@@ -4,7 +4,7 @@ use crate::json::JsonErrorResponse;
 use crate::server::RequestBody as Incoming;
 use crate::storage::ObjectReader;
 use crate::{
-    api_error::ApiError,
+    ApiError,
     bucket::BucketAccess,
     json,
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},

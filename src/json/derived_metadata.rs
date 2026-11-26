@@ -180,9 +180,9 @@ mod tests {
                 crate::config::CompatProfile::Native,
             )
             .unwrap_err();
-            assert_eq!(error.status.as_u16(), 400, "{class}");
-            assert_eq!(error.reason, reason, "{class}");
-            assert_eq!(error.message, message, "{class}");
+            assert_eq!(error.status().as_u16(), 400, "{class}");
+            assert_eq!(error.reason(), reason, "{class}");
+            assert_eq!(error.message(), message, "{class}");
         }
     }
 
@@ -223,9 +223,9 @@ mod tests {
                 snapshots.push(serde_json::json!([
                     caller,
                     class,
-                    error.status.as_u16(),
-                    error.reason,
-                    error.message
+                    error.status().as_u16(),
+                    error.reason(),
+                    error.message()
                 ]));
             }
         }
@@ -444,7 +444,7 @@ mod tests {
         assert_eq!(destination.content_language, None);
         // A non-JSON blank byte is still malformed.
         assert_eq!(
-            derived_metadata(b"\x0c", &source).unwrap_err().reason,
+            derived_metadata(b"\x0c", &source).unwrap_err().reason(),
             "invalid"
         );
     }
@@ -489,14 +489,14 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(
-            (error.status.as_u16(), error.reason, error.message.as_str()),
+            (error.status().as_u16(), error.reason(), error.message()),
             (400, "required", "You must specify an object name.")
         );
         // Other output-only fields keep their unsupported-setting answer.
         assert_eq!(
             derived_metadata(br#"{"timeCreated":"2000-01-01T00:00:00Z"}"#, &source)
                 .unwrap_err()
-                .reason,
+                .reason(),
             "badRequest"
         );
     }

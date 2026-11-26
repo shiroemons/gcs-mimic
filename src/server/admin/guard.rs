@@ -1,7 +1,7 @@
 //! Management is for local tools; page-initiated requests must never reach mutations.
 
 use crate::{
-    api_error::ApiError,
+    ApiError,
     config::{Config, EndpointSnapshot},
     server::{RequestBody, RequestCtx, browser, host},
     url::PublicOrigin,
@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(request_host(&request).unwrap().as_deref(), Some("gcs"));
         request.headers_mut().append("host", "gcs".parse().unwrap());
         assert_eq!(
-            request_host(&request).unwrap_err().status,
+            request_host(&request).unwrap_err().status(),
             StatusCode::BAD_REQUEST
         );
     }
@@ -171,7 +171,7 @@ mod tests {
             assert_eq!(
                 browser_or_misdirected(&request, ctx)
                     .err()
-                    .map(|error| error.status),
+                    .map(|error| error.status()),
                 expected,
                 "{host}"
             );

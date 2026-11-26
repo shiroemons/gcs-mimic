@@ -206,7 +206,7 @@ fn parse_etag(raw: &str) -> Result<Option<String>, ApiError> {
     )
     .ok_or_else(|| {
         invalid(format!("Invalid value for ByteString: {raw}"))
-            .at(&crate::api_error::POLICY_ETAG_FIELD)
+            .at(&crate::json::error::POLICY_ETAG_FIELD)
     })?;
     Ok(Some(base64(&decoded)))
 }
@@ -245,8 +245,8 @@ mod tests {
             ),
         ] {
             let error = parse_policy(body.to_string().as_bytes()).unwrap_err();
-            assert_eq!(error.status.as_u16(), status);
-            assert_eq!(error.message, message);
+            assert_eq!(error.status().as_u16(), status);
+            assert_eq!(error.message(), message);
         }
         let policy = parse_policy(br#"{"version":3,"bindings":[],"etag":"AA=="}"#).unwrap();
         assert_eq!(policy.etag.as_deref(), Some("AA=="));
@@ -266,8 +266,11 @@ mod tests {
         assert_eq!(parse_etag("CAF=").unwrap().as_deref(), Some("CAE="));
         assert_eq!(parse_etag("CAE").unwrap().as_deref(), Some("CAE="));
         let error = parse_etag("!!!").unwrap_err();
-        assert_eq!(error.message, "Invalid value for ByteString: !!!");
-        assert_eq!(error.location, Some(&crate::api_error::POLICY_ETAG_FIELD));
+        assert_eq!(error.message(), "Invalid value for ByteString: !!!");
+        assert_eq!(
+            error.location(),
+            Some(&crate::json::error::POLICY_ETAG_FIELD)
+        );
     }
 
     #[test]

@@ -4,7 +4,7 @@ use crate::storage::test_fixtures::{body, publication, seed_bucket};
 use crate::test_support::{TestDir, eventually_async};
 use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
-    api_error::ApiError,
+    ApiError,
     clock::{Clock, ManualClock},
     json::resumable_cancel::{Cancellation, cancel_response},
     storage::{Catalog, ResumableError, SessionState},

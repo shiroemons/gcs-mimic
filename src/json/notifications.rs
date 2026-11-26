@@ -473,7 +473,7 @@ mod tests {
         ] {
             let error = routed(method, path).unwrap().unwrap_err();
             assert_eq!(
-                (error.status, error.allow),
+                (error.status(), error.allow()),
                 (StatusCode::METHOD_NOT_ALLOWED, Some(allow))
             );
         }
@@ -501,7 +501,7 @@ mod tests {
         ] {
             let error = routed(Method::GET, path).unwrap().unwrap_err();
             assert_eq!(
-                (error.status.as_u16(), error.reason),
+                (error.status().as_u16(), error.reason()),
                 (status, reason),
                 "{path}"
             );
@@ -536,7 +536,7 @@ mod tests {
             let error = route(&Method::GET, &uri(path), profile)
                 .unwrap()
                 .unwrap_err();
-            assert_eq!(error.reason, "badRequest", "{profile:?}");
+            assert_eq!(error.reason(), "badRequest", "{profile:?}");
         }
     }
 
@@ -620,7 +620,7 @@ mod tests {
         ] {
             let error = parse_notification(body).unwrap_err();
             assert_eq!(
-                (error.status, error.reason),
+                (error.status(), error.reason()),
                 (StatusCode::BAD_REQUEST, reason),
                 "{}",
                 String::from_utf8_lossy(body)
@@ -680,9 +680,9 @@ mod topic_check_tests {
             TopicCheckError::Unreachable(std::io::Error::other("timed out")),
         ] {
             let mapped = topic_unverifiable(&error);
-            assert_eq!(mapped.status, StatusCode::SERVICE_UNAVAILABLE);
-            assert_eq!(mapped.reason, "backendError");
-            assert!(!mapped.message.contains("timed out"));
+            assert_eq!(mapped.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(mapped.reason(), "backendError");
+            assert!(!mapped.message().contains("timed out"));
         }
     }
 

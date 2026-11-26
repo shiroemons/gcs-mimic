@@ -1,25 +1,23 @@
-//! Pins the JSON API's answer to every error the shared error is built from: the status, each
+//! Pins the JSON API's answer to the domain errors and JSON response constructors: the status, each
 //! header in the order it is sent and the exact body. An error is also rendered as each route
 //! that rewords it sends it: an object route names its object and a media download answers some
 //! errors with an HTML page, an anonymous caller gets 401 for a refusal, and the fake-gcs-server
 //! bucket routes change reasons, messages and the body's framing.
 //!
-//! The domain cases and the constructors are shared with the XML and Storage v2 goldens; the
-//! conversions that live in the JSON adapter add their cases here. See
-//! [`crate::api_error::test_support`] for regenerating the golden file.
+//! Domain fixtures are shared across protocols; the constructor cases exercise JSON response choices.
 
-use super::{JsonErrorResponse, parse_error};
+mod constructors;
+
+use super::{ApiError, JsonErrorResponse, parse_error};
 use crate::{
-    api_error::{
-        ApiError,
-        test_support::{KindCoverage, Transcript, constructor_cases, http_response},
-    },
     auth::Caller,
     config::CompatProfile,
+    error::golden_tests::{Transcript, http_response},
     json::{ResponseFormat, with_format},
     server::{anonymous_error, bucket_answer},
     storage::failure::test_support::{self as domain, Case, case, every_variant},
 };
+use constructors::{KindCoverage, constructor_cases};
 
 const GOLDEN: &str = "src/json/error/golden_tests/responses.txt";
 
@@ -406,17 +404,17 @@ async fn every_error_keeps_its_json_response() {
     golden
         .section("ApiError", constructor_cases(), Routes::All)
         .await;
-    for (label, error) in crate::api_error::test_support::bucket_service_errors() {
+    for (label, error) in crate::error::golden_tests::bucket_service_errors() {
         golden.transcript.case("bucket", label);
         golden.transcript.render(
             "response",
             http_response(ApiError::from(error).into_response()).await,
         );
     }
-    for (label, error) in crate::api_error::test_support::upload::cases()
+    for (label, error) in crate::error::golden_tests::upload::cases()
         .await
         .into_iter()
-        .chain(crate::api_error::test_support::upload::hash_cases())
+        .chain(crate::error::golden_tests::upload::hash_cases())
     {
         golden.transcript.case("upload", label);
         golden.transcript.render(

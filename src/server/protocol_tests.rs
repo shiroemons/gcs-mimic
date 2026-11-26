@@ -62,8 +62,8 @@ fn bodiless_json_methods_accept_any_spelling_of_a_zero_length() {
             Ok(()) => assert!(accepted, "{name}: {value}"),
             Err(error) => {
                 assert!(!accepted, "{name}: {value}");
-                assert_eq!(error.status, StatusCode::BAD_REQUEST);
-                assert_eq!(error.message, "This method requires an empty body");
+                assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+                assert_eq!(error.message(), "This method requires an empty body");
             }
         }
     }

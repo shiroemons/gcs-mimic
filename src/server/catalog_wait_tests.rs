@@ -17,11 +17,10 @@ async fn expire(budget: TimeLimit, request: TimeLimit) -> BackendFailure {
     )
     .await;
     let error = result.expect_err("the operation never finishes");
-    assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
-    match error.kind {
-        crate::api_error::ErrorKind::Backend(failure) => failure,
-        other => panic!("expected a catalog wait timeout, got {other:?}"),
-    }
+    assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
+    error
+        .backend_failure()
+        .expect("expected a classified catalog wait timeout")
 }
 
 #[tokio::test(start_paused = true)]

@@ -5,7 +5,7 @@
 
 use super::{ObjectActivity, State, await_upload_catalog, bucket_access};
 use crate::{
-    api_error::ApiError,
+    ApiError,
     auth::{Caller, ListenerRole, signature::Resource},
     bucket::{BucketAccess, CatalogError},
     config::{ApiBaseSource, Config, RequestEndpoints},

@@ -6,7 +6,7 @@ use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
 };
 use crate::{
-    api_error::ApiError,
+    ApiError,
     auth::AuthFailure,
     json,
     notification::NotificationMode,
@@ -414,7 +414,7 @@ mod tests {
         let error = failure(AdminError::Busy {
             retry_after: Duration::from_secs(1),
         });
-        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
-        assert!(error.message.contains("catalog_wait_timeout_ms"));
+        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(error.message().contains("catalog_wait_timeout_ms"));
     }
 }

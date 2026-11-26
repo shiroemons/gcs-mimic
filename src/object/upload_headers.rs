@@ -235,7 +235,7 @@ mod tests {
             ("content-type", "text/html"),
         ]);
         assert_eq!(
-            crate::api_error::ApiError::from(content_type(&headers).unwrap_err()).status,
+            crate::ApiError::from(content_type(&headers).unwrap_err()).status(),
             StatusCode::BAD_REQUEST
         );
     }
@@ -291,7 +291,7 @@ mod tests {
         ] {
             let headers = header_map([("x-goog-hash", value)]);
             assert_eq!(
-                crate::api_error::ApiError::from(declared_hashes(&headers).unwrap_err()).status,
+                crate::ApiError::from(declared_hashes(&headers).unwrap_err()).status(),
                 StatusCode::BAD_REQUEST,
                 "{value}"
             );

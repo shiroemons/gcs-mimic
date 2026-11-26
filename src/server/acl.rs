@@ -6,8 +6,8 @@ use super::{
     read_metadata_response, require_empty_body,
 };
 use crate::{
+    ApiError,
     acl::{AclEntry, AclKind, AclOwner, AclTarget},
-    api_error::ApiError,
     auth::{self, Caller},
     bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError},
     json::{

@@ -1,5 +1,4 @@
 mod acl;
-mod api_error;
 pub mod auth;
 mod base64;
 mod bounded_body;
@@ -62,4 +61,4 @@ mod xml;
 /// one string.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub use api_error::ApiError;
+pub use json::ApiError;

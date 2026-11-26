@@ -377,16 +377,16 @@ mod tests {
         ] {
             let error = Fields::parse(selector, Schema::Object).unwrap_err();
             assert_eq!(
-                (error.status.as_u16(), error.reason),
+                (error.status().as_u16(), error.reason()),
                 (400, "invalidParameter"),
                 "{selector}"
             );
             // Syntax errors quote the selector; a rejected name is reported alone, at `fields`.
             assert!(
-                error.message.contains(selector)
-                    || error.location == crate::api_error::ErrorLocation::parameter("fields"),
+                error.message().contains(selector)
+                    || error.location() == crate::json::error::ErrorLocation::parameter("fields"),
                 "{}",
-                error.message
+                error.message()
             );
         }
         // A wildcard with a child is rejected with the whole expression (case bkt-edges-fields).
@@ -398,19 +398,19 @@ mod tests {
         ] {
             let error = Fields::parse(selector, schema).unwrap_err();
             assert_eq!(
-                (error.status.as_u16(), error.reason),
+                (error.status().as_u16(), error.reason()),
                 (400, "invalidParameter"),
                 "{selector}"
             );
             assert_eq!(
-                error.message,
+                error.message(),
                 format!(
                     "Leading and nested wildcards are unsupported in field selection: {selector}"
                 )
             );
             assert_eq!(
-                error.location,
-                crate::api_error::ErrorLocation::parameter("fields")
+                error.location(),
+                crate::json::error::ErrorLocation::parameter("fields")
             );
         }
         // Whitespace inside a name is an invalid selection where whitespace around one is
@@ -418,18 +418,18 @@ mod tests {
         for schema in [Schema::Object, Schema::Bucket] {
             let error = Fields::parse("na me", schema).unwrap_err();
             assert_eq!(
-                (error.status.as_u16(), error.reason, error.message.as_str()),
+                (error.status().as_u16(), error.reason(), error.message()),
                 (400, "invalidParameter", "Invalid field selection na me")
             );
             assert_eq!(
-                error.location,
-                crate::api_error::ErrorLocation::parameter("fields")
+                error.location(),
+                crate::json::error::ErrorLocation::parameter("fields")
             );
         }
         assert_eq!(
             Fields::parse("metadata/", Schema::Object)
                 .unwrap_err()
-                .message,
+                .message(),
             "Invalid field selection metadata/"
         );
     }
@@ -487,9 +487,9 @@ mod tests {
             .apply(&mut value);
         assert_eq!(value, json!({"name":"o"}));
         let error = Fields::parse("metadata(a", Schema::Object).unwrap_err();
-        assert_eq!(error.kind, crate::api_error::ErrorKind::FieldMaskSyntax);
+        assert_eq!(error.reason(), "invalidParameter");
         assert_eq!(
-            error.message,
+            error.message(),
             "Invalid FieldMask 'metadata(a'. Cannot find matching ')' for all '('."
         );
     }
@@ -634,7 +634,7 @@ mod tests {
         assert_eq!(
             Fields::parse(&(exact + "k"), Schema::Object)
                 .unwrap_err()
-                .status
+                .status()
                 .as_u16(),
             400
         );

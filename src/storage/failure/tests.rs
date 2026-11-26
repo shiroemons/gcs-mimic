@@ -293,7 +293,7 @@ fn backend_guidance_survives_changed_and_nested_contexts() {
         assert_eq!(cause.failure(), Some(BackendFailure::CatalogClosed));
         assert!(cause.source().is_some());
         assert_eq!(
-            crate::api_error::ApiError::from(ObjectError::Unavailable(cause)).message,
+            crate::ApiError::from(ObjectError::Unavailable(cause)).message(),
             guidance_failures()[0].1
         );
     }

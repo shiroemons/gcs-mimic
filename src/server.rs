@@ -1,6 +1,6 @@
 use crate::json::JsonErrorResponse;
 use crate::{
-    api_error::ApiError,
+    ApiError,
     auth::{self, Auth, Caller, ListenerRole},
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
@@ -1933,7 +1933,7 @@ pub(crate) fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
 }
 
 pub(crate) fn anonymous_error(error: ApiError, caller: Option<Caller<'_>>) -> ApiError {
-    if matches!(caller, Some(Caller::Anonymous)) && error.status == StatusCode::FORBIDDEN {
+    if matches!(caller, Some(Caller::Anonymous)) && error.status() == StatusCode::FORBIDDEN {
         error.for_anonymous_caller()
     } else {
         error

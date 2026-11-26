@@ -9,7 +9,7 @@ use super::{
 };
 use crate::json::JsonErrorResponse;
 use crate::{
-    api_error::ApiError,
+    ApiError,
     auth::ListenerRole,
     config::{Config, RequestEndpoints},
     json,
@@ -902,7 +902,7 @@ mod tests {
             .await
             .err()
             .unwrap()
-            .status,
+            .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
         assert!(!read.load(Ordering::Acquire));
@@ -953,9 +953,9 @@ mod tests {
             (parser_failed(), "Batch parser failed"),
             (parser_unavailable(), "Batch parser unavailable"),
         ] {
-            assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
-            assert_eq!(error.reason, "backendError");
-            assert_eq!(error.message, message);
+            assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(error.reason(), "backendError");
+            assert_eq!(error.message(), message);
         }
     }
 

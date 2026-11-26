@@ -1082,7 +1082,7 @@ mod tests {
             let mut headers = HeaderMap::new();
             headers.insert("content-type", value.parse().unwrap());
             assert_eq!(
-                crate::api_error::ApiError::from(multipart_boundary(&headers).unwrap_err()).status,
+                crate::ApiError::from(multipart_boundary(&headers).unwrap_err()).status(),
                 StatusCode::BAD_REQUEST,
                 "{value}"
             );

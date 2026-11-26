@@ -2,8 +2,8 @@
 
 use super::super::{Error, ErrorBody};
 use crate::{
-    api_error::test_support::{Transcript, http_response},
     auth::Caller,
+    error::golden_tests::{Transcript, http_response},
     object::name::InvalidObjectName,
     service::ServiceError,
     storage::failure::test_support::{self as domain, Case, case, copies, every_variant},
@@ -248,19 +248,19 @@ async fn every_error_keeps_its_xml_response() {
             )))),
         )
         .await;
-    for (label, error) in crate::api_error::test_support::bucket_service_errors() {
+    for (label, error) in crate::error::golden_tests::bucket_service_errors() {
         golden.transcript.case("bucket", label);
         golden
             .transcript
             .render("response", document(Error::from(error)).await);
     }
-    for (label, error) in crate::api_error::test_support::upload::cases().await {
+    for (label, error) in crate::error::golden_tests::upload::cases().await {
         golden.transcript.case("upload", label);
         golden
             .transcript
             .render("response", document(Error::from(error)).await);
     }
-    for &(label, value) in crate::api_error::test_support::upload::HASH_CASES {
+    for &(label, value) in crate::error::golden_tests::upload::HASH_CASES {
         let mut headers = hyper::HeaderMap::new();
         headers.insert(
             "x-goog-hash",

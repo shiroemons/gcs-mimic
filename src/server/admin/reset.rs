@@ -2,7 +2,7 @@
 
 use crate::json::JsonErrorResponse;
 use crate::{
-    api_error::ApiError,
+    ApiError,
     server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::AdminError,
 };

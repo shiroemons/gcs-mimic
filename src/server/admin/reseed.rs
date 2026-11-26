@@ -2,7 +2,7 @@
 
 use crate::json::JsonErrorResponse;
 use crate::{
-    api_error::ApiError,
+    ApiError,
     seed::SeedError,
     server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::AdminError,
@@ -264,13 +264,13 @@ mod tests {
         ] {
             let error = failure(&SeedError::Admin(cause));
             assert_eq!(
-                (error.status, error.reason, error.message.as_str()),
+                (error.status(), error.reason(), error.message()),
                 (status, reason, message)
             );
         }
         // A permission failure follows from the fixture tree and is a 400 below; others pass.
         let error = failure(&SeedError::Io(std::io::ErrorKind::Other.into()));
-        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     /// Limits and fixture content arrive wrapped in the entry that met them, and the startup
@@ -335,13 +335,17 @@ mod tests {
         ] {
             let reply = failure(&error);
             assert_eq!(
-                (reply.status, reply.reason),
+                (reply.status(), reply.reason()),
                 (StatusCode::BAD_REQUEST, "invalid"),
                 "{error}"
             );
-            assert!(reply.message.contains(names), "{error}: {}", reply.message);
-            assert!(!reply.message.contains("secret"), "{}", reply.message);
-            assert!(!reply.message.contains("private"), "{}", reply.message);
+            assert!(
+                reply.message().contains(names),
+                "{error}: {}",
+                reply.message()
+            );
+            assert!(!reply.message().contains("secret"), "{}", reply.message());
+            assert!(!reply.message().contains("private"), "{}", reply.message());
         }
     }
 
@@ -353,10 +357,14 @@ mod tests {
             source: Box::new(SeedError::Admin(AdminError::Forbidden)),
         });
         assert_eq!(
-            (reply.status, reply.reason),
+            (reply.status(), reply.reason()),
             (StatusCode::FORBIDDEN, "forbidden")
         );
-        assert!(!reply.message.contains("test-bucket"), "{}", reply.message);
+        assert!(
+            !reply.message().contains("test-bucket"),
+            "{}",
+            reply.message()
+        );
     }
 
     #[test]
@@ -383,7 +391,7 @@ mod tests {
             SeedError::Admin(AdminError::Closed),
         ] {
             assert_eq!(
-                failure(&error).status,
+                failure(&error).status(),
                 StatusCode::SERVICE_UNAVAILABLE,
                 "{error}"
             );
@@ -434,7 +442,7 @@ mod tests {
             error,
             SeedError::Admin(AdminError::SeedProjectMismatch)
         ));
-        assert_eq!(failure(&error).status, StatusCode::BAD_REQUEST);
+        assert_eq!(failure(&error).status(), StatusCode::BAD_REQUEST);
         drop(admin);
         catalog.close().await.unwrap();
     }

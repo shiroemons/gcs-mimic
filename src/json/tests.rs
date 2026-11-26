@@ -34,7 +34,11 @@ fn assert_query_boolean_spellings<T: std::fmt::Debug + PartialEq>(
         let parsed = parse(python);
         assert_eq!(parsed, parse(canonical), "{case}: {python}");
         if canonical == "true" && !supported {
-            assert_eq!(parsed.unwrap_err().reason, "badRequest", "{case}: {python}");
+            assert_eq!(
+                parsed.unwrap_err().reason(),
+                "badRequest",
+                "{case}: {python}"
+            );
         } else {
             parsed.unwrap_or_else(|error| panic!("{case}: {python}: {error:?}"));
         }
@@ -142,7 +146,7 @@ fn query_booleans_accept_only_lowercase_and_python_spellings() {
         assert_eq!(
             super::query::boolean(&mut query, "flag")
                 .unwrap_err()
-                .reason,
+                .reason(),
             "invalidParameter"
         );
     }
@@ -164,8 +168,8 @@ fn rejected_query_booleans_name_the_actual_parameter() {
     ] {
         let mut query = crate::percent::parse_query(&format!("{name}=invalid")).unwrap();
         let error = super::query::boolean(&mut query, name).unwrap_err();
-        assert_eq!(error.reason, "invalidParameter");
-        let location = error.location.unwrap();
+        assert_eq!(error.reason(), "invalidParameter");
+        let location = error.location().unwrap();
         assert_eq!(location.kind, "parameter");
         assert_eq!(location.name, name);
     }
@@ -201,7 +205,7 @@ fn bucket_query_booleans_keep_supported_and_unsupported_semantics() {
                 assert_eq!(
                     request(method.clone(), &format!("{path}{value}"))
                         .unwrap_err()
-                        .reason,
+                        .reason(),
                     "required"
                 );
             }
@@ -211,7 +215,7 @@ fn bucket_query_booleans_keep_supported_and_unsupported_semantics() {
             request(method.clone(), &format!("{path}{wire}"))
         });
         assert_eq!(
-            request(method, &format!("{path}yes")).unwrap_err().reason,
+            request(method, &format!("{path}yes")).unwrap_err().reason(),
             "invalidParameter"
         );
     }
@@ -278,7 +282,7 @@ fn object_and_project_query_booleans_use_the_same_parser() {
         let parse =
             |wire: &str| route_object(&method, &format!("{path}{wire}").parse().unwrap()).unwrap();
         assert_query_boolean_spellings(&format!("{method} {path}"), supported, parse);
-        assert_eq!(parse("1").unwrap_err().reason, "invalidParameter");
+        assert_eq!(parse("1").unwrap_err().reason(), "invalidParameter");
     }
     assert_query_boolean_spellings("showDeletedKeys", true, |wire| {
         route_project(
@@ -407,7 +411,7 @@ fn bkt_route_002_path_decodes_only_after_splitting() {
         "%2e%2e%2fabc",
     ] {
         let error = request(Method::GET, &format!("/storage/v1/b/{path}")).unwrap_err();
-        assert_eq!(error.status, StatusCode::BAD_REQUEST, "{path}");
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{path}");
     }
 }
 
@@ -439,8 +443,8 @@ fn bkt_route_003_wrong_method_has_allow_header() {
                 continue;
             }
             let error = request(method, path).unwrap_err();
-            assert_eq!(error.status, StatusCode::METHOD_NOT_ALLOWED);
-            assert_eq!(error.reason, "methodNotAllowed");
+            assert_eq!(error.status(), StatusCode::METHOD_NOT_ALLOWED);
+            assert_eq!(error.reason(), "methodNotAllowed");
             assert_eq!(error.into_response().headers()[header::ALLOW], allow);
         }
     }
@@ -458,7 +462,7 @@ fn bkt_qry_001_duplicate_unknown_and_misplaced_parameters() {
         assert_eq!(
             request(Method::GET, &format!("/storage/v1/b?{query}"))
                 .unwrap_err()
-                .reason,
+                .reason(),
             "invalidParameter",
             "{query}"
         );
@@ -525,11 +529,11 @@ fn api_key_parameter_is_accepted_and_ignored_on_bucket_routes() {
             let error =
                 request(method.clone(), &format!("{path}&key=value&{parameter}=")).unwrap_err();
             assert_eq!(
-                error.status,
+                error.status(),
                 StatusCode::BAD_REQUEST,
                 "{method} {parameter}"
             );
-            assert!(error.message.contains(parameter));
+            assert!(error.message().contains(parameter));
         }
     }
 }
@@ -551,11 +555,11 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             }
             let error = request(method.clone(), &format!("{path}&{parameter}=")).unwrap_err();
             assert_eq!(
-                error.status,
+                error.status(),
                 StatusCode::BAD_REQUEST,
                 "{method} {parameter}"
             );
-            assert!(error.message.contains(parameter));
+            assert!(error.message().contains(parameter));
         }
     }
     for parameter in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
@@ -572,12 +576,12 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             (
                 BucketAclWrite::Update,
                 CompatProfile::FakeGcsServer,
-                ApiError::unsupported(parameter).reason,
+                ApiError::unsupported(parameter).reason(),
             ),
             (
                 BucketAclWrite::Insert,
                 CompatProfile::Native,
-                ApiError::unsupported(parameter).reason,
+                ApiError::unsupported(parameter).reason(),
             ),
         ] {
             assert_eq!(
@@ -588,7 +592,7 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
                     profile,
                 )
                 .unwrap_err()
-                .reason,
+                .reason(),
                 expected
             );
         }
@@ -608,7 +612,7 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
                 CompatProfile::Native,
             )
             .unwrap_err()
-            .reason,
+            .reason(),
             "invalid"
         );
     }
@@ -618,7 +622,7 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             "/storage/v1/b?project=p&enableObjectRetention=yes"
         )
         .unwrap_err()
-        .reason,
+        .reason(),
         "invalidParameter"
     );
     for (path, reason) in [
@@ -639,7 +643,7 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
     ] {
         let error = request(Method::GET, path).unwrap_err();
         assert_eq!(
-            (error.status, error.reason),
+            (error.status(), error.reason()),
             (StatusCode::BAD_REQUEST, reason),
             "{path}"
         );
@@ -673,7 +677,11 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             "invalidParameter",
         ),
     ] {
-        assert_eq!(request(method, path).unwrap_err().reason, reason, "{path}");
+        assert_eq!(
+            request(method, path).unwrap_err().reason(),
+            reason,
+            "{path}"
+        );
     }
     assert_eq!(
         request(
@@ -703,7 +711,7 @@ fn bkt_qry_002_required_project_and_limits() {
             assert_eq!(
                 request(method.clone(), &format!("/storage/v1/b{query}"))
                     .unwrap_err()
-                    .status,
+                    .status(),
                 StatusCode::BAD_REQUEST
             );
         }
@@ -758,7 +766,7 @@ fn bkt_qry_002_projection_alt_and_boolean_validation() {
             assert_eq!(
                 request(method.clone(), &format!("{path}&projection={value}"))
                     .unwrap_err()
-                    .status,
+                    .status(),
                 StatusCode::BAD_REQUEST
             );
         }
@@ -781,14 +789,14 @@ fn bkt_qry_002_projection_alt_and_boolean_validation() {
         assert_eq!(
             request(Method::GET, &format!("/storage/v1/b?project=p&{query}"))
                 .unwrap_err()
-                .reason,
+                .reason(),
             reason
         );
     }
     assert_eq!(
         request(Method::GET, "/storage/v1/b?project=p&alt=media")
             .unwrap_err()
-            .status,
+            .status(),
         StatusCode::BAD_REQUEST
     );
     // prettyPrint only selects the body layout, which the routing layer applies.
@@ -820,7 +828,7 @@ fn bkt_get_002_and_del_002_signed_conditions() {
                 assert_eq!(
                     request(method.clone(), &format!("/storage/v1/b/abc?{key}={value}"))
                         .unwrap_err()
-                        .status,
+                        .status(),
                     StatusCode::BAD_REQUEST
                 );
             }
@@ -847,7 +855,7 @@ fn bucket_and_default_acl_queries_share_conditions_and_failure_order() {
     assert_eq!(conditions.if_metageneration_not_match, Some(i64::MAX));
     let invalid = "ifMetagenerationNotMatch=bogus&ifMetagenerationMatch=%2B1";
     let error = acl(invalid).unwrap_err();
-    assert_eq!(error.message, "ifMetagenerationMatch must be an int64");
+    assert_eq!(error.message(), "ifMetagenerationMatch must be an int64");
     assert_eq!(
         error,
         request(Method::GET, &format!("/storage/v1/b/abc?{invalid}")).unwrap_err()
@@ -920,7 +928,7 @@ fn bkt_lst_001_max_results_defaults_bounds_and_clamping() {
                 &format!("/storage/v1/b?project=p&maxResults={value}")
             )
             .unwrap_err()
-            .status,
+            .status(),
             StatusCode::BAD_REQUEST
         );
     }
@@ -1031,7 +1039,7 @@ fn bucket_updates_name_each_versioning_change() {
         (r#"{"versioning":true}"#, "versioning must be an object"),
     ] {
         for replace in [false, true] {
-            assert_eq!(parse(body, Native, replace).unwrap_err().message, message);
+            assert_eq!(parse(body, Native, replace).unwrap_err().message(), message);
         }
     }
     // An insert stores what `enabled` names; anything but a boolean leaves it unset.
@@ -1146,16 +1154,16 @@ fn bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields() {
         assert_eq!(
             parse_insert(body.as_bytes(), "p", UNIX_EPOCH)
                 .unwrap_err()
-                .reason,
+                .reason(),
             "invalid"
         );
     }
     assert_eq!(
-        parse_insert(b"{}", "p", UNIX_EPOCH).unwrap_err().reason,
+        parse_insert(b"{}", "p", UNIX_EPOCH).unwrap_err().reason(),
         "required"
     );
     assert_eq!(
-        request(Method::GET, "/storage/v1/b").unwrap_err().reason,
+        request(Method::GET, "/storage/v1/b").unwrap_err().reason(),
         "required"
     );
     for body in [
@@ -1174,7 +1182,7 @@ fn bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields() {
         assert_eq!(
             parse_insert(body.as_bytes(), "p", UNIX_EPOCH)
                 .unwrap_err()
-                .reason,
+                .reason(),
             "invalid",
             "{body}"
         );
@@ -1182,7 +1190,7 @@ fn bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields() {
     assert_eq!(
         parse_insert(br#"{"name":"abc"}"#, "", UNIX_EPOCH)
             .unwrap_err()
-            .reason,
+            .reason(),
         "invalidParameter"
     );
 }
@@ -1203,8 +1211,8 @@ fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
                     value
                 };
             let error = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap_err();
-            assert_eq!(error.status, StatusCode::BAD_REQUEST, "{field}");
-            assert!(error.message.contains(field));
+            assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{field}");
+            assert!(error.message().contains(field));
         }
     }
 }
@@ -1231,7 +1239,7 @@ fn rpo_insert_restates_only_the_default_and_an_update_names_its_objective() {
     }
     for value in [json!("BOGUS"), json!(1)] {
         assert!(
-            patch(value.clone()).unwrap_err().message.contains("rpo"),
+            patch(value.clone()).unwrap_err().message().contains("rpo"),
             "{value}"
         );
     }
@@ -1391,10 +1399,10 @@ fn bkt_ins_003_location_and_storage_class_subset() {
     ] {
         let body = json!({"name":"abc", "location":location});
         let error = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap_err();
-        assert_eq!(error.status, StatusCode::BAD_REQUEST);
-        assert_eq!(error.reason, "invalid");
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.reason(), "invalid");
         assert_eq!(
-            error.message,
+            error.message(),
             "The specified location constraint is not valid."
         );
     }
@@ -1403,7 +1411,7 @@ fn bkt_ins_003_location_and_storage_class_subset() {
         assert_eq!(
             parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH)
                 .unwrap_err()
-                .reason,
+                .reason(),
             "invalid"
         );
     }
@@ -1411,7 +1419,7 @@ fn bkt_ins_003_location_and_storage_class_subset() {
     assert_eq!(
         parse_insert(rapid.to_string().as_bytes(), "p", UNIX_EPOCH)
             .unwrap_err()
-            .status,
+            .status(),
         StatusCode::BAD_REQUEST
     );
     // The catalog checks a class against the location; parsing keeps the legacy class.
@@ -1467,8 +1475,8 @@ fn bucket_location_defaults_and_unsupported_placement() {
         let body = json!({"name":"abc", "customPlacementConfig":placement});
         let error = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap_err();
         assert_eq!(
-            error.reason,
-            ApiError::unsupported("customPlacementConfig").reason
+            error.reason(),
+            ApiError::unsupported("customPlacementConfig").reason()
         );
     }
 }
@@ -1620,7 +1628,7 @@ fn bkt_id_001_utc_milliseconds_leap_century_and_range() {
         assert_eq!(
             parse_insert(br#"{"name":"abc"}"#, "p", time)
                 .unwrap_err()
-                .status,
+                .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
         let mut bucket = record();
@@ -1653,7 +1661,7 @@ fn http_dates_render_calendar_fields_and_refuse_out_of_range_times() {
         UNIX_EPOCH + Duration::from_secs(253_402_300_800),
     ] {
         assert_eq!(
-            ApiError::from(http_date(time).unwrap_err()).status,
+            ApiError::from(http_date(time).unwrap_err()).status(),
             StatusCode::SERVICE_UNAVAILABLE,
             "{time:?}"
         );
@@ -1829,7 +1837,7 @@ fn bkt_lst_002_token_tampering_and_invalid_shapes() {
         "a".repeat(4097),
     ] {
         assert_eq!(
-            ApiError::from(decode_page_token(&invalid, "p", "").unwrap_err()).reason,
+            ApiError::from(decode_page_token(&invalid, "p", "").unwrap_err()).reason(),
             "invalidParameter"
         );
     }
@@ -1864,8 +1872,8 @@ async fn bkt_err_001_envelope_content_type_and_catalog_mappings() {
         ),
     ] {
         let error = ApiError::from(catalog);
-        assert_eq!(error.status, status);
-        assert_eq!(error.reason, reason);
+        assert_eq!(error.status(), status);
+        assert_eq!(error.reason(), reason);
         let response = error.into_response();
         assert_eq!(response.status(), status);
         assert_eq!(
@@ -1891,7 +1899,7 @@ async fn bkt_err_001_envelope_content_type_and_catalog_mappings() {
     let error = ApiError::invalid_argument("a \"quoted\" message\nline");
     assert_eq!(
         serde_json::from_str::<Value>(&error.value().to_string()).unwrap()["error"]["message"],
-        error.message
+        error.message()
     );
 }
 
@@ -1946,8 +1954,8 @@ async fn bkt_body_001_rejects_oversize_and_read_errors() {
                 .await
                 .unwrap_err(),
         );
-        assert_eq!(error.status, StatusCode::PAYLOAD_TOO_LARGE);
-        assert_eq!(error.reason, "uploadTooLarge");
+        assert_eq!(error.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(error.reason(), "uploadTooLarge");
     }
     let frames = Frames {
         frames: [
@@ -1958,7 +1966,7 @@ async fn bkt_body_001_rejects_oversize_and_read_errors() {
         .into(),
     };
     assert_eq!(
-        ApiError::from(read_body(frames, 4).await.unwrap_err()).status,
+        ApiError::from(read_body(frames, 4).await.unwrap_err()).status(),
         StatusCode::PAYLOAD_TOO_LARGE
     );
     let frames = Frames {
@@ -1969,7 +1977,7 @@ async fn bkt_body_001_rejects_oversize_and_read_errors() {
         .into(),
     };
     assert_eq!(
-        ApiError::from(read_body(frames, 4).await.unwrap_err()).reason,
+        ApiError::from(read_body(frames, 4).await.unwrap_err()).reason(),
         "badRequest"
     );
 }

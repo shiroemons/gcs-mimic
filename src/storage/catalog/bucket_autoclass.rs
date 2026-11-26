@@ -114,7 +114,7 @@ pub(crate) fn object_storage_class(
 mod tests {
     use super::*;
     use crate::{
-        api_error::ApiError,
+        ApiError,
         bucket::{BucketConditions, lifecycle::BucketLifecycle},
         storage::{
             Catalog,
@@ -133,7 +133,7 @@ mod tests {
         // Requested rules are validated where they are parsed.
         let error = LifecycleRules::from_values(&invalid).unwrap_err();
         assert!(matches!(error, CatalogError::Metadata(_)));
-        assert_eq!(ApiError::from(error).status, StatusCode::BAD_REQUEST);
+        assert_eq!(ApiError::from(error).status(), StatusCode::BAD_REQUEST);
         let error = crate::json::parse_bucket_patch(
             json!({"lifecycle":{"rule":invalid}, "defaultEventBasedHold":true})
                 .to_string()
@@ -141,13 +141,13 @@ mod tests {
             crate::config::CompatProfile::Native,
         )
         .unwrap_err();
-        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
         // A library caller passing back unreadable stored rules gets the same input error.
         let mut record = bucket("lifecycle-bucket", "project");
         record.lifecycle = BucketLifecycle::from_stored(invalid.clone());
         let error = catalog.insert_bucket(record.clone()).await.unwrap_err();
         assert!(matches!(error, CatalogError::Metadata(_)));
-        assert_eq!(ApiError::from(error).status, StatusCode::BAD_REQUEST);
+        assert_eq!(ApiError::from(error).status(), StatusCode::BAD_REQUEST);
         assert!(
             catalog
                 .get_bucket(&record.name, PERMISSIVE)
@@ -187,7 +187,7 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, CatalogError::Corrupt(_)));
         assert_eq!(
-            ApiError::from(error).status,
+            ApiError::from(error).status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
         // The bucket stays readable, with its rules as stored.

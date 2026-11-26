@@ -5,8 +5,7 @@
 
 use crate::json::JsonErrorResponse;
 use crate::{
-    api_error::ApiError,
-    json,
+    ApiError, json,
     server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::{AdminError, BucketName, InvalidBucketName, PurgeError},
 };
@@ -141,13 +140,13 @@ mod tests {
         ] {
             let error = bucket(path).unwrap_err();
             assert_eq!(
-                (error.status, error.reason),
+                (error.status(), error.reason()),
                 (StatusCode::BAD_REQUEST, "invalidParameter"),
                 "{path}"
             );
         }
         let long = format!("/_internal/buckets/{}", "a".repeat(3 * 222 + 1));
-        assert_eq!(bucket(&long).unwrap_err().status, StatusCode::BAD_REQUEST);
+        assert_eq!(bucket(&long).unwrap_err().status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]
@@ -205,7 +204,7 @@ mod tests {
             let label = format!("{error:?}");
             let answer = failure(&error);
             assert_eq!(
-                (answer.status, answer.reason, answer.message.as_str()),
+                (answer.status(), answer.reason(), answer.message()),
                 expected,
                 "{label}"
             );

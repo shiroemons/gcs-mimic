@@ -5,7 +5,7 @@ use super::{
 };
 use crate::json::JsonErrorResponse;
 use crate::{
-    api_error::ApiError,
+    ApiError,
     bucket::BucketAccess,
     input::InputError,
     json::{
@@ -847,12 +847,14 @@ mod tests {
 
     // Checks completion before awaiting: an idle paused runtime would otherwise
     // auto-advance to whichever later deadline is pending.
-    async fn timed_out(task: JoinHandle<Result<(), ApiError>>) -> crate::api_error::ErrorKind {
+    async fn timed_out(task: JoinHandle<Result<(), ApiError>>) -> BackendFailure {
         settle().await;
         assert!(task.is_finished());
         let error = task.await.unwrap().unwrap_err();
-        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
-        error.kind
+        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
+        error
+            .backend_failure()
+            .expect("expected a classified upload timeout")
     }
 
     #[tokio::test(start_paused = true)]
@@ -871,7 +873,7 @@ mod tests {
         advance(Duration::from_millis(1)).await;
         assert!(matches!(
             timed_out(task).await,
-            crate::api_error::ErrorKind::Backend(BackendFailure::FinalizationTimeout)
+            BackendFailure::FinalizationTimeout
         ));
     }
 
@@ -884,7 +886,7 @@ mod tests {
         advance(Duration::from_millis(1)).await;
         assert!(matches!(
             timed_out(task).await,
-            crate::api_error::ErrorKind::Backend(BackendFailure::UploadWaitTimeout)
+            BackendFailure::UploadWaitTimeout
         ));
     }
 
@@ -898,7 +900,7 @@ mod tests {
         advance(Duration::from_millis(1)).await;
         assert!(matches!(
             timed_out(task).await,
-            crate::api_error::ErrorKind::Backend(BackendFailure::FinalizationTimeout)
+            BackendFailure::FinalizationTimeout
         ));
     }
 
@@ -917,7 +919,7 @@ mod tests {
         advance(Duration::from_millis(1)).await;
         assert!(matches!(
             timed_out(task).await,
-            crate::api_error::ErrorKind::Backend(BackendFailure::UploadWaitTimeout)
+            BackendFailure::UploadWaitTimeout
         ));
     }
 
