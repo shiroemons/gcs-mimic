@@ -577,6 +577,9 @@ async fn publication_batch_isolates_failed_elements_and_cleans_unused_blobs() {
     let mut b = entry(&admin, &dir.0, "exists", b"b").await;
     b.request.condition = Some(GenerationCondition::Absent);
     let c = entry(&admin, &dir.0, "c", b"c").await;
+    let (writes, reads) = catalog.job_counts();
+    let files = &catalog.0.file_workers.submitted;
+    let submitted = files.load(std::sync::atomic::Ordering::Relaxed);
     let result = admin
         .publish_objects_with_budget(vec![a, b, c], Duration::from_secs(1))
         .await
@@ -585,6 +588,12 @@ async fn publication_batch_isolates_failed_elements_and_cleans_unused_blobs() {
     assert_eq!(result.results[1], Err(AdminError::Precondition));
     assert!(result.results[2].is_ok());
     assert!(result.unattempted.is_empty());
+    // One commit and three draft publications precede cleanup of the three attempted entries.
+    assert_eq!(catalog.job_counts(), (writes + 1 + 3, reads));
+    assert_eq!(
+        files.load(std::sync::atomic::Ordering::Relaxed),
+        submitted + 3 + 3
+    );
     assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
     assert_eq!(blob_count(&dir.0), 3);
     assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);

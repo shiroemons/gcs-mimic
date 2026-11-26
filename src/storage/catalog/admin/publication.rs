@@ -58,6 +58,8 @@ fn without_job(error: &TrySendError<FileJob>) -> TrySendError<()> {
 }
 
 pub(crate) struct FileWorkers {
+    #[cfg(test)]
+    submitted: std::sync::atomic::AtomicUsize,
     sender: std::sync::mpsc::SyncSender<FileJob>,
     slots: Arc<Semaphore>,
 }
@@ -83,6 +85,8 @@ impl FileWorkers {
         Ok(Self {
             sender,
             slots: Arc::new(Semaphore::new(2)),
+            #[cfg(test)]
+            submitted: Default::default(),
         })
     }
 
@@ -112,6 +116,9 @@ impl FileWorkers {
                 let _ = sender.send(result);
             }))
             .map_err(|error| AdminError::backend(without_job(&error)))?;
+        #[cfg(test)]
+        self.submitted
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         receiver.await.map_err(AdminError::backend)?
     }
 }
