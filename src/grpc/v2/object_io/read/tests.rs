@@ -14,7 +14,7 @@ const KEY: [u8; 32] = [3; 32];
 const OTHER: [u8; 32] = [4; 32];
 
 #[tokio::test]
-async fn an_empty_read_sends_one_message_and_only_the_first_message_has_metadata() {
+async fn read_messages_stay_within_256_kib_and_only_the_first_has_metadata() {
     let (_dir, storage) = setup(false).await;
     for size in [0, 256 * 1024, 1024 * 1024 + 1] {
         let bytes = vec![42; size];
@@ -51,16 +51,14 @@ async fn dropping_a_partial_read_releases_the_generation_immediately() {
     std::fs::write(&path, vec![7; size]).unwrap();
     let file = std::sync::Arc::new(std::fs::File::open(path).unwrap());
     let descriptor = std::sync::Arc::downgrade(&file);
-    // The first frame is already buffered, so there cannot be a read inside the OS at drop.
-    let reader = crate::storage::ObjectReader::bounded_for_test(file, size as u64)
-        .with_read_ahead_for_test();
+    let reader = crate::storage::ObjectReader::bounded_for_test(file, size as u64);
     let mut stream = ReadObjectStream {
         frames: reader.into(),
         first: Some(Default::default()),
         checksum: DataChecksum::Omitted,
     };
     let first = stream.next().await.unwrap().unwrap();
-    assert!(first.checksummed_data.unwrap().content.len() < 1024 * 1024);
+    assert_eq!(first.checksummed_data.unwrap().content.len(), 256 * 1024);
     drop(stream);
     assert!(descriptor.upgrade().is_none());
 }

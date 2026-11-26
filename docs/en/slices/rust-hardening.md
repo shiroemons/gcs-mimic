@@ -795,10 +795,11 @@ live blob (`publish_pinned`).
   | Pull on demand | 0.571 / 1.01 | 0.589 / 1.01 |
   | Pull with one frame read ahead | 0.640 / 1.00 | 0.599 / 0.95 |
 
-  The on-demand stream stayed within 10% of push in both rounds and used
-  less elapsed time than prefetch in both. It keeps the 256 KiB message
-  limit and starts a disk read only on demand. Other builds were active
-  throughout (one or two rustc processes and four cargo processes).
+  The acceptance criterion was elapsed time at most 10% above push. On-demand
+  pull met it in both rounds, avoided a queued frame per stream and started
+  disk reads only when polled. It used 0.02–0.04 more server CPU seconds than
+  push. Two runs alongside one or two rustc processes and four cargo processes
+  cannot distinguish that difference from run-to-run variation.
 - **Scope.** `BidiReadObject` stays push-based.
 
 ### Multipart and batch parsing

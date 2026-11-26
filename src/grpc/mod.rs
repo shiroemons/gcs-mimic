@@ -286,16 +286,16 @@ fn http2_builder(config: &Config) -> http2::Builder<SupervisedExecutor> {
     // Each stream runs in a task of its own; a panic in a handler is reported and ends only that
     // stream, which hyper resets.
     let mut builder = http2::Builder::new(SupervisedExecutor::new(STREAM_TASK));
-    // What a stream can hold is bounded, but only per stream, so a connection's ceiling grows
-    // with the stream limit. ReadObject holds this 64 KiB send buffer and a frame of up to
-    // 256 KiB, about 31 MiB across 100 streams. Tonic's encoding scratch can hold another
-    // 256 KiB per stream, about 56 MiB in total. The pool retains up to 8 MiB of spare
-    // 256 KiB buffers. HTTP/2 flow control limits unreleased input
-    // to 1 MiB per connection, but tonic releases it into a message of up to 4 MiB per stream,
-    // so 100 streams carrying that size could reach 400 MiB. Each stream also holds its encoded
-    // response until the client takes it: list pages stay near 2 MiB or hold one bucket, and only
-    // a bucket that large takes more, up to the response limit in `v2`. A lower max_grpc_streams brings
-    // all of that down.
+    // When less than 64 KiB remains unsent, h2 may poll the next ReadObject frame. The tail
+    // can retain the previous 256 KiB encoded allocation alongside the next 256 KiB read and
+    // tonic's encoding scratch. That gives an estimated 768 KiB per stream, or 75 MiB for
+    // 100 streams. HTTP and gRPC also share a process-wide pool of up to 8 MiB in spare
+    // 256 KiB buffers.
+    // HTTP/2 flow control limits unreleased input to 1 MiB per connection. Tonic releases
+    // it into messages of up to 4 MiB per stream, so 100 such streams could reach 400 MiB.
+    // Each stream holds its encoded response until the client takes it. List pages stay near
+    // 2 MiB or hold one bucket, up to the response limit in `v2`. A lower max_grpc_streams
+    // reduces the connection's total.
     builder
         .max_concurrent_streams(config.max_grpc_streams().get())
         .max_header_list_size(16 * 1024)

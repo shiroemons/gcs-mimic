@@ -741,8 +741,8 @@ fn read_ahead_fixture(size: usize) -> (crate::test_support::TestDir, Vec<u8>, Ob
     let path = dir.0.join("blob");
     let contents: Vec<u8> = (0..size).map(|index| (index % 251) as u8).collect();
     fs::write(&path, &contents).unwrap();
-    let reader = ObjectReader::bounded_for_test(File::open(&path).unwrap(), size as u64)
-        .with_read_ahead_for_test();
+    let mut reader = ObjectReader::bounded_for_test(File::open(&path).unwrap(), size as u64);
+    reader.read_ahead();
     (dir, contents, reader)
 }
 
@@ -841,7 +841,6 @@ async fn the_last_megabyte_goes_out_in_small_frames() {
 #[tokio::test]
 async fn a_frame_not_at_hand_leaves_the_reader_where_it_was() {
     let (_dir, contents, mut reader) = read_ahead_fixture(1024);
-    reader.head = None;
     reader.set_range(10, 20).unwrap();
     // Whether the page cache answered depends on the platform; the bytes must not.
     let at_hand = reader
@@ -852,19 +851,12 @@ async fn a_frame_not_at_hand_leaves_the_reader_where_it_was() {
 }
 
 #[tokio::test]
-async fn peeking_and_selecting_an_overlapping_range_reuse_the_read_ahead() {
+async fn peeking_keeps_a_read_ahead_and_a_range_discards_it() {
     let (_dir, contents, mut reader) = read_ahead_fixture(1024);
     assert_eq!(reader.peek_prefix(2).await.unwrap(), contents[..2]);
     assert!(reader.head.is_some());
-    reader.set_range(0, 1024).unwrap();
-    assert_eq!(reader.read_ahead_len(), Some(1024));
     reader.set_range(10, 20).unwrap();
-    assert_eq!(reader.read_ahead_len(), Some(20));
-    assert_eq!(reader.head.as_deref(), Some(&contents[10..30]));
-    reader.set_range(0, 5).unwrap();
     assert!(reader.head.is_none());
-    assert_eq!(drain(&mut reader).await, contents[..5]);
-    reader.set_range(10, 20).unwrap();
     assert_eq!(drain(&mut reader).await, contents[10..30]);
 }
 

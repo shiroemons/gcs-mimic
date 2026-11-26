@@ -193,12 +193,6 @@ impl ObjectReader {
         Self::bounded_data(ReaderData::Disk(file.into()), remaining)
     }
 
-    #[cfg(test)]
-    pub(crate) fn with_read_ahead_for_test(mut self) -> Self {
-        self.read_ahead();
-        self
-    }
-
     /// A reader over a generation the read cache keeps open.
     pub(in crate::storage::catalog) fn from_cached(object: &CachedObject) -> Option<Self> {
         let download = object.download.as_ref()?;
@@ -345,12 +339,7 @@ impl ObjectReader {
         if let ReaderData::Memory(reader) = &mut self.file {
             io::Seek::seek(reader, io::SeekFrom::Start(offset))?;
         }
-        self.head = self.head.take().and_then(|head| {
-            let start = usize::try_from(offset.checked_sub(self.position)?).ok()?;
-            let available = head.len().checked_sub(start)?;
-            let count = available.min(usize::try_from(length).unwrap_or(usize::MAX));
-            (count != 0).then(|| head.slice(start..start + count))
-        });
+        self.head = None;
         self.remaining = length;
         self.position = offset;
         Ok(())
