@@ -9,8 +9,7 @@ use crate::{
     http_header::{TextError, TextOrder, sole},
     input::InputError,
     object::{
-        ChecksumConflict, ExpectedHashes, MapPatch, ObjectError, ObjectMetadataUpdate,
-        content_type,
+        ChecksumConflict, ExpectedHashes, ObjectError, check_custom_metadata_size, content_type,
         upload_headers::{self, HashHeader},
     },
     service::ServiceError,
@@ -350,7 +349,11 @@ pub(crate) fn final_options(
         if field.name.as_str().starts_with("x-goog-upload-") {
             return Err(InputError::unsupported_object(field.name.as_str()).into());
         }
-        if let Some((key, value)) = field.metadata.transpose()? {
+        if let Some((key, value)) = field
+            .metadata
+            .transpose()
+            .map_err(ServiceError::SessionHeader)?
+        {
             custom.insert(key.to_owned(), Some(value.to_owned()));
             clean.remove(field.name);
         }
@@ -365,18 +368,11 @@ pub(crate) fn final_options(
             .map_err(|ChecksumConflict(algorithm)| {
                 upload_headers::UploadHeaderError::Conflicting(algorithm)
             })
-    })?;
-    if !custom.is_empty() {
-        let update = ObjectMetadataUpdate {
-            metadata: MapPatch::Merge(custom),
-            ..Default::default()
-        };
-        update.check_encoded_size()?;
-        if let MapPatch::Merge(incoming) = update.metadata {
-            for (key, value) in incoming {
-                options.metadata.metadata.merge_entry(key, value);
-            }
-        }
+    })
+    .map_err(ServiceError::SessionHeader)?;
+    check_custom_metadata_size(&custom)?;
+    for (key, value) in custom {
+        options.metadata.metadata.merge_entry(key, value);
     }
     Ok(options)
 }

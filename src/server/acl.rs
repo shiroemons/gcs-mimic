@@ -475,10 +475,9 @@ pub(super) async fn add_full_projection_to_stored(
     let Some(object) = ObjectVersion::of_stored(resource) else {
         return Ok(());
     };
-    let generations = vec![(object.name.clone(), object.generation)];
-    let projection = object_acls(state, reader, &object.bucket, generations).await?;
-    if let Some(ObjectAcl::Visible { entries, owner }) =
-        projection.as_ref().and_then(|acl| acl.objects.first())
+    let projection =
+        object_acl_rows(state, reader, &object.bucket, std::slice::from_ref(&object)).await?;
+    if let Some(ObjectAcl::Visible { entries, owner }) = projection.first()
         && let Some(fields) = resource.as_object_mut()
     {
         write_object_acl(fields, base_url, &object, entries, owner.as_ref());
@@ -513,23 +512,32 @@ async fn add_objects(
     objects: &[ObjectVersion],
     base_url: &str,
 ) -> Result<(), ApiError> {
-    if objects.is_empty() {
-        return Ok(());
-    }
-    let generations = objects
-        .iter()
-        .map(|object| (object.name.clone(), object.generation))
-        .collect();
-    let Some(acl) = object_acls(state, reader, bucket, generations).await? else {
-        return Ok(());
-    };
-    for ((resource, object), object_acl) in resources.iter_mut().zip(objects).zip(&acl.objects) {
+    let rows = object_acl_rows(state, reader, bucket, objects).await?;
+    for ((resource, object), object_acl) in resources.iter_mut().zip(objects).zip(&rows) {
         let ObjectAcl::Visible { entries, owner } = object_acl else {
             continue;
         };
         add_object_acl(resource, base_url, object, entries, owner.as_ref())?;
     }
     Ok(())
+}
+
+async fn object_acl_rows(
+    state: &State,
+    reader: AclReader<'_>,
+    bucket: &str,
+    objects: &[ObjectVersion],
+) -> Result<Vec<ObjectAcl>, CatalogError> {
+    if objects.is_empty() {
+        return Ok(Vec::new());
+    }
+    let generations = objects
+        .iter()
+        .map(|object| (object.name.clone(), object.generation))
+        .collect();
+    Ok(object_acls(state, reader, bucket, generations)
+        .await?
+        .map_or_else(Vec::new, |acl| acl.objects))
 }
 
 /// Add `acl`, and `owner` when the object has an owner entity, to a rendered object resource.

@@ -34,6 +34,8 @@ pub(crate) enum ServiceError {
     #[error(transparent)]
     UploadHeader(#[from] UploadHeaderError),
     #[error(transparent)]
+    SessionHeader(UploadHeaderError),
+    #[error(transparent)]
     Body(#[from] BodyError),
     #[error(transparent)]
     StoredHeader(#[from] StoredHeaderError),

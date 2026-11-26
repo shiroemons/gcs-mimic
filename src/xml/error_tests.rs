@@ -54,6 +54,11 @@ fn legacy_trailing_dot_hosts_do_not_fall_through_to_a_shorter_domain() {
 fn xml_codes_preserve_exceptional_statuses_and_spelling() {
     for (code, status, spelling) in [
         (
+            XmlCode::CancelledUpload,
+            StatusCode::from_u16(499).unwrap(),
+            "InvalidArgument",
+        ),
+        (
             XmlCode::MalformedXml,
             StatusCode::BAD_REQUEST,
             "MalformedXML",

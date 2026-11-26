@@ -1443,81 +1443,102 @@ body: 122 bytes, no final newline
 -- anonymous caller, via ApiError: same as direct
 
 == ResumableError::NotFound
--- via ApiError
+-- direct
 404 Not Found
 content-type: application/xml; charset=UTF-8
 content-length: 118
 cache-control: private, max-age=0
 body: 118 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>NoSuchKey</Code><Message>Upload session not found</Message></Error>
--- anonymous caller, via ApiError: same as via ApiError
--- named object, via ApiError: same as via ApiError
+-- anonymous caller: same as direct
+-- named object: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+-- named object, via ApiError: same as direct
 
 == ResumableError::Gone
--- via ApiError
+-- direct
 410 Gone
 content-type: application/xml; charset=UTF-8
 content-length: 134
 cache-control: private, max-age=0
 body: 134 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Upload session is no longer active</Message></Error>
--- anonymous caller, via ApiError: same as via ApiError
--- named object, via ApiError: same as via ApiError
+-- anonymous caller: same as direct
+-- named object: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+-- named object, via ApiError: same as direct
 
 == ResumableError::Cancelled
--- via ApiError
+-- direct
 499 <unknown status code>
 content-type: application/xml; charset=UTF-8
 content-length: 119
 cache-control: private, max-age=0
 body: 119 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>clientClosedRequest</Message></Error>
--- anonymous caller, via ApiError: same as via ApiError
--- named object, via ApiError: same as via ApiError
+-- anonymous caller: same as direct
+-- named object: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+-- named object, via ApiError: same as direct
 
 == ResumableError::InvalidContentRange
--- via ApiError
+-- direct
 400 Bad Request
 content-type: application/xml; charset=UTF-8
 content-length: 137
 cache-control: private, max-age=0
 body: 137 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Failed to parse Content-Range header.</Message></Error>
--- anonymous caller, via ApiError: same as via ApiError
--- named object, via ApiError: same as via ApiError
+-- anonymous caller: same as direct
+-- named object: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+-- named object, via ApiError: same as direct
 
 == ResumableError::Overrun
--- via ApiError
+-- direct
 400 Bad Request
 content-type: application/xml; charset=UTF-8
 content-length: 243
 cache-control: private, max-age=0
 body: 243 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Invalid request.  There were 10 byte(s) (or more) in the request body.  There should have been 4 byte(s) according to the Content-Range header.</Message></Error>
--- anonymous caller, via ApiError: same as via ApiError
--- named object, via ApiError: same as via ApiError
+-- anonymous caller: same as direct
+-- named object: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+-- named object, via ApiError: same as direct
 
 == ResumableError::Invalid
--- via ApiError
+-- direct
 400 Bad Request
 content-type: application/xml; charset=UTF-8
 content-length: 142
 cache-control: private, max-age=0
 body: 142 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Upload offset 7 does not match the session</Message></Error>
--- anonymous caller, via ApiError: same as via ApiError
--- named object, via ApiError: same as via ApiError
+-- anonymous caller: same as direct
+-- named object: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+-- named object, via ApiError: same as direct
 
 == ResumableError::Object(PreconditionFailed)
--- via ApiError
+-- direct
 412 Precondition Failed
 content-type: application/xml; charset=UTF-8
 content-length: 165
 cache-control: private, max-age=0
 body: 165 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold.</Message></Error>
--- anonymous caller, via ApiError: same as via ApiError
--- named object, via ApiError: same as via ApiError
+-- anonymous caller: same as direct
+-- named object: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+-- named object, via ApiError: same as direct
 
 == PageTokenError::BucketCursor
 -- via ApiError

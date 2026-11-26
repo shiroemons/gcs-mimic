@@ -36,6 +36,14 @@ impl InputError {
         }
     }
 
+    pub(crate) fn field_mask_syntax(message: String) -> Self {
+        Self {
+            kind: InputKind::FieldMaskSyntax,
+            field: Some("fields"),
+            message,
+        }
+    }
+
     pub(crate) fn session_protocol(message: impl Into<String>) -> Self {
         Self {
             kind: InputKind::SessionProtocol,

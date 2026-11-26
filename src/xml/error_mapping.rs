@@ -12,12 +12,17 @@ use crate::{
     metadata_error::MetadataError,
     multipart::MultipartError,
     object::{
-        ComponentFailureKind, ObjectError, media_headers::StoredHeaderError,
-        name::InvalidObjectName, upload_headers::UploadHeaderError,
+        ComponentFailureKind, ObjectError,
+        media_headers::StoredHeaderError,
+        name::InvalidObjectName,
+        upload_headers::{HashHeader, UploadHeaderError},
     },
     percent::{MalformedEncoding, QueryError},
     service::ServiceError,
-    storage::failure::{BackendCause, wording},
+    storage::{
+        ResumableError,
+        failure::{BackendCause, wording},
+    },
     time_format::TimeOutOfRange,
 };
 use hyper::StatusCode;
@@ -35,16 +40,11 @@ impl From<MultipartError> for Error {
 }
 
 impl Error {
-    fn upload_header(
-        error: &UploadHeaderError,
-        route: crate::object::upload_headers::HashHeader,
-    ) -> Self {
+    fn upload_header(error: &UploadHeaderError, route: HashHeader) -> Self {
         match error {
             UploadHeaderError::CustomMetadata { source, .. } => match route {
-                crate::object::upload_headers::HashHeader::Put => super::put::header_error(source),
-                crate::object::upload_headers::HashHeader::Session => {
-                    Self::invalid(error.to_string())
-                }
+                HashHeader::Put => super::put::header_error(source),
+                HashHeader::Session => Self::invalid(error.to_string()),
             },
             UploadHeaderError::InvalidContentType
             | UploadHeaderError::DuplicateContentType
@@ -55,12 +55,8 @@ impl Error {
             | UploadHeaderError::MalformedHash(_)
             | UploadHeaderError::Conflicting(_)
             | UploadHeaderError::DuplicateAlgorithm => match route {
-                crate::object::upload_headers::HashHeader::Put => {
-                    Self::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
-                }
-                crate::object::upload_headers::HashHeader::Session => {
-                    Self::invalid(error.to_string())
-                }
+                HashHeader::Put => Self::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest."),
+                HashHeader::Session => Self::invalid(error.to_string()),
             },
         }
     }
@@ -68,7 +64,7 @@ impl Error {
 
 impl From<UploadHeaderError> for Error {
     fn from(error: UploadHeaderError) -> Self {
-        Self::upload_header(&error, crate::object::upload_headers::HashHeader::Put)
+        Self::upload_header(&error, HashHeader::Put)
     }
 }
 
@@ -101,9 +97,8 @@ impl From<ServiceError> for Error {
                 | MultipartError::MissingEnd
                 | MultipartError::UnsupportedParameter(_) => Self::invalid(error.to_string()),
             },
-            ServiceError::UploadHeader(error) => {
-                Self::upload_header(&error, crate::object::upload_headers::HashHeader::Session)
-            }
+            ServiceError::UploadHeader(error) => Self::upload_header(&error, HashHeader::Put),
+            ServiceError::SessionHeader(error) => Self::upload_header(&error, HashHeader::Session),
             ServiceError::StoredHeader(error) => {
                 Self::new(XmlCode::ServiceUnavailable, error.to_string())
             }
@@ -172,9 +167,8 @@ impl Error {
     }
 }
 
-impl From<crate::storage::ResumableError> for Error {
-    fn from(error: crate::storage::ResumableError) -> Self {
-        use crate::storage::ResumableError;
+impl From<ResumableError> for Error {
+    fn from(error: ResumableError) -> Self {
         match error {
             ResumableError::Object(error) => error.into(),
             ResumableError::NotFound => Self::new(XmlCode::NoSuchKey, "Upload session not found"),

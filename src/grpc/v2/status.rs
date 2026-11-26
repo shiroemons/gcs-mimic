@@ -30,7 +30,7 @@ impl From<ServiceError> for Status {
             ServiceError::Object(error) => (*error).into(),
             ServiceError::Resumable(error) => super::object_io::session_status(*error),
             ServiceError::Csek(error) => error.into(),
-            ServiceError::UploadHeader(error) => match error {
+            ServiceError::UploadHeader(error) | ServiceError::SessionHeader(error) => match error {
                 UploadHeaderError::UnsupportedAlgorithm => unsupported_message(error.to_string()),
                 UploadHeaderError::CustomMetadata { .. }
                 | UploadHeaderError::InvalidContentType

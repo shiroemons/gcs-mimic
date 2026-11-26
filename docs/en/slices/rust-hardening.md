@@ -458,7 +458,8 @@ A further split waits until after `1.0.0`:
   distinguishes a resumable body abort from other storage failures on the
   typed session error. The multipart parser returns `MultipartError`; the adapters
   convert it through `ServiceError`. Shared reads and resumable writes also use
-  `Object`, `Resumable` and `Csek`. The size test bounds `ServiceError` at 56
+  `Object`, `Resumable` and `Csek`. Session hash and metadata refusals use
+  `SessionHeader` so XML can distinguish them from ordinary PUT header errors. The size test bounds `ServiceError` at 56
   bytes; both the object and resumable failures are boxed to meet that bound.
 - **JSON.** `ApiError` moves to `src/json/error.rs` with private fields. Its
   status, reason, location, plain and HTML choices are made in the JSON

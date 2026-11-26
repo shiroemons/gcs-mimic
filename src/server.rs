@@ -303,9 +303,9 @@ fn upload_timed_out() -> ApiError {
     )
 }
 
-/// A copy, rewrite, compose or media read past its whole-request limit: a server-side timeout.
 const OBJECT_REQUEST_TIMED_OUT: &str = "The request timed out: it did not finish within object_request_timeout_ms; retry the request, or raise object_request_timeout_ms for large transfers (0 disables it).";
 
+/// A copy, rewrite, compose or media read past its whole-request limit: a server-side timeout.
 fn object_request_timed_out() -> ApiError {
     ApiError::service_unavailable(OBJECT_REQUEST_TIMED_OUT)
 }

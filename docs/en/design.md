@@ -72,7 +72,8 @@ Shared object reads, resumable uploads and authorization return domain or servic
 The JSON adapter selects an HTTP response and Cloud Storage reason. The XML adapter
 selects its own code and document in `src/xml/error_mapping.rs`, and the gRPC adapter
 selects a status and details in `src/grpc/v2/status.rs`. JSON handlers render their
-errors through `json::JsonErrorResponse`.
+errors through `json::JsonErrorResponse`. Only JSON request paths use `ApiError`, currently
+in `src/api_error.rs` pending its move into `src/json/error.rs`.
 
 The library's modules form the layers below, from the lowest to the highest. A module may
 name modules in its own layer and in lower layers, and the three adapters may not name each

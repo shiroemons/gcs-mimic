@@ -186,7 +186,7 @@ async fn every_error_keeps_its_xml_response() {
         .mapped("QueryError", domain::query_cases, Naming::None)
         .await;
     golden
-        .shared("ResumableError", domain::resumable_cases(), Naming::Object)
+        .mapped("ResumableError", domain::resumable_cases, Naming::Object)
         .await;
     golden
         .shared("PageTokenError", domain::page_token_cases(), Naming::None)

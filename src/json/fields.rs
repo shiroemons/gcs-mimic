@@ -1,5 +1,5 @@
 use super::ApiError;
-use crate::input::{InputError, InputKind};
+use crate::input::InputError;
 use crate::percent::{MAX_QUERY_BYTES, parse_query};
 use serde_json::{Map, Value};
 use std::{collections::BTreeMap, sync::LazyLock};
@@ -293,14 +293,10 @@ impl Parser<'_> {
             self.rest = rest;
             let child = self.list(depth + 1)?;
             let Some(rest) = self.rest.strip_prefix(')') else {
-                return Err(InputError {
-                    kind: InputKind::FieldMaskSyntax,
-                    field: Some("fields"),
-                    message: format!(
-                        "Invalid FieldMask '{}'. Cannot find matching ')' for all '('.",
-                        self.source
-                    ),
-                });
+                return Err(InputError::field_mask_syntax(format!(
+                    "Invalid FieldMask '{}'. Cannot find matching ')' for all '('.",
+                    self.source
+                )));
             };
             self.rest = rest;
             child

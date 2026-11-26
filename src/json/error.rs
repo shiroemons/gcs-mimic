@@ -68,7 +68,7 @@ impl From<ServiceError> for ApiError {
             ServiceError::Object(error) => (*error).into(),
             ServiceError::Resumable(error) => (*error).into(),
             ServiceError::Csek(error) => error.into(),
-            ServiceError::UploadHeader(error) => match error {
+            ServiceError::UploadHeader(error) | ServiceError::SessionHeader(error) => match error {
                 UploadHeaderError::UnsupportedAlgorithm => {
                     Self::unsupported_message(error.to_string())
                 }

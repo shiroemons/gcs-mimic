@@ -416,6 +416,15 @@ fn encoded_metadata_too_large() -> ObjectError {
     ))
 }
 
+pub(crate) fn check_custom_metadata_size<T: serde::Serialize>(
+    entries: &BTreeMap<String, T>,
+) -> Result<(), ObjectError> {
+    if encoded_json_len(entries) > ENCODED_METADATA_LIMIT {
+        return Err(encoded_metadata_too_large());
+    }
+    Ok(())
+}
+
 impl ObjectMetadataUpdate {
     /// The fixed metadata fields with their JSON names, in the order errors are reported.
     fn fixed_fields(&self) -> [(&'static str, &Patch<String>); 5] {
@@ -581,9 +590,7 @@ impl ObjectMetadataUpdate {
         apply_custom_metadata(&mut record.metadata, self.metadata);
         // Merges can grow the stored custom metadata past what any one request carried. Fixed
         // fields replace rather than accumulate, so only the merged map needs the bound again.
-        if encoded_json_len(&record.metadata) > ENCODED_METADATA_LIMIT {
-            return Err(encoded_metadata_too_large());
-        }
+        check_custom_metadata_size(&record.metadata)?;
         for (field, value) in record.fixed_fields() {
             if let Some(value) = value {
                 validate_fixed_metadata(field, value)?;
