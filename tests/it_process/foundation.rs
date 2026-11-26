@@ -913,7 +913,10 @@ async fn authentication_reconciliation_failure_reports_the_catalog_remedy_and_ex
         auth::Auth,
         bucket::CatalogError,
         clock::SystemClock,
-        storage::{CatalogBacking, CatalogOpenError, CatalogOptions, admin::BucketDefinition},
+        storage::{
+            CatalogBacking, CatalogOpenError, CatalogOpenFailure, CatalogOptions,
+            admin::BucketDefinition,
+        },
     };
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -946,7 +949,7 @@ async fn authentication_reconciliation_failure_reports_the_catalog_remedy_and_ex
     );
     assert!(
         matches!(Catalog::open_with_options(CatalogBacking::Disk(&dir.0), options).await,
-        Err(CatalogOpenError::Authentication(CatalogError::Corrupt(reason))) if reason == "invalid stored ACL")
+        Err(CatalogOpenError { failure: CatalogOpenFailure::Authentication(CatalogError::Corrupt(reason)), cleanup: None }) if reason == "invalid stored ACL")
     );
     let output = common::server_command()
         .clean_env()

@@ -37,6 +37,13 @@ Stopped means catalog ownership has been released. Shutdown during recovery wait
 
 ## Acceptance evidence
 
+On 2026-11-27, `cargo test --locked --bin gcs-mimic -- startup::tests::` passed
+19 tests. The signal cases checked stdout, stderr, exit status and directory
+ownership at the stopped event. The diagnostic cases checked typed causes and
+the order of errors when both setup and close failed.
+`cargo test --locked --lib -- a_new_directory_is_reported_before_parent_policy_failure_and_unlocks`
+passed with successful and failed releases of recovered storage.
+
 The table records the original startup-phase verification. The current catalog open and cancellation contract is described above.
 
 | Case | Evidence |
@@ -44,7 +51,7 @@ The table records the original startup-phase verification. The current catalog o
 | startup-phase-order | Existing foundation/seed suites preserve ready fields, strict seed API permissions, restart behavior and probe gating. `process_shutdown_reports_stopped_and_releases_catalog_for_restart` checks ready fields; `probes_cannot_succeed_while_seed_publication_is_blocked` checks bind follows seed. |
 | Ready directory contract | Seven `ready_event_` process tests cover absolute/relative/default/non-ASCII paths, existing empty directories and databases, first start/restart, symlink spelling, memory omission, removed fields and a forced crash before the first ready event; see [verification](../evidence/ready-event.md). |
 | startup-phase-cleanup | `shutdown_during_recovery_drains_open_before_unlocking` and `shutdown_during_reconciliation_drains_before_seed` verify directory ownership until the active work drains. `signals_preserve_startup_events_and_exit_status` checks both output streams and exit status at each boundary. Parent policy is installed during open, before the executor starts. |
-| failure and signal results | `startup_failures_close_catalog_even_with_live_handles` drives PAP's 65-project rejection through prepare_startup, checks source/key diagnostics and tests bind failure with retained catalog handles and immediate reopen. `close_failure_preserves_primary_diagnostics_and_unstructured_errors` injects close failure with successful, structured-error and plain-error inputs. Signal/error propagation and priority retain their named tests. |
+| failure and signal results | `a_new_directory_is_reported_before_parent_policy_failure_and_unlocks` injects a release failure after rejecting an invalid parent project. `close_diagnostics_follow_the_original_startup_failure` checks the order and text of primary and cleanup diagnostics for authentication, import and parent policy. `startup_failures_close_catalog_even_with_live_handles` checks bind failure and immediate reopen. |
 | seed interruption | `sigterm_during_seed_drains_writes_releases_lock_and_retries` stops a pending SQLite seed write and verifies lock retention after stopping acknowledgement. `sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files` observes partial staging of a 64 MiB fixture and, separately, a renamed blob behind an external SQLite write lock, then sends SIGTERM and observes stopping. It requires only stopped on stdout, exit 0, empty staging and exact equality of blob files and committed references before reopening. The partial-transfer case explicitly requires zero objects/references; the post-rename case requires lock retention after acknowledgement and a completed owned commit whose bytes remain readable. Both retry successfully with a bounded range read. |
 | bind interruption | Foundation's `process_restarts_on_same_port_without_allowing_a_second_live_listener` covers TERM/INT during BSD TIME_WAIT; bind exclusivity remains unchanged. |
 | startup-phase-benchmark | Five native repetitions at 10,000/100,000 objects and frozen baseline comparison: [startup evidence](../evidence/startup-phases.md). |

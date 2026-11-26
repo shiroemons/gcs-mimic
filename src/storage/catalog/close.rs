@@ -90,6 +90,10 @@ impl Resources {
         self.connection
             .close()
             .map_err(|(_, error)| unavailable(error))?;
+        #[cfg(test)]
+        if let BlobBackend::Disk(path) = backend {
+            fault::hit_io(path, fault::Step::CatalogClose)?;
+        }
         if let Some(lock) = self.lock {
             lock.release()?;
         }

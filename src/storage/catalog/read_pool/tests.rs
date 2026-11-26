@@ -519,28 +519,46 @@ async fn set_members(catalog: &Catalog, role: &str, member: &str) {
 
 #[tokio::test]
 async fn a_new_directory_is_reported_before_parent_policy_failure_and_unlocks() {
-    let dir = TestDir::new();
-    let mut options = crate::storage::CatalogOptions::embedded(
-        Arc::new(crate::clock::SystemClock),
-        crate::storage::admin::LocalAdmin::Disabled,
-    );
-    options.parent_projects.push("bad project".into());
-    let recovered = crate::storage::RecoveredCatalog::recover(
-        crate::storage::CatalogBacking::Disk(&dir.0),
-        options,
-    )
-    .await
-    .unwrap();
-    assert_eq!(recovered.created_directory(), Some(dir.0.as_path()));
-    assert!(matches!(recovered.finish().await,
-        Err(crate::storage::CatalogOpenError::ParentPolicy(CatalogError::InvalidMetadata(reason)))
-            if reason == "Invalid parent policy project"));
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    assert!(matches!(
-        catalog.data_directory(),
-        Some((_, crate::storage::DataDirState::Opened))
-    ));
-    catalog.close().await.unwrap();
+    use crate::storage::{CatalogOpenFailure, catalog::fault};
+    use std::io::ErrorKind;
+
+    for close_error in [None, Some(ErrorKind::PermissionDenied)] {
+        let dir = TestDir::new();
+        let mut options = crate::storage::CatalogOptions::embedded(
+            Arc::new(crate::clock::SystemClock),
+            crate::storage::admin::LocalAdmin::Disabled,
+        );
+        options.parent_projects.push("bad project".into());
+        let recovered = crate::storage::RecoveredCatalog::recover(
+            crate::storage::CatalogBacking::Disk(&dir.0),
+            options,
+        )
+        .await
+        .unwrap();
+        assert_eq!(recovered.created_directory(), Some(dir.0.as_path()));
+        if let Some(kind) = close_error {
+            fault::arm(&dir.0, fault::Step::CatalogClose, 0, fault::Fault::Io(kind));
+        }
+        let failure = recovered
+            .finish()
+            .await
+            .err()
+            .expect("invalid parent project");
+        assert!(
+            matches!(failure.failure, CatalogOpenFailure::ParentPolicy(CatalogError::InvalidMetadata(reason)) if reason == "Invalid parent policy project")
+        );
+        match failure.cleanup.as_deref() {
+            None => assert!(close_error.is_none()),
+            Some(CatalogError::Io(cause)) => assert_eq!(Some(cause.kind()), close_error),
+            other => panic!("unexpected close error: {other:?}"),
+        }
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        assert!(matches!(
+            catalog.data_directory(),
+            Some((_, crate::storage::DataDirState::Opened))
+        ));
+        catalog.close().await.unwrap();
+    }
 }
 
 #[tokio::test]

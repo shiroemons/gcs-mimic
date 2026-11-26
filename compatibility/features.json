@@ -60171,6 +60171,9 @@
             "phase_completion_and_signal_errors_are_preserved",
             "catalog_open_failure_preserves_diagnostics_without_repolling",
             "signals_preserve_startup_events_and_exit_status",
+            "authentication_diagnostics_preserve_the_catalog_and_io_causes",
+            "close_diagnostics_follow_the_original_startup_failure",
+            "a_new_directory_is_reported_before_parent_policy_failure_and_unlocks",
             "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
             "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
             "sigterm_during_seed_drains_writes_releases_lock_and_retries",
@@ -60275,6 +60278,10 @@
         "phase_completion_and_signal_errors_are_preserved",
         "catalog_open_failure_preserves_diagnostics_without_repolling",
         "signals_preserve_startup_events_and_exit_status",
+        "authentication_diagnostics_preserve_the_catalog_and_io_causes",
+        "close_diagnostics_follow_the_original_startup_failure",
+        "a_new_directory_is_reported_before_parent_policy_failure_and_unlocks",
+        "cancelled_policy_request_still_executes_its_owned_job",
         "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
         "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
         "sigterm_during_seed_drains_writes_releases_lock_and_retries",
@@ -60319,6 +60326,26 @@
         "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --bin gcs-mimic -- startup::tests::",
+          "result": "PASS",
+          "verified_at": "2026-11-27",
+          "artifact": "docs/en/slices/startup-phases.md",
+          "test_ids": [
+            "shutdown_during_recovery_drains_open_before_unlocking",
+            "shutdown_during_reconciliation_drains_before_seed",
+            "signals_preserve_startup_events_and_exit_status",
+            "authentication_diagnostics_preserve_the_catalog_and_io_causes",
+            "close_diagnostics_follow_the_original_startup_failure"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib -- a_new_directory_is_reported_before_parent_policy_failure_and_unlocks",
+          "result": "PASS",
+          "verified_at": "2026-11-27",
+          "artifact": "docs/en/slices/startup-phases.md",
+          "test_ids": ["a_new_directory_is_reported_before_parent_policy_failure_and_unlocks"]
+        },
         {
           "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
           "result": "PASS",
@@ -60431,7 +60458,6 @@
           "artifact": "docs/en/evidence/startup-phases-checks.txt",
           "test_ids": [
             "shutdown_during_recovery_drains_open_before_unlocking",
-            "shutdown_during_reconciliation_drains_before_seed",
             "startup_failures_close_catalog_even_with_live_handles",
             "shutdown_wins_before_starting_the_next_phase",
             "phase_completion_and_signal_errors_are_preserved",

@@ -10,8 +10,8 @@ use gcs_mimic::{
     seed::{SeedError, SeedOutcome},
     server::{self, State},
     storage::{
-        Catalog, CatalogOpenError, CatalogOptions, DataDirState, MemoryBudget, RecoveredCatalog,
-        admin::AdminError,
+        Catalog, CatalogOpenError, CatalogOpenFailure, CatalogOptions, DataDirState, MemoryBudget,
+        RecoveredCatalog, admin::AdminError,
     },
     time_limit::TimeLimit,
 };
@@ -369,6 +369,7 @@ async fn open_catalog(
     auth: &Auth,
     clock: Arc<dyn Clock>,
     mut shutdown: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<()>>>,
+    stopped: impl FnOnce(),
 ) -> Result<PhaseResult<Catalog>, crate::CliError> {
     let options = CatalogOptions::for_server(config, auth, clock);
     let opening = async {
@@ -390,40 +391,67 @@ async fn open_catalog(
         interrupted => {
             let recovered = opening.await?;
             merge_close_result(interrupted.map(|_| ()), recovered.close().await)?;
-            report_stopped();
+            stopped();
             return Ok(PhaseResult::Stopped);
         }
     };
     // Once reconciliation starts, its failure must reach the operator even if a signal arrives.
     let result = match recovered.finish().await {
-        Err(error @ (CatalogOpenError::Authentication(_) | CatalogOpenError::Storage(_))) => {
+        Err(error)
+            if matches!(
+                error.failure,
+                CatalogOpenFailure::Authentication(_) | CatalogOpenFailure::Storage(_)
+            ) =>
+        {
             return Err(open_failure(error));
         }
         other => other,
     };
+    // Poll the signal once before accepting the result of the post-authentication checks.
     match race(CancelSafe(std::future::ready(())), shutdown).await {
         Ok(PhaseResult::Complete(())) => result.map(PhaseResult::Complete).map_err(open_failure),
         interrupted => {
             let signal = interrupted.map(|_| ());
-            if let Ok(catalog) = result {
-                close_startup(&catalog, signal).await?;
-            } else {
-                signal?;
+            match result {
+                Ok(catalog) => close_startup(&catalog, signal).await?,
+                Err(error) => {
+                    merge_close_result(signal, error.cleanup.map_or(Ok(()), |close| Err(*close)))?
+                }
             }
-            report_stopped();
+            stopped();
             Ok(PhaseResult::Stopped)
         }
     }
 }
 
 fn open_failure(error: CatalogOpenError) -> crate::CliError {
-    match error {
-        CatalogOpenError::Storage(cause) => catalog_open_failure(&cause).into(),
-        CatalogOpenError::Authentication(cause) => authentication::Failure::new(cause).into(),
-        CatalogOpenError::ImportState(_) => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "Cannot inspect import state; inspect the native catalog before restarting.").into(),
-        CatalogOpenError::ImportInProgress => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "Import is incomplete; resume the same unchanged source export with the import command before serving this destination. Do not remove the import marker.").into(),
-        CatalogOpenError::ParentPolicy(_) => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "Cannot configure catalog policy; inspect the native catalog and identity policy before restarting.").into(),
+    let mut diagnostics = match error.failure {
+        CatalogOpenFailure::Storage(cause) => catalog_open_failure(&cause),
+        CatalogOpenFailure::Authentication(cause) => {
+            return authentication::Failure::new(cause, error.cleanup.map(|close| *close)).into();
+        }
+        CatalogOpenFailure::ImportState(_) => Diagnostics::error(
+            DiagnosticSource::Catalog,
+            "data_dir",
+            "Cannot inspect import state; inspect the native catalog before restarting.",
+        ),
+        CatalogOpenFailure::ImportInProgress => Diagnostics::error(
+            DiagnosticSource::Catalog,
+            "data_dir",
+            "Import is incomplete; resume the same unchanged source export with the import command before serving this destination. Do not remove the import marker.",
+        ),
+        CatalogOpenFailure::ParentPolicy(_) => Diagnostics::error(
+            DiagnosticSource::Catalog,
+            "data_dir",
+            "Cannot configure catalog policy; inspect the native catalog and identity policy before restarting.",
+        ),
+    };
+    if let Some(close) = error.cleanup {
+        diagnostics
+            .errors
+            .push(gcs_mimic::diagnostics::catalog_close_failure(&*close));
     }
+    diagnostics.into()
 }
 
 /// The diagnostic for a catalog that could not be opened. Only a newer schema has its own remedy.
@@ -555,7 +583,14 @@ pub(crate) async fn serve(
 ) -> Result<(), crate::CliError> {
     tokio::pin!(shutdown);
     let clock = Arc::new(SystemClock);
-    let opened = open_catalog(&config, &auth, clock.clone(), shutdown.as_mut()).await?;
+    let opened = open_catalog(
+        &config,
+        &auth,
+        clock.clone(),
+        shutdown.as_mut(),
+        report_stopped,
+    )
+    .await?;
     let catalog = match opened {
         PhaseResult::Complete(catalog) => catalog,
         PhaseResult::Stopped => return Ok(()),
@@ -1284,6 +1319,7 @@ mod tests {
             &Auth::permissive(),
             Arc::new(SystemClock),
             shutdown.as_mut(),
+            report_stopped,
         )
         .await
         .err()
@@ -1376,6 +1412,7 @@ mod tests {
             &Auth::permissive(),
             Arc::new(SystemClock),
             shutdown.as_mut(),
+            report_stopped,
         )
         .await
         .err()
@@ -1446,7 +1483,14 @@ mod tests {
                 Ok(())
             };
             tokio::pin!(shutdown);
-            open_catalog(&config, &Auth::permissive(), clock, shutdown.as_mut()).await
+            open_catalog(
+                &config,
+                &Auth::permissive(),
+                clock,
+                shutdown.as_mut(),
+                report_stopped,
+            )
+            .await
         });
         // Hang guards only: opening the catalog on a loaded Windows runner disk
         // has exceeded five seconds before recovery began.
@@ -1509,7 +1553,7 @@ mod tests {
                 Ok(())
             };
             tokio::pin!(shutdown);
-            open_catalog(&config, &auth, clock, shutdown.as_mut()).await
+            open_catalog(&config, &auth, clock, shutdown.as_mut(), report_stopped).await
         });
         let guard = Duration::from_secs(30);
         tokio::time::timeout(guard, configuring)
@@ -1608,9 +1652,12 @@ mod tests {
         let dir = TestDir::new();
         let shutdown = std::future::pending();
         tokio::pin!(shutdown);
-        let error = open_failure(CatalogOpenError::ParentPolicy(
-            CatalogError::InvalidMetadata("Invalid parent policy project".into()),
-        ));
+        let error = open_failure(CatalogOpenError {
+            failure: CatalogOpenFailure::ParentPolicy(CatalogError::InvalidMetadata(
+                "Invalid parent policy project".into(),
+            )),
+            cleanup: None,
+        });
         let diagnostics = error.diagnostics().unwrap();
         assert_eq!(diagnostics.errors[0].source, DiagnosticSource::Catalog);
         assert_eq!(diagnostics.errors[0].key, "data_dir");

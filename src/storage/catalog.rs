@@ -118,7 +118,7 @@ mod open;
 mod options;
 mod state;
 pub use open::RecoveredCatalog;
-pub use options::{CatalogBacking, CatalogOpenError, CatalogOptions};
+pub use options::{CatalogBacking, CatalogOpenError, CatalogOpenFailure, CatalogOptions};
 mod schema;
 #[cfg(test)]
 use bucket_list::bucket_list_page;

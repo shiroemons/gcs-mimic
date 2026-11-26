@@ -2,6 +2,47 @@ use super::*;
 use gcs_mimic::storage::admin::{BucketDefinition, BucketName, Origin};
 use std::{error::Error, process::Command};
 
+#[test]
+fn close_diagnostics_follow_the_original_startup_failure() {
+    for (failure, first, second) in [
+        (
+            CatalogOpenFailure::Authentication(CatalogError::PreconditionFailed),
+            "Cannot reconcile stored bucket IAM and ACL state; inspect the catalog or restore a valid backup before restarting.",
+            "Cannot close the catalog after authentication setup failed; inspect persistence before restarting.",
+        ),
+        (
+            CatalogOpenFailure::ImportState(CatalogError::PreconditionFailed),
+            "Cannot inspect import state; inspect the native catalog before restarting.",
+            "Cannot close catalog (Other): catalog I/O: permission denied; inspect persistence before restarting.",
+        ),
+        (
+            CatalogOpenFailure::ImportInProgress,
+            "Import is incomplete; resume the same unchanged source export with the import command before serving this destination. Do not remove the import marker.",
+            "Cannot close catalog (Other): catalog I/O: permission denied; inspect persistence before restarting.",
+        ),
+        (
+            CatalogOpenFailure::ParentPolicy(CatalogError::PreconditionFailed),
+            "Cannot configure catalog policy; inspect the native catalog and identity policy before restarting.",
+            "Cannot close catalog (Other): catalog I/O: permission denied; inspect persistence before restarting.",
+        ),
+    ] {
+        let error = open_failure(CatalogOpenError {
+            failure,
+            cleanup: Some(Box::new(CatalogError::from(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "close failed",
+            )))),
+        });
+        let expected = |fix| {
+            gcs_mimic::diagnostics::Diagnostic::new(DiagnosticSource::Catalog, "data_dir", fix)
+        };
+        assert_eq!(
+            error.diagnostics().unwrap().errors,
+            [expected(first), expected(second)]
+        );
+    }
+}
+
 const SCENARIO: &str = "GCSM_TEST_STARTUP_SIGNAL";
 
 #[tokio::test]
@@ -79,11 +120,18 @@ async fn interrupt_open(scenario: &str) -> Result<(), crate::CliError> {
     tokio::pin!(shutdown);
     let config = dir.config();
     let auth = Auth::permissive();
-    let opening = open_catalog(&config, &auth, clock, shutdown.as_mut());
+    let stopped = || {
+        File::open(dir.0.join("catalog.lock"))
+            .unwrap()
+            .try_lock()
+            .expect("directory must be unlocked when stopped is emitted");
+        report_stopped();
+    };
+    let opening = open_catalog(&config, &auth, clock, shutdown.as_mut(), stopped);
     tokio::pin!(opening);
     tokio::select! {
         _ = &mut opening => panic!("open finished before the clock barrier"),
-        observed = at_boundary => observed.unwrap(),
+        observed = tokio::time::timeout(Duration::from_secs(30), at_boundary) => observed.unwrap().unwrap(),
     }
     if !matches!(scenario, "before" | "no-signal") {
         signal.take().unwrap().send(()).unwrap();
@@ -94,7 +142,9 @@ async fn interrupt_open(scenario: &str) -> Result<(), crate::CliError> {
         }
     }
     release.send(()).unwrap();
-    let result = opening.await;
+    let result = tokio::time::timeout(Duration::from_secs(30), opening)
+        .await
+        .unwrap();
     let reopened = Catalog::open(&dir.0).await.unwrap();
     reopened.close().await.unwrap();
     assert!(matches!(result, Ok(PhaseResult::Stopped) | Err(_)));
@@ -103,12 +153,13 @@ async fn interrupt_open(scenario: &str) -> Result<(), crate::CliError> {
 
 #[test]
 fn authentication_diagnostics_preserve_the_catalog_and_io_causes() {
-    let cli = open_failure(CatalogOpenError::Authentication(CatalogError::from(
-        io::Error::new(
+    let cli = open_failure(CatalogOpenError {
+        failure: CatalogOpenFailure::Authentication(CatalogError::from(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "reconciliation read failed",
-        ),
-    )));
+        ))),
+        cleanup: None,
+    });
     let cause = cli
         .source()
         .unwrap()

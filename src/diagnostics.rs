@@ -334,16 +334,18 @@ pub fn combine_shutdown_results(
     result: Result<(), Diagnostics>,
     close: Result<(), impl RuntimeFailure>,
 ) -> Result<(), Diagnostics> {
-    append_shutdown_failure(result, close, |close| {
-        Diagnostic::new(
-            DiagnosticSource::Catalog,
-            "data_dir",
-            format!(
-                "Cannot close catalog ({:?}): {close}; inspect persistence before restarting.",
-                close.kind()
-            ),
-        )
-    })
+    append_shutdown_failure(result, close, catalog_close_failure)
+}
+
+pub fn catalog_close_failure(close: &impl RuntimeFailure) -> Diagnostic {
+    Diagnostic::new(
+        DiagnosticSource::Catalog,
+        "data_dir",
+        format!(
+            "Cannot close catalog ({:?}): {close}; inspect persistence before restarting.",
+            close.kind()
+        ),
+    )
 }
 
 /// Adds a failed removal of the owned Unix socket after the operation's own failure. Only the

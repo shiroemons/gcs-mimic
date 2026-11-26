@@ -53,6 +53,8 @@ pub(crate) const MID_WRITE_BODY_BYTES: usize = 3 * super::objects::WRITE_BATCH_B
 /// A catalog boundary at which a test can inject a fault or hold a job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
+    /// Report an error while releasing recovered directory ownership.
+    CatalogClose,
     /// Between reading a listing's object page and its bucket metageneration.
     ListedObjectPage,
     /// After an object response has selected its resources, before its ACL projection reads them.

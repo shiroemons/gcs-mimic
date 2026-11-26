@@ -453,7 +453,17 @@ pub struct RecoveredCatalog {
     options: CatalogOptions,
 }
 
+impl std::fmt::Debug for RecoveredCatalog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecoveredCatalog")
+            .field("data_directory", &self.storage.data_dir)
+            .field("options", &self.options)
+            .finish_non_exhaustive()
+    }
+}
+
 impl RecoveredCatalog {
+    /// Completes storage recovery under the directory lock without admitting requests.
     pub async fn recover(
         backing: CatalogBacking<'_>,
         options: CatalogOptions,
@@ -490,20 +500,23 @@ impl RecoveredCatalog {
         }
     }
 
+    /// The newly initialized data directory, reported before any startup policy can fail.
     pub fn created_directory(&self) -> Option<&Path> {
         (self.data_dir_state() == DataDirState::Created && !self.storage.backend.is_memory())
             .then_some(self.storage.data_dir.as_path())
     }
 
+    /// Closes the recovered connection and releases directory ownership without starting workers.
     pub async fn close(self) -> Result<(), CatalogError> {
-        crate::task::run_blocking("catalog-close", move || {
-            Resources {
-                connection: self.storage.connection,
-                lock: self.storage.lock,
-            }
-            .close(&self.storage.backend)
-        })
-        .await?
+        crate::task::run_blocking("catalog-close", move || self.release()).await?
+    }
+
+    fn release(self) -> Result<(), CatalogError> {
+        Resources {
+            connection: self.storage.connection,
+            lock: self.storage.lock,
+        }
+        .close(&self.storage.backend)
     }
 
     /// Reconciles authentication, checks the import journal and installs parent policy before admitting requests.
@@ -513,7 +526,47 @@ impl RecoveredCatalog {
             .map_err(CatalogError::from)?
     }
 
-    fn start(self) -> Result<Catalog, CatalogOpenError> {
+    fn configure(
+        &mut self,
+    ) -> Result<(Arc<read_pool::ParentPolicy>, lifecycle::LifecycleSchedule), CatalogOpenFailure>
+    {
+        let connection = &mut self.storage.connection;
+        match &self.options.principals {
+            Some(
+                profile @ (principals::Profile::Strict(_) | principals::Profile::Permissive { .. }),
+            ) => {
+                profile
+                    .reconcile(connection, &*self.options.clock)
+                    .map_err(CatalogOpenFailure::Authentication)?;
+                if import_journal::in_progress(connection)
+                    .map_err(CatalogOpenFailure::ImportState)?
+                {
+                    return Err(CatalogOpenFailure::ImportInProgress);
+                }
+            }
+            None | Some(principals::Profile::TrustedLocal) => {}
+        }
+        let parent_policy = Arc::<read_pool::ParentPolicy>::default();
+        if !self.options.parent_projects.is_empty() {
+            policies::install_parent_policy(
+                connection,
+                &parent_policy,
+                &self.options.parent_projects,
+            )
+            .map_err(CatalogOpenFailure::ParentPolicy)?;
+        }
+        let lifecycle = lifecycle::LifecycleSchedule::open(connection, self.options.lifecycle)?;
+        Ok((parent_policy, lifecycle))
+    }
+
+    fn start(mut self) -> Result<Catalog, CatalogOpenError> {
+        let (parent_policy, lifecycle) = match self.configure() {
+            Ok(configured) => configured,
+            Err(failure) => {
+                let cleanup = self.release().err().map(Box::new);
+                return Err(CatalogOpenError { failure, cleanup });
+            }
+        };
         let data_dir_state = self.data_dir_state();
         let CatalogOptions {
             clock,
@@ -521,44 +574,24 @@ impl RecoveredCatalog {
             principals,
             session_limits,
             default_soft_delete_retention,
-            lifecycle: lifecycle_execution,
             pubsub_endpoint,
-            parent_projects,
+            ..
         } = self.options;
         let OpenedStorage {
             backend,
             lock,
-            mut connection,
+            connection,
             data_dir,
             ..
         } = self.storage;
-        match &principals {
-            Some(
-                profile @ (principals::Profile::Strict(_) | principals::Profile::Permissive { .. }),
-            ) => {
-                profile
-                    .reconcile(&mut connection, &*clock)
-                    .map_err(CatalogOpenError::Authentication)?;
-                if import_journal::in_progress(&connection)
-                    .map_err(CatalogOpenError::ImportState)?
-                {
-                    return Err(CatalogOpenError::ImportInProgress);
-                }
-            }
-            None | Some(principals::Profile::TrustedLocal) => {}
-        }
-        let parent_policy = Arc::<read_pool::ParentPolicy>::default();
-        if !parent_projects.is_empty() {
-            policies::install_parent_policy(&mut connection, &parent_policy, &parent_projects)
-                .map_err(CatalogOpenError::ParentPolicy)?;
-        }
-        let lifecycle = lifecycle::LifecycleSchedule::open(&mut connection, lifecycle_execution)?;
+        #[cfg(test)]
+        let editable_parent_policy = parent_policy.clone();
         // An in-memory database exists only inside the writer's connection.
         let read_pool = match backend.kind() {
             crate::config::Backend::Memory => None,
             crate::config::Backend::Disk => Some(read_pool::ReadPool::new(
                 data_dir.join("catalog.sqlite3"),
-                parent_policy.clone(),
+                parent_policy,
             )),
         };
         Ok(Catalog(Arc::new(Inner {
@@ -586,7 +619,7 @@ impl RecoveredCatalog {
             reads: state::Reads {
                 pool: read_pool,
                 #[cfg(test)]
-                parent_policy,
+                parent_policy: editable_parent_policy,
                 cache: read_cache::ReadCache::new(crate::fd_limit::cacheable_files()),
                 runtime: tokio::runtime::Handle::current(),
             },

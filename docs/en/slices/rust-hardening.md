@@ -720,7 +720,7 @@ rusqlite writes that bypass those helpers.
   - `Shutdown`.
 
   Behavior moves onto these structs, which shrinks the 54-file `impl Catalog`.
-- **`CatalogOptions`.** `Catalog::open_with_options(backing, CatalogOptions)` receives:
+- **`CatalogOptions`.** Embedded callers can use `Catalog::open_with_options(backing, options)`. Server startup uses `RecoveredCatalog` to close recovered storage when shutdown is pending before authentication. Both paths receive:
   - clock and principals;
   - session limits and default soft-delete retention;
   - lifecycle execution;
@@ -737,8 +737,8 @@ rusqlite writes that bypass those helpers.
 
   The existing `Catalog::open(path)` convenience constructor retains the embedded defaults.
   Authentication is supplied at open, so reconfiguration is unreachable and its error variant and adapter golden cases are removed.
-  Startup keeps its order and diagnostics. No typestate: hundreds of tests use
-  `Catalog` directly, and a typestate would only guard two start calls.
+  The recovered handle owns only pre-executor storage. `Catalog` itself has no typestate;
+  its existing callers keep the same request and shutdown interfaces.
 - **Shutdown.** `close()` cancels one token, closes admission, waits for the
   tracker, closes the read pool, drains the writer and runs the last job.
   Every waiter selects on `token.cancelled()`, so the seven hand-sent wakeups

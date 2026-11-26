@@ -95,7 +95,7 @@ impl CatalogOptions {
 
 /// The startup phase determines which diagnostic and remedy the CLI reports.
 #[derive(Debug, thiserror::Error)]
-pub enum CatalogOpenError {
+pub enum CatalogOpenFailure {
     #[error(transparent)]
     Storage(#[from] CatalogError),
     #[error(transparent)]
@@ -108,8 +108,31 @@ pub enum CatalogOpenError {
     ParentPolicy(CatalogError),
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("{failure}")]
+pub struct CatalogOpenError {
+    #[source]
+    pub failure: CatalogOpenFailure,
+    pub cleanup: Option<Box<CatalogError>>,
+}
+
+impl From<CatalogError> for CatalogOpenError {
+    fn from(error: CatalogError) -> Self {
+        Self {
+            failure: CatalogOpenFailure::Storage(error),
+            cleanup: None,
+        }
+    }
+}
+
 impl CatalogOpenError {
     pub(super) fn into_cause(self) -> CatalogError {
+        self.failure.into_cause()
+    }
+}
+
+impl CatalogOpenFailure {
+    fn into_cause(self) -> CatalogError {
         match self {
             Self::ImportInProgress => CatalogError::PreconditionFailed,
             Self::Storage(cause)
