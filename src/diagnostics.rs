@@ -99,6 +99,8 @@ pub fn emit(level: LogLevel, event: &str, fields: impl Serialize) {
     emit_lazy(level, event, || fields);
 }
 
+/// Builds fields only when the level is enabled. Use this when preparing fields allocates,
+/// as in debug events on connection or request paths. Like [`emit`], it discards write errors.
 pub(crate) fn emit_lazy<T: Serialize>(level: LogLevel, event: &str, fields: impl FnOnce() -> T) {
     let _ = write_event(
         || io::stderr().lock(),

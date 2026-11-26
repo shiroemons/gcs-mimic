@@ -701,7 +701,7 @@ dependency policy.
 | XML writer | escapes through a `fmt::Write` adapter and copies runs between special bytes found with `memchr3` |
 | Strict JWT verification | a bounded cache of RSA results keyed by message and signature digests; expiry, issuer and audience are checked every request. Adopted only if verifier keys cannot change at runtime, or keyed by key-set generation if they can |
 | gRPC upload hashing | the intake stops hashing and passes the expected hashes; the catalog's mismatch maps to today's gRPC wording in the write adapters |
-| HTTP/1 head limit | the comment on `CONNECTION_READ_BUFFER` states that it is also the head limit (431); a test sends a 40 KiB head. `MAX_QUERY_BYTES` stays, since it still bounds gRPC v1 |
+| HTTP/1 head limit | the comment on `CONNECTION_READ_BUFFER` explains when an incomplete head gets 431; a test sends a 40 KiB head. `MAX_QUERY_BYTES` stays, since it still bounds gRPC v1 |
 | `CONNECTION_READ_BUFFER` | stays 16 KiB unless the measured run (one 1 GiB upload at 16 and 64 KiB) shows a gain after coalescing. Raising it also raises the documented header limit, which the same change updates |
 
 ## Types, configuration and duplicated rules
