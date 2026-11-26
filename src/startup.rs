@@ -506,7 +506,7 @@ async fn prepare_startup(
         let http = bind_optional(config.listen_http(), ListenerSetting::ListenHttp).await?;
         let trusted =
             bind_optional(config.trusted_listen(), ListenerSetting::TrustedListen).await?;
-        let grpc = match config.grpc_listen().zip(config.grpc_scheme()) {
+        let grpc = match config.grpc_listener() {
             Some((address, scheme)) => Some(BoundGrpcListener {
                 listener: bind_configured_listener(address, ListenerSetting::GrpcListen).await?,
                 scheme,

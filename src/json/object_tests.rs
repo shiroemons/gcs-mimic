@@ -738,6 +738,16 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
 }
 
 #[test]
+fn json_get_header_validation_accepts_an_obs_text_token() {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-goog-gcs-idempotency-token",
+        hyper::header::HeaderValue::from_bytes(&[0xff]).unwrap(),
+    );
+    assert!(validate_object_get_headers(&headers).is_ok());
+}
+
+#[test]
 fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions() {
     // The upload header check takes no preconditions, so a token is judged the same whichever
     // conditions the query carries.

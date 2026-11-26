@@ -10,7 +10,7 @@ use crate::{
     metadata_error::MetadataError,
     object::{
         Checksum, ChecksumConflict, ExpectedHashes, HashAlgorithm, HashMismatch, IdempotencyToken,
-        MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, TokenError,
+        MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, TextTokenError,
         content_type,
     },
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
@@ -160,9 +160,8 @@ pub(super) fn conditions(headers: &HeaderMap) -> Result<ObjectConditions, Error>
     let token =
         IdempotencyToken::from_text(headers, TextOrder::RepetitionFirst).map_err(|error| {
             match error {
-                TokenError::Repeated(error) => header_error(&TextError::Repeated(error)),
-                TokenError::InvalidText(error) => header_error(&TextError::Invalid(error)),
-                TokenError::Empty => Error::invalid("Expected a non-empty retry token."),
+                TextTokenError::Header(error) => header_error(&error),
+                TextTokenError::Empty => Error::invalid("Expected a non-empty retry token."),
             }
         })?;
     if token.is_some() && conditions.if_generation_match.is_none() {

@@ -66,10 +66,28 @@ mod tests {
         }
 
         #[test]
-        fn arbitrary_decimal_text_never_panics(text in any::<String>()) {
-            for grammar in [Grammar::Signed, Grammar::SignedNoPlus, Grammar::Digits] {
-                let _ = grammar.parse::<i64>(&text);
-            }
+        fn arbitrary_decimal_text_matches_an_independent_integer_grammar(text in any::<String>()) {
+            let (sign, digits) = match text.as_bytes() {
+                [sign @ (b'+' | b'-'), digits @ ..] => (Some(*sign), digits),
+                digits => (None, digits),
+            };
+            let expected = digits
+                .iter()
+                .try_fold(0i128, |value, &byte| {
+                    let digit = byte.checked_sub(b'0').filter(|&digit| digit < 10)?;
+                    value.checked_mul(10)?.checked_add(i128::from(digit))
+                })
+                .filter(|_| !digits.is_empty())
+                .and_then(|magnitude| {
+                    let value = if sign == Some(b'-') { -magnitude } else { magnitude };
+                    i64::try_from(value).ok()
+                });
+            prop_assert_eq!(Grammar::Signed.parse::<i64>(&text), expected);
+            prop_assert_eq!(
+                Grammar::SignedNoPlus.parse::<i64>(&text),
+                expected.filter(|_| sign != Some(b'+')),
+            );
+            prop_assert_eq!(Grammar::Digits.parse::<i64>(&text), expected.filter(|_| sign.is_none()));
         }
     }
 

@@ -18,7 +18,7 @@ mod patch;
 pub(crate) mod retention;
 pub(crate) mod unix_nanos;
 pub(crate) mod upload_headers;
-pub(crate) use idempotency::{IdempotencyToken, TokenError};
+pub(crate) use idempotency::{IdempotencyToken, OpaqueTokenError, TextTokenError};
 
 pub use patch::{MapPatch, Patch, WriteMode};
 

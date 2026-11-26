@@ -378,11 +378,18 @@ impl Config {
     }
 
     pub fn grpc_listen(&self) -> Option<SocketAddr> {
-        self.listeners.grpc().map(|listener| listener.address)
+        self.grpc_listener().map(|(address, _)| address)
     }
 
     pub fn grpc_scheme(&self) -> Option<GrpcScheme> {
-        self.listeners.grpc().map(|listener| listener.scheme)
+        self.grpc_listener().map(|(_, scheme)| scheme)
+    }
+
+    /// The address and scheme of the dedicated gRPC listener, when configured.
+    pub fn grpc_listener(&self) -> Option<(SocketAddr, GrpcScheme)> {
+        self.listeners
+            .grpc()
+            .map(|listener| (listener.address, listener.scheme))
     }
 
     pub fn trusted_listen(&self) -> Option<SocketAddr> {

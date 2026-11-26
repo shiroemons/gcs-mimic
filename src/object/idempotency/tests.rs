@@ -17,7 +17,7 @@ fn opaque_tokens_admit_bytes_that_text_tokens_refuse() {
     assert!(IdempotencyToken::validate_opaque(&headers).is_ok());
     assert!(matches!(
         IdempotencyToken::from_text(&headers, TextOrder::ValueFirst),
-        Err(TokenError::InvalidText(_))
+        Err(TextTokenError::Header(TextError::Invalid(_)))
     ));
     headers.append(
         IdempotencyToken::HEADER,
@@ -25,15 +25,15 @@ fn opaque_tokens_admit_bytes_that_text_tokens_refuse() {
     );
     assert!(matches!(
         IdempotencyToken::validate_opaque(&headers),
-        Err(TokenError::Repeated(_))
+        Err(OpaqueTokenError::Repeated(_))
     ));
     assert!(matches!(
         IdempotencyToken::from_text(&headers, TextOrder::RepetitionFirst),
-        Err(TokenError::Repeated(_))
+        Err(TextTokenError::Header(TextError::Repeated(_)))
     ));
     assert!(matches!(
         IdempotencyToken::from_text(&headers, TextOrder::ValueFirst),
-        Err(TokenError::InvalidText(_))
+        Err(TextTokenError::Header(TextError::Invalid(_)))
     ));
 }
 
@@ -44,11 +44,11 @@ fn tokens_refuse_empty_values_and_keep_nonempty_spelling() {
         headers.insert(IdempotencyToken::HEADER, HeaderValue::from_static(empty));
         assert!(matches!(
             IdempotencyToken::validate_opaque(&headers),
-            Err(TokenError::Empty)
+            Err(OpaqueTokenError::Empty)
         ));
         assert!(matches!(
             IdempotencyToken::from_text(&headers, TextOrder::RepetitionFirst),
-            Err(TokenError::Empty)
+            Err(TextTokenError::Empty)
         ));
     }
     headers.insert(

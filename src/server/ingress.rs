@@ -6,7 +6,7 @@ use super::{BodyRead, ObjectActivity, RESOURCE_BODY_LIMIT, RequestCtx, ResponseB
 use crate::{api_error::ApiError, auth::Caller, json::JsonErrorResponse};
 use http_body_util::{BodyExt, Full};
 use hyper::{
-    Method, Request, Response, StatusCode,
+    HeaderMap, Method, Request, Response, StatusCode,
     body::{Body, Bytes, Frame, Incoming, SizeHint},
     header::{CONTENT_ENCODING, CONTENT_LENGTH, HeaderValue, TRANSFER_ENCODING},
 };
@@ -228,13 +228,19 @@ pub(super) async fn expand(
     }
 }
 
+fn has_single_gzip_coding(headers: &HeaderMap) -> bool {
+    crate::http_header::sole(headers, CONTENT_ENCODING)
+        .value()
+        .ok()
+        .flatten()
+        .is_some_and(|encoding| encoding.as_bytes().eq_ignore_ascii_case(b"gzip"))
+}
+
 async fn expand_metadata(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
 ) -> Result<Request<RequestBody>, ApiError> {
-    if !matches!(crate::http_header::sole(request.headers(), CONTENT_ENCODING).value(),
-        Ok(Some(encoding)) if encoding.as_bytes().eq_ignore_ascii_case(b"gzip"))
-    {
+    if !has_single_gzip_coding(request.headers()) {
         return Err(bad_request(
             "JSON request Content-Encoding must be a single gzip coding",
         ));

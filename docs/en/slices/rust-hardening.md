@@ -222,9 +222,13 @@ Pending the evidence below:
     one `PreconditionPolicy` shared by JSON and XML. Otherwise keep today's
     behavior and record each route's policy as a local choice.
 
-- **Error precedence for repeated, non-text fields.** JSON resumable checks
-  the first value's text before reporting repetition. XML PUT and batch
-  report repetition first. The tests
+- **Error precedence for repeated, non-text fields.** `json::resumable::single`
+  checks the first value's text before reporting repetition. It reads resumable
+  headers and `x-upload-content-type` on JSON media and multipart uploads.
+  XML PUT and POST, batch, XML read precondition headers, and
+  `upload_headers::content_type` (including JSON uploads' `Content-Type`)
+  report repetition first. A JSON upload can therefore use different precedence
+  for `Content-Type` and `x-upload-content-type` on the same request. The tests
   `a_non_text_first_resumable_header_wins_over_repetition`,
   `a_repeated_xml_put_header_wins_over_a_non_text_first_value` and
   `a_repeated_batch_header_wins_over_a_non_text_first_value` pin the choice.
@@ -233,6 +237,10 @@ Pending the evidence below:
 - **Idempotency token input.** JSON and XML read checks accept one opaque,
   nonblank byte value. JSON replay and XML PUT require visible text as well.
   XML copy refuses the field whenever it is present. The tests
+  `json_get_header_validation_accepts_an_obs_text_token`,
+  `json_media_upload_requires_a_text_token`,
+  `xml_get_accepts_an_obs_text_token` and `xml_put_requires_a_text_token`
+  exercise the four routes with a `0xff` byte. The tests
   `opaque_tokens_admit_bytes_that_text_tokens_refuse`,
   `obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions`,
   `xml_read_idempotency_tokens_require_one_nonempty_value` and

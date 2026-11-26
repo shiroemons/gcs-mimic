@@ -915,6 +915,53 @@ fn xml_read_idempotency_tokens_require_one_nonempty_value() {
     );
 }
 
+fn request_with_obs_text_token(server: &Server, method: &str, path: &str, headers: &str) -> Reply {
+    let mut request = format!("{method} {path} HTTP/1.1\r\nHost: local\r\n{headers}Content-Length: 0\r\nx-goog-gcs-idempotency-token: ").into_bytes();
+    request.extend_from_slice(b"\xff\r\n\r\n");
+    server.raw(&close_after_response(&request))
+}
+
+#[test]
+fn xml_get_accepts_an_obs_text_token() {
+    let (_config, _data, server) = fixture();
+    grant(&server, "allUsers", "roles/storage.objectViewer");
+    let reply = request_with_obs_text_token(&server, "GET", OBJECT, "");
+    assert_eq!(reply.expect(200).body, b"hello world");
+}
+
+#[test]
+fn xml_put_requires_a_text_token() {
+    let (_config, _data, server) = fixture();
+    let reply = request_with_obs_text_token(
+        &server,
+        "PUT",
+        "/iam-bucket/obs-text",
+        &format!("{ADMIN}x-goog-if-generation-match: 0\r\n"),
+    );
+    xml_error(&reply, 400, "InvalidArgument");
+    assert!(
+        std::str::from_utf8(&reply.body)
+            .unwrap()
+            .contains("<Message>Header must be representable as ASCII.</Message>")
+    );
+}
+
+#[test]
+fn json_media_upload_requires_a_text_token() {
+    let (_config, _data, server) = fixture();
+    let reply = request_with_obs_text_token(
+        &server,
+        "POST",
+        "/upload/storage/v1/b/iam-bucket/o?uploadType=media&name=obs-text",
+        &format!("{ADMIN}Content-Type: application/octet-stream\r\n"),
+    );
+    let value = reply.expect(400).json();
+    assert_eq!(
+        value["error"]["message"],
+        "Invalid x-goog-gcs-idempotency-token"
+    );
+}
+
 #[test]
 fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
     let (_config, _data, server) = fixture();

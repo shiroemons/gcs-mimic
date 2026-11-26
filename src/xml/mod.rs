@@ -6,7 +6,7 @@ use crate::{
     hashing::Hashes,
     http_header::{TextError, TextOrder, sole},
     net::{TrailingDot, normalized_host},
-    object::{IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget, TokenError},
+    object::{IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget, OpaqueTokenError},
 };
 use http_body_util::{BodyExt, Full};
 use hyper::{
@@ -688,7 +688,11 @@ pub(crate) fn select_object_with_endpoints(
             || virtual_bucket.is_some()
             || bucket_for_authority(authority.as_str(), &endpoints.xml_virtual_host_domains)
                 .is_some())
-        && !matches!(sole(headers, "host").value(), Ok(Some(host)) if host.as_bytes() == authority.as_str().as_bytes())
+        && !sole(headers, "host")
+            .value()
+            .ok()
+            .flatten()
+            .is_some_and(|host| host.as_bytes() == authority.as_str().as_bytes())
     {
         return Err(if crate::auth::signature::is_signed(uri.query()) {
             Error::new(
@@ -967,11 +971,11 @@ pub(crate) fn headers(
         ));
     }
     IdempotencyToken::validate_opaque(headers).map_err(|error| match error {
-        TokenError::Repeated(_) => Error::new(
+        OpaqueTokenError::Repeated(_) => Error::new(
             XmlCode::ExcessHeaderValues,
             "Expected a single x-goog-gcs-idempotency-token header.",
         ),
-        TokenError::InvalidText(_) | TokenError::Empty => {
+        OpaqueTokenError::Empty => {
             Error::invalid("Expected a non-empty x-goog-gcs-idempotency-token header.")
         }
     })?;

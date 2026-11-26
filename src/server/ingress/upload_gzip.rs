@@ -12,6 +12,7 @@
 
 use super::{
     DecodedBody, Decoding, RequestBody, RequestCtx, UploadDecoder, bad_request,
+    has_single_gzip_coding,
     members::{self, Members},
     without_coding,
 };
@@ -44,9 +45,7 @@ pub(super) async fn request(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
 ) -> Result<(Request<RequestBody>, UploadDecoder), ApiError> {
-    if !matches!(crate::http_header::sole(request.headers(), CONTENT_ENCODING).value(),
-        Ok(Some(encoding)) if encoding.as_bytes().eq_ignore_ascii_case(b"gzip"))
-    {
+    if !has_single_gzip_coding(request.headers()) {
         return Err(bad_request(
             "Upload transport Content-Encoding must be one gzip coding",
         ));

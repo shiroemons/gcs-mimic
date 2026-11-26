@@ -892,6 +892,7 @@ mod tests {
         let plain = load(&["--scheme=http"]);
         assert!(plain.tls().is_none());
         assert_eq!(plain.grpc_scheme(), None);
+        assert!(plain.grpc_listener().is_none());
 
         for (flags, grpc_scheme) in [
             (&["--scheme=https"][..], None),
@@ -906,6 +907,10 @@ mod tests {
         ] {
             let config = load(&[flags, &["--tls-cert=a", "--tls-key=b"]].concat());
             assert_eq!(config.grpc_scheme(), grpc_scheme);
+            assert_eq!(
+                config.grpc_listener(),
+                grpc_scheme.map(|scheme| ("127.0.0.1:0".parse().unwrap(), scheme)),
+            );
             let Some(TlsIdentity::Provided { certificate, key }) = config.tls().map(Tls::identity)
             else {
                 panic!("expected configured identity for {flags:?}");
