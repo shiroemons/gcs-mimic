@@ -172,7 +172,7 @@ impl Inner {
         // Before the caller can learn the outcome, so a read after this write misses the cache. A
         // rollback also counts as a change, which only costs some cached answers.
         if connection.total_changes() != changes_before {
-            self.read_cache.invalidate();
+            self.read_cache.invalidate(&self.cache_runtime);
             if rules_written {
                 self.lifecycle_rules_changed();
             } else {

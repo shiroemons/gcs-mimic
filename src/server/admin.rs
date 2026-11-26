@@ -104,10 +104,10 @@ async fn authority(
             "Local administration is disabled at startup",
         )
     })?;
-    if let Some(caller) = ctx
+    let caller = ctx
         .authenticate(request.headers(), request.uri().query())
-        .await?
-    {
+        .await?;
+    if let Some(caller) = caller {
         let principal = caller.principal()?;
         if ctx.config.admin_principal() != Some(principal.id()) {
             return Err(auth::AuthFailure::Forbidden.into());

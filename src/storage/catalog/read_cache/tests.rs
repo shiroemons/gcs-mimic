@@ -185,7 +185,7 @@ async fn a_ram_body_takes_no_descriptor_slot() {
     put(&catalog, "object", &b"contents"[..]).await;
     download(&catalog, "object").await.unwrap();
     assert!(keeps_file(&catalog, "object").await);
-    assert_eq!(catalog.0.read_cache.read().open_files, 0);
+    assert_eq!(catalog.0.read_cache.read().open_files(), 0);
     catalog.close().await.unwrap();
 }
 
@@ -597,7 +597,7 @@ fn past_the_descriptor_limit_only_the_record_enters() {
     cache.store_object(revision, cached("first", Some(open_file(&dir))));
     cache.store_object(revision, cached("second", Some(open_file(&dir))));
     let contents = cache.read();
-    assert_eq!(contents.open_files, 1);
+    assert_eq!(contents.open_files(), 1);
     assert_eq!(contents.object_count, 2);
     assert!(
         contents
@@ -621,7 +621,7 @@ fn a_limit_of_zero_descriptors_keeps_no_file_open() {
     let cache = ReadCache::new(0);
     cache.store_object(cache.revision(), cached("name", Some(open_file(&dir))));
     let contents = cache.read();
-    assert_eq!(contents.open_files, 0);
+    assert_eq!(contents.open_files(), 0);
     assert!(
         contents
             .object("bucket", "name")
@@ -686,7 +686,7 @@ fn a_record_read_without_a_file_keeps_the_open_one() {
     );
     assert_eq!(contents.charged, charged);
     assert_eq!(contents.object_count, 1);
-    assert_eq!(contents.open_files, 1);
+    assert_eq!(contents.open_files(), 1);
 }
 
 #[test]
@@ -707,15 +707,15 @@ fn a_file_joins_its_cached_record_without_counting_it_twice() {
     );
     assert_eq!(contents.charged, charged);
     assert_eq!(contents.object_count, 1);
-    assert_eq!(contents.open_files, 1);
+    assert_eq!(contents.open_files(), 1);
 }
 
 /// A read that began before a write can finish after it, holding the previous state.
-#[test]
-fn an_answer_read_before_a_write_is_dropped() {
+#[tokio::test]
+async fn an_answer_read_before_a_write_is_dropped() {
     let cache = ReadCache::new(MAX_OPEN_FILES);
     let revision = cache.revision();
-    cache.invalidate();
+    cache.invalidate(&tokio::runtime::Handle::current());
     cache.store_object(revision, cached("name", None));
     cache.store_bucket_cors(revision, "bucket", true);
     let contents = cache.read();
@@ -723,8 +723,8 @@ fn an_answer_read_before_a_write_is_dropped() {
     assert!(contents.bucket_cors.is_empty());
 }
 
-#[test]
-fn a_write_clears_everything_and_closes_the_files() {
+#[tokio::test]
+async fn a_write_clears_everything_and_closes_the_files() {
     let dir = TestDir::new();
     let cache = ReadCache::new(MAX_OPEN_FILES);
     let revision = cache.revision();
@@ -732,11 +732,12 @@ fn a_write_clears_everything_and_closes_the_files() {
     cache.store_object(revision, cached("name", Some(file.clone())));
     cache.store_bucket_cors(revision, "bucket", true);
     assert_eq!(Arc::strong_count(&file), 2);
-    cache.invalidate();
+    cache.invalidate(&tokio::runtime::Handle::current());
+    cache.drain().await.unwrap();
     assert_eq!(Arc::strong_count(&file), 1);
     let contents = cache.read();
     assert_eq!(contents.object_count, 0);
-    assert_eq!(contents.open_files, 0);
+    assert_eq!(contents.open_files(), 0);
     assert_eq!(contents.charged, 0);
     assert!(contents.bucket_cors.is_empty());
 }
@@ -791,9 +792,95 @@ async fn a_catalog_write_releases_the_cached_descriptors() {
         })
     };
     put(&catalog, "third", &b"contents"[..]).await;
-    assert_eq!(observed.await.unwrap(), (2, true));
+    assert_eq!(observed.await.unwrap(), (2, false));
     catalog.close().await.unwrap();
     assert!(files.iter().all(|file| file.upgrade().is_none()));
+}
+
+#[tokio::test]
+async fn a_reopened_blob_survives_stale_file_cleanup_and_cancelled_close() {
+    let dir = TestDir::new();
+    let catalog = open_catalog(&dir).await;
+    put(&catalog, "object", &b"kept"[..]).await;
+    download(&catalog, "object").await.unwrap();
+    let cached_file = || {
+        let contents = catalog.0.read_cache.read();
+        let entry = contents.object("bucket", "object").unwrap();
+        let ReaderData::Disk(file) = &entry.download.as_ref().unwrap().data else {
+            panic!("disk fixture");
+        };
+        Arc::downgrade(file)
+    };
+    let old = cached_file();
+    let available = catalog.0.read_cache.file_slots.available_permits();
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let (release, held) = std::sync::mpsc::channel();
+    let held = std::sync::Mutex::new(held);
+    catalog.0.read_cache.write().on_drop = Some(Box::new(move |_| {
+        let writer = std::thread::current().name() == Some("gcs-mimic-catalog");
+        entered.send(writer).unwrap();
+        if !writer {
+            held.into_inner().unwrap().recv().unwrap();
+        }
+    }));
+    put(&catalog, "unrelated", &b"new"[..]).await;
+    assert!(
+        !started.await.unwrap(),
+        "the writer would wait for its own reply"
+    );
+    assert_eq!(download(&catalog, "object").await.unwrap().1, b"kept");
+    let reopened = cached_file();
+    assert!(!old.ptr_eq(&reopened));
+    let reader = reopened.upgrade().unwrap();
+    assert_eq!(
+        catalog.0.read_cache.file_slots.available_permits() + 1,
+        available
+    );
+
+    let closing = catalog.clone();
+    let close = tokio::spawn(async move { closing.close().await });
+    crate::test_support::eventually_async("close to clear the new cache", || async {
+        catalog.0.admission.is_closed() && catalog.0.read_cache.read().object_count == 0
+    })
+    .await;
+    assert!(!close.is_finished());
+    close.abort();
+    assert!(close.await.unwrap_err().is_cancelled());
+    assert!(crate::storage::lock::acquire(&dir.0).is_err());
+    release.send(()).unwrap();
+    catalog.close().await.unwrap();
+    assert!(old.upgrade().is_none());
+    assert_eq!(
+        catalog.0.read_cache.file_slots.available_permits(),
+        available + 1
+    );
+    let mut bytes = [0; 4];
+    assert_eq!(crate::fsutil::read_at(&reader, &mut bytes, 0).unwrap(), 4);
+    assert_eq!(&bytes, b"kept");
+    drop(reader);
+    assert!(reopened.upgrade().is_none());
+}
+
+#[tokio::test]
+async fn a_panicking_cache_close_is_reported_and_releases_its_slots() {
+    let dir = TestDir::new();
+    let catalog = open_catalog(&dir).await;
+    put(&catalog, "object", &b"first"[..]).await;
+    download(&catalog, "object").await.unwrap();
+    catalog.0.read_cache.write().on_drop = Some(Box::new(|_| panic!("cache close fixture")));
+    put(&catalog, "object", &b"second"[..]).await;
+    crate::test_support::eventually_async("the blocking cleanup panic to be reported", || async {
+        crate::task::tests::reported_panics("read-cache-close")
+            .iter()
+            .any(|message| message == "cache close fixture")
+    })
+    .await;
+    assert_eq!(download(&catalog, "object").await.unwrap().1, b"second");
+    catalog.close().await.unwrap();
+    assert_eq!(
+        catalog.0.read_cache.file_slots.available_permits(),
+        catalog.0.read_cache.max_open_files as usize
+    );
 }
 
 /// The directory belongs to the next owner after a close, even while this handle lives on.
@@ -803,9 +890,9 @@ async fn closing_releases_every_kept_file() {
     let catalog = open_catalog(&dir).await;
     put(&catalog, "object", &b"contents"[..]).await;
     download(&catalog, "object").await.unwrap();
-    assert_eq!(catalog.0.read_cache.read().open_files, 1);
+    assert_eq!(catalog.0.read_cache.read().open_files(), 1);
     catalog.close().await.unwrap();
-    assert_eq!(catalog.0.read_cache.read().open_files, 0);
+    assert_eq!(catalog.0.read_cache.read().open_files(), 0);
 }
 
 /// Nothing changed a row here, so only the poison check can stop the hit.

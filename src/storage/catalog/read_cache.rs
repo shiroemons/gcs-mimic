@@ -33,6 +33,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// What the records may take, since custom metadata makes one record much larger than another.
 const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
@@ -107,7 +108,8 @@ pub(super) struct Revision(u64);
 
 pub(super) struct ReadCache {
     revision: AtomicU64,
-    max_open_files: usize,
+    max_open_files: u32,
+    file_slots: Arc<Semaphore>,
     contents: RwLock<Contents>,
 }
 
@@ -116,18 +118,19 @@ struct Contents {
     /// Nested so that a lookup borrows both names instead of building a key.
     objects: HashMap<String, HashMap<String, Arc<CachedObject>>>,
     object_count: usize,
-    open_files: usize,
     charged: usize,
     bucket_cors: HashMap<String, bool>,
     #[cfg(test)]
     on_drop: Option<Box<dyn FnOnce(usize) + Send + Sync>>,
+    // Field order returns the slots only after all the cache's file references have dropped.
+    file_slots: Option<OwnedSemaphorePermit>,
 }
 
 #[cfg(test)]
 impl Drop for Contents {
     fn drop(&mut self) {
         if let Some(observe) = self.on_drop.take() {
-            observe(self.open_files);
+            observe(self.open_files());
         }
     }
 }
@@ -137,7 +140,16 @@ impl Contents {
         self.objects.get(bucket)?.get(name)
     }
 
-    fn insert_object(&mut self, mut object: CachedObject, max_open_files: usize) {
+    #[cfg(test)]
+    fn open_files(&self) -> usize {
+        self.objects
+            .values()
+            .flat_map(HashMap::values)
+            .filter(|object| object.holds_descriptor())
+            .count()
+    }
+
+    fn insert_object(&mut self, mut object: CachedObject, slots: &Arc<Semaphore>) {
         let previous = self.object(&object.record.bucket, &object.record.name);
         // A record read without opening the file must not close the one a download kept.
         if previous.is_some_and(|previous| previous.download.is_some() || object.download.is_none())
@@ -145,9 +157,15 @@ impl Contents {
             return;
         }
         // The record is still worth holding when only its descriptor does not fit.
-        if object.holds_descriptor() && self.open_files >= max_open_files {
-            object.download = None;
-        }
+        let slot = if object.holds_descriptor() {
+            let slot = slots.clone().try_acquire_owned().ok();
+            if slot.is_none() {
+                object.download = None;
+            }
+            slot
+        } else {
+            None
+        };
         let previous_charge = previous.map_or(0, |previous| previous.charge());
         let charged = self.charged - previous_charge + object.charge();
         let adds_nothing = previous.is_some() && object.download.is_none();
@@ -156,7 +174,12 @@ impl Contents {
             return;
         }
         self.object_count += usize::from(previous.is_none());
-        self.open_files += usize::from(object.holds_descriptor());
+        if let Some(slot) = slot {
+            match &mut self.file_slots {
+                Some(held) => held.merge(slot),
+                None => self.file_slots = Some(slot),
+            }
+        }
         self.charged = charged;
         self.objects
             .entry(object.record.bucket.clone())
@@ -167,9 +190,11 @@ impl Contents {
 
 impl ReadCache {
     pub(super) fn new(max_open_files: usize) -> Self {
+        let max_open_files = max_open_files.min(MAX_OPEN_FILES);
         Self {
             revision: AtomicU64::new(0),
-            max_open_files: max_open_files.min(MAX_OPEN_FILES),
+            max_open_files: u32::try_from(max_open_files).unwrap_or(u32::MAX),
+            file_slots: Arc::new(Semaphore::new(max_open_files)),
             contents: RwLock::default(),
         }
     }
@@ -188,11 +213,41 @@ impl ReadCache {
 
     /// Ends every answer read so far. The revision moves first and the check in [`Self::store`]
     /// runs under the lock, so an insert either sees the new revision or is cleared here.
-    pub(super) fn invalidate(&self) {
+    pub(super) fn invalidate(&self, runtime: &tokio::runtime::Handle) {
         self.revision.fetch_add(1, Ordering::AcqRel);
         // Bound first: dropping it closes every open file, which no hit should wait behind.
-        let stale = std::mem::take(&mut *self.write());
-        drop(stale);
+        let mut stale = std::mem::take(&mut *self.write());
+        if stale.file_slots.is_some() {
+            // The slots bound retired descriptors together with the live map and track them
+            // through a cancelled close. RAM entries release their byte budget inline.
+            let mut close =
+                crate::task::spawn_blocking_on(runtime, "read-cache-close", move || {
+                    // Keep completed jobs charged until their supervisor has collected the result.
+                    let slots = stale.file_slots.take();
+                    drop(stale);
+                    slots
+                });
+            crate::task::spawn_supervised_on(runtime, "read-cache-close", async move {
+                if let Err(crate::task::BlockingFailed::Cancelled(error)) =
+                    crate::task::join_blocking(&mut close).await
+                {
+                    crate::diagnostics::emit_lazy(
+                        crate::diagnostics::LogLevel::Warn,
+                        crate::diagnostics::Event::BackgroundTaskCancelled,
+                        || serde_json::json!({"task":"read-cache-close","message":error.to_string()}),
+                    );
+                }
+            });
+        }
+    }
+
+    pub(super) async fn drain(&self) -> Result<(), crate::bucket::CatalogError> {
+        let _files = self
+            .file_slots
+            .acquire_many(self.max_open_files)
+            .await
+            .map_err(crate::storage::failure::unavailable)?;
+        Ok(())
     }
 
     fn store(&self, revision: Revision, insert: impl FnOnce(&mut Contents)) {
@@ -205,7 +260,7 @@ impl ReadCache {
     pub(super) fn store_object(&self, revision: Revision, object: CachedObject) {
         if object.record.customer_key_sha256.is_none() {
             self.store(revision, |contents| {
-                contents.insert_object(object, self.max_open_files);
+                contents.insert_object(object, &self.file_slots);
             });
         }
     }

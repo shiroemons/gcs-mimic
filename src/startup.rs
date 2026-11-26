@@ -574,7 +574,8 @@ pub(crate) async fn serve(
 ) -> Result<(), crate::CliError> {
     tokio::pin!(shutdown);
     let clock = Arc::new(SystemClock);
-    let catalog = match open_catalog(&config, clock.clone(), shutdown.as_mut()).await? {
+    let opened = open_catalog(&config, clock.clone(), shutdown.as_mut()).await?;
+    let catalog = match opened {
         PhaseResult::Complete(catalog) => catalog,
         PhaseResult::Stopped => return Ok(()),
     };

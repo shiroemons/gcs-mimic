@@ -46,9 +46,10 @@ impl Catalog {
         if let Some(pool) = &self.0.read_pool {
             pool.close().await;
         }
-        // Remaining handles must not keep the blobs open: ownership of the directory ends here.
-        self.0.read_cache.invalidate();
         let execution = drain(&self.0.execution, 1).await?;
+        // Once every cache producer has stopped, release the files before directory ownership.
+        self.0.read_cache.invalidate(&self.0.cache_runtime);
+        self.0.read_cache.drain().await?;
         let inner = self.0.clone();
         let closed = self
             .0

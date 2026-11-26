@@ -358,7 +358,9 @@ every request, and objects under a customer-supplied key never enter. The cache 
 bytes: an entry keeps its immutable generation open, and `preadv2` with `RWF_NOWAIT` reads what the
 page cache holds, which the kernel guarantees cannot wait for storage. Anything else falls back to
 a blocking read. A full cache admits nothing further until the next write instead of evicting,
-because a sweep over more objects than fit defeats a recency policy entirely.
+because a sweep over more objects than fit defeats a recency policy entirely. Invalidation swaps
+out the map before the write replies. A supervised blocking job releases its file descriptors.
+Live and retired entries share the descriptor limit, and shutdown drains them before unlocking.
 
 HTTP and gRPC `ReadObject` share a frame reader. HTTP reads up to 256 KiB, or 1 MiB while
 more than that remains. `ReadObject` reads up to 256 KiB per message. Dropping the response releases

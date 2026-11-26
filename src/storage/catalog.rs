@@ -215,6 +215,7 @@ struct Inner {
     read_pool: Option<read_pool::ReadPool>,
     parent_policy: Arc<read_pool::ParentPolicy>,
     read_cache: read_cache::ReadCache,
+    cache_runtime: tokio::runtime::Handle,
     reclamation: Arc<Semaphore>,
     uploads: Mutex<UploadState>,
     uploads_idle: Notify,

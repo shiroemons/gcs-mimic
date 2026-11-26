@@ -433,6 +433,7 @@ impl Catalog {
                 read_pool,
                 parent_policy,
                 read_cache: read_cache::ReadCache::new(crate::fd_limit::cacheable_files()),
+                cache_runtime: tokio::runtime::Handle::current(),
                 reclamation: Arc::new(Semaphore::new(1)),
                 uploads: Mutex::new(UploadState::default()),
                 uploads_idle: Notify::new(),
