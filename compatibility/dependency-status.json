@@ -17,6 +17,20 @@
     "release_url": "https://blog.rust-lang.org/2026/11/12/Rust-1.100.0/"
   },
   "direct_dependencies": [
+    {
+      "name": "tokio-util",
+      "current": "0.7.20",
+      "latest_non_yanked_stable": "0.7.20",
+      "license": "MIT",
+      "compressed_crate_bytes": 149783,
+      "minimum_rust": "1.85",
+      "purpose": "Wake catalog waiters when shutdown starts.",
+      "features": [],
+      "maintenance": "Tokio project release published 2026-10-09, verified in the official Cargo index on 2026-11-27.",
+      "source_urls": ["https://index.crates.io/to/ki/tokio-util", "https://static.crates.io/crates/tokio-util/tokio-util-0.7.20.crate"],
+      "source_sha256": "e464cf451ba96ebfc6f9b6542f17ee8b8956e33f1e40d9690624e59d7a7f8a4b",
+      "resolution_constraints": "CancellationToken needs no optional features. Defaults are disabled and the direct edge adds no package or version."
+    },
     {"name":"thiserror","current":"2.0.21","latest_non_yanked_stable":"2.0.21","license":"MIT OR Apache-2.0","compressed_crate_bytes":29021,"minimum_rust":"1.77","purpose":"Derive Display and Error for typed validation failures.","features":["std"],"maintenance":"Verified in the official Cargo index on 2026-11-26. Published 2026-09-23 from publisher revision b1827ee06f81a7d7f954e676771e19a97f9f8e3b.","source_urls":["https://index.crates.io/th/is/thiserror","https://github.com/dtolnay/thiserror/tree/2.0.21"],"source_sha256":"09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e","resolution_constraints":"The matching thiserror-impl 2.0.21 proc macro reuses the locked proc-macro2, quote and syn packages."},
     {
       "name": "memchr",

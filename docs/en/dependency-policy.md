@@ -77,6 +77,11 @@ records the direct edge, package digest, license and compressed size.
 The [freshness check](evidence/dependency-refresh.md#memchr-direct-edge-2026-11-26)
 records the version comparison for the explicit `std` feature selection.
 
+Catalog shutdown uses `tokio-util` 0.7.20's `CancellationToken`. The direct
+edge disables default features and adds no feature or package to the locked
+graph. The [dependency snapshot](../../compatibility/dependency-status.json)
+records the registry checksum, license and compressed size.
+
 Typed validation errors use `thiserror` 2.0.21 to derive their diagnostic
 text and cause chains. Storage errors whose causes drive classification keep
 their explicit conversions. The [dependency check and package review](evidence/dependency-refresh.md#typed-errors-on-2026-11-26)

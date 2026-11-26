@@ -1,19 +1,4 @@
-use super::open::{ADMIN_READS, ADMIN_UPLOADS, PUBLICATION_REQUESTS, STAGED_HANDLES};
 use super::*;
-use tokio::sync::OwnedSemaphorePermit;
-
-/// Waits until every one of `semaphore`'s `permits` is back, so no holder is still working, and
-/// keeps them so no new holder starts.
-async fn drain(
-    semaphore: &Arc<Semaphore>,
-    permits: u32,
-) -> Result<OwnedSemaphorePermit, CatalogError> {
-    semaphore
-        .clone()
-        .acquire_many_owned(permits)
-        .await
-        .map_err(unavailable)
-}
 
 impl Catalog {
     /// Stops admission on all handles and waits for blocking work before releasing ownership.
@@ -22,34 +7,20 @@ impl Catalog {
     /// descriptor closes and their supervisors. Runtime shutdown cancels queued work and
     /// drops its owned files, but cannot guarantee completion of an orderly catalog close.
     pub async fn close(&self) -> Result<(), CatalogError> {
-        crate::sync::lock(&self.0.admission.uploads).closed = true;
+        self.0.shutdown.token.cancel();
         self.0.admission.slots.close();
-        self.0.writers.released.notify_waiters();
-        self.0.admission.activity.wake_waiters();
-        self.0.shutdown.admin_wake.notify_waiters();
-        self.0.notifications.wake.notify_one();
-        self.0.maintenance.wake.notify_one();
-        self.0.admin.seed_watch.wake();
-        let _notification_attempt = drain(&self.0.notifications.attempts, 1).await?;
-        let _publication_requests =
-            drain(&self.0.admin.publication_requests, PUBLICATION_REQUESTS).await?;
-        let _staged_handles = drain(&self.0.admin.staged_handles, STAGED_HANDLES).await?;
-        let _admin_uploads = drain(&self.0.admin.uploads, ADMIN_UPLOADS).await?;
-        let _admin_reads = drain(&self.0.admin.reads, ADMIN_READS).await?;
-        loop {
-            let idle = self.0.admission.uploads_idle.notified();
-            tokio::pin!(idle);
-            idle.as_mut().enable();
-            if crate::sync::lock(&self.0.admission.uploads).active == 0 {
-                break;
-            }
-            idle.await;
-        }
-        let _reclamation = drain(&self.0.storage.reclamation, 1).await?;
+        self.0.shutdown.tasks.drain().await;
         if let Some(pool) = &self.0.reads.pool {
             pool.close().await;
         }
-        let execution = drain(&self.0.writer.execution, 1).await?;
+        let execution = self
+            .0
+            .writer
+            .execution
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(unavailable)?;
         // Once every cache producer has stopped, release the files before directory ownership.
         self.0.reads.invalidate();
         self.0.reads.cache.drain().await?;

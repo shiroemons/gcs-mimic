@@ -19,10 +19,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering, fence},
 };
 use tokio::{
-    sync::{
-        Notify, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, OwnedSemaphorePermit, RwLock,
-        TryLockError,
-    },
+    sync::{Notify, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, TryLockError},
     time::Instant,
 };
 
@@ -94,7 +91,7 @@ struct Reservations {
     /// consistency keeps those orders across threads, so no waiter both misses the new count and
     /// misses the wakeup.
     count: AtomicUsize,
-    /// Wakes the callers waiting for a lease when a reservation ends or the catalog closes.
+    /// Wakes callers waiting for a lease when a reservation ends.
     released: Notify,
     /// Wakes the exclusive jobs waiting for leases to drain when a lease drops.
     lease_released: Notify,
@@ -120,11 +117,6 @@ impl ActivityGate {
             lease: Some(lease),
             reservations: self.reservations.clone(),
         })
-    }
-
-    /// Wakes every caller waiting for a lease, so that it sees the catalog closing.
-    pub(super) fn wake_waiters(&self) {
-        self.reservations.released.notify_waiters();
     }
 
     /// Resolves once every lease taken so far is gone.
@@ -159,7 +151,7 @@ impl Drop for Reservation {
 pub(super) struct ExclusiveGuard {
     _gate: OwnedRwLockWriteGuard<()>,
     _reservation: Reservation,
-    _execution: OwnedSemaphorePermit,
+    _execution: tokio::sync::OwnedSemaphorePermit,
 }
 
 impl Catalog {
@@ -186,10 +178,9 @@ impl Catalog {
         loop {
             let released = gate.reservations.released.notified();
             tokio::pin!(released);
-            // Registered before the checks, so a release or a close right after them still wakes
-            // this waiter.
+            // Register before checking the gate so a concurrent release cannot be missed.
             released.as_mut().enable();
-            let closed = self.0.admission.slots.is_closed();
+            let closed = self.is_closing();
             let lease = match work {
                 Work::New if closed || gate.is_reserved() => None,
                 Work::New | Work::UnderWay => gate.try_read().ok(),
@@ -197,7 +188,10 @@ impl Catalog {
             match lease {
                 Some(lease) => return Ok(lease),
                 None if closed => return Err(ActivityClosed),
-                None => released.await,
+                None => tokio::select! {
+                    () = released => {}
+                    () = self.0.shutdown.token.cancelled() => return Err(ActivityClosed),
+                },
             }
         }
     }
@@ -224,8 +218,7 @@ impl Catalog {
         let reservation = gate.reserve();
         loop {
             // Registered before the attempt, so a lease dropped right after it still wakes this
-            // job. The gate may also be shut by another job rather than by a lease, and closing
-            // the catalog wakes `released` too.
+            // job. The gate may also be shut by another job rather than by a lease.
             let lease_released = gate.reservations.lease_released.notified();
             let released = gate.reservations.released.notified();
             tokio::pin!(lease_released, released);
@@ -246,6 +239,7 @@ impl Catalog {
             drop(execution);
             // Past the deadline, the next `wait_admin` reports the job busy.
             tokio::select! {
+                () = self.0.shutdown.token.cancelled() => return Err(AdminError::Closed),
                 () = lease_released => {}
                 () = released => {}
                 () = tokio::time::sleep_until(deadline) => {}

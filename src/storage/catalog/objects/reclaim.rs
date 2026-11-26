@@ -1,5 +1,12 @@
 use super::*;
 
+#[must_use = "reclamation must retain its leases until file and SQL work settle"]
+pub(in crate::storage::catalog) struct ReclamationPermit {
+    _activity: Activity,
+    _slot: OwnedSemaphorePermit,
+    _task: Arc<crate::task::TaskToken>,
+}
+
 // Both probes use the same source of live references, with an indexed predicate for each shape.
 macro_rules! referenced_blobs {
     ($predicate:literal) => {
@@ -231,11 +238,15 @@ impl Catalog {
         Ok(None)
     }
 
-    /// Reclaims up to `RECLAIM_PAGE` journaled blobs and returns how many it selected.
-    pub(in crate::storage::catalog) async fn reclaim_pending(&self) -> Result<usize, ObjectError> {
+    pub(in crate::storage::catalog) async fn reclamation_permit(
+        &self,
+    ) -> Result<ReclamationPermit, ObjectError> {
         // An upload reclaims under its own lease after it commits, so this must not line up behind
         // an exclusive job that is waiting for that upload to finish.
         let activity = self.await_activity(Work::UnderWay).await?;
+        let task = self.0.shutdown.tasks.track().ok_or_else(|| {
+            object_unavailable(crate::cause::BackendFailure::CatalogClosed)
+        })?;
         let permit = self
             .0
             .storage
@@ -244,12 +255,22 @@ impl Catalog {
             .acquire_owned()
             .await
             .map_err(object_unavailable)?;
+        Ok(ReclamationPermit {
+            _activity: activity,
+            _slot: permit,
+            _task: task,
+        })
+    }
+
+    /// Reclaims up to `RECLAIM_PAGE` journaled blobs and returns how many it selected.
+    pub(in crate::storage::catalog) async fn reclaim_pending(&self) -> Result<usize, ObjectError> {
+        let permit = self.reclamation_permit().await?;
         let catalog = self.clone();
         // Detached callers retain the cleanup slot until filesystem work and SQL settle.
         #[cfg(test)]
         self.count_cleanup_task();
         let task = crate::task::spawn_supervised("blob-reclamation", async move {
-            let (_permit, _activity) = (permit, activity);
+            let _permit = permit;
             let (ids, conflict) = catalog
                 .run_upload::<_, ObjectError>(|connection| {
                     let ids = connection

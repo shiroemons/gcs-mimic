@@ -111,7 +111,8 @@ pub(super) struct Notifications {
 
 #[derive(Default)]
 pub(super) struct Shutdown {
-    pub(super) admin_wake: Notify,
+    pub(super) token: tokio_util::sync::CancellationToken,
+    pub(super) tasks: crate::task::TaskTracker,
     /// Workers started beside the catalog whose health readiness also reports. Each worker
     /// registers once and is never removed; the server starts each such worker once per
     /// catalog, so the list stays as short as the set of workers.

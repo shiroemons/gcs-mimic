@@ -149,13 +149,11 @@ struct OwnedBlob {
 enum StagedLease {
     /// `stage_from_file`: one staged-handle permit and one activity lease per object.
     Own {
-        _permit: OwnedSemaphorePermit,
+        _permit: AdminPermit,
         _activity: super::super::Activity,
     },
     /// A seed batch: one admission shared by every object it staged.
-    Batch {
-        _admission: Arc<OwnedSemaphorePermit>,
-    },
+    Batch { _admission: Arc<AdminPermit> },
 }
 
 /// What a publication records besides the object, chosen by the caller that staged the body.
@@ -191,7 +189,7 @@ impl StagedObject {
         }
     }
     /// Seed batches share one admission so that 256 handle permits cannot deadlock a larger tree.
-    pub(super) fn into_batch(mut self, admission: Arc<OwnedSemaphorePermit>) -> Self {
+    pub(super) fn into_batch(mut self, admission: Arc<AdminPermit>) -> Self {
         if let Some(owned) = &mut self.owned {
             owned._lease = StagedLease::Batch {
                 _admission: admission,
@@ -604,11 +602,11 @@ impl Admin {
             .await?;
         let permit = self
             .catalog
-            .wait_admin(self.catalog.0.admin.staged_handles.clone(), deadline)
+            .admit_admin(self.catalog.0.admin.staged_handles.clone(), deadline)
             .await?;
         let worker = self
             .catalog
-            .wait_admin(self.catalog.0.admin.uploads.clone(), deadline)
+            .admit_admin(self.catalog.0.admin.uploads.clone(), deadline)
             .await?;
         let catalog = self.catalog.clone();
         // Owned work returns a handle even if its receiving future is cancelled; Drop then cleans it.
@@ -784,7 +782,7 @@ impl Admin {
         let deadline = self.catalog.admin_deadline();
         let request = self
             .catalog
-            .wait_admin(self.catalog.0.admin.publication_requests.clone(), deadline)
+            .admit_admin(self.catalog.0.admin.publication_requests.clone(), deadline)
             .await?;
         let batch = self
             .catalog
@@ -870,7 +868,7 @@ async fn run_batch(
     mut entries: Vec<BatchPublication>,
     deadline: tokio::time::Instant,
     budget: Duration,
-    _ownership: (OwnedSemaphorePermit, OwnedSemaphorePermit),
+    _ownership: (OwnedSemaphorePermit, AdminPermit),
     import: Option<ImportBatch>,
 ) -> Result<BatchResult, AdminError> {
     let prepared = async {

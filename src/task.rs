@@ -23,6 +23,44 @@ use std::{
 };
 use tokio::task::JoinHandle;
 
+/// A unit of work handed to a child before spawning it, including detached cleanup.
+#[derive(Debug)]
+pub(crate) struct TaskToken {
+    _receiver: tokio::sync::watch::Receiver<()>,
+}
+
+/// While draining, an existing owner can hand off work but an empty tracker cannot reopen.
+pub(crate) struct TaskTracker {
+    root: std::sync::Mutex<Option<Arc<TaskToken>>>,
+    work: std::sync::Weak<TaskToken>,
+    drained: tokio::sync::watch::Sender<()>,
+}
+
+impl Default for TaskTracker {
+    fn default() -> Self {
+        let (drained, receiver) = tokio::sync::watch::channel(());
+        let root = Arc::new(TaskToken {
+            _receiver: receiver,
+        });
+        Self {
+            work: Arc::downgrade(&root),
+            root: std::sync::Mutex::new(Some(root)),
+            drained,
+        }
+    }
+}
+
+impl TaskTracker {
+    pub(crate) fn track(&self) -> Option<Arc<TaskToken>> {
+        self.work.upgrade()
+    }
+
+    pub(crate) async fn drain(&self) {
+        crate::sync::lock(&self.root).take();
+        self.drained.closed().await;
+    }
+}
+
 /// Consecutive failed passes after which a loop that keeps running counts as down. One failure
 /// is often transient and retried; a loop that fails every pass is not doing its work.
 const FAILED_PASSES_BEFORE_DOWN: u32 = 3;
@@ -461,6 +499,30 @@ pub(crate) mod tests {
         Mutex,
         atomic::{AtomicUsize, Ordering},
     };
+
+    #[tokio::test]
+    async fn draining_waits_for_handed_off_work_and_never_reopens() {
+        let tracker = TaskTracker::default();
+        let parent = tracker.track().unwrap();
+        let draining = tracker.drain();
+        tokio::pin!(draining);
+        tokio::select! {
+            biased;
+            () = &mut draining => panic!("active parent was skipped"),
+            () = std::future::ready(()) => {}
+        }
+        let child = Arc::clone(&parent);
+        drop(parent);
+        tokio::select! {
+            biased;
+            () = &mut draining => panic!("detached child was skipped"),
+            () = std::future::ready(()) => {}
+        }
+        drop(child);
+        draining.await;
+        assert!(tracker.track().is_none());
+        tracker.drain().await;
+    }
 
     static PANICS: Mutex<Vec<(&'static str, String)>> = Mutex::new(Vec::new());
 

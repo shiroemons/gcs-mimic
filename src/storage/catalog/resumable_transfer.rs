@@ -116,9 +116,8 @@ async fn receive_chunk(
         lease.guard.clone(),
     )
     .await?;
-    let closing = catalog.0.shutdown.admin_wake.notified();
+    let closing = catalog.0.shutdown.token.cancelled();
     tokio::pin!(closing);
-    closing.as_mut().enable();
     let transfer = async {
         let mut received = 0_u64;
         loop {

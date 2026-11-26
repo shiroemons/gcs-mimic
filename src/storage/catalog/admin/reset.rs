@@ -31,7 +31,7 @@ impl Admin {
     ) -> Result<ResetOutcome, AdminError> {
         let admission = self
             .catalog
-            .wait_admin(self.catalog.0.admin.reads.clone(), deadline)
+            .admit_admin(self.catalog.0.admin.reads.clone(), deadline)
             .await?;
         let exclusive = self.exclusive_past_seed_commits(deadline).await?;
         let inner = self.catalog.0.clone();

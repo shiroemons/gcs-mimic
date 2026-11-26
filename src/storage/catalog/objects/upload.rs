@@ -393,14 +393,20 @@ impl Catalog {
 
     fn counted_upload(&self, activity: Activity) -> Result<UploadGuard, ObjectError> {
         let mut uploads = crate::sync::lock(&self.0.admission.uploads);
-        if uploads.closed || !self.is_healthy() {
+        let task = self.0.shutdown.tasks.track().ok_or_else(|| {
+            object_unavailable(crate::cause::BackendFailure::CatalogClosed)
+        })?;
+        if !self.is_healthy() {
             return Err(object_unavailable(
                 crate::cause::BackendFailure::CatalogClosed,
             ));
         }
         uploads.active += 1;
         Ok(UploadGuard {
-            slot: super::super::UploadSlot::Counted(self.clone()),
+            slot: super::super::UploadSlot::Counted {
+                catalog: self.clone(),
+                _task: task,
+            },
             replay: None,
             _activity: activity,
         })
@@ -543,9 +549,8 @@ pub(in crate::storage::catalog) async fn write_stream(
 ) -> Result<UploadedBody, ObjectError> {
     let mut size = 0_u64;
     let mut hasher = Hasher::default();
-    let closing = catalog.0.shutdown.admin_wake.notified();
+    let closing = catalog.0.shutdown.token.cancelled();
     tokio::pin!(closing);
-    closing.as_mut().enable();
     let received = async {
         loop {
             if catalog.0.admission.slots.is_closed() {

@@ -72,6 +72,7 @@ async fn run(
             return;
         }
         let catalog = Catalog(inner);
+        let shutdown = catalog.0.shutdown.token.clone();
         let delay = match attempt(&catalog, &endpoint, &health).await {
             Ok(delay) => delay,
             Err(error) => {
@@ -88,11 +89,10 @@ async fn run(
             }
         };
         drop(catalog);
-        match delay {
-            Some(delay) => {
-                tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = changed => {} }
-            }
-            None => changed.await,
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            () = changed => {}
+            Some(()) = async { Some(tokio::time::sleep(delay?).await) } => {}
         }
     }
 }
@@ -110,7 +110,10 @@ async fn attempt(
         .acquire_owned()
         .await
         .map_err(unavailable)?;
-    if catalog.0.admission.slots.is_closed() {
+    let Some(_task) = catalog.0.shutdown.tasks.track() else {
+        return Ok(None);
+    };
+    if catalog.is_closing() {
         return Ok(None);
     }
     // A reset cannot succeed between selecting a queued snapshot and finishing its network attempt.

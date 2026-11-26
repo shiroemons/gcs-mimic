@@ -377,20 +377,7 @@ async fn reads_that_do_not_overlap_keep_to_one_reader() {
             .unwrap();
     }
     assert_eq!(pool(&catalog).reader_count(), 1);
-    let upload = catalog.admit_object_upload().unwrap();
-    let closing = catalog.close();
-    tokio::pin!(closing);
-    tokio::select! {
-        biased;
-        result = &mut closing => panic!("closed with an upload outstanding: {result:?}"),
-        () = std::future::ready(()) => {}
-    }
-    assert!(catalog.is_closing());
-    assert!(catalog.admit_object_upload().is_err());
-    assert_eq!(pool(&catalog).reader_count(), 1);
-    assert!(!pool(&catalog).slots.is_closed());
-    drop(upload);
-    timeout(LONG, closing).await.unwrap().unwrap();
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -461,7 +448,20 @@ async fn close_ends_the_readers_before_the_writer_removes_the_wal() {
         .await
         .unwrap();
     assert_eq!(pool(&catalog).reader_count(), 1);
-    catalog.close().await.unwrap();
+    let upload = catalog.admit_object_upload().unwrap();
+    let closing = catalog.close();
+    tokio::pin!(closing);
+    tokio::select! {
+        biased;
+        result = &mut closing => panic!("closed with an upload outstanding: {result:?}"),
+        () = std::future::ready(()) => {}
+    }
+    assert!(catalog.is_closing());
+    assert!(catalog.admit_object_upload().is_err());
+    assert_eq!(pool(&catalog).reader_count(), 1);
+    assert!(!pool(&catalog).slots.is_closed());
+    drop(upload);
+    timeout(LONG, closing).await.unwrap().unwrap();
     assert!(!dir.0.join("catalog.sqlite3-wal").exists());
     let result = catalog
         .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)

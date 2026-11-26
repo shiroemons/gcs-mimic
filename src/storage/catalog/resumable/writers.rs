@@ -478,18 +478,17 @@ impl Catalog {
         loop {
             let released = self.0.writers.released.notified();
             tokio::pin!(released);
-            // Registered before the claim and the closed check, so a release or a close right
-            // after them still wakes this waiter.
+            // Register before claiming so a concurrent release cannot be missed.
             released.as_mut().enable();
             let activity = self.client_activity(work).await?;
             match self.claim_leased(activity, key.clone(), origin) {
                 Ok(guard) => return Ok(guard),
-                Err(ClaimError::Busy) if self.0.admission.slots.is_closed() => {
-                    return Err(ClaimError::Catalog(unavailable(
-                        BackendFailure::CatalogClosed,
-                    )));
-                }
-                Err(ClaimError::Busy) => released.await,
+                Err(ClaimError::Busy) => tokio::select! {
+                    () = released => {}
+                    () = self.0.shutdown.token.cancelled() => {
+                        return Err(ClaimError::Catalog(unavailable(BackendFailure::CatalogClosed)));
+                    }
+                },
                 Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => return Err(error),
             }
         }

@@ -31,6 +31,13 @@ use rusqlite::Connection;
 use std::{fmt, io, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
+#[derive(Debug)]
+#[must_use = "admission covers the operation and its owned cleanup"]
+pub(super) struct AdminPermit {
+    _slot: OwnedSemaphorePermit,
+    _task: Arc<crate::task::TaskToken>,
+}
+
 pub(crate) const MAX_PAGE: usize = 256;
 
 pub(crate) mod imported_identity;
@@ -507,9 +514,6 @@ impl Catalog {
         slots: Arc<Semaphore>,
         deadline: tokio::time::Instant,
     ) -> Result<OwnedSemaphorePermit, AdminError> {
-        let shutdown = self.0.shutdown.admin_wake.notified();
-        tokio::pin!(shutdown);
-        shutdown.as_mut().enable();
         if !self.is_healthy() {
             return Err(AdminError::Closed);
         }
@@ -518,7 +522,7 @@ impl Catalog {
         }
         tokio::select! {
             biased;
-            _ = shutdown => Err(AdminError::Closed),
+            () = self.0.shutdown.token.cancelled() => Err(AdminError::Closed),
             result = tokio::time::timeout_at(deadline, slots.acquire_owned()) => {
                 let permit = result.map_err(|_| AdminError::busy())?.map_err(|_| AdminError::Closed)?;
                 if !self.is_healthy() { return Err(AdminError::Closed); }
@@ -526,6 +530,19 @@ impl Catalog {
                 Ok(permit)
             }
         }
+    }
+
+    async fn admit_admin(
+        &self,
+        slots: Arc<Semaphore>,
+        deadline: tokio::time::Instant,
+    ) -> Result<AdminPermit, AdminError> {
+        let task = self.0.shutdown.tasks.track().ok_or(AdminError::Closed)?;
+        let slot = self.wait_admin(slots, deadline).await?;
+        Ok(AdminPermit {
+            _slot: slot,
+            _task: task,
+        })
     }
 
     pub(super) async fn run_admin<T: Send + 'static>(
@@ -554,7 +571,7 @@ impl Catalog {
         operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
     ) -> Result<T, E> {
         let admission = self
-            .wait_admin(self.0.admin.reads.clone(), deadline)
+            .admit_admin(self.0.admin.reads.clone(), deadline)
             .await?;
         let execution = self
             .wait_admin(self.0.writer.execution.clone(), deadline)
@@ -720,7 +737,7 @@ impl Admin {
         let activity = self.catalog.admin_activity(Work::New, deadline).await?;
         let permit = self
             .catalog
-            .wait_admin(self.catalog.0.admin.uploads.clone(), deadline)
+            .admit_admin(self.catalog.0.admin.uploads.clone(), deadline)
             .await?;
         let conditions = request
             .condition

@@ -594,6 +594,7 @@ async fn maintenance_loop(
         }
         let catalog = Catalog(inner);
         let clock = catalog.0.policy.clock.clone();
+        let shutdown = catalog.0.shutdown.token.clone();
         let sleep = match catalog.run_resumable_maintenance().await {
             Ok(next) => {
                 catalog.0.maintenance.health.pass_succeeded();
@@ -613,11 +614,10 @@ async fn maintenance_loop(
             }
         };
         drop(catalog);
-        match sleep {
-            Some(sleep) => {
-                tokio::select! { _ = sleep => {}, _ = &mut notified => {} }
-            }
-            None => notified.await,
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            () = notified => {}
+            Some(()) = async { Some(sleep?.await) } => {}
         }
     }
 }

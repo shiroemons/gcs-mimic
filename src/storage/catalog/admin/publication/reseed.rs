@@ -81,7 +81,7 @@ pub(crate) struct SeedBatch {
     prepared: Vec<SeedEntry>,
     activity: Option<crate::storage::catalog::Activity>,
     _admission: OwnedSemaphorePermit,
-    request: Arc<OwnedSemaphorePermit>,
+    request: Arc<AdminPermit>,
     runtime: tokio::runtime::Handle,
     metadata_bytes: usize,
     metadata_budget: Option<usize>,
@@ -139,7 +139,7 @@ impl Admin {
         let deadline = wait_deadline(&self.catalog, request_deadline);
         let request = Arc::new(
             self.catalog
-                .wait_admin(self.catalog.0.admin.publication_requests.clone(), deadline)
+                .admit_admin(self.catalog.0.admin.publication_requests.clone(), deadline)
                 .await?,
         );
         let admission = self

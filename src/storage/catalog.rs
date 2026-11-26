@@ -227,24 +227,23 @@ struct Resources {
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        // Weak background loops need a stored wake permit even when the last owner disappears between polls.
-        self.notifications.wake.notify_one();
-        self.maintenance.wake.notify_one();
-        self.admin.seed_watch.wake();
+        self.shutdown.token.cancel();
     }
 }
 
 #[derive(Default)]
 struct UploadState {
     active: usize,
-    closed: bool,
 }
 
 /// The admission held through publication and cleanup.
 enum UploadSlot {
-    Counted(Catalog),
+    Counted {
+        catalog: Catalog,
+        _task: Arc<crate::task::TaskToken>,
+    },
     Admin {
-        _permit: tokio::sync::OwnedSemaphorePermit,
+        _permit: admin::AdminPermit,
     },
 }
 
@@ -256,7 +255,7 @@ pub(crate) struct UploadGuard {
 }
 
 impl UploadGuard {
-    fn admin(permit: tokio::sync::OwnedSemaphorePermit, activity: Activity) -> Self {
+    fn admin(permit: admin::AdminPermit, activity: Activity) -> Self {
         Self {
             slot: UploadSlot::Admin { _permit: permit },
             replay: None,
@@ -267,12 +266,9 @@ impl UploadGuard {
 
 impl Drop for UploadGuard {
     fn drop(&mut self) {
-        if let UploadSlot::Counted(catalog) = &self.slot {
+        if let UploadSlot::Counted { catalog, .. } = &self.slot {
             let mut uploads = crate::sync::lock(&catalog.0.admission.uploads);
             uploads.active -= 1;
-            if uploads.active == 0 {
-                catalog.0.admission.uploads_idle.notify_waiters();
-            }
         }
     }
 }
@@ -323,14 +319,14 @@ impl Catalog {
     /// Whether shutdown started closing the catalog. An unhealthy catalog also refuses work, so
     /// only this tells a stopping server from a failing one.
     pub(crate) fn is_closing(&self) -> bool {
-        self.0.admission.slots.is_closed()
+        self.0.shutdown.token.is_cancelled()
     }
 
     pub fn is_healthy(&self) -> bool {
         !self.0.writer.resources.is_poisoned()
             && self.0.storage.backend.is_healthy()
             && !self.0.writers.sessions.is_poisoned()
-            && !self.0.admission.slots.is_closed()
+            && !self.is_closing()
             && !self.0.admin.uploads.is_closed()
             && !self.0.admin.reads.is_closed()
     }

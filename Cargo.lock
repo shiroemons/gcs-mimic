@@ -355,6 +355,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-rustls",
+ "tokio-util",
  "tonic",
  "tonic-prost",
  "windows-sys 0.61.2",

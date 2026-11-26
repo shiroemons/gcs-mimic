@@ -13,7 +13,7 @@ use std::{
     sync::{Arc, Weak},
     time::{Duration, SystemTime},
 };
-use tokio::sync::{Notify, watch};
+use tokio::sync::watch;
 
 /// How many problems one pass reports by path; the rest are only counted.
 const MAX_PROBLEMS: usize = 100;
@@ -21,8 +21,6 @@ const MAX_PROBLEMS: usize = 100;
 /// The board of the seed directory's passes, which the catalog keeps for its lifetime.
 #[derive(Debug)]
 pub(crate) struct SeedWatch {
-    /// Ends the task's wait for a closing catalog.
-    wake: Notify,
     state: watch::Sender<Board>,
 }
 
@@ -54,7 +52,6 @@ enum Schedule {
 impl Default for SeedWatch {
     fn default() -> Self {
         Self {
-            wake: Notify::new(),
             state: watch::Sender::new(Board::default()),
         }
     }
@@ -286,11 +283,6 @@ impl SeedWatch {
         }
     }
 
-    /// Wakes the task, which then sees a closed catalog and ends.
-    pub(in crate::storage::catalog) fn wake(&self) {
-        self.wake.notify_one();
-    }
-
     /// Waits until a request needs a pass that has not started yet.
     async fn wanted(&self) {
         let mut board = self.state.subscribe();
@@ -407,14 +399,17 @@ where
             return;
         };
         let watch = Arc::clone(&inner.admin.seed_watch);
+        let shutdown = inner.shutdown.token.clone();
         let clock = Arc::clone(&inner.policy.clock);
         drop(inner);
-        // A request that began waiting while the last pass ran is served at once. A closing
-        // catalog's wake leaves a permit, so a close during a pass ends the task at once.
+        // A request that began waiting while the last pass ran is served at once.
         tokio::select! {
             () = clock.sleep(delay) => {}
             () = watch.wanted() => {}
-            () = watch.wake.notified() => {}
+            () = shutdown.cancelled() => {
+                watch.stop();
+                return;
+            }
         }
         let Some(inner) = open(&weak) else {
             return;

@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::catalog::{After, Work, resumable::writers::Deferred, sql};
+use crate::storage::catalog::{After, resumable::writers::Deferred, sql};
 use std::sync::atomic::Ordering;
 
 const FORGET_PART: &str = "DELETE FROM xml_multipart_deletions WHERE blob_id=?1";
@@ -211,21 +211,12 @@ impl Catalog {
     pub(in crate::storage::catalog) async fn drain_xml_multipart(
         &self,
     ) -> Result<bool, ObjectError> {
-        // A part or a completion drains under its own lease; the sweep has none to wait for.
-        let activity = self.await_activity(Work::UnderWay).await?;
-        let permit = self
-            .0
-            .storage
-            .reclamation
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(object_unavailable)?;
+        let permit = self.reclamation_permit().await?;
         let catalog = self.clone();
         #[cfg(test)]
         self.count_cleanup_task();
         crate::task::spawn_supervised("multipart-reclamation", async move {
-            let (_activity, _permit) = (activity, permit);
+            let _permit = permit;
             let pending = if catalog.0.storage.backend.is_memory() {
                 let backend = catalog.0.storage.backend.clone();
                 catalog
