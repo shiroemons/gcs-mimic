@@ -202,13 +202,6 @@ Decided by the owner on 2026-11-26:
 
 Pending the evidence below:
 
-- **Completed resumable sessions used across adapters.** A gRPC status
-  request for a session completed through JSON returns `INTERNAL` with
-  `Invalid upload completion`. JSON status and cancellation requests for a
-  session completed through gRPC return HTTP 200 with the protobuf bytes as a
-  JSON array. Tests preserve those replies. The owner can keep this behavior
-  or make JSON reject a gRPC completion through a typed error.
-
 - **Custom time in import preflight and publication.** Preflight accepts year
   `0000` (such as `0000-12-31T23:59:59Z`) and fractions with ten or more
   digits and only zeros after the sixth digit (such as
@@ -301,6 +294,37 @@ Pending the evidence below:
   declarations, while reads of stored empty types use it in the media header.
   Defaulting every upload at publication is a candidate only if clients can
   tolerate a stored type and a `contentType` field where they are absent today.
+
+- **Completed resumable sessions used across adapters.** A gRPC status
+  request for a session completed through JSON returns `INTERNAL` with
+  `Invalid upload completion`. JSON status and cancellation requests for a
+  session completed through gRPC return HTTP 200 with the protobuf bytes as a
+  JSON array. Tests preserve those replies. The owner can keep this behavior
+  or make JSON reject a gRPC completion through a typed error.
+
+- **Unknown gRPC upload IDs.** `src/grpc/v2/object_io.rs:99` returns
+  `INTERNAL` for unknown and expired sessions. The pinned googleapis
+  `933dd1be` Storage v2 proto describes `NOT_FOUND` for a missing object
+  in `QueryWriteStatus` (`src/grpc/proto/google/storage/v2/storage.proto:588–590`).
+  The pinned Go storage SDK v1.71.0 retries `INTERNAL` in
+  `invoke.go:292–295`, so a client can wait until its retry deadline.
+  Choose whether to keep the current code for all session calls or use
+  `NOT_FOUND` for queries. The historical probe cited in the adapter cannot
+  be repeated under the no-live-contact policy.
+- **Wording for anonymous gRPC v2 denials.** At emulator revision
+  `b05128867`, `src/grpc/v2/status.rs:419–427` returns “Login Required”.
+  The JSON, XML and gRPC v1 adapters name the denied permission and the
+  anonymous caller (`src/server.rs:1927`, `src/xml/error_mapping.rs:121`,
+  `src/grpc/v1/mod.rs:63`). No pinned source specifies that wording.
+  Choose whether v2 keeps its shorter message or names the permission too.
+- **Retrying an invalidated XML upload.** At emulator revision `b05128867`,
+  a final metadata refusal invalidates the session
+  (`src/server/resumable.rs:591–598`). A later PUT then returns 204
+  (`src/xml/resumable.rs:191`). A client treating 2xx as completion can
+  report success without an object. Choose whether to keep 204 for both
+  cancellation and invalidation or return an error for invalidation.
+  The historical observation covers cancellation only and cannot be repeated
+  under the no-live-contact policy.
 
 Found by the error goldens, which pin them as they are today. Each goes to the
 owner with the error slice that touches it:
@@ -454,7 +478,7 @@ A further split waits until after `1.0.0`:
   parsers return:
   - `Input`, `Project` and `Auth`;
   - `Catalog`, `Object` and `Resumable`;
-  - `Multipart`, `UploadHeader` and `Body`;
+  - `Multipart`, `UploadHeader`, `SessionHeader` and `Body`;
   - `Csek`, `StoredHeader` and `Time`.
 
   Bucket resource parsing uses `Input`, `Project`, `Catalog` and `Time`.
@@ -464,8 +488,9 @@ A further split waits until after `1.0.0`:
   typed session error. The multipart parser returns `MultipartError`; the adapters
   convert it through `ServiceError`. Shared reads and resumable writes also use
   `Object`, `Resumable` and `Csek`. Session hash and metadata refusals use
-  `SessionHeader` so XML can distinguish them from ordinary PUT header errors. The size test bounds `ServiceError` at 56
-  bytes; both the object and resumable failures are boxed to meet that bound.
+  `SessionHeader` so XML can distinguish them from ordinary PUT header errors.
+  The size test bounds `ServiceError` at 56 bytes. Both object and resumable
+  failures are boxed to meet that bound.
 - **JSON.** `ApiError` lives in `src/json/error.rs` with private fields. Its
   status, reason, location, plain and HTML choices are made in the JSON
   mapping from the domain variant, reproducing today's constructor calls.

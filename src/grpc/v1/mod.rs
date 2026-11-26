@@ -1,7 +1,7 @@
 //! Retired Storage v1 migration adapter; shared catalog operations enforce state and permissions.
 mod convert;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 mod upload;
 
 #[expect(
@@ -60,7 +60,7 @@ pub(crate) fn service(
 /// The path prefix of every legacy v1 method.
 pub(crate) const SERVICE_PREFIX: &str = "/google.storage.v1.Storage/";
 
-pub(super) fn access_status(error: CatalogError, caller: Option<Caller<'_>>) -> Status {
+fn access_status(error: CatalogError, caller: Option<Caller<'_>>) -> Status {
     // The legacy API names the denied permission even for an anonymous caller.
     if matches!(caller, Some(Caller::Anonymous))
         && let CatalogError::Denied(denied) = &error
@@ -168,7 +168,7 @@ fn bucket_conditions(conditions: BucketConditions) -> Result<BucketConditions, S
 /// The legacy answer to a catalog call that compared the request's metageneration conditions.
 /// The shared conversion words a not-match that alone fails as Storage v2 does; this retired
 /// adapter keeps the failed-condition wording it gave every failed condition.
-pub(super) fn conditional_bucket_error(error: CatalogError) -> Status {
+fn conditional_bucket_error(error: CatalogError) -> Status {
     if matches!(error, CatalogError::NotModified) {
         return Status::from(CatalogError::PreconditionFailed);
     }

@@ -36,11 +36,11 @@ impl InputError {
         }
     }
 
-    pub(crate) fn field_mask_syntax(message: String) -> Self {
+    pub(crate) fn field_mask_syntax(message: impl Into<String>) -> Self {
         Self {
             kind: InputKind::FieldMaskSyntax,
             field: Some("fields"),
-            message,
+            message: message.into(),
         }
     }
 

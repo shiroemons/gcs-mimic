@@ -292,6 +292,7 @@ fn final_hash_errors_keep_the_session_xml_document() {
         .success();
     for (value, message) in [
         ("md5", "Invalid x-goog-hash"),
+        ("md5=!", "Invalid base64 checksum"),
         (
             "crc32c=AAAAAA==,crc32c=AAAAAQ==",
             "Conflicting CRC32C declarations",
@@ -313,6 +314,42 @@ fn final_hash_errors_keep_the_session_xml_document() {
         assert!(!reply.headers.contains_key("cache-control"));
         assert_eq!(reply.headers["content-length"], document.len().to_string());
     }
+}
+
+#[test]
+fn unknown_and_invalidated_sessions_keep_their_wire_responses() {
+    let data = TestDir::new();
+    let (server, _) = Server::start(&data, &[]);
+    server
+        .create_bucket("", "project-a", "open-bucket")
+        .success();
+    let object = "/open-bucket/object";
+    let unknown = format!("{object}?upload_id={}", "0".repeat(64));
+    let reply = server.request("PUT", &unknown, "", b"x");
+    reply.expect(404);
+    let document = b"<?xml version='1.0' encoding='UTF-8'?><Error><Code>NoSuchUpload</Code><Message>The upload session does not exist or has expired.</Message></Error>";
+    assert_eq!(reply.body, document);
+    assert_eq!(
+        reply.headers["content-type"],
+        "application/xml; charset=UTF-8"
+    );
+    assert_eq!(reply.headers["content-length"], document.len().to_string());
+    assert!(!reply.headers.contains_key("cache-control"));
+
+    let path = session_path(
+        &server.request("POST", object, &wire(&[START]), b""),
+        object,
+    );
+    server
+        .request("PUT", &path, "x-goog-hash: md5=!\r\n", b"x")
+        .expect(400);
+    let retry = server.request("PUT", &path, "", b"x");
+    retry.expect(204);
+    assert!(retry.body.is_empty());
+    assert_eq!(retry.headers["cache-control"], "no-store");
+    assert!(!retry.headers.contains_key("content-type"));
+    assert!(!retry.headers.contains_key("content-length"));
+    absent(&server, object);
 }
 
 #[test]

@@ -10,6 +10,27 @@ use crate::{
 };
 use std::time::{Duration, UNIX_EPOCH};
 
+/// Catalog failures that reach the legacy bucket handlers through a distinct path.
+pub(in crate::grpc) fn bucket_golden_status(
+    error: CatalogError,
+    caller: Option<Caller<'_>>,
+) -> Option<Status> {
+    if matches!(error, CatalogError::NotModified) {
+        Some(conditional_bucket_error(error))
+    } else if matches!(
+        error,
+        CatalogError::Denied(_)
+            | CatalogError::Forbidden
+            | CatalogError::Unavailable(_)
+            | CatalogError::Io(_)
+            | CatalogError::Corrupt(_)
+    ) {
+        Some(access_status(error, caller))
+    } else {
+        None
+    }
+}
+
 #[test]
 fn typed_object_metadata_keeps_replace_resets_and_patch_omissions() {
     for mode in [json::WriteMode::Patch, json::WriteMode::Replace] {

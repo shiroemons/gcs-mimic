@@ -1136,6 +1136,38 @@ message: "At least one of the pre-conditions you specified did not hold."
 details: none
 -- anonymous caller, via ServiceError: same as via ServiceError
 
+== ResumableError::NotFound
+-- WriteObject
+code: Internal (13)
+message: "We encountered an internal error. Please try again."
+details: none
+-- QueryWriteStatus: same as WriteObject
+
+== ResumableError::Gone
+-- WriteObject
+code: FailedPrecondition (9)
+message: "Upload has already been terminated."
+details: 141 bytes
+  hex: 0809122355706c6f61642068617320616c7265616479206265656e207465726d696e617465642e1a640a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f12380a1e475250435f55504c4f41445f414c52454144595f5445524d494e41544544121673746f726167652e676f6f676c65617069732e636f6d
+  google.rpc.Status: code 9, message "Upload has already been terminated."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "GRPC_UPLOAD_ALREADY_TERMINATED", domain "storage.googleapis.com"
+-- QueryWriteStatus: same as WriteObject
+
+== ResumableError::Cancelled
+-- WriteObject
+code: InvalidArgument (3)
+message: "Upload has already been cancelled."
+details: none
+-- QueryWriteStatus
+code: FailedPrecondition (9)
+message: "Upload has already been cancelled."
+details: 139 bytes
+  hex: 0809122255706c6f61642068617320616c7265616479206265656e2063616e63656c6c65642e1a630a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f12370a1d475250435f55504c4f41445f414c52454144595f43414e43454c4c4544121673746f726167652e676f6f676c65617069732e636f6d
+  google.rpc.Status: code 9, message "Upload has already been cancelled."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "GRPC_UPLOAD_ALREADY_CANCELLED", domain "storage.googleapis.com"
+
 == BodyError::TooLarge
 -- via ServiceError
 code: ResourceExhausted (8)

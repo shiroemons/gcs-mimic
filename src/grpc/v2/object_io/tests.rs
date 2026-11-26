@@ -19,6 +19,16 @@ use prost::Message;
 use serde_json::json;
 use std::sync::Arc;
 
+pub(in crate::grpc::v2) fn ended_session_replies() -> [(&'static str, Status, Status); 3] {
+    use ResumableError::{Cancelled, Gone, NotFound};
+    [
+        ("NotFound", NotFound, NotFound),
+        ("Gone", Gone, Gone),
+        ("Cancelled", Cancelled, Cancelled),
+    ]
+    .map(|(label, write, query)| (label, session_status(write), ended_session_status(query)))
+}
+
 /// The answer to an upload ID that names no session the catalog knows. Recorded (case
 /// grpc-probe-inferred-upload-ids) for an issued ID with one character changed, without the
 /// opaque `Internal details:` tail Cloud Storage adds.

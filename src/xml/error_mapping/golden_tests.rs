@@ -216,6 +216,8 @@ async fn every_error_keeps_its_xml_response() {
     golden
         .mapped("QueryError", domain::query_cases, Naming::None, None)
         .await;
+    // These are intermediate documents. The session URI replaces NotFound with NoSuchUpload
+    // and answers Gone and Cancelled with an empty 204.
     golden
         .mapped(
             "ResumableError",

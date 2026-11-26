@@ -193,25 +193,12 @@ impl Golden {
     fn catalog(&mut self) {
         for (label, [plain, refused, legacy, legacy_anonymous]) in copies(domain::catalog_cases) {
             self.direct("CatalogError", label, plain.into(), refused.into());
-            if matches!(legacy, CatalogError::NotModified) {
-                self.replies(
-                    ["legacy v1", "anonymous caller, legacy v1"],
-                    crate::grpc::v1::conditional_bucket_error(legacy),
-                    crate::grpc::v1::conditional_bucket_error(legacy_anonymous),
-                );
-            } else if matches!(
-                legacy,
-                CatalogError::Denied(_)
-                    | CatalogError::Forbidden
-                    | CatalogError::Unavailable(_)
-                    | CatalogError::Io(_)
-                    | CatalogError::Corrupt(_)
+            let legacy_status = crate::grpc::v1::tests::bucket_golden_status;
+            if let (Some(plain), Some(refused)) = (
+                legacy_status(legacy, None),
+                legacy_status(legacy_anonymous, ANONYMOUS),
             ) {
-                self.replies(
-                    ["legacy v1", "anonymous caller, legacy v1"],
-                    crate::grpc::v1::access_status(legacy, None),
-                    crate::grpc::v1::access_status(legacy_anonymous, ANONYMOUS),
-                );
+                self.replies(["legacy v1", "anonymous caller, legacy v1"], plain, refused);
             }
         }
     }
@@ -282,6 +269,13 @@ async fn every_error_keeps_its_storage_v2_status() {
             })
             .collect(),
     );
+    for (label, write, query) in crate::grpc::v2::object_io::tests::ended_session_replies() {
+        golden.transcript.case("ResumableError", label);
+        golden.transcript.render("WriteObject", rendering(&write));
+        golden
+            .transcript
+            .render("QueryWriteStatus", rendering(&query));
+    }
     golden.service("BodyError", domain::body_cases());
     golden.service("TimeOutOfRange", domain::time_cases());
     for (label, error) in crate::error::golden_tests::bucket_service_errors() {
