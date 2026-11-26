@@ -1,0 +1,2108 @@
+# The Storage v2 status of each error: code, message and details. ErrorInfo metadata is shown and encoded in key order, because the server writes its hash map in an order that varies.
+# Written by grpc::v2::status::golden_tests::every_error_keeps_its_storage_v2_status. Regenerate with GCSM_UPDATE_GOLDENS=1 cargo test --lib grpc::v2::status::golden_tests,
+# which rewrites this file and fails; review the diff and run the test again without it.
+
+== ObjectError::BucketNotFound
+-- direct
+code: NotFound (5)
+message: "The specified bucket does not exist."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::ObjectNotFound
+-- direct
+code: NotFound (5)
+message: "Object not found"
+details: none
+-- named object
+code: NotFound (5)
+message: "No such object: bucket/object"
+details: none
+-- object status: same as direct
+-- named object status: same as named object
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::PreconditionFailed
+-- direct
+code: FailedPrecondition (9)
+message: "At least one of the pre-conditions you specified did not hold."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Component(NotFound)
+-- direct
+code: NotFound (5)
+message: "No such object: b/a"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Component(GenerationMismatch)
+-- direct
+code: FailedPrecondition (9)
+message: "Generation 1 required for component object (b/a), but actual generation is 7."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::PublicAccessPrevention
+-- direct
+code: FailedPrecondition (9)
+message: "Public access prevention is enforced"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::OverwriteForbidden
+-- direct
+code: PermissionDenied (7)
+message: "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== ObjectError::ActiveHold(Temporary)
+-- direct
+code: PermissionDenied (7)
+message: "Object 'b/o' is under active Temporary hold and cannot be deleted, overwritten or archived until hold is removed."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== ObjectError::ActiveHold(EventBased)
+-- direct
+code: PermissionDenied (7)
+message: "Object 'b/o' is under active Event-Based hold and cannot be deleted, overwritten or archived until hold is removed."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== ObjectError::ObjectRetentionNotMet
+-- direct
+code: PermissionDenied (7)
+message: "Object 'b/o' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until 2023-11-14T14:13:20.5-08:00"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== ObjectError::UnlockedRetentionOverrideRequired
+-- direct
+code: PermissionDenied (7)
+message: "The unlocked object retention cannot be removed and its retention period cannot be shortened without overriding unlocked retention intent and permission."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== ObjectError::LockedRetention
+-- direct
+code: PermissionDenied (7)
+message: "The locked object retention cannot be removed. Its retention mode cannot be changed and its retention period cannot be shortened."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== ObjectError::ObjectNotSoftDeleted
+-- direct
+code: FailedPrecondition (9)
+message: "object is not soft deleted; select a generation from softDeleted=true listing"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::SoftDeletePolicyRequired(List)
+-- direct
+code: InvalidArgument (3)
+message: "Soft delete policy is required to list soft-deleted versions"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::SoftDeletePolicyRequired(Get)
+-- direct
+code: InvalidArgument (3)
+message: "Soft delete policy is required to request a soft-deleted version."
+details: 185 bytes
+  hex: 08031241536f66742064656c65746520706f6c69637920697320726571756972656420746f2072657175657374206120736f66742d64656c657465642076657273696f6e2e1a720a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4261645265717565737412450a431241536f66742064656c65746520706f6c69637920697320726571756972656420746f2072657175657374206120736f66742d64656c657465642076657273696f6e2e
+  google.rpc.Status: code 3, message "Soft delete policy is required to request a soft-deleted version."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "Soft delete policy is required to request a soft-deleted version.", reason ""
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError
+code: InvalidArgument (3)
+message: "Soft delete policy is required to request a soft-deleted version."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ObjectError::SoftDeletePolicyRequired(Restore)
+-- direct
+code: InvalidArgument (3)
+message: "bucket soft delete policy must be set."
+details: 131 bytes
+  hex: 080312266275636b657420736f66742064656c65746520706f6c696379206d757374206265207365742e1a570a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e42616452657175657374122a0a2812266275636b657420736f66742064656c65746520706f6c696379206d757374206265207365742e
+  google.rpc.Status: code 3, message "bucket soft delete policy must be set."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "bucket soft delete policy must be set.", reason ""
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError
+code: InvalidArgument (3)
+message: "bucket soft delete policy must be set."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ObjectError::Denied
+-- direct
+code: PermissionDenied (7)
+message: "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== ObjectError::Denied(anonymous)
+-- direct
+code: PermissionDenied (7)
+message: "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError
+code: Unauthenticated (16)
+message: "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+
+== ObjectError::Forbidden
+-- direct
+code: PermissionDenied (7)
+message: "Forbidden"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== ObjectError::NotModified
+-- direct
+code: FailedPrecondition (9)
+message: "The resource you requested has not been modified according to the condition you specified."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::WriteNotModified
+-- direct
+code: FailedPrecondition (9)
+message: "The resource you requested has not been modified according to the condition you specified."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::SourceNotModified
+-- direct
+code: FailedPrecondition (9)
+message: "The resource you requested has not been modified according to the condition you specified."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError
+code: FailedPrecondition (9)
+message: "At least one of the pre-conditions you specified did not hold."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ObjectError::ChecksumMismatch
+-- direct
+code: InvalidArgument (3)
+message: "The supplied checksum does not match the uploaded data"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::HashMismatch(Crc32c)
+-- direct
+code: InvalidArgument (3)
+message: "Provided CRC32C \"AAAAAQ==\" doesn't match calculated CRC32C \"AAAAAg==\"."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::HashMismatch(Md5)
+-- direct
+code: InvalidArgument (3)
+message: "Provided MD5 hash \"AAAAAAAAAAAAAAAAAAAAAA==\" doesn't match calculated MD5 hash \"AQEBAQEBAQEBAQEBAQEBAQ==\"."
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::TooLarge
+-- direct
+code: ResourceExhausted (8)
+message: "Object exceeds the upload size limit"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::InvalidFixedMetadata
+-- direct
+code: InvalidArgument (3)
+message: "Invalid contentType header value"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::UniformAccessPredefinedAcl
+-- direct
+code: InvalidArgument (3)
+message: "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::UniformAccessAclUpdate
+-- direct
+code: InvalidArgument (3)
+message: "Cannot update access control for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Metadata(ClassLocation)
+-- direct
+code: InvalidArgument (3)
+message: "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US."
+details: 230 bytes
+  hex: 0803125750726f6a65637420313233343536206d6179206e6f74206372656174652073746f72616765436c61737320524547494f4e414c206275636b6574732077697468206c6f636174696f6e436f6e73747261696e742055532e1a88010a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e42616452657175657374125b0a59125750726f6a65637420313233343536206d6179206e6f74206372656174652073746f72616765436c61737320524547494f4e414c206275636b6574732077697468206c6f636174696f6e436f6e73747261696e742055532e
+  google.rpc.Status: code 3, message "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.", reason ""
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Metadata(StorageClassRequiresZone)
+-- direct
+code: Unimplemented (12)
+message: "gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl)."
+details: 347 bytes
+  hex: 080c1299016763732d6d696d696320646f6573206e6f7420737570706f7274206f626a656374204150492073657474696e672073746f72616765436c6173732052415049442072657175697265732061207a6f6e616c206275636b65743b206f6d69742074686973206f7074696f6e206f72206865616465722028666f72206578616d706c652c207573652070726f6a656374696f6e3d6e6f41636c292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Metadata(LongLanguage)
+-- direct
+code: InvalidArgument (3)
+message: "contentLanguage exceeds 100 characters"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::InvalidDerivedArgument
+-- direct
+code: InvalidArgument (3)
+message: "sourceObjects must not be empty"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::ComposeClassMismatch
+-- direct
+code: InvalidArgument (3)
+message: "Cannot compose object with destination storage class STANDARD from source components that have different storage classes (NEARLINE, COLDLINE)."
+details: 344 bytes
+  hex: 0803128e0143616e6e6f7420636f6d706f7365206f626a65637420776974682064657374696e6174696f6e2073746f7261676520636c617373205354414e444152442066726f6d20736f7572636520636f6d706f6e656e74732074686174206861766520646966666572656e742073746f7261676520636c617373657320284e4541524c494e452c20434f4c444c494e45292e1ac2010a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e426164526571756573741294010a9101128e0143616e6e6f7420636f6d706f7365206f626a65637420776974682064657374696e6174696f6e2073746f7261676520636c617373205354414e444152442066726f6d20736f7572636520636f6d706f6e656e74732074686174206861766520646966666572656e742073746f7261676520636c617373657320284e4541524c494e452c20434f4c444c494e45292e
+  google.rpc.Status: code 3, message "Cannot compose object with destination storage class STANDARD from source components that have different storage classes (NEARLINE, COLDLINE)."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "Cannot compose object with destination storage class STANDARD from source components that have different storage classes (NEARLINE, COLDLINE).", reason ""
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError
+code: InvalidArgument (3)
+message: "Cannot compose object with destination storage class STANDARD from source components that have different storage classes (NEARLINE, COLDLINE)."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ObjectError::DerivedTransferNotFound
+-- direct
+code: NotFound (5)
+message: "Derived transfer not found"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::DerivedTransferExpired
+-- direct
+code: FailedPrecondition (9)
+message: "Derived transfer expired"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::DerivedTransferBusy
+-- direct
+code: Unavailable (14)
+message: "Derived transfer is already in use"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::DerivedTransferIncomplete
+-- direct
+code: InvalidArgument (3)
+message: "Derived transfer is incomplete"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::UnsupportedMetadata
+-- direct
+code: Unimplemented (12)
+message: "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl)."
+details: 312 bytes
+  hex: 080c12776763732d6d696d696320646f6573206e6f7420737570706f7274206f626a656374204150492073657474696e67206d657461646174613b206f6d69742074686973206f7074696f6e206f72206865616465722028666f72206578616d706c652c207573652070726f6a656374696f6e3d6e6f41636c292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- named object: same as direct
+-- object status
+code: Unimplemented (12)
+message: "gcs-mimic does not support gRPC unsupported metadata change: metadata; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
+details: 374 bytes
+  hex: 080c12b4016763732d6d696d696320646f6573206e6f7420737570706f7274206752504320756e737570706f72746564206d65746164617461206368616e67653a206d657461646174613b2075736520746865204a534f4e2041504920696e73746561642e205365742053544f524147455f454d554c41544f525f484f535420746f20746865207365727665722773206170695f626173655f75726c207265706f7274656420696e20697473207265616479206576656e742e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support gRPC unsupported metadata change: metadata; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- named object status: same as object status
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::CustomerEncryption(KeyIncorrect)
+-- direct
+code: InvalidArgument (3)
+message: "The provided encryption key is incorrect."
+details: 137 bytes
+  hex: 080312295468652070726f766964656420656e6372797074696f6e206b657920697320696e636f72726563742e1a5a0a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e42616452657175657374122d0a2b12295468652070726f766964656420656e6372797074696f6e206b657920697320696e636f72726563742e
+  google.rpc.Status: code 3, message "The provided encryption key is incorrect."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "The provided encryption key is incorrect.", reason ""
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::BodyAborted
+-- direct
+code: InvalidArgument (3)
+message: "The upload request body did not complete"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Io(StorageFull)
+-- direct
+code: Unavailable (14)
+message: "Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Io(memory blobs)
+-- direct
+code: Unavailable (14)
+message: "Storage capacity exhausted; delete objects, though data kept by soft delete keeps its bytes until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), or restart with a larger memory_max_bytes (a restart loses RAM data)"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Io(memory catalog)
+-- direct
+code: Unavailable (14)
+message: "Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Io(PermissionDenied)
+-- direct
+code: Unavailable (14)
+message: "Object storage is unavailable: storage I/O error (permission denied); check data directory permissions and available disk space"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Io(with context)
+-- direct
+code: Unavailable (14)
+message: "Object storage is unavailable: storage I/O error (blob 7: permission denied); check data directory permissions and available disk space"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Corrupt(CatalogClosed)
+-- direct
+code: Unavailable (14)
+message: "Object storage is unavailable: stored data is corrupt; restore a valid data directory"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Corrupt(private cause)
+-- direct
+code: Unavailable (14)
+message: "Object storage is unavailable: stored data is corrupt; restore a valid data directory"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Unavailable(CatalogClosed)
+-- direct
+code: Unavailable (14)
+message: "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Unavailable(MissingCompletion)
+-- direct
+code: Unavailable (14)
+message: "Object storage is unavailable: internal storage failure (private backend details withheld)"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ObjectError::Unavailable(private cause)
+-- direct
+code: Unavailable (14)
+message: "Object storage is unavailable: internal storage failure (private backend details withheld)"
+details: none
+-- named object: same as direct
+-- object status: same as direct
+-- named object status: same as direct
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::AuthenticationAlreadyConfigured
+-- direct
+code: Unavailable (14)
+message: "Bucket catalog is unavailable"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::AlreadyExists
+-- direct
+code: AlreadyExists (6)
+message: "Your previous request to create the named bucket succeeded and you already own it."
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::NotFound
+-- direct
+code: NotFound (5)
+message: "The specified bucket does not exist."
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::NotEmpty
+-- direct
+code: FailedPrecondition (9)
+message: "The bucket you tried to delete is not empty."
+details: none
+-- anonymous caller: same as direct
+-- via ApiError
+code: AlreadyExists (6)
+message: "Bucket is not empty"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== CatalogError::RestoreConflict
+-- direct
+code: AlreadyExists (6)
+message: "A bucket with this name already exists, so the soft-deleted bucket cannot be restored."
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::PreconditionFailed
+-- direct
+code: FailedPrecondition (9)
+message: "At least one of the pre-conditions you specified did not hold."
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::NotModified
+-- direct
+code: FailedPrecondition (9)
+message: "The resource you requested has not been modified according to the condition you specified."
+details: none
+-- anonymous caller: same as direct
+-- via ApiError
+code: FailedPrecondition (9)
+message: "At least one of the pre-conditions you specified did not hold."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== CatalogError::PublicAccessPrevention
+-- direct
+code: FailedPrecondition (9)
+message: "Public access prevention is enforced"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Denied
+-- direct
+code: PermissionDenied (7)
+message: "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== CatalogError::Denied(anonymous)
+-- direct
+code: PermissionDenied (7)
+message: "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError
+code: Unauthenticated (16)
+message: "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+
+== CatalogError::Forbidden
+-- direct
+code: PermissionDenied (7)
+message: "Forbidden"
+details: none
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== CatalogError::RetentionPolicyLocked
+-- direct
+code: InvalidArgument (3)
+message: "Bucket retention policy is locked and cannot be removed or shortened; keep retentionPeriod at least 3600 seconds or extend it, for example {\"retentionPolicy\":{\"retentionPeriod\":\"3601\"}}"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::RetentionPolicyNotSet
+-- direct
+code: InvalidArgument (3)
+message: "No retention policy to lock; set retentionPolicy.retentionPeriod first, for example 3600"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::InvalidMetadata
+-- direct
+code: InvalidArgument (3)
+message: "Invalid value for: x is not a valid value"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Metadata(ClassLocation)
+-- direct
+code: InvalidArgument (3)
+message: "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US."
+details: 230 bytes
+  hex: 0803125750726f6a65637420313233343536206d6179206e6f74206372656174652073746f72616765436c61737320524547494f4e414c206275636b6574732077697468206c6f636174696f6e436f6e73747261696e742055532e1a88010a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e42616452657175657374125b0a59125750726f6a65637420313233343536206d6179206e6f74206372656174652073746f72616765436c61737320524547494f4e414c206275636b6574732077697468206c6f636174696f6e436f6e73747261696e742055532e
+  google.rpc.Status: code 3, message "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.", reason ""
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Metadata(StorageClassRequiresZone)
+-- direct
+code: Unimplemented (12)
+message: "gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name)."
+details: 348 bytes
+  hex: 080c129a016763732d6d696d696320646f6573206e6f7420737570706f7274206275636b6574204150492073657474696e672073746f72616765436c6173732052415049442072657175697265732061207a6f6e616c206275636b65743b206f6d697420746869732073657474696e672028666f72206578616d706c652c206372656174652061206275636b65742077697468206f6e6c79206e616d65292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Metadata(AutoclassTerminal)
+-- direct
+code: InvalidArgument (3)
+message: "Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::UnsupportedMetadata
+-- direct
+code: Unimplemented (12)
+message: "gcs-mimic does not support bucket API setting cors; omit this setting (for example, create a bucket with only name)."
+details: 309 bytes
+  hex: 080c12746763732d6d696d696320646f6573206e6f7420737570706f7274206275636b6574204150492073657474696e6720636f72733b206f6d697420746869732073657474696e672028666f72206578616d706c652c206372656174652061206275636b65742077697468206f6e6c79206e616d65292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support bucket API setting cors; omit this setting (for example, create a bucket with only name)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Io(StorageFull)
+-- direct
+code: Unavailable (14)
+message: "Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Io(memory catalog)
+-- direct
+code: Unavailable (14)
+message: "Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Io(PermissionDenied)
+-- direct
+code: Unavailable (14)
+message: "Bucket catalog is unavailable"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Corrupt(CatalogClosed)
+-- direct
+code: Unavailable (14)
+message: "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Corrupt(private cause)
+-- direct
+code: Unavailable (14)
+message: "Bucket catalog is unavailable"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::NewerSchema
+-- direct
+code: Unavailable (14)
+message: "Bucket catalog is unavailable"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Unavailable(CatalogClosed)
+-- direct
+code: Unavailable (14)
+message: "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CatalogError::Unavailable(private cause)
+-- direct
+code: Unavailable (14)
+message: "Bucket catalog is unavailable"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== AuthFailure::LoginRequired
+-- direct
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== AuthFailure::InvalidCredentials
+-- direct
+code: Unauthenticated (16)
+message: "Invalid Credentials"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== AuthFailure::Denied
+-- direct
+code: PermissionDenied (7)
+message: "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== AuthFailure::Denied(anonymous)
+-- direct
+code: PermissionDenied (7)
+message: "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError
+code: Unauthenticated (16)
+message: "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+
+== AuthFailure::Forbidden
+-- direct
+code: PermissionDenied (7)
+message: "Forbidden"
+details: none
+-- anonymous caller
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as anonymous caller
+
+== AuthError::Failure(InvalidCredentials)
+-- direct
+code: Unauthenticated (16)
+message: "gcs-mimic strict authentication requires a registered local Bearer token; supply authorization: Bearer local-admin-token with a matching identity_file"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError
+code: Unauthenticated (16)
+message: "Invalid Credentials"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== AuthError::Unavailable(CatalogClosed)
+-- direct
+code: Unavailable (14)
+message: "The credential verifier is unavailable"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError
+code: Unavailable (14)
+message: "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== AuthError::Unavailable(private cause)
+-- direct
+code: Unavailable (14)
+message: "The credential verifier is unavailable"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError
+code: Unavailable (14)
+message: "Object storage is unavailable: internal storage failure (private backend details withheld)"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== CsekError::AlgorithmInvalid
+-- direct
+code: InvalidArgument (3)
+message: "Missing an encryption algorithm, or the provided algorithm is not \"AES256\"."
+details: 205 bytes
+  hex: 0803124b4d697373696e6720616e20656e6372797074696f6e20616c676f726974686d2c206f72207468652070726f766964656420616c676f726974686d206973206e6f742022414553323536222e1a7c0a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e42616452657175657374124f0a4d124b4d697373696e6720616e20656e6372797074696f6e20616c676f726974686d2c206f72207468652070726f766964656420616c676f726974686d206973206e6f742022414553323536222e
+  google.rpc.Status: code 3, message "Missing an encryption algorithm, or the provided algorithm is not \"AES256\"."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "Missing an encryption algorithm, or the provided algorithm is not \"AES256\".", reason ""
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CsekError::KeyFormatInvalid
+-- direct
+code: InvalidArgument (3)
+message: "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+details: 305 bytes
+  hex: 0803127c4d697373696e6720616e20656e6372797074696f6e206b65792c206f72206974206973206e6f742062617365363420656e636f6465642c206f7220697420646f6573206e6f74206d65657420746865207265717569726564206c656e677468206f662074686520656e6372797074696f6e20616c676f726974686d2e1aae010a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e426164526571756573741280010a7e127c4d697373696e6720616e20656e6372797074696f6e206b65792c206f72206974206973206e6f742062617365363420656e636f6465642c206f7220697420646f6573206e6f74206d65657420746865207265717569726564206c656e677468206f662074686520656e6372797074696f6e20616c676f726974686d2e
+  google.rpc.Status: code 3, message "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm.", reason ""
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CsekError::KeySha256Invalid
+-- direct
+code: InvalidArgument (3)
+message: "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key."
+details: 284 bytes
+  hex: 080312724d697373696e672061205348413235362068617368206f662074686520656e6372797074696f6e206b65792c206f72206974206973206e6f742062617365363420656e636f6465642c206f7220697420646f6573206e6f74206d617463682074686520656e6372797074696f6e206b65792e1aa3010a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4261645265717565737412760a7412724d697373696e672061205348413235362068617368206f662074686520656e6372797074696f6e206b65792c206f72206974206973206e6f742062617365363420656e636f6465642c206f7220697420646f6573206e6f74206d617463682074686520656e6372797074696f6e206b65792e
+  google.rpc.Status: code 3, message "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key.", reason ""
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CsekError::KeyIncorrect
+-- direct
+code: InvalidArgument (3)
+message: "The provided encryption key is incorrect."
+details: 137 bytes
+  hex: 080312295468652070726f766964656420656e6372797074696f6e206b657920697320696e636f72726563742e1a5a0a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e42616452657175657374122d0a2b12295468652070726f766964656420656e6372797074696f6e206b657920697320696e636f72726563742e
+  google.rpc.Status: code 3, message "The provided encryption key is incorrect."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "The provided encryption key is incorrect.", reason ""
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CsekError::ResourceIsEncrypted
+-- direct
+code: InvalidArgument (3)
+message: "The target object is encrypted by a customer-supplied encryption key."
+details: 193 bytes
+  hex: 0803124554686520746172676574206f626a65637420697320656e63727970746564206279206120637573746f6d65722d737570706c69656420656e6372797074696f6e206b65792e1a760a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4261645265717565737412490a47124554686520746172676574206f626a65637420697320656e63727970746564206279206120637573746f6d65722d737570706c69656420656e6372797074696f6e206b65792e
+  google.rpc.Status: code 3, message "The target object is encrypted by a customer-supplied encryption key."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "The target object is encrypted by a customer-supplied encryption key.", reason ""
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== CsekError::ResourceNotEncrypted
+-- direct
+code: InvalidArgument (3)
+message: "The target object is not encrypted by a customer-supplied encryption key."
+details: 201 bytes
+  hex: 0803124954686520746172676574206f626a656374206973206e6f7420656e63727970746564206279206120637573746f6d65722d737570706c69656420656e6372797074696f6e206b65792e1a7a0a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e42616452657175657374124d0a4b124954686520746172676574206f626a656374206973206e6f7420656e63727970746564206279206120637573746f6d65722d737570706c69656420656e6372797074696f6e206b65792e
+  google.rpc.Status: code 3, message "The target object is not encrypted by a customer-supplied encryption key."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "The target object is not encrypted by a customer-supplied encryption key.", reason ""
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== PageTokenError::BucketCursor
+-- direct
+code: InvalidArgument (3)
+message: "Invalid pageToken for this project and prefix"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== PageTokenError::ObjectCursor(named)
+-- direct
+code: InvalidArgument (3)
+message: "Next page token not valid: CgFh"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== PageTokenError::ObjectCursor(unnamed)
+-- direct
+code: InvalidArgument (3)
+message: "Next page token not valid"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== PageTokenError::Project
+-- direct
+code: InvalidArgument (3)
+message: "project must be a nonempty identifier of at most 256 bytes"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== PageTokenError::BucketName
+-- direct
+code: InvalidArgument (3)
+message: "invalid bucket name"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== InvalidProjectId::InvalidProjectId
+-- direct
+code: InvalidArgument (3)
+message: "project must be a nonempty identifier of at most 256 bytes"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ProfileNameError::Native
+-- direct
+code: InvalidArgument (3)
+message: "Invalid bucket name"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ProfileNameError::FakeGcsServer
+-- direct
+code: InvalidArgument (3)
+message: "invalid bucket name"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== MalformedEncoding::MalformedEncoding
+-- direct
+code: InvalidArgument (3)
+message: "Malformed URI encoding"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== UntestablePermission::Unsupported
+-- direct
+code: Unimplemented (12)
+message: "gcs-mimic does not support bucket API setting permission storage.managedFolders.get; use a supported operation permission such as storage.objects.get; omit this setting (for example, create a bucket with only name)."
+details: 409 bytes
+  hex: 080c12d7016763732d6d696d696320646f6573206e6f7420737570706f7274206275636b6574204150492073657474696e67207065726d697373696f6e2073746f726167652e6d616e61676564466f6c646572732e6765743b20757365206120737570706f72746564206f7065726174696f6e207065726d697373696f6e20737563682061732073746f726167652e6f626a656374732e6765743b206f6d697420746869732073657474696e672028666f72206578616d706c652c206372656174652061206275636b65742077697468206f6e6c79206e616d65292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support bucket API setting permission storage.managedFolders.get; use a supported operation permission such as storage.objects.get; omit this setting (for example, create a bucket with only name)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== UntestablePermission::Unknown
+-- direct
+code: InvalidArgument (3)
+message: "storage.objects.fly is not a valid Google Cloud Storage permission."
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== UntestablePermission::ProjectScoped
+-- direct
+code: InvalidArgument (3)
+message: "Invalid argument."
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== PolicyInputError::InvalidInput
+-- direct
+code: InvalidArgument (3)
+message: "Policy must be an object"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== PolicyInputError::UnsupportedInput
+-- direct
+code: Unimplemented (12)
+message: "gcs-mimic does not support IAM policy role roles/owner; omit it, for example use roles/storage.objectViewer with user: members"
+details: 320 bytes
+  hex: 080c127e6763732d6d696d696320646f6573206e6f7420737570706f72742049414d20706f6c69637920726f6c6520726f6c65732f6f776e65723b206f6d69742069742c20666f72206578616d706c652075736520726f6c65732f73746f726167652e6f626a656374566965776572207769746820757365723a206d656d626572731abb010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128e010a0a626164526571756573741206676c6f62616c1a620a0672656d65647912584f6d69742074686520756e737570706f727465642049414d20706f6c69637920696e7075743b2075736520726f6c65732f73746f726167652e6f626a656374566965776572207769746820757365723a206d656d626572731a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support IAM policy role roles/owner; omit it, for example use roles/storage.objectViewer with user: members"
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Omit the unsupported IAM policy input; use roles/storage.objectViewer with user: members"
+    metadata service: "gcs-mimic"
+-- anonymous caller: same as direct
+-- via ApiError
+code: Unimplemented (12)
+message: "gcs-mimic does not support bucket API setting role roles/owner; omit this setting (for example, create a bucket with only name)."
+details: 322 bytes
+  hex: 080c1280016763732d6d696d696320646f6573206e6f7420737570706f7274206275636b6574204150492073657474696e6720726f6c6520726f6c65732f6f776e65723b206f6d697420746869732073657474696e672028666f72206578616d706c652c206372656174652061206275636b65742077697468206f6e6c79206e616d65292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support bucket API setting role roles/owner; omit this setting (for example, create a bucket with only name)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ListQueryError::SoftDeletedWithVersions
+-- direct
+code: InvalidArgument (3)
+message: "soft_deleted=true cannot be combined with versions=true; omit versions"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError
+code: InvalidArgument (3)
+message: "softDeleted=true cannot be combined with versions=true; omit versions"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ListQueryError::FoldersAsPrefixesNeedSlash
+-- direct
+code: InvalidArgument (3)
+message: "include_folders_as_prefixes requires delimiter=/; use include_folders_as_prefixes=true and delimiter=/"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError
+code: InvalidArgument (3)
+message: "includeFoldersAsPrefixes requires delimiter=/; use includeFoldersAsPrefixes=true&delimiter=/"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ListQueryError::GlobNeedsSlashDelimiter
+-- direct
+code: InvalidArgument (3)
+message: "match_glob requires delimiter=/ or no delimiter; use match_glob=**/*.txt and delimiter=/"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError
+code: InvalidArgument (3)
+message: "When listing with a glob pattern, the only supported delimiter is '/'."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== GlobError::TooLong
+-- direct
+code: InvalidArgument (3)
+message: "match_glob must be at most 1024 UTF-8 bytes; use a shorter pattern such as **/*.txt"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError
+code: InvalidArgument (3)
+message: "matchGlob must be at most 1024 UTF-8 bytes; use a shorter pattern such as **/*.txt"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== GlobError::InvalidSyntax
+-- direct
+code: InvalidArgument (3)
+message: "Invalid match_glob syntax; close brackets/braces, use ascending ranges and keep / and ** outside braces (example: **/*.{txt,csv})"
+details: none
+-- anonymous caller: same as direct
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid matchGlob syntax; close brackets/braces, use ascending ranges and keep / and ** outside braces (example: **/*.{txt,csv})"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== GlobError::UnclosedClass
+-- direct
+code: InvalidArgument (3)
+message: "Glob pattern character class has no closing ']' for opening '[' at index 3. Either add a closing ']' or use '\\[' to match a literal '['."
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== GlobError::UnclosedBrace
+-- direct
+code: InvalidArgument (3)
+message: "Glob pattern brace expansion opening '{' at index 5 has no closing '}'. Use '\\{' to match a literal '{'."
+details: none
+-- anonymous caller: same as direct
+-- via ApiError: same as direct
+-- anonymous caller, via ApiError: same as direct
+
+== ResumableError::NotFound
+-- via ApiError
+code: NotFound (5)
+message: "Upload session not found"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ResumableError::Gone
+-- via ApiError
+code: FailedPrecondition (9)
+message: "Upload session is no longer active"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ResumableError::Cancelled
+-- via ApiError
+code: Cancelled (1)
+message: "clientClosedRequest"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ResumableError::InvalidContentRange
+-- via ApiError
+code: InvalidArgument (3)
+message: "Failed to parse Content-Range header."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ResumableError::Overrun
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid request.  There were 10 byte(s) (or more) in the request body.  There should have been 4 byte(s) according to the Content-Range header."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ResumableError::Invalid
+-- via ApiError
+code: InvalidArgument (3)
+message: "Upload offset 7 does not match the session"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ResumableError::Object(PreconditionFailed)
+-- via ApiError
+code: FailedPrecondition (9)
+message: "At least one of the pre-conditions you specified did not hold."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== BodyError::TooLarge
+-- via ApiError
+code: ResourceExhausted (8)
+message: "JSON request body exceeds the configured limit"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== BodyError::OutOfMemory
+-- via ApiError
+code: Unavailable (14)
+message: "Could not allocate request body buffer"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== BodyError::Unreadable
+-- via ApiError
+code: InvalidArgument (3)
+message: "Could not read request body"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== QueryError::TooLong
+-- via ApiError
+code: InvalidArgument (3)
+message: "Query exceeds 16 KiB"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== QueryError::Duplicate
+-- via ApiError
+code: InvalidArgument (3)
+message: "Duplicate query parameter: prefix"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== QueryError::Malformed
+-- via ApiError
+code: InvalidArgument (3)
+message: "Malformed URI encoding"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== InvalidDigest::InvalidDigest
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid base64 checksum"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== TimeOutOfRange::TimeOutOfRange
+-- via ApiError
+code: Unavailable (14)
+message: "Bucket timestamp is outside the supported RFC 3339 range"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ConflictingAcl::ConflictingAcl
+-- via ApiError
+code: Unimplemented (12)
+message: "gcs-mimic does not support object API setting acl together with predefinedAcl; omit this option or header (for example, use projection=noAcl)."
+details: 336 bytes
+  hex: 080c128e016763732d6d696d696320646f6573206e6f7420737570706f7274206f626a656374204150492073657474696e672061636c20746f676574686572207769746820707265646566696e656441636c3b206f6d69742074686973206f7074696f6e206f72206865616465722028666f72206578616d706c652c207573652070726f6a656374696f6e3d6e6f41636c292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support object API setting acl together with predefinedAcl; omit this option or header (for example, use projection=noAcl)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::InvalidBaseUrl
+-- via ApiError
+code: InvalidArgument (3)
+message: "invalid base URL"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::UnsupportedBaseUrl
+-- via ApiError
+code: InvalidArgument (3)
+message: "base URL must be an absolute HTTP(S) URL without credentials, query or fragment"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::MissingAuthority
+-- via ApiError
+code: InvalidArgument (3)
+message: "missing base URL authority"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::MissingScheme
+-- via ApiError
+code: InvalidArgument (3)
+message: "missing base URL scheme"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::InvalidBasePort
+-- via ApiError
+code: InvalidArgument (3)
+message: "invalid base URL port; use an integer in 0..=65535"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::OriginHasPath
+-- via ApiError
+code: InvalidArgument (3)
+message: "public_base_url must be an HTTP(S) origin with a root path only"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::OriginPortZero
+-- via ApiError
+code: InvalidArgument (3)
+message: "public_base_url port must be in 1..=65535; use a reachable port such as http://storage.invalid:4443"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::InvalidOriginIpv6
+-- via ApiError
+code: InvalidArgument (3)
+message: "invalid public_base_url IPv6 address"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::AmbiguousNumericHost
+-- via ApiError
+code: InvalidArgument (3)
+message: "ambiguous numeric public hostname; use canonical IPv4 such as http://127.0.0.1 or a DNS name ending in a nonnumeric label"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::InvalidOriginAuthority
+-- via ApiError
+code: InvalidArgument (3)
+message: "invalid public origin authority"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::InvalidDnsName
+-- via ApiError
+code: InvalidArgument (3)
+message: "virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::InvalidBucket
+-- via ApiError
+code: InvalidArgument (3)
+message: "bucket: Invalid bucket name"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::InvalidObject
+-- via ApiError
+code: InvalidArgument (3)
+message: "object: object name is empty"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::ReservedNamespace
+-- via ApiError
+code: InvalidArgument (3)
+message: "object URL collides with a reserved API namespace"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::VirtualHostPathPrefix
+-- via ApiError
+code: InvalidArgument (3)
+message: "virtual-host base URL must not have a path prefix"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::VirtualHostBucketNotDns
+-- via ApiError
+code: InvalidArgument (3)
+message: "bucket name must be a DNS label sequence for virtual-host URLs"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== UrlError::InvalidVirtualHostPort
+-- via ApiError
+code: InvalidArgument (3)
+message: "invalid virtual-host base URL port"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(401 unauthorized)
+-- via ApiError
+code: Unauthenticated (16)
+message: "Credentials rejected"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(404 notFound)
+-- via ApiError
+code: NotFound (5)
+message: "Notification not found"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(408 requestTimeout)
+-- via ApiError
+code: Internal (13)
+message: "The upload stalled"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(410 gone)
+-- via ApiError
+code: FailedPrecondition (9)
+message: "Upload session is no longer active"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(413 uploadTooLarge)
+-- via ApiError
+code: ResourceExhausted (8)
+message: "Upload exceeds 1 MiB"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(416 requestedRangeNotSatisfiable)
+-- via ApiError
+code: OutOfRange (11)
+message: "The requested Range cannot be satisfied"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(429 rateLimitExceeded)
+-- via ApiError
+code: ResourceExhausted (8)
+message: "Too many requests"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(500 internalError)
+-- via ApiError
+code: Internal (13)
+message: "Internal error"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(501 notImplemented)
+-- via ApiError
+code: Unimplemented (12)
+message: "Unsupported object option"
+details: 218 bytes
+  hex: 080c1219556e737570706f72746564206f626a656374206f7074696f6e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "Unsupported object option"
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(504 deadlineExceeded)
+-- via ApiError
+code: DeadlineExceeded (4)
+message: "Deadline exceeded"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::backend(CatalogClosed)
+-- via ApiError
+code: Unavailable (14)
+message: "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::catalog_backend(CatalogClosed)
+-- via ApiError
+code: Unavailable (14)
+message: "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::metadata(ClassLocation)
+-- via ApiError
+code: InvalidArgument (3)
+message: "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US."
+details: 230 bytes
+  hex: 0803125750726f6a65637420313233343536206d6179206e6f74206372656174652073746f72616765436c61737320524547494f4e414c206275636b6574732077697468206c6f636174696f6e436f6e73747261696e742055532e1a88010a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e42616452657175657374125b0a59125750726f6a65637420313233343536206d6179206e6f74206372656174652073746f72616765436c61737320524547494f4e414c206275636b6574732077697468206c6f636174696f6e436f6e73747261696e742055532e
+  google.rpc.Status: code 3, message "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.", reason ""
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::metadata(StorageClassRequiresZone)
+-- via ApiError
+code: Unimplemented (12)
+message: "gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl)."
+details: 347 bytes
+  hex: 080c1299016763732d6d696d696320646f6573206e6f7420737570706f7274206f626a656374204150492073657474696e672073746f72616765436c6173732052415049442072657175697265732061207a6f6e616c206275636b65743b206f6d69742074686973206f7074696f6e206f72206865616465722028666f72206578616d706c652c207573652070726f6a656374696f6e3d6e6f41636c292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::metadata(LongLanguage)
+-- via ApiError
+code: InvalidArgument (3)
+message: "contentLanguage exceeds 100 characters"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::missing_bucket()
+-- via ApiError
+code: NotFound (5)
+message: "The specified bucket does not exist."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::missing_object()
+-- via ApiError
+code: NotFound (5)
+message: "Object not found"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::named_missing_object()
+-- via ApiError
+code: NotFound (5)
+message: "No such object: bucket/object"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::precondition_not_held()
+-- via ApiError
+code: FailedPrecondition (9)
+message: "At least one of the pre-conditions you specified did not hold."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::not_modified()
+-- via ApiError
+code: FailedPrecondition (9)
+message: "The resource you requested has not been modified according to the condition you specified."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::conflicting_preconditions()
+-- via ApiError
+code: AlreadyExists (6)
+message: "Found conflicting object preconditions. Mutually exclusive fields cannot be set simultaneously."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::write_not_modified()
+-- via ApiError
+code: FailedPrecondition (9)
+message: "The resource you requested has not been modified according to the condition you specified."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::malformed_json()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Parse Error: Expected : between key:value pair.\n{not json\n     ^"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::legacy_parse_error()
+-- via ApiError
+code: InvalidArgument (3)
+message: "invalid character 'x' looking for beginning of value"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::unsupported_message()
+-- via ApiError
+code: Unimplemented (12)
+message: "gcs-mimic does not support this setting; omit it."
+details: 242 bytes
+  hex: 080c12316763732d6d696d696320646f6573206e6f7420737570706f727420746869732073657474696e673b206f6d69742069742e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support this setting; omit it."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::field_mask_syntax()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid field selection items("
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_parameter()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid argument"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_parameter().at_parameter(listed)
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid long value: 'x'."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_parameter().at_parameter(unlisted)
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid long value: 'x'."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid().at(POLICY_ETAG_FIELD)
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid value for ByteString: CAF"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::precondition_not_held().at_if_match()
+-- via ApiError
+code: FailedPrecondition (9)
+message: "At least one of the pre-conditions you specified did not hold."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(412).at_if_match()
+-- via ApiError
+code: FailedPrecondition (9)
+message: "bucket must be empty prior to deletion"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(404).with_plain(NOT_FOUND_HTML)
+-- via ApiError
+code: NotFound (5)
+message: "Not Found"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::new(404).with_plain(NOT_FOUND_TEXT)
+-- via ApiError
+code: NotFound (5)
+message: "Upload session not found"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_parameter().with_plain(BAD_CONTENT_TYPE_TEXT)
+-- via ApiError
+code: InvalidArgument (3)
+message: "multipart/related requires a boundary"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_parameter().with_plain(CONTENT_RANGE_TEXT)
+-- via ApiError
+code: InvalidArgument (3)
+message: "Failed to parse Content-Range header."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_parameter().with_plain(MISSING_END_BOUNDARY_TEXT)
+-- via ApiError
+code: InvalidArgument (3)
+message: "Missing end boundary in multipart body."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_parameter().with_plain(BAD_REQUEST_TEXT)
+-- via ApiError
+code: InvalidArgument (3)
+message: "uploadType must be media, multipart or resumable"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::undecodable_body()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Could not decompress request body."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::session_protocol()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Upload offset 7 does not match the persisted offset 5"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::content_disagrees()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Value 'other' in content does not agree with value 'bucket'. This can happen when a value set through a parameter is inconsistent with a value set in the request."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::required()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Required"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::method_not_allowed(with Allow)
+-- via ApiError
+code: Internal (13)
+message: "HTTP method is not supported for this object endpoint"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::method_not_allowed(without Allow)
+-- via ApiError
+code: Internal (13)
+message: "Use POST to lock a retention policy"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::service_unavailable()
+-- via ApiError
+code: Unavailable (14)
+message: "Runtime endpoint state is unavailable; restart the emulator"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_stored_header()
+-- via ApiError
+code: Unavailable (14)
+message: "Invalid stored object response header"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_long()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid long value: 'abc'."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_unsigned()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid unsigned integer value: '-1'."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid().html_typed()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Value <b>a&b</b> 'x' is \"invalid\""
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::missing_object_name()
+-- via ApiError
+code: InvalidArgument (3)
+message: "You must specify an object name."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::for_upload(class location)
+-- via ApiError
+code: InvalidArgument (3)
+message: "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US."
+details: 230 bytes
+  hex: 0803125750726f6a65637420313233343536206d6179206e6f74206372656174652073746f72616765436c61737320524547494f4e414c206275636b6574732077697468206c6f636174696f6e436f6e73747261696e742055532e1a88010a29747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e42616452657175657374125b0a59125750726f6a65637420313233343536206d6179206e6f74206372656174652073746f72616765436c61737320524547494f4e414c206275636b6574732077697468206c6f636174696f6e436f6e73747261696e742055532e
+  google.rpc.Status: code 3, message "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US."
+  type.googleapis.com/google.rpc.BadRequest
+    field violation: field "", description "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.", reason ""
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::for_upload(other)
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid storage class"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid()
+-- via ApiError
+code: InvalidArgument (3)
+message: "Invalid value for: x is not a valid value"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::invalid_argument()
+-- via ApiError
+code: InvalidArgument (3)
+message: "sourceObjects must not be empty"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::forbidden()
+-- via ApiError
+code: PermissionDenied (7)
+message: "Forbidden"
+details: none
+-- anonymous caller, via ApiError
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+
+== ApiError::for_anonymous_caller(anonymous denial)
+-- via ApiError
+code: Unauthenticated (16)
+message: "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::for_anonymous_caller(principal denial)
+-- via ApiError
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::for_anonymous_caller(forbidden)
+-- via ApiError
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::for_anonymous_caller(not found)
+-- via ApiError
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::unsupported()
+-- via ApiError
+code: Unimplemented (12)
+message: "gcs-mimic does not support bucket API setting rpo; omit this setting (for example, create a bucket with only name)."
+details: 308 bytes
+  hex: 080c12736763732d6d696d696320646f6573206e6f7420737570706f7274206275636b6574204150492073657474696e672072706f3b206f6d697420746869732073657474696e672028666f72206578616d706c652c206372656174652061206275636b65742077697468206f6e6c79206e616d65292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support bucket API setting rpo; omit this setting (for example, create a bucket with only name)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::unsupported_object()
+-- via ApiError
+code: Unimplemented (12)
+message: "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl)."
+details: 312 bytes
+  hex: 080c12776763732d6d696d696320646f6573206e6f7420737570706f7274206f626a656374204150492073657474696e67206d657461646174613b206f6d69742074686973206f7074696f6e206f72206865616465722028666f72206578616d706c652c207573652070726f6a656374696f6e3d6e6f41636c292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::naming_object(missing object)
+-- via ApiError
+code: NotFound (5)
+message: "No such object: bucket/object"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::naming_object(markup in the name)
+-- via ApiError
+code: NotFound (5)
+message: "No such object: bucket/<a href=\"x\">&'</a>"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::naming_object(already named)
+-- via ApiError
+code: NotFound (5)
+message: "No such object: bucket/part"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError
+
+== ApiError::naming_object(other error)
+-- via ApiError
+code: PermissionDenied (7)
+message: "Forbidden"
+details: none
+-- anonymous caller, via ApiError
+code: Unauthenticated (16)
+message: "Login Required"
+details: none
+
+== ApiError::cancelled_upload()
+-- via ApiError
+code: Cancelled (1)
+message: "clientClosedRequest"
+details: none
+-- anonymous caller, via ApiError: same as via ApiError

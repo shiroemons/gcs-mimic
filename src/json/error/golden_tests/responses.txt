@@ -1,0 +1,6269 @@
+# The JSON API's answer to each error: status, headers in the order they are sent, and the body's bytes.
+# Written by json::error::golden_tests::every_error_keeps_its_json_response. Regenerate with GCSM_UPDATE_GOLDENS=1 cargo test --lib json::error::golden_tests,
+# which rewrites this file and fails; review the diff and run the test again without it.
+
+== ObjectError::BucketNotFound
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 246 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "The specified bucket does not exist.",
+    "errors": [
+      {
+        "message": "The specified bucket does not exist.",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::ObjectNotFound
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 206 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "Object not found",
+    "errors": [
+      {
+        "message": "Object not found",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- named object
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 232 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "No such object: bucket/object",
+    "errors": [
+      {
+        "message": "No such object: bucket/object",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- media download
+404 Not Found
+content-type: text/html; charset=UTF-8
+cache-control: private, max-age=0
+body: 29 bytes, no final newline
+No such object: bucket/object
+-- anonymous caller: same as named object
+
+== ObjectError::PreconditionFailed
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 371 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "At least one of the pre-conditions you specified did not hold.",
+    "errors": [
+      {
+        "message": "At least one of the pre-conditions you specified did not hold.",
+        "domain": "global",
+        "reason": "conditionNotMet",
+        "locationType": "header",
+        "location": "If-Match"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Component(NotFound)
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 212 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "No such object: b/a",
+    "errors": [
+      {
+        "message": "No such object: b/a",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download
+404 Not Found
+content-type: text/html; charset=UTF-8
+cache-control: private, max-age=0
+body: 19 bytes, no final newline
+No such object: b/a
+-- anonymous caller: same as response
+
+== ObjectError::Component(GenerationMismatch)
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 335 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "Generation 1 required for component object (b/a), but actual generation is 7.",
+    "errors": [
+      {
+        "message": "Generation 1 required for component object (b/a), but actual generation is 7.",
+        "domain": "global",
+        "reason": "conditionNotMet"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::PublicAccessPrevention
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 253 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "Public access prevention is enforced",
+    "errors": [
+      {
+        "message": "Public access prevention is enforced",
+        "domain": "global",
+        "reason": "conditionNotMet"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::OverwriteForbidden
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 523 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== ObjectError::ActiveHold(Temporary)
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 401 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Object 'b/o' is under active Temporary hold and cannot be deleted, overwritten or archived until hold is removed.",
+    "errors": [
+      {
+        "message": "Object 'b/o' is under active Temporary hold and cannot be deleted, overwritten or archived until hold is removed.",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== ObjectError::ActiveHold(EventBased)
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 405 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Object 'b/o' is under active Event-Based hold and cannot be deleted, overwritten or archived until hold is removed.",
+    "errors": [
+      {
+        "message": "Object 'b/o' is under active Event-Based hold and cannot be deleted, overwritten or archived until hold is removed.",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== ObjectError::ObjectRetentionNotMet
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 473 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Object 'b/o' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until 2023-11-14T14:13:20.5-08:00",
+    "errors": [
+      {
+        "message": "Object 'b/o' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until 2023-11-14T14:13:20.5-08:00",
+        "domain": "global",
+        "reason": "retentionPolicyNotMet"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== ObjectError::UnlockedRetentionOverrideRequired
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 481 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "The unlocked object retention cannot be removed and its retention period cannot be shortened without overriding unlocked retention intent and permission.",
+    "errors": [
+      {
+        "message": "The unlocked object retention cannot be removed and its retention period cannot be shortened without overriding unlocked retention intent and permission.",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== ObjectError::LockedRetention
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 433 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "The locked object retention cannot be removed. Its retention mode cannot be changed and its retention period cannot be shortened.",
+    "errors": [
+      {
+        "message": "The locked object retention cannot be removed. Its retention mode cannot be changed and its retention period cannot be shortened.",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== ObjectError::ObjectNotSoftDeleted
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 340 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "object is not soft deleted; select a generation from softDeleted=true listing",
+    "errors": [
+      {
+        "message": "object is not soft deleted; select a generation from softDeleted=true listing",
+        "domain": "global",
+        "reason": "objectNotSoftDeleted"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::SoftDeletePolicyRequired(List)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 293 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Soft delete policy is required to list soft-deleted versions",
+    "errors": [
+      {
+        "message": "Soft delete policy is required to list soft-deleted versions",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::SoftDeletePolicyRequired(Get)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 303 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Soft delete policy is required to request a soft-deleted version.",
+    "errors": [
+      {
+        "message": "Soft delete policy is required to request a soft-deleted version.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::SoftDeletePolicyRequired(Restore)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 249 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "bucket soft delete policy must be set.",
+    "errors": [
+      {
+        "message": "bucket soft delete policy must be set.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Denied
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 523 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== ObjectError::Denied(anonymous)
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 511 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 581 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== ObjectError::Forbidden
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 193 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Forbidden",
+    "errors": [
+      {
+        "message": "Forbidden",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== ObjectError::NotModified
+-- response
+304 Not Modified
+body: 0 bytes
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::WriteNotModified
+-- response
+304 Not Modified
+body: 0 bytes
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::SourceNotModified
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 371 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "At least one of the pre-conditions you specified did not hold.",
+    "errors": [
+      {
+        "message": "At least one of the pre-conditions you specified did not hold.",
+        "domain": "global",
+        "reason": "conditionNotMet",
+        "locationType": "header",
+        "location": "If-Match"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::ChecksumMismatch
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 281 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "The supplied checksum does not match the uploaded data",
+    "errors": [
+      {
+        "message": "The supplied checksum does not match the uploaded data",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::HashMismatch(Crc32c)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 321 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Provided CRC32C \"AAAAAQ==\" doesn't match calculated CRC32C \"AAAAAg==\".",
+    "errors": [
+      {
+        "message": "Provided CRC32C \"AAAAAQ==\" doesn't match calculated CRC32C \"AAAAAg==\".",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::HashMismatch(Md5)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 393 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Provided MD5 hash \"AAAAAAAAAAAAAAAAAAAAAA==\" doesn't match calculated MD5 hash \"AQEBAQEBAQEBAQEBAQEBAQ==\".",
+    "errors": [
+      {
+        "message": "Provided MD5 hash \"AAAAAAAAAAAAAAAAAAAAAA==\" doesn't match calculated MD5 hash \"AQEBAQEBAQEBAQEBAQEBAQ==\".",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::TooLarge
+-- response
+413 Payload Too Large
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 252 bytes, no final newline
+{
+  "error": {
+    "code": 413,
+    "message": "Object exceeds the upload size limit",
+    "errors": [
+      {
+        "message": "Object exceeds the upload size limit",
+        "domain": "global",
+        "reason": "uploadTooLarge"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::InvalidFixedMetadata
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 237 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid contentType header value",
+    "errors": [
+      {
+        "message": "Invalid contentType header value",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::UniformAccessPredefinedAcl
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 497 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
+    "errors": [
+      {
+        "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::UniformAccessAclUpdate
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 505 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Cannot update access control for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
+    "errors": [
+      {
+        "message": "Cannot update access control for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Metadata(ClassLocation)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 347 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.",
+    "errors": [
+      {
+        "message": "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Metadata(StorageClassRequiresZone)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 482 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Metadata(LongLanguage)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 249 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "contentLanguage exceeds 100 characters",
+    "errors": [
+      {
+        "message": "contentLanguage exceeds 100 characters",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::InvalidDerivedArgument
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 243 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "sourceObjects must not be empty",
+    "errors": [
+      {
+        "message": "sourceObjects must not be empty",
+        "domain": "global",
+        "reason": "invalidArgument"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::ComposeClassMismatch
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 457 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Cannot compose object with destination storage class STANDARD from source components that have different storage classes (NEARLINE, COLDLINE).",
+    "errors": [
+      {
+        "message": "Cannot compose object with destination storage class STANDARD from source components that have different storage classes (NEARLINE, COLDLINE).",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::DerivedTransferNotFound
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 226 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "Derived transfer not found",
+    "errors": [
+      {
+        "message": "Derived transfer not found",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::DerivedTransferExpired
+-- response
+410 Gone
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 218 bytes, no final newline
+{
+  "error": {
+    "code": 410,
+    "message": "Derived transfer expired",
+    "errors": [
+      {
+        "message": "Derived transfer expired",
+        "domain": "global",
+        "reason": "gone"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::DerivedTransferBusy
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 246 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Derived transfer is already in use",
+    "errors": [
+      {
+        "message": "Derived transfer is already in use",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::DerivedTransferIncomplete
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 241 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Derived transfer is incomplete",
+    "errors": [
+      {
+        "message": "Derived transfer is incomplete",
+        "domain": "global",
+        "reason": "invalidArgument"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::UnsupportedMetadata
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 414 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::CustomerEncryption(KeyIncorrect)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 280 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "The provided encryption key is incorrect.",
+    "errors": [
+      {
+        "message": "The provided encryption key is incorrect.",
+        "domain": "global",
+        "reason": "customerEncryptionKeyIsIncorrect"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::BodyAborted
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 256 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "The upload request body did not complete",
+    "errors": [
+      {
+        "message": "The upload request body did not complete",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Io(StorageFull)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 674 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions",
+    "errors": [
+      {
+        "message": "Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Io(memory blobs)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 706 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Storage capacity exhausted; delete objects, though data kept by soft delete keeps its bytes until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), or restart with a larger memory_max_bytes (a restart loses RAM data)",
+    "errors": [
+      {
+        "message": "Storage capacity exhausted; delete objects, though data kept by soft delete keeps its bytes until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), or restart with a larger memory_max_bytes (a restart loses RAM data)",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Io(memory catalog)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 380 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)",
+    "errors": [
+      {
+        "message": "Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Io(PermissionDenied)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 432 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Object storage is unavailable: storage I/O error (permission denied); check data directory permissions and available disk space",
+    "errors": [
+      {
+        "message": "Object storage is unavailable: storage I/O error (permission denied); check data directory permissions and available disk space",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Io(with context)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 448 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Object storage is unavailable: storage I/O error (blob 7: permission denied); check data directory permissions and available disk space",
+    "errors": [
+      {
+        "message": "Object storage is unavailable: storage I/O error (blob 7: permission denied); check data directory permissions and available disk space",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Corrupt(CatalogClosed)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 348 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
+    "errors": [
+      {
+        "message": "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Corrupt(private cause)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 348 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
+    "errors": [
+      {
+        "message": "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Unavailable(CatalogClosed)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 370 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
+    "errors": [
+      {
+        "message": "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Unavailable(MissingCompletion)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 358 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Object storage is unavailable: internal storage failure (private backend details withheld)",
+    "errors": [
+      {
+        "message": "Object storage is unavailable: internal storage failure (private backend details withheld)",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== ObjectError::Unavailable(private cause)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 358 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Object storage is unavailable: internal storage failure (private backend details withheld)",
+    "errors": [
+      {
+        "message": "Object storage is unavailable: internal storage failure (private backend details withheld)",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download: same as response
+-- anonymous caller: same as response
+
+== CatalogError::AuthenticationAlreadyConfigured
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 236 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Bucket catalog is unavailable",
+    "errors": [
+      {
+        "message": "Bucket catalog is unavailable",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 162 bytes
+{"error":{"code":503,"message":"Bucket catalog is unavailable","errors":[{"message":"Bucket catalog is unavailable","domain":"global","reason":"backendError"}]}}
+
+== CatalogError::AlreadyExists
+-- response
+409 Conflict
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 338 bytes, no final newline
+{
+  "error": {
+    "code": 409,
+    "message": "Your previous request to create the named bucket succeeded and you already own it.",
+    "errors": [
+      {
+        "message": "Your previous request to create the named bucket succeeded and you already own it.",
+        "domain": "global",
+        "reason": "conflict"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+409 Conflict
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 264 bytes
+{"error":{"code":409,"message":"Your previous request to create the named bucket succeeded and you already own it.","errors":[{"message":"Your previous request to create the named bucket succeeded and you already own it.","domain":"global","reason":"conflict"}]}}
+
+== CatalogError::NotFound
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 246 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "The specified bucket does not exist.",
+    "errors": [
+      {
+        "message": "The specified bucket does not exist.",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+404 Not Found
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 118 bytes
+{"error":{"code":404,"message":"Not Found","errors":[{"message":"Not Found","domain":"global","reason":"notFound"}]}}
+
+== CatalogError::NotEmpty
+-- response
+409 Conflict
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 212 bytes, no final newline
+{
+  "error": {
+    "code": 409,
+    "message": "Bucket is not empty",
+    "errors": [
+      {
+        "message": "Bucket is not empty",
+        "domain": "global",
+        "reason": "conflict"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+409 Conflict
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 138 bytes
+{"error":{"code":409,"message":"Bucket is not empty","errors":[{"message":"Bucket is not empty","domain":"global","reason":"conflict"}]}}
+
+== CatalogError::RestoreConflict
+-- response
+409 Conflict
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 346 bytes, no final newline
+{
+  "error": {
+    "code": 409,
+    "message": "A bucket with this name already exists, so the soft-deleted bucket cannot be restored.",
+    "errors": [
+      {
+        "message": "A bucket with this name already exists, so the soft-deleted bucket cannot be restored.",
+        "domain": "global",
+        "reason": "conflict"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+409 Conflict
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 272 bytes
+{"error":{"code":409,"message":"A bucket with this name already exists, so the soft-deleted bucket cannot be restored.","errors":[{"message":"A bucket with this name already exists, so the soft-deleted bucket cannot be restored.","domain":"global","reason":"conflict"}]}}
+
+== CatalogError::PreconditionFailed
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 305 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "At least one of the pre-conditions you specified did not hold.",
+    "errors": [
+      {
+        "message": "At least one of the pre-conditions you specified did not hold.",
+        "domain": "global",
+        "reason": "conditionNotMet"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+412 Precondition Failed
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 231 bytes
+{"error":{"code":412,"message":"At least one of the pre-conditions you specified did not hold.","errors":[{"message":"At least one of the pre-conditions you specified did not hold.","domain":"global","reason":"conditionNotMet"}]}}
+
+== CatalogError::NotModified
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 305 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "At least one of the pre-conditions you specified did not hold.",
+    "errors": [
+      {
+        "message": "At least one of the pre-conditions you specified did not hold.",
+        "domain": "global",
+        "reason": "conditionNotMet"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+412 Precondition Failed
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 231 bytes
+{"error":{"code":412,"message":"At least one of the pre-conditions you specified did not hold.","errors":[{"message":"At least one of the pre-conditions you specified did not hold.","domain":"global","reason":"conditionNotMet"}]}}
+
+== CatalogError::PublicAccessPrevention
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 253 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "Public access prevention is enforced",
+    "errors": [
+      {
+        "message": "Public access prevention is enforced",
+        "domain": "global",
+        "reason": "conditionNotMet"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+412 Precondition Failed
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 179 bytes
+{"error":{"code":412,"message":"Public access prevention is enforced","errors":[{"message":"Public access prevention is enforced","domain":"global","reason":"conditionNotMet"}]}}
+
+== CatalogError::Denied
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 523 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- fake-gcs-server bucket route
+403 Forbidden
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 449 bytes
+{"error":{"code":403,"message":"viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).","errors":[{"message":"viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).","domain":"global","reason":"forbidden"}]}}
+
+== CatalogError::Denied(anonymous)
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 511 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 581 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- fake-gcs-server bucket route
+403 Forbidden
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 437 bytes
+{"error":{"code":403,"message":"Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).","errors":[{"message":"Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).","domain":"global","reason":"forbidden"}]}}
+
+== CatalogError::Forbidden
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 193 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Forbidden",
+    "errors": [
+      {
+        "message": "Forbidden",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- fake-gcs-server bucket route
+403 Forbidden
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 119 bytes
+{"error":{"code":403,"message":"Forbidden","errors":[{"message":"Forbidden","domain":"global","reason":"forbidden"}]}}
+
+== CatalogError::RetentionPolicyLocked
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 567 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Bucket retention policy is locked and cannot be removed or shortened; keep retentionPeriod at least 3600 seconds or extend it, for example {\"retentionPolicy\":{\"retentionPeriod\":\"3601\"}}",
+    "errors": [
+      {
+        "message": "Bucket retention policy is locked and cannot be removed or shortened; keep retentionPeriod at least 3600 seconds or extend it, for example {\"retentionPolicy\":{\"retentionPeriod\":\"3601\"}}",
+        "domain": "global",
+        "reason": "badRequestException"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 493 bytes
+{"error":{"code":400,"message":"Bucket retention policy is locked and cannot be removed or shortened; keep retentionPeriod at least 3600 seconds or extend it, for example {\"retentionPolicy\":{\"retentionPeriod\":\"3601\"}}","errors":[{"message":"Bucket retention policy is locked and cannot be removed or shortened; keep retentionPeriod at least 3600 seconds or extend it, for example {\"retentionPolicy\":{\"retentionPeriod\":\"3601\"}}","domain":"global","reason":"badRequestException"}]}}
+
+== CatalogError::RetentionPolicyNotSet
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 352 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "No retention policy to lock; set retentionPolicy.retentionPeriod first, for example 3600",
+    "errors": [
+      {
+        "message": "No retention policy to lock; set retentionPolicy.retentionPeriod first, for example 3600",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 278 bytes
+{"error":{"code":400,"message":"No retention policy to lock; set retentionPolicy.retentionPeriod first, for example 3600","errors":[{"message":"No retention policy to lock; set retentionPolicy.retentionPeriod first, for example 3600","domain":"global","reason":"badRequest"}]}}
+
+== CatalogError::InvalidMetadata
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 255 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid value for: x is not a valid value",
+    "errors": [
+      {
+        "message": "Invalid value for: x is not a valid value",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 181 bytes
+{"error":{"code":400,"message":"Invalid value for: x is not a valid value","errors":[{"message":"Invalid value for: x is not a valid value","domain":"global","reason":"invalid"}]}}
+
+== CatalogError::Metadata(ClassLocation)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 347 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.",
+    "errors": [
+      {
+        "message": "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes
+{"error":{"code":400,"message":"Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.","errors":[{"message":"Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.","domain":"global","reason":"invalid"}]}}
+
+== CatalogError::Metadata(StorageClassRequiresZone)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 484 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 410 bytes
+{"error":{"code":400,"message":"gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name).","errors":[{"message":"gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name).","domain":"global","reason":"badRequest"}]}}
+
+== CatalogError::Metadata(AutoclassTerminal)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 379 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE",
+    "errors": [
+      {
+        "message": "Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 305 bytes
+{"error":{"code":400,"message":"Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE","errors":[{"message":"Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE","domain":"global","reason":"invalid"}]}}
+
+== CatalogError::UnsupportedMetadata
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 408 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support bucket API setting cors; omit this setting (for example, create a bucket with only name).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support bucket API setting cors; omit this setting (for example, create a bucket with only name).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 334 bytes
+{"error":{"code":400,"message":"gcs-mimic does not support bucket API setting cors; omit this setting (for example, create a bucket with only name).","errors":[{"message":"gcs-mimic does not support bucket API setting cors; omit this setting (for example, create a bucket with only name).","domain":"global","reason":"badRequest"}]}}
+
+== CatalogError::Io(StorageFull)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 674 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions",
+    "errors": [
+      {
+        "message": "Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 600 bytes
+{"error":{"code":503,"message":"Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions","errors":[{"message":"Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions","domain":"global","reason":"backendError"}]}}
+
+== CatalogError::Io(memory catalog)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 380 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)",
+    "errors": [
+      {
+        "message": "Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 306 bytes
+{"error":{"code":503,"message":"Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)","errors":[{"message":"Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)","domain":"global","reason":"backendError"}]}}
+
+== CatalogError::Io(PermissionDenied)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 236 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Bucket catalog is unavailable",
+    "errors": [
+      {
+        "message": "Bucket catalog is unavailable",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 162 bytes
+{"error":{"code":503,"message":"Bucket catalog is unavailable","errors":[{"message":"Bucket catalog is unavailable","domain":"global","reason":"backendError"}]}}
+
+== CatalogError::Corrupt(CatalogClosed)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 370 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying",
+    "errors": [
+      {
+        "message": "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 296 bytes
+{"error":{"code":503,"message":"Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying","errors":[{"message":"Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying","domain":"global","reason":"backendError"}]}}
+
+== CatalogError::Corrupt(private cause)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 236 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Bucket catalog is unavailable",
+    "errors": [
+      {
+        "message": "Bucket catalog is unavailable",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 162 bytes
+{"error":{"code":503,"message":"Bucket catalog is unavailable","errors":[{"message":"Bucket catalog is unavailable","domain":"global","reason":"backendError"}]}}
+
+== CatalogError::NewerSchema
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 236 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Bucket catalog is unavailable",
+    "errors": [
+      {
+        "message": "Bucket catalog is unavailable",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 162 bytes
+{"error":{"code":503,"message":"Bucket catalog is unavailable","errors":[{"message":"Bucket catalog is unavailable","domain":"global","reason":"backendError"}]}}
+
+== CatalogError::Unavailable(CatalogClosed)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 370 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying",
+    "errors": [
+      {
+        "message": "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 296 bytes
+{"error":{"code":503,"message":"Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying","errors":[{"message":"Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying","domain":"global","reason":"backendError"}]}}
+
+== CatalogError::Unavailable(private cause)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 236 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Bucket catalog is unavailable",
+    "errors": [
+      {
+        "message": "Bucket catalog is unavailable",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 162 bytes
+{"error":{"code":503,"message":"Bucket catalog is unavailable","errors":[{"message":"Bucket catalog is unavailable","domain":"global","reason":"backendError"}]}}
+
+== AuthFailure::LoginRequired
+-- response
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+
+== AuthFailure::InvalidCredentials
+-- response
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 284 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Invalid Credentials",
+    "errors": [
+      {
+        "message": "Invalid Credentials",
+        "domain": "global",
+        "reason": "authError",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+
+== AuthFailure::Denied
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 523 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== AuthFailure::Denied(anonymous)
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 511 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 581 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== AuthFailure::Forbidden
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 193 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Forbidden",
+    "errors": [
+      {
+        "message": "Forbidden",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+
+== AuthError::Failure(InvalidCredentials)
+-- response
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 284 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Invalid Credentials",
+    "errors": [
+      {
+        "message": "Invalid Credentials",
+        "domain": "global",
+        "reason": "authError",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+
+== AuthError::Unavailable(CatalogClosed)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 370 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
+    "errors": [
+      {
+        "message": "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+
+== AuthError::Unavailable(private cause)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 358 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Object storage is unavailable: internal storage failure (private backend details withheld)",
+    "errors": [
+      {
+        "message": "Object storage is unavailable: internal storage failure (private backend details withheld)",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+
+== CsekError::AlgorithmInvalid
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 356 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Missing an encryption algorithm, or the provided algorithm is not \"AES256\".",
+    "errors": [
+      {
+        "message": "Missing an encryption algorithm, or the provided algorithm is not \"AES256\".",
+        "domain": "global",
+        "reason": "customerEncryptionAlgorithmIsInvalid"
+      }
+    ]
+  }
+}
+
+== CsekError::KeyFormatInvalid
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 450 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Missing an encryption key, or it is not Base64 encoded, or it does not meet the required length of the encryption algorithm.",
+    "errors": [
+      {
+        "message": "Missing an encryption key, or it is not Base64 encoded, or it does not meet the required length of the encryption algorithm.",
+        "domain": "global",
+        "reason": "customerEncryptionKeyFormatIsInvalid"
+      }
+    ]
+  }
+}
+
+== CsekError::KeySha256Invalid
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 430 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Missing a SHA256 hash of the encryption key, or it is not Base64 encoded, or it does not match the encryption key.",
+    "errors": [
+      {
+        "message": "Missing a SHA256 hash of the encryption key, or it is not Base64 encoded, or it does not match the encryption key.",
+        "domain": "global",
+        "reason": "customerEncryptionKeySha256IsInvalid"
+      }
+    ]
+  }
+}
+
+== CsekError::KeyIncorrect
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 280 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "The provided encryption key is incorrect.",
+    "errors": [
+      {
+        "message": "The provided encryption key is incorrect.",
+        "domain": "global",
+        "reason": "customerEncryptionKeyIsIncorrect"
+      }
+    ]
+  }
+}
+
+== CsekError::ResourceIsEncrypted
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 416 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "The resource is encrypted with a customer-supplied encryption key, but the request did not provide one.",
+    "errors": [
+      {
+        "message": "The resource is encrypted with a customer-supplied encryption key, but the request did not provide one.",
+        "domain": "global",
+        "reason": "resourceIsEncryptedWithCustomerEncryptionKey"
+      }
+    ]
+  }
+}
+
+== CsekError::ResourceNotEncrypted
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 411 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "The resource is not encrypted with a customer-supplied encryption key, but the request provided one.",
+    "errors": [
+      {
+        "message": "The resource is not encrypted with a customer-supplied encryption key, but the request provided one.",
+        "domain": "global",
+        "reason": "resourceNotEncryptedWithCustomerEncryptionKey"
+      }
+    ]
+  }
+}
+
+== ResumableError::NotFound
+-- response
+404 Not Found
+content-type: text/plain; charset=utf-8
+body: 9 bytes, no final newline
+Not Found
+
+== ResumableError::Gone
+-- response
+410 Gone
+content-type: text/plain; charset=utf-8
+body: 34 bytes, no final newline
+Upload session is no longer active
+
+== ResumableError::Cancelled
+-- response
+499 <unknown status code>
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 223 bytes, no final newline
+{
+  "error": {
+    "code": 499,
+    "message": "clientClosedRequest",
+    "errors": [
+      {
+        "message": "clientClosedRequest",
+        "domain": "global",
+        "reason": "clientClosedRequest"
+      }
+    ]
+  }
+}
+
+== ResumableError::InvalidContentRange
+-- response
+400 Bad Request
+content-type: text/plain; charset=utf-8
+body: 37 bytes, no final newline
+Failed to parse Content-Range header.
+
+== ResumableError::Overrun
+-- response
+400 Bad Request
+content-type: text/plain; charset=utf-8
+body: 143 bytes, no final newline
+Invalid request.  There were 10 byte(s) (or more) in the request body.  There should have been 4 byte(s) according to the Content-Range header.
+
+== ResumableError::Invalid
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 266 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Upload offset 7 does not match the session",
+    "errors": [
+      {
+        "message": "Upload offset 7 does not match the session",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== ResumableError::Object(PreconditionFailed)
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 371 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "At least one of the pre-conditions you specified did not hold.",
+    "errors": [
+      {
+        "message": "At least one of the pre-conditions you specified did not hold.",
+        "domain": "global",
+        "reason": "conditionNotMet",
+        "locationType": "header",
+        "location": "If-Match"
+      }
+    ]
+  }
+}
+
+== BodyError::TooLarge
+-- response
+413 Payload Too Large
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 272 bytes, no final newline
+{
+  "error": {
+    "code": 413,
+    "message": "JSON request body exceeds the configured limit",
+    "errors": [
+      {
+        "message": "JSON request body exceeds the configured limit",
+        "domain": "global",
+        "reason": "uploadTooLarge"
+      }
+    ]
+  }
+}
+
+== BodyError::OutOfMemory
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 254 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Could not allocate request body buffer",
+    "errors": [
+      {
+        "message": "Could not allocate request body buffer",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+
+== BodyError::Unreadable
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 230 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Could not read request body",
+    "errors": [
+      {
+        "message": "Could not read request body",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+
+== PageTokenError::BucketCursor
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 272 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid pageToken for this project and prefix",
+    "errors": [
+      {
+        "message": "Invalid pageToken for this project and prefix",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== PageTokenError::ObjectCursor(named)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 235 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Next page token not valid: CgFh",
+    "errors": [
+      {
+        "message": "Next page token not valid: CgFh",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== PageTokenError::ObjectCursor(unnamed)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 223 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Next page token not valid",
+    "errors": [
+      {
+        "message": "Next page token not valid",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== PageTokenError::Project
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 298 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "project must be a nonempty identifier of at most 256 bytes",
+    "errors": [
+      {
+        "message": "project must be a nonempty identifier of at most 256 bytes",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== PageTokenError::BucketName
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 211 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "invalid bucket name",
+    "errors": [
+      {
+        "message": "invalid bucket name",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== ProfileNameError::Native
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 220 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid bucket name",
+    "errors": [
+      {
+        "message": "Invalid bucket name",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 146 bytes
+{"error":{"code":400,"message":"Invalid bucket name","errors":[{"message":"Invalid bucket name","domain":"global","reason":"invalidParameter"}]}}
+
+== ProfileNameError::FakeGcsServer
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 211 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "invalid bucket name",
+    "errors": [
+      {
+        "message": "invalid bucket name",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 137 bytes
+{"error":{"code":400,"message":"invalid bucket name","errors":[{"message":"invalid bucket name","domain":"global","reason":"invalid"}]}}
+
+== QueryError::TooLong
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 222 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Query exceeds 16 KiB",
+    "errors": [
+      {
+        "message": "Query exceeds 16 KiB",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== QueryError::Duplicate
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 248 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Duplicate query parameter: prefix",
+    "errors": [
+      {
+        "message": "Duplicate query parameter: prefix",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== QueryError::Malformed
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 226 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Malformed URI encoding",
+    "errors": [
+      {
+        "message": "Malformed URI encoding",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== MalformedEncoding::MalformedEncoding
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 226 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Malformed URI encoding",
+    "errors": [
+      {
+        "message": "Malformed URI encoding",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== InvalidDigest::InvalidDigest
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 228 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid base64 checksum",
+    "errors": [
+      {
+        "message": "Invalid base64 checksum",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== TimeOutOfRange::TimeOutOfRange
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 290 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Bucket timestamp is outside the supported RFC 3339 range",
+    "errors": [
+      {
+        "message": "Bucket timestamp is outside the supported RFC 3339 range",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+
+== InvalidProjectId::InvalidProjectId
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 298 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "project must be a nonempty identifier of at most 256 bytes",
+    "errors": [
+      {
+        "message": "project must be a nonempty identifier of at most 256 bytes",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== ConflictingAcl::ConflictingAcl
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 534 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support object API setting acl together with predefinedAcl; omit this option or header (for example, use projection=noAcl).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support object API setting acl together with predefinedAcl; omit this option or header (for example, use projection=noAcl).",
+        "domain": "global",
+        "reason": "badRequest",
+        "locationType": "parameter",
+        "location": "predefinedAcl"
+      }
+    ]
+  }
+}
+
+== GlobError::TooLong
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 337 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "matchGlob must be at most 1024 UTF-8 bytes; use a shorter pattern such as **/*.txt",
+    "errors": [
+      {
+        "message": "matchGlob must be at most 1024 UTF-8 bytes; use a shorter pattern such as **/*.txt",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== GlobError::InvalidSyntax
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 429 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid matchGlob syntax; close brackets/braces, use ascending ranges and keep / and ** outside braces (example: **/*.{txt,csv})",
+    "errors": [
+      {
+        "message": "Invalid matchGlob syntax; close brackets/braces, use ascending ranges and keep / and ** outside braces (example: **/*.{txt,csv})",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== GlobError::UnclosedClass
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 447 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Glob pattern character class has no closing ']' for opening '[' at index 3. Either add a closing ']' or use '\\[' to match a literal '['.",
+    "errors": [
+      {
+        "message": "Glob pattern character class has no closing ']' for opening '[' at index 3. Either add a closing ']' or use '\\[' to match a literal '['.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== GlobError::UnclosedBrace
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 383 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Glob pattern brace expansion opening '{' at index 5 has no closing '}'. Use '\\{' to match a literal '{'.",
+    "errors": [
+      {
+        "message": "Glob pattern brace expansion opening '{' at index 5 has no closing '}'. Use '\\{' to match a literal '{'.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== UrlError::InvalidBaseUrl
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 214 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "invalid base URL",
+    "errors": [
+      {
+        "message": "invalid base URL",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::UnsupportedBaseUrl
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 340 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "base URL must be an absolute HTTP(S) URL without credentials, query or fragment",
+    "errors": [
+      {
+        "message": "base URL must be an absolute HTTP(S) URL without credentials, query or fragment",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::MissingAuthority
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 234 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "missing base URL authority",
+    "errors": [
+      {
+        "message": "missing base URL authority",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::MissingScheme
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 228 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "missing base URL scheme",
+    "errors": [
+      {
+        "message": "missing base URL scheme",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::InvalidBasePort
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 282 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "invalid base URL port; use an integer in 0..=65535",
+    "errors": [
+      {
+        "message": "invalid base URL port; use an integer in 0..=65535",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::OriginHasPath
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 308 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "public_base_url must be an HTTP(S) origin with a root path only",
+    "errors": [
+      {
+        "message": "public_base_url must be an HTTP(S) origin with a root path only",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::OriginPortZero
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 380 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "public_base_url port must be in 1..=65535; use a reachable port such as http://storage.invalid:4443",
+    "errors": [
+      {
+        "message": "public_base_url port must be in 1..=65535; use a reachable port such as http://storage.invalid:4443",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::InvalidOriginIpv6
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 254 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "invalid public_base_url IPv6 address",
+    "errors": [
+      {
+        "message": "invalid public_base_url IPv6 address",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::AmbiguousNumericHost
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 424 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "ambiguous numeric public hostname; use canonical IPv4 such as http://127.0.0.1 or a DNS name ending in a nonnumeric label",
+    "errors": [
+      {
+        "message": "ambiguous numeric public hostname; use canonical IPv4 such as http://127.0.0.1 or a DNS name ending in a nonnumeric label",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::InvalidOriginAuthority
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 244 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "invalid public origin authority",
+    "errors": [
+      {
+        "message": "invalid public origin authority",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::InvalidDnsName
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 352 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot",
+    "errors": [
+      {
+        "message": "virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::InvalidBucket
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 236 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "bucket: Invalid bucket name",
+    "errors": [
+      {
+        "message": "bucket: Invalid bucket name",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::InvalidObject
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 238 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "object: object name is empty",
+    "errors": [
+      {
+        "message": "object: object name is empty",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::ReservedNamespace
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 280 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "object URL collides with a reserved API namespace",
+    "errors": [
+      {
+        "message": "object URL collides with a reserved API namespace",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::VirtualHostPathPrefix
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 280 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "virtual-host base URL must not have a path prefix",
+    "errors": [
+      {
+        "message": "virtual-host base URL must not have a path prefix",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::VirtualHostBucketNotDns
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 306 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "bucket name must be a DNS label sequence for virtual-host URLs",
+    "errors": [
+      {
+        "message": "bucket name must be a DNS label sequence for virtual-host URLs",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== UrlError::InvalidVirtualHostPort
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 250 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "invalid virtual-host base URL port",
+    "errors": [
+      {
+        "message": "invalid virtual-host base URL port",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== ListQueryError::SoftDeletedWithVersions
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 319 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "softDeleted=true cannot be combined with versions=true; omit versions",
+    "errors": [
+      {
+        "message": "softDeleted=true cannot be combined with versions=true; omit versions",
+        "domain": "global",
+        "reason": "invalidArgument"
+      }
+    ]
+  }
+}
+
+== ListQueryError::FoldersAsPrefixesNeedSlash
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 366 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "includeFoldersAsPrefixes requires delimiter=/; use includeFoldersAsPrefixes=true&delimiter=/",
+    "errors": [
+      {
+        "message": "includeFoldersAsPrefixes requires delimiter=/; use includeFoldersAsPrefixes=true&delimiter=/",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== ListQueryError::GlobNeedsSlashDelimiter
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 313 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "When listing with a glob pattern, the only supported delimiter is '/'.",
+    "errors": [
+      {
+        "message": "When listing with a glob pattern, the only supported delimiter is '/'.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== UntestablePermission::Unsupported
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 606 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support bucket API setting permission storage.managedFolders.get; use a supported operation permission such as storage.objects.get; omit this setting (for example, create a bucket with only name).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support bucket API setting permission storage.managedFolders.get; use a supported operation permission such as storage.objects.get; omit this setting (for example, create a bucket with only name).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+
+== UntestablePermission::Unknown
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 307 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "storage.objects.fly is not a valid Google Cloud Storage permission.",
+    "errors": [
+      {
+        "message": "storage.objects.fly is not a valid Google Cloud Storage permission.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== UntestablePermission::ProjectScoped
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 207 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid argument.",
+    "errors": [
+      {
+        "message": "Invalid argument.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== PolicyInputError::InvalidInput
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 221 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Policy must be an object",
+    "errors": [
+      {
+        "message": "Policy must be an object",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== PolicyInputError::UnsupportedInput
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 432 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support bucket API setting role roles/owner; omit this setting (for example, create a bucket with only name).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support bucket API setting role roles/owner; omit this setting (for example, create a bucket with only name).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+
+== AclError::TooManyEntries
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 243 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "An ACL can hold at most 100 entries",
+    "errors": [
+      {
+        "message": "An ACL can hold at most 100 entries",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== AclError::DuplicateEntity
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 277 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Duplicate ACL entity \"user-viewer@example.invalid\"",
+    "errors": [
+      {
+        "message": "Duplicate ACL entity \"user-viewer@example.invalid\"",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== AclError::InvalidEntity
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 247 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Scope text \"everyone\" is not valid.",
+    "errors": [
+      {
+        "message": "Scope text \"everyone\" is not valid.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== AclError::EntityTooLong
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 253 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "An ACL entity can hold at most 272 bytes",
+    "errors": [
+      {
+        "message": "An ACL entity can hold at most 272 bytes",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== AclError::InvalidRole
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 265 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid value for: WRITER is not a valid value",
+    "errors": [
+      {
+        "message": "Invalid value for: WRITER is not a valid value",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== HmacKeyError::NotFound
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 236 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "Access ID not found in project.",
+    "errors": [
+      {
+        "message": "Access ID not found in project.",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+
+== HmacKeyError::PreconditionFailed
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 341 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "HMAC key etag does not match; read the key again and retry with its current etag",
+    "errors": [
+      {
+        "message": "HMAC key etag does not match; read the key again and retry with its current etag",
+        "domain": "global",
+        "reason": "conditionNotMet"
+      }
+    ]
+  }
+}
+
+== HmacKeyError::DeleteActive
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 322 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Cannot delete keys in 'ACTIVE' state; set the key state to INACTIVE first",
+    "errors": [
+      {
+        "message": "Cannot delete keys in 'ACTIVE' state; set the key state to INACTIVE first",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+
+== HmacKeyError::Deleted
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 302 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Cannot modify keys in 'DELETED' state; create a new key instead",
+    "errors": [
+      {
+        "message": "Cannot modify keys in 'DELETED' state; create a new key instead",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+
+== HmacKeyError::LimitReached
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 398 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "A service account can have at most 10 HMAC keys that are not DELETED; deactivate and delete an unused key first",
+    "errors": [
+      {
+        "message": "A service account can have at most 10 HMAC keys that are not DELETED; deactivate and delete an unused key first",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+
+== HmacKeyError::Catalog(NotFound)
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 246 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "The specified bucket does not exist.",
+    "errors": [
+      {
+        "message": "The specified bucket does not exist.",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+
+== NotificationError::InvalidTopic
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 377 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid Google Cloud Pub/Sub topic. It should look like '//pubsub.googleapis.com/projects/*/topics/*.'",
+    "errors": [
+      {
+        "message": "Invalid Google Cloud Pub/Sub topic. It should look like '//pubsub.googleapis.com/projects/*/topics/*.'",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== NotificationError::InvalidPayloadFormat
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 302 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "You must specify a payload format in the 'payload_format' field.",
+    "errors": [
+      {
+        "message": "You must specify a payload format in the 'payload_format' field.",
+        "domain": "global",
+        "reason": "required"
+      }
+    ]
+  }
+}
+
+== NotificationError::InvalidEventType
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 397 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid event type \"OBJECT_READ\"; use OBJECT_FINALIZE, OBJECT_METADATA_UPDATE, OBJECT_DELETE or OBJECT_ARCHIVE",
+    "errors": [
+      {
+        "message": "Invalid event type \"OBJECT_READ\"; use OBJECT_FINALIZE, OBJECT_METADATA_UPDATE, OBJECT_DELETE or OBJECT_ARCHIVE",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== NotificationError::DuplicateEventType
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 299 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Duplicate event type OBJECT_FINALIZE; list each event type once",
+    "errors": [
+      {
+        "message": "Duplicate event type OBJECT_FINALIZE; list each event type once",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== NotificationError::TooManyCustomAttributes
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 305 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "custom_attributes has 11 entries; a notification allows at most 10",
+    "errors": [
+      {
+        "message": "custom_attributes has 11 entries; a notification allows at most 10",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== NotificationError::InvalidCustomAttributeKey
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 351 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid custom attribute key \"goog-key\"; use 1 to 256 bytes that do not start with goog",
+    "errors": [
+      {
+        "message": "Invalid custom attribute key \"goog-key\"; use 1 to 256 bytes that do not start with goog",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== NotificationError::CustomAttributeTooLong
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 261 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Custom attribute \"long\" exceeds 1024 bytes",
+    "errors": [
+      {
+        "message": "Custom attribute \"long\" exceeds 1024 bytes",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== NotificationError::ObjectNamePrefixTooLong
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 247 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "object_name_prefix exceeds 1024 bytes",
+    "errors": [
+      {
+        "message": "object_name_prefix exceeds 1024 bytes",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== NotificationError::BucketLimit
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 341 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Bucket already has 100 notification configurations; delete one before adding another",
+    "errors": [
+      {
+        "message": "Bucket already has 100 notification configurations; delete one before adding another",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== NotificationError::EventTypeLimit
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 375 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Bucket already has 10 notification configurations for OBJECT_DELETE; delete one or narrow event_types",
+    "errors": [
+      {
+        "message": "Bucket already has 10 notification configurations for OBJECT_DELETE; delete one or narrow event_types",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== EndpointError::Url(InvalidBaseUrl)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 213 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "invalid base URL",
+    "errors": [
+      {
+        "message": "invalid base URL",
+        "domain": "global",
+        "reason": "invalidArgument"
+      }
+    ]
+  }
+}
+
+== EndpointError::PublicHost
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 385 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "publicHost must be a host authority, for example localhost:4443; omit the scheme, path and credentials",
+    "errors": [
+      {
+        "message": "publicHost must be a host authority, for example localhost:4443; omit the scheme, path and credentials",
+        "domain": "global",
+        "reason": "invalidArgument"
+      }
+    ]
+  }
+}
+
+== EndpointError::DomainLimit
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 345 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "publicHost and xml_virtual_host_domains must contain at most 32 distinct DNS names",
+    "errors": [
+      {
+        "message": "publicHost and xml_virtual_host_domains must contain at most 32 distinct DNS names",
+        "domain": "global",
+        "reason": "invalidArgument"
+      }
+    ]
+  }
+}
+
+== EndpointError::ApiVirtualHost
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 419 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "externalUrl host selects an XML virtual bucket; use a host outside the configured XML domains or the base domain itself",
+    "errors": [
+      {
+        "message": "externalUrl host selects an XML virtual bucket; use a host outside the configured XML domains or the base domain itself",
+        "domain": "global",
+        "reason": "invalidArgument"
+      }
+    ]
+  }
+}
+
+== EndpointError::Poisoned
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 308 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "runtime endpoint state is unavailable; restart the local emulator",
+    "errors": [
+      {
+        "message": "runtime endpoint state is unavailable; restart the local emulator",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+
+== UnsatisfiableRange::UnsatisfiableRange
+-- response
+416 Range Not Satisfiable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 272 bytes, no final newline
+{
+  "error": {
+    "code": 416,
+    "message": "The requested Range cannot be satisfied",
+    "errors": [
+      {
+        "message": "The requested Range cannot be satisfied",
+        "domain": "global",
+        "reason": "requestedRangeNotSatisfiable"
+      }
+    ]
+  }
+}
+-- named object: same as response
+-- media download
+416 Range Not Satisfiable
+content-type: text/html; charset=UTF-8
+cache-control: private, max-age=0
+body: 29 bytes, no final newline
+Request range not satisfiable
+-- anonymous caller: same as response
+
+== parse_error::missing colon
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 305 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Parse Error: Expected : between key:value pair.\n{not json\n     ^",
+    "errors": [
+      {
+        "message": "Parse Error: Expected : between key:value pair.\n{not json\n     ^",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== parse_error::missing colon at the end
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 345 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Parse Error: Unexpected end of string. Expected : between key:value pair.\noops\n    ^",
+    "errors": [
+      {
+        "message": "Parse Error: Unexpected end of string. Expected : between key:value pair.\noops\n    ^",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== parse_error::missing key
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 317 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Parse Error: Unexpected end of string. Expected an object key or }.\n\n^",
+    "errors": [
+      {
+        "message": "Parse Error: Unexpected end of string. Expected an object key or }.\n\n^",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== parse_error::truncated value
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 295 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Parse Error: Unexpected end of string. Expected a value.\n\n^",
+    "errors": [
+      {
+        "message": "Parse Error: Unexpected end of string. Expected a value.\n\n^",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== parse_error::other syntax error
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 345 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Parse Error: Unexpected end of string. Expected : between key:value pair.\n[1,]\n    ^",
+    "errors": [
+      {
+        "message": "Parse Error: Unexpected end of string. Expected : between key:value pair.\n[1,]\n    ^",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== ApiError::new(401 unauthorized)
+-- response
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 218 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Credentials rejected",
+    "errors": [
+      {
+        "message": "Credentials rejected",
+        "domain": "global",
+        "reason": "unauthorized"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+401 Unauthorized
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 144 bytes
+{"error":{"code":401,"message":"Credentials rejected","errors":[{"message":"Credentials rejected","domain":"global","reason":"unauthorized"}]}}
+
+== ApiError::new(404 notFound)
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 218 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "Notification not found",
+    "errors": [
+      {
+        "message": "Notification not found",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+404 Not Found
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 144 bytes
+{"error":{"code":404,"message":"Notification not found","errors":[{"message":"Notification not found","domain":"global","reason":"notFound"}]}}
+
+== ApiError::new(408 requestTimeout)
+-- response
+408 Request Timeout
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 216 bytes, no final newline
+{
+  "error": {
+    "code": 408,
+    "message": "The upload stalled",
+    "errors": [
+      {
+        "message": "The upload stalled",
+        "domain": "global",
+        "reason": "requestTimeout"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+408 Request Timeout
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 142 bytes
+{"error":{"code":408,"message":"The upload stalled","errors":[{"message":"The upload stalled","domain":"global","reason":"requestTimeout"}]}}
+
+== ApiError::new(410 gone)
+-- response
+410 Gone
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 238 bytes, no final newline
+{
+  "error": {
+    "code": 410,
+    "message": "Upload session is no longer active",
+    "errors": [
+      {
+        "message": "Upload session is no longer active",
+        "domain": "global",
+        "reason": "gone"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+410 Gone
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 164 bytes
+{"error":{"code":410,"message":"Upload session is no longer active","errors":[{"message":"Upload session is no longer active","domain":"global","reason":"gone"}]}}
+
+== ApiError::new(413 uploadTooLarge)
+-- response
+413 Payload Too Large
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 220 bytes, no final newline
+{
+  "error": {
+    "code": 413,
+    "message": "Upload exceeds 1 MiB",
+    "errors": [
+      {
+        "message": "Upload exceeds 1 MiB",
+        "domain": "global",
+        "reason": "uploadTooLarge"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+413 Payload Too Large
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 146 bytes
+{"error":{"code":413,"message":"Upload exceeds 1 MiB","errors":[{"message":"Upload exceeds 1 MiB","domain":"global","reason":"uploadTooLarge"}]}}
+
+== ApiError::new(416 requestedRangeNotSatisfiable)
+-- response
+416 Range Not Satisfiable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 272 bytes, no final newline
+{
+  "error": {
+    "code": 416,
+    "message": "The requested Range cannot be satisfied",
+    "errors": [
+      {
+        "message": "The requested Range cannot be satisfied",
+        "domain": "global",
+        "reason": "requestedRangeNotSatisfiable"
+      }
+    ]
+  }
+}
+-- media download
+416 Range Not Satisfiable
+content-type: text/html; charset=UTF-8
+cache-control: private, max-age=0
+body: 29 bytes, no final newline
+Request range not satisfiable
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+416 Range Not Satisfiable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 198 bytes
+{"error":{"code":416,"message":"The requested Range cannot be satisfied","errors":[{"message":"The requested Range cannot be satisfied","domain":"global","reason":"requestedRangeNotSatisfiable"}]}}
+
+== ApiError::new(429 rateLimitExceeded)
+-- response
+429 Too Many Requests
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 217 bytes, no final newline
+{
+  "error": {
+    "code": 429,
+    "message": "Too many requests",
+    "errors": [
+      {
+        "message": "Too many requests",
+        "domain": "global",
+        "reason": "rateLimitExceeded"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+429 Too Many Requests
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 143 bytes
+{"error":{"code":429,"message":"Too many requests","errors":[{"message":"Too many requests","domain":"global","reason":"rateLimitExceeded"}]}}
+
+== ApiError::new(500 internalError)
+-- response
+500 Internal Server Error
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 207 bytes, no final newline
+{
+  "error": {
+    "code": 500,
+    "message": "Internal error",
+    "errors": [
+      {
+        "message": "Internal error",
+        "domain": "global",
+        "reason": "internalError"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+500 Internal Server Error
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 133 bytes
+{"error":{"code":500,"message":"Internal error","errors":[{"message":"Internal error","domain":"global","reason":"internalError"}]}}
+
+== ApiError::new(501 notImplemented)
+-- response
+501 Not Implemented
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 230 bytes, no final newline
+{
+  "error": {
+    "code": 501,
+    "message": "Unsupported object option",
+    "errors": [
+      {
+        "message": "Unsupported object option",
+        "domain": "global",
+        "reason": "notImplemented"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+501 Not Implemented
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 156 bytes
+{"error":{"code":501,"message":"Unsupported object option","errors":[{"message":"Unsupported object option","domain":"global","reason":"notImplemented"}]}}
+
+== ApiError::new(504 deadlineExceeded)
+-- response
+504 Gateway Timeout
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 216 bytes, no final newline
+{
+  "error": {
+    "code": 504,
+    "message": "Deadline exceeded",
+    "errors": [
+      {
+        "message": "Deadline exceeded",
+        "domain": "global",
+        "reason": "deadlineExceeded"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+504 Gateway Timeout
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 142 bytes
+{"error":{"code":504,"message":"Deadline exceeded","errors":[{"message":"Deadline exceeded","domain":"global","reason":"deadlineExceeded"}]}}
+
+== ApiError::backend(CatalogClosed)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 370 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
+    "errors": [
+      {
+        "message": "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 296 bytes
+{"error":{"code":503,"message":"Object storage is unavailable: catalog is closed; wait for the server to restart before retrying","errors":[{"message":"Object storage is unavailable: catalog is closed; wait for the server to restart before retrying","domain":"global","reason":"backendError"}]}}
+
+== ApiError::catalog_backend(CatalogClosed)
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 370 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying",
+    "errors": [
+      {
+        "message": "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 296 bytes
+{"error":{"code":503,"message":"Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying","errors":[{"message":"Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying","domain":"global","reason":"backendError"}]}}
+
+== ApiError::metadata(ClassLocation)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 347 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.",
+    "errors": [
+      {
+        "message": "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes
+{"error":{"code":400,"message":"Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.","errors":[{"message":"Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.","domain":"global","reason":"invalid"}]}}
+
+== ApiError::metadata(StorageClassRequiresZone)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 482 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 408 bytes
+{"error":{"code":400,"message":"gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl).","errors":[{"message":"gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl).","domain":"global","reason":"badRequest"}]}}
+
+== ApiError::metadata(LongLanguage)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 249 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "contentLanguage exceeds 100 characters",
+    "errors": [
+      {
+        "message": "contentLanguage exceeds 100 characters",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 175 bytes
+{"error":{"code":400,"message":"contentLanguage exceeds 100 characters","errors":[{"message":"contentLanguage exceeds 100 characters","domain":"global","reason":"invalid"}]}}
+
+== ApiError::missing_bucket()
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 246 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "The specified bucket does not exist.",
+    "errors": [
+      {
+        "message": "The specified bucket does not exist.",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+404 Not Found
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 118 bytes
+{"error":{"code":404,"message":"Not Found","errors":[{"message":"Not Found","domain":"global","reason":"notFound"}]}}
+
+== ApiError::missing_object()
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 206 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "Object not found",
+    "errors": [
+      {
+        "message": "Object not found",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- media download
+404 Not Found
+content-type: text/html; charset=UTF-8
+cache-control: private, max-age=0
+body: 16 bytes, no final newline
+Object not found
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+404 Not Found
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 132 bytes
+{"error":{"code":404,"message":"Object not found","errors":[{"message":"Object not found","domain":"global","reason":"notFound"}]}}
+
+== ApiError::named_missing_object()
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 232 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "No such object: bucket/object",
+    "errors": [
+      {
+        "message": "No such object: bucket/object",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- media download
+404 Not Found
+content-type: text/html; charset=UTF-8
+cache-control: private, max-age=0
+body: 29 bytes, no final newline
+No such object: bucket/object
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+404 Not Found
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 158 bytes
+{"error":{"code":404,"message":"No such object: bucket/object","errors":[{"message":"No such object: bucket/object","domain":"global","reason":"notFound"}]}}
+
+== ApiError::precondition_not_held()
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 305 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "At least one of the pre-conditions you specified did not hold.",
+    "errors": [
+      {
+        "message": "At least one of the pre-conditions you specified did not hold.",
+        "domain": "global",
+        "reason": "conditionNotMet"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+412 Precondition Failed
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 231 bytes
+{"error":{"code":412,"message":"At least one of the pre-conditions you specified did not hold.","errors":[{"message":"At least one of the pre-conditions you specified did not hold.","domain":"global","reason":"conditionNotMet"}]}}
+
+== ApiError::not_modified()
+-- response
+304 Not Modified
+body: 0 bytes
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route: same as response
+
+== ApiError::conflicting_preconditions()
+-- response
+409 Conflict
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 364 bytes, no final newline
+{
+  "error": {
+    "code": 409,
+    "message": "Found conflicting object preconditions. Mutually exclusive fields cannot be set simultaneously.",
+    "errors": [
+      {
+        "message": "Found conflicting object preconditions. Mutually exclusive fields cannot be set simultaneously.",
+        "domain": "global",
+        "reason": "conflict"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+409 Conflict
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 290 bytes
+{"error":{"code":409,"message":"Found conflicting object preconditions. Mutually exclusive fields cannot be set simultaneously.","errors":[{"message":"Found conflicting object preconditions. Mutually exclusive fields cannot be set simultaneously.","domain":"global","reason":"conflict"}]}}
+
+== ApiError::write_not_modified()
+-- response
+304 Not Modified
+body: 0 bytes
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route: same as response
+
+== ApiError::malformed_json()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 305 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Parse Error: Expected : between key:value pair.\n{not json\n     ^",
+    "errors": [
+      {
+        "message": "Parse Error: Expected : between key:value pair.\n{not json\n     ^",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 231 bytes
+{"error":{"code":400,"message":"Parse Error: Expected : between key:value pair.\n{not json\n     ^","errors":[{"message":"Parse Error: Expected : between key:value pair.\n{not json\n     ^","domain":"global","reason":"invalid"}]}}
+
+== ApiError::legacy_parse_error()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 280 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "invalid character 'x' looking for beginning of value",
+    "errors": [
+      {
+        "message": "invalid character 'x' looking for beginning of value",
+        "domain": "global",
+        "reason": "parseError"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 203 bytes
+{"error":{"code":400,"message":"invalid character 'x' looking for beginning of value","errors":[{"message":"invalid character 'x' looking for beginning of value","domain":"global","reason":"invalid"}]}}
+
+== ApiError::unsupported_message()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 274 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support this setting; omit it.",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support this setting; omit it.",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 200 bytes
+{"error":{"code":400,"message":"gcs-mimic does not support this setting; omit it.","errors":[{"message":"gcs-mimic does not support this setting; omit it.","domain":"global","reason":"badRequest"}]}}
+
+== ApiError::field_mask_syntax()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 309 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid field selection items(",
+    "errors": [
+      {
+        "message": "Invalid field selection items(",
+        "domain": "global",
+        "reason": "invalidParameter",
+        "locationType": "parameter",
+        "location": "fields"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 215 bytes
+{"error":{"code":400,"message":"Invalid field selection items(","errors":[{"message":"Invalid field selection items(","domain":"global","reason":"invalidParameter","locationType":"parameter","location":"fields"}]}}
+
+== ApiError::invalid_parameter()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 214 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid argument",
+    "errors": [
+      {
+        "message": "Invalid argument",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 140 bytes
+{"error":{"code":400,"message":"Invalid argument","errors":[{"message":"Invalid argument","domain":"global","reason":"invalidParameter"}]}}
+
+== ApiError::invalid_parameter().at_parameter(listed)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 301 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid long value: 'x'.",
+    "errors": [
+      {
+        "message": "Invalid long value: 'x'.",
+        "domain": "global",
+        "reason": "invalidParameter",
+        "locationType": "parameter",
+        "location": "generation"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 207 bytes
+{"error":{"code":400,"message":"Invalid long value: 'x'.","errors":[{"message":"Invalid long value: 'x'.","domain":"global","reason":"invalidParameter","locationType":"parameter","location":"generation"}]}}
+
+== ApiError::invalid_parameter().at_parameter(unlisted)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 230 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid long value: 'x'.",
+    "errors": [
+      {
+        "message": "Invalid long value: 'x'.",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 156 bytes
+{"error":{"code":400,"message":"Invalid long value: 'x'.","errors":[{"message":"Invalid long value: 'x'.","domain":"global","reason":"invalidParameter"}]}}
+
+== ApiError::invalid().at(POLICY_ETAG_FIELD)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 300 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid value for ByteString: CAF",
+    "errors": [
+      {
+        "message": "Invalid value for ByteString: CAF",
+        "domain": "global",
+        "reason": "invalid",
+        "locationType": "other",
+        "location": "etag"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 206 bytes
+{"error":{"code":400,"message":"Invalid value for ByteString: CAF","errors":[{"message":"Invalid value for ByteString: CAF","domain":"global","reason":"invalid","locationType":"other","location":"etag"}]}}
+
+== ApiError::precondition_not_held().at_if_match()
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 371 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "At least one of the pre-conditions you specified did not hold.",
+    "errors": [
+      {
+        "message": "At least one of the pre-conditions you specified did not hold.",
+        "domain": "global",
+        "reason": "conditionNotMet",
+        "locationType": "header",
+        "location": "If-Match"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+412 Precondition Failed
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 277 bytes
+{"error":{"code":412,"message":"At least one of the pre-conditions you specified did not hold.","errors":[{"message":"At least one of the pre-conditions you specified did not hold.","domain":"global","reason":"conditionNotMet","locationType":"header","location":"If-Match"}]}}
+
+== ApiError::new(412).at_if_match()
+-- response
+412 Precondition Failed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 323 bytes, no final newline
+{
+  "error": {
+    "code": 412,
+    "message": "bucket must be empty prior to deletion",
+    "errors": [
+      {
+        "message": "bucket must be empty prior to deletion",
+        "domain": "global",
+        "reason": "conditionNotMet",
+        "locationType": "header",
+        "location": "If-Match"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+412 Precondition Failed
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 229 bytes
+{"error":{"code":412,"message":"bucket must be empty prior to deletion","errors":[{"message":"bucket must be empty prior to deletion","domain":"global","reason":"conditionNotMet","locationType":"header","location":"If-Match"}]}}
+
+== ApiError::new(404).with_plain(NOT_FOUND_HTML)
+-- response
+404 Not Found
+content-type: text/html; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 9 bytes, no final newline
+Not Found
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+404 Not Found
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 10 bytes
+Not Found
+
+== ApiError::new(404).with_plain(NOT_FOUND_TEXT)
+-- response
+404 Not Found
+content-type: text/plain; charset=utf-8
+body: 9 bytes, no final newline
+Not Found
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+404 Not Found
+content-type: application/json
+body: 10 bytes
+Not Found
+
+== ApiError::invalid_parameter().with_plain(BAD_CONTENT_TYPE_TEXT)
+-- response
+400 Bad Request
+content-type: text/plain; charset=utf-8
+body: 40 bytes, no final newline
+Bad content type.  Please use multipart.
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+body: 41 bytes
+Bad content type.  Please use multipart.
+
+== ApiError::invalid_parameter().with_plain(CONTENT_RANGE_TEXT)
+-- response
+400 Bad Request
+content-type: text/plain; charset=utf-8
+body: 37 bytes, no final newline
+Failed to parse Content-Range header.
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+body: 38 bytes
+Failed to parse Content-Range header.
+
+== ApiError::invalid_parameter().with_plain(MISSING_END_BOUNDARY_TEXT)
+-- response
+400 Bad Request
+content-type: text/plain; charset=utf-8
+body: 39 bytes, no final newline
+Missing end boundary in multipart body.
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+body: 40 bytes
+Missing end boundary in multipart body.
+
+== ApiError::invalid_parameter().with_plain(BAD_REQUEST_TEXT)
+-- response
+400 Bad Request
+content-type: text/plain; charset=utf-8
+body: 11 bytes, no final newline
+Bad Request
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+body: 12 bytes
+Bad Request
+
+== ApiError::undecodable_body()
+-- response
+400 Bad Request
+content-type: text/plain; charset=utf-8
+body: 34 bytes, no final newline
+Could not decompress request body.
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+body: 35 bytes
+Could not decompress request body.
+
+== ApiError::session_protocol()
+-- response
+400 Bad Request
+content-type: text/plain; charset=utf-8
+body: 53 bytes, no final newline
+Upload offset 7 does not match the persisted offset 5
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+body: 54 bytes
+Upload offset 7 does not match the persisted offset 5
+
+== ApiError::content_disagrees()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 506 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Value 'other' in content does not agree with value 'bucket'. This can happen when a value set through a parameter is inconsistent with a value set in the request.",
+    "errors": [
+      {
+        "message": "Value 'other' in content does not agree with value 'bucket'. This can happen when a value set through a parameter is inconsistent with a value set in the request.",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 432 bytes
+{"error":{"code":400,"message":"Value 'other' in content does not agree with value 'bucket'. This can happen when a value set through a parameter is inconsistent with a value set in the request.","errors":[{"message":"Value 'other' in content does not agree with value 'bucket'. This can happen when a value set through a parameter is inconsistent with a value set in the request.","domain":"global","reason":"invalidParameter"}]}}
+
+== ApiError::required()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 190 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Required",
+    "errors": [
+      {
+        "message": "Required",
+        "domain": "global",
+        "reason": "required"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 116 bytes
+{"error":{"code":400,"message":"Required","errors":[{"message":"Required","domain":"global","reason":"required"}]}}
+
+== ApiError::method_not_allowed(with Allow)
+-- response
+405 Method Not Allowed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+allow: GET, PATCH, PUT, DELETE
+body: 288 bytes, no final newline
+{
+  "error": {
+    "code": 405,
+    "message": "HTTP method is not supported for this object endpoint",
+    "errors": [
+      {
+        "message": "HTTP method is not supported for this object endpoint",
+        "domain": "global",
+        "reason": "methodNotAllowed"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+405 Method Not Allowed
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+allow: GET, PATCH, PUT, DELETE
+body: 214 bytes
+{"error":{"code":405,"message":"HTTP method is not supported for this object endpoint","errors":[{"message":"HTTP method is not supported for this object endpoint","domain":"global","reason":"methodNotAllowed"}]}}
+
+== ApiError::method_not_allowed(without Allow)
+-- response
+405 Method Not Allowed
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 252 bytes, no final newline
+{
+  "error": {
+    "code": 405,
+    "message": "Use POST to lock a retention policy",
+    "errors": [
+      {
+        "message": "Use POST to lock a retention policy",
+        "domain": "global",
+        "reason": "methodNotAllowed"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+405 Method Not Allowed
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 178 bytes
+{"error":{"code":405,"message":"Use POST to lock a retention policy","errors":[{"message":"Use POST to lock a retention policy","domain":"global","reason":"methodNotAllowed"}]}}
+
+== ApiError::service_unavailable()
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 296 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Runtime endpoint state is unavailable; restart the emulator",
+    "errors": [
+      {
+        "message": "Runtime endpoint state is unavailable; restart the emulator",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 222 bytes
+{"error":{"code":503,"message":"Runtime endpoint state is unavailable; restart the emulator","errors":[{"message":"Runtime endpoint state is unavailable; restart the emulator","domain":"global","reason":"backendError"}]}}
+
+== ApiError::invalid_stored_header()
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 252 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Invalid stored object response header",
+    "errors": [
+      {
+        "message": "Invalid stored object response header",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+503 Service Unavailable
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 178 bytes
+{"error":{"code":503,"message":"Invalid stored object response header","errors":[{"message":"Invalid stored object response header","domain":"global","reason":"backendError"}]}}
+
+== ApiError::invalid_long()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 234 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid long value: 'abc'.",
+    "errors": [
+      {
+        "message": "Invalid long value: 'abc'.",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 160 bytes
+{"error":{"code":400,"message":"Invalid long value: 'abc'.","errors":[{"message":"Invalid long value: 'abc'.","domain":"global","reason":"invalidParameter"}]}}
+
+== ApiError::invalid_unsigned()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 256 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid unsigned integer value: '-1'.",
+    "errors": [
+      {
+        "message": "Invalid unsigned integer value: '-1'.",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 182 bytes
+{"error":{"code":400,"message":"Invalid unsigned integer value: '-1'.","errors":[{"message":"Invalid unsigned integer value: '-1'.","domain":"global","reason":"invalidParameter"}]}}
+
+== ApiError::invalid().html_typed()
+-- response
+400 Bad Request
+content-type: text/html; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 294 bytes
+{
+  "error": {
+    "code": 400,
+    "message": "Value \u003cb\u003ea\u0026b\u003c/b\u003e 'x' is \"invalid\"",
+    "errors": [
+      {
+        "message": "Value \u003cb\u003ea\u0026b\u003c/b\u003e 'x' is \"invalid\"",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 219 bytes
+{"error":{"code":400,"message":"Value \u003cb\u003ea\u0026b\u003c/b\u003e 'x' is \"invalid\"","errors":[{"message":"Value \u003cb\u003ea\u0026b\u003c/b\u003e 'x' is \"invalid\"","domain":"global","reason":"invalid"}]}}
+
+== ApiError::missing_object_name()
+-- response
+400 Bad Request
+content-type: text/html; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 239 bytes
+{
+  "error": {
+    "code": 400,
+    "message": "You must specify an object name.",
+    "errors": [
+      {
+        "message": "You must specify an object name.",
+        "domain": "global",
+        "reason": "required"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 164 bytes
+{"error":{"code":400,"message":"You must specify an object name.","errors":[{"message":"You must specify an object name.","domain":"global","reason":"required"}]}}
+
+== ApiError::for_upload(class location)
+-- response
+400 Bad Request
+content-type: text/html; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 348 bytes
+{
+  "error": {
+    "code": 400,
+    "message": "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.",
+    "errors": [
+      {
+        "message": "Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes
+{"error":{"code":400,"message":"Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.","errors":[{"message":"Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.","domain":"global","reason":"invalid"}]}}
+
+== ApiError::for_upload(other)
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 215 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid storage class",
+    "errors": [
+      {
+        "message": "Invalid storage class",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 141 bytes
+{"error":{"code":400,"message":"Invalid storage class","errors":[{"message":"Invalid storage class","domain":"global","reason":"invalid"}]}}
+
+== ApiError::invalid()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 255 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid value for: x is not a valid value",
+    "errors": [
+      {
+        "message": "Invalid value for: x is not a valid value",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 181 bytes
+{"error":{"code":400,"message":"Invalid value for: x is not a valid value","errors":[{"message":"Invalid value for: x is not a valid value","domain":"global","reason":"invalid"}]}}
+
+== ApiError::invalid_argument()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 243 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "sourceObjects must not be empty",
+    "errors": [
+      {
+        "message": "sourceObjects must not be empty",
+        "domain": "global",
+        "reason": "invalidArgument"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 161 bytes
+{"error":{"code":400,"message":"sourceObjects must not be empty","errors":[{"message":"sourceObjects must not be empty","domain":"global","reason":"invalid"}]}}
+
+== ApiError::forbidden()
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 193 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Forbidden",
+    "errors": [
+      {
+        "message": "Forbidden",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- fake-gcs-server bucket route
+403 Forbidden
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 119 bytes
+{"error":{"code":403,"message":"Forbidden","errors":[{"message":"Forbidden","domain":"global","reason":"forbidden"}]}}
+
+== ApiError::for_anonymous_caller(anonymous denial)
+-- response
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 581 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+401 Unauthorized
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 487 bytes
+{"error":{"code":401,"message":"Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).","errors":[{"message":"Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).","domain":"global","reason":"required","locationType":"header","location":"Authorization"}]}}
+
+== ApiError::for_anonymous_caller(principal denial)
+-- response
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+401 Unauthorized
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 179 bytes
+{"error":{"code":401,"message":"Login Required","errors":[{"message":"Login Required","domain":"global","reason":"required","locationType":"header","location":"Authorization"}]}}
+
+== ApiError::for_anonymous_caller(forbidden)
+-- response
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+401 Unauthorized
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 179 bytes
+{"error":{"code":401,"message":"Login Required","errors":[{"message":"Login Required","domain":"global","reason":"required","locationType":"header","location":"Authorization"}]}}
+
+== ApiError::for_anonymous_caller(not found)
+-- response
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+401 Unauthorized
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 179 bytes
+{"error":{"code":401,"message":"Login Required","errors":[{"message":"Login Required","domain":"global","reason":"required","locationType":"header","location":"Authorization"}]}}
+
+== ApiError::unsupported()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 406 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support bucket API setting rpo; omit this setting (for example, create a bucket with only name).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support bucket API setting rpo; omit this setting (for example, create a bucket with only name).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 332 bytes
+{"error":{"code":400,"message":"gcs-mimic does not support bucket API setting rpo; omit this setting (for example, create a bucket with only name).","errors":[{"message":"gcs-mimic does not support bucket API setting rpo; omit this setting (for example, create a bucket with only name).","domain":"global","reason":"badRequest"}]}}
+
+== ApiError::unsupported_object()
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 414 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+400 Bad Request
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 340 bytes
+{"error":{"code":400,"message":"gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl).","errors":[{"message":"gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl).","domain":"global","reason":"badRequest"}]}}
+
+== ApiError::naming_object(missing object)
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 232 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "No such object: bucket/object",
+    "errors": [
+      {
+        "message": "No such object: bucket/object",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- media download
+404 Not Found
+content-type: text/html; charset=UTF-8
+cache-control: private, max-age=0
+body: 29 bytes, no final newline
+No such object: bucket/object
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+404 Not Found
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 158 bytes
+{"error":{"code":404,"message":"No such object: bucket/object","errors":[{"message":"No such object: bucket/object","domain":"global","reason":"notFound"}]}}
+
+== ApiError::naming_object(markup in the name)
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 260 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "No such object: bucket/<a href=\"x\">&'</a>",
+    "errors": [
+      {
+        "message": "No such object: bucket/<a href=\"x\">&'</a>",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- media download
+404 Not Found
+content-type: text/html; charset=UTF-8
+cache-control: private, max-age=0
+body: 71 bytes, no final newline
+No such object: bucket/&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+404 Not Found
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 186 bytes
+{"error":{"code":404,"message":"No such object: bucket/<a href=\"x\">&'</a>","errors":[{"message":"No such object: bucket/<a href=\"x\">&'</a>","domain":"global","reason":"notFound"}]}}
+
+== ApiError::naming_object(already named)
+-- response
+404 Not Found
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 228 bytes, no final newline
+{
+  "error": {
+    "code": 404,
+    "message": "No such object: bucket/part",
+    "errors": [
+      {
+        "message": "No such object: bucket/part",
+        "domain": "global",
+        "reason": "notFound"
+      }
+    ]
+  }
+}
+-- media download
+404 Not Found
+content-type: text/html; charset=UTF-8
+cache-control: private, max-age=0
+body: 27 bytes, no final newline
+No such object: bucket/part
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+404 Not Found
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 154 bytes
+{"error":{"code":404,"message":"No such object: bucket/part","errors":[{"message":"No such object: bucket/part","domain":"global","reason":"notFound"}]}}
+
+== ApiError::naming_object(other error)
+-- response
+403 Forbidden
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 193 bytes, no final newline
+{
+  "error": {
+    "code": 403,
+    "message": "Forbidden",
+    "errors": [
+      {
+        "message": "Forbidden",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller
+401 Unauthorized
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 273 bytes, no final newline
+{
+  "error": {
+    "code": 401,
+    "message": "Login Required",
+    "errors": [
+      {
+        "message": "Login Required",
+        "domain": "global",
+        "reason": "required",
+        "locationType": "header",
+        "location": "Authorization"
+      }
+    ]
+  }
+}
+-- fake-gcs-server bucket route
+403 Forbidden
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 119 bytes
+{"error":{"code":403,"message":"Forbidden","errors":[{"message":"Forbidden","domain":"global","reason":"forbidden"}]}}
+
+== ApiError::cancelled_upload()
+-- response
+499 <unknown status code>
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 223 bytes, no final newline
+{
+  "error": {
+    "code": 499,
+    "message": "clientClosedRequest",
+    "errors": [
+      {
+        "message": "clientClosedRequest",
+        "domain": "global",
+        "reason": "clientClosedRequest"
+      }
+    ]
+  }
+}
+-- media download: same as response
+-- anonymous caller: same as response
+-- fake-gcs-server bucket route
+499 <unknown status code>
+content-type: application/json
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 149 bytes
+{"error":{"code":499,"message":"clientClosedRequest","errors":[{"message":"clientClosedRequest","domain":"global","reason":"clientClosedRequest"}]}}

@@ -288,3 +288,6 @@ impl From<QueryError> for Error {
         Self::invalid(error.to_string())
     }
 }
+
+#[cfg(test)]
+mod golden_tests;

@@ -3,3 +3,6 @@ docs/en/evidence/local-tls-pre-push.txt whitespace=-blank-at-eol
 # The binary embeds these keys and certificates and prints some of them, such as the test
 # signer's credentials file, so a CRLF checkout must not change the bytes it ships.
 *.pem text eol=lf
+# The error goldens are compared with the responses byte for byte, so a CRLF checkout must not
+# change them.
+src/**/golden_tests/*.txt text eol=lf
