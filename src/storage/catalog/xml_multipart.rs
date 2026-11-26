@@ -256,7 +256,8 @@ impl Catalog {
         crate::object::name::validate(name)
             .map_err(|_| ObjectError::InvalidDerivedArgument("Invalid object name".into()))?;
         options.metadata.validate()?;
-        crate::object::validate_fixed_metadata("contentType", &options.content_type)?;
+        crate::object::validate_fixed_metadata("contentType", &options.content_type)
+            .map_err(ObjectError::from)?;
         options.access = BucketAccess::Permissive;
         let target = Target {
             bucket: bucket.into(),

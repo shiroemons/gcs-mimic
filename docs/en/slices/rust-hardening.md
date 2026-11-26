@@ -460,8 +460,8 @@ A further split waits until after `1.0.0`:
   `import/filesystem.rs`, `seed/error.rs`, `auth`'s registry and
   `notification::event` use the typed validators and keep their texts.
   The configuration draft validates `seed_project` with `validate_project_id` and
-  `InvalidProjectId::MESSAGE`. The `ApiError` inside JSON slice also replaces
-  the extraction from `json::validate_fixed_metadata` in `import/reader.rs`.
+  `InvalidProjectId::MESSAGE`. Import reports render the fixed metadata
+  validator's error directly and use the model's bucket name validator.
 - **Cause vocabulary.** `BackendCause`, `IoCause`, `BackendFailure`,
   `MemoryExhausted`, `Source`, `Link` and a `Layer` trait move to the
   foundation module `cause`.

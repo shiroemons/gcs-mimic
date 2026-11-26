@@ -819,13 +819,13 @@ fn check_fixed_metadata(
         ),
     ] {
         if !value.is_empty()
-            && let Err(error) = crate::json::validate_fixed_metadata(key, value)
+            && let Err(error) = crate::object::validate_fixed_metadata(key, value)
         {
             fixed_metadata = Err(reject(
                 report,
                 relative,
                 field,
-                &error.message,
+                &error.to_string(),
                 value.clone(),
             )?);
         }
@@ -1038,7 +1038,7 @@ fn classify_buckets<'a>(
     for path in root_entries {
         if let Some(raw) = path.file_name().and_then(|n| n.to_str()) {
             let state = match codec::path_unescape(raw) {
-                Ok(name) if crate::json::validate_bucket_name(&name).is_ok() => {
+                Ok(name) if crate::bucket::name::validate(&name).is_ok() => {
                     *names.entry(name).or_default() += 1;
                     BucketState::Blocked
                 }

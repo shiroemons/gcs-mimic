@@ -2,6 +2,7 @@ use super::ApiError;
 use crate::config::ApiBaseSource;
 use crate::object::{
     MapPatch, ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
+    validate_fixed_metadata,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -386,10 +387,6 @@ fn string(body: &Map<String, Value>, key: &str) -> Result<Patch<String>, ApiErro
         .ok_or_else(|| ApiError::invalid_argument(format!("{key} must be a string or null")))?;
     validate_fixed_metadata(key, value)?;
     Ok(Patch::Set(value.to_owned()))
-}
-
-pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), ApiError> {
-    crate::object::validate_fixed_metadata(key, value).map_err(ApiError::from)
 }
 
 /// Applies the objects.insert `contentEncoding` query parameter, which Discovery defines as

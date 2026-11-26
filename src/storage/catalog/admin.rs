@@ -695,7 +695,8 @@ impl Admin {
                 "archived identities require imported file-batch publication".into(),
             ));
         }
-        crate::object::validate_fixed_metadata("contentType", &request.content_type)?;
+        crate::object::validate_fixed_metadata("contentType", &request.content_type)
+            .map_err(ObjectError::from)?;
         request.metadata.validate()?;
         let deadline = self.catalog.admin_deadline();
         let activity = self.catalog.admin_activity(Work::New, deadline).await?;

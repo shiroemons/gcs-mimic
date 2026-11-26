@@ -20,11 +20,6 @@ use std::{collections::BTreeMap, time::SystemTime};
 /// The project number the fake-gcs-server profile reports for every bucket.
 const LEGACY_PROJECT_NUMBER: &str = "0";
 
-pub(crate) fn validate_bucket_name(name: &str) -> Result<(), ApiError> {
-    crate::bucket::name::validate(name)
-        .map_err(|_| ApiError::invalid_parameter("Invalid bucket name"))
-}
-
 /// Parse the native bucket metadata subset.
 pub fn parse_insert(
     bytes: &[u8],

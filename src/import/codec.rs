@@ -545,7 +545,7 @@ mod tests {
         }
         #[test]
         fn valid_bucket_names_round_trip(name in "[a-z][a-z0-9-]{1,60}[a-z0-9]") {
-            prop_assert!(crate::json::validate_bucket_name(&name).is_ok());
+            prop_assert!(crate::bucket::name::validate(&name).is_ok());
             prop_assert_eq!(path_unescape(&path_escape(&name)).unwrap(), name);
         }
         #[test]

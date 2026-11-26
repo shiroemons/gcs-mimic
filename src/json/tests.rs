@@ -1,5 +1,6 @@
 use super::*;
 use crate::bounded_body::read_body;
+use crate::bucket::name::validate as validate_bucket_name;
 use crate::bucket::{BucketRecord, CatalogError, Rpo, UniformAccess};
 use crate::config::CompatProfile;
 use crate::page_token::{decode_page_token, encode_page_token};

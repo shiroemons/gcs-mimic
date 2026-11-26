@@ -49,7 +49,6 @@ pub(crate) use buckets::{
     bucket_list_with_profile, bucket_resource_with_profile, parse_bucket_patch,
     parse_bucket_replacement, parse_insert_with_profile, require_matching_bucket_name,
     soft_deleted_bucket_list, soft_deleted_bucket_resource, storage_layout_resource,
-    validate_bucket_name,
 };
 pub(crate) use compose::ComposeParams;
 pub(crate) use csek::{copy_keys, object_resource_keyed, request_key};
@@ -71,13 +70,13 @@ pub(crate) use multipart::{
 };
 pub(crate) use object_copy::ObjectCopyParams;
 pub(crate) use object_list::{ObjectListParams, object_list};
+pub(crate) use object_metadata::declare_content_encoding;
 #[cfg(test)]
 pub(crate) use object_metadata::parse_object_metadata;
 pub(crate) use object_metadata::parse_object_metadata_mutation;
 pub(crate) use object_metadata::{
     ObjectMetadataRequest, object_metadata_from_map, resource_object,
 };
-pub(crate) use object_metadata::{declare_content_encoding, validate_fixed_metadata};
 pub(crate) use object_move::ObjectMoveParams;
 #[cfg(test)]
 pub(crate) use objects::route_object;

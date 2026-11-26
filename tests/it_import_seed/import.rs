@@ -603,12 +603,12 @@ fn native_storage_class_and_fixed_metadata_validation_matches_import_eligibility
         (
             "StorageClass",
             json!("RAPID"),
-            "storageClass RAPID requires a zonal bucket",
+            "object storageClass RAPID requires a zonal bucket",
         ),
         (
             "ContentDisposition",
             json!("filename=日本語.txt"),
-            "non-ASCII fixed metadata",
+            "gcs-mimic does not support object API setting non-ASCII fixed metadata; omit this option or header (for example, use projection=noAcl).",
         ),
         (
             "CacheControl",
@@ -638,14 +638,16 @@ fn native_storage_class_and_fixed_metadata_validation_matches_import_eligibility
             ),
             (1, 0, 1)
         );
-        assert_finding(&pages, &format!("bucket-one/body:{field}"), reason);
+        let key = format!("bucket-one/body:{field}");
+        let mut findings = pages
+            .iter()
+            .filter_map(|p| p["page"]["findings"].as_array())
+            .flatten()
+            .filter(|f| f["diagnostic"]["key"] == key);
+        let finding = findings.next().unwrap();
+        assert_eq!(finding["reason"], reason);
+        assert!(findings.next().is_none());
         if reason == "invalid object storageClass" {
-            let finding = pages
-                .iter()
-                .filter_map(|p| p["page"]["findings"].as_array())
-                .flatten()
-                .find(|f| f["diagnostic"]["key"] == "bucket-one/body:StorageClass")
-                .unwrap();
             assert!(
                 finding["diagnostic"]["fix"]
                     .as_str()

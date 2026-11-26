@@ -592,7 +592,7 @@ fn parse_upload_query(
     } = upload;
     // Validated here so an invalid value fails before any body is read.
     if let Some(encoding) = &content_encoding {
-        super::validate_fixed_metadata("contentEncoding", encoding)?;
+        crate::object::validate_fixed_metadata("contentEncoding", encoding)?;
     }
     let predefined_acl = predefined_acl
         .map(|value| parse_predefined_acl("predefinedAcl", &value))

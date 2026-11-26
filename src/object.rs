@@ -1210,22 +1210,39 @@ impl From<crate::bucket::CatalogError> for ObjectError {
     }
 }
 
-pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), ObjectError> {
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum FixedMetadataError {
+    #[error(transparent)]
+    Invalid(#[from] crate::metadata_error::MetadataError),
+    #[error("{}", crate::input::unsupported_object_setting(Self::NON_ASCII))]
+    NonAscii,
+}
+
+impl FixedMetadataError {
+    const NON_ASCII: &'static str = "non-ASCII fixed metadata";
+}
+
+impl From<FixedMetadataError> for ObjectError {
+    fn from(error: FixedMetadataError) -> Self {
+        match error {
+            FixedMetadataError::Invalid(error) => Self::Metadata(error),
+            FixedMetadataError::NonAscii => {
+                Self::UnsupportedMetadata(FixedMetadataError::NON_ASCII.into())
+            }
+        }
+    }
+}
+
+pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), FixedMetadataError> {
     if key == "contentLanguage" && value.chars().count() > 100 {
-        return Err(ObjectError::Metadata(
-            crate::metadata_error::MetadataError::LongLanguage,
-        ));
+        return Err(crate::metadata_error::MetadataError::LongLanguage.into());
     }
     if !value.is_ascii() {
-        return Err(ObjectError::UnsupportedMetadata(
-            "non-ASCII fixed metadata".into(),
-        ));
+        return Err(FixedMetadataError::NonAscii);
     }
     // Fixed metadata becomes response headers; reject controls in every storage caller.
     if value.bytes().any(|byte| byte < 32 || byte == 127) {
-        return Err(ObjectError::Metadata(
-            crate::metadata_error::MetadataError::FixedHeader(key.into()),
-        ));
+        return Err(crate::metadata_error::MetadataError::FixedHeader(key.into()).into());
     }
     Ok(())
 }

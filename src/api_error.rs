@@ -799,6 +799,12 @@ impl From<BackendNotice> for ApiError {
     }
 }
 
+impl From<crate::object::FixedMetadataError> for ApiError {
+    fn from(error: crate::object::FixedMetadataError) -> Self {
+        ObjectError::from(error).into()
+    }
+}
+
 impl From<ObjectError> for ApiError {
     fn from(error: ObjectError) -> Self {
         match error {
