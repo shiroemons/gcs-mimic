@@ -1,6 +1,6 @@
 //! XML response documents: the declaration, a root element and escaped text elements.
 
-use std::fmt;
+use std::fmt::{self, Write};
 
 /// The XML declaration Cloud Storage writes, with single-quoted pseudo-attributes.
 pub(super) const DECLARATION: &str = "<?xml version='1.0' encoding='UTF-8'?>";
@@ -23,6 +23,49 @@ pub(super) enum Quotes {
     Literal,
     /// `"` and `'` become `&quot;` and `&apos;`, as the POST Object response writes them.
     Escaped,
+}
+
+struct Escaped<'a> {
+    body: &'a mut String,
+    quotes: Quotes,
+}
+
+impl Escaped<'_> {
+    fn push_run(&mut self, mut run: &str) {
+        if self.quotes == Quotes::Escaped {
+            while let Some(index) = memchr::memchr2(b'"', b'\'', run.as_bytes()) {
+                let (plain, quoted) = run.split_at(index);
+                self.body.push_str(plain);
+                let (quote, rest) = quoted.split_at(1);
+                self.body
+                    .push_str(if quote == "\"" { "&quot;" } else { "&apos;" });
+                run = rest;
+            }
+        }
+        self.body.push_str(run);
+    }
+
+    fn push_text(&mut self, mut text: &str) {
+        while let Some(index) = memchr::memchr3(b'&', b'<', b'>', text.as_bytes()) {
+            let (plain, escaped) = text.split_at(index);
+            self.push_run(plain);
+            let (special, rest) = escaped.split_at(1);
+            self.body.push_str(match special {
+                "&" => "&amp;",
+                "<" => "&lt;",
+                _ => "&gt;",
+            });
+            text = rest;
+        }
+        self.push_run(text);
+    }
+}
+
+impl Write for Escaped<'_> {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        self.push_text(text);
+        Ok(())
+    }
 }
 
 /// One response document, written in order. Nested content goes through [`Self::group`] or
@@ -55,22 +98,26 @@ impl XmlWriter {
     /// `<name>text</name>`, with `text` escaped.
     pub(super) fn element(&mut self, name: &str, text: &str) {
         self.open(name);
-        for ch in text.chars() {
-            match (ch, self.quotes) {
-                ('&', _) => self.body.push_str("&amp;"),
-                ('<', _) => self.body.push_str("&lt;"),
-                ('>', _) => self.body.push_str("&gt;"),
-                ('"', Quotes::Escaped) => self.body.push_str("&quot;"),
-                ('\'', Quotes::Escaped) => self.body.push_str("&apos;"),
-                (ch, Quotes::Literal | Quotes::Escaped) => self.body.push(ch),
-            }
-        }
+        self.escaped().push_text(text);
         self.close(name);
     }
 
     /// `<name>value</name>` for a number or boolean.
     pub(super) fn value(&mut self, name: &str, value: impl fmt::Display + Copy) {
-        self.element(name, &value.to_string());
+        self.open(name);
+        #[expect(
+            clippy::expect_used,
+            reason = "the numeric and boolean formatters only propagate errors from their writer, and this one always succeeds"
+        )]
+        write!(self.escaped(), "{value}").expect("writing XML text into a String");
+        self.close(name);
+    }
+
+    fn escaped(&mut self) -> Escaped<'_> {
+        Escaped {
+            body: &mut self.body,
+            quotes: self.quotes,
+        }
     }
 
     /// `<name>…</name>` around what `content` writes.
