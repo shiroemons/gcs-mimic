@@ -49,7 +49,7 @@ async fn full_and_no_acl_requests_use_the_expected_catalog_jobs() {
             ("/storage/v1/b?project=local&", 0, 1),
             ("/storage/v1/b/bucket?", 0, 1 + auth_reads),
             (object.as_str(), 0, 1 + auth_reads),
-            ("/storage/v1/b/bucket/o?", 1, auth_reads),
+            ("/storage/v1/b/bucket/o?", 0, 1 + auth_reads),
         ] {
             for (projection, extra) in [("noAcl", 0), ("full", 1)] {
                 let uri = format!("{path}projection={projection}");

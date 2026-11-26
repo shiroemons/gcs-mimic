@@ -32,8 +32,8 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 /// More readers stop helping once the workers that feed them are saturated, and each one costs a
 /// thread, three descriptors and its page cache.
 const MAX_READERS: usize = 8;
-/// Point reads prepare a few statements, unlike the writer's hundreds.
-const READER_STATEMENT_CACHE: usize = 32;
+/// Listing seeks, version cursors and ACL projections now share the cache with point reads.
+const READER_STATEMENT_CACHE: usize = 96;
 /// WAL readers wait only on recovery and checkpoint locks, and the serialized path can answer
 /// instead, so a short wait is enough.
 const READER_BUSY_TIMEOUT: Duration = Duration::from_millis(250);

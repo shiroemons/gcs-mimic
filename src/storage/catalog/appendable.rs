@@ -1138,8 +1138,8 @@ impl Catalog {
         let access = access.clone();
         let catalog = self.clone();
         self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            readable::open_appendable_in(&transaction, &catalog, &target, conditions, &access)
+            let snapshot = sql::read_snapshot(connection)?;
+            readable::open_appendable_in(&snapshot, &catalog, &target, conditions, &access)
         })
         .await
     }

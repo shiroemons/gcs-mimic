@@ -5,10 +5,9 @@ use crate::{
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     storage::{
         BlobId, ObjectReader,
-        catalog::{customer_keys, objects},
+        catalog::{customer_keys, objects, sql},
     },
 };
-use rusqlite::Transaction;
 
 /// Whether the selected generation is immutable or still appendable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,14 +24,14 @@ pub(crate) struct ReadableMetadata {
 }
 
 fn selected_appendable(
-    transaction: &Transaction<'_>,
+    snapshot: &sql::ReadSnapshot<'_>,
     catalog: &Catalog,
     target: &ObjectTarget,
     conditions: ObjectConditions,
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, BlobId), ObjectError> {
-    let (storage_class, _) = authorized_bucket(transaction, &target.bucket, access)?;
-    let Lookup::Live(row) = select(transaction, &target.bucket, &target.name)? else {
+    let (storage_class, _) = authorized_bucket(snapshot, &target.bucket, access)?;
+    let Lookup::Live(row) = select(snapshot, &target.bucket, &target.name)? else {
         return Err(ObjectError::ObjectNotFound);
     };
     if target
@@ -42,7 +41,7 @@ fn selected_appendable(
         return Err(ObjectError::ObjectNotFound);
     }
     let record = record(
-        transaction,
+        snapshot,
         &target.bucket,
         &target.name,
         storage_class,
@@ -54,14 +53,20 @@ fn selected_appendable(
 }
 
 pub(super) fn open_appendable_in(
-    transaction: &Transaction<'_>,
+    snapshot: &sql::ReadSnapshot<'_>,
     catalog: &Catalog,
     target: &ObjectTarget,
     conditions: ObjectConditions,
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-    let (record, blob) = selected_appendable(transaction, catalog, target, conditions, access)?;
-    // The same execution permit prevents finalization from unlinking before this open.
+    let (record, blob) = selected_appendable(snapshot, catalog, target, conditions, access)?;
+    // If finalization unlinks the selected file before it opens, run_read retries on the writer.
+    #[cfg(test)]
+    {
+        use crate::storage::catalog::fault::{self, Step};
+        fault::hit(&catalog.0.data_dir, Step::AppendableReadSelected)
+            .map_err(objects::object_unavailable)?;
+    }
     let reader = ObjectReader::bounded_data(catalog.0.backend.open_appendable(&blob)?, record.size);
     Ok((record, reader))
 }
@@ -80,19 +85,15 @@ impl Catalog {
     ) -> Result<(ObjectRecord, ObjectReader, Finality), ObjectError> {
         let catalog = self.clone();
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
+        self.run_read(move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
             let (record, reader, finality) = match objects::open_selected_in(
-                &transaction,
-                &catalog,
-                &target,
-                conditions,
-                &access,
+                &snapshot, &catalog, &target, conditions, &access,
             ) {
                 Ok((record, reader)) => (record, reader, Finality::Finalized),
                 Err(ObjectError::ObjectNotFound) => {
                     let (record, reader) =
-                        open_appendable_in(&transaction, &catalog, &target, conditions, &access)?;
+                        open_appendable_in(&snapshot, &catalog, &target, conditions, &access)?;
                     (record, reader, Finality::Unfinalized)
                 }
                 Err(error) => return Err(error),
@@ -114,10 +115,10 @@ impl Catalog {
     ) -> Result<ReadableMetadata, ObjectError> {
         let catalog = self.clone();
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
+        self.run_read(move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
             let (record, finality) = match objects::selected(
-                &transaction,
+                &snapshot,
                 &target.bucket,
                 &target.name,
                 target.generation,
@@ -128,7 +129,7 @@ impl Catalog {
                 Ok(stored) => (stored.record, Finality::Finalized),
                 Err(ObjectError::ObjectNotFound) => {
                     let (record, _) =
-                        selected_appendable(&transaction, &catalog, &target, conditions, &access)?;
+                        selected_appendable(&snapshot, &catalog, &target, conditions, &access)?;
                     (record, Finality::Unfinalized)
                 }
                 Err(error) => return Err(error),

@@ -45,9 +45,13 @@ use std::{collections::HashMap, os::unix::fs::PermissionsExt};
 #[cfg(unix)]
 mod tests;
 
-/// A durable step boundary on a blob write path.
+/// A catalog boundary at which a test can inject a fault or hold a job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
+    /// Between reading a listing's object page and its bucket metageneration.
+    ListedObjectPage,
+    /// Between selecting an unfinalized generation and opening its data file.
+    AppendableReadSelected,
     /// Before probing a failed or rolled-back publication's reference.
     DiscardProbe,
     /// Before committing an expired soft-deleted batch and its deletion journal rows together.

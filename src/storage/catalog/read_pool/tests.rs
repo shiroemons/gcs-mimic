@@ -13,6 +13,7 @@ use std::{
 };
 use tokio::time::timeout;
 
+mod listings;
 mod point_reads;
 pub(in crate::storage::catalog) use point_reads::assert_point_read;
 

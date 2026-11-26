@@ -74,31 +74,41 @@ impl Catalog {
         let limit = limit.clamp(1, 1000);
         let access = access.clone();
         let clock = self.0.clock.clone();
-        let soft_deleted = query.soft_deleted;
+        if !query.soft_deleted {
+            return self
+                .run_read(move |connection| {
+                    let snapshot = sql::read_snapshot(connection)?;
+                    authorized_bucket(&snapshot, &query.bucket, &access)?;
+                    page_with_metageneration(&snapshot, &query, limit, clock.now())
+                })
+                .await;
+        }
         let result = self
             .run(move |connection| {
-                // The catalog worker serializes mutations; each seek ends before glob matching.
                 authorized_bucket(connection, &query.bucket, &access)?;
                 let time = clock.now();
-                if query.soft_deleted {
-                    soft_delete::require_policy(
-                        connection,
-                        &query.bucket,
-                        SoftDeletedRequest::List,
-                    )?;
-                    soft_delete::purge_expired(connection, &query.bucket, time.try_into()?)?;
-                }
-                let mut page = list_page_at(connection, &query, limit, unix_micros(time)?)?;
-                page.bucket_metageneration =
-                    Some(bucket_metageneration(connection, &query.bucket)?);
-                Ok(page)
+                soft_delete::require_policy(connection, &query.bucket, SoftDeletedRequest::List)?;
+                soft_delete::purge_expired(connection, &query.bucket, time.try_into()?)?;
+                page_with_metageneration(connection, &query, limit, time)
             })
             .await;
-        if soft_deleted {
-            self.reclaim_after_commit().await;
-        }
+        self.reclaim_after_commit().await;
         result
     }
+}
+
+fn page_with_metageneration(
+    connection: &Connection,
+    query: &ObjectListQuery,
+    limit: usize,
+    time: std::time::SystemTime,
+) -> Result<ObjectListPage, ObjectError> {
+    let mut page = list_page_at(connection, query, limit, unix_micros(time)?)?;
+    #[cfg(test)]
+    fault::hit(&fault::database_dir(connection), Step::ListedObjectPage)
+        .map_err(object_unavailable)?;
+    page.bucket_metageneration = Some(bucket_metageneration(connection, &query.bucket)?);
+    Ok(page)
 }
 
 pub(in crate::storage::catalog) fn prefix_end(prefix: &str) -> Option<Vec<u8>> {

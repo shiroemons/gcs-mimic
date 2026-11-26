@@ -126,6 +126,34 @@ fn memory_blobs(catalog: &Catalog) -> usize {
 }
 
 #[tokio::test]
+async fn a_soft_deleted_listing_purges_expired_rows_on_the_writer() {
+    let data = TestDir::new();
+    let (catalog, clock) = open_disk(&data.0).await;
+    retaining_bucket(&catalog, "bucket", 5).await;
+    let generation = soft_delete(&catalog, "bucket", "object").await;
+    let query = crate::storage::ObjectListQuery {
+        bucket: "bucket".into(),
+        soft_deleted: true,
+        ..Default::default()
+    };
+    let readable = catalog
+        .list_objects(query.clone(), 10, PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(readable.items[0].generation, generation);
+    clock.advance(Duration::from_secs(5));
+    let (writes, reads) = catalog.job_counts();
+    let expired = catalog.list_objects(query, 10, PERMISSIVE).await.unwrap();
+    let (after_writes, after_reads) = catalog.job_counts();
+    assert!(after_writes > writes);
+    assert_eq!(after_reads, reads);
+    assert!(expired.items.is_empty());
+    assert_eq!(soft_deleted_rows(&catalog).await, 0);
+    assert_eq!(blob_files(&data.0), 0);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn disk_body_stays_until_the_hard_delete_time_and_is_then_removed() {
     let data = TestDir::new();
     let (catalog, clock) = open_disk(&data.0).await;
