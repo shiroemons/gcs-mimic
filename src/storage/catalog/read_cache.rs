@@ -119,6 +119,17 @@ struct Contents {
     open_files: usize,
     charged: usize,
     bucket_cors: HashMap<String, bool>,
+    #[cfg(test)]
+    on_drop: Option<Box<dyn FnOnce(usize) + Send + Sync>>,
+}
+
+#[cfg(test)]
+impl Drop for Contents {
+    fn drop(&mut self) {
+        if let Some(observe) = self.on_drop.take() {
+            observe(self.open_files);
+        }
+    }
 }
 
 impl Contents {

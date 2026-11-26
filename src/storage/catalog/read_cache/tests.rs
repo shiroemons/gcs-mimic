@@ -764,6 +764,38 @@ async fn hits_stop_when_the_catalog_closes() {
     assert!(catalog.bucket_has_cors("bucket").await.is_err());
 }
 
+#[tokio::test]
+async fn a_catalog_write_releases_the_cached_descriptors() {
+    let dir = TestDir::new();
+    let catalog = open_catalog(&dir).await;
+    for name in ["first", "second"] {
+        put(&catalog, name, &b"contents"[..]).await;
+    }
+    for name in ["first", "second"] {
+        download(&catalog, name).await.unwrap();
+    }
+    let (dropped, observed) = tokio::sync::oneshot::channel();
+    let files = {
+        let mut contents = catalog.0.read_cache.write();
+        contents.on_drop = Some(Box::new(move |count| {
+            let writer = std::thread::current().name() == Some("gcs-mimic-catalog");
+            dropped.send((count, writer)).unwrap();
+        }));
+        ["first", "second"].map(|name| {
+            let entry = contents.object("bucket", name).unwrap();
+            let ReaderData::Disk(file) = &entry.download.as_ref().unwrap().data else {
+                panic!("disk fixture");
+            };
+            assert_eq!(Arc::strong_count(file), 1);
+            Arc::downgrade(file)
+        })
+    };
+    put(&catalog, "third", &b"contents"[..]).await;
+    assert_eq!(observed.await.unwrap(), (2, true));
+    catalog.close().await.unwrap();
+    assert!(files.iter().all(|file| file.upgrade().is_none()));
+}
+
 /// The directory belongs to the next owner after a close, even while this handle lives on.
 #[tokio::test]
 async fn closing_releases_every_kept_file() {
