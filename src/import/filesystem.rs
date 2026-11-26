@@ -662,33 +662,8 @@ async fn publish_bucket(
     element: ImportElement,
     record: BucketRecord,
 ) -> Result<(), ImportError> {
-    let BucketRecord {
-        name,
-        attributes,
-        enable_object_retention,
-        spec,
-        ..
-    } = record;
-    let mut input = serde_json::Map::from_iter([
-        ("name".into(), serde_json::Value::from(name.as_str())),
-        (
-            "defaultEventBasedHold".into(),
-            serde_json::Value::from(attributes.default_event_based_hold),
-        ),
-    ]);
-    if let Some(enabled) = attributes.versioning_enabled {
-        input.insert("versioning".into(), serde_json::json!({"enabled":enabled}));
-    }
-    let input = serde_json::Value::Object(input).to_string();
-    let mut bucket =
-        crate::json::parse_insert(input.as_bytes(), "local-project", SystemTime::now())
-            .map_err(|error| invalid(error.message))?;
-    if let Some(created) = spec.created {
-        bucket.time_created = created;
-        bucket.updated = created;
-    }
-    bucket.object_retention_enabled = enable_object_retention;
-    let definition = BucketDefinition::new(bucket)?;
+    let definition = BucketDefinition::new(imported_bucket(&record, SystemTime::now())?)?;
+    let spec = record.spec;
     admin
         .publish_import_bucket_with_acl(
             binding.clone(),
@@ -700,6 +675,33 @@ async fn publish_bucket(
         )
         .await?;
     Ok(())
+}
+
+/// The catalog bucket a source bucket becomes: what a JSON insert of its attributes yields at
+/// `now`, created at the source's creation time when it names one.
+fn imported_bucket(
+    record: &BucketRecord,
+    now: SystemTime,
+) -> Result<crate::bucket::BucketRecord, ImportError> {
+    let mut input = serde_json::Map::from_iter([
+        ("name".into(), serde_json::Value::from(record.name.as_str())),
+        (
+            "defaultEventBasedHold".into(),
+            serde_json::Value::from(record.attributes.default_event_based_hold),
+        ),
+    ]);
+    if let Some(enabled) = record.attributes.versioning_enabled {
+        input.insert("versioning".into(), serde_json::json!({"enabled":enabled}));
+    }
+    let input = serde_json::Value::Object(input).to_string();
+    let mut bucket = crate::json::parse_insert(input.as_bytes(), "local-project", now)
+        .map_err(|error| invalid(error.message))?;
+    if let Some(created) = record.spec.created {
+        bucket.time_created = created;
+        bucket.updated = created;
+    }
+    bucket.object_retention_enabled = record.enable_object_retention;
+    Ok(bucket)
 }
 
 /// Publishes one source object; returns the bytes it hashed.
