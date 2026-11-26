@@ -9,16 +9,9 @@ use std::num::NonZeroI64;
 pub struct Generation(NonZeroI64);
 
 /// A generation that is zero or negative.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("generation must be positive")]
 pub struct InvalidGeneration;
-
-impl std::fmt::Display for InvalidGeneration {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("generation must be positive")
-    }
-}
-
-impl std::error::Error for InvalidGeneration {}
 
 impl Generation {
     pub fn get(self) -> i64 {

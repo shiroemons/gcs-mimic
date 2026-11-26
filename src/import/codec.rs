@@ -7,7 +7,8 @@ use serde::{
 };
 use std::{collections::BTreeMap, fmt};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
 pub(crate) struct TimestampError(&'static str);
 
 impl TimestampError {
@@ -15,14 +16,6 @@ impl TimestampError {
     pub(super) const OUTSIDE_PLATFORM_RANGE: Self =
         Self("source timestamp is outside this platform's range");
 }
-
-impl fmt::Display for TimestampError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.0)
-    }
-}
-
-impl std::error::Error for TimestampError {}
 
 impl From<TimestampError> for String {
     fn from(error: TimestampError) -> Self {
@@ -32,58 +25,28 @@ impl From<TimestampError> for String {
 
 /// A source value this codec cannot convert. Callers report its message; only the codec's own
 /// tests look at which conversion failed.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
 pub struct CodecError(Kind);
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum Kind {
+    #[error(transparent)]
     Timestamp(TimestampError),
-    /// A bucket timestamp outside this platform's clock; the inner error names the range.
-    BucketTimeRange(TimestampError),
+    #[error("bucket timestamp is outside this platform's range")]
+    BucketTimeRange(#[source] TimestampError),
+    #[error(transparent)]
     Acl(crate::acl::AclError),
+    #[error("ACL auxiliary identity fields cannot be preserved; retain the source snapshot")]
     AclIdentity,
+    #[error("source retention mode must be Locked or Unlocked")]
     RetentionMode,
+    #[error("source retention mode requires a nonzero retain-until time")]
     RetentionUntil,
+    #[error("malformed bucket percent escape; restore the escaped directory name")]
     Escape,
-    Utf8(std::string::FromUtf8Error),
-}
-
-impl fmt::Display for CodecError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            Kind::Timestamp(error) => error.fmt(f),
-            Kind::BucketTimeRange(_) => {
-                f.write_str("bucket timestamp is outside this platform's range")
-            }
-            Kind::Acl(error) => error.fmt(f),
-            Kind::AclIdentity => f.write_str(
-                "ACL auxiliary identity fields cannot be preserved; retain the source snapshot",
-            ),
-            Kind::RetentionMode => f.write_str("source retention mode must be Locked or Unlocked"),
-            Kind::RetentionUntil => {
-                f.write_str("source retention mode requires a nonzero retain-until time")
-            }
-            Kind::Escape => {
-                f.write_str("malformed bucket percent escape; restore the escaped directory name")
-            }
-            Kind::Utf8(_) => {
-                f.write_str("decoded bucket must be UTF-8; restore the original snapshot")
-            }
-        }
-    }
-}
-
-impl std::error::Error for CodecError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self.0 {
-            // These print as the wrapped error itself.
-            Kind::Timestamp(error) => error.source(),
-            Kind::Acl(error) => error.source(),
-            Kind::BucketTimeRange(error) => Some(error),
-            Kind::Utf8(error) => Some(error),
-            Kind::AclIdentity | Kind::RetentionMode | Kind::RetentionUntil | Kind::Escape => None,
-        }
-    }
+    #[error("decoded bucket must be UTF-8; restore the original snapshot")]
+    Utf8(#[source] std::string::FromUtf8Error),
 }
 
 impl From<TimestampError> for CodecError {

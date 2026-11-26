@@ -10,16 +10,9 @@ use crate::config::CompatProfile;
 pub struct BucketName(String);
 
 /// A name outside the native bucket-name rules.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("Invalid bucket name")]
 pub struct InvalidBucketName;
-
-impl std::fmt::Display for InvalidBucketName {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Invalid bucket name")
-    }
-}
-
-impl std::error::Error for InvalidBucketName {}
 
 /// The longest native bucket name: dotted names may reach 222 bytes.
 pub(crate) const MAX_BUCKET_NAME_BYTES: usize = 222;
@@ -56,30 +49,14 @@ pub(crate) fn validate(name: &str) -> Result<(), InvalidBucketName> {
 
 /// A requested bucket name that the server's compatibility profile does not admit. The two
 /// profiles word the refusal differently, and the JSON API also gives each its own reason.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum ProfileNameError {
     /// Outside the native rules, which the native profile applies.
+    #[error(transparent)]
     Native(InvalidBucketName),
     /// Outside the looser rules of the fake-gcs-server profile.
+    #[error("invalid bucket name")]
     FakeGcsServer,
-}
-
-impl std::fmt::Display for ProfileNameError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Native(error) => error.fmt(formatter),
-            Self::FakeGcsServer => formatter.write_str("invalid bucket name"),
-        }
-    }
-}
-
-impl std::error::Error for ProfileNameError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Native(error) => error.source(),
-            Self::FakeGcsServer => None,
-        }
-    }
 }
 
 /// A bucket name a request may name under `profile`: the native rules, or fake-gcs-server's
