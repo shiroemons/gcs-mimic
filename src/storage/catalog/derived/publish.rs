@@ -52,8 +52,8 @@ fn publish_transfer<P, C, T>(
     request: TransferPublication<P, C>,
 ) -> Result<Published<T>, ObjectError>
 where
-    P: FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError>,
-    C: FnOnce(&Connection, &ObjectRecord) -> Result<T, ObjectError>,
+    P: FnOnce(&sql::WriteTx<'_>, &mut ObjectRecord) -> Result<(), ObjectError>,
+    C: FnOnce(&sql::WriteTx<'_>, &ObjectRecord) -> Result<T, ObjectError>,
 {
     let id = request.id;
     let backend = request.backend.clone();
@@ -149,8 +149,8 @@ fn publish_destination<P, C, T>(
     micros: i64,
 ) -> Result<(ObjectRecord, T, objects::Journaled), ObjectError>
 where
-    P: FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError>,
-    C: FnOnce(&Connection, &ObjectRecord) -> Result<T, ObjectError>,
+    P: FnOnce(&sql::WriteTx<'_>, &mut ObjectRecord) -> Result<(), ObjectError>,
+    C: FnOnce(&sql::WriteTx<'_>, &ObjectRecord) -> Result<T, ObjectError>,
 {
     let TransferPublication {
         id,
@@ -266,7 +266,9 @@ impl Catalog {
         &self,
         id: &BlobId,
         destination: DerivedDestination,
-        complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
+        complete: impl FnOnce(&sql::WriteTx<'_>, &ObjectRecord) -> Result<(), ObjectError>
+        + Send
+        + 'static,
     ) -> Result<ObjectRecord, ObjectError> {
         self.publish_derived_with_validation(id, destination, |_, _| Ok(()), complete)
             .await
@@ -278,7 +280,9 @@ impl Catalog {
         id: &BlobId,
         destination: DerivedDestination,
         validate: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
-        complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
+        complete: impl FnOnce(&sql::WriteTx<'_>, &ObjectRecord) -> Result<(), ObjectError>
+        + Send
+        + 'static,
     ) -> Result<ObjectRecord, ObjectError> {
         self.publish_derived_prepared(
             id,
@@ -297,8 +301,12 @@ impl Catalog {
         &self,
         id: &BlobId,
         destination: DerivedDestination,
-        prepare: impl FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
-        complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<T, ObjectError> + Send + 'static,
+        prepare: impl FnOnce(&sql::WriteTx<'_>, &mut ObjectRecord) -> Result<(), ObjectError>
+        + Send
+        + 'static,
+        complete: impl FnOnce(&sql::WriteTx<'_>, &ObjectRecord) -> Result<T, ObjectError>
+        + Send
+        + 'static,
         admission_deadline: Option<tokio::time::Instant>,
     ) -> Result<(ObjectRecord, T), ObjectError> {
         let published = self
@@ -315,8 +323,12 @@ impl Catalog {
         &self,
         id: &BlobId,
         destination: DerivedDestination,
-        prepare: impl FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
-        complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<T, ObjectError> + Send + 'static,
+        prepare: impl FnOnce(&sql::WriteTx<'_>, &mut ObjectRecord) -> Result<(), ObjectError>
+        + Send
+        + 'static,
+        complete: impl FnOnce(&sql::WriteTx<'_>, &ObjectRecord) -> Result<T, ObjectError>
+        + Send
+        + 'static,
         admission_deadline: Option<tokio::time::Instant>,
         replay: Option<super::super::upload_replay::BoundCopyReplay>,
     ) -> Result<DerivedPublication<T>, ObjectError> {

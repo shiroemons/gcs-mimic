@@ -631,9 +631,11 @@ expectation where a trait requires `io::Error`.
 - A test-build counter of `SQLITE_READONLY` answers on the read pool is
   asserted zero at close, which catches a moved job that secretly writes.
   Production still falls back to the writer silently.
-- **Typed write execution.** After the transaction control statements move
-  to `WriteTx`, restrict `sql::exec`, the journal helpers and savepoints to
-  `&WriteTx`, so a pooled read cannot call them.
+- **Typed write execution.** `sql::exec`, transaction journal helpers and
+  savepoints take `&WriteTx`. Standalone writes take `&mut Connection` through
+  `sql::exec_on_writer`. Read closures receive `&Connection`, which can call
+  neither helper. The reader's own TEMP parent-policy refresh has its private
+  mutable connection before it runs the read closure.
 
 ### Jobs that move to the read pool
 

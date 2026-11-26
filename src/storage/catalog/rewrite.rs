@@ -509,7 +509,7 @@ pub(super) fn bucket_sessions(
 /// shortcut: eviction follows creation deadlines; add completion ordering for recent-finish
 /// retention.
 fn trim_finished(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     finished_now: &BlobId,
     budget: Option<i64>,
 ) -> Result<(), ObjectError> {
@@ -967,7 +967,7 @@ impl Catalog {
                 }
                 if let Err(error) = self
                     .run(move |connection| {
-                        sql::exec(
+                        sql::exec_on_writer(
                             connection,
                             "DELETE FROM rewrite_sessions WHERE id=?1 AND deadline<=?2",
                             params![id, now],
@@ -1283,7 +1283,7 @@ mod tests {
                 .unwrap();
             owner.disarm();
             catalog.run::<_, CatalogError>(|db| {
-                sql::exec(db, "CREATE TEMP TRIGGER change_source AFTER UPDATE OF offset ON derived_transfers WHEN NEW.offset > OLD.offset BEGIN UPDATE objects SET metageneration=metageneration+1 WHERE name='source'; END", [])?;
+                sql::exec_on_writer(db, "CREATE TEMP TRIGGER change_source AFTER UPDATE OF offset ON derived_transfers WHEN NEW.offset > OLD.offset BEGIN UPDATE objects SET metageneration=metageneration+1 WHERE name='source'; END", [])?;
                 Ok(())
             }).await.unwrap();
             let token = token.to_string();
@@ -1430,12 +1430,12 @@ mod tests {
         owner.disarm();
         catalog
             .run::<_, CatalogError>(|connection| {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "UPDATE rewrite_sessions SET request=json_set(request,'$.budget',1)",
                     [],
                 )?;
-                sql::exec(connection, "CREATE TRIGGER expire_after_progress AFTER UPDATE OF offset ON derived_transfers WHEN NEW.offset > OLD.offset BEGIN UPDATE rewrite_sessions SET deadline=0 WHERE id=NEW.id; END", [])?;
+                sql::exec_on_writer(connection, "CREATE TRIGGER expire_after_progress AFTER UPDATE OF offset ON derived_transfers WHEN NEW.offset > OLD.offset BEGIN UPDATE rewrite_sessions SET deadline=0 WHERE id=NEW.id; END", [])?;
                 Ok(())
             })
             .await
@@ -1685,7 +1685,7 @@ mod tests {
     async fn fill_finished_rewrites(catalog: &Catalog, count: i64) {
         catalog
             .run::<_, CatalogError>(move |connection| {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<?1) INSERT INTO rewrite_sessions SELECT printf('%032x',i), printf('%064x',i), printf('%064x',i), r.request, r.offset, r.total, r.deadline, r.response, NULL FROM n, (SELECT * FROM rewrite_sessions WHERE transfer_id IS NULL LIMIT 1) r",
                     [count],

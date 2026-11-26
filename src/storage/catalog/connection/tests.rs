@@ -35,11 +35,11 @@ async fn serialized_reads_detect_even_rolled_back_temp_changes() {
     let result = catalog
         .run_serialized_read::<_, CatalogError>(SerializedRead::LifecycleQuarantine, |connection| {
             let snapshot = sql::read_snapshot(connection)?;
-            sql::exec(
-                &snapshot,
-                "INSERT INTO lifecycle_quarantine VALUES ('bucket', 'id', 'name', 1, 'rev')",
-                [],
-            )?;
+            snapshot
+                .prepare_cached(
+                    "INSERT INTO lifecycle_quarantine VALUES ('bucket', 'id', 'name', 1, 'rev')",
+                )?
+                .execute([])?;
             Ok(())
         })
         .await;

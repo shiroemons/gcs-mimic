@@ -62,7 +62,7 @@ async fn a_page_and_its_bucket_metageneration_share_one_snapshot() {
     }
     catalog
         .run::<_, CatalogError>(|connection| {
-            let transaction = connection.transaction()?;
+            let transaction = sql::deferred_write(connection)?;
             sql::exec(
                 &transaction,
                 "UPDATE buckets SET metageneration = 2 WHERE name = 'bucket'",

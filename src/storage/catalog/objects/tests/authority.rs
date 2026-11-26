@@ -84,7 +84,7 @@ async fn delete_checks_existence_authority_conditions_and_retention_in_order() {
     }
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "INSERT OR REPLACE INTO acl_bucket_entries VALUES ('bucket','bucket',?1)",
                 [r#"[{"entity":"allUsers","role":"WRITER"}]"#],
@@ -132,7 +132,7 @@ async fn corrupt_publication_settings_preserve_denials_and_missing_objects() {
     ] {
         catalog
             .run::<_, CatalogError>(move |connection| {
-                sql::exec(connection, corrupt, [])?;
+                sql::exec_on_writer(connection, corrupt, [])?;
                 Ok(())
             })
             .await
@@ -194,7 +194,7 @@ async fn deletion_and_upload_bucket_authority_costs() {
     catalog
         .run::<_, CatalogError>(move |connection| {
             // A stored public grant forces both the bucket ACL decode and the PAP check.
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "INSERT OR REPLACE INTO acl_bucket_entries VALUES ('bucket','bucket',?1)",
                 [r#"[{"entity":"allUsers","role":"WRITER"}]"#],

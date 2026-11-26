@@ -794,7 +794,7 @@ async fn interrupted_finalization_before_publication_stays_appendable() {
     writer.flush().await.unwrap();
     catalog
         .run::<_, ObjectError>(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE appendable_objects SET finalizing=1 WHERE name='pending'",
                 [],

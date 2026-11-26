@@ -122,7 +122,7 @@ pub(super) fn effective_object_entries(
 
 /// A preserved source ACL never observes the destination's current default ACL.
 pub(super) fn publish_object_acl(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     record: &crate::object::ObjectRecord,
     mode: PublicationAcl<'_>,
     row: &super::objects::BucketPublication,
@@ -624,7 +624,7 @@ fn object_access_error(error: ObjectError) -> CatalogError {
 
 /// Replace entries inside the metadata mutation's transaction, without a second revision bump.
 pub(super) fn replace_resource_acl(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     target: ResolvedAclTarget<'_>,
     entries: &[AclEntry],
     access: &BucketAccess,

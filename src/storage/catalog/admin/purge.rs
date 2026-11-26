@@ -344,7 +344,7 @@ impl Sessions {
     /// journal names.
     fn remove(
         &self,
-        transaction: &Connection,
+        transaction: &sql::WriteTx<'_>,
         catalog: &Catalog,
         name: &str,
         writers: &Writers,

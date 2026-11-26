@@ -1436,13 +1436,13 @@ async fn overflowing_source_lengths_are_discarded_during_recovery() {
     let id = transfer.id;
     catalog
         .run::<_, ObjectError>(move |connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE derived_inputs SET length=?2, size=?2 WHERE transfer_id=?1",
                 params![id, i64::MAX],
             )?;
             for position in [1, 2] {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "INSERT INTO derived_inputs VALUES (?1,?2,?3,0,?4,?4)",
                     params![id, position, BlobId::generate().unwrap(), i64::MAX],

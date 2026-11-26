@@ -56,7 +56,7 @@ fn begin_transfer<T>(
     connection: &mut Connection,
     draft: &BeginTransfer,
     segments: &[DerivedSegment],
-    bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<T, ObjectError>,
+    bind: impl FnOnce(&sql::WriteTx<'_>, &DerivedTransfer) -> Result<T, ObjectError>,
 ) -> Begun<T> {
     let rejected = |error| Begun {
         outcome: Err(CommitFailure::Rejected(error)),
@@ -101,7 +101,7 @@ fn stage_transfer<T>(
     transaction: &sql::WriteTx<'_>,
     draft: &BeginTransfer,
     segments: &[DerivedSegment],
-    bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<T, ObjectError>,
+    bind: impl FnOnce(&sql::WriteTx<'_>, &DerivedTransfer) -> Result<T, ObjectError>,
 ) -> Result<(DerivedTransfer, T), ObjectError> {
     sql::exec(
         transaction,
@@ -169,7 +169,9 @@ impl Catalog {
         mut segments: Vec<DerivedSegment>,
         max_bytes: u64,
         kind: TransferKind,
-        bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<T, ObjectError> + Send + 'static,
+        bind: impl FnOnce(&sql::WriteTx<'_>, &DerivedTransfer) -> Result<T, ObjectError>
+        + Send
+        + 'static,
     ) -> Result<(DerivedTransfer, T), ObjectError> {
         if segments.is_empty() || segments.len() > 32 {
             return Err(ObjectError::InvalidDerivedArgument(

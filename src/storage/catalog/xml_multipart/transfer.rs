@@ -132,7 +132,7 @@ impl Catalog {
                 [id],
             )?;
             if !referenced {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)",
                     [id],
@@ -177,7 +177,7 @@ impl Catalog {
                 let orphan = id;
                 let cleanup = catalog
                     .run(move |connection| {
-                        sql::exec(
+                        sql::exec_on_writer(
                             connection,
                             "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)",
                             [orphan],
@@ -349,7 +349,7 @@ impl Catalog {
         let total = completion.total;
         let now = UnixMillis::try_from(self.0.policy.clock.now())?;
         self.run(move |connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "INSERT INTO derived_transfers VALUES (?1,?2,?2,?3,?4,1,?5,?6,0)",
                 params![

@@ -152,7 +152,7 @@ mod tests {
         let encoded = serde_json::to_string(&invalid).unwrap();
         catalog
             .run::<_, CatalogError>(move |connection| {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "UPDATE buckets SET lifecycle = ?1 WHERE name = 'lifecycle-bucket'",
                     [encoded],

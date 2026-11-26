@@ -153,7 +153,10 @@ const REMOVAL_PAGE: i64 = 128;
 /// retained key, journals each blob for reclamation and returns how many rows it deleted. Each
 /// page's rows go before their journal rows, so the journal takes the pages the rows free: a RAM
 /// catalog at its page budget can still be emptied, which journaling first would refuse.
-pub(super) fn remove_objects(connection: &Connection, key: &str) -> Result<u64, CatalogError> {
+pub(super) fn remove_objects(
+    connection: &sql::WriteTx<'_>,
+    key: &str,
+) -> Result<u64, CatalogError> {
     let mut removed = 0;
     loop {
         let page = connection
@@ -180,7 +183,7 @@ pub(super) fn remove_objects(connection: &Connection, key: &str) -> Result<u64, 
 /// seed record claims an object the removal deleted. ACL, notification and initialization rows
 /// cascade. Returns how many objects it removed.
 pub(super) fn remove_live_bucket(
-    transaction: &Connection,
+    transaction: &sql::WriteTx<'_>,
     name: &str,
 ) -> Result<u64, CatalogError> {
     let removed = remove_objects(transaction, name)?;

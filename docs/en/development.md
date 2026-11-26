@@ -556,7 +556,10 @@ request reaches a statement indirectly too, through a wakeup it triggers.
 Resumable session, rewrite and derived-transfer requests wake the maintenance
 sweep, so the sweep's statements use `prepare_cached` like any request path.
 Within an immediate write transaction, pass its `sql::WriteTx` to
-`sql::exec` to execute a cached static statement.
+`sql::exec` to execute a cached static statement. Existing deferred writes
+also keep a `WriteTx` and retain `BEGIN DEFERRED` locking. For a standalone
+write, use `sql::exec_on_writer` with the writer job's `&mut Connection`.
+Read closures receive `&Connection`.
 A function that runs only at open carries the reason itself:
 
 ```rust

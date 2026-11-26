@@ -445,7 +445,7 @@ const MAX_BYTES: usize = 16_777_216;
 async fn fill_outbox(catalog: &Catalog, count: i64) {
     catalog
         .run(move |connection| {
-            let transaction = connection.transaction()?;
+            let transaction = sql::deferred_write(connection)?;
             sql::exec(
                 &transaction,
                 "WITH RECURSIVE ids(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM ids WHERE n < ?1) INSERT INTO notification_outbox SELECT n, ?2, json_object('messages', json_array(json_object('attributes', json_object('objectId', 'old-' || n)))), 0, 0 FROM ids",
@@ -946,7 +946,7 @@ async fn the_byte_budget_evicts_as_many_messages_as_the_new_one_needs() {
     let catalog = setup(&dir, VersionHistory::Discard).await;
     catalog
         .run(|connection| {
-            let transaction = connection.transaction()?;
+            let transaction = sql::deferred_write(connection)?;
             let insert = |id: i64, message: &str| {
                 sql::exec(
                     &transaction,

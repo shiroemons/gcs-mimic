@@ -210,7 +210,7 @@ async fn glob_listing_pages_through_non_matching_rows() {
         create_bucket(&catalog, "project").await;
         catalog
             .run(|connection| {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "UPDATE buckets SET versioning_enabled = 1 WHERE name = 'bucket'",
                     [],
@@ -343,7 +343,7 @@ async fn retention_expiration_matches_between_publication_and_reads() {
         let catalog = Catalog::open(&data.0).await.unwrap();
         create_bucket(&catalog, "project").await;
         catalog.run(move |connection| {
-            sql::exec(connection,
+            sql::exec_on_writer(connection,
                 "UPDATE buckets SET retention_policy = json_object('retention_period', ?1, 'is_locked', json('false')) WHERE name = 'bucket'", [period])?;
             Ok::<_, ObjectError>(())
         }).await.unwrap();
@@ -383,7 +383,7 @@ async fn publication_settings_reject_missing_buckets_and_corrupt_autoclass() {
                 BucketPublication::load(connection, "missing"),
                 Err(ObjectError::BucketNotFound)
             ));
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE buckets SET autoclass = 'broken' WHERE name = 'bucket'",
                 [],

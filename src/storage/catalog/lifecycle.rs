@@ -99,8 +99,8 @@ struct ScheduleState {
 }
 
 impl LifecycleSchedule {
-    pub(super) fn open(connection: &Connection) -> Result<Self, CatalogError> {
-        sql::exec(
+    pub(super) fn open(connection: &mut Connection) -> Result<Self, CatalogError> {
+        sql::exec_on_writer(
             connection,
             "CREATE TEMP TABLE lifecycle_quarantine (bucket TEXT NOT NULL, incarnation TEXT NOT NULL, name TEXT NOT NULL, generation INTEGER NOT NULL, revision TEXT NOT NULL, PRIMARY KEY (bucket, incarnation, name, generation)) WITHOUT ROWID",
             [],
@@ -346,7 +346,7 @@ impl Catalog {
 
     async fn sweep_lifecycle(&self, now: SystemTime) -> Result<LifecycleCounts, CatalogError> {
         self.run::<_, CatalogError>(|connection| {
-            sql::exec(connection, "DELETE FROM lifecycle_quarantine WHERE NOT EXISTS (SELECT 1 FROM bucket_incarnations b WHERE b.bucket = lifecycle_quarantine.bucket AND b.incarnation = lifecycle_quarantine.incarnation) OR (generation != 0 AND NOT EXISTS (SELECT 1 FROM objects o WHERE o.bucket = lifecycle_quarantine.bucket AND o.name = lifecycle_quarantine.name AND o.generation = lifecycle_quarantine.generation))", [])?;
+            sql::exec_on_writer(connection, "DELETE FROM lifecycle_quarantine WHERE NOT EXISTS (SELECT 1 FROM bucket_incarnations b WHERE b.bucket = lifecycle_quarantine.bucket AND b.incarnation = lifecycle_quarantine.incarnation) OR (generation != 0 AND NOT EXISTS (SELECT 1 FROM objects o WHERE o.bucket = lifecycle_quarantine.bucket AND o.name = lifecycle_quarantine.name AND o.generation = lifecycle_quarantine.generation))", [])?;
             Ok(())
         }).await?;
         let mut outcome = LifecycleCounts::default();

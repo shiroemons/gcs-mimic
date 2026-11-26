@@ -216,7 +216,7 @@ async fn records_awaiting_cleanup_stay_while_creation_succeeds_and_the_excess_ca
     fill_cancelled_sessions(&catalog, WINDOW + excess).await;
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "INSERT INTO pending_blob_deletions SELECT blob_id FROM resumable_sessions WHERE state = 'CANCELLED'",
                 [],
@@ -234,7 +234,7 @@ async fn records_awaiting_cleanup_stay_while_creation_succeeds_and_the_excess_ca
     );
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(connection, "DELETE FROM pending_blob_deletions", [])?;
+            sql::exec_on_writer(connection, "DELETE FROM pending_blob_deletions", [])?;
             Ok(())
         })
         .await
@@ -273,7 +273,7 @@ async fn kept_counts_follow_every_transition_and_are_rebuilt_on_open() {
     // A rolled-back change leaves them alone.
     let rolled_back = catalog
         .run::<_, CatalogError>(|connection| {
-            let transaction = connection.transaction()?;
+            let transaction = sql::deferred_write(connection)?;
             sql::exec(
                 &transaction,
                 "UPDATE resumable_sessions SET state = 'CANCELLED'",
@@ -284,7 +284,7 @@ async fn kept_counts_follow_every_transition_and_are_rebuilt_on_open() {
                 "SELECT terminal FROM temp.resumable_session_counts",
                 [],
             )?;
-            transaction.rollback()?;
+            sql::exec(&transaction, "ROLLBACK", [])?;
             Ok(during)
         })
         .await
@@ -296,7 +296,7 @@ async fn kept_counts_follow_every_transition_and_are_rebuilt_on_open() {
     assert_exact(counts(&catalog).await, (1, 1));
     catalog
         .run::<_, CatalogError>(move |connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "DELETE FROM resumable_sessions WHERE id = ?1",
                 [&second],

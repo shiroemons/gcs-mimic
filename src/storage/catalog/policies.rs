@@ -79,7 +79,7 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     reason = "a one-time schema migration step"
 )]
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction()?;
+    let transaction = sql::deferred_write(connection)?;
     transaction.execute_batch(SCHEMA)?;
     transaction.execute("INSERT INTO policy_revision VALUES (1, 0)", [])?;
     // Keyset iteration keeps migration memory independent of the number of buckets.
@@ -105,7 +105,7 @@ pub(super) fn next_revision(connection: &Connection) -> Result<i64, CatalogError
 }
 
 pub(super) fn insert_policy(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     bucket: &str,
     policy: &Policy,
 ) -> Result<(), CatalogError> {
@@ -131,7 +131,7 @@ pub(super) fn read_policy(connection: &Connection, bucket: &str) -> Result<Polic
 }
 
 pub(super) fn store_policy(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     bucket: &str,
     policy: &mut Policy,
 ) -> Result<(), CatalogError> {
@@ -147,7 +147,7 @@ pub(super) fn store_policy(
 }
 
 pub(super) fn advance_acl_revision(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     bucket: &str,
     updated: i64,
 ) -> Result<(), CatalogError> {
@@ -256,10 +256,6 @@ pub(super) fn check_access_with_public<'a>(
 
 impl Catalog {
     /// Install a startup-only local simulation of effective parent policy; never persisted as bucket metadata.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "parent policy is installed once at startup"
-    )]
     pub async fn configure_public_access_prevention(
         &self,
         projects: &[String],
@@ -267,13 +263,18 @@ impl Catalog {
         let projects = projects.to_vec();
         let parent_policy = self.0.reads.parent_policy.clone();
         self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            transaction.execute("DELETE FROM parent_public_access_prevention", [])?;
+            let transaction = sql::deferred_write(connection)?;
+            sql::exec(
+                &transaction,
+                "DELETE FROM parent_public_access_prevention",
+                [],
+            )?;
             for project in &projects {
                 crate::json::validate_project(project).map_err(|_| {
                     CatalogError::InvalidMetadata("Invalid parent policy project".into())
                 })?;
-                transaction.execute(
+                sql::exec(
+                    &transaction,
                     "INSERT OR IGNORE INTO parent_public_access_prevention VALUES (?1)",
                     [project],
                 )?;
@@ -424,7 +425,7 @@ pub(super) struct PolicyWrite<'a> {
 /// members under public access prevention, derives the bucket ACL and stores the policy with a
 /// new etag. The caller authorizes and commits.
 pub(super) fn replace_policy(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     write: PolicyWrite<'_>,
     policy: &mut Policy,
     principals: Option<&super::principals::Profile>,

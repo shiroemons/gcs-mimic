@@ -593,7 +593,7 @@ impl Admin {
     pub(crate) async fn finish_seed(&self) -> Result<(), AdminError> {
         self.catalog
             .run_admin(|connection| {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
                     [],

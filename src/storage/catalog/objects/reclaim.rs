@@ -34,29 +34,25 @@ pub(in crate::storage::catalog) fn blob_referenced(
 /// Journals `id` for deletion. Ignoring a duplicate is right here: the blob may already be
 /// journaled by an earlier retirement in the same transaction or by a retried cleanup.
 pub(in crate::storage::catalog) fn journal_deletion(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     id: &BlobId,
 ) -> rusqlite::Result<()> {
-    sql::exec(
-        connection,
-        "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)",
-        [id],
-    )?;
+    sql::exec(connection, JOURNAL_DELETION, [id])?;
     Ok(())
 }
 
+const JOURNAL_DELETION: &str = "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)";
+
 /// Journals a blob nothing else can have journaled; a duplicate is a catalog inconsistency.
 pub(in crate::storage::catalog) fn journal_new_deletion(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     id: &BlobId,
 ) -> rusqlite::Result<()> {
-    sql::exec(
-        connection,
-        "INSERT INTO pending_blob_deletions VALUES (?1)",
-        [id],
-    )?;
+    sql::exec(connection, JOURNAL_NEW_DELETION, [id])?;
     Ok(())
 }
+
+const JOURNAL_NEW_DELETION: &str = "INSERT INTO pending_blob_deletions VALUES (?1)";
 
 pub(super) const JOURNAL_CONFLICT: &str = "SELECT pending.blob_id FROM pending_blob_deletions AS pending JOIN objects ON objects.blob_id = pending.blob_id ORDER BY pending.blob_id LIMIT 1";
 
@@ -69,6 +65,7 @@ pub(super) fn live_journal_error(id: BlobId) -> ObjectError {
     ))
 }
 
+/// At startup recovery, the connection is local and no API request can use it.
 pub(in crate::storage::catalog) fn reclaim(
     connection: &Connection,
     data_dir: &Path,
@@ -97,11 +94,9 @@ pub(in crate::storage::catalog) fn reclaim(
     let _ = shard;
     #[cfg(test)]
     fault::hit(data_dir, Step::ReclaimForget).map_err(object_unavailable)?;
-    sql::exec(
-        connection,
-        "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
-        [id],
-    )?;
+    connection
+        .prepare_cached("DELETE FROM pending_blob_deletions WHERE blob_id = ?1")?
+        .execute([id])?;
     Ok(())
 }
 
@@ -194,7 +189,7 @@ impl Catalog {
                 if blob_referenced(connection, &id)? {
                     return Ok(Journaled::NOTHING);
                 }
-                journal_deletion(connection, &id)?;
+                sql::exec_on_writer(connection, JOURNAL_DELETION, [&id])?;
                 Ok(Journaled::SOME)
             })
             .await?;
@@ -277,7 +272,7 @@ impl Catalog {
                     .map_err(object_unavailable)?;
             catalog
                 .run_upload(move |connection| {
-                    let transaction = connection.transaction()?;
+                    let transaction = sql::deferred_write(connection)?;
                     for id in removed {
                         sql::exec(
                             &transaction,
@@ -327,7 +322,7 @@ mod tests {
         let live = catalog
             .run_upload::<_, ObjectError>(|connection| {
                 let id = lookup(connection, "bucket", "live")?.unwrap().blob;
-                journal_new_deletion(connection, &id)?;
+                sql::exec_on_writer(connection, JOURNAL_NEW_DELETION, [&id])?;
                 Ok(id)
             })
             .await

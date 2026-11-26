@@ -775,7 +775,7 @@ impl Catalog {
         let stored_hash = running_hash.as_ref().map(HasherState::to_bytes);
         // Bytes the catalog did not digest leave the session without a running digest.
         let (changed, output) = self.run::<_, CatalogError>(move |connection| {
-            let changed = sql::exec(connection, "UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options), running_hash = iif(?1 = ?4, coalesce(?7, running_hash), ?7) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![offset, total, id, old, now, encoded, stored_hash])?;
+            let changed = sql::exec_on_writer(connection, "UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options), running_hash = iif(?1 = ?4, coalesce(?7, running_hash), ?7) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![offset, total, id, old, now, encoded, stored_hash])?;
             if changed == 1 && let Some(output) = &mut output { output.acknowledge(offset); }
             Ok((changed, output))
         }).await?;

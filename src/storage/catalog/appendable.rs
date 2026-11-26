@@ -646,7 +646,7 @@ impl AppendWriter {
             .run_upload::<_, ObjectError>(move |connection| {
                 let _guard = guard;
                 let micros = unix_micros(clock.now())?;
-                let changed = sql::exec(connection,
+                let changed = sql::exec_on_writer(connection,
                         // A deleted or recreated bucket invalidates the writer as well.
                         "UPDATE appendable_objects SET size = ?1, crc32c = ?2, updated = ?3 WHERE bucket = ?4 AND name = ?5 AND generation = ?6 AND write_handle = ?7 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?4)", params![size, crc32c, micros, bucket, name, generation, handle])?;
                 if changed == 1 && let Some(checkpoint) = checkpoint { checkpoint.commit(); }
@@ -778,7 +778,7 @@ impl AppendWriter {
 /// the row removed later, a failure in between would leave it behind, and once the published
 /// generation was deleted that row would look unfinalized and serve the old bytes again.
 pub(super) fn retire_published(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     record: &ObjectRecord,
     backend: crate::config::Backend,
 ) -> Result<super::objects::Journaled, ObjectError> {
@@ -816,7 +816,7 @@ pub(super) fn bucket_in_use(catalog: &Catalog, bucket: &str) -> bool {
 /// the deletion journal; the disk data files, which no journal names, are returned for the caller
 /// to remove once the transaction commits, and startup recovery removes any it misses.
 pub(super) fn retire_bucket(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     backend: crate::config::Backend,
     bucket: &str,
 ) -> Result<Vec<BlobId>, ObjectError> {
@@ -859,7 +859,7 @@ enum Unreferenced {
 }
 
 fn unreference(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     backend: crate::config::Backend,
     id: &BlobId,
 ) -> Result<Unreferenced, ObjectError> {

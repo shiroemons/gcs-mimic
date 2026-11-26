@@ -997,7 +997,7 @@ async fn multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_
     }
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE buckets SET lifecycle = '[{}]' WHERE name = 'bucket'",
                 [],

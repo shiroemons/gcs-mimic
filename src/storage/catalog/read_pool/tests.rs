@@ -239,8 +239,8 @@ async fn a_definite_answer_from_a_reader_is_not_retried() {
     catalog.close().await.unwrap();
 }
 
-/// The connection is what enforces the rule that a pooled read changes nothing: a write fails
-/// there, and the serialized path answers as it always did.
+/// SQLite also refuses a direct write on the read-only connection, and the serialized fallback
+/// answers as it always did.
 #[tokio::test]
 async fn a_write_cannot_happen_on_a_reader() {
     let dir = TestDir::new();
@@ -250,11 +250,11 @@ async fn a_write_cannot_happen_on_a_reader() {
     let changed = catalog
         .run_read_on(move |connection, path| {
             seen.lock().unwrap().push(path);
-            Ok::<_, CatalogError>(sql::exec(
-                connection,
-                "UPDATE buckets SET labels = labels WHERE name = 'bucket'",
-                [],
-            )?)
+            Ok::<_, CatalogError>(
+                connection
+                    .prepare_cached("UPDATE buckets SET labels = labels WHERE name = 'bucket'")?
+                    .execute([])?,
+            )
         })
         .await
         .unwrap();

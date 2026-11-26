@@ -109,7 +109,7 @@ struct OwnedKey {
 }
 
 fn reconcile_grant(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     key: (&str, &str, i64),
     before: &ObjectOwner,
     after: &ObjectOwner,

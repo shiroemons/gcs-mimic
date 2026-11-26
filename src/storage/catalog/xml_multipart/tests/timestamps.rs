@@ -112,12 +112,12 @@ async fn schema_53_uploads_and_parts_upgrade_to_whole_milliseconds_and_keep_thei
     for invalid in [-1, 1000] {
         let rejected = catalog
             .run(move |connection| {
-                let uploads = sql::exec(
+                let uploads = sql::exec_on_writer(
                     connection,
                     "UPDATE xml_multipart_uploads SET created_sub_milli_micros=?1",
                     [invalid],
                 );
-                let parts = sql::exec(
+                let parts = sql::exec_on_writer(
                     connection,
                     "UPDATE xml_multipart_parts SET updated_sub_milli_micros=?1",
                     [invalid],

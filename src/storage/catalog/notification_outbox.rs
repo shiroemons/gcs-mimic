@@ -59,7 +59,10 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     Ok(())
 }
 
-pub(super) fn enqueue(connection: &Connection, message: Message<'_>) -> Result<(), CatalogError> {
+pub(super) fn enqueue(
+    connection: &sql::WriteTx<'_>,
+    message: Message<'_>,
+) -> Result<(), CatalogError> {
     let global: Option<(String, String)> = sql::row(
         connection,
         "SELECT bucket, config FROM notification_runtime WHERE singleton = 1",
@@ -95,7 +98,7 @@ pub(super) fn enqueue(connection: &Connection, message: Message<'_>) -> Result<(
 }
 
 pub(super) fn published(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     record: &crate::object::ObjectRecord,
     previous: Option<&super::objects::StoredObject>,
     time: std::time::SystemTime,
@@ -113,7 +116,7 @@ pub(super) fn published(
 
 /// Reports a metadata change of `record` at its update time, unless `mode` suppresses it.
 pub(super) fn metadata_updated(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     mode: crate::notification::NotificationMode,
     record: &crate::object::ObjectRecord,
 ) -> Result<(), CatalogError> {
@@ -136,7 +139,7 @@ pub(super) fn metadata_updated(
 /// object write over its notifications, so an unreachable Pub/Sub costs the oldest events and not
 /// the write. The publisher tolerates a row vanishing under it: what it already sent stays sent,
 /// and acknowledging or rescheduling a missing row changes nothing.
-fn make_room(connection: &Connection, bytes: i64) -> Result<u64, CatalogError> {
+fn make_room(connection: &sql::WriteTx<'_>, bytes: i64) -> Result<u64, CatalogError> {
     let mut evicted = 0;
     while sql::scalar::<bool>(
         connection,
@@ -203,7 +206,7 @@ fn warn_evicted(evicted: u64, now: i64) {
 }
 
 fn insert(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     topic: &str,
     encoded: &str,
     message: &Message<'_>,
@@ -243,7 +246,7 @@ impl Catalog {
     ) -> Result<(), CatalogError> {
         let global: Option<GlobalConfig> = runtime.global.clone();
         self.run(move |connection| {
-            let transaction = connection.transaction()?;
+            let transaction = sql::deferred_write(connection)?;
             sql::exec(&transaction, "DELETE FROM notification_runtime", [])?;
             if let Some(global) = global {
                 sql::exec(
@@ -267,7 +270,7 @@ impl Catalog {
 
     pub(crate) async fn acknowledge_notification(&self, id: i64) -> Result<(), CatalogError> {
         self.run(move |connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "DELETE FROM notification_outbox WHERE id = ?1",
                 [id],
@@ -279,7 +282,7 @@ impl Catalog {
 
     pub(crate) async fn retry_notification(&self, id: i64, due: i64) -> Result<(), CatalogError> {
         self.run(move |connection| {
-            sql::exec(connection, "UPDATE notification_outbox SET due = ?2, attempts = min(attempts + 1, 63) WHERE id = ?1", params![id, due])?;
+            sql::exec_on_writer(connection, "UPDATE notification_outbox SET due = ?2, attempts = min(attempts + 1, 63) WHERE id = ?1", params![id, due])?;
             Ok(())
         }).await
     }

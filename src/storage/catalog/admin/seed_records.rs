@@ -179,7 +179,7 @@ pub(crate) fn get(
 
 /// Keeps `record` at `bucket`/`name`, replacing any record there.
 pub(crate) fn save(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     bucket: &str,
     name: &str,
     record: &SeedRecord,
@@ -222,7 +222,11 @@ pub(crate) fn save(
 
 /// Clears any proof of absence of the record at `bucket`/`name` ([`SeedRecord::found`]), writing
 /// only where one was kept.
-pub(crate) fn found(connection: &Connection, bucket: &str, name: &str) -> Result<(), CatalogError> {
+pub(crate) fn found(
+    connection: &sql::WriteTx<'_>,
+    bucket: &str,
+    name: &str,
+) -> Result<(), CatalogError> {
     sql::exec(connection, FOUND, [bucket, name])?;
     Ok(())
 }
@@ -230,14 +234,14 @@ pub(crate) fn found(connection: &Connection, bucket: &str, name: &str) -> Result
 /// Clears every proof that a file is absent, as a startup replay and a reseed do: the passes
 /// after them start every wait over, and pass numbers, which start over with the server, never
 /// meet a proof an earlier server kept.
-pub(crate) fn clear_absences(connection: &Connection) -> Result<(), CatalogError> {
+pub(crate) fn clear_absences(connection: &sql::WriteTx<'_>) -> Result<(), CatalogError> {
     sql::exec(connection, CLEAR_ABSENCES, [])?;
     Ok(())
 }
 
 /// Drops the record at `bucket`/`name`.
 pub(crate) fn forget(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     bucket: &str,
     name: &str,
 ) -> Result<(), CatalogError> {
@@ -246,14 +250,14 @@ pub(crate) fn forget(
 }
 
 /// Marks the live bucket `bucket` as one seeding took for its directory.
-pub(crate) fn mark(connection: &Connection, bucket: &str) -> Result<(), CatalogError> {
+pub(crate) fn mark(connection: &sql::WriteTx<'_>, bucket: &str) -> Result<(), CatalogError> {
     sql::exec(connection, MARK, [bucket])?;
     Ok(())
 }
 
 /// Forgets that seeding took a bucket for the directory `bucket`, which a startup replay or a
 /// reseed, listing the whole tree, no longer found.
-pub(crate) fn unmark(connection: &Connection, bucket: &str) -> Result<(), CatalogError> {
+pub(crate) fn unmark(connection: &sql::WriteTx<'_>, bucket: &str) -> Result<(), CatalogError> {
     sql::exec(connection, UNMARK, [bucket])?;
     Ok(())
 }

@@ -87,7 +87,7 @@ async fn partial_startup_reconciliation_does_not_union_an_already_bound_bucket_a
     bucket(&catalog, "first-bucket", "project").await;
     bucket(&catalog, "second-bucket", "project").await;
     let before = catalog.run::<_, CatalogError>(|connection| {
-        let transaction = connection.transaction().unwrap();
+        let transaction = sql::deferred_write(connection).unwrap();
         let mut policy = crate::auth::Policy { bindings:vec![crate::auth::Binding { role:"roles/storage.legacyBucketReader".parse().unwrap(), members:vec!["user:local:reader-user".parse().unwrap()] }],etag:None };
         crate::storage::catalog::policies::store_policy(&transaction, "first-bucket", &mut policy).unwrap();
         for (name, entity) in [("first-bucket", "user-reader@example.test"), ("second-bucket", "user-invalid-id")] {
@@ -204,7 +204,7 @@ async fn old_bucket_without_stored_acl_does_not_invent_virtual_default_grants() 
     bucket(&catalog, "bucket", "project").await;
     let before = catalog
         .run::<_, CatalogError>(|connection| {
-            let transaction = connection.transaction().unwrap();
+            let transaction = sql::deferred_write(connection).unwrap();
             let mut policy = crate::auth::Policy {
                 bindings: vec![],
                 etag: None,

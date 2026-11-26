@@ -1,9 +1,10 @@
 use super::*;
 use crate::storage::catalog::{After, Work, resumable::writers::Deferred, sql};
-use rusqlite::{Transaction, TransactionBehavior};
 use std::sync::atomic::Ordering;
 
-pub(super) fn retire(connection: &Connection, id: &str) -> Result<(), ObjectError> {
+const FORGET_PART: &str = "DELETE FROM xml_multipart_deletions WHERE blob_id=?1";
+
+pub(super) fn retire(connection: &sql::WriteTx<'_>, id: &str) -> Result<(), ObjectError> {
     sql::exec(
         connection,
         "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1",
@@ -18,10 +19,10 @@ pub(super) fn retire(connection: &Connection, id: &str) -> Result<(), ObjectErro
 }
 
 fn drain_memory(
-    connection: &Connection,
+    connection: &mut Connection,
     backend: &super::super::BlobBackend,
 ) -> Result<bool, ObjectError> {
-    drain_with(connection, |id| {
+    for id in pending_ids(connection)? {
         let referenced: bool = sql::scalar(
             connection,
             "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id=?1 UNION ALL SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1 UNION ALL SELECT 1 FROM derived_transfers WHERE id=?1)",
@@ -32,10 +33,11 @@ fn drain_memory(
                 "multipart deletion journal references retained bytes",
             ));
         }
-        backend.remove_draft(id)?;
-        backend.remove(id)?;
-        Ok(())
-    })
+        backend.remove_draft(&id)?;
+        backend.remove(&id)?;
+        sql::exec_on_writer(connection, FORGET_PART, [&id])?;
+    }
+    pending(connection)
 }
 
 fn reclaim_disk(data_dir: &Path, ids: &[BlobId]) -> Result<(), ObjectError> {
@@ -55,17 +57,6 @@ fn reclaim_disk(data_dir: &Path, ids: &[BlobId]) -> Result<(), ObjectError> {
     Ok(())
 }
 
-fn drain_with(
-    connection: &Connection,
-    mut reclaim: impl FnMut(&BlobId) -> Result<(), ObjectError>,
-) -> Result<bool, ObjectError> {
-    for id in pending_ids(connection)? {
-        reclaim(&id)?;
-        forget(connection, &[id])?;
-    }
-    pending(connection)
-}
-
 fn pending_ids(connection: &Connection) -> Result<Vec<BlobId>, ObjectError> {
     connection
         .prepare_cached("SELECT blob_id FROM xml_multipart_deletions ORDER BY blob_id LIMIT 32")
@@ -76,13 +67,9 @@ fn pending_ids(connection: &Connection) -> Result<Vec<BlobId>, ObjectError> {
         .map_err(object_unavailable)
 }
 
-fn forget(connection: &Connection, ids: &[BlobId]) -> Result<(), ObjectError> {
+fn forget(transaction: &sql::WriteTx<'_>, ids: &[BlobId]) -> Result<(), ObjectError> {
     for id in ids {
-        sql::exec(
-            connection,
-            "DELETE FROM xml_multipart_deletions WHERE blob_id=?1",
-            [id],
-        )?;
+        sql::exec(transaction, FORGET_PART, [id])?;
     }
     Ok(())
 }
@@ -147,17 +134,16 @@ fn orphaned(connection: &Connection, after: &After<String>) -> Result<Vec<String
         .map_err(super::super::unavailable)
 }
 
-/// Recovery holds only a shared connection, so it opens the transaction unchecked; dropping it
-/// rolls back a failed retirement or commit.
-fn retire_at_recovery(connection: &Connection, id: &str) -> Result<(), CatalogError> {
-    let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+/// Runs before the catalog serves requests, under the same immediate retirement transaction.
+fn retire_at_recovery(connection: &mut Connection, id: &str) -> Result<(), CatalogError> {
+    let transaction = sql::immediate(connection)?;
     retire(&transaction, id).map_err(super::super::unavailable)?;
     transaction.commit()?;
     Ok(())
 }
 
 pub(super) fn recover(
-    connection: &Connection,
+    connection: &mut Connection,
     data_dir: &Path,
     now: UnixMillis,
 ) -> Result<(), CatalogError> {
@@ -187,7 +173,11 @@ pub(super) fn recover(
             break;
         }
         reclaim_disk(data_dir, &ids).map_err(super::super::unavailable)?;
-        forget(connection, &ids).map_err(super::super::unavailable)?;
+        for id in ids {
+            sql::exec_on_writer(connection, FORGET_PART, [id])
+                .map_err(ObjectError::from)
+                .map_err(super::super::unavailable)?;
+        }
     }
     let mut after = After::Start;
     loop {
@@ -208,7 +198,7 @@ impl Catalog {
     /// The caller, a lifecycle abort or a bucket purge, holds the whole-upload lease and the
     /// retirement transaction.
     pub(in crate::storage::catalog) fn retire_held_multipart(
-        connection: &Connection,
+        connection: &sql::WriteTx<'_>,
         lease: &resumable::WriterGuard,
     ) -> Result<(), ObjectError> {
         let id = lease.multipart_id().ok_or_else(|| {

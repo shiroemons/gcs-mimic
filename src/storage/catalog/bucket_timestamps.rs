@@ -3,7 +3,9 @@
 use super::{system_time_micros, unavailable};
 use crate::bucket::{BucketRecord, CatalogError};
 use crate::storage::catalog::sql;
-use rusqlite::{Connection, Row, params, types::Type};
+#[cfg(test)]
+use rusqlite::Connection;
+use rusqlite::{Row, params, types::Type};
 use std::time::{Duration, SystemTime};
 
 pub(super) const SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN time_created_nanos INTEGER NOT NULL DEFAULT 0 CHECK(typeof(time_created_nanos)='integer' AND time_created_nanos BETWEEN 0 AND 999);
@@ -56,7 +58,7 @@ pub(super) fn read(
 }
 
 pub(super) fn store_imported(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     record: &mut BucketRecord,
     created: SystemTime,
 ) -> Result<(), CatalogError> {

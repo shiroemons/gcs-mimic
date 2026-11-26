@@ -273,7 +273,7 @@ async fn store_rules(catalog: &Catalog, rules: &[Value]) {
     let encoded = Value::Array(rules.to_vec()).to_string();
     catalog
         .run::<_, CatalogError>(move |connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE buckets SET lifecycle = ?1 WHERE name = 'bucket'",
                 [encoded],
@@ -301,7 +301,7 @@ async fn an_unreadable_stored_location_type_quarantines_the_bucket_rules() {
     let original = put_class(&catalog, "object", StorageClass::Standard).await;
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE buckets SET location_type = 'unknown' WHERE name = 'bucket'",
                 [],

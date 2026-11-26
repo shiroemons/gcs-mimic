@@ -79,7 +79,7 @@ pub(super) fn read_all(
 /// The Pub/Sub notification documentation states that creating and deleting configurations
 /// increments the bucket metageneration, so both mutations update bucket metadata atomically.
 fn touch_bucket(
-    transaction: &Connection,
+    transaction: &sql::WriteTx<'_>,
     bucket: &str,
     now_micros: i64,
 ) -> Result<(), CatalogError> {

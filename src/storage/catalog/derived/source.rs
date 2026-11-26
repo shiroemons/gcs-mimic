@@ -132,7 +132,7 @@ impl Catalog {
     /// Hard deletion is intentionally separate from versioning retirement. Any later callback
     /// failure rolls this deletion back together with the destination and deletion journal.
     pub(crate) fn delete_derived_source_in_transaction(
-        connection: &Connection,
+        connection: &sql::WriteTx<'_>,
         bucket: &str,
         name: &str,
         generation: i64,

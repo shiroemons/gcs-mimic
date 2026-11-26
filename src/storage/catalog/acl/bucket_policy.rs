@@ -10,7 +10,7 @@ use crate::{
     project::ProjectNumber,
     storage::catalog::{policies, principals::Profile, unavailable},
 };
-use rusqlite::{Connection, params};
+use rusqlite::params;
 use std::collections::BTreeMap;
 
 #[cfg(test)]
@@ -76,7 +76,7 @@ fn policy_entries(policy: &Policy, project: &str, principals: Option<&Profile>) 
         .collect()
 }
 
-fn mark_bound(connection: &Connection, bucket: &str) -> Result<(), CatalogError> {
+fn mark_bound(connection: &sql::WriteTx<'_>, bucket: &str) -> Result<(), CatalogError> {
     sql::exec(
         connection,
         "UPDATE buckets SET acl_policy_bound=1 WHERE name=?1 AND acl_policy_bound=0",
@@ -113,7 +113,7 @@ fn merge_stored_grants(
 }
 
 pub(super) fn replace_policy(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     bucket: &str,
     entries: &[AclEntry],
     principals: Option<&Profile>,
@@ -203,7 +203,7 @@ pub(super) fn replace_policy(
 }
 
 pub(in super::super) fn replace_from_policy(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     bucket: &str,
     policy: &Policy,
     principals: Option<&Profile>,
@@ -234,7 +234,7 @@ pub(in super::super) fn replace_from_policy(
 }
 
 pub(in super::super) fn reconcile(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     bucket: &str,
     principals: &Profile,
     updated: i64,

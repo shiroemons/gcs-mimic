@@ -254,7 +254,7 @@ impl BoundCopyReplay {
 
     pub(super) fn store(
         &self,
-        connection: &Connection,
+        connection: &sql::WriteTx<'_>,
         now: i64,
         record: &ObjectRecord,
     ) -> Result<(), ObjectError> {
@@ -323,7 +323,7 @@ impl UploadReplay {
 
     pub(super) fn store(
         &self,
-        connection: &Connection,
+        connection: &sql::WriteTx<'_>,
         now: i64,
         fingerprint: &[u8; 32],
         record: &ObjectRecord,
@@ -417,7 +417,7 @@ impl UploadReplay {
 /// nothing. Only finished uploads have a record (the bound request lives in the upload's guard
 /// until its record commits), so this never touches an upload in progress. A retry that finds
 /// its record gone publishes again, exactly as it does after the record's lifetime.
-pub(super) fn make_room(connection: &Connection, now: i64) -> Result<(), ObjectError> {
+pub(super) fn make_room(connection: &sql::WriteTx<'_>, now: i64) -> Result<(), ObjectError> {
     sql::exec(
         connection,
         "DELETE FROM upload_replays WHERE deadline <= ?1",
@@ -832,12 +832,12 @@ mod tests {
             .unwrap();
         catalog
             .run::<_, CatalogError>(|connection| {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "DELETE FROM bucket_incarnations WHERE bucket='source'",
                     [],
                 )?;
-                sql::exec(connection, "DELETE FROM buckets WHERE name='source'", [])?;
+                sql::exec_on_writer(connection, "DELETE FROM buckets WHERE name='source'", [])?;
                 Ok(())
             })
             .await
@@ -851,12 +851,12 @@ mod tests {
 
     /// A table of `rows` records, each with a later deadline than the one before.
     fn replay_table(rows: i64) -> Connection {
-        let connection = Connection::open_in_memory().unwrap();
+        let mut connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch("CREATE TABLE upload_replays(token INTEGER PRIMARY KEY, deadline INTEGER); CREATE INDEX upload_replays_deadline ON upload_replays(deadline, token);")
             .unwrap();
-        sql::exec(
-            &connection,
+        sql::exec_on_writer(
+            &mut connection,
             "WITH RECURSIVE ids(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM ids WHERE n < ?1) INSERT INTO upload_replays SELECT n, 100 + n FROM ids",
             [rows],
         )
@@ -877,20 +877,28 @@ mod tests {
     #[test]
     fn making_room_drops_only_what_the_window_needs_oldest_first() {
         // One slot left: nothing goes.
-        let spare = replay_table(CAPACITY - 1);
-        make_room(&spare, 0).unwrap();
+        let mut spare = replay_table(CAPACITY - 1);
+        let transaction = sql::immediate(&mut spare).unwrap();
+        make_room(&transaction, 0).unwrap();
+        transaction.commit().unwrap();
         assert_eq!(oldest_and_count(&spare), (1, CAPACITY - 1));
         // Full: exactly the oldest goes.
-        let full = replay_table(CAPACITY);
-        make_room(&full, 0).unwrap();
+        let mut full = replay_table(CAPACITY);
+        let transaction = sql::immediate(&mut full).unwrap();
+        make_room(&transaction, 0).unwrap();
+        transaction.commit().unwrap();
         assert_eq!(oldest_and_count(&full), (2, CAPACITY - 1));
         // A catalog already over the window comes back within it rather than failing.
-        let over = replay_table(CAPACITY + 5);
-        make_room(&over, 0).unwrap();
+        let mut over = replay_table(CAPACITY + 5);
+        let transaction = sql::immediate(&mut over).unwrap();
+        make_room(&transaction, 0).unwrap();
+        transaction.commit().unwrap();
         assert_eq!(oldest_and_count(&over), (7, CAPACITY - 1));
         // Expired records go first, and only they when that makes enough room.
-        let expired = replay_table(CAPACITY);
-        make_room(&expired, 103).unwrap();
+        let mut expired = replay_table(CAPACITY);
+        let transaction = sql::immediate(&mut expired).unwrap();
+        make_room(&transaction, 103).unwrap();
+        transaction.commit().unwrap();
         assert_eq!(oldest_and_count(&expired), (4, CAPACITY - 3));
     }
 

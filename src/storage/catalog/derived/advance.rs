@@ -67,7 +67,7 @@ impl Catalog {
             let renewed = UnixMillis::try_from(catalog.0.policy.clock.now())?.saturating_add_millis(EPHEMERAL_LIFETIME_MILLIS);
             catalog.run_upload(move |connection| {
                 let (md5_state, crc) = hasher.md5_state();
-                sql::exec(connection, "UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4, deadline = CASE ephemeral WHEN 1 THEN max(deadline, ?5) ELSE deadline END WHERE id = ?1", params![id, progress.offset, md5_state.as_slice(), crc, renewed])?;
+                sql::exec_on_writer(connection, "UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4, deadline = CASE ephemeral WHEN 1 THEN max(deadline, ?5) ELSE deadline END WHERE id = ?1", params![id, progress.offset, md5_state.as_slice(), crc, renewed])?;
                 // The queued SQL job owns the draft until its acknowledged prefix is updated.
                 output.acknowledge(progress.offset);
                 Ok(progress)

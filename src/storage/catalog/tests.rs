@@ -72,7 +72,7 @@ async fn unknown_catalog_classes_fail_bucket_and_object_read_paths() {
         .unwrap();
     catalog
         .run(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE buckets SET storage_class='bogus' WHERE name='bucket'",
                 [],
@@ -90,12 +90,12 @@ async fn unknown_catalog_classes_fail_bucket_and_object_read_paths() {
     assert!(matches!(error, ObjectError::Corrupt(_)));
     catalog
         .run(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE buckets SET storage_class='STANDARD' WHERE name='bucket'",
                 [],
             )?;
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE objects SET storage_class='bogus' WHERE bucket='bucket'",
                 [],
@@ -803,7 +803,7 @@ async fn stored_bucket_location_outside_the_table_is_corruption() {
     ] {
         catalog
             .run(move |connection| {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "UPDATE buckets SET location = ?1, location_type = ?2 WHERE name = 'bucket'",
                     [location, kind],
@@ -845,7 +845,7 @@ async fn stored_autoclass_that_disagrees_with_its_state_is_corruption() {
         );
         catalog
             .run(move |connection| {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "UPDATE buckets SET autoclass = ?1 WHERE name = 'bucket'",
                     [&stored],
@@ -1111,7 +1111,7 @@ async fn legacy_lifecycle_text_survives_unrelated_updates() {
         .unwrap();
     catalog
         .run(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE buckets SET lifecycle=?1 WHERE name='legacy-bucket'",
                 [LEGACY],

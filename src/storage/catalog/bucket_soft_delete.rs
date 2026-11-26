@@ -131,7 +131,7 @@ fn retained_key(name: &str, generation: i64) -> String {
 }
 
 /// Moves objects (and, through deferred foreign keys, their ACL rows) between bucket keys.
-fn rekey_objects(connection: &Connection, from: &str, to: &str) -> Result<(), CatalogError> {
+fn rekey_objects(connection: &sql::WriteTx<'_>, from: &str, to: &str) -> Result<(), CatalogError> {
     // Parent and child keys change in one transaction; defer the check to its commit.
     connection.pragma_update(None, "defer_foreign_keys", true)?;
     for query in [
@@ -145,7 +145,11 @@ fn rekey_objects(connection: &Connection, from: &str, to: &str) -> Result<(), Ca
 
 /// Called inside the bucket deletion transaction after its permission, condition and
 /// emptiness checks. Without a positive soft delete policy the deletion stays permanent.
-pub(super) fn retire(connection: &Connection, name: &str, now: i64) -> Result<(), CatalogError> {
+pub(super) fn retire(
+    connection: &sql::WriteTx<'_>,
+    name: &str,
+    now: i64,
+) -> Result<(), CatalogError> {
     let (retention, generation): (i64, i64) = sql::row(
         connection,
         "SELECT COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0), generation FROM buckets WHERE name = ?1",
@@ -204,7 +208,7 @@ fn authorize(access: &BucketAccess, project: &str) -> Result<(), CatalogError> {
 }
 
 fn restore_in_transaction(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     name: &str,
     generation: i64,
     now: i64,
@@ -278,7 +282,7 @@ fn purge_batch(connection: &mut Connection, now: UnixMicros) -> Result<i64, Cata
 /// Permanently removes one soft-deleted version and its retained objects, whose blobs the
 /// deletion journal then reclaims; returns how many objects it removed. The caller commits.
 fn remove_version(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     name: &str,
     generation: i64,
 ) -> Result<u64, CatalogError> {
@@ -293,7 +297,10 @@ fn remove_version(
 
 /// Permanently removes every soft-deleted version of `name`, expired or not, with its retained
 /// objects; returns how many objects it removed. The caller commits.
-pub(super) fn remove_versions(connection: &Connection, name: &str) -> Result<u64, CatalogError> {
+pub(super) fn remove_versions(
+    connection: &sql::WriteTx<'_>,
+    name: &str,
+) -> Result<u64, CatalogError> {
     let generations = connection
         .prepare_cached("SELECT generation FROM soft_deleted_buckets WHERE name = ?1")?
         .query_map([name], |row| row.get::<_, i64>(0))?

@@ -73,7 +73,7 @@ async fn page_projection_preserves_generation_order_owner_and_access_restriction
     let (catalog, auth, record) = setup(&data, "disk").await;
     let generation = record.generation;
     catalog.run::<_, CatalogError>(move |connection| {
-        sql::exec(connection, "UPDATE acl_object_entries SET entries=?1 WHERE bucket='bucket' AND name='object' AND generation=?2", params![r#"[{"entity":"allUsers","role":"OWNER"},{"entity":"user-delegate@example.test","role":"OWNER"}]"#, generation])?;
+        sql::exec_on_writer(connection, "UPDATE acl_object_entries SET entries=?1 WHERE bucket='bucket' AND name='object' AND generation=?2", params![r#"[{"entity":"allUsers","role":"OWNER"},{"entity":"user-delegate@example.test","role":"OWNER"}]"#, generation])?;
         Ok(())
     }).await.unwrap();
     let principals = auth.principals().unwrap();
@@ -218,8 +218,9 @@ async fn oversized_stored_acl_entity_stays_readable() {
     let (catalog, _, _) = setup(&data, "memory").await;
     let refused = catalog
         .run(move |connection| {
+            let transaction = sql::immediate(connection)?;
             replace_resource_acl(
-                connection,
+                &transaction,
                 ResolvedAclTarget::Bucket {
                     bucket: "bucket",
                     scope: BucketScope::Bucket,

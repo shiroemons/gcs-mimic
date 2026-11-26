@@ -914,7 +914,7 @@ async fn hits_stop_while_a_rollback_stays_unconfirmed() {
         .store(true, std::sync::atomic::Ordering::Release);
     let failed = catalog
         .run::<(), crate::bucket::CatalogError>(|connection| {
-            sql::exec(connection, "BEGIN IMMEDIATE", []).unwrap();
+            sql::exec_on_writer(connection, "BEGIN IMMEDIATE", []).unwrap();
             panic!("injected catalog panic")
         })
         .await;

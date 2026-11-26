@@ -76,7 +76,7 @@ async fn legacy_reconciliation_preserves_existing_iam_bindings_and_permission_un
     let identity = auth.principals().unwrap()[0].clone();
     catalog
         .run::<_, crate::bucket::CatalogError>(move |connection| {
-            let transaction = connection.transaction().unwrap();
+            let transaction = sql::deferred_write(connection).unwrap();
             let mut policy = Policy {
                 bindings: vec![Binding {
                     role: "roles/storage.legacyBucketWriter".parse().unwrap(),
@@ -162,7 +162,7 @@ async fn legacy_reconciliation_rejects_invalid_or_oversized_acls_and_rolls_back_
             if case == 2 {
                 connection.execute_batch("CREATE TEMP TRIGGER reject_policy_update BEFORE UPDATE ON bucket_policies BEGIN SELECT RAISE(ABORT,'injected policy update failure'); END;").unwrap();
             }
-            let transaction = connection.transaction().unwrap();
+            let transaction = sql::deferred_write(connection).unwrap();
             assert!(reconcile(&transaction, "bucket", &Profile::TrustedLocal, 1).is_err());
             if case == 2 {
                 let staged = stored_bucket_entries(&transaction, "bucket", BucketScope::Bucket).unwrap().unwrap();
@@ -195,7 +195,7 @@ async fn repeated_acl_edits_do_not_grow_the_policy() {
     let (_data, catalog) = fixture().await;
     let sizes = catalog
         .run::<_, crate::bucket::CatalogError>(|connection| {
-            let transaction = connection.transaction().unwrap();
+            let transaction = sql::deferred_write(connection).unwrap();
             let without_entry = project_private("project");
             let mut with_entry = without_entry.clone();
             with_entry.push(AclEntry {
@@ -229,7 +229,7 @@ async fn stored_policies_are_refused_as_client_errors_past_their_bounds() {
     let (_data, catalog) = fixture().await;
     catalog
         .run::<_, crate::bucket::CatalogError>(|connection| {
-            let transaction = connection.transaction().unwrap();
+            let transaction = sql::deferred_write(connection).unwrap();
             let members = |count: usize, length: usize| Policy {
                 bindings: vec![Binding {
                     role: "roles/storage.objectViewer".parse().unwrap(),

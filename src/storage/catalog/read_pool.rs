@@ -140,7 +140,7 @@ impl ReaderConnection {
             return Ok(());
         }
         let projects = crate::sync::lock(&policy.projects).clone();
-        let transaction = self.connection.transaction()?;
+        let transaction = sql::deferred_write(&mut self.connection)?;
         sql::exec(
             &transaction,
             "DELETE FROM parent_public_access_prevention",

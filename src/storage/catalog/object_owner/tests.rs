@@ -34,7 +34,7 @@ fn principal_owner_keeps_its_stored_json() {
 
 #[test]
 fn owner_acl_reconciliation_rejects_corrupt_stored_roles_and_json() {
-    let connection = Connection::open_in_memory().unwrap();
+    let mut connection = Connection::open_in_memory().unwrap();
     connection.execute_batch("CREATE TABLE acl_object_entries(bucket TEXT,name TEXT,generation INTEGER,entries TEXT);").unwrap();
     let owner = ObjectOwner::Principal {
         id: "owner".into(),
@@ -53,9 +53,10 @@ fn owner_acl_reconciliation_rejects_corrupt_stored_roles_and_json() {
                 [stored],
             )
             .unwrap();
+        let transaction = sql::immediate(&mut connection).unwrap();
         assert!(
             matches!(
-                reconcile_grant(&connection, ("bucket", "object", 1), &owner, &owner),
+                reconcile_grant(&transaction, ("bucket", "object", 1), &owner, &owner),
                 Err(CatalogError::Corrupt(_))
             ),
             "{stored}"

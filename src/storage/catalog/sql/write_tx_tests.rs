@@ -1,4 +1,4 @@
-use super::{exec, immediate, scalar};
+use super::{deferred_write, exec, exec_on_writer, immediate, scalar};
 use crate::storage::{Catalog, test_fixtures::bucket};
 use crate::test_support::TestDir;
 use rusqlite::trace::{TraceEvent, TraceEventCodes};
@@ -10,8 +10,8 @@ use std::sync::{
 use std::time::Duration;
 
 fn table() -> Connection {
-    let connection = Connection::open_in_memory().unwrap();
-    exec(&connection, "CREATE TABLE entries (id INTEGER)", []).unwrap();
+    let mut connection = Connection::open_in_memory().unwrap();
+    exec_on_writer(&mut connection, "CREATE TABLE entries (id INTEGER)", []).unwrap();
     connection
 }
 
@@ -68,8 +68,8 @@ fn a_failed_commit_rolls_back_the_transaction() {
 #[test]
 fn an_automatic_sqlite_rollback_needs_no_drop_rollback() {
     let mut connection = table();
-    exec(
-        &connection,
+    exec_on_writer(
+        &mut connection,
         "CREATE UNIQUE INDEX entry_id ON entries (id)",
         [],
     )
@@ -150,12 +150,12 @@ fn a_deferred_write_does_not_reserve_the_writer_at_begin() {
     let path = dir.0.join("writer.sqlite3");
     let mut first = Connection::open(&path).unwrap();
     let mut second = Connection::open(&path).unwrap();
-    exec(&first, "CREATE TABLE entries (id INTEGER)", []).unwrap();
+    exec_on_writer(&mut first, "CREATE TABLE entries (id INTEGER)", []).unwrap();
     second.busy_timeout(Duration::ZERO).unwrap();
     let begins = trace_statements(&mut second, "BEGIN DEFERRED");
 
     let held = immediate(&mut first).unwrap();
-    let transaction = second.transaction().unwrap();
+    let transaction = deferred_write(&mut second).unwrap();
     assert_eq!(begins.load(Ordering::Relaxed), 1);
     assert!(matches!(
         exec(&transaction, "INSERT INTO entries VALUES (1)", []),
@@ -164,7 +164,7 @@ fn a_deferred_write_does_not_reserve_the_writer_at_begin() {
     drop(transaction);
     assert!(second.is_autocommit());
     held.commit().unwrap();
-    let transaction = second.transaction().unwrap();
+    let transaction = deferred_write(&mut second).unwrap();
     exec(&transaction, "INSERT INTO entries VALUES (1)", []).unwrap();
     transaction.commit().unwrap();
 }
@@ -173,7 +173,7 @@ fn a_deferred_write_does_not_reserve_the_writer_at_begin() {
 fn deferred_commit_failure_and_drop_each_roll_back() {
     let mut connection = foreign_keys();
     let rollbacks = trace_statements(&mut connection, "ROLLBACK");
-    let transaction = connection.transaction().unwrap();
+    let transaction = deferred_write(&mut connection).unwrap();
     exec(&transaction, "INSERT INTO children VALUES (1)", []).unwrap();
     assert!(matches!(
         transaction.commit(),
@@ -183,7 +183,7 @@ fn deferred_commit_failure_and_drop_each_roll_back() {
     assert!(connection.is_autocommit());
     assert_eq!(rollbacks.load(Ordering::Relaxed), 1);
 
-    let transaction = connection.transaction().unwrap();
+    let transaction = deferred_write(&mut connection).unwrap();
     exec(&transaction, "INSERT INTO parents VALUES (1)", []).unwrap();
     drop(transaction);
     assert!(connection.is_autocommit());

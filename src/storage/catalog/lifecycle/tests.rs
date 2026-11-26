@@ -846,7 +846,7 @@ async fn a_mutation_failure_rolls_back_the_page_and_retries_without_quarantining
     put(&catalog, "z-good").await;
     put(&catalog, "a-fails").await;
     catalog.run::<_, CatalogError>(|connection| {
-        sql::exec(connection, "CREATE TEMP TRIGGER fail_lifecycle_delete BEFORE DELETE ON objects WHEN old.name = 'a-fails' BEGIN SELECT RAISE(ABORT, 'injected mutation failure'); END", [])?;
+        sql::exec_on_writer(connection, "CREATE TEMP TRIGGER fail_lifecycle_delete BEFORE DELETE ON objects WHEN old.name = 'a-fails' BEGIN SELECT RAISE(ABORT, 'injected mutation failure'); END", [])?;
         Ok(())
     }).await.unwrap();
     clock.advance(DAY);
@@ -863,7 +863,7 @@ async fn a_mutation_failure_rolls_back_the_page_and_retries_without_quarantining
     );
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(connection, "DROP TRIGGER fail_lifecycle_delete", [])?;
+            sql::exec_on_writer(connection, "DROP TRIGGER fail_lifecycle_delete", [])?;
             Ok(())
         })
         .await
@@ -1029,7 +1029,7 @@ async fn a_broken_stored_rule_is_quarantined_once_and_api_repair_resumes_executi
         .unwrap();
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE buckets SET lifecycle = '[{}]' WHERE name = 'aaa-broken'",
                 [],
@@ -1482,12 +1482,12 @@ async fn malformed_versions_are_quarantined_once_while_healthy_pages_finish() {
     }
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE objects SET custom_time = 'invalid' WHERE name = 'a-corrupt'",
                 [],
             )?;
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE objects SET metadata = '[]' WHERE name = 'z-corrupt'",
                 [],
@@ -1514,7 +1514,7 @@ async fn malformed_versions_are_quarantined_once_while_healthy_pages_finish() {
     }
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE objects SET custom_time = NULL, metadata = '{}' WHERE name IN ('a-corrupt', 'z-corrupt')",
                 [],

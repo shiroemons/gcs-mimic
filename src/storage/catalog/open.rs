@@ -457,7 +457,7 @@ impl Catalog {
                 profile.reconcile(&mut connection, &*clock).map_err(CatalogOpenError::Authentication)?;
             }
             let parent_policy = Arc::<read_pool::ParentPolicy>::default();
-            let lifecycle = lifecycle::LifecycleSchedule::open(&connection)?;
+            let lifecycle = lifecycle::LifecycleSchedule::open(&mut connection)?;
             // An in-memory database exists only inside the writer's connection.
             let read_pool = match backend.kind() {
                 crate::config::Backend::Memory => None,

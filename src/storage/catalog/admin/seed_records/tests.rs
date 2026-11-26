@@ -93,14 +93,16 @@ async fn a_saved_record_reads_back_whole() {
     let first = sample(Some(owned), None);
     let second = sample(None, Some(owned));
     let records = run(&catalog, move |connection| {
-        save(connection, "bucket", "a", &first)?;
-        save(connection, "bucket", "b/c", &second)?;
-        let read = get(connection, "bucket", "a")?;
-        found(connection, "bucket", "a")?;
-        let cleared = get(connection, "bucket", "a")?;
-        clear_absences(connection)?;
-        let cleared_all = get(connection, "bucket", "b/c")?;
-        forget(connection, "bucket", "b/c")?;
+        let transaction = sql::immediate(connection)?;
+        save(&transaction, "bucket", "a", &first)?;
+        save(&transaction, "bucket", "b/c", &second)?;
+        let read = get(&transaction, "bucket", "a")?;
+        found(&transaction, "bucket", "a")?;
+        let cleared = get(&transaction, "bucket", "a")?;
+        clear_absences(&transaction)?;
+        let cleared_all = get(&transaction, "bucket", "b/c")?;
+        forget(&transaction, "bucket", "b/c")?;
+        transaction.commit()?;
         Ok((read, cleared, cleared_all, all(connection)?))
     })
     .await;
@@ -137,8 +139,10 @@ async fn a_mark_outlives_its_bucket_and_a_deletion_drops_its_records() {
     let record = sample(None, None);
     let marked = run(&catalog, move |connection| {
         let before = mark_of(connection, "bucket")?;
-        mark(connection, "bucket")?;
-        save(connection, "bucket", "a", &record)?;
+        let transaction = sql::immediate(connection)?;
+        mark(&transaction, "bucket")?;
+        save(&transaction, "bucket", "a", &record)?;
+        transaction.commit()?;
         Ok((before, mark_of(connection, "bucket")?))
     })
     .await;
@@ -165,7 +169,9 @@ async fn a_mark_outlives_its_bucket_and_a_deletion_drops_its_records() {
     let recreated = run(&catalog, |connection| {
         let recreated = mark_of(connection, "bucket")?;
         let listed = marks(connection)?;
-        unmark(connection, "bucket")?;
+        let transaction = sql::immediate(connection)?;
+        unmark(&transaction, "bucket")?;
+        transaction.commit()?;
         Ok((recreated, listed, mark_of(connection, "bucket")?))
     })
     .await;

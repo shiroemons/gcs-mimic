@@ -105,7 +105,7 @@ pub(super) fn commit_cancellation(
 }
 
 fn clean_record(
-    connection: &Connection,
+    connection: &mut Connection,
     backend: &BlobBackend,
     id: SessionId,
     blob_id: &BlobId,
@@ -114,7 +114,7 @@ fn clean_record(
 ) -> Result<(), CatalogError> {
     clean_session_storage(connection, backend, blob_id)?;
     if deadline <= now {
-        sql::exec(
+        sql::exec_on_writer(
             connection,
             "DELETE FROM resumable_sessions WHERE id = ?1 AND deadline <= ?2",
             params![id, now],
@@ -124,7 +124,7 @@ fn clean_record(
 }
 
 pub(super) fn recover_due(
-    connection: &Connection,
+    connection: &mut Connection,
     backend: &BlobBackend,
     now: UnixMillis,
 ) -> Result<(), CatalogError> {
@@ -143,7 +143,7 @@ pub(super) fn recover_due(
 
 #[cfg(test)]
 pub(super) fn clean_session_files(
-    connection: &rusqlite::Connection,
+    connection: &mut Connection,
     data_dir: &Path,
     blob_id: &BlobId,
 ) -> Result<(), CatalogError> {
@@ -151,7 +151,7 @@ pub(super) fn clean_session_files(
 }
 
 fn clean_session_storage(
-    connection: &rusqlite::Connection,
+    connection: &mut Connection,
     backend: &BlobBackend,
     blob_id: &BlobId,
 ) -> Result<(), CatalogError> {
@@ -185,12 +185,12 @@ fn remove_session_files(backend: &BlobBackend, cleanup: SessionCleanup) -> std::
 }
 
 fn forget_session_cleanup(
-    connection: &Connection,
+    connection: &mut Connection,
     cleanup: SessionCleanup,
 ) -> Result<(), CatalogError> {
     // A deletion after the plan owns its own journal row; a live plan must not forget it.
     if cleanup.remove_blob {
-        sql::exec(
+        sql::exec_on_writer(
             connection,
             "DELETE FROM pending_blob_deletions WHERE blob_id = ?1 AND NOT EXISTS (SELECT 1 FROM objects WHERE blob_id = ?1)",
             [cleanup.blob_id],
@@ -480,7 +480,7 @@ impl Catalog {
                     self.clean_session_storage(&writer, blob_id).await?;
                     if deadline <= now {
                         self.run::<_, CatalogError>(move |connection| {
-                            sql::exec(
+                            sql::exec_on_writer(
                                 connection,
                                 "DELETE FROM resumable_sessions WHERE id = ?1 AND deadline <= ?2",
                                 params![id, now],
@@ -778,7 +778,7 @@ mod tests {
 
     #[test]
     fn session_cleanup_never_forgets_a_later_object_deletion() {
-        let connection = Connection::open_in_memory().unwrap();
+        let mut connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE objects(blob_id TEXT); CREATE TABLE pending_blob_deletions(blob_id TEXT PRIMARY KEY);").unwrap();
         let id: BlobId = "00000000000000000000000000000001".parse().unwrap();
         connection
@@ -789,7 +789,7 @@ mod tests {
         connection
             .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
             .unwrap();
-        forget_session_cleanup(&connection, live_plan).unwrap();
+        forget_session_cleanup(&mut connection, live_plan).unwrap();
         assert_eq!(
             sql::scalar::<i64>(
                 &connection,
@@ -803,7 +803,7 @@ mod tests {
         connection
             .execute("INSERT INTO objects VALUES (?1)", [id])
             .unwrap();
-        forget_session_cleanup(&connection, absent_plan).unwrap();
+        forget_session_cleanup(&mut connection, absent_plan).unwrap();
         assert_eq!(
             sql::scalar::<i64>(
                 &connection,
@@ -822,12 +822,12 @@ mod tests {
         fs::create_dir_all(data_dir.join("staging")).unwrap();
         let protected = dir.0.join("protected");
         fs::write(&protected, b"keep").unwrap();
-        let connection = Connection::open_in_memory().unwrap();
+        let mut connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE objects(blob_id TEXT); CREATE TABLE pending_blob_deletions(blob_id TEXT);").unwrap();
         let id: BlobId = "0".repeat(32).parse().unwrap();
         let stage = id.staging_path(&data_dir);
         fs::write(&stage, b"old").unwrap();
-        clean_session_files(&connection, &data_dir, &id).unwrap();
+        clean_session_files(&mut connection, &data_dir, &id).unwrap();
         assert!(!stage.exists());
         assert_eq!(fs::read(&protected).unwrap(), b"keep");
         fs::write(&stage, b"prefix-tail").unwrap();

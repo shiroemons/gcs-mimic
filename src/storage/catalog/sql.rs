@@ -282,6 +282,23 @@ pub(super) fn optional_scalar<T: FromSql>(
 }
 
 pub(super) fn exec(
+    transaction: &WriteTx<'_>,
+    sql: &'static str,
+    params: impl Params,
+) -> rusqlite::Result<usize> {
+    exec_cached(transaction, sql, params)
+}
+
+/// Executes a standalone write through the writer's exclusive connection borrow.
+pub(super) fn exec_on_writer(
+    connection: &mut Connection,
+    sql: &'static str,
+    params: impl Params,
+) -> rusqlite::Result<usize> {
+    exec_cached(connection, sql, params)
+}
+
+fn exec_cached(
     connection: &Connection,
     sql: &'static str,
     params: impl Params,
@@ -291,16 +308,21 @@ pub(super) fn exec(
 
 /// A write transaction whose control statements use the connection's prepared cache.
 #[must_use = "dropping an uncommitted write rolls it back"]
-pub(super) struct WriteTx<'a>(&'a Connection);
+pub(crate) struct WriteTx<'a>(&'a Connection);
 
 pub(super) fn immediate(connection: &mut Connection) -> rusqlite::Result<WriteTx<'_>> {
-    exec(connection, "BEGIN IMMEDIATE", [])?;
+    exec_cached(connection, "BEGIN IMMEDIATE", [])?;
+    Ok(WriteTx(connection))
+}
+
+pub(super) fn deferred_write(connection: &mut Connection) -> rusqlite::Result<WriteTx<'_>> {
+    exec_cached(connection, "BEGIN DEFERRED", [])?;
     Ok(WriteTx(connection))
 }
 
 impl WriteTx<'_> {
     pub(super) fn commit(self) -> rusqlite::Result<()> {
-        exec(self.0, "COMMIT", []).map(drop)
+        exec_cached(self.0, "COMMIT", []).map(drop)
     }
 }
 
@@ -318,7 +340,7 @@ impl Drop for WriteTx<'_> {
         if !self.0.is_autocommit() {
             // Like rusqlite's Transaction, Drop cannot return a rollback error. The writer's
             // panic recovery can retry it, and the next BEGIN reports a still-open transaction.
-            let _ = exec(self.0, "ROLLBACK", []);
+            let _ = exec_cached(self.0, "ROLLBACK", []);
         }
     }
 }
@@ -339,7 +361,7 @@ pub(super) enum CommitFailure<E> {
 pub(super) struct ReadSnapshot<'a>(&'a Connection);
 
 pub(super) fn read_snapshot(connection: &Connection) -> rusqlite::Result<ReadSnapshot<'_>> {
-    exec(connection, "BEGIN DEFERRED", [])?;
+    exec_cached(connection, "BEGIN DEFERRED", [])?;
     Ok(ReadSnapshot(connection))
 }
 
@@ -355,7 +377,7 @@ impl Drop for ReadSnapshot<'_> {
     fn drop(&mut self) {
         // A failure leaves the transaction open: the read pool retires such a connection, and the
         // writer's panic recovery and `BEGIN` errors surface it on the serialized path.
-        let _ = exec(self.0, "ROLLBACK", []);
+        let _ = exec_cached(self.0, "ROLLBACK", []);
     }
 }
 
@@ -605,8 +627,8 @@ mod tests {
     #[test]
     fn cached_statements_preserve_missing_rows_nulls_and_rollback() {
         let mut connection = Connection::open_in_memory().unwrap();
-        exec(
-            &connection,
+        exec_on_writer(
+            &mut connection,
             "CREATE TABLE values_for_test (value INTEGER)",
             [],
         )
@@ -620,8 +642,8 @@ mod tests {
             Err(rusqlite::Error::QueryReturnedNoRows)
         ));
         assert_eq!(
-            exec(
-                &connection,
+            exec_on_writer(
+                &mut connection,
                 "INSERT INTO values_for_test VALUES (?1)",
                 [None::<i64>]
             )

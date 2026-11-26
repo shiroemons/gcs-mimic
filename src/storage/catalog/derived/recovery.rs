@@ -33,17 +33,14 @@ fn reclaim_derived_deletions(connection: &Connection, data_dir: &Path) -> Result
 }
 
 fn discard_record(connection: &Connection, id: &BlobId) -> Result<(), ObjectError> {
+    // This transaction only runs at open, before the connection can serve requests.
     let transaction = connection.unchecked_transaction()?;
-    sql::exec(
-        &transaction,
-        "DELETE FROM derived_inputs WHERE transfer_id = ?1",
-        [id],
-    )?;
-    sql::exec(
-        &transaction,
-        "DELETE FROM derived_transfers WHERE id = ?1",
-        [id],
-    )?;
+    transaction
+        .prepare_cached("DELETE FROM derived_inputs WHERE transfer_id = ?1")?
+        .execute([id])?;
+    transaction
+        .prepare_cached("DELETE FROM derived_transfers WHERE id = ?1")?
+        .execute([id])?;
     transaction.commit().map_err(object_unavailable)
 }
 

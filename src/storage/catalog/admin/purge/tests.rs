@@ -285,7 +285,7 @@ async fn protect(catalog: &Catalog) {
     .unwrap();
     catalog
         .run::<_, CatalogError>(move |connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE buckets SET retention_policy = ?2 WHERE name = ?1",
                 rusqlite::params![TARGET, policy],
@@ -748,7 +748,7 @@ async fn purge_empties_a_ram_catalog_at_its_page_budget() {
     let journal_first = catalog
         .run::<_, CatalogError>(|connection| {
             let statement = "INSERT INTO pending_blob_deletions SELECT blob_id FROM objects";
-            sql::exec(connection, statement, [])?;
+            sql::exec_on_writer(connection, statement, [])?;
             Ok(())
         })
         .await;

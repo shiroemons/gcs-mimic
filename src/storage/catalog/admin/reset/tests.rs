@@ -70,7 +70,7 @@ async fn reclaim_retains_the_whole_page_until_every_directory_is_synced() {
     catalog
         .run::<_, CatalogError>(move |connection| {
             for id in ids {
-                sql::exec(
+                sql::exec_on_writer(
                     connection,
                     "INSERT INTO pending_blob_deletions (blob_id) VALUES (?1)",
                     [id],

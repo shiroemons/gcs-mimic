@@ -5,7 +5,7 @@ use super::*;
 async fn orphan_every_upload(catalog: &Catalog) {
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE xml_multipart_uploads SET incarnation='00000000000000000000000000000000'",
                 [],

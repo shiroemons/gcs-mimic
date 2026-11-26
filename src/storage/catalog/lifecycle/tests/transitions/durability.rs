@@ -13,7 +13,7 @@ async fn failed_transition_update_rolls_back_the_page_and_retries() {
     notifications(&catalog).await;
     clock.advance(DAY);
     catalog.run::<_, CatalogError>(|connection| {
-        sql::exec(connection, "CREATE TEMP TRIGGER fail_transition BEFORE UPDATE OF storage_class ON objects WHEN old.name = 'a-fails' BEGIN SELECT RAISE(ABORT, 'injected transition write failure'); END", [])?;
+        sql::exec_on_writer(connection, "CREATE TEMP TRIGGER fail_transition BEFORE UPDATE OF storage_class ON objects WHEN old.name = 'a-fails' BEGIN SELECT RAISE(ABORT, 'injected transition write failure'); END", [])?;
         Ok(())
     }).await.unwrap();
     assert!(catalog.run_lifecycle_now().await.is_err());
@@ -29,7 +29,7 @@ async fn failed_transition_update_rolls_back_the_page_and_retries() {
     );
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(connection, "DROP TRIGGER fail_transition", [])?;
+            sql::exec_on_writer(connection, "DROP TRIGGER fail_transition", [])?;
             Ok(())
         })
         .await
@@ -170,7 +170,7 @@ async fn malformed_class_timestamp_is_quarantined_while_healthy_transitions_fini
     put(&catalog, "healthy").await;
     catalog
         .run::<_, CatalogError>(|connection| {
-            sql::exec(
+            sql::exec_on_writer(
                 connection,
                 "UPDATE objects SET time_storage_class_updated = 'invalid' WHERE name = 'broken'",
                 [],
@@ -207,7 +207,7 @@ async fn malformed_class_timestamp_is_quarantined_while_healthy_transitions_fini
         (0, 1, None)
     );
     catalog.run::<_, CatalogError>(|connection| {
-        sql::exec(connection, "UPDATE objects SET time_storage_class_updated = NULL, metageneration = metageneration + 1 WHERE name = 'broken'", [])?;
+        sql::exec_on_writer(connection, "UPDATE objects SET time_storage_class_updated = NULL, metageneration = metageneration + 1 WHERE name = 'broken'", [])?;
         Ok(())
     }).await.unwrap();
     assert_eq!(execute(&catalog).await.transitioned, 1);

@@ -633,7 +633,7 @@ pub(super) struct RetirementContext {
 }
 
 pub(super) fn retire_previous(
-    connection: &Connection,
+    connection: &sql::WriteTx<'_>,
     previous: Option<&StoredObject>,
     retirement: Retirement,
     bucket: &BucketPublication,

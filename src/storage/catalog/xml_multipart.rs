@@ -458,7 +458,7 @@ impl Catalog {
 }
 
 pub(super) fn recover(
-    connection: &Connection,
+    connection: &mut Connection,
     data_dir: &Path,
     now: UnixMillis,
 ) -> Result<(), CatalogError> {

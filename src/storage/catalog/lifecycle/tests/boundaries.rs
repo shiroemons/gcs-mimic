@@ -512,7 +512,7 @@ async fn catalog_sizes_around_five_tebibytes_use_small_bodies_and_strict_compari
             // Only the recorded size is synthetic; no large upload or body allocation occurs.
             catalog
                 .run::<_, CatalogError>(move |connection| {
-                    sql::exec(
+                    sql::exec_on_writer(
                         connection,
                         "UPDATE objects SET size = ?1 WHERE bucket = 'bucket' AND name = ?2",
                         params![size, size.to_string()],

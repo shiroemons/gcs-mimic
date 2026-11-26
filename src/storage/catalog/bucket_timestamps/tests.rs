@@ -29,7 +29,9 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
             let mut record = super::super::select_bucket(connection, "time-bucket")
                 .map_err(unavailable)?
                 .unwrap();
-            store_imported(connection, &mut record, created)
+            let transaction = sql::immediate(connection)?;
+            store_imported(&transaction, &mut record, created)?;
+            transaction.commit().map_err(unavailable)
         })
         .await
         .unwrap();
@@ -102,7 +104,9 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
                 let mut record = super::super::select_bucket(connection, "time-bucket")
                     .map_err(unavailable)?
                     .unwrap();
-                store_imported(connection, &mut record, created)
+                let transaction = sql::immediate(connection)?;
+                store_imported(&transaction, &mut record, created)?;
+                transaction.commit().map_err(unavailable)
             })
             .await
             .unwrap();

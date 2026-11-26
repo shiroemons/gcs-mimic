@@ -2,7 +2,7 @@ use super::{
     Catalog, DerivedDestination, DerivedSource, DerivedSourceSpec, compose_crc32c::combine, objects,
 };
 use crate::storage::catalog::Incarnation;
-use crate::storage::catalog::bucket_incarnation;
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, StorageClass},
     clock::Clock,
@@ -156,7 +156,7 @@ impl ComposePlan {
     /// Deletes every source except the destination itself when the compose asked for it.
     fn dispose_sources(
         &self,
-        connection: &Connection,
+        connection: &sql::WriteTx<'_>,
         record: &ObjectRecord,
         clock: &dyn Clock,
     ) -> Result<(), ObjectError> {
