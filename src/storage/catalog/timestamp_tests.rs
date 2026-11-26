@@ -698,7 +698,7 @@ async fn resources(catalog: &Catalog) -> Vec<Vec<u8>> {
     for mut bucket in buckets {
         // Catalogs before schema 45 store no bucket generation; the migration assigns one from
         // the creation time, which bucket_soft_delete's schema test covers.
-        bucket.generation = 0;
+        bucket.generation = None;
         result.push(
             serde_json::to_vec(
                 &json::bucket_resource(&bucket, "http://localhost", Projection::NoAcl).unwrap(),

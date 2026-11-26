@@ -167,9 +167,8 @@ pub struct BucketRecord {
     pub(crate) public_access_prevention: PublicAccessPrevention,
     pub uniform_bucket_level_access_locked_time: Option<SystemTime>,
     pub metageneration: i64,
-    /// Version of the bucket; the catalog assigns it at creation and keeps it across a
-    /// soft delete and restore. Values supplied to an insert are replaced.
-    pub(crate) generation: i64,
+    /// Unassigned before insertion. A stored value may be zero in an older catalog.
+    pub(crate) generation: Option<i64>,
     /// Microsecond precision; the catalog floors sub-microsecond values.
     pub time_created: SystemTime,
     pub updated: SystemTime,
@@ -184,6 +183,10 @@ pub(crate) enum DefaultBucketError {
 }
 
 impl BucketRecord {
+    pub(crate) fn generation(&self) -> i64 {
+        self.generation.unwrap_or_default()
+    }
+
     /// Canned ACL prechecks honor both the stored policy and a request to enable uniform access.
     pub(crate) fn uniform_access(&self, requested: Option<UniformAccessRequest>) -> UniformAccess {
         let locked_time = self.uniform_bucket_level_access_locked_time;
@@ -228,7 +231,7 @@ impl BucketRecord {
             public_access_prevention: Default::default(),
             uniform_bucket_level_access_locked_time: None,
             metageneration: 1,
-            generation: 0,
+            generation: None,
             time_created: now,
             updated: now,
         }

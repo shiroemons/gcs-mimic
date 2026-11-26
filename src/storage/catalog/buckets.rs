@@ -293,10 +293,11 @@ fn insert_bucket_with_policy(
         "SELECT last_generation FROM bucket_generation WHERE singleton = 1",
         [],
     )?;
-    record.generation = created_nanos.max(
+    let generation = created_nanos.max(
         last.checked_add(1)
             .ok_or_else(|| unavailable("generation exhausted"))?,
     );
+    record.generation = Some(generation);
     let changed = insert_row(transaction, record, created, updated)?;
     if changed == 0 {
         return Err(CatalogError::AlreadyExists);
@@ -307,7 +308,7 @@ fn insert_bucket_with_policy(
     sql::exec(
         transaction,
         "UPDATE bucket_generation SET last_generation = ?1 WHERE singleton = 1",
-        [record.generation],
+        [generation],
     )?;
     bucket_autoclass::insert(transaction, record, &lifecycle)?;
     insert_policy(transaction, &record.name, policy)?;
@@ -356,7 +357,7 @@ fn insert_row(
             ":autoclass": None::<sql::Json<crate::bucket::autoclass::Autoclass>>,
             ":time_created_nanos": 0,
             ":updated_nanos": 0,
-            ":generation": record.generation,
+            ":generation": record.generation(),
             ":versioning_configured": versioning_configured,
         })?;
     Ok(changed)
@@ -405,7 +406,7 @@ pub(super) fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         labels: row.get::<_, sql::Json<_>>("labels")?.0,
         lifecycle: BucketLifecycle::from_stored(row.get::<_, sql::Json<_>>("lifecycle")?.0),
         metageneration: row.get("metageneration")?,
-        generation: row.get("generation")?,
+        generation: Some(row.get("generation")?),
         time_created: bucket_timestamps::read(row, "time_created", "time_created_nanos")?,
         updated: bucket_timestamps::read(row, "updated", "updated_nanos")?,
         object_retention_enabled: row.get("object_retention_enabled")?,

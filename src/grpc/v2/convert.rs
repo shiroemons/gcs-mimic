@@ -1023,7 +1023,7 @@ mod tests {
             public_access_prevention: crate::bucket::PublicAccessPrevention::Inherited,
             uniform_bucket_level_access_locked_time: Some(now),
             metageneration: 3,
-            generation: 0,
+            generation: None,
             time_created: now,
             updated: now,
         };

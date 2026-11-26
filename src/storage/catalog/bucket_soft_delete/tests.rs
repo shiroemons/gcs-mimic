@@ -59,7 +59,7 @@ async fn legacy_bucket_revisions_remain_readable_after_reopen() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(zero.generation, 0);
+    assert_eq!(zero.generation, Some(0));
     assert_eq!(zero.metageneration, 0);
     assert_eq!(negative.metageneration, -3);
     catalog.close().await.unwrap();
@@ -133,7 +133,7 @@ async fn soft_deleted_bucket_read_sees_the_committed_version() {
     delete(&catalog, "retained").await.unwrap();
     assert_point_read(&catalog, async || {
         let deleted = catalog
-            .get_soft_deleted_bucket("retained", written.generation, PERMISSIVE)
+            .get_soft_deleted_bucket("retained", written.generation(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(deleted.record, written);
@@ -158,7 +158,7 @@ async fn soft_deleted_bucket_outlives_its_objects_and_expires_through_maintenanc
     delete(&catalog, "expiring").await.unwrap();
     let access = BucketAccess::Permissive;
     let version = catalog
-        .get_soft_deleted_bucket("expiring", live.generation, &access)
+        .get_soft_deleted_bucket("expiring", live.generation(), &access)
         .await
         .unwrap();
     assert_eq!(version.record, live);
@@ -187,7 +187,7 @@ async fn soft_deleted_bucket_outlives_its_objects_and_expires_through_maintenanc
     // Reads hide the expired version before maintenance runs.
     assert_eq!(
         catalog
-            .get_soft_deleted_bucket("expiring", live.generation, &access)
+            .get_soft_deleted_bucket("expiring", live.generation(), &access)
             .await,
         Err(CatalogError::NotFound)
     );
@@ -201,7 +201,7 @@ async fn soft_deleted_bucket_outlives_its_objects_and_expires_through_maintenanc
     );
     assert_eq!(
         catalog
-            .restore_bucket("expiring", live.generation, &access)
+            .restore_bucket("expiring", live.generation(), &access)
             .await,
         Err(CatalogError::NotFound)
     );
@@ -295,7 +295,7 @@ async fn failed_transitions_leave_the_catalog_unchanged() {
     let access = BucketAccess::Permissive;
     assert!(matches!(
         catalog
-            .restore_bucket("atomic", live.generation, &access)
+            .restore_bucket("atomic", live.generation(), &access)
             .await,
         Err(CatalogError::Unavailable(_))
     ));
@@ -313,13 +313,13 @@ async fn failed_transitions_leave_the_catalog_unchanged() {
     );
     assert!(
         catalog
-            .get_soft_deleted_bucket("atomic", live.generation, &access)
+            .get_soft_deleted_bucket("atomic", live.generation(), &access)
             .await
             .is_ok()
     );
     inject("DROP TRIGGER fail_restore;").await;
     let restored = catalog
-        .restore_bucket("atomic", live.generation, &access)
+        .restore_bucket("atomic", live.generation(), &access)
         .await
         .unwrap();
     assert_eq!(restored, live);
@@ -377,7 +377,7 @@ async fn restore_brings_back_iam_and_acl_with_a_new_policy_revision() {
         0
     );
     let restored = catalog
-        .restore_bucket("policy", live.generation, &access)
+        .restore_bucket("policy", live.generation(), &access)
         .await
         .unwrap();
     assert_eq!(restored, live);
@@ -468,7 +468,7 @@ async fn restore_rebinds_policy_acl_entities_to_the_current_principals() {
         .await
         .unwrap()
         .unwrap()
-        .generation;
+        .generation();
     delete(&catalog, "rebound").await.unwrap();
     catalog.close().await.unwrap();
 
@@ -515,14 +515,14 @@ async fn schema_45_backfills_generations_and_keeps_new_ones_unique() {
     assert_eq!(migrated, original);
     // Schema 45 backfills microseconds and schema 46 scales them to the nanosecond scale.
     assert_eq!(
-        migrated.generation,
+        migrated.generation(),
         unix_micros(UNIX_EPOCH + START).unwrap() * 1000
     );
     // A same-name bucket created at the same instant still gets a new generation.
     set_retention(&catalog, "legacy", 7 * DAY).await;
     delete(&catalog, "legacy").await.unwrap();
     let recreated = catalog.insert_bucket(record("legacy")).await.unwrap();
-    assert!(recreated.generation > migrated.generation);
+    assert!(recreated.generation() > migrated.generation());
     catalog.close().await.unwrap();
 }
 
@@ -581,13 +581,13 @@ async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() 
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(kept.generation, 1_000_000_100_000);
+    assert_eq!(kept.generation(), 1_000_000_100_000);
     let page = catalog
         .list_soft_deleted_buckets("project", "", None, 10)
         .await
         .unwrap();
     assert_eq!(page.items.len(), 1);
-    assert_eq!(page.items[0].record.generation, 1_000_000_200_000);
+    assert_eq!(page.items[0].record.generation(), 1_000_000_200_000);
     assert_eq!(
         count(
             &catalog,
@@ -616,12 +616,12 @@ async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() 
     );
     // A bucket created after the migration is above every migrated generation.
     let fresh = catalog.insert_bucket(record("fresh")).await.unwrap();
-    assert!(fresh.generation > kept.generation && fresh.generation > 1_000_000_200_000);
+    assert!(fresh.generation() > kept.generation() && fresh.generation() > 1_000_000_200_000);
     let restored = catalog
         .restore_bucket("gone", 1_000_000_200_000, PERMISSIVE)
         .await
         .unwrap();
-    assert_eq!(restored.generation, 1_000_000_200_000);
+    assert_eq!(restored.generation(), 1_000_000_200_000);
     assert_eq!(
         count(
             &catalog,
@@ -641,13 +641,13 @@ async fn new_bucket_generations_are_nanosecond_scale_unique_and_monotonic() {
     // A frozen clock still yields strictly increasing values: max(now, previous + 1).
     let first = catalog.insert_bucket(record("first")).await.unwrap();
     let second = catalog.insert_bucket(record("second")).await.unwrap();
-    assert_eq!(first.generation, start_nanos);
-    assert_eq!(second.generation, start_nanos + 1);
+    assert_eq!(first.generation(), start_nanos);
+    assert_eq!(second.generation(), start_nanos + 1);
     // Deleting and recreating a name never repeats the soft-deleted version's value.
     set_retention(&catalog, "first", 7 * DAY).await;
     delete(&catalog, "first").await.unwrap();
     let again = catalog.insert_bucket(record("first")).await.unwrap();
-    assert_eq!(again.generation, start_nanos + 2);
+    assert_eq!(again.generation(), start_nanos + 2);
     // A clock that jumps ahead takes over; one that steps back cannot lower the sequence.
     let later = UNIX_EPOCH + START + Duration::from_secs(60);
     clock.set(later);
@@ -655,8 +655,8 @@ async fn new_bucket_generations_are_nanosecond_scale_unique_and_monotonic() {
     ahead.time_created = later;
     ahead.updated = later;
     let ahead = catalog.insert_bucket(ahead).await.unwrap();
-    assert_eq!(ahead.generation, unix_micros(later).unwrap() * 1000);
+    assert_eq!(ahead.generation(), unix_micros(later).unwrap() * 1000);
     let behind = catalog.insert_bucket(record("behind")).await.unwrap();
-    assert_eq!(behind.generation, ahead.generation + 1);
+    assert_eq!(behind.generation(), ahead.generation() + 1);
     catalog.close().await.unwrap();
 }

@@ -637,7 +637,7 @@ async fn list_soft_deleted(
                 &params.project,
                 &params.prefix,
                 &last.record.name,
-                last.record.generation,
+                last.record.generation(),
             )
         })
         .transpose()?;

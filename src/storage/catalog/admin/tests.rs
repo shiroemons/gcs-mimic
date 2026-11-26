@@ -59,7 +59,7 @@ fn default_bucket_definition_keeps_every_field() {
         public_access_prevention: crate::bucket::PublicAccessPrevention::Inherited,
         uniform_bucket_level_access_locked_time: None,
         metageneration: 1,
-        generation: 0,
+        generation: None,
         time_created: at,
         updated: at,
     };

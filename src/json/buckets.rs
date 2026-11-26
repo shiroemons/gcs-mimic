@@ -688,7 +688,7 @@ pub(crate) fn bucket_resource_with_profile(
     ]);
     // The reference emulator's bucket shape has no generation; keep that profile unchanged.
     if profile == CompatProfile::Native {
-        value.insert("generation".into(), bucket.generation.to_string().into());
+        value.insert("generation".into(), bucket.generation().to_string().into());
     }
     value.insert(
         "metageneration".into(),

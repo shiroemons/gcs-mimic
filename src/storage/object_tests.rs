@@ -1482,7 +1482,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
     let mut bucket = catalog.get_bucket("bucket", PERMISSIVE).await.unwrap();
     // The migration backfills the generation from the creation time (zero here, so 1 in
     // microseconds) and schema 46 scales it to nanoseconds.
-    bucket.as_mut().unwrap().generation = 1000;
+    bucket.as_mut().unwrap().generation = Some(1000);
     downgraded(&dir, &catalog, |connection| {
         connection
             .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time;")

@@ -2152,7 +2152,7 @@ fn bucket_resource_json_keeps_its_bytes() {
         ),
     ] {
         let mut bucket = crate::storage::test_fixtures::bucket("golden-bucket", "project-1");
-        bucket.generation = 1_700_000_000_123_456_789;
+        bucket.generation = Some(1_700_000_000_123_456_789);
         bucket.time_created = created;
         bucket.metageneration = metageneration;
         bucket.updated = if metageneration > 1 {

@@ -130,7 +130,7 @@ async fn deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts
         .await
         .unwrap()
         .unwrap()
-        .generation;
+        .generation();
     catalog
         .delete_bucket("retained-bucket", Default::default(), PERMISSIVE)
         .await
