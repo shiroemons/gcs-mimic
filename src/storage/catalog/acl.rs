@@ -1117,6 +1117,11 @@ impl Catalog {
         let bucket = bucket.to_owned();
         self.run_read(move |connection| {
             let transaction = sql::read_snapshot(connection)?;
+            #[cfg(test)]
+            super::fault::hit(
+                &super::fault::database_dir(connection),
+                super::fault::Step::BeforeObjectAclProjection,
+            ).map_err(unavailable)?;
             let Some(row) = bucket_row(&transaction, &bucket)? else {
                 return Ok(None);
             };

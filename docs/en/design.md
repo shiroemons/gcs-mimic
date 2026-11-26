@@ -324,7 +324,8 @@ and gRPC reads of finalized or appendable generations use up to eight read-only 
 An object list reads its page and bucket metageneration in one snapshot. A soft-deleted object
 list stays on the writer to purge expired generations. A full JSON projection checks ACL visibility
 and reads the grants for the whole page or single resource in one additional snapshot. A bucket
-deleted after listing keeps its place in the response and loses its ACL fields.
+deleted after listing keeps its place in the response and loses its ACL fields. An authorized
+object read likewise omits ACL fields if its bucket disappears before projection.
 
 Each reader has its own thread, takes an admission slot and holds an activity lease while it runs.
 A snapshot is at least as new as every commit that finished before the read began, so clients

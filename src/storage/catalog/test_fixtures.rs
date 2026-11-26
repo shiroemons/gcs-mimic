@@ -7,6 +7,27 @@ use bytes::Bytes;
 use rusqlite::Connection;
 use std::time::UNIX_EPOCH;
 
+pub(crate) fn pause_read(
+    catalog: &Catalog,
+    step: super::fault::Step,
+) -> (
+    tokio::sync::oneshot::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+) {
+    use std::sync::{Arc, Mutex, mpsc};
+    let (entered, reached) = tokio::sync::oneshot::channel();
+    let (release, blocked) = mpsc::channel();
+    catalog.inject(
+        step,
+        0,
+        super::fault::Fault::Block {
+            entered: Arc::new(Mutex::new(Some(entered))),
+            release: Arc::new(Mutex::new(blocked)),
+        },
+    );
+    (reached, release)
+}
+
 pub(in crate::storage) fn guidance_source_failures() -> Vec<(
     crate::object::ObjectError,
     crate::storage::failure::BackendFailure,

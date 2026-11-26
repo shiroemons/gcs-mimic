@@ -147,8 +147,8 @@ These change no documented behavior:
   together or not at all.
 - **Bulk ACL projections.** Under a concurrent bucket delete, a listed bucket
   whose ACL projection disappears is returned without ACL fields instead of
-  failing the whole list with 404. Today that difference is reachable only in
-  this race.
+  failing the whole list with 404. An authorized object read also keeps its
+  successful response without ACL fields if its bucket disappears before projection.
 - **In-process derived transfers.** Single-request derived transfers keep their
   offset and hasher in memory instead of rereading the checkpoint.
   - Crash recovery already discards these rows without reading the offset
@@ -521,7 +521,9 @@ The reader statement cache grows from 32 to 96 statements when listing moves.
 
 ### Round trips
 
-W counts writer jobs and R counts reader jobs.
+W counts writer jobs and R counts reader jobs. The projection rows compare
+nonempty responses immediately before and after bulk ACL projection, with
+point reads already on the pool.
 
 | Change | Before → after |
 | --- | --- |
@@ -531,7 +533,9 @@ W counts writer jobs and R counts reader jobs.
 | Reclamation: each retiring transaction reports whether it journaled; all sites use `reclaim_if` | 1 W, a task and a permit per commit → none when nothing was journaled |
 | Delete: one `BucketAuthority` (bucket row, policy, public access prevention and ACL decoded once); purge inside the delete transaction | 2 transactions, the row read 3 times, the ACL decoded up to 4 times → 1 transaction, everything once |
 | Upload publish: the authorized publication carries the bucket's project | 2 bucket reads → 1 |
-| `projection=full`: no extra permission check; buckets.list and buckets.get use the bulk projection; object projections on the pool | buckets.list 2N W → 1 R; buckets.get 1 R + 2 W → 2 R; object get and list +1 W → +1 R |
+| `buckets.list` with `projection=full` on N visible buckets, counting the page read | N W + (N+1) R → 2 R (permissive)<br>N W + (2N+1) R → 2 R (strict admin) |
+| `buckets.get` with `projection=full`, counting the metadata read | 1 W + 2 R → 2 R (permissive)<br>1 W + 4 R → 3 R (strict admin) |
+| `projection=full` on object get and list, counting only the additional projection | +1 W → +1 R (permissive)<br>+1 W + 1 R → +1 R (strict admin) |
 | Rewrite, first call: permission and both buckets read on the pool; continuation lookup on the pool | 2 W + 3 R → 1 W + 2 R; continuation 2 W → 1 R + 1 W |
 | Admin batch cleanup: one reference query and one file job for the batch | 2N → 2 |
 | Pub/Sub outbox poll on the pool | 1 W per write → 1 R |

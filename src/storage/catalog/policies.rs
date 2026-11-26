@@ -178,7 +178,7 @@ pub(super) fn denied(
 
 impl BucketAccess {
     /// A caller with no grant anywhere cannot learn that a bucket is missing.
-    pub(crate) fn missing_bucket_denial(&self, bucket: &str) -> Option<CatalogError> {
+    pub(super) fn missing_bucket_denial(&self, bucket: &str) -> Option<CatalogError> {
         if let Self::Policy {
             identity,
             permission,

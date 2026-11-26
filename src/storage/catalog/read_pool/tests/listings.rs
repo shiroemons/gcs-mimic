@@ -3,8 +3,8 @@ use crate::{
     bucket::{BucketAccess, Versioning},
     storage::{
         AppendWriter, Finality, ObjectListQuery, ResumableOptions,
-        catalog::fault::{Fault, Step},
-        test_fixtures::read_all,
+        catalog::fault::Step,
+        test_fixtures::{pause_read, read_all},
     },
 };
 
@@ -43,23 +43,6 @@ async fn live_and_version_pages_see_the_committed_overwrite() {
         .await;
     }
     catalog.close().await.unwrap();
-}
-
-fn pause_read(
-    catalog: &Catalog,
-    step: Step,
-) -> (tokio::sync::oneshot::Receiver<()>, mpsc::Sender<()>) {
-    let (entered, reached) = tokio::sync::oneshot::channel();
-    let (release, blocked) = mpsc::channel();
-    catalog.inject(
-        step,
-        0,
-        Fault::Block {
-            entered: Arc::new(Mutex::new(Some(entered))),
-            release: Arc::new(Mutex::new(blocked)),
-        },
-    );
-    (reached, release)
 }
 
 #[tokio::test]

@@ -464,12 +464,6 @@ async fn object_acls(
         .catalog
         .object_acl_projection(bucket, generations, &access)
         .await?;
-    if acl.is_none()
-        && matches!(reader, AclReader::Caller(_))
-        && let Some(error) = access.missing_bucket_denial(bucket)
-    {
-        return Err(error.into());
-    }
     Ok(acl.filter(|acl| !acl.uniform_access))
 }
 

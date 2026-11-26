@@ -50,6 +50,8 @@ mod tests;
 pub(crate) enum Step {
     /// Between reading a listing's object page and its bucket metageneration.
     ListedObjectPage,
+    /// After an object response has selected its resources, before its ACL projection reads them.
+    BeforeObjectAclProjection,
     /// Between selecting an unfinalized generation and opening its data file.
     AppendableReadSelected,
     /// Before probing a failed or rolled-back publication's reference.

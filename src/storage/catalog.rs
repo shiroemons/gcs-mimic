@@ -363,13 +363,13 @@ impl Catalog {
         self.0.session_writers.lock().unwrap().is_empty()
     }
 
-    /// Arms a one-shot fault for the `skip + 1`-th time a write path reaches `step`.
+    /// Arms a one-shot fault for the `skip + 1`-th time the catalog reaches `step`.
     #[cfg(test)]
     pub(crate) fn inject(&self, step: fault::Step, skip: usize, fault: fault::Fault) {
         fault::arm(&self.0.data_dir, step, skip, fault);
     }
 
-    /// The number of injected faults no write path has reached yet.
+    /// The number of injected faults the catalog has yet to reach.
     #[cfg(test)]
     pub(crate) fn pending_faults(&self) -> usize {
         fault::pending(&self.0.data_dir)
