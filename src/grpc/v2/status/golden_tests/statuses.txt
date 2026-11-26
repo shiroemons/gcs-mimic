@@ -631,11 +631,11 @@ code: FailedPrecondition (9)
 message: "The resource you requested has not been modified according to the condition you specified."
 details: none
 -- anonymous caller: same as direct
--- via ApiError
+-- legacy v1
 code: FailedPrecondition (9)
 message: "At least one of the pre-conditions you specified did not hold."
 details: none
--- anonymous caller, via ApiError: same as via ApiError
+-- anonymous caller, legacy v1: same as legacy v1
 
 == CatalogError::PublicAccessPrevention
 -- direct
@@ -653,8 +653,8 @@ details: none
 code: Unauthenticated (16)
 message: "Login Required"
 details: none
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
+-- legacy v1: same as direct
+-- anonymous caller, legacy v1: same as anonymous caller
 
 == CatalogError::Denied(anonymous)
 -- direct
@@ -665,8 +665,8 @@ details: none
 code: Unauthenticated (16)
 message: "Login Required"
 details: none
--- via ApiError: same as direct
--- anonymous caller, via ApiError
+-- legacy v1: same as direct
+-- anonymous caller, legacy v1
 code: Unauthenticated (16)
 message: "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
 details: none
@@ -680,8 +680,8 @@ details: none
 code: Unauthenticated (16)
 message: "Login Required"
 details: none
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
+-- legacy v1: same as direct
+-- anonymous caller, legacy v1: same as anonymous caller
 
 == CatalogError::RetentionPolicyLocked
 -- direct
@@ -754,8 +754,8 @@ code: Unavailable (14)
 message: "Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions"
 details: none
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- legacy v1: same as direct
+-- anonymous caller, legacy v1: same as direct
 
 == CatalogError::Io(memory catalog)
 -- direct
@@ -763,8 +763,8 @@ code: Unavailable (14)
 message: "Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)"
 details: none
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- legacy v1: same as direct
+-- anonymous caller, legacy v1: same as direct
 
 == CatalogError::Io(PermissionDenied)
 -- direct
@@ -772,8 +772,8 @@ code: Unavailable (14)
 message: "Bucket catalog is unavailable"
 details: none
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- legacy v1: same as direct
+-- anonymous caller, legacy v1: same as direct
 
 == CatalogError::Corrupt(CatalogClosed)
 -- direct
@@ -781,8 +781,8 @@ code: Unavailable (14)
 message: "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying"
 details: none
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- legacy v1: same as direct
+-- anonymous caller, legacy v1: same as direct
 
 == CatalogError::Corrupt(private cause)
 -- direct
@@ -790,8 +790,8 @@ code: Unavailable (14)
 message: "Bucket catalog is unavailable"
 details: none
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- legacy v1: same as direct
+-- anonymous caller, legacy v1: same as direct
 
 == CatalogError::NewerSchema
 -- direct
@@ -806,8 +806,8 @@ code: Unavailable (14)
 message: "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying"
 details: none
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- legacy v1: same as direct
+-- anonymous caller, legacy v1: same as direct
 
 == CatalogError::Unavailable(private cause)
 -- direct
@@ -815,8 +815,8 @@ code: Unavailable (14)
 message: "Bucket catalog is unavailable"
 details: none
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- legacy v1: same as direct
+-- anonymous caller, legacy v1: same as direct
 
 == AuthFailure::LoginRequired
 -- direct
@@ -1109,60 +1109,60 @@ details: none
 -- anonymous caller: same as direct
 
 == ResumableError::InvalidContentRange
--- via ApiError
+-- via ServiceError
 code: InvalidArgument (3)
 message: "Failed to parse Content-Range header."
 details: none
--- anonymous caller, via ApiError: same as via ApiError
+-- anonymous caller, via ServiceError: same as via ServiceError
 
 == ResumableError::Overrun
--- via ApiError
+-- via ServiceError
 code: InvalidArgument (3)
 message: "Invalid request.  There were 10 byte(s) (or more) in the request body.  There should have been 4 byte(s) according to the Content-Range header."
 details: none
--- anonymous caller, via ApiError: same as via ApiError
+-- anonymous caller, via ServiceError: same as via ServiceError
 
 == ResumableError::Invalid
--- via ApiError
+-- via ServiceError
 code: InvalidArgument (3)
 message: "Upload offset 7 does not match the session"
 details: none
--- anonymous caller, via ApiError: same as via ApiError
+-- anonymous caller, via ServiceError: same as via ServiceError
 
 == ResumableError::Object(PreconditionFailed)
--- via ApiError
+-- via ServiceError
 code: FailedPrecondition (9)
 message: "At least one of the pre-conditions you specified did not hold."
 details: none
--- anonymous caller, via ApiError: same as via ApiError
+-- anonymous caller, via ServiceError: same as via ServiceError
 
 == BodyError::TooLarge
--- via ApiError
+-- via ServiceError
 code: ResourceExhausted (8)
 message: "JSON request body exceeds the configured limit"
 details: none
--- anonymous caller, via ApiError: same as via ApiError
+-- anonymous caller, via ServiceError: same as via ServiceError
 
 == BodyError::OutOfMemory
--- via ApiError
+-- via ServiceError
 code: Unavailable (14)
 message: "Could not allocate request body buffer"
 details: none
--- anonymous caller, via ApiError: same as via ApiError
+-- anonymous caller, via ServiceError: same as via ServiceError
 
 == BodyError::Unreadable
--- via ApiError
+-- via ServiceError
 code: InvalidArgument (3)
 message: "Could not read request body"
 details: none
--- anonymous caller, via ApiError: same as via ApiError
+-- anonymous caller, via ServiceError: same as via ServiceError
 
 == TimeOutOfRange::TimeOutOfRange
--- via ApiError
+-- via ServiceError
 code: Unavailable (14)
 message: "Bucket timestamp is outside the supported RFC 3339 range"
 details: none
--- anonymous caller, via ApiError: same as via ApiError
+-- anonymous caller, via ServiceError: same as via ServiceError
 
 == bucket::required name
 -- response

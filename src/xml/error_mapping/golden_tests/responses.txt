@@ -12,9 +12,9 @@ body: 133 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist.</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::ObjectNotFound
 -- direct
@@ -32,9 +32,9 @@ content-length: 175
 cache-control: private, max-age=0
 body: 175 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message><Details>No such object: bucket/object</Details></Error>
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as named object
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as named object
 
 == ObjectError::PreconditionFailed
 -- direct
@@ -46,9 +46,9 @@ body: 165 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold.</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Component(NotFound)
 -- direct
@@ -66,9 +66,9 @@ content-length: 175
 cache-control: private, max-age=0
 body: 175 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message><Details>No such object: bucket/object</Details></Error>
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as named object
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as named object
 
 == ObjectError::Component(GenerationMismatch)
 -- direct
@@ -80,9 +80,9 @@ body: 165 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold.</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::PublicAccessPrevention
 -- direct
@@ -94,9 +94,9 @@ body: 165 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold.</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::OverwriteForbidden
 -- direct
@@ -114,9 +114,9 @@ cache-control: private, max-age=0
 body: 121 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Login Required</Message></Error>
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
+-- named object, via ServiceError: same as direct
 
 == ObjectError::ActiveHold(Temporary)
 -- direct
@@ -134,9 +134,9 @@ cache-control: private, max-age=0
 body: 121 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Login Required</Message></Error>
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
+-- named object, via ServiceError: same as direct
 
 == ObjectError::ActiveHold(EventBased)
 -- direct
@@ -154,9 +154,9 @@ cache-control: private, max-age=0
 body: 121 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Login Required</Message></Error>
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
+-- named object, via ServiceError: same as direct
 
 == ObjectError::ObjectRetentionNotMet
 -- direct
@@ -174,9 +174,9 @@ cache-control: private, max-age=0
 body: 121 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Login Required</Message></Error>
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
+-- named object, via ServiceError: same as direct
 
 == ObjectError::UnlockedRetentionOverrideRequired
 -- direct
@@ -194,9 +194,9 @@ cache-control: private, max-age=0
 body: 121 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Login Required</Message></Error>
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
+-- named object, via ServiceError: same as direct
 
 == ObjectError::LockedRetention
 -- direct
@@ -214,9 +214,9 @@ cache-control: private, max-age=0
 body: 121 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Login Required</Message></Error>
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
+-- named object, via ServiceError: same as direct
 
 == ObjectError::ObjectNotSoftDeleted
 -- direct
@@ -228,9 +228,9 @@ body: 165 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold.</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::SoftDeletePolicyRequired(List)
 -- direct
@@ -242,9 +242,9 @@ body: 160 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Soft delete policy is required to list soft-deleted versions</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::SoftDeletePolicyRequired(Get)
 -- direct
@@ -256,9 +256,9 @@ body: 165 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Soft delete policy is required to request a soft-deleted version.</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::SoftDeletePolicyRequired(Restore)
 -- direct
@@ -270,9 +270,9 @@ body: 138 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>bucket soft delete policy must be set.</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Denied
 -- direct
@@ -290,9 +290,9 @@ cache-control: private, max-age=0
 body: 121 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Login Required</Message></Error>
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Denied(anonymous)
 -- direct
@@ -310,9 +310,9 @@ cache-control: private, max-age=0
 body: 275 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).</Message></Error>
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Forbidden
 -- direct
@@ -330,9 +330,9 @@ cache-control: private, max-age=0
 body: 121 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Login Required</Message></Error>
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
+-- named object, via ServiceError: same as direct
 
 == ObjectError::NotModified
 -- direct
@@ -344,9 +344,9 @@ body: 112 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Not modified</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::WriteNotModified
 -- direct
@@ -358,9 +358,9 @@ body: 112 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Not modified</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::SourceNotModified
 -- direct
@@ -372,9 +372,9 @@ body: 165 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold.</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::ChecksumMismatch
 -- direct
@@ -386,9 +386,9 @@ body: 154 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>The supplied checksum does not match the uploaded data</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::HashMismatch(Crc32c)
 -- direct
@@ -400,9 +400,9 @@ body: 170 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Provided CRC32C "AAAAAQ==" doesn't match calculated CRC32C "AAAAAg==".</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::HashMismatch(Md5)
 -- direct
@@ -414,9 +414,9 @@ body: 206 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Provided MD5 hash "AAAAAAAAAAAAAAAAAAAAAA==" doesn't match calculated MD5 hash "AQEBAQEBAQEBAQEBAQEBAQ==".</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::TooLarge
 -- direct
@@ -428,9 +428,9 @@ body: 136 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Object exceeds the upload size limit</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::InvalidFixedMetadata
 -- direct
@@ -442,9 +442,9 @@ body: 132 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Invalid contentType header value</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::UniformAccessPredefinedAcl
 -- direct
@@ -456,9 +456,9 @@ body: 298 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Invalid argument.</Message><Details>Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access</Details></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::UniformAccessAclUpdate
 -- direct
@@ -470,9 +470,9 @@ body: 298 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Invalid argument.</Message><Details>Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access</Details></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Metadata(ClassLocation)
 -- direct
@@ -484,9 +484,9 @@ body: 464 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidLocationConstraintStorageClassCombination</Code><Message>The combination of location and storage class specified is not supported for your project. In particular, regional locations do not support Multi-Regional Storage, and multi-regional locations do not support Regional Storage.</Message><Details>Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.</Details></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Metadata(StorageClassRequiresZone)
 -- direct
@@ -498,9 +498,9 @@ body: 253 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>gcs-mimic does not support object API setting storageClass RAPID requires a zonal bucket; omit this option or header (for example, use projection=noAcl).</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Metadata(LongLanguage)
 -- direct
@@ -512,9 +512,9 @@ body: 138 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>contentLanguage exceeds 100 characters</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::InvalidDerivedArgument
 -- direct
@@ -526,9 +526,9 @@ body: 131 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>sourceObjects must not be empty</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::ComposeClassMismatch
 -- direct
@@ -540,9 +540,9 @@ body: 242 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Cannot compose object with destination storage class STANDARD from source components that have different storage classes (NEARLINE, COLDLINE).</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::DerivedTransferNotFound
 -- direct
@@ -554,9 +554,9 @@ body: 120 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>NoSuchKey</Code><Message>Derived transfer not found</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::DerivedTransferExpired
 -- direct
@@ -568,9 +568,9 @@ body: 124 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Derived transfer expired</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::DerivedTransferBusy
 -- direct
@@ -582,9 +582,9 @@ body: 137 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Derived transfer is already in use</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::DerivedTransferIncomplete
 -- direct
@@ -596,9 +596,9 @@ body: 130 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Derived transfer is incomplete</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::UnsupportedMetadata
 -- direct
@@ -610,9 +610,9 @@ body: 219 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl).</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::CustomerEncryption(KeyIncorrect)
 -- direct
@@ -624,9 +624,9 @@ body: 158 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>CustomerEncryptionKeyIsIncorrect</Code><Message>The provided encryption key is incorrect.</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::BodyAborted
 -- direct
@@ -638,9 +638,9 @@ body: 140 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>The upload request body did not complete</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Io(StorageFull)
 -- direct
@@ -652,9 +652,9 @@ body: 351 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Io(memory blobs)
 -- direct
@@ -666,9 +666,9 @@ body: 367 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Storage capacity exhausted; delete objects, though data kept by soft delete keeps its bytes until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), or restart with a larger memory_max_bytes (a restart loses RAM data)</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Io(memory catalog)
 -- direct
@@ -680,9 +680,9 @@ body: 204 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Io(PermissionDenied)
 -- direct
@@ -694,9 +694,9 @@ body: 230 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Object storage is unavailable: storage I/O error (permission denied); check data directory permissions and available disk space</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Io(with context)
 -- direct
@@ -708,9 +708,9 @@ body: 238 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Object storage is unavailable: storage I/O error (blob 7: permission denied); check data directory permissions and available disk space</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Corrupt(CatalogClosed)
 -- direct
@@ -722,9 +722,9 @@ body: 188 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Object storage is unavailable: stored data is corrupt; restore a valid data directory</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Corrupt(private cause)
 -- direct
@@ -736,9 +736,9 @@ body: 188 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Object storage is unavailable: stored data is corrupt; restore a valid data directory</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Unavailable(CatalogClosed)
 -- direct
@@ -750,9 +750,9 @@ body: 199 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Object storage is unavailable: catalog is closed; wait for the server to restart before retrying</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Unavailable(MissingCompletion)
 -- direct
@@ -764,9 +764,9 @@ body: 193 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Object storage is unavailable: internal storage failure (private backend details withheld)</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == ObjectError::Unavailable(private cause)
 -- direct
@@ -778,9 +778,9 @@ body: 193 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Object storage is unavailable: internal storage failure (private backend details withheld)</Message></Error>
 -- anonymous caller: same as direct
 -- named object: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
--- named object, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
+-- named object, via ServiceError: same as direct
 
 == CatalogError::AuthenticationAlreadyConfigured
 -- direct
@@ -791,8 +791,8 @@ cache-control: private, max-age=0
 body: 132 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket catalog is unavailable</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::AlreadyExists
 -- direct
@@ -803,8 +803,8 @@ cache-control: private, max-age=0
 body: 182 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Your previous request to create the named bucket succeeded and you already own it.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::NotFound
 -- direct
@@ -815,8 +815,8 @@ cache-control: private, max-age=0
 body: 133 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::NotEmpty
 -- direct
@@ -827,8 +827,8 @@ cache-control: private, max-age=0
 body: 119 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Bucket is not empty</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::RestoreConflict
 -- direct
@@ -839,8 +839,8 @@ cache-control: private, max-age=0
 body: 186 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>A bucket with this name already exists, so the soft-deleted bucket cannot be restored.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::PreconditionFailed
 -- direct
@@ -851,8 +851,8 @@ cache-control: private, max-age=0
 body: 165 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::NotModified
 -- direct
@@ -863,8 +863,8 @@ cache-control: private, max-age=0
 body: 165 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::PublicAccessPrevention
 -- direct
@@ -875,8 +875,8 @@ cache-control: private, max-age=0
 body: 165 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Denied
 -- direct
@@ -893,8 +893,8 @@ content-length: 121
 cache-control: private, max-age=0
 body: 121 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Login Required</Message></Error>
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
 
 == CatalogError::Denied(anonymous)
 -- direct
@@ -911,8 +911,8 @@ content-length: 275
 cache-control: private, max-age=0
 body: 275 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).</Message></Error>
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
 
 == CatalogError::Forbidden
 -- direct
@@ -929,8 +929,8 @@ content-length: 121
 cache-control: private, max-age=0
 body: 121 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>AuthenticationRequired</Code><Message>Login Required</Message></Error>
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as anonymous caller
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as anonymous caller
 
 == CatalogError::RetentionPolicyLocked
 -- direct
@@ -941,8 +941,8 @@ cache-control: private, max-age=0
 body: 285 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Bucket retention policy is locked and cannot be removed or shortened; keep retentionPeriod at least 3600 seconds or extend it, for example {"retentionPolicy":{"retentionPeriod":"3601"}}</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::RetentionPolicyNotSet
 -- direct
@@ -953,8 +953,8 @@ cache-control: private, max-age=0
 body: 188 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>No retention policy to lock; set retentionPolicy.retentionPeriod first, for example 3600</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::InvalidMetadata
 -- direct
@@ -965,8 +965,8 @@ cache-control: private, max-age=0
 body: 141 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Invalid value for: x is not a valid value</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Metadata(ClassLocation)
 -- direct
@@ -977,8 +977,8 @@ cache-control: private, max-age=0
 body: 464 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidLocationConstraintStorageClassCombination</Code><Message>The combination of location and storage class specified is not supported for your project. In particular, regional locations do not support Multi-Regional Storage, and multi-regional locations do not support Regional Storage.</Message><Details>Project 123456 may not create storageClass REGIONAL buckets with locationConstraint US.</Details></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Metadata(StorageClassRequiresZone)
 -- direct
@@ -989,8 +989,8 @@ cache-control: private, max-age=0
 body: 254 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name).</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Metadata(AutoclassTerminal)
 -- direct
@@ -1001,8 +1001,8 @@ cache-control: private, max-age=0
 body: 203 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::UnsupportedMetadata
 -- direct
@@ -1013,8 +1013,8 @@ cache-control: private, max-age=0
 body: 216 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>gcs-mimic does not support bucket API setting cors; omit this setting (for example, create a bucket with only name).</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Io(StorageFull)
 -- direct
@@ -1025,8 +1025,8 @@ cache-control: private, max-age=0
 body: 351 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Io(memory catalog)
 -- direct
@@ -1037,8 +1037,8 @@ cache-control: private, max-age=0
 body: 204 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Io(PermissionDenied)
 -- direct
@@ -1049,8 +1049,8 @@ cache-control: private, max-age=0
 body: 132 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket catalog is unavailable</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Corrupt(CatalogClosed)
 -- direct
@@ -1061,8 +1061,8 @@ cache-control: private, max-age=0
 body: 199 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Corrupt(private cause)
 -- direct
@@ -1073,8 +1073,8 @@ cache-control: private, max-age=0
 body: 132 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket catalog is unavailable</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::NewerSchema
 -- direct
@@ -1085,8 +1085,8 @@ cache-control: private, max-age=0
 body: 132 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket catalog is unavailable</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Unavailable(CatalogClosed)
 -- direct
@@ -1097,8 +1097,8 @@ cache-control: private, max-age=0
 body: 199 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CatalogError::Unavailable(private cause)
 -- direct
@@ -1109,8 +1109,8 @@ cache-control: private, max-age=0
 body: 132 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket catalog is unavailable</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == AuthFailure::LoginRequired
 -- direct
@@ -1219,8 +1219,8 @@ cache-control: private, max-age=0
 body: 196 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>CustomerEncryptionAlgorithmIsInvalid</Code><Message>Missing an encryption algorithm, or the provided algorithm is not "AES256".</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CsekError::KeyFormatInvalid
 -- direct
@@ -1231,8 +1231,8 @@ cache-control: private, max-age=0
 body: 245 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>CustomerEncryptionKeyFormatIsInvalid</Code><Message>Missing an encryption key, or it is not Base64 encoded, or it does not meet the required length of the encryption algorithm.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CsekError::KeySha256Invalid
 -- direct
@@ -1243,8 +1243,8 @@ cache-control: private, max-age=0
 body: 235 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>CustomerEncryptionKeySha256IsInvalid</Code><Message>Missing a SHA256 hash of the encryption key, or it is not Base64 encoded, or it does not match the encryption key.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CsekError::KeyIncorrect
 -- direct
@@ -1255,8 +1255,8 @@ cache-control: private, max-age=0
 body: 158 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>CustomerEncryptionKeyIsIncorrect</Code><Message>The provided encryption key is incorrect.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CsekError::ResourceIsEncrypted
 -- direct
@@ -1267,8 +1267,8 @@ cache-control: private, max-age=0
 body: 232 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ResourceIsEncryptedWithCustomerEncryptionKey</Code><Message>The resource is encrypted with a customer-supplied encryption key, but the request did not provide one.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == CsekError::ResourceNotEncrypted
 -- direct
@@ -1279,8 +1279,8 @@ cache-control: private, max-age=0
 body: 230 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ResourceNotEncryptedWithCustomerEncryptionKey</Code><Message>The resource is not encrypted with a customer-supplied encryption key, but the request provided one.</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == BodyError::TooLarge
 -- direct
@@ -1291,8 +1291,8 @@ cache-control: private, max-age=0
 body: 146 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>JSON request body exceeds the configured limit</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == BodyError::OutOfMemory
 -- direct
@@ -1303,8 +1303,8 @@ cache-control: private, max-age=0
 body: 141 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Could not allocate request body buffer</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == BodyError::Unreadable
 -- direct
@@ -1315,8 +1315,8 @@ cache-control: private, max-age=0
 body: 127 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Could not read request body</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == TimeOutOfRange::TimeOutOfRange
 -- direct
@@ -1327,8 +1327,8 @@ cache-control: private, max-age=0
 body: 159 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket timestamp is outside the supported RFC 3339 range</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == InvalidDigest::InvalidDigest
 -- direct
@@ -1349,8 +1349,8 @@ cache-control: private, max-age=0
 body: 158 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>project must be a nonempty identifier of at most 256 bytes</Message></Error>
 -- anonymous caller: same as direct
--- via ApiError: same as direct
--- anonymous caller, via ApiError: same as direct
+-- via ServiceError: same as direct
+-- anonymous caller, via ServiceError: same as direct
 
 == ProfileNameError::Native
 -- direct

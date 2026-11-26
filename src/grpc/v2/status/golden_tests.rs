@@ -194,7 +194,8 @@ impl Golden {
         for (label, [plain, refused, legacy, legacy_anonymous]) in copies(domain::catalog_cases) {
             self.direct("CatalogError", label, plain.into(), refused.into());
             if matches!(legacy, CatalogError::NotModified) {
-                self.service_replies(
+                self.replies(
+                    ["legacy v1", "anonymous caller, legacy v1"],
                     crate::grpc::v1::conditional_bucket_error(legacy),
                     crate::grpc::v1::conditional_bucket_error(legacy_anonymous),
                 );
@@ -206,7 +207,8 @@ impl Golden {
                     | CatalogError::Io(_)
                     | CatalogError::Corrupt(_)
             ) {
-                self.service_replies(
+                self.replies(
+                    ["legacy v1", "anonymous caller, legacy v1"],
                     crate::grpc::v1::access_status(legacy, None),
                     crate::grpc::v1::access_status(legacy_anonymous, ANONYMOUS),
                 );
@@ -214,18 +216,20 @@ impl Golden {
         }
     }
 
-    // Keep the original fixture labels for replies formerly reached through shared HTTP errors.
-    fn service_replies(&mut self, plain: Status, refused: Status) {
-        self.transcript.render("via ApiError", rendering(&plain));
-        self.transcript
-            .render("anonymous caller, via ApiError", rendering(&refused));
+    fn replies(&mut self, labels: [&'static str; 2], plain: Status, refused: Status) {
+        self.transcript.render(labels[0], rendering(&plain));
+        self.transcript.render(labels[1], rendering(&refused));
     }
 
     fn service<E: Into<ServiceError>>(&mut self, section: &str, cases: Vec<Case<E>>) {
         for case in cases {
             self.transcript.case(section, case.label);
             let plain = Status::from(case.error.into());
-            self.service_replies(plain.clone(), anonymous(plain, ANONYMOUS));
+            self.replies(
+                ["via ServiceError", "anonymous caller, via ServiceError"],
+                plain.clone(),
+                anonymous(plain, ANONYMOUS),
+            );
         }
     }
 }

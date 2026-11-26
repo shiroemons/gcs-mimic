@@ -54,11 +54,11 @@ impl Golden {
             }
             if let Some(service) = service {
                 transcript.render(
-                    "via ApiError",
+                    "via ServiceError",
                     document(<Error as From<ServiceError>>::from(service(shared))).await,
                 );
                 transcript.render(
-                    "anonymous caller, via ApiError",
+                    "anonymous caller, via ServiceError",
                     document(
                         <Error as From<ServiceError>>::from(service(anon)).for_caller(ANONYMOUS),
                     )
@@ -66,7 +66,7 @@ impl Golden {
                 );
                 if naming == Naming::Object {
                     transcript.render(
-                        "named object, via ApiError",
+                        "named object, via ServiceError",
                         document(
                             <Error as From<ServiceError>>::from(service(by_name))
                                 .naming_object("bucket", "object"),
