@@ -1806,6 +1806,8 @@ mod tests {
         );
         let mixed = "fn live() { io::Error::other(x); }\n#[cfg(test)]\nfn fixture() { io::Error::other(x); }";
         assert_eq!(lines_of(IO_ERROR_OTHER, mixed), [1]);
+        // Only a leading, plain file-level cfg(test) is recognized. Compound or later test
+        // attributes can therefore flag a test-only call as production.
         for condition in ["#![cfg(not(test))]", "#![cfg(all(test, unix))]"] {
             let source = format!("{condition}\nfn live() {{ io::Error::other(x); }}");
             assert_eq!(lines_of(IO_ERROR_OTHER, &source), [2]);

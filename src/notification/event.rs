@@ -200,6 +200,12 @@ mod tests {
     #[test]
     fn a_notification_timestamp_keeps_its_diagnostic() {
         let error = super::invalid_time(crate::time_format::TimeOutOfRange);
+        assert!(
+            crate::error::causes(&error)
+                .last()
+                .unwrap()
+                .is::<crate::time_format::TimeOutOfRange>()
+        );
         assert_eq!(
             error.to_string(),
             "catalog corrupt: invalid notification timestamp"
