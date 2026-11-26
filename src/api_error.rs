@@ -405,7 +405,7 @@ impl ApiError {
     }
 
     pub(crate) fn invalid_stored_header() -> Self {
-        Self::service_unavailable("Invalid stored object response header")
+        Self::service_unavailable(crate::object::media_headers::StoredHeaderError::MESSAGE)
     }
 
     /// A numeric query parameter Cloud Storage could not parse as a signed 64-bit integer.
@@ -557,23 +557,6 @@ impl From<crate::page_token::PageTokenError> for ApiError {
 impl From<crate::hashing::InvalidDigest> for ApiError {
     fn from(error: crate::hashing::InvalidDigest) -> Self {
         Self::invalid_parameter(error.to_string())
-    }
-}
-
-impl From<crate::bounded_body::BodyError> for ApiError {
-    fn from(error: crate::bounded_body::BodyError) -> Self {
-        use crate::bounded_body::BodyError;
-        match error {
-            BodyError::TooLarge => Self::new(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "uploadTooLarge",
-                error.to_string(),
-            ),
-            BodyError::OutOfMemory => Self::service_unavailable(error.to_string()),
-            BodyError::Unreadable => {
-                Self::new(StatusCode::BAD_REQUEST, "badRequest", error.to_string())
-            }
-        }
     }
 }
 

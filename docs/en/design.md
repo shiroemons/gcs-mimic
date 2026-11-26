@@ -65,6 +65,9 @@ decoding (`hashing::decode_hash`), bucket creation from resource members
 returns `service::ServiceError`. Each adapter maps rejected input, project, catalog and time
 errors directly. Admin and filesystem import build native defaults with `BucketRecord::default_for`,
 which exposes only the project and timestamp failures those callers can encounter.
+Upload headers, stored media headers, bounded request bodies and multipart framing also
+preserve their typed errors through the protocol mappings. A resumable writer keeps its
+storage error until the upload driver chooses between a body abort and a producer failure.
 Other shared request parsers and server logic still return `api_error::ApiError`. Each adapter
 answers that error in its own protocol: the JSON adapter renders the envelope through
 `json::JsonErrorResponse`, the XML adapter maps it and the domain errors to its codes

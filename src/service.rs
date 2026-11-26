@@ -1,10 +1,13 @@
-//! Errors returned where the protocol adapters call shared bucket parsing.
+//! Errors returned where the protocol adapters call shared request handling.
 
 use crate::{
     auth::InvalidProjectId,
+    bounded_body::BodyError,
     bucket::{BucketRecord, CatalogError, resource},
     config::CompatProfile,
     input::InputError,
+    multipart::MultipartError,
+    object::{media_headers::StoredHeaderError, upload_headers::UploadHeaderError},
     time_format::TimeOutOfRange,
 };
 use serde_json::{Map, Value};
@@ -18,6 +21,14 @@ pub(crate) enum ServiceError {
     Project(#[from] InvalidProjectId),
     #[error(transparent)]
     Catalog(#[from] CatalogError),
+    #[error(transparent)]
+    Multipart(#[from] MultipartError),
+    #[error(transparent)]
+    UploadHeader(#[from] UploadHeaderError),
+    #[error(transparent)]
+    Body(#[from] BodyError),
+    #[error(transparent)]
+    StoredHeader(#[from] StoredHeaderError),
     #[error(transparent)]
     Time(#[from] TimeOutOfRange),
 }

@@ -1,3 +1,6 @@
+use crate::bounded_body::BodyError;
+use crate::multipart::MultipartError;
+use crate::object::upload_headers::UploadHeaderError;
 use crate::{
     bucket::CatalogError,
     grpc::generated::google::rpc::{BadRequest, ErrorInfo, Status as RpcStatus, bad_request},
@@ -19,6 +22,27 @@ impl From<ServiceError> for Status {
             },
             ServiceError::Project(error) => error.into(),
             ServiceError::Catalog(error) => error.into(),
+            ServiceError::UploadHeader(error) => match error {
+                UploadHeaderError::UnsupportedAlgorithm => unsupported_message(error.to_string()),
+                UploadHeaderError::InvalidContentType
+                | UploadHeaderError::DuplicateContentType
+                | UploadHeaderError::DuplicateAlgorithm
+                | UploadHeaderError::MalformedHash(_)
+                | UploadHeaderError::Digest(_)
+                | UploadHeaderError::Conflicting(_) => Self::invalid_argument(error.to_string()),
+            },
+            ServiceError::Multipart(error) => match error {
+                MultipartError::UnsupportedParameter(_) => unsupported_message(error.to_string()),
+                MultipartError::Framing
+                | MultipartError::MissingEnd
+                | MultipartError::BadContentType => Self::invalid_argument(error.to_string()),
+            },
+            ServiceError::Body(error) => match error {
+                BodyError::TooLarge => Self::resource_exhausted(error.to_string()),
+                BodyError::OutOfMemory => Self::unavailable(error.to_string()),
+                BodyError::Unreadable => Self::invalid_argument(error.to_string()),
+            },
+            ServiceError::StoredHeader(error) => Self::unavailable(error.to_string()),
             ServiceError::Time(error) => Self::unavailable(error.to_string()),
         }
     }

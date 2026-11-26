@@ -3,9 +3,12 @@
 //! JSON. The error itself, its kinds and the conversions from domain errors live in
 //! [`crate::api_error`], which the XML and gRPC adapters map to their own answers.
 
-use crate::api_error::{ApiError, PlainCache};
+use crate::api_error::{ApiError, BAD_CONTENT_TYPE_TEXT, MISSING_END_BOUNDARY_TEXT, PlainCache};
+use crate::bounded_body::BodyError;
 use crate::input::{InputError, InputKind};
+use crate::multipart::MultipartError;
 use crate::object::media_headers::NO_STORE_CACHE_CONTROL;
+use crate::object::upload_headers::UploadHeaderError;
 use crate::service::ServiceError;
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
@@ -25,12 +28,64 @@ impl From<InputError> for ApiError {
     }
 }
 
+impl From<BodyError> for ApiError {
+    fn from(error: BodyError) -> Self {
+        ServiceError::from(error).into()
+    }
+}
+
+impl From<UploadHeaderError> for ApiError {
+    fn from(error: UploadHeaderError) -> Self {
+        ServiceError::from(error).into()
+    }
+}
+
+impl From<crate::object::media_headers::StoredHeaderError> for ApiError {
+    fn from(error: crate::object::media_headers::StoredHeaderError) -> Self {
+        ServiceError::from(error).into()
+    }
+}
+
 impl From<ServiceError> for ApiError {
     fn from(error: ServiceError) -> Self {
         match error {
             ServiceError::Input(error) => error.into(),
             ServiceError::Project(error) => error.into(),
             ServiceError::Catalog(error) => error.into(),
+            ServiceError::UploadHeader(error) => match error {
+                UploadHeaderError::UnsupportedAlgorithm => {
+                    Self::unsupported_message(error.to_string())
+                }
+                UploadHeaderError::InvalidContentType
+                | UploadHeaderError::DuplicateContentType
+                | UploadHeaderError::DuplicateAlgorithm
+                | UploadHeaderError::MalformedHash(_)
+                | UploadHeaderError::Digest(_)
+                | UploadHeaderError::Conflicting(_) => Self::invalid_parameter(error.to_string()),
+            },
+            ServiceError::Multipart(error) => match error {
+                MultipartError::Framing => Self::invalid_parameter(error.to_string()),
+                MultipartError::BadContentType => {
+                    Self::invalid_parameter(error.to_string()).with_plain(&BAD_CONTENT_TYPE_TEXT)
+                }
+                MultipartError::MissingEnd => Self::invalid_parameter(error.to_string())
+                    .with_plain(&MISSING_END_BOUNDARY_TEXT),
+                MultipartError::UnsupportedParameter(_) => {
+                    Self::unsupported_message(error.to_string())
+                }
+            },
+            ServiceError::StoredHeader(_) => Self::invalid_stored_header(),
+            ServiceError::Body(error) => match error {
+                BodyError::TooLarge => Self::new(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "uploadTooLarge",
+                    error.to_string(),
+                ),
+                BodyError::OutOfMemory => Self::service_unavailable(error.to_string()),
+                BodyError::Unreadable => {
+                    Self::new(StatusCode::BAD_REQUEST, "badRequest", error.to_string())
+                }
+            },
             ServiceError::Time(error) => error.into(),
         }
     }

@@ -1,16 +1,23 @@
 //! Representation headers of an object media download, shared by the JSON and XML adapters.
 
 use super::{ObjectRecord, content_type};
-use crate::api_error::ApiError;
 use crate::base64::encode as base64;
 use crate::etag::object_etag;
 use hyper::{HeaderMap, header::HeaderValue};
+
+#[derive(Debug, thiserror::Error)]
+#[error("{}", Self::MESSAGE)]
+pub(crate) struct StoredHeaderError(#[from] hyper::header::InvalidHeaderValue);
+
+impl StoredHeaderError {
+    pub(crate) const MESSAGE: &'static str = "Invalid stored object response header";
+}
 
 /// The `Cache-Control` Cloud Storage sends with JSON API errors and media downloads.
 pub(crate) const NO_STORE_CACHE_CONTROL: &str = "no-cache, no-store, max-age=0, must-revalidate";
 
 /// Representation headers for an untranscoded media download.
-pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, ApiError> {
+pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, StoredHeaderError> {
     let mut headers = HeaderMap::new();
     for (key, value) in [
         // The transport substitutes stored/default cache metadata only for an allUsers read grant.
@@ -45,10 +52,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, A
         ),
         ("etag", object_etag(object)),
     ] {
-        headers.insert(
-            key,
-            HeaderValue::from_str(&value).map_err(|_| ApiError::invalid_stored_header())?,
-        );
+        headers.insert(key, HeaderValue::from_str(&value)?);
     }
     for (key, value) in [
         ("content-encoding", &object.content_encoding),
@@ -56,10 +60,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, A
         ("content-language", &object.content_language),
     ] {
         if let Some(value) = value {
-            headers.insert(
-                key,
-                HeaderValue::from_str(value).map_err(|_| ApiError::invalid_stored_header())?,
-            );
+            headers.insert(key, HeaderValue::from_str(value)?);
         }
     }
     Ok(headers)
@@ -105,7 +106,7 @@ mod tests {
         );
         object.content_type = "text/plain\r\nx-injected: yes".to_owned();
         assert_eq!(
-            object_media_headers(&object).unwrap_err().status,
+            crate::api_error::ApiError::from(object_media_headers(&object).unwrap_err()).status,
             StatusCode::SERVICE_UNAVAILABLE
         );
     }

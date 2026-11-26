@@ -45,7 +45,7 @@ fn json_part_type(value: Option<&str>) -> Result<(), ApiError> {
             name != "charset" || !value.eq_ignore_ascii_case("utf-8")
         })
     {
-        return Err(invalid());
+        return Err(invalid().into());
     }
     Ok(())
 }
@@ -106,7 +106,7 @@ impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
                 json_part_type(value.as_deref())?;
                 Ok(value)
             }
-            PartKind::Media => self.parser.media_part_headers().await,
+            PartKind::Media => self.parser.media_part_headers().await.map_err(Into::into),
         }
     }
 
@@ -127,11 +127,11 @@ impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
 
     /// The next decoded bytes of the current part, or `None` once its delimiter is read.
     pub(crate) async fn next_chunk(&mut self) -> Result<Option<Bytes>, ApiError> {
-        self.parser.next_chunk().await
+        self.parser.next_chunk().await.map_err(Into::into)
     }
 
     pub(crate) async fn finish(&mut self) -> Result<(), ApiError> {
-        self.parser.finish().await
+        self.parser.finish().await.map_err(Into::into)
     }
 
     /// The rest of the current part, failing once it would pass `JSON_CAP`.
@@ -171,7 +171,7 @@ impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|_| ApiError::legacy_parse_error("Invalid checksum JSON"))?;
         let serde_json::Value::Object(mut values) = value else {
-            return Err(invalid());
+            return Err(invalid().into());
         };
         if values
             .keys()

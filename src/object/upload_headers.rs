@@ -4,20 +4,40 @@
 //! only reads the declarations.
 
 use super::{Checksum, ExpectedHashes, HashAlgorithm};
-use crate::api_error::ApiError;
-use crate::hashing::decode_hash;
+use crate::hashing::{InvalidDigest, decode_hash};
 use crate::http_header::{TextError, TextOrder, sole};
 use hyper::HeaderMap;
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum UploadHeaderError {
+    #[error("Duplicate Content-Type header")]
+    DuplicateContentType,
+    #[error("Invalid Content-Type header")]
+    InvalidContentType,
+    #[error("{0}")]
+    MalformedHash(&'static str),
+    #[error("Duplicate x-goog-hash algorithm")]
+    DuplicateAlgorithm,
+    #[error(
+        "{}",
+        crate::input::unsupported_object_setting("x-goog-hash algorithm")
+    )]
+    UnsupportedAlgorithm,
+    #[error(transparent)]
+    Digest(#[from] InvalidDigest),
+    #[error("Conflicting {} declarations", .0.name())]
+    Conflicting(HashAlgorithm),
+}
 
 /// The `Content-Type` an upload stores: empty when the header is absent (recorded: the resource
 /// omits `contentType`), otherwise a single visible-ASCII value whose media type is
 /// `type/subtype` made of token characters.
-pub(crate) fn content_type(headers: &HeaderMap) -> Result<String, ApiError> {
+pub(crate) fn content_type(headers: &HeaderMap) -> Result<String, UploadHeaderError> {
     let content_type = sole(headers, "content-type")
         .text(TextOrder::RepetitionFirst)
         .map_err(|error| match error {
-            TextError::Repeated(_) => ApiError::invalid_parameter("Duplicate Content-Type header"),
-            TextError::Invalid(_) => ApiError::invalid_parameter("Invalid Content-Type header"),
+            TextError::Repeated(_) => UploadHeaderError::DuplicateContentType,
+            TextError::Invalid(_) => UploadHeaderError::InvalidContentType,
         })?
         .unwrap_or_default();
     let mime = content_type.split(';').next().unwrap_or_default().trim();
@@ -32,7 +52,7 @@ pub(crate) fn content_type(headers: &HeaderMap) -> Result<String, ApiError> {
             .split_once('/')
             .is_some_and(|(kind, subtype)| token(kind) && token(subtype))
     {
-        return Err(ApiError::invalid_parameter("Invalid Content-Type header"));
+        return Err(UploadHeaderError::InvalidContentType);
     }
     Ok(content_type.to_owned())
 }
@@ -40,14 +60,12 @@ pub(crate) fn content_type(headers: &HeaderMap) -> Result<String, ApiError> {
 /// The hashes an XML PUT declares with `X-Goog-Hash`. The JSON upload routes do not read the
 /// header this way: recorded media and multipart uploads and resumable initiations ignored it,
 /// and only the requests on a resumable session URI declare hashes with it.
-pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, ApiError> {
+pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, UploadHeaderError> {
     let mut hashes = ExpectedHashes::default();
     // A repeated algorithm is refused even with an equal value, before it is decoded.
     each_declared_hash(headers, "Invalid x-goog-hash header", |algorithm, value| {
         if hashes.declares(algorithm) {
-            return Err(ApiError::invalid_parameter(
-                "Duplicate x-goog-hash algorithm",
-            ));
+            return Err(UploadHeaderError::DuplicateAlgorithm);
         }
         hashes.set(decode(algorithm, value)?);
         Ok(())
@@ -56,7 +74,7 @@ pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, Api
 }
 
 /// Decodes a base64 digest of the algorithm's width.
-pub(crate) fn decode(algorithm: HashAlgorithm, text: &str) -> Result<Checksum, ApiError> {
+pub(crate) fn decode(algorithm: HashAlgorithm, text: &str) -> Result<Checksum, UploadHeaderError> {
     Ok(match algorithm {
         HashAlgorithm::Md5 => Checksum::Md5(decode_hash(text)?),
         HashAlgorithm::Crc32c => Checksum::Crc32c(u32::from_be_bytes(decode_hash(text)?)),
@@ -69,21 +87,21 @@ pub(crate) fn decode(algorithm: HashAlgorithm, text: &str) -> Result<Checksum, A
 pub(crate) fn each_declared_hash(
     headers: &HeaderMap,
     malformed: &'static str,
-    mut declare: impl FnMut(HashAlgorithm, &str) -> Result<(), ApiError>,
-) -> Result<(), ApiError> {
+    mut declare: impl FnMut(HashAlgorithm, &str) -> Result<(), UploadHeaderError>,
+) -> Result<(), UploadHeaderError> {
     for header in headers.get_all("x-goog-hash") {
         let header = header
             .to_str()
-            .map_err(|_| ApiError::invalid_parameter(malformed))?;
+            .map_err(|_| UploadHeaderError::MalformedHash(malformed))?;
         for entry in header.split(',') {
             let (token, value) = entry
                 .trim()
                 .split_once('=')
-                .ok_or_else(|| ApiError::invalid_parameter(malformed))?;
+                .ok_or(UploadHeaderError::MalformedHash(malformed))?;
             let algorithm = match token {
                 "md5" => HashAlgorithm::Md5,
                 "crc32c" => HashAlgorithm::Crc32c,
-                _ => return Err(ApiError::unsupported_object("x-goog-hash algorithm")),
+                _ => return Err(UploadHeaderError::UnsupportedAlgorithm),
             };
             declare(algorithm, value)?;
         }
@@ -133,7 +151,7 @@ mod tests {
             ("content-type", "text/html"),
         ]);
         assert_eq!(
-            content_type(&headers).unwrap_err().status,
+            crate::api_error::ApiError::from(content_type(&headers).unwrap_err()).status,
             StatusCode::BAD_REQUEST
         );
     }
@@ -189,7 +207,7 @@ mod tests {
         ] {
             let headers = header_map([("x-goog-hash", value)]);
             assert_eq!(
-                declared_hashes(&headers).unwrap_err().status,
+                crate::api_error::ApiError::from(declared_hashes(&headers).unwrap_err()).status,
                 StatusCode::BAD_REQUEST,
                 "{value}"
             );

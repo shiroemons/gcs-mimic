@@ -655,7 +655,6 @@ pub(crate) async fn transfer(
     let upload = state
         .catalog
         .write_resumable_session(lease, chunk, body, permit, render);
-    let upload = async { upload.await.map_err(ApiError::from) };
     match stream_chunk(request.into_body(), ctx, upload, sender, progress).await? {
         Written::Complete(resource) => view.respond(ctx, resource).await.map(Transfer::Complete),
         Written::Open(progress) => incomplete(progress, &headers).map(Transfer::Incomplete),
@@ -748,10 +747,10 @@ impl CompletionView {
 async fn stream_chunk(
     body: Incoming,
     ctx: ObjectCtx<'_>,
-    upload: impl std::future::Future<Output = Result<Written, ApiError>>,
+    upload: impl std::future::Future<Output = Result<Written, ResumableError>>,
     sender: UploadSender,
     progress: watch::Receiver<ChunkWait>,
-) -> Result<Written, ApiError> {
+) -> Result<Written, ResumableError> {
     let producer = async {
         stream_upload(body, &sender, ctx.config.max_object_bytes(), None)
             .await
@@ -764,7 +763,7 @@ async fn stream_chunk(
         producer,
     )
     .await
-    .map_err(crate::server::upload_drive::DriveError::into_error::<ApiError>)
+    .map_err(crate::server::upload_drive::DriveError::into_error::<ResumableError>)
 }
 
 pub(super) async fn await_session_upload<T, E: From<ObjectError>>(

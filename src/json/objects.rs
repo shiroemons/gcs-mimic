@@ -855,7 +855,7 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ApiErro
     // `X-Goog-Hash` is not examined either. Recorded JSON media uploads that named a wrong,
     // malformed or unknown-algorithm hash all stored the computed hashes with 200, so only a
     // multipart metadata `crc32c`/`md5Hash` is verified on this route.
-    crate::object::upload_headers::content_type(headers)
+    crate::object::upload_headers::content_type(headers).map_err(Into::into)
 }
 
 /// Reject unsupported encryption headers explicitly. `If-Range` is not one: Cloud Storage

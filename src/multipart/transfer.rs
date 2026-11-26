@@ -1,8 +1,8 @@
 //! The `Content-Transfer-Encoding` of a multipart/related media part.
 
 use super::invalid;
-use crate::api_error::ApiError;
 use crate::base64::{Alphabet, Padding};
+use crate::service::ServiceError;
 use bytes::Bytes;
 use hyper::HeaderMap;
 
@@ -23,9 +23,9 @@ const IDENTITY_ENCODINGS: [&str; 4] = ["binary", "7bit", "8bit", "quoted-printab
 
 /// The encoding a part's headers declare: one of [`IDENTITY_ENCODINGS`], `base64` or none.
 impl TryFrom<&HeaderMap> for PartEncoding {
-    type Error = ApiError;
+    type Error = ServiceError;
 
-    fn try_from(headers: &HeaderMap) -> Result<Self, ApiError> {
+    fn try_from(headers: &HeaderMap) -> Result<Self, ServiceError> {
         let Some(value) = headers.get("content-transfer-encoding") else {
             return Ok(Self::Identity);
         };
@@ -45,7 +45,7 @@ impl TryFrom<&HeaderMap> for PartEncoding {
 
 impl PartEncoding {
     /// Requires a part other than the media part to be sent as it is.
-    pub(super) fn require_identity(self) -> Result<(), ApiError> {
+    pub(super) fn require_identity(self) -> Result<(), ServiceError> {
         match self {
             Self::Identity => Ok(()),
             Self::Base64(_) => Err(invalid()),
@@ -54,7 +54,7 @@ impl PartEncoding {
 
     /// Decodes one raw chunk of the part. A base64 chunk may yield nothing while it carries an
     /// incomplete quantum to the next chunk.
-    pub(super) fn decode(&mut self, raw: Bytes) -> Result<Bytes, ApiError> {
+    pub(super) fn decode(&mut self, raw: Bytes) -> Result<Bytes, ServiceError> {
         match self {
             Self::Identity => Ok(raw),
             Self::Base64(part) => part.decode(&raw),
@@ -62,7 +62,7 @@ impl PartEncoding {
     }
 
     /// Ends the part: a base64 part must not stop inside a quantum.
-    pub(super) fn finish(self) -> Result<(), ApiError> {
+    pub(super) fn finish(self) -> Result<(), ServiceError> {
         match self {
             Self::Identity => Ok(()),
             Self::Base64(part) if part.carry.is_empty() => Ok(()),
@@ -81,7 +81,7 @@ pub(super) struct Base64Part {
 }
 
 impl Base64Part {
-    fn decode(&mut self, raw: &[u8]) -> Result<Bytes, ApiError> {
+    fn decode(&mut self, raw: &[u8]) -> Result<Bytes, ServiceError> {
         // MIME base64 breaks its text into lines; line breaks and blanks carry no data.
         self.carry.extend(
             raw.iter()
@@ -112,7 +112,7 @@ mod tests {
         PartEncoding::Base64(Base64Part::default())
     }
 
-    fn decode_split(encoded: &[u8], at: usize) -> Result<Vec<u8>, ApiError> {
+    fn decode_split(encoded: &[u8], at: usize) -> Result<Vec<u8>, ServiceError> {
         let mut encoding = base64();
         let (head, tail) = encoded.split_at(at);
         let mut decoded = encoding.decode(Bytes::copy_from_slice(head))?.to_vec();

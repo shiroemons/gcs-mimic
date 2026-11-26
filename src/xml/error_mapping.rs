@@ -2,6 +2,9 @@
 //! keeps the code, message and details the XML adapter has always sent for that failure.
 
 use super::{Error, XmlCode};
+use crate::multipart::MultipartError;
+use crate::object::upload_headers::UploadHeaderError;
+
 use crate::{
     auth::{AuthError, AuthFailure, Caller, Denied, InvalidProjectId},
     bounded_body::BodyError,
@@ -18,6 +21,17 @@ use crate::{
 };
 use hyper::StatusCode;
 
+impl From<UploadHeaderError> for Error {
+    fn from(error: UploadHeaderError) -> Self {
+        ServiceError::from(error).into()
+    }
+}
+impl From<crate::object::media_headers::StoredHeaderError> for Error {
+    fn from(error: crate::object::media_headers::StoredHeaderError) -> Self {
+        ServiceError::from(error).into()
+    }
+}
+
 impl From<ServiceError> for Error {
     fn from(error: ServiceError) -> Self {
         match error {
@@ -29,6 +43,35 @@ impl From<ServiceError> for Error {
             },
             ServiceError::Project(error) => error.into(),
             ServiceError::Catalog(error) => error.into(),
+            ServiceError::Multipart(error) => match error {
+                MultipartError::Framing
+                | MultipartError::BadContentType
+                | MultipartError::MissingEnd
+                | MultipartError::UnsupportedParameter(_) => Self::invalid(error.to_string()),
+            },
+            ServiceError::UploadHeader(error) => match error {
+                UploadHeaderError::InvalidContentType
+                | UploadHeaderError::DuplicateContentType
+                | UploadHeaderError::UnsupportedAlgorithm => Self::invalid(error.to_string()),
+                // XML PUT omits the algorithm from a malformed or repeated digest.
+                UploadHeaderError::Digest(_)
+                | UploadHeaderError::MalformedHash(_)
+                | UploadHeaderError::Conflicting(_)
+                | UploadHeaderError::DuplicateAlgorithm => {
+                    Self::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
+                }
+            },
+            ServiceError::StoredHeader(error) => {
+                Self::new(XmlCode::ServiceUnavailable, error.to_string())
+            }
+            ServiceError::Body(error) => {
+                let code = match error {
+                    BodyError::TooLarge => XmlCode::forwarded(StatusCode::PAYLOAD_TOO_LARGE),
+                    BodyError::OutOfMemory => XmlCode::ServiceUnavailable,
+                    BodyError::Unreadable => XmlCode::InvalidArgument,
+                };
+                Self::new(code, error.to_string())
+            }
             ServiceError::Time(error) => error.into(),
         }
     }
@@ -247,12 +290,7 @@ impl From<ObjectError> for Error {
 /// API has no code for do.
 impl From<BodyError> for Error {
     fn from(error: BodyError) -> Self {
-        let code = match error {
-            BodyError::TooLarge => XmlCode::forwarded(StatusCode::PAYLOAD_TOO_LARGE),
-            BodyError::OutOfMemory => XmlCode::ServiceUnavailable,
-            BodyError::Unreadable => XmlCode::InvalidArgument,
-        };
-        Self::new(code, error.to_string())
+        ServiceError::from(error).into()
     }
 }
 

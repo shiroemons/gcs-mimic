@@ -131,6 +131,18 @@ async fn abort_waits_for_cleanup_and_preserves_the_original_adapter_error() {
     fixture.state.catalog.close().await.unwrap();
 }
 
+#[test]
+fn resumable_uploads_defer_to_the_producer_only_for_an_object_body_abort() {
+    use crate::storage::ResumableError;
+
+    assert!(
+        ResumableError::from(ObjectError::body_aborted(io::Error::other("lost body")))
+            .is_body_abort()
+    );
+    assert!(!ResumableError::from(ObjectError::TooLarge).is_body_abort());
+    assert!(!ResumableError::Invalid("The upload body did not complete.".into()).is_body_abort());
+}
+
 #[tokio::test]
 async fn upload_failure_first_drops_the_producer() {
     struct DropFlag(Arc<AtomicBool>);

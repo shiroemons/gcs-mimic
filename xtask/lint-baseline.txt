@@ -35,8 +35,6 @@ text::layer_dependency	src/mime.rs	1
 text::layer_dependency	src/notification.rs	1
 text::layer_dependency	src/notification/event.rs	4
 text::layer_dependency	src/object.rs	4
-text::layer_dependency	src/object/media_headers.rs	1
-text::layer_dependency	src/object/upload_headers.rs	1
 text::layer_dependency	src/storage/catalog/policies.rs	1
 text::layer_dependency	src/storage/catalog/resumable.rs	2
 text::layer_dependency	src/storage/catalog/resumable/options.rs	1

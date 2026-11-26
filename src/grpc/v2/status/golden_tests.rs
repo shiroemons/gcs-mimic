@@ -261,7 +261,17 @@ async fn every_error_keeps_its_storage_v2_status() {
     );
     golden.mapped("GlobError", domain::glob_cases, |error| glob_status(&error));
     golden.shared("ResumableError", domain::resumable_cases());
-    golden.shared("BodyError", domain::body_cases());
+    for case in domain::body_cases() {
+        let shared = ApiError::from(case.error);
+        assert_eq!(
+            rendering(&Status::from(ServiceError::Body(case.error))),
+            rendering(&Status::from(shared.clone())),
+            "{}",
+            case.label
+        );
+        golden.transcript.case("BodyError", case.label);
+        golden.shared_status(shared);
+    }
     golden.shared("QueryError", domain::query_cases());
     golden.shared("InvalidDigest", domain::digest_cases());
     golden.shared("TimeOutOfRange", domain::time_cases());

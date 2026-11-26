@@ -360,7 +360,8 @@ fn range_hashes(
         let crc32c = format!("crc32c={}", json::base64(&record.crc32c.to_be_bytes()));
         headers.insert(
             "x-goog-hash",
-            HeaderValue::try_from(crc32c).map_err(|_| ApiError::invalid_stored_header())?,
+            HeaderValue::try_from(crc32c)
+                .map_err(crate::object::media_headers::StoredHeaderError::from)?,
         );
     }
     Ok(())

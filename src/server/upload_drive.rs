@@ -2,11 +2,10 @@
 
 use super::ObjectCtx;
 use crate::{
-    api_error::ApiError,
     object::{ExpectedHashes, ObjectError, UploadChunk},
     storage::admin::AdminError,
 };
-use std::{fmt, future::Future, io};
+use std::{future::Future, io};
 use tokio::sync::{mpsc, watch};
 
 pub(crate) type UploadSender = mpsc::Sender<Result<UploadChunk, io::Error>>;
@@ -30,15 +29,9 @@ impl From<UploadEnd> for UploadChunk {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("the protocol adapter rejected the request body")]
 struct AdapterRejectedBody;
-
-impl fmt::Display for AdapterRejectedBody {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("the protocol adapter rejected the request body")
-    }
-}
-impl std::error::Error for AdapterRejectedBody {}
 
 pub(crate) trait UploadFailure {
     fn is_body_abort(&self) -> bool;
@@ -53,9 +46,9 @@ impl UploadFailure for AdminError {
         matches!(self, Self::BodyAborted(_))
     }
 }
-impl UploadFailure for ApiError {
+impl UploadFailure for crate::storage::ResumableError {
     fn is_body_abort(&self) -> bool {
-        self.kind == crate::api_error::ErrorKind::IncompleteBody
+        matches!(self, Self::Object(error) if error.is_body_abort())
     }
 }
 impl UploadFailure for crate::storage::xml_multipart::Error {

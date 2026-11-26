@@ -3,7 +3,6 @@
 
 use http_body_util::BodyExt;
 use hyper::body::{Body, Buf};
-use std::fmt;
 
 /// The most one JSON document may occupy in memory: a request body, an expanded gzip body, a
 /// multipart metadata part, a form, an initialization entry or a source metadata record.
@@ -16,27 +15,18 @@ pub(crate) const RESOURCE_BODY_LIMIT: usize = 16 * 1024 * 1024;
 pub(crate) const RESOURCE_BODY_LIMIT_TEXT: &str = "16 MiB";
 
 /// Why a body could not be collected.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum BodyError {
     /// The body is longer than the caller's bound.
+    #[error("JSON request body exceeds the configured limit")]
     TooLarge,
     /// The buffer for the body could not be allocated.
+    #[error("Could not allocate request body buffer")]
     OutOfMemory,
     /// The transport failed while the body was read.
+    #[error("Could not read request body")]
     Unreadable,
 }
-
-impl fmt::Display for BodyError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::TooLarge => "JSON request body exceeds the configured limit",
-            Self::OutOfMemory => "Could not allocate request body buffer",
-            Self::Unreadable => "Could not read request body",
-        })
-    }
-}
-
-impl std::error::Error for BodyError {}
 
 /// Collect at most `cap` bytes; the caller must also bound transport frames and read time.
 pub(crate) async fn read_body<B: Body + Unpin>(

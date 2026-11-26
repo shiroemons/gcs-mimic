@@ -359,10 +359,7 @@ pub(crate) fn final_options(
             .expected
             .agree(upload_headers::decode(algorithm, value)?)
             .map_err(|ChecksumConflict(algorithm)| {
-                ApiError::invalid_parameter(format!(
-                    "Conflicting {} declarations",
-                    algorithm.name()
-                ))
+                upload_headers::UploadHeaderError::Conflicting(algorithm)
             })
     })?;
     if !custom.is_empty() {

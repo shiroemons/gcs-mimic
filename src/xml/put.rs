@@ -229,14 +229,7 @@ pub(super) fn content_type_and_hashes(
     for value in headers.get_all("x-goog-hash") {
         selected.append("x-goog-hash", value.clone());
     }
-    // Checksum failures omit the algorithm; CRC32C codes await provider parity (SPEC-XML-PUT-EDGES).
-    let mut expected =
-        crate::object::upload_headers::declared_hashes(&selected).map_err(|error| {
-            if error.kind == crate::api_error::ErrorKind::Unsupported {
-                return Error::from(error);
-            }
-            Error::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
-        })?;
+    let mut expected = crate::object::upload_headers::declared_hashes(&selected)?;
     if let Some(md5) = single(headers, "content-md5")? {
         let content_md5 = crate::hashing::decode_hash::<16>(md5)
             .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid Content-MD5."))?;

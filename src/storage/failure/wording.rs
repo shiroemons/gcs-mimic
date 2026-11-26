@@ -5,7 +5,7 @@
 
 use super::{BackendCause, BackendFailure, IoCause, MemoryBudget};
 // Catalog refusals and input parsing send the same wording for unsupported settings.
-pub(crate) use crate::input::unsupported_bucket_setting;
+pub(crate) use crate::input::{unsupported_bucket_setting, unsupported_object_setting};
 use crate::object::{HashMismatch, HeldObject, HoldKind, RetainedObject};
 use std::{borrow::Cow, io};
 
@@ -109,13 +109,6 @@ pub(crate) fn acl_refusal(error: &crate::acl::AclError) -> String {
             error.to_string()
         }
     }
-}
-
-/// A recognized object setting gcs-mimic does not implement, with the request that avoids it.
-pub(crate) fn unsupported_object_setting(name: &str) -> String {
-    format!(
-        "gcs-mimic does not support object API setting {name}; omit this option or header (for example, use projection=noAcl)."
-    )
 }
 
 /// Names only the remedy for the storage that ran out: a disk backend never has a RAM budget
