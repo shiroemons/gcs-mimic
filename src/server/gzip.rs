@@ -253,7 +253,7 @@ fn body(
             let _ = sender.send(Err(error)).await;
         }
     });
-    body.boxed_unsync()
+    body.map_err(Into::into).boxed_unsync()
 }
 
 #[cfg(test)]

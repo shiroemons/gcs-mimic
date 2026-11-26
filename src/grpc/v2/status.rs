@@ -84,13 +84,13 @@ fn soft_delete_policy_required(request: crate::object::SoftDeletedRequest) -> St
 const BUCKET_NOT_EMPTY: &str = "The bucket you tried to delete is not empty.";
 
 /// Reader failures keep the storage classification and record the underlying I/O cause.
-pub(super) fn read_failure(error: std::io::Error) -> Status {
+pub(super) fn read_failure(error: crate::storage::BlobError) -> Status {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Error,
         crate::diagnostics::Event::GrpcObjectReadFailure,
         serde_json::json!({"cause": error.to_string()}),
     );
-    super::object_io::object_status(crate::storage::failure::object_unavailable(error))
+    super::object_io::object_status(error.into())
 }
 
 pub(super) fn list_query_status(error: crate::storage::ListQueryError) -> Status {

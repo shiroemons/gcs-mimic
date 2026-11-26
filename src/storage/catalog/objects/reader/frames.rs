@@ -1,9 +1,8 @@
 //! Polls the selected generation only when a protocol is ready for another frame.
 
-use super::ObjectReader;
+use super::{BlobError, ObjectReader};
 use bytes::Bytes;
 use std::{
-    io,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -14,7 +13,7 @@ pub(crate) enum FrameLimit {
     Grpc,
 }
 
-type Read = Pin<Box<dyn Future<Output = (ObjectReader, io::Result<Option<Bytes>>)> + Send>>;
+type Read = Pin<Box<dyn Future<Output = (ObjectReader, Result<Option<Bytes>, BlobError>)> + Send>>;
 
 pub(crate) struct ObjectFrames(State);
 
@@ -48,7 +47,7 @@ impl ObjectFrames {
         &mut self,
         cx: &mut Context<'_>,
         limit: FrameLimit,
-    ) -> Poll<Option<io::Result<Bytes>>> {
+    ) -> Poll<Option<Result<Bytes, BlobError>>> {
         let mut read = match std::mem::replace(&mut self.0, State::Finished) {
             State::Finished => return Poll::Ready(None),
             State::Reading(read) => read,

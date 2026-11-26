@@ -139,7 +139,7 @@ impl Data {
         }
     }
 
-    pub(super) fn reader(&self) -> io::Result<Box<dyn Read + Send>> {
+    pub(super) fn reader(&self) -> Result<Box<dyn Read + Send>, BlobError> {
         match self {
             Self::Disk { path, .. } => Ok(Box::new(fs::File::open(path)?)),
             Self::Memory { store, id } => Ok(Box::new(store.open(&id.to_hex())?)),

@@ -19,9 +19,9 @@ static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct StoreId(u64);
 
-/// Why a RAM blob operation that allocates failed.
+/// A blob operation failed in the memory store, filesystem or blocking reader.
 #[derive(Debug, thiserror::Error)]
-pub(in crate::storage) enum BlobError {
+pub(crate) enum BlobError {
     #[error("{}", MemoryExhausted::new(MemoryBudget::Blobs))]
     Exhausted,
     #[error(transparent)]
@@ -30,6 +30,15 @@ pub(in crate::storage) enum BlobError {
     Missing(Missing),
     #[error("{0}")]
     Poisoned(Table),
+    #[error("blob shard is not a directory")]
+    ShardNotDirectory,
+    #[cfg(unix)]
+    #[error("blob shard has no parent directory")]
+    ShardParentMissing,
+    #[error("object data is shared with the read cache")]
+    SharedFile,
+    #[error(transparent)]
+    ReadWorker(crate::task::BlockingFailed),
     #[error("RAM store is closed")]
     Closed,
     #[error(transparent)]
@@ -39,7 +48,7 @@ pub(in crate::storage) enum BlobError {
 }
 
 #[derive(Clone, Copy, Debug, thiserror::Error)]
-pub(in crate::storage) enum Missing {
+pub(crate) enum Missing {
     #[error("missing RAM source")]
     Source,
     #[error("missing RAM staging block")]
@@ -55,7 +64,7 @@ pub(in crate::storage) enum Missing {
 }
 
 #[derive(Clone, Copy, Debug, thiserror::Error)]
-pub(in crate::storage) enum Table {
+pub(crate) enum Table {
     #[error("RAM blob store lock poisoned")]
     Blobs,
     #[error("RAM draft store lock poisoned")]
@@ -65,11 +74,16 @@ pub(in crate::storage) enum Table {
 }
 
 impl BlobError {
-    pub(in crate::storage) fn kind(&self) -> io::ErrorKind {
+    pub(crate) fn kind(&self) -> io::ErrorKind {
         match self {
             Self::Exhausted => io::ErrorKind::StorageFull,
             Self::Io(error) => error.kind(),
-            Self::Missing(_)
+            #[cfg(unix)]
+            Self::ShardParentMissing => io::ErrorKind::Other,
+            Self::SharedFile
+            | Self::ShardNotDirectory
+            | Self::ReadWorker(_)
+            | Self::Missing(_)
             | Self::Poisoned(_)
             | Self::Closed
             | Self::Allocation(_)
@@ -235,8 +249,8 @@ impl Store {
         })
     }
 
-    pub(super) fn open(&self, id: &str) -> io::Result<Reader> {
-        let blobs = self.blobs().map_err(io::Error::other)?;
+    pub(super) fn open(&self, id: &str) -> Result<Reader, BlobError> {
+        let blobs = self.blobs()?;
         let blob = blobs
             .get(id)
             .cloned()
@@ -249,9 +263,18 @@ impl Store {
         })
     }
 
-    pub(super) fn remove(&self, id: &str) -> io::Result<()> {
-        self.blobs().map_err(io::Error::other)?.remove(id);
+    pub(super) fn remove(&self, id: &str) -> Result<(), BlobError> {
+        self.blobs()?.remove(id);
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(super) fn poison_blob_table(&self) {
+        let panic = std::panic::catch_unwind(|| {
+            let _table = self.blobs().unwrap();
+            panic!("poison the blob table");
+        });
+        assert!(panic.is_err());
     }
 
     #[cfg(test)]
@@ -259,17 +282,18 @@ impl Store {
         self.blobs.lock().unwrap().len()
     }
 
-    pub(super) fn clear(&self) -> io::Result<()> {
-        self.drafts().map_err(io::Error::other)?.clear();
-        self.blobs().map_err(io::Error::other)?.clear();
+    pub(super) fn clear(&self) -> Result<(), BlobError> {
+        self.drafts()?.clear();
+        self.blobs()?.clear();
         Ok(())
     }
 
-    pub(super) fn retain_ids(&self, selected: &std::collections::HashSet<&str>) -> io::Result<()> {
-        self.drafts().map_err(io::Error::other)?.clear();
-        self.blobs()
-            .map_err(io::Error::other)?
-            .retain(|id, _| selected.contains(id.as_str()));
+    pub(super) fn retain_ids(
+        &self,
+        selected: &std::collections::HashSet<&str>,
+    ) -> Result<(), BlobError> {
+        self.drafts()?.clear();
+        self.blobs()?.retain(|id, _| selected.contains(id.as_str()));
         Ok(())
     }
 }
@@ -496,11 +520,8 @@ mod tests {
     #[test]
     fn poisoned_blob_tables_and_disk_io_keep_the_same_object_response() {
         let store = Store::new(2048);
-        let _ = std::panic::catch_unwind(|| {
-            let _table = store.blobs().unwrap();
-            panic!("poison the blob table");
-        });
-        let poisoned = store.blobs().err().unwrap();
+        store.poison_blob_table();
+        let poisoned = store.open("blob").err().unwrap();
         let disk = io::Error::from(io::ErrorKind::Other);
         for error in [crate::object::ObjectError::from(poisoned), disk.into()] {
             let crate::object::ObjectError::Io(cause) = error else {

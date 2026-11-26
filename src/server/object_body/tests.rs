@@ -76,7 +76,8 @@ async fn a_short_file_fails_after_the_bytes_it_has() {
     let frame = body.frame().await.unwrap().unwrap();
     assert_eq!(frame.into_data().unwrap(), b"short"[..]);
     let error = body.frame().await.unwrap().unwrap_err();
-    assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
+    assert!(error.source().unwrap().is::<std::io::Error>());
     assert!(body.frame().await.is_none());
     assert!(body.is_end_stream());
 }

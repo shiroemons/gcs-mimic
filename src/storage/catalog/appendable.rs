@@ -24,7 +24,7 @@ use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, Patch, UploadChunk},
-    storage::blob_id::BlobId,
+    storage::{BlobError, BlobId},
 };
 use bytes::Bytes;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -694,18 +694,19 @@ impl AppendWriter {
         let producer = async move {
             let mut file = crate::task::run_blocking("append-reader-open", move || data.reader())
                 .await
-                .map_err(io::Error::other)??;
+                .map_err(BlobError::ReadWorker)??;
             let mut remaining = size;
             while remaining > 0 {
-                let length = usize::try_from(remaining.min(COPY_READ_LIMIT as u64))
-                    .map_err(io::Error::other)?;
+                let length = usize::try_from(remaining)
+                    .unwrap_or(usize::MAX)
+                    .min(COPY_READ_LIMIT);
                 let (reader, mut bytes) = crate::task::run_blocking("append-reader", move || {
                     let mut bytes = vec![0; length];
                     file.read_exact(&mut bytes)?;
                     Ok::<_, io::Error>((file, Bytes::from(bytes)))
                 })
                 .await
-                .map_err(io::Error::other)??;
+                .map_err(BlobError::ReadWorker)??;
                 file = reader;
                 remaining -= length as u64;
                 while !bytes.is_empty() {
@@ -716,7 +717,7 @@ impl AppendWriter {
                 }
             }
             let _ = tx.send(Ok(UploadChunk::End)).await;
-            Ok::<(), io::Error>(())
+            Ok::<(), BlobError>(())
         };
         let publish = catalog.put_object_with_mode(
             ObjectUpload {

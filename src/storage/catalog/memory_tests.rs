@@ -623,14 +623,47 @@ async fn ram_incomplete_bodies_and_competing_conditions_preserve_committed_state
         Some(ObjectError::PreconditionFailed)
     ));
     let (_, reader) = catalog
-        .open_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
+        .admin(admin::Origin::Seed)
+        .open_object(
+            &BucketName::new("test-bucket").unwrap(),
+            &admin::ObjectName::new("value").unwrap(),
+            None,
+        )
         .await
         .unwrap();
+    let error: std::io::Error = reader.into_file().unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
     assert_eq!(
-        reader.into_file().unwrap_err().kind(),
-        std::io::ErrorKind::Unsupported
+        error.to_string(),
+        "RAM objects have no filesystem descriptor"
     );
     catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn opening_a_blob_in_a_poisoned_store_retains_the_typed_cause() {
+    use std::error::Error;
+
+    let catalog = setup(2048, Off).await;
+    put(&catalog, ObjectConditions::default(), Complete)
+        .await
+        .unwrap();
+    catalog
+        .0
+        .storage
+        .backend
+        .memory()
+        .unwrap()
+        .poison_blob_table();
+    let error = catalog
+        .open_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
+        .await
+        .err()
+        .unwrap();
+    assert!(matches!(&error, ObjectError::Io(cause) if cause.kind() == std::io::ErrorKind::Other));
+    let source = error.source().unwrap();
+    assert!(source.is::<crate::storage::BlobError>());
+    assert_eq!(source.to_string(), "RAM blob store lock poisoned");
 }
 
 #[tokio::test]

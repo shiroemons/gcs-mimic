@@ -5,9 +5,9 @@ use super::{
     unavailable,
 };
 use crate::clock::{Clock, SystemClock};
-use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
 use crate::storage::failure::BackendCause;
+use crate::storage::{BlobError, BlobId};
 use rusqlite::{Connection, params};
 #[cfg(test)]
 use std::path::Path;
@@ -176,7 +176,7 @@ fn plan_session_cleanup(
     })
 }
 
-fn remove_session_files(backend: &BlobBackend, cleanup: SessionCleanup) -> std::io::Result<()> {
+fn remove_session_files(backend: &BlobBackend, cleanup: SessionCleanup) -> Result<(), BlobError> {
     backend.remove_draft_durable(&cleanup.blob_id)?;
     if cleanup.remove_blob {
         backend.remove_durable(&cleanup.blob_id)?;

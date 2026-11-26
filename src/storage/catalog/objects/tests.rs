@@ -202,6 +202,41 @@ fn publish_refuses_to_replace_an_existing_blob() {
     assert_eq!(fs::read(&destination).unwrap(), b"live bytes");
 }
 
+#[test]
+fn publish_refuses_a_non_directory_shard_before_moving_the_stage() {
+    let data = crate::test_support::TestDir::new();
+    let stage = data.0.join("stage");
+    let shard = data.0.join("shard");
+    fs::write(&stage, b"staged bytes").unwrap();
+    fs::write(&shard, b"existing file").unwrap();
+    let error = publish_blob(&stage, &shard.join("blob")).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert_eq!(error.to_string(), "blob shard is not a directory");
+    assert_eq!(fs::read(stage).unwrap(), b"staged bytes");
+    assert_eq!(fs::read(shard).unwrap(), b"existing file");
+}
+
+#[cfg(unix)]
+#[test]
+fn publish_requires_a_shard_parent_for_directory_sync() {
+    let error = publish_blob(Path::new("stage"), Path::new("blob")).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert_eq!(error.to_string(), "blob shard has no parent directory");
+}
+
+#[test]
+fn a_shared_object_file_refuses_cursor_transfer() {
+    let data = crate::test_support::TestDir::new();
+    let file = Arc::new(File::create(data.0.join("blob")).unwrap());
+    let reader = ObjectReader::bounded_for_test(Arc::clone(&file), 0);
+    let error: io::Error = reader.into_file().unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert_eq!(
+        error.to_string(),
+        "object data is shared with the read cache"
+    );
+}
+
 #[tokio::test]
 async fn glob_listing_pages_through_non_matching_rows() {
     for shape in ["items", "prefixes", "versions"] {
@@ -888,10 +923,9 @@ async fn a_truncated_blob_is_not_reported_as_whole() {
     assert_eq!(reader.read_ahead_len(), Some(5));
     assert!(!reader.is_finished());
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"short"[..]);
-    assert_eq!(
-        reader.next_chunk().await.unwrap_err().kind(),
-        io::ErrorKind::UnexpectedEof
-    );
+    let error: io::Error = reader.next_chunk().await.unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+    assert_eq!(error.to_string(), io::ErrorKind::UnexpectedEof.to_string());
 }
 
 #[tokio::test]

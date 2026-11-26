@@ -1,7 +1,15 @@
 use super::*;
+use crate::storage::BlobError;
 
 mod frames;
 pub(crate) use frames::{FrameLimit, ObjectFrames};
+
+fn public_read_failure(error: BlobError) -> io::Error {
+    if let BlobError::Io(error) = error {
+        return error;
+    }
+    io::Error::other(error)
+}
 
 const GRPC_FRAME_BYTES: usize = 256 * 1024;
 
@@ -133,7 +141,7 @@ fn read_chunk(file: &File, offset: u64, capacity: usize) -> io::Result<Bytes> {
 
 /// A queued read must not pin the blob after its client leaves. A read already inside
 /// the OS owns the descriptor only until that single positional read returns.
-async fn read_on_pool(file: &Arc<File>, offset: u64, capacity: usize) -> io::Result<Bytes> {
+async fn read_on_pool(file: &Arc<File>, offset: u64, capacity: usize) -> Result<Bytes, BlobError> {
     let file = Arc::downgrade(file);
     crate::task::run_blocking_cancellable("object-read", move || {
         let file = file.upgrade().ok_or(io::ErrorKind::Interrupted)?;
@@ -142,7 +150,8 @@ async fn read_on_pool(file: &Arc<File>, offset: u64, capacity: usize) -> io::Res
         read_chunk(&file, offset, capacity)
     })
     .await
-    .map_err(io::Error::other)?
+    .map_err(BlobError::ReadWorker)?
+    .map_err(Into::into)
 }
 
 /// Reads up to `capacity` bytes at `offset` if the page cache holds them, without ever waiting for
@@ -304,7 +313,10 @@ impl ObjectReader {
     /// The next frame after [`Self::next_frame_at_hand`] found none, so this goes
     /// straight to a blocking read. A frame may be larger than [`Self::next_chunk`] allows,
     /// because each one costs a socket write and, for bytes not yet cached, two thread wakeups.
-    pub(super) async fn next_frame(&mut self, limit: FrameLimit) -> io::Result<Option<Bytes>> {
+    pub(super) async fn next_frame(
+        &mut self,
+        limit: FrameLimit,
+    ) -> Result<Option<Bytes>, BlobError> {
         let Some(limit) = self.frame_capacity(limit) else {
             return Ok(None);
         };
@@ -319,7 +331,7 @@ impl ObjectReader {
         match self.file {
             ReaderData::Disk(file) => {
                 let mut file = Arc::try_unwrap(file)
-                    .map_err(|_| io::Error::other("object data is shared with the read cache"))?;
+                    .map_err(|_| public_read_failure(BlobError::SharedFile))?;
                 io::Seek::seek(&mut file, io::SeekFrom::Start(self.position))?;
                 Ok(file)
             }
@@ -340,7 +352,7 @@ impl ObjectReader {
         }
     }
 
-    pub(crate) fn set_range(&mut self, offset: u64, length: u64) -> io::Result<()> {
+    pub(crate) fn set_range(&mut self, offset: u64, length: u64) -> Result<(), BlobError> {
         if let ReaderData::Memory(reader) = &mut self.file {
             io::Seek::seek(reader, io::SeekFrom::Start(offset))?;
         }
@@ -353,13 +365,13 @@ impl ObjectReader {
     /// Reads up to `limit` leading bytes without consuming them, so a caller can classify the
     /// content before choosing response headers. It reads one bounded chunk, never the whole
     /// object.
-    pub(crate) async fn peek_prefix(&mut self, limit: usize) -> io::Result<Bytes> {
+    pub(crate) async fn peek_prefix(&mut self, limit: usize) -> Result<Bytes, BlobError> {
         if let Some(head) = &self.head {
             return Ok(head.slice(..head.len().min(limit)));
         }
         let offset = self.position;
         let remaining = self.remaining;
-        let prefix = match self.next_chunk().await? {
+        let prefix = match self.read_chunk().await? {
             Some(bytes) => bytes.slice(..bytes.len().min(limit)),
             None => Bytes::new(),
         };
@@ -368,6 +380,10 @@ impl ObjectReader {
     }
 
     pub async fn next_chunk(&mut self) -> io::Result<Option<Bytes>> {
+        self.read_chunk().await.map_err(public_read_failure)
+    }
+
+    pub(crate) async fn read_chunk(&mut self) -> Result<Option<Bytes>, BlobError> {
         self.next_bytes(CHUNK_SIZE, PageCache::Try).await
     }
 
@@ -383,12 +399,13 @@ impl ObjectReader {
         &mut self,
         limit: usize,
         page_cache: PageCache,
-    ) -> io::Result<Option<Bytes>> {
+    ) -> Result<Option<Bytes>, BlobError> {
         if self.remaining == 0 {
             return Ok(None);
         }
-        let limit = self.remaining.min(limit as u64);
-        let capacity = usize::try_from(limit).map_err(io::Error::other)?;
+        let capacity = usize::try_from(self.remaining)
+            .unwrap_or(usize::MAX)
+            .min(limit);
         let bytes = if let Some(head) = self.take_head(capacity) {
             head
         } else {

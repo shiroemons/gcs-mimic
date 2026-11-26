@@ -214,7 +214,7 @@ typed_sources!(
 );
 
 /// Keep the exhausted budget classifiable, expose standard errors directly, and retain each
-/// RAM invariant failure as the concrete blob error.
+/// storage invariant failure as the concrete blob error.
 impl From<BlobError> for Source {
     fn from(error: BlobError) -> Self {
         match error {
@@ -222,9 +222,14 @@ impl From<BlobError> for Source {
             BlobError::Io(error) => Self::Io(error),
             BlobError::Size(error) => error.into(),
             BlobError::Allocation(error) => error.into(),
-            other @ (BlobError::Missing(_) | BlobError::Poisoned(_) | BlobError::Closed) => {
-                Self::Leaf(Leaf(Box::new(other)))
-            }
+            BlobError::ReadWorker(error) => error.into(),
+            #[cfg(unix)]
+            BlobError::ShardParentMissing => Self::Leaf(Leaf(Box::new(error))),
+            other @ (BlobError::Missing(_)
+            | BlobError::Poisoned(_)
+            | BlobError::Closed
+            | BlobError::SharedFile
+            | BlobError::ShardNotDirectory) => Self::Leaf(Leaf(Box::new(other))),
         }
     }
 }

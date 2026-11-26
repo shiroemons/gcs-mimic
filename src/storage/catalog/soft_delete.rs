@@ -1,5 +1,5 @@
 use super::{Catalog, CatalogError, UnixMicros, objects, unavailable, unix_micros};
-use crate::storage::catalog::sql;
+use crate::storage::{BlobError, catalog::sql};
 use crate::{
     bucket::BucketAccess,
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, SoftDeletedRequest},
@@ -207,7 +207,7 @@ fn restore_in_transaction(
     request: &RestoreRequest,
     source: crate::storage::BlobId,
     id: crate::storage::BlobId,
-    published: Result<std::io::Result<()>, crate::task::BlockingFailed>,
+    published: Result<Result<(), BlobError>, crate::task::BlockingFailed>,
     clock: &dyn crate::clock::Clock,
 ) -> Result<(ObjectRecord, objects::Retired), ObjectError> {
     let transaction = sql::immediate(connection)?;

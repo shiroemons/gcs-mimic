@@ -83,7 +83,7 @@ pub(super) async fn respond(
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
     match execute(request, ctx).await {
-        Ok(response) => response.map(BodyExt::boxed_unsync),
+        Ok(response) => response.map(|body| body.map_err(Into::into).boxed_unsync()),
         Err(error) => boxed(error.into_response()),
     }
 }
@@ -1013,7 +1013,13 @@ mod tests {
         ] {
             let body = http_body_util::StreamBody::new(tonic::codegen::tokio_stream::iter([frame]));
             let mut output = Vec::new();
-            append_response(&mut output, None, Response::new(body.boxed_unsync()), 8192).await;
+            append_response(
+                &mut output,
+                None,
+                Response::new(body.map_err(Into::into).boxed_unsync()),
+                8192,
+            )
+            .await;
             let text = std::str::from_utf8(&output).expect(case);
             assert!(
                 text.contains("\r\nHTTP/1.1 503 Service Unavailable\r\n"),

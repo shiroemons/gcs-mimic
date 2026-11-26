@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::BlobError;
 
 #[cfg(unix)]
 #[cfg_attr(test, track_caller)]
@@ -27,7 +28,7 @@ pub(in crate::storage::catalog) fn blob_shard(path: &Path) -> io::Result<&Path> 
 pub(in crate::storage::catalog) fn publish_blob(
     source: &Path,
     destination: &Path,
-) -> io::Result<()> {
+) -> Result<(), BlobError> {
     #[cfg(test)]
     fault::record_catalog_thread_io(source);
     let shard = blob_shard(destination)?;
@@ -40,28 +41,26 @@ pub(in crate::storage::catalog) fn publish_blob(
         let unwound = creation.is_err();
         let _creation = creation.unwrap_or_else(std::sync::PoisonError::into_inner);
         #[cfg(unix)]
-        let blobs = shard
-            .parent()
-            .ok_or_else(|| io::Error::other("blob shard has no parent directory"))?;
+        let blobs = shard.parent().ok_or(BlobError::ShardParentMissing)?;
         match fs::create_dir(shard) {
             Ok(()) => {
                 #[cfg(all(test, unix))]
                 fault::dir_created(shard);
                 #[cfg(unix)]
                 if let Err(error) = sync_dir(blobs) {
-                    return Err(cleanup_failed_shard(shard, error));
+                    return Err(cleanup_failed_shard(shard, error).into());
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 if !fs::symlink_metadata(shard)?.is_dir() {
-                    return Err(io::Error::other("blob shard is not a directory"));
+                    return Err(BlobError::ShardNotDirectory);
                 }
                 #[cfg(unix)]
                 if unwound {
                     sync_dir(blobs)?;
                 }
             }
-            Err(error) => return Err(error),
+            Err(error) => return Err(error.into()),
         }
         if unwound {
             SHARD_CREATION.clear_poison();
@@ -73,7 +72,7 @@ pub(in crate::storage::catalog) fn publish_blob(
         crate::fsutil::rename_noreplace(source, destination)?;
         #[cfg(test)]
         fault::renamed(source, destination);
-        sync_dir(shard)
+        Ok(sync_dir(shard)?)
     }
     #[cfg(windows)]
     {
@@ -87,7 +86,7 @@ pub(in crate::storage::catalog) fn publish_blob(
             )
         })?;
         let destination = shard.canonicalize()?.join(file_name);
-        crate::fsutil::move_write_through(&source, &destination)
+        Ok(crate::fsutil::move_write_through(&source, &destination)?)
     }
 }
 

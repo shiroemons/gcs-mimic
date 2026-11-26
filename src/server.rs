@@ -11,7 +11,7 @@ use crate::{
     object::{ObjectError, UploadChunk},
     storage::{
         Catalog,
-        failure::{BackendFailure, object_unavailable},
+        failure::{BackendFailure, IoCause, object_unavailable},
     },
     time_limit::TimeLimit,
     tls::ListenerSecurity,
@@ -590,12 +590,12 @@ struct TrackedBody {
 
 impl hyper::body::Body for TrackedBody {
     type Data = Bytes;
-    type Error = io::Error;
+    type Error = IoCause;
 
     fn poll_frame(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, io::Error>>> {
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Self::Error>>> {
         std::pin::Pin::new(&mut self.body).poll_frame(cx)
     }
 
@@ -1923,7 +1923,7 @@ async fn discard_lingering_input(
     }
 }
 
-pub(crate) type ResponseBody = UnsyncBoxBody<Bytes, io::Error>;
+pub(crate) type ResponseBody = UnsyncBoxBody<Bytes, IoCause>;
 
 pub(crate) fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
     response.map(|body| body.map_err(|never| match never {}).boxed_unsync())

@@ -19,7 +19,7 @@ use crate::storage::catalog::{
 use crate::{
     bucket::CatalogError,
     object::ObjectError,
-    storage::{BlobId, failure::object_unavailable},
+    storage::{BlobError, BlobId, failure::object_unavailable},
 };
 use rusqlite::Connection;
 use std::fmt;
@@ -451,7 +451,7 @@ impl Catalog {
             for id in &files.appendable {
                 backend.remove_appendable(id)?;
             }
-            Ok::<_, std::io::Error>(())
+            Ok::<_, BlobError>(())
         })
         .await
         .map_err(object_unavailable)?

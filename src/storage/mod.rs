@@ -11,6 +11,7 @@ pub(crate) mod failure;
 pub use failure::MemoryBudget;
 mod lock;
 mod memory;
+pub(crate) use memory::BlobError;
 #[cfg(test)]
 mod object_tests;
 pub use catalog::admin;

@@ -579,7 +579,7 @@ async fn serve(
                     let reader = &mut selected.reader;
                     reader.set_range(offset.cast_unsigned(), range.read_length.cast_unsigned())
                         .map_err(|error| ReadFailure::read(range.read_id, super::status::read_failure(error)))?;
-                    reader.next_chunk().await.map_err(|error| ReadFailure::read(range.read_id, super::status::read_failure(error)))?
+                    reader.read_chunk().await.map_err(|error| ReadFailure::read(range.read_id, super::status::read_failure(error)))?
                         .unwrap_or_default()
                 };
                 // Readers cap chunks at 64 KiB; widening the signed pointer-sized length cannot fail.

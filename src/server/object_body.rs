@@ -7,11 +7,10 @@
 //! A client that stops reading stops the polling, so nothing is read ahead of it.
 
 use super::{ObjectActivity, record_progress};
-use crate::storage::{FrameLimit, ObjectFrames, ObjectReader};
+use crate::storage::{FrameLimit, ObjectFrames, ObjectReader, failure::IoCause};
 use bytes::Bytes;
 use hyper::body::{Body, Frame};
 use std::{
-    io,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -37,7 +36,7 @@ impl ObjectBody {
 }
 
 /// hyper reports only that the body was aborted, so this names the read failure.
-fn report_read_failure(error: &io::Error) {
+fn report_read_failure(error: &IoCause) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
         crate::diagnostics::Event::ObjectBodyReadFailed,
@@ -50,16 +49,17 @@ fn report_read_failure(error: &io::Error) {
 
 impl Body for ObjectBody {
     type Data = Bytes;
-    type Error = io::Error;
+    type Error = IoCause;
 
     fn poll_frame(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Bytes>, io::Error>>> {
+    ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
         let this = self.get_mut();
         this.frames.poll_next(cx, FrameLimit::Http).map(|item| {
             item.map(|result| {
                 result
+                    .map_err(IoCause::from)
                     .inspect_err(report_read_failure)
                     .map(|bytes| this.data_frame(bytes))
             })

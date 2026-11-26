@@ -131,14 +131,14 @@ impl BlobBackend {
     pub(super) fn retain_memory_ids(
         &self,
         selected: &std::collections::HashSet<&str>,
-    ) -> io::Result<()> {
+    ) -> Result<(), BlobError> {
         match self {
             Self::Disk(_) => Ok(()),
             Self::Memory(store) => store.retain_ids(selected),
         }
     }
 
-    pub(super) fn clear_memory(&self) -> io::Result<()> {
+    pub(super) fn clear_memory(&self) -> Result<(), BlobError> {
         match self {
             Self::Disk(_) => Ok(()),
             Self::Memory(store) => store.clear(),
@@ -158,37 +158,37 @@ impl BlobBackend {
     }
 
     /// RAM pins are already published; a disk pin is a staged link to rename into place.
-    pub(super) fn publish_pinned(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn publish_pinned(&self, id: &BlobId) -> Result<(), BlobError> {
         if let Self::Disk(root) = self {
             objects::publish_blob(&id.staging_path(root), &id.blob_path(root))?;
         }
         Ok(())
     }
 
-    pub(super) fn remove(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn remove(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
-            Self::Disk(root) => objects::unlink(&id.blob_path(root)),
+            Self::Disk(root) => objects::unlink(&id.blob_path(root)).map_err(Into::into),
             Self::Memory(store) => store.remove(&id.to_hex()),
         }
     }
 
-    pub(super) fn remove_draft(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn remove_draft(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
-            Self::Disk(root) => objects::unlink(&id.staging_path(root)),
-            Self::Memory(store) => store.remove_draft(&id.to_hex()).map_err(io::Error::other),
+            Self::Disk(root) => objects::unlink(&id.staging_path(root)).map_err(Into::into),
+            Self::Memory(store) => store.remove_draft(&id.to_hex()),
         }
     }
 
     // RAM pins are immutable aliases; removing a draft would leave their shared bytes retained.
-    pub(super) fn remove_pin(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn remove_pin(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
-            Self::Disk(root) => objects::unlink(&id.staging_path(root)),
+            Self::Disk(root) => objects::unlink(&id.staging_path(root)).map_err(Into::into),
             Self::Memory(store) => store.remove(&id.to_hex()),
         }
     }
 
     // Publication renamed disk drafts, while RAM still owns a separate mutable draft reference.
-    pub(super) fn finish_draft(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn finish_draft(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
             Self::Disk(_) => Ok(()),
             Self::Memory(_) => self.remove_draft(id),
@@ -197,10 +197,7 @@ impl BlobBackend {
 
     pub(super) fn publish_draft(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
-            Self::Disk(root) => Ok(objects::publish_blob(
-                &id.staging_path(root),
-                &id.blob_path(root),
-            )?),
+            Self::Disk(root) => objects::publish_blob(&id.staging_path(root), &id.blob_path(root)),
             Self::Memory(store) => store.publish_draft(&id.to_hex()),
         }
     }
@@ -245,9 +242,11 @@ impl BlobBackend {
         Ok(())
     }
 
-    pub(super) fn remove_appendable(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn remove_appendable(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
-            Self::Disk(root) => objects::unlink(&root.join("appendable").join(id.to_hex())),
+            Self::Disk(root) => {
+                objects::unlink(&root.join("appendable").join(id.to_hex())).map_err(Into::into)
+            }
             Self::Memory(_) => {
                 self.remove_draft(id)?;
                 self.remove(id)
@@ -255,20 +254,22 @@ impl BlobBackend {
         }
     }
 
-    pub(super) fn open_appendable(&self, id: &BlobId) -> io::Result<ReaderData> {
+    pub(super) fn open_appendable(&self, id: &BlobId) -> Result<ReaderData, BlobError> {
         match self {
             Self::Disk(root) => fs::File::open(root.join("appendable").join(id.to_hex()))
                 .map(Arc::new)
-                .map(ReaderData::Disk),
+                .map(ReaderData::Disk)
+                .map_err(Into::into),
             Self::Memory(_) => self.open(id),
         }
     }
 
-    pub(super) fn open(&self, id: &BlobId) -> io::Result<ReaderData> {
+    pub(super) fn open(&self, id: &BlobId) -> Result<ReaderData, BlobError> {
         match self {
             Self::Disk(root) => fs::File::open(id.blob_path(root))
                 .map(Arc::new)
-                .map(ReaderData::Disk),
+                .map(ReaderData::Disk)
+                .map_err(Into::into),
             Self::Memory(store) => store.open(&id.to_hex()).map(ReaderData::Memory),
         }
     }
@@ -360,31 +361,33 @@ impl BlobBackend {
         Ok(())
     }
 
-    pub(super) fn remove_new_draft(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn remove_new_draft(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
-            Self::Disk(root) => fs::remove_file(id.staging_path(root)),
-            Self::Memory(store) => store.remove_draft(&id.to_hex()).map_err(io::Error::other),
+            Self::Disk(root) => fs::remove_file(id.staging_path(root)).map_err(Into::into),
+            Self::Memory(store) => store.remove_draft(&id.to_hex()),
         }
     }
 
-    pub(super) fn remove_draft_durable(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn remove_draft_durable(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
             Self::Disk(root) => unlink_synced(
                 &id.staging_path(root),
                 #[cfg(all(test, unix))]
                 root,
-            ),
+            )
+            .map_err(Into::into),
             Self::Memory(_) => self.remove_draft(id),
         }
     }
 
-    pub(super) fn remove_durable(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn remove_durable(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
             Self::Disk(root) => unlink_synced(
                 &id.blob_path(root),
                 #[cfg(all(test, unix))]
                 root,
-            ),
+            )
+            .map_err(Into::into),
             Self::Memory(_) => self.remove(id),
         }
     }
