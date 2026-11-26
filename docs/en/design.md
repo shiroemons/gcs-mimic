@@ -67,12 +67,35 @@ answers that error in its own protocol: the JSON adapter renders the envelope th
 (`src/xml/error_mapping.rs`), and the gRPC adapter maps them to statuses
 (`src/grpc/v2/status.rs`). `ApiError` still carries an HTTP status and Cloud Storage's
 JSON `reason`, which the XML and gRPC conversions read; it is shared, not yet
-protocol-neutral. The lint only sees a named reference, so it does not measure this
-coupling. Removing it means the shared server logic and request parsers return domain and
+protocol-neutral. The module layer lint below only sees a named reference, so it does not
+measure this coupling. Removing it means the shared server logic and request parsers return domain and
 request-validation errors, as catalog, object and authentication failures already are, and
-each adapter chooses its own status, code and wording; that is a slice of its own. Production code under `src/grpc` and `src/xml` has no reference to the
-`json` module, and `cargo xtask lint` rejects a new one (`text::json_adapter_dependency`,
-zero tolerance).
+each adapter chooses its own status, code and wording; that is a slice of its own.
+
+The library's modules form the layers below, from the lowest to the highest. A module may
+name modules in its own layer and in lower layers, and the three adapters may not name each
+other. `cargo xtask lint` takes the modules a production file names from `crate::` and
+`$crate::` paths, the top-level members of `use crate::{..}` groups and `super::` or `self::`
+paths resolved from the file's module path, so a re-export counts where it is written.
+`text::adapter_dependency` rejects one adapter naming another (zero tolerance; nothing does
+today). `text::layer_dependency` rejects a reference to a higher layer; it is ratcheted per
+file over the references that existed when it was introduced, so a file can only lose them,
+and the two rules are separate so that a file cannot trade one forbidden edge for the other
+under an unchanged count. The table lists exactly the modules that `src/lib.rs` declares
+outside `#[cfg(test)]`: the gate fails when a declared module has no layer or a layer names an
+undeclared one, and an `xtask` test keeps this copy equal to the table in
+`xtask/src/lint/layers.rs`. The binary's modules (`src/main.rs`, `buckets_cli`,
+`local_server`, `seed_cli` and `startup`) are a separate crate and are not checked.
+
+| Layer | Modules |
+| --- | --- |
+| foundation | `base64`, `hex`, `percent`, `decimal`, `clock`, `hashing`, `serde_util`, `error`, `task`, `diagnostics`, `fsutil`, `bounded_body`, `bounded_file`, `time_limit`, `memory_limit`, `fd_limit`, `net`, `match_glob`, `source_tree`, `mime`, `http_conditions` |
+| model | `project`, `acl`, `bucket`, `object`, `metadata_error`, `etag`, `csek`, `auth`, `url`, `notification`, `time_format` |
+| settings | `config`, `config_input`, `tls` |
+| storage | `storage`, `import`, `seed`, `bucket_init` |
+| service | `page_token`, `multipart`, `api_error` |
+| adapters (isolated) | `json`, `xml`, `grpc` |
+| transport | `server` |
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |
