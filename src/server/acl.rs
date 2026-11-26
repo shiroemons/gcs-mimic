@@ -9,7 +9,7 @@ use crate::{
     acl::{AclEntry, AclKind, AclOwner, AclTarget},
     api_error::ApiError,
     auth::{self, Caller},
-    bucket::{BucketAccess, BucketConditions, BucketRecord},
+    bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError},
     json::{
         self,
         acl::{AclAccess, AclOperation, AclRequest},
@@ -370,15 +370,11 @@ pub(crate) async fn may_read(
     caller: Option<Caller<'_>>,
     kind: AclKind,
     bucket: &str,
-) -> Result<bool, ApiError> {
+) -> Result<bool, CatalogError> {
     match bucket_access(state, caller, permission(kind, AclAccess::Read), bucket).await {
-        Ok(access) => state
-            .catalog
-            .has_bucket_permission(bucket, &access)
-            .await
-            .map_err(Into::into),
+        Ok(access) => state.catalog.has_bucket_permission(bucket, &access).await,
         Err(error) if error.is_refusal() => Ok(false),
-        Err(error) => Err(error.into()),
+        Err(error) => Err(error),
     }
 }
 
@@ -427,7 +423,7 @@ pub(crate) async fn readable_object_acls(
     caller: Option<Caller<'_>>,
     bucket: &str,
     generations: Vec<(String, i64)>,
-) -> Result<Option<AclProjection>, ApiError> {
+) -> Result<Option<AclProjection>, CatalogError> {
     object_acls(state, AclReader::Caller(caller), bucket, generations).await
 }
 
@@ -458,7 +454,7 @@ async fn object_acls(
     reader: AclReader<'_>,
     bucket: &str,
     generations: Vec<(String, i64)>,
-) -> Result<Option<AclProjection>, ApiError> {
+) -> Result<Option<AclProjection>, CatalogError> {
     let access = reader.object_acl_access();
     let acl = state
         .catalog

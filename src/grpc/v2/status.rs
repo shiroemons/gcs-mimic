@@ -373,6 +373,7 @@ impl From<crate::csek::CsekError> for Status {
     }
 }
 
+#[cfg(test)]
 impl From<crate::api_error::ApiError> for Status {
     fn from(mut error: crate::api_error::ApiError) -> Self {
         // A storage error that a handler turned into the shared error, such as one that names its

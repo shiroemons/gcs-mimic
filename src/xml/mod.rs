@@ -80,7 +80,7 @@ pub(crate) async fn authenticate_target<'a>(
         return auth
             .authenticate_request(headers, uri.query(), clock, listener)
             .await
-            .map_err(|e| Error::from(ApiError::from(e)));
+            .map_err(Error::from);
     };
     let request = SignedRequest {
         kind,
@@ -135,7 +135,7 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
     use crate::auth::signature::{Failure, InvalidExpires, MAX_EXPIRES, VerificationError};
     let failure = match failure {
         VerificationError::Signature(failure) => failure,
-        VerificationError::Catalog(error) => return Error::from(ApiError::from(error)),
+        VerificationError::Catalog(error) => return error.into(),
         VerificationError::Worker(_) => {
             return Error::new(
                 XmlCode::ServiceUnavailable,

@@ -246,11 +246,7 @@ impl Storage {
         use crate::acl::AclKind;
         let name = bucket.bucket_id.as_str();
         let readable =
-            match crate::server::may_read_acl(&self.state, caller, AclKind::Bucket, name).await {
-                Ok(readable) => readable,
-                Err(error) if error.status == hyper::StatusCode::UNAUTHORIZED => false,
-                Err(error) => return Err(Status::from(error)),
-            };
+            crate::server::may_read_acl(&self.state, caller, AclKind::Bucket, name).await?;
         if !readable {
             return Ok(());
         }
