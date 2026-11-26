@@ -27,6 +27,44 @@ async fn open(dir: &TestDir) -> (Catalog, Arc<ManualClock>) {
     (catalog, clock)
 }
 
+#[tokio::test]
+async fn legacy_bucket_revisions_remain_readable_after_reopen() {
+    let dir = TestDir::new();
+    let (catalog, _) = open(&dir).await;
+    for name in ["legacy-zero", "legacy-negative"] {
+        catalog.insert_bucket(record(name)).await.unwrap();
+    }
+    catalog.close().await.unwrap();
+
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "UPDATE buckets
+             SET generation = (SELECT dflt_value FROM pragma_table_info('buckets')
+                               WHERE name = 'generation'), metageneration = 0
+             WHERE name = 'legacy-zero';
+             UPDATE buckets SET metageneration = -3 WHERE name = 'legacy-negative';",
+        )
+        .unwrap();
+    drop(connection);
+
+    let (catalog, _) = open(&dir).await;
+    let zero = catalog
+        .get_bucket("legacy-zero", PERMISSIVE)
+        .await
+        .unwrap()
+        .unwrap();
+    let negative = catalog
+        .get_bucket("legacy-negative", PERMISSIVE)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(zero.generation, 0);
+    assert_eq!(zero.metageneration, 0);
+    assert_eq!(negative.metageneration, -3);
+    catalog.close().await.unwrap();
+}
+
 async fn set_retention(catalog: &Catalog, name: &str, seconds: u64) -> BucketRecord {
     catalog
         .patch_bucket(
