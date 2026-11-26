@@ -130,7 +130,7 @@ async fn attempt(
     }
     let delivered = match queued_topic(&pending.topic) {
         Ok(topic) => endpoint.publish(&topic, pending.message).await,
-        Err(error) => Err(error),
+        Err(error) => Err(error.into()),
     };
     match delivered {
         Ok(()) => {

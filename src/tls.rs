@@ -18,6 +18,18 @@ const DEVELOPMENT_CERT_PEM: &[u8] = include_bytes!("tls/development-cert.pem");
 const DEVELOPMENT_KEY_PEM: &[u8] = include_bytes!("tls/development-key.pem");
 
 #[derive(Debug, thiserror::Error)]
+pub enum TlsError {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error(transparent)]
+    Pem(#[from] rustls::pki_types::pem::Error),
+    #[error(transparent)]
+    Rustls(#[from] rustls::Error),
+    #[error("TLS PEM file contains no certificates")]
+    MissingCertificates,
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum ServerIdentityError {
     #[error("{0}")]
     Certificate(#[source] io::Error),
@@ -25,6 +37,10 @@ pub enum ServerIdentityError {
     PrivateKey(#[source] io::Error),
     #[error("{0}")]
     Identity(#[source] io::Error),
+    #[error(transparent)]
+    CertificateParse(TlsError),
+    #[error(transparent)]
+    PrivateKeyParse(rustls::pki_types::pem::Error),
     #[error("TLS listeners require a server identity")]
     MissingIdentity,
     /// rustls refused the pair, such as a key that does not match the certificate.
@@ -36,19 +52,20 @@ impl ServerIdentityError {
     pub fn setting(&self) -> &'static str {
         match self {
             Self::Certificate(_)
+            | Self::CertificateParse(_)
             | Self::Identity(_)
             | Self::MissingIdentity
             | Self::Rejected(_) => "tls_cert",
-            Self::PrivateKey(_) => "tls_key",
+            Self::PrivateKey(_) | Self::PrivateKeyParse(_) => "tls_key",
         }
     }
 
     pub fn repair(&self) -> &'static str {
         match self {
-            Self::Certificate(_) => {
+            Self::Certificate(_) | Self::CertificateParse(_) => {
                 "provide a readable PEM certificate chain in tls_cert, at most 1 MiB, matching tls_key"
             }
-            Self::PrivateKey(_) => {
+            Self::PrivateKey(_) | Self::PrivateKeyParse(_) => {
                 "provide exactly one readable PEM private key in tls_key, at most 1 MiB, matching tls_cert"
             }
             Self::Identity(_) | Self::MissingIdentity => {
@@ -79,15 +96,10 @@ fn read_pem(path: &Path) -> io::Result<Vec<u8>> {
     })
 }
 
-fn certificates(bytes: &[u8]) -> io::Result<Vec<CertificateDer<'static>>> {
-    let certificates = CertificateDer::pem_slice_iter(bytes)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(io::Error::other)?;
+fn certificates(bytes: &[u8]) -> Result<Vec<CertificateDer<'static>>, TlsError> {
+    let certificates = CertificateDer::pem_slice_iter(bytes).collect::<Result<Vec<_>, _>>()?;
     if certificates.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "TLS PEM file contains no certificates",
-        ));
+        return Err(TlsError::MissingCertificates);
     }
     Ok(certificates)
 }
@@ -144,8 +156,7 @@ impl ServerIdentity {
     fn from_pem(certificate: &[u8], key: &[u8]) -> Result<Self, ServerIdentityError> {
         let keys = PrivateKeyDer::pem_slice_iter(key)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(io::Error::other)
-            .map_err(ServerIdentityError::PrivateKey)?;
+            .map_err(ServerIdentityError::PrivateKeyParse)?;
         let Ok([key]) = <[PrivateKeyDer<'static>; 1]>::try_from(keys) else {
             return Err(ServerIdentityError::PrivateKey(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -153,7 +164,7 @@ impl ServerIdentity {
             )));
         };
         let identity = Self {
-            chain: certificates(certificate).map_err(ServerIdentityError::Certificate)?,
+            chain: certificates(certificate).map_err(ServerIdentityError::CertificateParse)?,
             key,
         };
         // Building one configuration checks that the key matches the certificate, so a bad pair
@@ -289,22 +300,21 @@ impl ServerSecurity {
     }
 }
 
-pub fn client_config(ca_cert: &Path) -> io::Result<Arc<rustls::ClientConfig>> {
+pub fn client_config(ca_cert: &Path) -> Result<Arc<rustls::ClientConfig>, TlsError> {
     client_config_from_pem(&read_pem(ca_cert)?)
 }
 
-pub fn development_client_config() -> io::Result<Arc<rustls::ClientConfig>> {
+pub fn development_client_config() -> Result<Arc<rustls::ClientConfig>, TlsError> {
     client_config_from_pem(DEVELOPMENT_CA_PEM.as_bytes())
 }
 
-fn client_config_from_pem(pem: &[u8]) -> io::Result<Arc<rustls::ClientConfig>> {
+fn client_config_from_pem(pem: &[u8]) -> Result<Arc<rustls::ClientConfig>, TlsError> {
     let mut roots = rustls::RootCertStore::empty();
     for certificate in certificates(pem)? {
-        roots.add(certificate).map_err(io::Error::other)?;
+        roots.add(certificate)?;
     }
     let mut config = rustls::ClientConfig::builder_with_provider(provider())
-        .with_safe_default_protocol_versions()
-        .map_err(io::Error::other)?
+        .with_safe_default_protocol_versions()?
         .with_root_certificates(roots)
         .with_no_client_auth();
     config.alpn_protocols = vec![Alpn::Http1.protocol().to_vec()];

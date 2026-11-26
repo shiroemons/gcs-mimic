@@ -2538,21 +2538,30 @@ fn cli_help_errors_and_bind_failure() {
 
 #[test]
 fn healthcheck_rejects_truncated_malformed_and_oversized_responses() {
-    for (response, success) in [
-        ("HTTP/1.1 200 ".to_owned(), false),
-        ("HTTP/1.1 2000 Nope\r\n\r\n".to_owned(), false),
+    for (response, refusal) in [
+        (
+            "HTTP/1.1 200 ".to_owned(),
+            Some("incomplete probe response"),
+        ),
+        (
+            "HTTP/1.1 2000 Nope\r\n\r\n".to_owned(),
+            Some("probe did not return HTTP 200"),
+        ),
         (
             "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nx".to_owned(),
-            false,
+            Some("incomplete probe body"),
         ),
-        ("HTTP/1.1 200 OK\r\nbroken\r\n\r\n".to_owned(), false),
+        (
+            "HTTP/1.1 200 OK\r\nbroken\r\n\r\n".to_owned(),
+            Some("invalid probe header"),
+        ),
         (
             format!("HTTP/1.1 200 OK\r\nX-Large: {}\r\n\r\n", "x".repeat(17_000)),
-            false,
+            Some("probe response exceeds 16 KiB"),
         ),
         (
             "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok".to_owned(),
-            true,
+            None,
         ),
     ] {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2582,10 +2591,13 @@ fn healthcheck_rejects_truncated_malformed_and_oversized_responses() {
             .unwrap();
         assert_eq!(
             output.status.success(),
-            success,
+            refusal.is_none(),
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        if let Some(message) = refusal {
+            assert!(String::from_utf8_lossy(&output.stderr).contains(message));
+        }
         mock.join().unwrap();
     }
 }

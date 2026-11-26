@@ -677,7 +677,7 @@ mod topic_check_tests {
     fn every_unconfirmed_lookup_is_a_retryable_503_with_a_fixed_body() {
         for error in [
             TopicCheckError::Unexpected(StatusCode::INTERNAL_SERVER_ERROR),
-            TopicCheckError::Unreachable(std::io::Error::other("timed out")),
+            TopicCheckError::Unreachable(std::io::Error::other("timed out").into()),
         ] {
             let mapped = topic_unverifiable(&error);
             assert_eq!(mapped.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -688,7 +688,8 @@ mod topic_check_tests {
 
     #[test]
     fn the_log_cause_keeps_the_source_chain() {
-        let error = TopicCheckError::Unreachable(std::io::Error::other("connection refused"));
+        let error =
+            TopicCheckError::Unreachable(std::io::Error::other("connection refused").into());
         assert_eq!(
             Report(&error).to_string(),
             "Pub/Sub emulator topic lookup failed: connection refused"

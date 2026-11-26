@@ -18,7 +18,7 @@ use super::{
 };
 use crate::{
     json::ApiError,
-    server::{CHUNK_BYTES, chunk_body},
+    server::{CHUNK_BYTES, chunk_body, gzip::GzipError},
 };
 use bytes::{Buf, Bytes};
 use http_body_util::BodyExt;
@@ -93,7 +93,7 @@ pub(super) async fn request(
         match result {
             Ok(()) => completion.mark(),
             Err(error) => {
-                let _ = sender.send(Err(error)).await;
+                let _ = sender.send(Err(error.into())).await;
             }
         }
     });
@@ -149,14 +149,12 @@ impl Read for Input {
     }
 }
 
-fn within(total: u64, more: usize, limit: u64, refusal: &'static str) -> io::Result<u64> {
+fn within(total: u64, more: usize, limit: u64, refusal: GzipError) -> Result<u64, GzipError> {
     total
         .checked_add(more as u64)
         .filter(|size| *size <= limit)
-        .ok_or_else(|| io::Error::other(refusal))
+        .ok_or(refusal)
 }
-
-const WIRE_REFUSAL: &str = "Compressed upload exceeds its wire budget";
 
 /// Decodes `prefix` and then the rest of `body` into `sender`. A decode failure is recorded in
 /// `decoding` before it is returned, so the body that delivers it can tell it apart.
@@ -167,17 +165,13 @@ async fn stream(
     budget: Budget,
     decoders: Arc<tokio::sync::Semaphore>,
     decoding: &Decoding,
-) -> io::Result<()> {
+) -> Result<(), GzipError> {
     let mut decoder = Members::new(Input::default());
-    let mut compressed = within(0, prefix.len(), budget.compressed, WIRE_REFUSAL)?;
+    let mut compressed = within(0, prefix.len(), budget.compressed, GzipError::WireLimit)?;
     let mut pending = prefix;
     let mut expanded = 0_u64;
     loop {
-        let permit = decoders
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(io::Error::other)?;
+        let permit = decoders.clone().acquire_owned().await?;
         let (next, output) = crate::task::run_blocking("upload-gzip-decoder", move || {
             let _permit = permit;
             let mut output = vec![0; CHUNK_BYTES];
@@ -187,8 +181,7 @@ async fn stream(
             });
             (decoder, result)
         })
-        .await
-        .map_err(io::Error::other)?;
+        .await?;
         decoder = next;
         match output {
             Ok(bytes) if bytes.is_empty() => return Ok(()),
@@ -197,7 +190,7 @@ async fn stream(
                     expanded,
                     bytes.len(),
                     budget.expanded,
-                    "Expanded upload exceeds max_object_bytes plus framing budget",
+                    GzipError::UploadLimit,
                 )?;
                 if sender.send(Ok(bytes)).await.is_err() {
                     return Ok(());
@@ -207,13 +200,15 @@ async fn stream(
                 while pending.is_empty() {
                     match body.frame().await {
                         Some(Ok(frame)) => {
-                            pending = frame.into_data().map_err(|_| {
-                                io::Error::other("Gzip request trailers are unsupported")
-                            })?;
-                            compressed =
-                                within(compressed, pending.len(), budget.compressed, WIRE_REFUSAL)?;
+                            pending = frame.into_data().map_err(|_| GzipError::Trailers)?;
+                            compressed = within(
+                                compressed,
+                                pending.len(),
+                                budget.compressed,
+                                GzipError::WireLimit,
+                            )?;
                         }
-                        Some(Err(error)) => return Err(error),
+                        Some(Err(error)) => return Err(error.into()),
                         None => {
                             decoder.get_mut().eof = true;
                             break;
@@ -225,7 +220,7 @@ async fn stream(
             // Input only ever blocks, so every other error is a decode failure.
             Err(error) => {
                 let _ = decoding.undecodable.set(());
-                return Err(error);
+                return Err(error.into());
             }
         }
     }
@@ -266,7 +261,18 @@ mod tests {
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         encoder.write_all(&vec![b'x'; 200_000]).unwrap();
         let compressed = Bytes::from(encoder.finish().unwrap());
-        for (input, output) in [(compressed.len() as u64 - 1, 500_000), (500_000, 100)] {
+        for (input, output, message) in [
+            (
+                compressed.len() as u64 - 1,
+                500_000,
+                "Compressed upload exceeds its wire budget",
+            ),
+            (
+                500_000,
+                100,
+                "Expanded upload exceeds max_object_bytes plus framing budget",
+            ),
+        ] {
             let (sender, _body) = chunk_body::channel();
             let decoding = Decoding::default();
             let error = stream(
@@ -286,10 +292,7 @@ mod tests {
                 decoding.undecodable.get().is_none(),
                 "a budget is not a decode failure"
             );
-            assert!(
-                error.to_string().contains("budget")
-                    || error.to_string().contains("max_object_bytes")
-            );
+            assert_eq!(error.to_string(), message);
         }
     }
 }

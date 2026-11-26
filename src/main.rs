@@ -609,7 +609,7 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
             }
         )
     };
-    let failed = |url: &ProbeUrl, error: io::Error| {
+    let failed = |url: &ProbeUrl, error: ProbeError| {
         Diagnostics::error(
             DiagnosticSource::Cli,
             "healthcheck",
@@ -774,17 +774,48 @@ fn probe_url(
     Err(diagnostics)
 }
 
+#[derive(Debug, thiserror::Error)]
+enum ProbeError {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error(transparent)]
+    Trust(#[from] gcs_mimic::tls::TlsError),
+    #[error("--ca-cert requires an HTTPS healthcheck URL")]
+    CaOverHttp,
+    #[error("probe deadline exceeded")]
+    Deadline,
+    #[error("probe response exceeds 16 KiB")]
+    TooLarge,
+    #[error("incomplete probe response")]
+    Incomplete,
+    #[error("invalid probe headers")]
+    Headers(#[source] std::str::Utf8Error),
+    #[error("probe did not return HTTP 200")]
+    Status,
+    #[error("invalid probe header")]
+    Header,
+    #[error(transparent)]
+    HeaderName(#[from] hyper::header::InvalidHeaderName),
+    #[error(transparent)]
+    HeaderValue(#[from] hyper::header::InvalidHeaderValue),
+    #[error("chunked probe responses are not supported")]
+    TransferEncoding,
+    #[error("duplicate probe content length")]
+    DuplicateLength,
+    #[error(transparent)]
+    Length(#[from] std::num::ParseIntError),
+    #[error("incomplete probe body")]
+    IncompleteBody,
+}
+
 /// Passes when `url` answers HTTP 200 with a complete body.
-fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> io::Result<()> {
+fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> Result<(), ProbeError> {
     let origin = &url.origin;
     let client = origin
         .tls_client(ca_cert)
         .map_err(|untrusted| match untrusted {
-            Untrusted::Load(error) => error,
-            Untrusted::CaCertOverHttp => io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "--ca-cert requires an HTTPS healthcheck URL",
-            ),
+            Untrusted::Load(error) => error.into(),
+            Untrusted::CaCertOverHttp => ProbeError::CaOverHttp,
         })?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -800,7 +831,7 @@ fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> io::Result<()> {
             }
         })
         .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "probe deadline exceeded"))?
+        .map_err(|_| ProbeError::Deadline)?
     });
     // DNS resolution uses blocking workers; a timed-out one-shot probe must not wait for them.
     runtime.shutdown_background();
@@ -848,7 +879,7 @@ async fn probe_response(
     mut stream: impl AsyncRead + AsyncWrite + Unpin,
     authority: &str,
     path: &str,
-) -> io::Result<()> {
+) -> Result<(), ProbeError> {
     let request = format!("GET /{path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n");
     stream.write_all(request.as_bytes()).await?;
     stream.flush().await?;
@@ -860,7 +891,7 @@ async fn probe_response(
             .read(
                 buffer
                     .get_mut(..available)
-                    .ok_or(io::ErrorKind::InvalidData)?,
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
             )
             .await
         {
@@ -870,44 +901,47 @@ async fn probe_response(
         if read == 0 {
             break;
         }
-        response.extend_from_slice(buffer.get(..read).ok_or(io::ErrorKind::InvalidData)?);
+        response.extend_from_slice(
+            buffer
+                .get(..read)
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
+        );
         if response.len() > 16_384 {
-            return Err(io::Error::other("probe response exceeds 16 KiB"));
+            return Err(ProbeError::TooLarge);
         }
     }
     let boundary = response
         .windows(4)
         .position(|v| v == b"\r\n\r\n")
-        .ok_or_else(|| io::Error::other("incomplete probe response"))?;
-    let headers = std::str::from_utf8(response.get(..boundary).ok_or(io::ErrorKind::InvalidData)?)
-        .map_err(|_| io::Error::other("invalid probe headers"))?;
+        .ok_or(ProbeError::Incomplete)?;
+    let headers = std::str::from_utf8(
+        response
+            .get(..boundary)
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
+    )
+    .map_err(ProbeError::Headers)?;
     let mut lines = headers.split("\r\n");
     let status = lines.next().unwrap_or_default();
     if !status.starts_with("HTTP/1.1 200 ") && !status.starts_with("HTTP/1.0 200 ") {
-        return Err(io::Error::other("probe did not return HTTP 200"));
+        return Err(ProbeError::Status);
     }
     let mut length = None;
     for line in lines {
-        let (name, value) = line
-            .split_once(':')
-            .ok_or_else(|| io::Error::other("invalid probe header"))?;
-        let name =
-            hyper::header::HeaderName::from_bytes(name.as_bytes()).map_err(io::Error::other)?;
-        hyper::header::HeaderValue::from_str(value).map_err(io::Error::other)?;
+        let (name, value) = line.split_once(':').ok_or(ProbeError::Header)?;
+        let name = hyper::header::HeaderName::from_bytes(name.as_bytes())?;
+        hyper::header::HeaderValue::from_str(value)?;
         if name == hyper::header::TRANSFER_ENCODING {
-            return Err(io::Error::other(
-                "chunked probe responses are not supported",
-            ));
+            return Err(ProbeError::TransferEncoding);
         }
         if name == hyper::header::CONTENT_LENGTH {
             if length.is_some() {
-                return Err(io::Error::other("duplicate probe content length"));
+                return Err(ProbeError::DuplicateLength);
             }
-            length = Some(value.trim().parse::<usize>().map_err(io::Error::other)?);
+            length = Some(value.trim().parse::<usize>()?);
         }
     }
     if length.is_some_and(|n| n != response.len() - boundary - 4) {
-        return Err(io::Error::other("incomplete probe body"));
+        return Err(ProbeError::IncompleteBody);
     }
     Ok(())
 }

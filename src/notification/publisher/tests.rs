@@ -91,18 +91,38 @@ async fn publish_uses_checked_local_rest_origin_and_requires_one_acknowledgement
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = Endpoint::parse(&listener.local_addr().unwrap().to_string()).unwrap();
-    for (status, response, succeeds) in [
-        (200, r#"{"messageIds":["first"]}"#.to_owned(), true),
-        (200, r#"{"messageIds":[]}"#.to_owned(), false),
-        (200, r#"{"messageIds":["one","two"]}"#.to_owned(), false),
-        (200, "invalid JSON".to_owned(), false),
+    for (status, response, refusal) in [
+        (200, r#"{"messageIds":["first"]}"#.to_owned(), None),
+        (
+            200,
+            r#"{"messageIds":[]}"#.to_owned(),
+            Some("Pub/Sub publish did not acknowledge exactly one message"),
+        ),
+        (
+            200,
+            r#"{"messageIds":["one","two"]}"#.to_owned(),
+            Some("Pub/Sub publish did not acknowledge exactly one message"),
+        ),
+        (
+            200,
+            "invalid JSON".to_owned(),
+            Some("expected value at line 1 column 1"),
+        ),
         (
             200,
             format!("{{\"messageIds\":[\"{}\"]}}", "x".repeat(8192)),
-            false,
+            Some("length limit exceeded"),
         ),
-        (307, "{}".to_owned(), false),
-        (503, "{}".to_owned(), false),
+        (
+            307,
+            "{}".to_owned(),
+            Some("Pub/Sub publish returned 307 Temporary Redirect"),
+        ),
+        (
+            503,
+            "{}".to_owned(),
+            Some("Pub/Sub publish returned 503 Service Unavailable"),
+        ),
     ] {
         let server = crate::task::spawn_supervised("pubsub-test", async move {
             let (mut socket, _) = listener.accept().await.unwrap();
@@ -123,8 +143,10 @@ async fn publish_uses_checked_local_rest_origin_and_requires_one_acknowledgement
                     r#"{"messages":[{"attributes":{"eventType":"OBJECT_FINALIZE"}}]}"#.into()
                 )
                 .await
-                .is_ok(),
-            succeeds
+                .err()
+                .map(|error| error.to_string())
+                .as_deref(),
+            refusal
         );
         // Keep the same explicit origin across all attempts.
         listener = server.await.unwrap();

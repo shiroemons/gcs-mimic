@@ -50,7 +50,7 @@ fn a_tls_client_verifies_https_and_plain_http_takes_no_ca() {
     let missing = std::env::temp_dir().join("gcs-mimic-no-such-ca.pem");
     assert!(matches!(
         https.tls_client(Some(&missing)),
-        Err(Untrusted::Load(error)) if error.kind() == io::ErrorKind::NotFound
+        Err(Untrusted::Load(tls::TlsError::Io(error))) if error.kind() == std::io::ErrorKind::NotFound
     ));
 }
 

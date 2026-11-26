@@ -2,7 +2,7 @@
 //! healthcheck does.
 
 use gcs_mimic::{config::Config, diagnostics::Diagnostics, tls};
-use std::{ffi::OsString, io, path::Path, str::FromStr, sync::Arc};
+use std::{ffi::OsString, path::Path, str::FromStr, sync::Arc};
 use tokio_rustls::rustls::ClientConfig;
 
 /// How a client on this host speaks to the server.
@@ -38,7 +38,7 @@ pub(super) struct InvalidOrigin;
 #[derive(Debug)]
 pub(super) enum Untrusted {
     /// The CA certificate could not be loaded.
-    Load(io::Error),
+    Load(tls::TlsError),
     /// A CA was given for a server reached over plain HTTP.
     CaCertOverHttp,
 }

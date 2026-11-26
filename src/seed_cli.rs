@@ -326,7 +326,7 @@ impl Endpoint {
 #[derive(Debug)]
 pub(super) enum ExchangeFailure {
     /// The CA certificate that verifies the server could not be loaded.
-    Trust(io::Error),
+    Trust(Box<gcs_mimic::tls::TlsError>),
     /// `--ca-cert` names a CA for a server that its configuration reaches over plain HTTP.
     CaCertOverHttp,
     /// The host resolved to no address that accepted a connection.
@@ -364,7 +364,8 @@ impl std::fmt::Display for ExchangeFailure {
 impl std::error::Error for ExchangeFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Trust(error) | Self::Connect(error) | Self::Tls(error) => Some(error),
+            Self::Trust(error) => Some(error.as_ref()),
+            Self::Connect(error) | Self::Tls(error) => Some(error),
             Self::Request(error) => Some(error),
             Self::Http(error) => Some(error),
             Self::NonJson(_, error) => Some(error),
@@ -480,7 +481,7 @@ async fn exchange(
     let client = origin
         .tls_client(ca_cert)
         .map_err(|untrusted| match untrusted {
-            Untrusted::Load(error) => ExchangeFailure::Trust(error),
+            Untrusted::Load(error) => ExchangeFailure::Trust(Box::new(error)),
             Untrusted::CaCertOverHttp => ExchangeFailure::CaCertOverHttp,
         })?;
     let deadline = command.deadline();

@@ -10,6 +10,41 @@ use hyper::{HeaderMap, Method, Response, StatusCode, header::HeaderValue};
 use std::io::{self, BufRead, BufReader, Read};
 use tokio::sync::watch;
 
+#[derive(Debug, thiserror::Error)]
+pub(super) enum GzipError {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error("gzip decoder worker failed")]
+    DownloadWorker(#[source] crate::task::BlockingFailed),
+    #[error("expanded object exceeds max_object_bytes")]
+    ObjectLimit,
+    #[error(transparent)]
+    UploadWorker(#[from] crate::task::BlockingFailed),
+    #[error(transparent)]
+    Closed(#[from] tokio::sync::AcquireError),
+    #[error("Compressed upload exceeds its wire budget")]
+    WireLimit,
+    #[error("Expanded upload exceeds max_object_bytes plus framing budget")]
+    UploadLimit,
+    #[error("Gzip request trailers are unsupported")]
+    Trailers,
+}
+
+impl From<GzipError> for io::Error {
+    fn from(error: GzipError) -> Self {
+        match error {
+            GzipError::Io(error) => error,
+            other @ (GzipError::DownloadWorker(_)
+            | GzipError::UploadWorker(_)
+            | GzipError::Closed(_)
+            | GzipError::ObjectLimit
+            | GzipError::WireLimit
+            | GzipError::UploadLimit
+            | GzipError::Trailers) => io::Error::other(other),
+        }
+    }
+}
+
 // Bound compressed input too: many empty members must not monopolize a worker.
 struct Input<R> {
     reader: R,
@@ -171,7 +206,7 @@ fn body(
                 })
             })
             .await
-            .map_err(|_| io::Error::other("gzip decoder worker failed"))?;
+            .map_err(GzipError::DownloadWorker)?;
             let mut total = 0_u64;
             loop {
                 let (next, bytes) = crate::task::run_blocking("object-gzip-read", move || {
@@ -184,19 +219,19 @@ fn body(
                     (decoder, result)
                 })
                 .await
-                .map_err(|_| io::Error::other("gzip decoder worker failed"))?;
+                .map_err(GzipError::DownloadWorker)?;
                 decoder = next;
                 let bytes = match bytes {
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
                     other => other?,
                 };
                 if bytes.is_empty() {
-                    return Ok::<_, io::Error>(());
+                    return Ok::<_, GzipError>(());
                 }
                 total = total
                     .checked_add(bytes.len() as u64)
                     .filter(|size| *size <= expanded_limit)
-                    .ok_or_else(|| io::Error::other("expanded object exceeds max_object_bytes"))?;
+                    .ok_or(GzipError::ObjectLimit)?;
                 if sender.send(Ok(bytes)).await.is_err() {
                     return Ok(());
                 }
@@ -209,6 +244,7 @@ fn body(
             _ = progress.wait_for(|state| state.deadline.is_none()) => Ok(()),
         };
         if let Err(error) = result {
+            let error = io::Error::from(error);
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
                 crate::diagnostics::Event::ObjectTranscodingFailed,

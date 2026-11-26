@@ -2,8 +2,8 @@
 
 use super::Topic;
 use crate::net::is_local_address;
-use bytes::Bytes;
-use http_body_util::{BodyExt, Full, Limited};
+use bytes::{Bytes, BytesMut};
+use http_body_util::{BodyExt, Full};
 use hyper::{Request, Uri, client::conn::http1};
 use hyper_util::rt::TokioIo;
 use std::{
@@ -33,6 +33,26 @@ impl From<InvalidEndpoint> for io::Error {
     fn from(error: InvalidEndpoint) -> Self {
         Self::new(io::ErrorKind::InvalidInput, error)
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum PublishError {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error(transparent)]
+    Timeout(#[from] tokio::time::error::Elapsed),
+    #[error(transparent)]
+    Request(#[from] hyper::http::Error),
+    #[error(transparent)]
+    Http(#[from] hyper::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("length limit exceeded")]
+    TooLarge,
+    #[error("Pub/Sub publish returned {0}")]
+    Status(hyper::StatusCode),
+    #[error("Pub/Sub publish did not acknowledge exactly one message")]
+    Acknowledgement,
 }
 
 #[derive(Clone, Debug)]
@@ -90,10 +110,8 @@ impl Endpoint {
         Ok(first)
     }
 
-    pub(crate) async fn publish(&self, topic: &Topic, message: String) -> io::Result<()> {
-        tokio::time::timeout(ATTEMPT_TIMEOUT, self.publish_inner(topic, message))
-            .await
-            .map_err(io::Error::other)?
+    pub(crate) async fn publish(&self, topic: &Topic, message: String) -> Result<(), PublishError> {
+        tokio::time::timeout(ATTEMPT_TIMEOUT, self.publish_inner(topic, message)).await?
     }
 
     /// Ask the emulator whether `topic` exists, bounded by the same attempt timeout as a publish.
@@ -110,7 +128,7 @@ impl Endpoint {
     ) -> Result<(), TopicCheckError> {
         let status = tokio::time::timeout(timeout, self.topic_status(topic))
             .await
-            .map_err(|elapsed| TopicCheckError::Unreachable(io::Error::other(elapsed)))?
+            .map_err(|elapsed| TopicCheckError::Unreachable(elapsed.into()))?
             .map_err(TopicCheckError::Unreachable)?;
         match status {
             hyper::StatusCode::OK => Ok(()),
@@ -119,12 +137,11 @@ impl Endpoint {
         }
     }
 
-    async fn topic_status(&self, topic: &Topic) -> io::Result<hyper::StatusCode> {
+    async fn topic_status(&self, topic: &Topic) -> Result<hyper::StatusCode, PublishError> {
         let relative = Self::topic_path(topic);
         let request = Request::get(format!("/v1/{relative}"))
             .header("Host", &self.authority)
-            .body(Full::new(Bytes::new()))
-            .map_err(io::Error::other)?;
+            .body(Full::new(Bytes::new()))?;
         Ok(self.roundtrip(request).await?.0)
     }
 
@@ -133,28 +150,22 @@ impl Endpoint {
         crate::url::encode_object_name(topic.relative())
     }
 
-    async fn publish_inner(&self, topic: &Topic, message: String) -> io::Result<()> {
+    async fn publish_inner(&self, topic: &Topic, message: String) -> Result<(), PublishError> {
         let relative = Self::topic_path(topic);
         let request = Request::post(format!("/v1/{relative}:publish"))
             .header("Host", &self.authority)
             .header("Content-Type", "application/json")
-            .body(Full::new(Bytes::from(message)))
-            .map_err(io::Error::other)?;
+            .body(Full::new(Bytes::from(message)))?;
         let (status, bytes) = self.roundtrip(request).await?;
         if status != hyper::StatusCode::OK {
-            return Err(io::Error::other(format!(
-                "Pub/Sub publish returned {status}"
-            )));
+            return Err(PublishError::Status(status));
         }
-        let response: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+        let response: serde_json::Value = serde_json::from_slice(&bytes)?;
         if response.get("messageIds")
             .and_then(serde_json::Value::as_array)
             .is_none_or(|ids| !matches!(ids.as_slice(), [id] if id.as_str().is_some_and(|id| !id.is_empty())))
         {
-            return Err(io::Error::other(
-                "Pub/Sub publish did not acknowledge exactly one message",
-            ));
+            return Err(PublishError::Acknowledgement);
         }
         Ok(())
     }
@@ -164,33 +175,34 @@ impl Endpoint {
     async fn roundtrip(
         &self,
         request: Request<Full<Bytes>>,
-    ) -> io::Result<(hyper::StatusCode, Bytes)> {
+    ) -> Result<(hyper::StatusCode, Bytes), PublishError> {
         let stream = TcpStream::connect(self.address().await?).await?;
         let (mut sender, connection) = http1::Builder::new()
             .max_buf_size(16 * 1024)
             .handshake(TokioIo::new(stream))
-            .await
-            .map_err(io::Error::other)?;
+            .await?;
         // Poll the driver in this future: cancellation/timeout drops the socket immediately.
         let exchange = async {
-            let response = sender
-                .send_request(request)
-                .await
-                .map_err(io::Error::other)?;
+            let response = sender.send_request(request).await?;
             let status = response.status();
-            let bytes = Limited::new(response.into_body(), 8192)
-                .collect()
-                .await
-                .map_err(io::Error::other)?
-                .to_bytes();
-            Ok((status, bytes))
+            let mut body = response.into_body();
+            let mut bytes = BytesMut::new();
+            while let Some(frame) = body.frame().await {
+                if let Ok(data) = frame?.into_data() {
+                    if data.len() > 8192 - bytes.len() {
+                        return Err(PublishError::TooLarge);
+                    }
+                    bytes.extend_from_slice(&data);
+                }
+            }
+            Ok((status, bytes.freeze()))
         };
         tokio::pin!(connection, exchange);
         tokio::select! {
             biased;
             result = &mut exchange => result,
             result = &mut connection => {
-                result.map_err(io::Error::other)?;
+                result?;
                 exchange.await
             },
         }
@@ -198,35 +210,14 @@ impl Endpoint {
 }
 
 /// Why the emulator could not confirm that a topic exists.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum TopicCheckError {
-    /// The emulator answered 404 for the topic.
+    #[error("Pub/Sub emulator reports no such topic")]
     NotFound,
-    /// The emulator answered something other than 200 or 404.
+    #[error("Pub/Sub emulator topic lookup returned {0}")]
     Unexpected(hyper::StatusCode),
-    /// No usable answer: connection failure, timeout or malformed response.
-    Unreachable(io::Error),
-}
-
-impl std::fmt::Display for TopicCheckError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound => formatter.write_str("Pub/Sub emulator reports no such topic"),
-            Self::Unexpected(status) => {
-                write!(formatter, "Pub/Sub emulator topic lookup returned {status}")
-            }
-            Self::Unreachable(_) => formatter.write_str("Pub/Sub emulator topic lookup failed"),
-        }
-    }
-}
-
-impl std::error::Error for TopicCheckError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Unreachable(error) => Some(error),
-            Self::NotFound | Self::Unexpected(_) => None,
-        }
-    }
+    #[error("Pub/Sub emulator topic lookup failed")]
+    Unreachable(#[source] PublishError),
 }
 
 #[cfg(test)]
