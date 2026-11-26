@@ -1,6 +1,7 @@
 use super::*;
 
 #[cfg(unix)]
+#[cfg_attr(test, track_caller)]
 pub(in crate::storage::catalog) fn sync_dir(path: &Path) -> io::Result<()> {
     #[cfg(test)]
     fault::record_catalog_thread_io(path);
@@ -22,6 +23,7 @@ pub(in crate::storage::catalog) fn blob_shard(path: &Path) -> io::Result<&Path> 
     })
 }
 
+#[cfg_attr(test, track_caller)]
 pub(in crate::storage::catalog) fn publish_blob(
     source: &Path,
     destination: &Path,
@@ -136,6 +138,7 @@ impl Catalog {
     }
 }
 
+#[cfg_attr(test, track_caller)]
 pub(in crate::storage::catalog) fn unlink(path: &Path) -> io::Result<()> {
     #[cfg(test)]
     fault::record_catalog_thread_io(path);

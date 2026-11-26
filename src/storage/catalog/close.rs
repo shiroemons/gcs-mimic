@@ -83,6 +83,8 @@ impl Catalog {
                 Ok(())
             })
             .await;
+        #[cfg(test)]
+        fault::assert_no_catalog_thread_io(&self.0.data_dir);
         match closed {
             Ok(result) => result,
             // An earlier close already released the connection and stopped the thread.

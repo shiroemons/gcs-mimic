@@ -311,6 +311,7 @@ impl BlobBackend {
     }
 
     #[cfg(unix)]
+    #[cfg_attr(test, track_caller)]
     pub(super) fn sync_staging_dir(&self) -> io::Result<()> {
         match self {
             Self::Disk(root) => objects::sync_dir(&root.join("staging")),
@@ -321,11 +322,16 @@ impl BlobBackend {
     pub(super) fn create_draft(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
             Self::Memory(store) => store.create_draft(id.to_hex()),
-            Self::Disk(root) => Ok(fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(id.staging_path(root))
-                .and_then(|file| file.sync_all())?),
+            Self::Disk(root) => {
+                let stage = id.staging_path(root);
+                #[cfg(test)]
+                super::fault::record_catalog_thread_io(&stage);
+                Ok(fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(stage)
+                    .and_then(|file| file.sync_all())?)
+            }
         }
     }
 
@@ -444,6 +450,8 @@ pub(super) fn restore_disk_draft(root: &Path, id: &BlobId) -> io::Result<()> {
 
 /// Makes a new resumable draft durable: the file first, then its entry in the staging directory.
 fn sync_new_draft(file: &fs::File, #[cfg(any(test, unix))] root: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    super::fault::record_catalog_thread_io(root);
     file.sync_all()?;
     #[cfg(test)]
     super::fault::file_synced(root, &file.metadata()?);

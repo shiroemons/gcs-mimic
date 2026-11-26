@@ -520,6 +520,68 @@ fn immutable_uri_reads_exact_unicode_and_reserved_filename() {
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
 }
 
+/// One directory sync inside a catalog job.
+#[cfg(unix)]
+#[derive(Clone, Copy)]
+enum JobSync {
+    /// Under the exclusive reclaim allowance, which ends with the sync.
+    Allowed,
+    /// With no allowance in force.
+    Unallowed,
+}
+
+/// Runs `syncs` of the staging directory, in order, in one catalog job.
+#[cfg(unix)]
+async fn sync_staging_in_a_job(
+    syncs: &'static [JobSync],
+) -> (crate::test_support::TestDir, Catalog) {
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let staging = dir.0.join("staging");
+    catalog
+        .run(move |_| {
+            for sync in syncs {
+                let _reclaim = match sync {
+                    JobSync::Allowed => {
+                        Some(fault::allow_catalog_io(fault::CatalogIo::ExclusiveReclaim))
+                    }
+                    JobSync::Unallowed => None,
+                };
+                objects::sync_dir(&staging).map_err(unavailable)?;
+            }
+            Ok::<_, CatalogError>(())
+        })
+        .await
+        .unwrap();
+    (dir, catalog)
+}
+
+#[cfg(unix)]
+#[tokio::test]
+#[should_panic(
+    expected = "catalog executor jobs reached durability seams at [Location { file: \"src/storage/catalog/tests.rs\""
+)]
+async fn close_fails_naming_the_job_that_synced_without_an_allowance() {
+    let (_dir, catalog) = sync_staging_in_a_job(&[JobSync::Unallowed]).await;
+    catalog.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_job_under_the_exclusive_reclaim_allowance_may_sync_and_close_succeeds() {
+    let (dir, catalog) = sync_staging_in_a_job(&[JobSync::Allowed]).await;
+    assert_eq!(fault::catalog_thread_io(&dir.0), 0);
+    catalog.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+#[should_panic(expected = "catalog executor jobs reached durability seams")]
+async fn the_allowance_ends_with_its_guard() {
+    let (_dir, catalog) = sync_staging_in_a_job(&[JobSync::Allowed, JobSync::Unallowed]).await;
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn close_waits_for_cancelled_blocking_work_and_invalidates_clones() {
     use std::{future::Future, task::Poll};

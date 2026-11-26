@@ -118,6 +118,8 @@ fn validate_retained(
     output.set_len(progress.offset)?;
     #[cfg(test)]
     fault::truncated(data_dir, &output.metadata()?);
+    #[cfg(test)]
+    fault::record_catalog_thread_io(data_dir);
     output.sync_all()?;
     // A same-length corrupted prefix must not inherit the acknowledged hash state.
     let mut hasher = Hasher::default();

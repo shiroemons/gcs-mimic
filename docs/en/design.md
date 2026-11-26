@@ -317,6 +317,15 @@ immutable inode while selecting its source, so a concurrent purge cannot remove 
 source before publication. Pin hard links and in-transaction descriptor opens stay
 on the catalog thread because catalog serialization orders them before reclamation.
 These short namespace operations perform no content copying or synchronization.
+No other catalog job, on the writer or a reader, syncs, unlinks or publishes a file:
+what a commit needs to be durable, such as the staging directory entry of an XML
+part or assembled upload, is synced on the blocking pool before its job is queued.
+A source batch that fails part way returns the pins it already made, and a reply
+whose caller was cancelled is dropped on the blocking pool, so neither unlinks a
+pin on the catalog thread. Reset and reseed are the exception: they reclaim
+journaled blobs inside their exclusive job, which already holds every other request
+back. In test builds, closing a catalog fails when one of its jobs reached a
+durability step outside that exception.
 File-worker jobs cannot nest another file-worker job; a typed error rejects the
 attempt before it acquires another permit.
 A queued job runs to completion even if its caller is cancelled, and a
