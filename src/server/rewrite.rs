@@ -3,7 +3,7 @@ use super::*;
 use crate::{
     csek::CopyKeys,
     json::rewrite::RewriteRequest,
-    object::{ObjectConditions, content_type},
+    object::{ObjectConditions, content_type, generation::Generation},
     storage::{
         DerivedDestination,
         rewrite::{
@@ -73,7 +73,7 @@ async fn authorize_source(
                 && session.binding.source.name == source.name
         })
         .map(|(_, session)| session.binding.source.generation)
-        .or_else(|| operation.source_generation.map(i64::from));
+        .or_else(|| operation.source_generation.map(Generation::get));
     catalog
         .get_object(
             operation.names.source_at(generation),
@@ -205,7 +205,7 @@ async fn resolve_source(
 ) -> Result<crate::storage::DerivedSource, ApiError> {
     let target = operation
         .names
-        .source_at(operation.source_generation.map(i64::from));
+        .source_at(operation.source_generation.map(Generation::get));
     let conditions = operation.source_conditions;
     catalog
         .resolve_derived_source_keyed(target, conditions, access, keys.source)

@@ -872,7 +872,8 @@ fn accepted_parameter(key: &str) -> bool {
     signing_parameter(key) || key == BILLING_QUERY
 }
 
-/// XML revision fields use unsigned decimal spelling within the signed int64 range.
+/// XML revision fields use unsigned decimal spelling within the signed int64 range, with any
+/// additional bounds supplied by the target type.
 fn number<T: TryFrom<i64>>(raw: &str) -> Result<T, Error> {
     crate::decimal::Grammar::Digits
         .parse::<i64>(raw)
@@ -984,8 +985,9 @@ fn conditions(headers: &HeaderMap, messages: ConditionMessages) -> Result<Object
             .map_err(|error| messages.for_header(&error))
     };
     Ok(ObjectConditions {
+        // A match on generation 0 requires that no live object exists.
         if_generation_match: read("x-goog-if-generation-match")?
-            .map(number)
+            .map(number::<i64>)
             .transpose()?,
         if_metageneration_match: read("x-goog-if-metageneration-match")?
             .map(number)

@@ -44,6 +44,7 @@ pub(super) async fn respond(
     if request.headers().contains_key("content-encoding") {
         return Err(Error::unsupported("content-encoding on bucket creation"));
     }
+    // The digit grammar rejects negatives, and NonZeroI64 excludes zero.
     let period = super::super::put::single(request.headers(), "x-goog-bucket-retention-period")?
         .map(super::super::number)
         .transpose()?

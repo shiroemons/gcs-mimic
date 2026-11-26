@@ -8,7 +8,7 @@ use crate::{
     csek::{CopyKeys, CustomerKey},
     json,
     json::ApiError,
-    object::{ObjectError, ObjectRecord, ObjectTarget},
+    object::{ObjectError, ObjectRecord, ObjectTarget, generation::Generation},
     server::{
         ObjectCtx, RESOURCE_BODY_LIMIT,
         copy::{self, CopyBudget, CopyJob},
@@ -63,7 +63,7 @@ pub(super) async fn copy(
             CopyReplaySource {
                 bucket: &params.source_bucket,
                 name: &params.source_name,
-                generation: params.source_generation.map(i64::from),
+                generation: params.source_generation.map(Generation::get),
                 access: &source_access,
             },
             ReplayInvocation {
@@ -127,7 +127,7 @@ async fn copy_object(
     let target = ObjectTarget::new(
         &params.source_bucket,
         &params.source_name,
-        params.source_generation.map(i64::from),
+        params.source_generation.map(Generation::get),
     );
     let source = catalog
         .resolve_derived_source_keyed(

@@ -1,5 +1,6 @@
 //! Transport-independent object state shared by the catalog and protocol adapters.
 
+use self::generation::Generation;
 use crate::{
     bucket::StorageClass,
     cause::{BackendCause, IoCause, Link, TypedSource},
@@ -640,9 +641,9 @@ impl<G> ObjectTarget<G> {
     }
 }
 
-impl ObjectTarget<Option<generation::Generation>> {
+impl ObjectTarget<Option<Generation>> {
     pub(crate) fn into_signed_target(self) -> ObjectTarget {
-        ObjectTarget::new(self.bucket, self.name, self.generation.map(i64::from))
+        ObjectTarget::new(self.bucket, self.name, self.generation.map(Generation::get))
     }
 }
 

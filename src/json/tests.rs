@@ -790,10 +790,21 @@ fn bucket_generation_selectors_keep_their_decimal_grammar_and_error_order() {
         Ok(BucketRequest::GetSoftDeleted { generation, .. }) if generation.get() == i64::MAX
     );
     for text in ["0", "-0", "-1", "%2B1", "9223372036854775808"] {
-        let path = format!("{base}{text}&ifMetagenerationMatch=1");
-        let error = request(Method::GET, &path).unwrap_err();
-        assert_eq!(error.reason(), "invalidParameter");
-        assert_eq!(error.message(), "generation must be a positive int64");
+        for (method, path) in [
+            (Method::GET, format!("{base}{text}&ifMetagenerationMatch=1")),
+            (
+                Method::POST,
+                format!("/storage/v1/b/abc/restore?generation={text}"),
+            ),
+        ] {
+            let error = request(method, &path).unwrap_err();
+            assert_eq!(error.reason(), "invalidParameter", "{path}");
+            assert_eq!(
+                error.message(),
+                "generation must be a positive int64",
+                "{path}"
+            );
+        }
     }
 }
 
