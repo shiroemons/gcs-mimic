@@ -168,16 +168,13 @@ pub(in crate::storage::catalog) async fn create_upload_stage(
     #[cfg(test)] data_dir: PathBuf,
 ) -> Result<StagedFile, ObjectError> {
     crate::task::run_blocking("upload-stage", move || -> io::Result<_> {
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(stage)?;
-        Ok(StagedFile::new(
-            file,
+        Ok(BatchWriter::create(
+            stage,
             lease,
             #[cfg(test)]
             &data_dir,
-        ))
+        )?
+        .into())
     })
     .await?
     .map_err(object_unavailable)
@@ -215,7 +212,7 @@ type WriteJob = tokio::task::JoinHandle<
     Result<(BatchWriter, Result<(), ObjectError>), crate::task::JobPanicked>,
 >;
 
-struct BatchWriter {
+pub(in crate::storage::catalog) struct BatchWriter {
     file: File,
     _lease: StageLease,
     bytes: Vec<u8>,
@@ -225,6 +222,51 @@ struct BatchWriter {
 }
 
 impl BatchWriter {
+    pub(in crate::storage::catalog) fn create(
+        stage: PathBuf,
+        lease: StageLease,
+        #[cfg(test)] data_dir: &Path,
+    ) -> io::Result<Self> {
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(stage)?;
+        Ok(Self::new(
+            file,
+            lease,
+            #[cfg(test)]
+            data_dir,
+        ))
+    }
+
+    pub(in crate::storage::catalog) fn new(
+        file: File,
+        lease: StageLease,
+        #[cfg(test)] data_dir: &Path,
+    ) -> Self {
+        Self {
+            file,
+            _lease: lease,
+            bytes: Vec::new(),
+            unsynced: 0,
+            #[cfg(test)]
+            data_dir: data_dir.to_owned(),
+        }
+    }
+
+    pub(in crate::storage::catalog) fn write(
+        &mut self,
+        mut bytes: &[u8],
+    ) -> Result<(), ObjectError> {
+        while !bytes.is_empty() {
+            bytes = fill_batch(&mut self.bytes, bytes);
+            if self.bytes.len() == WRITE_BATCH_BYTES {
+                self.write_batch()?;
+            }
+        }
+        Ok(())
+    }
+
     fn write_batch(&mut self) -> Result<(), ObjectError> {
         use std::io::Write;
 
@@ -250,7 +292,7 @@ impl BatchWriter {
         Ok(())
     }
 
-    fn make_durable(&mut self) -> Result<(), ObjectError> {
+    pub(in crate::storage::catalog) fn make_durable(&mut self) -> Result<(), ObjectError> {
         #[cfg(test)]
         fault::hit(&self.data_dir, Step::BodyFlush).map_err(object_unavailable)?;
         self.write_batch()?;
@@ -269,25 +311,33 @@ impl BatchWriter {
     }
 }
 
-impl StagedFile {
-    pub(in crate::storage::catalog) fn new(
-        file: File,
-        lease: StageLease,
-        #[cfg(test)] data_dir: &Path,
-    ) -> Self {
+fn fill_batch<'a>(batch: &mut Vec<u8>, bytes: &'a [u8]) -> &'a [u8] {
+    let count = bytes.len().min(WRITE_BATCH_BYTES - batch.len());
+    let (part, rest) = bytes.split_at(count);
+    let needed = batch.len() + count;
+    if needed > batch.capacity() {
+        let capacity = (2 * batch.capacity()).clamp(needed, WRITE_BATCH_BYTES);
+        batch.reserve_exact(capacity - batch.len());
+    }
+    batch.extend_from_slice(part);
+    rest
+}
+
+impl From<BatchWriter> for StagedFile {
+    fn from(writer: BatchWriter) -> Self {
         Self {
-            writer: Some(BatchWriter {
-                file,
-                _lease: lease,
-                bytes: Vec::new(),
-                unsynced: 0,
-                #[cfg(test)]
-                data_dir: data_dir.to_owned(),
-            }),
+            writer: Some(writer),
             filling: Vec::new(),
             pending: None,
             failed: false,
         }
+    }
+}
+
+impl StagedFile {
+    #[cfg(test)]
+    pub(in crate::storage::catalog) fn new(file: File, lease: StageLease, data_dir: &Path) -> Self {
+        BatchWriter::new(file, lease, data_dir).into()
     }
 
     /// A lease stays with its supervised upload until the last submitted write has returned.
@@ -341,15 +391,7 @@ impl StagedFile {
     ) -> Result<(), ObjectError> {
         self.ensure_writable()?;
         while !bytes.is_empty() {
-            let count = bytes.len().min(WRITE_BATCH_BYTES - self.filling.len());
-            let (part, rest) = bytes.split_at(count);
-            let needed = self.filling.len() + count;
-            if needed > self.filling.capacity() {
-                let capacity = (2 * self.filling.capacity()).clamp(needed, WRITE_BATCH_BYTES);
-                self.filling.reserve_exact(capacity - self.filling.len());
-            }
-            self.filling.extend_from_slice(part);
-            bytes = rest;
+            bytes = fill_batch(&mut self.filling, bytes);
             if self.filling.len() == WRITE_BATCH_BYTES {
                 self.settle().await?;
                 self.submit("staged-write", BatchWriter::write_batch)?;
@@ -391,11 +433,11 @@ impl StagedFile {
         Ok(())
     }
 
-    pub(in crate::storage::catalog) fn into_file(mut self) -> Result<File, ObjectError> {
+    pub(in crate::storage::catalog) fn file(&self) -> Result<&File, ObjectError> {
         self.ensure_writable()?;
         self.writer
-            .take()
-            .map(|writer| writer.file)
+            .as_ref()
+            .map(|writer| &writer.file)
             .ok_or_else(staged_writer_unavailable)
     }
 }

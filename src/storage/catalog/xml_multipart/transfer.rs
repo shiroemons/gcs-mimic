@@ -1,4 +1,3 @@
-use super::super::transfer_io::InputReader;
 use super::*;
 use crate::storage::catalog::sql;
 use crate::{
@@ -24,51 +23,22 @@ struct CompletionParts {
 const OTHER_PARTS_BYTES: &str =
     "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2";
 
-/// The staging entry whose row is about to commit.
+/// Sync the directory on the blocking pool before committing the row that names the new entry.
 #[cfg(unix)]
-#[derive(Clone, Copy, Debug)]
-enum StagedEntry {
-    Part,
-    Assembled,
-}
-
-#[cfg(unix)]
-impl StagedEntry {
-    fn task_name(self) -> &'static str {
-        match self {
-            Self::Part => "xml-multipart-part-sync",
-            Self::Assembled => "xml-multipart-assemble-sync",
-        }
-    }
-
-    #[cfg(test)]
-    fn step(self) -> super::super::fault::Step {
-        match self {
-            Self::Part => super::super::fault::Step::MultipartPartSync,
-            Self::Assembled => super::super::fault::Step::MultipartAssembleSync,
-        }
-    }
-}
-
-/// Makes a new staging entry durable before the row that names it commits. The sync runs on the
-/// blocking pool rather than in the writer job, so requests queued behind that job do not wait
-/// for the storage device. RAM has no staging directory, so it skips the pool as well.
-#[cfg(unix)]
-async fn sync_staging_entry(catalog: &Catalog, entry: StagedEntry) -> Result<(), ObjectError> {
+fn sync_staging_entry(
+    catalog: &Catalog,
+    #[cfg(test)] step: super::super::fault::Step,
+) -> Result<(), ObjectError> {
     if catalog.0.backend.is_memory() {
         return Ok(());
     }
-    let backend = catalog.0.backend.clone();
     #[cfg(test)]
-    let data_dir = catalog.0.data_dir.clone();
-    crate::task::run_blocking(entry.task_name(), move || {
-        #[cfg(test)]
-        super::super::fault::hit(&data_dir, entry.step()).map_err(object_unavailable)?;
-        backend.sync_staging_dir().map_err(object_unavailable)
-    })
-    .await
-    .map_err(object_unavailable)
-    .flatten()
+    super::super::fault::hit(&catalog.0.data_dir, step).map_err(object_unavailable)?;
+    catalog
+        .0
+        .backend
+        .sync_staging_dir()
+        .map_err(object_unavailable)
 }
 
 fn publication_error(error: Error) -> ObjectError {
@@ -118,7 +88,10 @@ impl Catalog {
                 let access=lease.access.clone();
                 let clock=catalog.0.clock.clone();
                 #[cfg(unix)]
-                sync_staging_entry(&catalog, StagedEntry::Part).await?;
+                if !catalog.0.backend.is_memory() {
+                    let syncing = catalog.clone();
+                    crate::task::run_blocking("xml-multipart-part-sync", move || sync_staging_entry(&syncing, #[cfg(test)] super::super::fault::Step::MultipartPartSync)).await.map_err(object_unavailable)??;
+                }
                 catalog.run(move |connection| -> Result<_, Error> {
                     if let objects::UploadSink::Memory(stage)=file { stage.publish(id.to_hex()).map_err(object_unavailable)?; }
                     #[cfg(test)] super::super::fault::hit(&data_dir,super::super::fault::Step::Checkpoint).map_err(object_unavailable)?;
@@ -199,7 +172,7 @@ impl Catalog {
             let parts = catalog
                 .xml_completion_parts(&lease, parts, max_bytes)
                 .await?;
-            if let Err(error) = catalog.assemble_xml_parts(&lease, &parts, &id).await {
+            if let Err(error) = catalog.assemble_xml_parts(&lease, parts, &id).await {
                 let orphan = id;
                 let cleanup = catalog
                     .run(move |connection| {
@@ -315,56 +288,55 @@ impl Catalog {
     async fn assemble_xml_parts(
         &self,
         lease: &UploadLease,
-        completion: &CompletionParts,
+        completion: CompletionParts,
         id: &BlobId,
     ) -> Result<(), Error> {
-        let mut file = self.0.backend.stage_output(id, lease.guard.clone()).await?;
-        let mut hasher = Hasher::default();
-        let mut buffer = [0; 64 * 1024];
-        let assembled = async {
-            for stored in &completion.parts {
-                let mut input = InputReader::open(self, &stored.blob_id, 0).await?;
-                let mut remaining = stored.size;
-                let mut part_hash = Hasher::default();
-                while remaining > 0 {
-                    if self.0.admission.is_closed() {
-                        return Err(object_unavailable("catalog is closing").into());
-                    }
-                    let length = usize::try_from(remaining.min(buffer.len() as u64))
-                        .map_err(object_unavailable)?;
-                    let bytes = buffer
-                        .get_mut(..length)
-                        .ok_or_else(|| object_unavailable("invalid multipart buffer length"))?;
-                    let n = input.read(bytes).await?;
-                    if n == 0 {
-                        return Err(object_unavailable("multipart part is truncated").into());
-                    }
-                    let bytes = bytes
-                        .get(..n)
-                        .ok_or_else(|| object_unavailable("invalid multipart read length"))?;
-                    part_hash.update(bytes);
-                    hasher.update(bytes);
-                    file.write(bytes).await?;
-                    remaining -= n as u64;
-                    if self.0.backend.is_memory() {
-                        tokio::task::yield_now().await;
-                    }
-                }
-                if part_hash.finish() != stored.hashes {
-                    return Err(object_unavailable("multipart part data is corrupt").into());
-                }
-            }
-            Ok::<_, Error>(())
-        }
-        .await;
-        file.settle_result(assembled).await?;
-        file.finish().await?;
-        #[cfg(unix)]
-        sync_staging_entry(self, StagedEntry::Assembled).await?;
+        use md5::digest::common::hazmat::SerializableState;
+
         let id = *id;
-        let now = UnixMillis::try_from(self.0.clock.now())?;
-        let (state, crc32c) = hasher.md5_state();
+        let mut assembled = None;
+        for part in completion.parts {
+            let catalog = self.clone();
+            let guard = lease.guard.clone();
+            assembled = Some(
+                crate::task::run_blocking("xml-assemble-part", move || {
+                    let mut assembly = match assembled {
+                        Some(assembly) => assembly,
+                        None => Assembly {
+                            file: catalog.0.backend.stage_copy_output(&id, guard)?,
+                            md5: md5::Md5::default(),
+                            crc32c: 0,
+                        },
+                    };
+                    assembly.append(&catalog, &part)?;
+                    Ok::<_, ObjectError>(assembly)
+                })
+                .await
+                .map_err(object_unavailable)??,
+            );
+        }
+        let mut assembly = assembled.ok_or(Error::InvalidPart)?;
+        #[cfg(unix)]
+        let catalog = self.clone();
+        let Assembly {
+            mut file,
+            md5,
+            crc32c,
+        } = crate::task::run_blocking("xml-multipart-assemble-sync", move || {
+            assembly.file.make_durable()?;
+            #[cfg(unix)]
+            sync_staging_entry(
+                &catalog,
+                #[cfg(test)]
+                super::super::fault::Step::MultipartAssembleSync,
+            )?;
+            Ok::<_, ObjectError>(assembly)
+        })
+        .await
+        .map_err(object_unavailable)??;
+        let state = md5.serialize();
         let total = completion.total;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run(move |connection| {
             sql::exec(
                 connection,
@@ -382,6 +354,43 @@ impl Catalog {
             Ok::<_, ObjectError>(())
         })
         .await?;
+        Ok(())
+    }
+}
+
+struct Assembly {
+    file: super::super::transfer_io::CopyOutput,
+    md5: md5::Md5,
+    crc32c: u32,
+}
+
+impl Assembly {
+    fn append(&mut self, catalog: &Catalog, part: &Part) -> Result<(), ObjectError> {
+        use md5::Digest;
+
+        let mut input = catalog.0.backend.open_input(&part.blob_id, 0)?;
+        let mut part_hash = Hasher::default();
+        objects::with_copy_buffer(|buffer| {
+            catalog.copy_range(
+                &mut input,
+                part.size,
+                buffer,
+                |bytes| {
+                    part_hash.update(bytes);
+                    self.md5.update(bytes);
+                    self.file.write(bytes)
+                },
+                |_| object_unavailable("multipart part is truncated"),
+            )
+        })?;
+        if part_hash.finish() != part.hashes {
+            return Err(object_unavailable("multipart part data is corrupt"));
+        }
+        self.crc32c = super::super::compose_crc32c::combine(
+            self.crc32c,
+            part.hashes.crc32c,
+            usize::try_from(part.size).map_err(object_unavailable)?,
+        );
         Ok(())
     }
 }

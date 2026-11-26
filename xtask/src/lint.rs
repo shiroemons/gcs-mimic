@@ -28,7 +28,7 @@ type Result<T> = std::result::Result<T, String>;
 /// Extra Clippy lints for production code; thresholds live in `clippy.toml`. A lint that passes
 /// on every workspace target belongs in `[workspace.lints]` instead: a `-W` here would lower
 /// that `deny` to a warning for this run.
-pub const CLIPPY_LINTS: [&str; 27] = [
+pub const CLIPPY_LINTS: [&str; 28] = [
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::panic",
@@ -40,6 +40,7 @@ pub const CLIPPY_LINTS: [&str; 27] = [
     "clippy::cast_possible_truncation",
     "clippy::cast_sign_loss",
     "clippy::too_many_lines",
+    "clippy::large_futures",
     "clippy::fn_params_excessive_bools",
     "clippy::needless_pass_by_value",
     "clippy::allow_attributes_without_reason",

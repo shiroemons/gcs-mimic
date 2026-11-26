@@ -5,7 +5,7 @@ use super::{
     resumable::WriterGuard,
     resumable::writers::{ClaimError, KeyOrigin, WriterKey},
     system_time_micros,
-    transfer_io::{self, stage_path},
+    transfer_io::stage_path,
     unix_micros,
 };
 use crate::storage::blob_id::BlobId;

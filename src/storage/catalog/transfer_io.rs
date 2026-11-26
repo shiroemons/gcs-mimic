@@ -10,46 +10,102 @@ use std::{
     io::{self, Read},
     path::{Path, PathBuf},
 };
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 pub(super) fn stage_path(data_dir: &Path, id: &BlobId) -> PathBuf {
     id.staging_path(data_dir)
 }
 
 pub(super) enum InputReader {
-    Disk(tokio::fs::File),
+    Disk(std::fs::File),
     Memory(crate::storage::memory::Reader),
 }
 
 impl InputReader {
-    pub(super) async fn read(&mut self, bytes: &mut [u8]) -> Result<usize, ObjectError> {
+    pub(super) fn short_derived_input(&self) -> ObjectError {
+        // Keep the disk and memory readers' existing read_exact diagnostics.
+        let message = match self {
+            Self::Disk(_) => "early eof",
+            Self::Memory(_) => "failed to fill whole buffer",
+        };
+        io::Error::new(io::ErrorKind::UnexpectedEof, message).into()
+    }
+}
+
+impl Read for InputReader {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         match self {
-            Self::Disk(file) => file.read(bytes).await.map_err(object_unavailable),
-            Self::Memory(reader) => reader.read(bytes).map_err(object_unavailable),
+            Self::Disk(file) => file.read(bytes),
+            Self::Memory(reader) => reader.read(bytes),
         }
     }
-    pub(super) async fn open(
-        catalog: &Catalog,
-        id: &BlobId,
-        start: u64,
-    ) -> Result<Self, ObjectError> {
-        catalog.0.backend.open_input(id, start).await
+}
+
+pub(super) enum Output<W = objects::StagedFile> {
+    Disk(W),
+    Memory(crate::storage::memory::Draft),
+}
+
+pub(super) type CopyOutput = Output<objects::BatchWriter>;
+
+impl<W> Output<W> {
+    pub(super) fn acknowledge(&mut self, offset: u64) {
+        if let Self::Memory(draft) = self {
+            draft.acknowledge(offset);
+        }
+    }
+}
+
+impl CopyOutput {
+    pub(super) fn write(&mut self, bytes: &[u8]) -> Result<(), ObjectError> {
+        match self {
+            Self::Disk(writer) => writer.write(bytes),
+            Self::Memory(draft) => draft.write(bytes).map_err(object_unavailable),
+        }
     }
 
-    pub(super) async fn read_exact(&mut self, bytes: &mut [u8]) -> Result<(), ObjectError> {
-        match self {
-            Self::Disk(file) => {
-                file.read_exact(bytes).await?;
-            }
-            Self::Memory(reader) => reader.read_exact(bytes)?,
+    pub(super) fn make_durable(&mut self) -> Result<(), ObjectError> {
+        if let Self::Disk(writer) = self {
+            writer.make_durable()?;
         }
         Ok(())
     }
 }
 
-pub(super) enum Output {
-    Disk(objects::StagedFile),
-    Memory(crate::storage::memory::Draft),
+impl Catalog {
+    /// The caller holds the output's exclusive lease for the whole blocking job.
+    pub(super) fn copy_range(
+        &self,
+        input: &mut InputReader,
+        mut remaining: u64,
+        buffer: &mut [u8],
+        mut consume: impl FnMut(&[u8]) -> Result<(), ObjectError>,
+        on_eof: impl FnOnce(&InputReader) -> ObjectError,
+    ) -> Result<(), ObjectError> {
+        while remaining != 0 {
+            if self.0.admission.is_closed() {
+                return Err(object_unavailable("catalog is closing"));
+            }
+            let length =
+                usize::try_from(remaining.min(buffer.len() as u64)).map_err(object_unavailable)?;
+            let window = buffer
+                .get_mut(..length)
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
+            let n = match input.read(window) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                result => result?,
+            };
+            if n == 0 {
+                return Err(on_eof(input));
+            }
+            consume(
+                window
+                    .get(..n)
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
+            )?;
+            remaining -= n as u64;
+        }
+        Ok(())
+    }
 }
 
 impl Output {
@@ -103,12 +159,6 @@ impl Output {
         }
     }
 
-    pub(super) fn acknowledge(&mut self, offset: u64) {
-        if let Self::Memory(draft) = self {
-            draft.acknowledge(offset);
-        }
-    }
-
     pub(super) async fn rollback(&mut self, offset: u64) -> Result<(), ObjectError> {
         if let Self::Disk(staged) = self {
             staged.rollback(offset).await?;
@@ -117,27 +167,33 @@ impl Output {
     }
 
     pub(super) async fn into_hashes(self) -> Result<(Hashes, u64), ObjectError> {
-        let mut file = match self {
+        let staged = match self {
             Self::Memory(draft) => return draft.hashes().map_err(object_unavailable),
-            Self::Disk(staged) => tokio::fs::File::from_std(staged.into_file()?),
+            Self::Disk(staged) => staged,
         };
-        file.seek(io::SeekFrom::Start(0)).await?;
-        let mut hasher = Hasher::default();
-        let mut length = 0_u64;
-        let mut buffer = [0; 64 * 1024];
-        loop {
-            let n = file.read(&mut buffer).await?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(
-                buffer
-                    .get(..n)
-                    .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
-            );
-            length += n as u64;
-        }
-        Ok((hasher.finish(), length))
+        crate::task::run_blocking("resumable-rehash", move || {
+            let file = staged.file()?;
+            objects::with_copy_buffer(|buffer| {
+                let mut hasher = Hasher::default();
+                let mut offset = 0;
+                loop {
+                    let n = match crate::fsutil::read_at(file, buffer, offset) {
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                        result => result?,
+                    };
+                    if n == 0 {
+                        return Ok((hasher.finish(), offset));
+                    }
+                    hasher.update(
+                        buffer
+                            .get(..n)
+                            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
+                    );
+                    offset += n as u64;
+                }
+            })
+        })
+        .await?
     }
 }
 

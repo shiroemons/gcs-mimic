@@ -98,6 +98,11 @@ impl AsRef<[u8]> for ReadBuffer {
     }
 }
 
+/// Take scratch space only after a copy starts on the bounded blocking pool.
+pub(in crate::storage::catalog) fn with_copy_buffer<T>(copy: impl FnOnce(&mut [u8]) -> T) -> T {
+    copy(&mut ReadBuffer::take(LARGE_BUFFERS.buffer_bytes).bytes)
+}
+
 impl Drop for ReadBuffer {
     fn drop(&mut self) {
         let Some(pool) = self.pool else {

@@ -1,3 +1,4 @@
+use super::super::transfer_io::InputReader;
 use super::*;
 
 impl Catalog {
@@ -24,40 +25,42 @@ impl Catalog {
         crate::task::spawn_supervised("derived-transfer", async move {
             let (_permit, guard) = (permit, std::sync::Arc::new(guard));
             let query = id;
-            let backend = catalog.0.backend.clone();
             let now = UnixMillis::try_from(catalog.0.clock.now())?;
             let (mut progress, mut hasher, sources) = catalog.run_upload::<_, ObjectError>(move |connection| {
                 let (progress, hasher) = transfer(connection, &query, now)?;
                 Ok((progress, hasher, inputs(connection, &query)?))
             }).await?;
-            crate::task::run_blocking("derived-restore", move || backend.restore_draft(&query)).await??;
-            let mut output = transfer_io::Output::open(&catalog, &id, progress.offset, guard.clone()).await?;
-            let target = progress.offset.saturating_add(budget).min(progress.total);
-            let mut skip = progress.offset;
-            let mut buffer = [0_u8; BUFFER_SIZE];
-            let copied = async {
-                for source in sources {
-                    if skip >= source.length { skip -= source.length; continue; }
-                    if progress.offset == target { break; }
-                    let mut input = transfer_io::InputReader::open(&catalog, &source.id, source.start + skip).await?;
-                    let mut remaining = (source.length - skip).min(target - progress.offset);
-                    skip = 0;
-                    while remaining > 0 {
-                        if catalog.0.admission.is_closed() { return Err(object_unavailable("catalog is closing")); }
-                        let length = usize::try_from(remaining.min(BUFFER_SIZE as u64)).map_err(object_unavailable)?;
-                        let bytes = buffer.get_mut(..length).ok_or_else(|| object_unavailable("invalid derived buffer length"))?;
-                        input.read_exact(bytes).await?;
-                        hasher.update(bytes);
-                        output.write(bytes).await?;
-                        progress.offset += length as u64;
-                        remaining -= length as u64;
-                        if catalog.0.backend.is_memory() { tokio::task::yield_now().await; }
+            let worker = catalog.clone();
+            let writer = guard.clone();
+            let (progress, hasher, mut output) = crate::task::run_blocking("derived-advance", move || {
+                let backend = &worker.0.backend;
+                backend.restore_draft(&id)?;
+                let mut output = backend.open_copy_output(&id, progress.offset, writer)?;
+                let target = progress.offset.saturating_add(budget).min(progress.total);
+                objects::with_copy_buffer(|buffer| {
+                    let mut skip = progress.offset;
+                    for source in sources {
+                        if skip >= source.length {
+                            skip -= source.length;
+                            continue;
+                        }
+                        if progress.offset == target {
+                            break;
+                        }
+                        let mut input = backend.open_input(&source.id, source.start + skip)?;
+                        let count = (source.length - skip).min(target - progress.offset);
+                        skip = 0;
+                        worker.copy_range(&mut input, count, buffer, |bytes| {
+                            hasher.update(bytes);
+                            output.write(bytes)
+                        }, InputReader::short_derived_input)?;
+                        progress.offset += count;
                     }
-                }
-                Ok::<_, ObjectError>(())
-            }.await;
-            output.settle_result(copied).await?;
-            output.finish().await?;
+                    Ok::<_, ObjectError>(())
+                })?;
+                output.make_durable()?;
+                Ok::<_, ObjectError>((progress, hasher, output))
+            }).await??;
             // An ephemeral lifetime only reclaims an abandoned transfer, so progress renews it: a
             // request may copy for longer, and has a deadline of its own if configured. The time
             // is read after the copy, because a compose advances through all its bytes at once.

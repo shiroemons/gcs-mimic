@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::fault::hit_io;
 use super::objects::{self, ReaderData, UploadSink};
-use super::transfer_io::{InputReader, Output};
+use super::transfer_io::{CopyOutput, InputReader, Output};
 use crate::storage::{
     BlobId,
     memory::{BlobError, Store},
@@ -13,11 +13,11 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::io::AsyncSeekExt;
 
 #[cfg(all(test, unix))]
 mod durability_tests;
 
+#[derive(Clone, Copy)]
 pub(super) enum ReadAccess {
     WriteOnly,
     ReadWrite,
@@ -292,24 +292,21 @@ impl BlobBackend {
         }
     }
 
-    pub(super) async fn stage_output(
+    pub(super) fn stage_copy_output(
         &self,
         id: &BlobId,
         lease: objects::StageLease,
-    ) -> Result<Output, crate::object::ObjectError> {
+    ) -> Result<CopyOutput, ObjectError> {
         match self {
-            Self::Disk(root) => Ok(Output::Disk(
-                objects::create_upload_stage(
-                    id.staging_path(root),
-                    lease,
-                    #[cfg(test)]
-                    root.clone(),
-                )
-                .await?,
-            )),
-            Self::Memory(_) => {
+            Self::Disk(root) => Ok(Output::Disk(objects::BatchWriter::create(
+                id.staging_path(root),
+                lease,
+                #[cfg(test)]
+                root,
+            )?)),
+            Self::Memory(store) => {
                 self.create_draft(id)?;
-                self.open_output(id, 0, ReadAccess::WriteOnly, lease).await
+                Ok(Output::Memory(store.draft(&id.to_hex(), 0)?))
             }
         }
     }
@@ -392,7 +389,7 @@ impl BlobBackend {
         }
     }
 
-    pub(super) async fn open_input(
+    pub(super) fn open_input(
         &self,
         id: &BlobId,
         start: u64,
@@ -404,8 +401,8 @@ impl BlobBackend {
                 Ok(InputReader::Memory(reader))
             }
             Self::Disk(root) => {
-                let mut file = tokio::fs::File::open(id.staging_path(root)).await?;
-                file.seek(io::SeekFrom::Start(start)).await?;
+                let mut file = fs::File::open(id.staging_path(root))?;
+                file.seek(io::SeekFrom::Start(start))?;
                 Ok(InputReader::Disk(file))
             }
         }
@@ -421,33 +418,56 @@ impl BlobBackend {
         match self {
             Self::Memory(store) => Ok(Output::Memory(store.draft(&id.to_hex(), offset)?)),
             Self::Disk(root) => {
-                #[cfg(test)]
-                let data_dir = root.clone();
-                let path = id.staging_path(root);
-                let staged = crate::task::run_blocking("open-staged-output", move || {
-                    let mut file = fs::OpenOptions::new()
-                        .read(matches!(read, ReadAccess::ReadWrite))
-                        .write(true)
-                        .open(path)?;
-                    if file.metadata()?.len() < offset {
-                        return Err(object_unavailable("acknowledged upload prefix is missing"));
-                    }
-                    file.set_len(offset)?;
-                    #[cfg(test)]
-                    super::fault::truncated(&data_dir, &file.metadata()?);
-                    file.seek(io::SeekFrom::Start(offset))?;
-                    Ok(objects::StagedFile::new(
-                        file,
-                        lease,
-                        #[cfg(test)]
-                        &data_dir,
-                    ))
+                let root = root.clone();
+                let id = *id;
+                crate::task::run_blocking("open-staged-output", move || {
+                    open_staged_output(&root, &id, offset, read, lease)
+                        .map(|writer| Output::Disk(writer.into()))
                 })
-                .await??;
-                Ok(Output::Disk(staged))
+                .await?
             }
         }
     }
+
+    pub(super) fn open_copy_output(
+        &self,
+        id: &BlobId,
+        offset: u64,
+        lease: objects::StageLease,
+    ) -> Result<CopyOutput, ObjectError> {
+        match self {
+            Self::Memory(store) => Ok(Output::Memory(store.draft(&id.to_hex(), offset)?)),
+            Self::Disk(root) => {
+                open_staged_output(root, id, offset, ReadAccess::WriteOnly, lease).map(Output::Disk)
+            }
+        }
+    }
+}
+
+fn open_staged_output(
+    root: &Path,
+    id: &BlobId,
+    offset: u64,
+    read: ReadAccess,
+    lease: objects::StageLease,
+) -> Result<objects::BatchWriter, ObjectError> {
+    let mut file = fs::OpenOptions::new()
+        .read(matches!(read, ReadAccess::ReadWrite))
+        .write(true)
+        .open(id.staging_path(root))?;
+    if file.metadata()?.len() < offset {
+        return Err(object_unavailable("acknowledged upload prefix is missing"));
+    }
+    file.set_len(offset)?;
+    #[cfg(test)]
+    super::fault::truncated(root, &file.metadata()?);
+    file.seek(io::SeekFrom::Start(offset))?;
+    Ok(objects::BatchWriter::new(
+        file,
+        lease,
+        #[cfg(test)]
+        root,
+    ))
 }
 
 pub(super) fn restore_disk_draft(root: &Path, id: &BlobId) -> io::Result<()> {

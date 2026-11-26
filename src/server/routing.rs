@@ -318,7 +318,7 @@ async fn respond_expanded(
         Ok(expanded) => expanded,
         Err(error) => return boxed(error.into_response()),
     };
-    decoder.settle(respond_unselected(request, ctx, route).await)
+    decoder.settle(Box::pin(respond_unselected(request, ctx, route)).await)
 }
 
 /// Wraps the JSON API's CORS headers around the response of `respond`, which a preflight never
@@ -561,9 +561,9 @@ async fn respond_routed(
 ) -> Response<ResponseBody> {
     let Some(object) = selected else {
         let route = JsonRoute::parse(request.method(), request.uri(), ctx.config);
-        return respond_unselected(request, ctx, route).await;
+        return Box::pin(respond_unselected(request, ctx, route)).await;
     };
-    respond_selected(request, ctx, object).await
+    Box::pin(respond_selected(request, ctx, object)).await
 }
 
 /// Dispatches a request that names an XML bucket or object. The XML API answers every such

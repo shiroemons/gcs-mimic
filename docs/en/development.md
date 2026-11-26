@@ -392,6 +392,7 @@ and `cargo::unused_dependencies`.
 | Rule | Rejects |
 | --- | --- |
 | `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic` | Panics reachable from requests. |
+| `clippy::large_futures` | Large futures retain their buffers across suspension. Box large dispatch futures and keep copy buffers on the blocking pool. |
 | `clippy::too_many_lines` | Functions over 120 lines (`clippy.toml`). |
 | `clippy::fn_params_excessive_bools` | Functions with any `bool` parameter (`max-fn-params-bools = 0`). |
 | `clippy::needless_pass_by_value` | Avoidable copies. |

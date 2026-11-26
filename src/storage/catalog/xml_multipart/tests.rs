@@ -186,16 +186,20 @@ async fn part_and_completion_use_bounded_writer_jobs_under_their_leases() {
         let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
         let target = begin(&catalog).await;
         let mut parts = Vec::new();
+        let mut expected = crate::hashing::Hasher::default();
         for number in 1..=count {
             let lease = catalog
                 .lease_xml_part(target.clone(), number, BucketAccess::Permissive)
                 .await
                 .unwrap();
-            let chunk = if number == count {
-                bytes::Bytes::from_static(b"tail")
+            let chunk = if count == 1 {
+                bytes::Bytes::new()
+            } else if number == count {
+                bytes::Bytes::from_static(b"t")
             } else {
                 bytes::Bytes::from(vec![1; usize::try_from(MIN_PART_BYTES).unwrap()])
             };
+            expected.update(&chunk);
             let (writes, reads) = catalog.job_counts();
             let stored = catalog
                 .put_xml_part(
@@ -219,11 +223,13 @@ async fn part_and_completion_use_bounded_writer_jobs_under_their_leases() {
             .await
             .unwrap();
         let (writes, reads) = catalog.job_counts();
-        catalog
+        let record = catalog
             .complete_xml_multipart(lease, parts, 64 * 1024 * 1024)
             .await
             .unwrap();
         assert_eq!(catalog.job_counts(), (writes + 8, reads));
+        let hashes = expected.finish();
+        assert_eq!((record.md5, record.crc32c), (hashes.md5, hashes.crc32c));
         catalog.close().await.unwrap();
     }
 }
@@ -598,6 +604,7 @@ async fn abort_commit_and_reclaim_crash_snapshots_never_resurrect_retired_parts(
 
 #[tokio::test]
 async fn completion_durable_step_failures_preserve_old_or_confirm_committed_generation() {
+    const BODY: &[u8] = &[7; super::super::fault::MID_WRITE_BODY_BYTES];
     for step in [
         Step::BodyWrite,
         Step::BodyFlush,
@@ -612,15 +619,19 @@ async fn completion_durable_step_failures_preserve_old_or_confirm_committed_gene
         let (dir, catalog) = setup(Arc::new(SystemClock)).await;
         old_object(&catalog).await;
         let target = begin(&catalog).await;
-        let part = put(&catalog, &target, 1, b"completed").await.unwrap();
-        catalog.inject(step, 0, Fault::Io(io::ErrorKind::StorageFull));
+        let part = put(&catalog, &target, 1, BODY).await.unwrap();
+        catalog.inject(
+            step,
+            usize::from(step == Step::BodyWrite),
+            Fault::Io(io::ErrorKind::StorageFull),
+        );
         let result = complete(&catalog, &target, &part.etag).await;
         assert!(result.is_err(), "{step:?}");
         assert_eq!(catalog.pending_faults(), 0);
         catalog.close().await.unwrap();
         let reopened = Catalog::open(&dir.0).await.unwrap();
         if step == Step::AfterCommit {
-            assert_eq!(bytes(&reopened).await, b"completed");
+            assert_eq!(bytes(&reopened).await, BODY);
             assert!(matches!(
                 reopened
                     .list_xml_parts(target, BucketAccess::Permissive, 0, 1000)
@@ -646,6 +657,7 @@ async fn completion_durable_step_failures_preserve_old_or_confirm_committed_gene
 #[cfg(unix)]
 #[tokio::test]
 async fn multipart_part_and_completion_crash_and_power_loss_snapshots_recover() {
+    const BODY: &[u8] = &[9; super::super::fault::MID_WRITE_BODY_BYTES];
     for power in [false, true] {
         for completing in [false, true] {
             let steps = if completing {
@@ -674,12 +686,12 @@ async fn multipart_part_and_completion_crash_and_power_loss_snapshots_recover() 
                 let (dir, catalog) = setup(Arc::new(SystemClock)).await;
                 old_object(&catalog).await;
                 let target = begin(&catalog).await;
-                let old = put(&catalog, &target, 1, b"old part").await.unwrap();
+                let old = put(&catalog, &target, 1, BODY).await.unwrap();
                 let snapshot = TestDir::new();
                 let path = snapshot.0.join("data");
                 catalog.inject(
                     step,
-                    0,
+                    usize::from(completing && step == Step::BodyWrite),
                     if power {
                         Fault::PowerLoss(path.clone())
                     } else {
@@ -694,7 +706,7 @@ async fn multipart_part_and_completion_crash_and_power_loss_snapshots_recover() 
                 assert_eq!(catalog.pending_faults(), 0, "{power} {completing} {step:?}");
                 let reopened = Catalog::open(&path).await.unwrap();
                 if completing && step == Step::AfterCommit {
-                    assert_eq!(bytes(&reopened).await, b"old part");
+                    assert_eq!(bytes(&reopened).await, BODY);
                     assert!(matches!(
                         reopened
                             .list_xml_parts(target, BucketAccess::Permissive, 0, 1000)

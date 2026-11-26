@@ -339,7 +339,7 @@ pub(crate) async fn respond(
         Operation::List(listing) => render::list(request, path, listing, query, access, ctx).await,
         Operation::Write(write) => {
             remaining(&query)?;
-            write_upload(request, path, write, access, ctx).await
+            Box::pin(write_upload(request, path, write, access, ctx)).await
         }
     }
 }

@@ -749,7 +749,9 @@ journal sweep in the maintenance diagnostic.
 - **Re-hash.** Resumable finalization re-hashes in one job that reads
   positionally from offset 0 into a pooled 1 MiB heap buffer.
   - The pool is the existing `LARGE_BUFFERS`.
-  - Its memory is bounded by the blocking threads, not by requests.
+  - Each executing copy job holds one buffer. The default eight blocking
+    threads bound active copy scratch space to 8 MiB. The shared read pool
+    retains at most 16 additional 1 MiB buffers.
   - The re-hash itself is kept, as
     [resumable upload](resumable-upload.md) requires.
 - **Derived advance.** One job restores the draft, opens the output, copies
@@ -758,9 +760,23 @@ journal sweep in the maintenance diagnostic.
 - **XML assembly.** It reads its part rows once, then runs one job per part
   (copy and verify) and a final durable job. The whole-object CRC32C comes from
   combining part CRCs (`compose_crc32c::combine`).
-- **Large stack frames.** These remove the 64 KiB stack arrays from every
-  async function. `clippy::large_futures` then joins the gate, with a reasoned
-  expectation or `Box::pin` at the request dispatch for futures of 17–24 KB.
+- **Large stack frames.** Copy buffers live on the heap. The gate checks
+  `clippy::large_futures`, and request dispatch boxes the large JSON and
+  XML futures.
+- **Measured run.** On arm64 macOS 27.2.1, curl sent HTTP/1 requests to a
+  local release build with disk storage. Compose used the same 512 MiB object
+  twice. Resumable finalization timed the last 256 KiB PUT after the preceding
+  bytes of a 1 GiB object were acknowledged. Both results had the expected
+  size and matching CRC32C.
+
+  | 1 GiB operation | Previous elapsed / server CPU (s) | Single jobs elapsed / server CPU (s) |
+  | --- | ---: | ---: |
+  | Compose | 6.051 / 2.86 | 2.877 / 2.13 |
+  | Resumable finalization | 2.461 / 2.21 | 1.744 / 1.74 |
+
+  Both operations took less time in this single comparison. Other Rust builds
+  were visible around both previous requests. The candidate had a cargo
+  process before finalization and no build process sampled around compose.
 
 ### Single-source copies
 

@@ -124,6 +124,49 @@ async fn setup() -> (Catalog, PathBuf) {
 }
 
 #[tokio::test]
+async fn dropping_an_advance_and_closing_stops_the_copy_at_the_next_buffer() {
+    let (catalog, path) = setup().await;
+    let length = 2 * 1024 * 1024 + 1;
+    catalog
+        .put_object(
+            permissive_upload("bucket", "source", length),
+            body(vec![Bytes::from(vec![7; usize::try_from(length).unwrap()])]),
+        )
+        .await
+        .unwrap();
+    let transfer = catalog
+        .begin_derived(vec![source(&catalog, "source").await.whole()], length)
+        .await
+        .unwrap();
+    let id = transfer.id;
+    let (entered, release) = super::super::test_fixtures::pause_read(&catalog, Step::BodyWrite);
+    let worker = catalog.clone();
+    let request = tokio::spawn(async move { worker.advance_derived(&id, length).await });
+    entered.await.unwrap();
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    assert!(!catalog.session_writers_idle());
+    let mut closing = Box::pin(catalog.close());
+    assert!(
+        closing
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+            .is_pending()
+    );
+    release.send(()).unwrap();
+    closing.await.unwrap();
+    assert_eq!(
+        fs::metadata(id.staging_path(&path)).unwrap().len(),
+        1024 * 1024
+    );
+    let reopened = Catalog::open(&path).await.unwrap();
+    assert_eq!(reopened.get_derived(&id).await.unwrap().offset, 0);
+    assert_eq!(fs::metadata(id.staging_path(&path)).unwrap().len(), 0);
+    reopened.close().await.unwrap();
+    fs::remove_dir_all(path).unwrap();
+}
+
+#[tokio::test]
 async fn a_transfer_waiting_at_close_fails_and_its_draft_does_not_survive_reopening() {
     let (catalog, path) = setup().await;
     put(&catalog, "source", b"bytes").await;

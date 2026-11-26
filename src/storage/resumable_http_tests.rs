@@ -1847,9 +1847,9 @@ async fn host_follows_returned_location_and_streams_large_body_in_small_buffers(
         )
         .await
         .unwrap();
-    let buffer = [b'x'; 64 * 1024];
+    let buffer = &[b'x'; 64 * 1024];
     for _ in 0..128 {
-        stream.write_all(&buffer).await.unwrap();
+        stream.write_all(buffer).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     }
     let r = Harness::read_response(stream).await;

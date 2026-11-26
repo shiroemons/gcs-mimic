@@ -145,8 +145,8 @@ pub(super) use durability::WRITE_BATCH_BYTES;
 #[cfg(unix)]
 pub(super) use durability::sync_dir;
 pub(super) use durability::{
-    StageLease, StagedFile, blob_shard, commit_publication, create_upload_stage, publish_blob,
-    unlink,
+    BatchWriter, StageLease, StagedFile, blob_shard, commit_publication, create_upload_stage,
+    publish_blob, unlink,
 };
 pub(crate) use list::ObjectListCursor;
 pub(crate) use list::{ObjectListPage, ObjectListQuery};
@@ -159,8 +159,8 @@ pub(super) use publication::{
     retention_expiration,
 };
 use publication::{RetirementContext, retire_previous, validate_timestamps};
-pub(super) use reader::ReaderData;
 pub(crate) use reader::{FrameLimit, ObjectFrames, ObjectReader};
+pub(super) use reader::{ReaderData, with_copy_buffer};
 use reclaim::{JOURNAL_CONFLICT, live_journal_error};
 pub(super) use reclaim::{
     Journaled, StagedBlob, blob_referenced, journal_deletion, journal_new_deletion, reclaim,
