@@ -99,7 +99,10 @@ impl PublicOrigin {
                 return Err(UrlError::AmbiguousNumericHost);
             }
             crate::config::validate_dns_name(host)?;
-            OriginHost::Dns(host.to_ascii_lowercase())
+            OriginHost::Dns(crate::net::normalized_host(
+                host,
+                crate::net::TrailingDot::Preserve,
+            ))
         };
         let host_text = match &host {
             OriginHost::Dns(name) => name.clone(),
@@ -256,7 +259,10 @@ pub fn virtual_host_object_url(
     let authority = uri.authority().ok_or(UrlError::MissingAuthority)?;
     crate::config::validate_dns_name(authority.host())?;
     crate::config::validate_dns_name(bucket).map_err(|_| UrlError::VirtualHostBucketNotDns)?;
-    let host = format!("{bucket}.{}", authority.host().to_ascii_lowercase());
+    let host = format!(
+        "{bucket}.{}",
+        crate::net::normalized_host(authority.host(), crate::net::TrailingDot::Preserve)
+    );
     crate::config::validate_dns_name(&host)?;
     if authority.as_str().contains(':') && authority.port_u16().is_none() {
         return Err(UrlError::InvalidVirtualHostPort);

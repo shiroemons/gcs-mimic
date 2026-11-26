@@ -31,20 +31,30 @@ impl fmt::Display for MalformedEncoding {
 impl std::error::Error for MalformedEncoding {}
 
 pub(crate) fn decode(raw: &str, decoding: Decoding) -> Result<String, MalformedEncoding> {
+    let bytes = decode_bytes(raw, decoding).map_err(|_| MalformedEncoding)?;
+    String::from_utf8(bytes).map_err(|_| MalformedEncoding)
+}
+
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[error("Malformed percent escape")]
+pub(crate) struct MalformedEscape;
+
+/// Expands escapes without interpreting the resulting bytes as UTF-8.
+pub(crate) fn decode_bytes(raw: &str, decoding: Decoding) -> Result<Vec<u8>, MalformedEscape> {
     let mut bytes = Vec::with_capacity(raw.len());
     let mut input = raw.bytes();
     while let Some(byte) = input.next() {
         bytes.push(match byte {
             b'%' => crate::hex::byte([
-                input.next().ok_or(MalformedEncoding)?,
-                input.next().ok_or(MalformedEncoding)?,
+                input.next().ok_or(MalformedEscape)?,
+                input.next().ok_or(MalformedEscape)?,
             ])
-            .ok_or(MalformedEncoding)?,
+            .ok_or(MalformedEscape)?,
             b'+' if decoding == Decoding::Form => b' ',
             byte => byte,
         });
     }
-    String::from_utf8(bytes).map_err(|_| MalformedEncoding)
+    Ok(bytes)
 }
 
 /// Why a query string was refused.
@@ -147,6 +157,15 @@ mod tests {
     fn incomplete_escapes_and_invalid_utf8_are_malformed() {
         for raw in ["%", "%4", "%GG", "%FF"] {
             assert_eq!(decode(raw, Decoding::Path), Err(MalformedEncoding), "{raw}");
+        }
+    }
+
+    #[test]
+    fn byte_decoding_distinguishes_bad_escapes_from_non_utf8() {
+        assert_eq!(decode_bytes("%ff+%2B", Decoding::Path).unwrap(), b"\xff++");
+        assert_eq!(decode_bytes("%ff+%2B", Decoding::Form).unwrap(), b"\xff +");
+        for raw in ["%", "%2", "%g1"] {
+            assert!(decode_bytes(raw, Decoding::Path).is_err(), "{raw}");
         }
     }
 

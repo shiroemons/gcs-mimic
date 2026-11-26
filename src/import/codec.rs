@@ -242,21 +242,9 @@ pub(crate) fn path_escape(name: &str) -> String {
 }
 
 pub(crate) fn path_unescape(name: &str) -> Result<String, CodecError> {
-    let mut result = Vec::with_capacity(name.len());
-    let mut bytes = name.bytes();
-    while let Some(byte) = bytes.next() {
-        if byte == b'%' {
-            let byte = bytes
-                .next()
-                .zip(bytes.next())
-                .and_then(|(high, low)| crate::hex::byte([high, low]))
-                .ok_or(CodecError(Kind::Escape))?;
-            result.push(byte);
-        } else {
-            result.push(byte);
-        }
-    }
-    String::from_utf8(result).map_err(|error| CodecError(Kind::Utf8(error)))
+    use crate::percent::{Decoding, decode_bytes};
+    let bytes = decode_bytes(name, Decoding::Path).map_err(|_| CodecError(Kind::Escape))?;
+    String::from_utf8(bytes).map_err(|error| CodecError(Kind::Utf8(error)))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

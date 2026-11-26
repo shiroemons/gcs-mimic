@@ -8,7 +8,7 @@
 
 use super::error::MEDIA_ERROR_CACHE_CONTROL;
 use crate::object::media_headers::NO_STORE_CACHE_CONTROL;
-use crate::time_format::http_date;
+use crate::time_format::http_date_value;
 use hyper::{
     Method, Response, StatusCode,
     header::{self, HeaderValue},
@@ -124,9 +124,7 @@ fn media_expires(headers: &mut header::HeaderMap, now: SystemTime) {
     if policy.is_some_and(|value| value.starts_with(NO_STORE_CACHE_CONTROL)) {
         headers.insert(header::EXPIRES, HeaderValue::from_static(EXPIRED));
     } else if policy == Some(MEDIA_ERROR_CACHE_CONTROL)
-        && let Some(expires) = http_date(now)
-            .ok()
-            .and_then(|date| HeaderValue::from_str(&date).ok())
+        && let Some(expires) = http_date_value(now)
     {
         headers.insert(header::EXPIRES, expires);
     }
@@ -192,10 +190,7 @@ pub(crate) fn apply<B>(
             HeaderValue::from_static(RESOURCE_CACHE_CONTROL),
         );
         // `Expires` is the response time, as a cache that revalidates every use sees it.
-        if let Some(expires) = http_date(now)
-            .ok()
-            .and_then(|date| HeaderValue::from_str(&date).ok())
-        {
+        if let Some(expires) = http_date_value(now) {
             headers.insert(header::EXPIRES, expires);
         }
         headers.remove(header::PRAGMA);

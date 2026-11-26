@@ -86,7 +86,7 @@ pub(super) async fn initiate(
     let mut response = empty_response(StatusCode::OK);
     response.headers_mut().insert(
         "content-type",
-        HeaderValue::from_static("text/plain; charset=utf-8"),
+        HeaderValue::from_static(crate::mime::TEXT_PLAIN_UTF8),
     );
     response.headers_mut().insert(
         "location",
@@ -151,7 +151,7 @@ pub(super) fn incomplete(
     });
     response.headers_mut().insert(
         "content-type",
-        HeaderValue::from_static("text/plain; charset=utf-8"),
+        HeaderValue::from_static(crate::mime::TEXT_PLAIN_UTF8),
     );
     if progress.offset > 0 {
         add_persisted_headers(response.headers_mut(), progress);

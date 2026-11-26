@@ -266,11 +266,9 @@ pub(crate) async fn respond(
         request.headers(),
     )?;
     let mut headers = request.headers().clone();
-    if headers
-        .get_all("x-goog-interop-list-objects-format")
-        .iter()
-        .count()
-        > 1
+    if crate::http_header::sole(&headers, "x-goog-interop-list-objects-format")
+        .value()
+        .is_err()
     {
         return Err(Error::invalid(
             "Require one x-goog-interop-list-objects-format header",

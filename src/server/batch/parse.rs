@@ -1,5 +1,6 @@
 use super::{Part, RequestBody, invalid};
 use crate::api_error::ApiError;
+use crate::http_header::{TextError, TextOrder, sole};
 use crate::multipart::Delimiter;
 use http_body_util::Full;
 use hyper::{
@@ -140,17 +141,12 @@ fn header_block(bytes: &[u8]) -> Result<(HeaderMap, Option<&[u8]>), ApiError> {
 }
 
 fn single<'a>(headers: &'a HeaderMap, key: &str) -> Result<Option<&'a str>, ApiError> {
-    let mut values = headers.get_all(key).iter();
-    let Some(value) = values.next() else {
-        return Ok(None);
-    };
-    if values.next().is_some() {
-        return Err(invalid("Duplicate batch framing header"));
-    }
-    value
-        .to_str()
-        .map(Some)
-        .map_err(|_| invalid("Invalid batch framing header"))
+    sole(headers, key)
+        .text(TextOrder::RepetitionFirst)
+        .map_err(|error| match error {
+            TextError::Repeated(_) => invalid("Duplicate batch framing header"),
+            TextError::Invalid(_) => invalid("Invalid batch framing header"),
+        })
 }
 
 fn uri(raw: &str, outer_query: Option<&str>, api_base_url: &str) -> Result<Uri, ApiError> {
@@ -361,6 +357,16 @@ mod tests {
     use super::*;
     use http_body_util::BodyExt;
 
+    #[test]
+    fn a_repeated_batch_header_wins_over_a_non_text_first_value() {
+        let mut headers = HeaderMap::new();
+        headers.append("content-type", HeaderValue::from_bytes(&[0xff]).unwrap());
+        headers.append("content-type", HeaderValue::from_static("application/http"));
+        assert_eq!(
+            single(&headers, "content-type").unwrap_err().message,
+            "Duplicate batch framing header"
+        );
+    }
     const REQUEST: &str = "PATCH /storage/v1/b/x HTTP/1.1";
 
     async fn bodies(envelope: String) -> Vec<Bytes> {

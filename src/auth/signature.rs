@@ -4,6 +4,7 @@ use super::{Auth, Caller};
 use crate::{
     clock::Clock,
     hashing::encode_lower,
+    http_header::{TextOrder, sole},
     time_format::civil::days_from_civil,
     url::{is_unreserved, push_percent_encoded},
 };
@@ -405,11 +406,13 @@ pub(crate) enum Resumable {
 
 impl Resumable {
     pub(crate) fn of(headers: &HeaderMap) -> Result<Self, Failure> {
-        let mut values = headers.get_all("x-goog-resumable").iter();
-        let Some(value) = values.next() else {
+        let Some(value) = sole(headers, "x-goog-resumable")
+            .value()
+            .map_err(|_| Failure::Malformed)?
+        else {
             return Ok(Self::Absent);
         };
-        if values.next().is_some() || value != "start" {
+        if value != "start" {
             return Err(Failure::Malformed);
         }
         Ok(Self::Start)
@@ -418,13 +421,9 @@ impl Resumable {
 
 /// One header's only value, refusing a repeated header or a value that is not visible text.
 fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Failure> {
-    if headers.get_all(name).iter().count() > 1 {
-        return Err(Failure::Malformed);
-    }
-    headers
-        .get(name)
-        .map(|value| value.to_str().map_err(|_| Failure::Malformed))
-        .transpose()
+    sole(headers, name)
+        .text(TextOrder::RepetitionFirst)
+        .map_err(|_| Failure::Malformed)
 }
 
 /// The percent-decoded name of each query pair.
@@ -718,13 +717,12 @@ impl PayloadHash {
         } else {
             "x-goog-content-sha256"
         };
-        let Some(value) = headers.get(name) else {
+        let Some(value) = sole(headers, name)
+            .text(TextOrder::ValueFirst)
+            .map_err(|_| Failure::Malformed)?
+        else {
             return Ok(Self::Absent);
         };
-        let value = value.to_str().map_err(|_| Failure::Malformed)?;
-        if headers.get_all(name).iter().count() != 1 {
-            return Err(Failure::Malformed);
-        }
         if value == UNSIGNED_PAYLOAD {
             Ok(Self::Unsigned)
         } else {

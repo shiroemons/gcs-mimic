@@ -92,28 +92,28 @@ pub(crate) const NOT_FOUND_HTML: PlainText = PlainText {
 
 /// An upload request that names no session the server knows.
 pub(crate) const NOT_FOUND_TEXT: PlainText = PlainText {
-    content_type: "text/plain; charset=utf-8",
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
     body: Some("Not Found"),
     cache: PlainCache::Unspecified,
 };
 
 /// A multipart upload whose `Content-Type` carries no boundary.
 pub(crate) const BAD_CONTENT_TYPE_TEXT: PlainText = PlainText {
-    content_type: "text/plain; charset=utf-8",
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
     body: Some("Bad content type.  Please use multipart."),
     cache: PlainCache::Unspecified,
 };
 
 /// A resumable chunk whose `Content-Range` Cloud Storage could not use.
 pub(crate) const CONTENT_RANGE_TEXT: PlainText = PlainText {
-    content_type: "text/plain; charset=utf-8",
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
     body: Some("Failed to parse Content-Range header."),
     cache: PlainCache::Unspecified,
 };
 
 /// A multipart upload body that ends before its closing delimiter (recorded 2026-11-13).
 pub(crate) const MISSING_END_BOUNDARY_TEXT: PlainText = PlainText {
-    content_type: "text/plain; charset=utf-8",
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
     body: Some("Missing end boundary in multipart body."),
     cache: PlainCache::Unspecified,
 };
@@ -121,7 +121,7 @@ pub(crate) const MISSING_END_BOUNDARY_TEXT: PlainText = PlainText {
 /// A transport-compressed request body that does not decode, which Cloud Storage's front end
 /// refuses before routing or authenticating the request (recorded 2026-11-25).
 pub(crate) const DECOMPRESS_TEXT: PlainText = PlainText {
-    content_type: "text/plain; charset=utf-8",
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
     body: Some("Could not decompress request body."),
     cache: PlainCache::Unspecified,
 };
@@ -132,14 +132,14 @@ pub(crate) const DECOMPRESS_TEXT: PlainText = PlainText {
 /// the offsets, a finished or cancelled session) use the same form with the message they
 /// already had. The form is inferred; only the two wordings above were recorded.
 pub(crate) const SESSION_MESSAGE_TEXT: PlainText = PlainText {
-    content_type: "text/plain; charset=utf-8",
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
     body: None,
     cache: PlainCache::Unspecified,
 };
 
 /// An upload request whose `uploadType` is not one of the three.
 pub(crate) const BAD_REQUEST_TEXT: PlainText = PlainText {
-    content_type: "text/plain; charset=utf-8",
+    content_type: crate::mime::TEXT_PLAIN_UTF8,
     body: Some("Bad Request"),
     cache: PlainCache::Unspecified,
 };
@@ -890,7 +890,7 @@ impl From<ObjectError> for ApiError {
                     .with_kind(ErrorKind::UniformAccessAcl)
             }
             ObjectError::UniformAccessAclUpdate => {
-                Self::invalid(crate::acl::UNIFORM_ACCESS_UPDATE_ACL)
+                Self::invalid(crate::acl::UNIFORM_ACCESS_UPDATE_OBJECT_ACL)
                     .with_kind(ErrorKind::UniformAccessAcl)
             }
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),

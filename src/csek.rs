@@ -196,11 +196,9 @@ impl CustomerKey {
             _ => return Err(CsekError::AlgorithmInvalid),
         };
         let single = |name: &str, error: CsekError| {
-            let mut values = headers.get_all(name).iter();
-            let first = values.next();
-            if values.next().is_some() {
-                return Err(error);
-            }
+            let first = crate::http_header::sole(headers, name)
+                .value()
+                .map_err(|_| error)?;
             Ok(first.map(|value| value.as_bytes().trim_ascii()))
         };
         Self::from_base64(

@@ -133,7 +133,7 @@ impl From<ObjectError> for Status {
                 Status::invalid_argument(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
             }
             ObjectError::UniformAccessAclUpdate => {
-                Status::invalid_argument(crate::acl::UNIFORM_ACCESS_UPDATE_ACL)
+                Status::invalid_argument(crate::acl::UNIFORM_ACCESS_UPDATE_OBJECT_ACL)
             }
             // Cloud Storage repeats this refusal in a BadRequest (recorded 2026-11-18).
             error @ ObjectError::ComposeClassMismatch { .. } => invalid_field(error.to_string()),

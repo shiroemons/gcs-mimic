@@ -57,6 +57,7 @@ const LAYERS: [Layer; 7] = [
             "source_tree",
             "mime",
             "http_conditions",
+            "http_header",
         ],
     },
     Layer {

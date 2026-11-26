@@ -8,7 +8,7 @@
 //! handler and error path consistent.
 
 use super::PRIVATE_CACHE_CONTROL;
-use crate::time_format::http_date;
+use crate::time_format::http_date_value;
 use hyper::{
     Method, Response, StatusCode,
     header::{self, HeaderValue},
@@ -17,12 +17,6 @@ use std::time::SystemTime;
 
 /// The `Content-Type` of an empty successful PUT response.
 const EMPTY_PUT_CONTENT_TYPE: &str = "text/html; charset=UTF-8";
-
-/// `Expires` is the response time: the response is private and must be revalidated at once.
-pub(crate) fn expires(now: SystemTime) -> Option<HeaderValue> {
-    let date = http_date(now).ok()?;
-    HeaderValue::from_str(&date).ok()
-}
 
 pub(crate) fn apply<B>(method: &Method, now: SystemTime, response: &mut Response<B>) {
     let private = response
@@ -45,7 +39,7 @@ pub(crate) fn apply<B>(method: &Method, now: SystemTime, response: &mut Response
         headers.remove(header::CACHE_CONTROL);
     } else if (private || method == Method::DELETE)
         && !headers.contains_key(header::EXPIRES)
-        && let Some(value) = expires(now)
+        && let Some(value) = http_date_value(now)
     {
         headers.insert(header::EXPIRES, value);
     }

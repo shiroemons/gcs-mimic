@@ -242,12 +242,12 @@ pub(crate) fn is_multipart_content_type(headers: &HeaderMap) -> bool {
 }
 
 pub(crate) fn batch_boundary(headers: &HeaderMap) -> Result<String, ApiError> {
-    let mut values = headers.get_all("content-type").iter();
-    let value = values.next().ok_or_else(invalid)?;
-    if values.next().is_some() {
-        return Err(invalid());
-    }
-    let media = MediaType::parse(value.to_str().map_err(|_| invalid())?, ParamQuotes::Double)?;
+    use crate::http_header::{TextOrder, sole};
+    let value = sole(headers, "content-type")
+        .text(TextOrder::RepetitionFirst)
+        .map_err(|_| invalid())?
+        .ok_or_else(invalid)?;
+    let media = MediaType::parse(value, ParamQuotes::Double)?;
     if media.essence != "multipart/mixed"
         || media
             .parameters

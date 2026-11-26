@@ -3,6 +3,7 @@
 //! answers a time it cannot render in its own protocol.
 
 use crate::object::unix_nanos::UnixNanos;
+use hyper::header::HeaderValue;
 use std::time::SystemTime;
 
 pub(crate) mod civil;
@@ -83,6 +84,11 @@ pub(crate) fn http_date(time: SystemTime) -> Result<String, TimeOutOfRange> {
         daytime / 60 % 60,
         daytime % 60,
     ))
+}
+
+/// The header value for a response that omits `Expires` when its date cannot be rendered.
+pub(crate) fn http_date_value(time: SystemTime) -> Option<HeaderValue> {
+    HeaderValue::from_str(&http_date(time).ok()?).ok()
 }
 
 /// Render a stored time as RFC 3339 UTC with exactly three fractional digits, the precision

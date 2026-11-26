@@ -22,6 +22,7 @@ mod grpc;
 mod hashing;
 mod hex;
 mod http_conditions;
+mod http_header;
 pub mod import;
 mod input;
 pub mod json;

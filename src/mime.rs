@@ -2,6 +2,8 @@
 
 use std::{collections::BTreeMap, sync::LazyLock};
 
+pub(crate) const TEXT_PLAIN_UTF8: &str = "text/plain; charset=utf-8";
+
 crate::config::string_enum! {
     no_default
     /// How a seed tree names the content type of the objects it creates.

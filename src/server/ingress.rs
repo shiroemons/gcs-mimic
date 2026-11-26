@@ -137,11 +137,15 @@ fn bad_request(message: &'static str) -> ApiError {
 }
 
 pub(super) fn override_method(request: &mut Request<RequestBody>) -> Result<(), ApiError> {
-    let mut values = request.headers().get_all("x-http-method-override").iter();
-    let Some(value) = values.next() else {
+    let Some(value) = crate::http_header::sole(request.headers(), "x-http-method-override")
+        .value()
+        .map_err(|_| {
+            bad_request("Use one X-HTTP-Method-Override: PATCH header on a JSON API POST")
+        })?
+    else {
         return Ok(());
     };
-    if values.next().is_some() || value != "PATCH" || request.method() != Method::POST {
+    if value != "PATCH" || request.method() != Method::POST {
         return Err(bad_request(
             "Use one X-HTTP-Method-Override: PATCH header on a JSON API POST",
         ));
@@ -228,11 +232,8 @@ async fn expand_metadata(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
 ) -> Result<Request<RequestBody>, ApiError> {
-    let mut encodings = request.headers().get_all(CONTENT_ENCODING).iter();
-    if encodings
-        .next()
-        .is_none_or(|encoding| !encoding.as_bytes().eq_ignore_ascii_case(b"gzip"))
-        || encodings.next().is_some()
+    if !matches!(crate::http_header::sole(request.headers(), CONTENT_ENCODING).value(),
+        Ok(Some(encoding)) if encoding.as_bytes().eq_ignore_ascii_case(b"gzip"))
     {
         return Err(bad_request(
             "JSON request Content-Encoding must be a single gzip coding",

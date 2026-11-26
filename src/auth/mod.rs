@@ -1363,16 +1363,13 @@ impl Auth {
         if query.is_some_and(has_credential_parameter) {
             return Err(AuthFailure::InvalidCredentials);
         }
-        let mut values = headers.get_all(AUTHORIZATION).iter();
-        let Some(value) = values.next() else {
+        use crate::http_header::{TextOrder, sole};
+        let Some(value) = sole(headers, AUTHORIZATION)
+            .text(TextOrder::RepetitionFirst)
+            .map_err(|_| AuthFailure::InvalidCredentials)?
+        else {
             return Ok(Presented::Anonymous);
         };
-        if values.next().is_some() {
-            return Err(AuthFailure::InvalidCredentials);
-        }
-        let value = value
-            .to_str()
-            .map_err(|_| AuthFailure::InvalidCredentials)?;
         let (scheme, token) = value.split_once(' ').unwrap_or((value, ""));
         if !scheme.eq_ignore_ascii_case("bearer") {
             return Err(AuthFailure::InvalidCredentials);

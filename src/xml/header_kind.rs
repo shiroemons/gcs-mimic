@@ -64,6 +64,6 @@ fn is_common_object_header(name: &str) -> bool {
             "x-goog-if-generation-match"
                 | "x-goog-if-metageneration-match"
                 | "x-goog-api-client"
-                | "x-goog-gcs-idempotency-token"
+                | crate::object::IdempotencyToken::HEADER
         )
 }

@@ -2,6 +2,10 @@
 //! and the trusted listener. A DNS rebinding page reaches them under its own name, so the name,
 //! not the connection, tells such a page apart from a local client.
 
+use crate::{
+    http_header::sole,
+    net::{TrailingDot, normalized_host},
+};
 use hyper::{HeaderMap, Uri, http::uri::Authority};
 use std::fmt;
 
@@ -18,20 +22,10 @@ impl fmt::Display for InvalidHost {
 
 impl std::error::Error for InvalidHost {}
 
-/// A host name as names compare: lowercase, without its port or a trailing dot.
-pub(super) fn normalized(authority: &Authority) -> String {
-    let host = authority.host().to_ascii_lowercase();
-    host.strip_suffix('.').unwrap_or(&host).to_owned()
-}
-
 /// The normalized host the request addressed, or `None` when it names none. An authority in the
 /// request target overrides Host, as RFC 9112 section 3.2.2 requires.
 pub(super) fn of_request(uri: &Uri, headers: &HeaderMap) -> Result<Option<String>, InvalidHost> {
-    let mut hosts = headers.get_all("host").iter();
-    let host = hosts.next();
-    if hosts.next().is_some() {
-        return Err(InvalidHost);
-    }
+    let host = sole(headers, "host").value().map_err(|_| InvalidHost)?;
     let authority = match uri.authority() {
         Some(authority) => authority.clone(),
         None => match host {
@@ -50,7 +44,7 @@ pub(super) fn of_request(uri: &Uri, headers: &HeaderMap) -> Result<Option<String
     {
         return Err(InvalidHost);
     }
-    Ok(Some(normalized(&authority)))
+    Ok(Some(normalized_host(authority.host(), TrailingDot::Remove)))
 }
 
 /// An IPv4 address, or an IPv6 address in brackets as an authority writes it.

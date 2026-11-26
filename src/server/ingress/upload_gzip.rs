@@ -44,11 +44,8 @@ pub(super) async fn request(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
 ) -> Result<(Request<RequestBody>, UploadDecoder), ApiError> {
-    let mut encodings = request.headers().get_all(CONTENT_ENCODING).iter();
-    if encodings
-        .next()
-        .is_none_or(|value| !value.as_bytes().eq_ignore_ascii_case(b"gzip"))
-        || encodings.next().is_some()
+    if !matches!(crate::http_header::sole(request.headers(), CONTENT_ENCODING).value(),
+        Ok(Some(encoding)) if encoding.as_bytes().eq_ignore_ascii_case(b"gzip"))
     {
         return Err(bad_request(
             "Upload transport Content-Encoding must be one gzip coding",

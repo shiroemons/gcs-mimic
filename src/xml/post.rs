@@ -583,7 +583,7 @@ fn plan<'f>(form: &'f Form, bucket: &str) -> Result<Plan<'f>, Error> {
                 .map_err(|_| Error::invalid("Invalid Content-Type form field."))?,
         );
     }
-    let content_type = crate::object::upload_headers::upload_content_type(&selected)?;
+    let content_type = crate::object::upload_headers::content_type(&selected)?;
     let content_type = if content_type.is_empty() {
         "application/octet-stream".to_owned()
     } else {

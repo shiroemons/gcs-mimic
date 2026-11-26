@@ -43,12 +43,11 @@ pub(crate) fn evaluate_read(
 }
 
 fn date_field(headers: &HeaderMap, name: &str) -> Option<SystemTime> {
-    let mut values = headers.get_all(name).iter();
-    let value = values.next()?;
-    if values.next().is_some() {
-        return None;
-    }
-    httpdate::parse_http_date(value.to_str().ok()?).ok()
+    use crate::http_header::{TextOrder, sole};
+    let value = sole(headers, name)
+        .text(TextOrder::RepetitionFirst)
+        .ok()??;
+    httpdate::parse_http_date(value).ok()
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -112,8 +111,7 @@ fn matches_field(
         None => (TagSyntax::Opaque, etag.as_bytes()),
     };
     let values = headers.get_all(name);
-    let mut iter = values.iter();
-    if let (Some(only), None) = (iter.next(), iter.next())
+    if let Ok(Some(only)) = crate::http_header::sole(headers, name).value()
         && only.as_bytes().trim_ascii() == b"*"
     {
         return Ok(Some(true));

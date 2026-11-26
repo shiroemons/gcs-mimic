@@ -222,6 +222,35 @@ Pending the evidence below:
     one `PreconditionPolicy` shared by JSON and XML. Otherwise keep today's
     behavior and record each route's policy as a local choice.
 
+- **Error precedence for repeated, non-text fields.** JSON resumable checks
+  the first value's text before reporting repetition. XML PUT and batch
+  report repetition first. The tests
+  `a_non_text_first_resumable_header_wins_over_repetition`,
+  `a_repeated_xml_put_header_wins_over_a_non_text_first_value` and
+  `a_repeated_batch_header_wins_over_a_non_text_first_value` pin the choice.
+  Repetition first is a candidate for a common rule because it rejects an
+  ambiguous field without interpreting either value.
+- **Idempotency token input.** JSON and XML read checks accept one opaque,
+  nonblank byte value. JSON replay and XML PUT require visible text as well.
+  XML copy refuses the field whenever it is present. The tests
+  `opaque_tokens_admit_bytes_that_text_tokens_refuse`,
+  `obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions`,
+  `xml_read_idempotency_tokens_require_one_nonempty_value` and
+  `xml_copy_failed_conditions_digests_and_unsupported_inputs_preserve_destination`
+  cover these boundaries. Requiring visible, nonblank text on routes that
+  accept tokens is a candidate. Copy should keep its refusal until it can
+  honor the token's replay semantics.
+- **Trailing DNS root dot.** Management and trusted-listener host checks
+  remove one final dot. Native XML virtual-host selection keeps it. Legacy
+  XML removes it only to classify the configured domain, then keeps the raw
+  spelling when deciding whether the host selects a bucket. The tests
+  `the_request_target_wins_and_malformed_hosts_name_nothing` and
+  `legacy_trailing_dot_hosts_do_not_fall_through_to_a_shorter_domain` pin
+  the difference. Ignoring one root dot in DNS routing, as the management
+  checks do, is a candidate if compatibility checks support it for requests
+  that currently use path-style addressing. Signature verification would
+  still use the authority as sent.
+
 Found by the error goldens, which pin them as they are today. Each goes to the
 owner with the error slice that touches it:
 
@@ -801,7 +830,7 @@ try_from = "i64")]`.
 | `text/plain; charset=utf-8` | `mime::TEXT_PLAIN_UTF8` |
 | Percent unescaping in import | `percent::decode_bytes` |
 | XML resumable ETag | `xml::Validators`, shared with `object_etag` |
-| Same name, different constants | renamed apart (`UNIFORM_ACCESS_UPDATE_ACL`, `upload_content_type`) |
+| Same name, different constants or functions | `UNIFORM_ACCESS_UPDATE_BUCKET_ACL`, `UNIFORM_ACCESS_UPDATE_OBJECT_ACL`, `json::upload_content_type`, `object::upload_headers::content_type` |
 
 ### Robustness helpers
 

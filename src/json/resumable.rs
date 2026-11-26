@@ -6,6 +6,7 @@ use crate::{
     bucket::BucketAccess,
     config::CompatProfile,
     decimal::Grammar,
+    http_header::{TextError, TextOrder, sole},
     object::{ChecksumConflict, ExpectedHashes, MapPatch, ObjectError, upload_headers},
     storage::ResumableOptions,
 };
@@ -73,18 +74,30 @@ fn parse_session(
 }
 
 pub(crate) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, ApiError> {
-    let mut values = headers.get_all(name).iter();
-    let value = values
-        .next()
-        .map(|v| {
-            v.to_str()
-                .map_err(|_| ApiError::invalid_parameter(format!("Invalid {name}")))
+    sole(headers, name)
+        .text(TextOrder::ValueFirst)
+        .map_err(|error| match error {
+            TextError::Invalid(_) => ApiError::invalid_parameter(format!("Invalid {name}")),
+            TextError::Repeated(_) => ApiError::invalid_parameter(format!("Duplicate {name}")),
         })
-        .transpose()?;
-    if values.next().is_some() {
-        return Err(ApiError::invalid_parameter(format!("Duplicate {name}")));
-    }
-    Ok(value)
+}
+
+#[cfg(test)]
+#[test]
+fn a_non_text_first_resumable_header_wins_over_repetition() {
+    let mut headers = HeaderMap::new();
+    headers.append(
+        "content-range",
+        hyper::header::HeaderValue::from_bytes(&[0xff]).unwrap(),
+    );
+    headers.append(
+        "content-range",
+        hyper::header::HeaderValue::from_static("bytes */0"),
+    );
+    assert_eq!(
+        single(&headers, "content-range").unwrap_err().message,
+        "Invalid content-range"
+    );
 }
 
 pub(crate) fn unsigned(value: &str) -> Result<u64, ApiError> {

@@ -9,6 +9,7 @@ use std::{collections::BTreeMap, fmt, time::SystemTime};
 use unix_nanos::UnixNanos;
 
 pub(crate) mod generation;
+mod idempotency;
 pub(crate) mod media_headers;
 pub(crate) mod name;
 pub(crate) mod owner;
@@ -16,6 +17,7 @@ mod patch;
 pub(crate) mod retention;
 pub(crate) mod unix_nanos;
 pub(crate) mod upload_headers;
+pub(crate) use idempotency::{IdempotencyToken, TokenError};
 
 pub use patch::{MapPatch, Patch, WriteMode};
 
@@ -1068,7 +1070,7 @@ impl fmt::Display for ObjectError {
                 formatter.write_str(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
             }
             Self::UniformAccessAclUpdate => {
-                formatter.write_str(crate::acl::UNIFORM_ACCESS_UPDATE_ACL)
+                formatter.write_str(crate::acl::UNIFORM_ACCESS_UPDATE_OBJECT_ACL)
             }
             Self::Metadata(error) => error.fmt(formatter),
             // Cloud Storage's wording (recorded 2026-11-13 for a named class and 2026-11-17 for

@@ -139,7 +139,7 @@ async fn read(
     // A private object is sent with `Expires` set to the response time, even when the object
     // carries its own `Cache-Control` (recorded with `no-cache`).
     if scope == xml::CacheScope::Private
-        && let Some(value) = xml::envelope::expires(ctx.state.clock.now())
+        && let Some(value) = crate::time_format::http_date_value(ctx.state.clock.now())
     {
         headers.insert("expires", value);
     }
@@ -246,7 +246,7 @@ async fn gunzipped(
             "cache-control",
             HeaderValue::from_static(xml::PRIVATE_CACHE_CONTROL),
         );
-        if let Some(value) = xml::envelope::expires(ctx.state.clock.now()) {
+        if let Some(value) = crate::time_format::http_date_value(ctx.state.clock.now()) {
             rejection.insert("expires", value);
         }
         return Ok(response);
@@ -301,7 +301,7 @@ fn range_error(
         }
     }
     headers.remove("expires");
-    if let Some(value) = xml::envelope::expires(now) {
+    if let Some(value) = crate::time_format::http_date_value(now) {
         headers.insert("expires", value);
     }
     let mut response = boxed(Response::new(body));

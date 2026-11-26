@@ -4,7 +4,9 @@ use crate::{
     api_error::{ApiError, ErrorKind},
     config::{Config, EndpointSnapshot},
     hashing::Hashes,
-    object::{ObjectConditions, ObjectRecord, ObjectTarget},
+    http_header::{TextError, TextOrder, sole},
+    net::{TrailingDot, normalized_host},
+    object::{IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget, TokenError},
 };
 use http_body_util::{BodyExt, Full};
 use hyper::{
@@ -490,11 +492,7 @@ pub(crate) fn unselectable_bucket(
 }
 
 pub(crate) fn virtual_bucket(headers: &HeaderMap, domains: &[String]) -> Option<String> {
-    let mut hosts = headers.get_all("host").iter();
-    let host = hosts.next()?.to_str().ok()?;
-    if hosts.next().is_some() {
-        return None;
-    }
+    let host = sole(headers, "host").text(TextOrder::ValueFirst).ok()??;
     bucket_for_authority(host, domains)
 }
 
@@ -513,7 +511,7 @@ fn split_virtual_host<'d>(
     {
         return None;
     }
-    let host = authority.host().to_ascii_lowercase();
+    let host = normalized_host(authority.host(), TrailingDot::Preserve);
     for domain in domains {
         if host == *domain {
             return None;
@@ -550,10 +548,9 @@ fn legacy_public_authority<'a>(
 }
 
 pub(crate) fn request_authority(headers: &HeaderMap) -> Option<hyper::http::uri::Authority> {
-    let mut hosts = headers.get_all("host").iter();
-    let authority: hyper::http::uri::Authority = hosts.next()?.to_str().ok()?.parse().ok()?;
-    if hosts.next().is_some()
-        || authority.as_str().contains('@')
+    let host = sole(headers, "host").text(TextOrder::ValueFirst).ok()??;
+    let authority: hyper::http::uri::Authority = host.parse().ok()?;
+    if authority.as_str().contains('@')
         || (authority.as_str() != authority.host() && authority.port_u16().is_none())
     {
         return None;
@@ -585,9 +582,8 @@ fn legacy_virtual_bucket(
     public: &hyper::http::uri::Authority,
     endpoints: &EndpointSnapshot,
 ) -> LegacyHost {
-    let host = authority.host().to_ascii_lowercase();
     // Strip only for domain classification; trailing-dot hosts still route path-style.
-    let host = host.strip_suffix('.').unwrap_or(&host);
+    let host = normalized_host(authority.host(), TrailingDot::Remove);
     let domain = endpoints.xml_virtual_host_domains.iter().find(|domain| {
         host == domain.as_str()
             || host
@@ -692,22 +688,16 @@ pub(crate) fn select_object_with_endpoints(
             || virtual_bucket.is_some()
             || bucket_for_authority(authority.as_str(), &endpoints.xml_virtual_host_domains)
                 .is_some())
+        && !matches!(sole(headers, "host").value(), Ok(Some(host)) if host.as_bytes() == authority.as_str().as_bytes())
     {
-        let mut hosts = headers.get_all("host").iter();
-        if !hosts
-            .next()
-            .is_some_and(|host| host.as_bytes() == authority.as_str().as_bytes())
-            || hosts.next().is_some()
-        {
-            return Err(if crate::auth::signature::is_signed(uri.query()) {
-                Error::new(
-                    XmlCode::SignatureDoesNotMatch,
-                    "The request authority does not match Host.",
-                )
-            } else {
-                Error::invalid("The request authority does not match Host.")
-            });
-        }
+        return Err(if crate::auth::signature::is_signed(uri.query()) {
+            Error::new(
+                XmlCode::SignatureDoesNotMatch,
+                "The request authority does not match Host.",
+            )
+        } else {
+            Error::invalid("The request authority does not match Host.")
+        });
     }
     let path = uri.path();
     if reserved_path(path) && reserved_goes_to_json {
@@ -976,20 +966,15 @@ pub(crate) fn headers(
             "The content hash does not match the empty read body.",
         ));
     }
-    let mut tokens = headers.get_all("x-goog-gcs-idempotency-token").iter();
-    if let Some(token) = tokens.next() {
-        if tokens.next().is_some() {
-            return Err(Error::new(
-                XmlCode::ExcessHeaderValues,
-                "Expected a single x-goog-gcs-idempotency-token header.",
-            ));
+    IdempotencyToken::validate_opaque(headers).map_err(|error| match error {
+        TokenError::Repeated(_) => Error::new(
+            XmlCode::ExcessHeaderValues,
+            "Expected a single x-goog-gcs-idempotency-token header.",
+        ),
+        TokenError::InvalidText(_) | TokenError::Empty => {
+            Error::invalid("Expected a non-empty x-goog-gcs-idempotency-token header.")
         }
-        if token.as_bytes().trim_ascii().is_empty() {
-            return Err(Error::invalid(
-                "Expected a non-empty x-goog-gcs-idempotency-token header.",
-            ));
-        }
-    }
+    })?;
     // storage/v1.70.0 invoke.go:215-220 sends client telemetry and retry IDs;
     // http_client.go:1551-1587 uses them on idempotent reads, which need no token replay.
     for key in headers.keys() {
@@ -1029,21 +1014,16 @@ pub(crate) fn headers(
             MinValue::One,
         ),
     ] {
-        let mut values = headers.get_all(key).iter();
-        if let Some(value) = values.next() {
-            if values.next().is_some() {
-                return Err(Error::new(
+        let value = sole(headers, key)
+            .text(TextOrder::RepetitionFirst)
+            .map_err(|error| match error {
+                TextError::Repeated(_) => Error::new(
                     XmlCode::ExcessHeaderValues,
                     "Multiple precondition header values.",
-                ));
-            }
-            *target = Some(number(
-                value
-                    .to_str()
-                    .map_err(|_| Error::invalid("Invalid precondition header."))?,
-                min,
-            )?);
-        }
+                ),
+                TextError::Invalid(_) => Error::invalid("Invalid precondition header."),
+            })?;
+        *target = value.map(|value| number(value, min)).transpose()?;
     }
     Ok(conditions)
 }

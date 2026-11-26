@@ -82,11 +82,11 @@ pub(crate) fn cors(
 ) -> HeaderMap {
     let mut result = HeaderMap::new();
     let one = |name: &str| {
-        let mut values = headers.get_all(name).iter();
-        let (Some(value), None) = (values.next(), values.next()) else {
-            return None;
-        };
-        value.to_str().ok()
+        use crate::http_header::{TextOrder, sole};
+        sole(headers, name)
+            .text(TextOrder::RepetitionFirst)
+            .ok()
+            .flatten()
     };
     let Some(origin_value) = crate::bucket::cors::origin(headers) else {
         return result;
@@ -296,8 +296,9 @@ fn origin_matches(allowed: &str, origin: &str, parsed: Option<&SerializedOrigin>
     else {
         return false;
     };
-    host.to_ascii_lowercase()
-        .strip_suffix(&suffix.to_ascii_lowercase())
+    use crate::net::{TrailingDot, normalized_host};
+    normalized_host(host, TrailingDot::Preserve)
+        .strip_suffix(&normalized_host(suffix, TrailingDot::Preserve))
         .is_some_and(|prefix| !prefix.is_empty())
 }
 

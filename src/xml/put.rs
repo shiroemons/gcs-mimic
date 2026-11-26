@@ -6,10 +6,11 @@ use crate::server::upload_drive::{
 use crate::{
     auth::{self, Caller},
     bucket::{InvalidStorageClass, StorageClass},
+    http_header::{TextError, TextOrder, sole},
     metadata_error::MetadataError,
     object::{
-        Checksum, ChecksumConflict, ExpectedHashes, HashAlgorithm, HashMismatch, MapPatch,
-        ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch,
+        Checksum, ChecksumConflict, ExpectedHashes, HashAlgorithm, HashMismatch, IdempotencyToken,
+        MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, TokenError,
     },
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
     storage::ObjectUpload,
@@ -38,20 +39,18 @@ pub(super) struct Headers {
 }
 
 pub(super) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Error> {
-    let mut values = headers.get_all(name).iter();
-    let Some(value) = values.next() else {
-        return Ok(None);
-    };
-    if values.next().is_some() {
-        return Err(Error::new(
-            XmlCode::ExcessHeaderValues,
-            "Expected one header value.",
-        ));
+    sole(headers, name)
+        .text(TextOrder::RepetitionFirst)
+        .map_err(|error| header_error(&error))
+}
+
+fn header_error(error: &TextError) -> Error {
+    match error {
+        TextError::Repeated(_) => {
+            Error::new(XmlCode::ExcessHeaderValues, "Expected one header value.")
+        }
+        TextError::Invalid(_) => Error::invalid("Header must be representable as ASCII."),
     }
-    value
-        .to_str()
-        .map(Some)
-        .map_err(|_| Error::invalid("Header must be representable as ASCII."))
 }
 
 /// How an XML write authenticated, which decides whether its signing headers are accepted.
@@ -173,15 +172,18 @@ pub(super) fn conditions(headers: &HeaderMap) -> Result<ObjectConditions, Error>
             .map(|raw| number(raw, min))
             .transpose()?;
     }
-    if let Some(token) = single(headers, "x-goog-gcs-idempotency-token")? {
-        if token.trim().is_empty() {
-            return Err(Error::invalid("Expected a non-empty retry token."));
-        }
-        if conditions.if_generation_match.is_none() {
-            return Err(Error::unsupported(
-                "x-goog-gcs-idempotency-token without x-goog-if-generation-match; add x-goog-if-generation-match: 0",
-            ));
-        }
+    let token =
+        IdempotencyToken::from_text(headers, TextOrder::RepetitionFirst).map_err(|error| {
+            match error {
+                TokenError::Repeated(error) => header_error(&TextError::Repeated(error)),
+                TokenError::InvalidText(error) => header_error(&TextError::Invalid(error)),
+                TokenError::Empty => Error::invalid("Expected a non-empty retry token."),
+            }
+        })?;
+    if token.is_some() && conditions.if_generation_match.is_none() {
+        return Err(Error::unsupported(
+            "x-goog-gcs-idempotency-token without x-goog-if-generation-match; add x-goog-if-generation-match: 0",
+        ));
     }
     Ok(conditions)
 }
@@ -236,7 +238,7 @@ pub(super) fn content_type_and_hashes(
         single(headers, "content-type")?;
         selected.insert("content-type", content_type.clone());
     }
-    let content_type = crate::object::upload_headers::upload_content_type(&selected)?;
+    let content_type = crate::object::upload_headers::content_type(&selected)?;
     // The JSON parser stores no type for an upload without one; XML objects default it.
     let content_type = if content_type.is_empty() {
         "application/octet-stream".to_owned()

@@ -1,5 +1,22 @@
 use super::*;
 
+#[test]
+fn a_repeated_xml_put_header_wins_over_a_non_text_first_value() {
+    let mut headers = HeaderMap::new();
+    headers.append(
+        "content-type",
+        hyper::header::HeaderValue::from_bytes(&[0xff]).unwrap(),
+    );
+    headers.append(
+        "content-type",
+        hyper::header::HeaderValue::from_static("text/plain"),
+    );
+    assert_eq!(
+        single(&headers, "content-type").unwrap_err().code,
+        XmlCode::ExcessHeaderValues
+    );
+}
+
 /// Which headers each XML write and read admits, by name. Signing headers pass only on a signed
 /// request, and each operation has its own list of other `x-goog-*` names. Each row reads: PUT
 /// unsigned/signed, resumable initiation unsigned/signed, then reads and strict reads.

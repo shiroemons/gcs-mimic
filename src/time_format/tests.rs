@@ -6,6 +6,18 @@ use crate::{
 use proptest::prelude::*;
 use std::time::Duration;
 
+#[test]
+fn http_header_dates_omit_unrenderable_times() {
+    use std::time::UNIX_EPOCH;
+    assert_eq!(
+        http_date_value(UNIX_EPOCH).unwrap(),
+        "Thu, 01 Jan 1970 00:00:00 GMT"
+    );
+    assert!(http_date_value(UNIX_EPOCH - Duration::from_secs(1)).is_none());
+    let after_year_9999 = system_time_from_unix_seconds(253_402_300_800).unwrap();
+    assert!(http_date_value(after_year_9999).is_none());
+}
+
 proptest! {
     #[test]
     fn timestamp_text_round_trips_at_wire_precision(

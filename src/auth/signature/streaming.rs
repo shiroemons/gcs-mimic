@@ -45,9 +45,9 @@ pub(super) fn validate(
     {
         return Ok(PayloadFraming::Plain);
     }
-    let length = headers
-        .get("x-amz-decoded-content-length")
-        .and_then(|value| value.to_str().ok())
+    let length = sole(headers, "x-amz-decoded-content-length")
+        .text(TextOrder::ValueFirst)
+        .map_err(|_| Failure::Malformed)?
         .ok_or(Failure::Malformed)?;
     if !header
         || *method != Method::PUT
@@ -55,13 +55,8 @@ pub(super) fn validate(
         || headers
             .keys()
             .any(|name| name.as_str().starts_with("x-goog-"))
-        || headers
-            .get_all("x-amz-decoded-content-length")
-            .iter()
-            .count()
-            != 1
-        || headers.get_all("content-encoding").iter().count() > 1
-        || headers.get_all("x-amz-content-sha256").iter().count() != 1
+        || sole(headers, "content-encoding").value().is_err()
+        || !matches!(sole(headers, "x-amz-content-sha256").value(), Ok(Some(_)))
         || crate::decimal::Grammar::Digits
             .parse::<u64>(length)
             .is_none()

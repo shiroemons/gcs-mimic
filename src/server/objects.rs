@@ -17,8 +17,11 @@ use crate::{
     auth,
     bucket::{BucketAccess, CatalogError},
     csek::CustomerKey,
+    http_header::TextOrder,
     json::{self, ObjectRequest, UploadRequest},
-    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
+    object::{
+        IdempotencyToken, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, TokenError,
+    },
     storage::{MoveAccess, RestoreAccess, UploadAclSnapshot},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
@@ -247,7 +250,18 @@ async fn add_acl(
 
 /// The idempotency token that lets a retried write replay its first response.
 fn idempotency_token(headers: &HeaderMap) -> Result<Option<String>, ApiError> {
-    Ok(json::resumable::single(headers, "x-goog-gcs-idempotency-token")?.map(str::to_owned))
+    let token =
+        IdempotencyToken::from_text(headers, TextOrder::ValueFirst).map_err(
+            |error| match error {
+                TokenError::Repeated(_) => {
+                    ApiError::invalid_parameter("Duplicate x-goog-gcs-idempotency-token")
+                }
+                TokenError::InvalidText(_) | TokenError::Empty => {
+                    ApiError::invalid_parameter("Invalid x-goog-gcs-idempotency-token")
+                }
+            },
+        )?;
+    Ok(token.map(|token| token.as_str().to_owned()))
 }
 
 async fn restore(

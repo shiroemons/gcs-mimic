@@ -38,7 +38,7 @@ fn acl_error(error: AclError, access: AclAccess) -> ApiError {
         // write reuses the bucket update refusal.
         AclError::UniformAccess => ApiError::invalid(match access {
             AclAccess::Read => UNIFORM_ACCESS_GET_ACL,
-            AclAccess::Write => UNIFORM_ACCESS_UPDATE_ACL,
+            AclAccess::Write => UNIFORM_ACCESS_UPDATE_BUCKET_ACL,
         }),
         AclError::EntityNotFound {
             entity,
@@ -54,7 +54,7 @@ fn acl_error(error: AclError, access: AclAccess) -> ApiError {
 }
 
 const UNIFORM_ACCESS_GET_ACL: &str = "Cannot get legacy ACL for a bucket that has uniform bucket-level access. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access";
-const UNIFORM_ACCESS_UPDATE_ACL: &str = "Cannot use ACL API to update bucket policy when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access";
+const UNIFORM_ACCESS_UPDATE_BUCKET_ACL: &str = "Cannot use ACL API to update bucket policy when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access";
 
 /// A missing entity. A project-team entity that names another project is a bad request about
 /// that project, and any other missing entity is a missing key (recorded 2026-10-31).

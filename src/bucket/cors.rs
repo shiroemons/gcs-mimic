@@ -7,10 +7,9 @@ use hyper::{HeaderMap, Uri, header::HeaderValue};
 /// The request's single `Origin`, when it is `null` or a scheme and authority with nothing
 /// else; any other value, or more than one, names no origin.
 pub(crate) fn origin(headers: &HeaderMap) -> Option<&HeaderValue> {
-    let mut values = headers.get_all("origin").iter();
-    let origin = values.next()?;
+    let origin = crate::http_header::sole(headers, "origin").value().ok()??;
     let value = origin.to_str().ok()?;
-    if values.next().is_some() || value.is_empty() || value.contains([',', '@', '?', '#']) {
+    if value.is_empty() || value.contains([',', '@', '?', '#']) {
         return None;
     }
     if value != "null" {

@@ -71,7 +71,10 @@ fn host_allowed(host: &str, config: &Config, endpoints: &EndpointSnapshot) -> bo
                     .as_ref()
                     .map(PublicOrigin::authority),
             )
-            .any(|authority| host::normalized(authority) == host)
+            .any(|authority| {
+                crate::net::normalized_host(authority.host(), crate::net::TrailingDot::Remove)
+                    == host
+            })
 }
 
 #[cfg(test)]
@@ -101,8 +104,9 @@ mod tests {
         ] {
             assert!(!local_host(host), "{host}");
         }
+        let authority: hyper::http::uri::Authority = "LOCALHOST.:4443".parse().unwrap();
         assert_eq!(
-            host::normalized(&"LOCALHOST.:4443".parse().unwrap()),
+            crate::net::normalized_host(authority.host(), crate::net::TrailingDot::Remove),
             "localhost"
         );
     }

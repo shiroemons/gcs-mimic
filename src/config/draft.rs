@@ -516,7 +516,7 @@ fn virtual_host_domains(value: &str) -> Result<VirtualHostDomains, SettingFix> {
         return Ok(domains);
     }
     for domain in value.split(',') {
-        let domain = domain.trim().to_ascii_lowercase();
+        let domain = crate::net::normalized_host(domain.trim(), crate::net::TrailingDot::Preserve);
         validate_dns_name(&domain).map_err(|error| error.to_string())?;
         match domains.insert(domain) {
             Ok(Inserted::Added) => {}
@@ -594,8 +594,7 @@ fn allowed_hosts(setting: Setting, value: &str) -> Result<Vec<String>, SettingFi
         return Ok(hosts);
     }
     for host in value.split(',') {
-        let host = host.trim().to_ascii_lowercase();
-        let host = host.strip_suffix('.').unwrap_or(&host).to_owned();
+        let host = crate::net::normalized_host(host.trim(), crate::net::TrailingDot::Remove);
         validate_dns_name(&host).map_err(|_| {
             format!("{name} requires comma-separated DNS names without ports or schemes")
         })?;

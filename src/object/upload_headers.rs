@@ -6,23 +6,19 @@
 use super::{Checksum, ExpectedHashes, HashAlgorithm};
 use crate::api_error::ApiError;
 use crate::hashing::decode_hash;
+use crate::http_header::{TextError, TextOrder, sole};
 use hyper::HeaderMap;
 
 /// The `Content-Type` an upload stores: empty when the header is absent (recorded: the resource
 /// omits `contentType`), otherwise a single visible-ASCII value whose media type is
 /// `type/subtype` made of token characters.
-pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ApiError> {
-    if headers.get_all("content-type").iter().count() > 1 {
-        return Err(ApiError::invalid_parameter("Duplicate Content-Type header"));
-    }
-    let content_type = headers
-        .get("content-type")
-        .map(|value| {
-            value
-                .to_str()
-                .map_err(|_| ApiError::invalid_parameter("Invalid Content-Type header"))
-        })
-        .transpose()?
+pub(crate) fn content_type(headers: &HeaderMap) -> Result<String, ApiError> {
+    let content_type = sole(headers, "content-type")
+        .text(TextOrder::RepetitionFirst)
+        .map_err(|error| match error {
+            TextError::Repeated(_) => ApiError::invalid_parameter("Duplicate Content-Type header"),
+            TextError::Invalid(_) => ApiError::invalid_parameter("Invalid Content-Type header"),
+        })?
         .unwrap_or_default();
     let mime = content_type.split(';').next().unwrap_or_default().trim();
     let token = |value: &str| {
@@ -110,16 +106,13 @@ mod tests {
 
     #[test]
     fn an_absent_content_type_stores_none() {
-        assert_eq!(upload_content_type(&HeaderMap::new()).unwrap(), "");
+        assert_eq!(content_type(&HeaderMap::new()).unwrap(), "");
     }
 
     #[test]
     fn a_content_type_keeps_its_parameters() {
         let headers = header_map([("content-type", "text/plain; charset=utf-8")]);
-        assert_eq!(
-            upload_content_type(&headers).unwrap(),
-            "text/plain; charset=utf-8"
-        );
+        assert_eq!(content_type(&headers).unwrap(), "text/plain; charset=utf-8");
     }
 
     #[test]
@@ -133,14 +126,14 @@ mod tests {
             "text/plain, text/html",
         ] {
             let headers = header_map([("content-type", value)]);
-            assert!(upload_content_type(&headers).is_err(), "{value}");
+            assert!(content_type(&headers).is_err(), "{value}");
         }
         let headers = header_map([
             ("content-type", "text/plain"),
             ("content-type", "text/html"),
         ]);
         assert_eq!(
-            upload_content_type(&headers).unwrap_err().status,
+            content_type(&headers).unwrap_err().status,
             StatusCode::BAD_REQUEST
         );
     }

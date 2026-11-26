@@ -11,7 +11,10 @@ use crate::time_format::{TimeOutOfRange, timestamp};
 use crate::{
     auth,
     config::CompatProfile,
-    object::{ObjectConditions, ObjectRecord, ObjectTarget, retention::UnlockedOverride},
+    http_header::{TextOrder, sole},
+    object::{
+        IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget, retention::UnlockedOverride,
+    },
 };
 use hyper::{HeaderMap, Method, StatusCode, Uri};
 use serde_json::{Map, Value, json};
@@ -797,14 +800,11 @@ pub(super) fn match_and_not_match(conditions: &ObjectConditions) -> bool {
 
 /// `keys` lists the customer-supplied key header prefixes the caller parses itself.
 fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), ApiError> {
-    let mut tokens = headers.get_all("x-goog-gcs-idempotency-token").iter();
-    if let Some(token) = tokens.next()
-        && (token.as_bytes().trim_ascii().is_empty() || tokens.next().is_some())
-    {
-        return Err(ApiError::invalid_parameter(
+    IdempotencyToken::validate_opaque(headers).map_err(|_| {
+        ApiError::invalid_parameter(
             "Expected a single non-empty x-goog-gcs-idempotency-token header",
-        ));
-    }
+        )
+    })?;
     for key in headers.keys() {
         let name = key.as_str();
         if keys
@@ -838,7 +838,7 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ApiErro
             mime.parse()
                 .map_err(|_| ApiError::invalid_parameter("Invalid upload content type"))?,
         );
-        crate::object::upload_headers::upload_content_type(&advisory)?;
+        crate::object::upload_headers::content_type(&advisory)?;
     }
     // `Content-MD5` is not examined: Cloud Storage stored a JSON upload whose header named the
     // wrong digest (recorded 200 with the computed hashes).
@@ -854,7 +854,7 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ApiErro
     // `X-Goog-Hash` is not examined either. Recorded JSON media uploads that named a wrong,
     // malformed or unknown-algorithm hash all stored the computed hashes with 200, so only a
     // multipart metadata `crc32c`/`md5Hash` is verified on this route.
-    crate::object::upload_headers::upload_content_type(headers)
+    crate::object::upload_headers::content_type(headers)
 }
 
 /// Reject unsupported encryption headers explicitly. `If-Range` is not one: Cloud Storage
@@ -923,14 +923,7 @@ pub(crate) enum RangeRequest<'a> {
 
 /// Classifies fields before size-dependent resolution, preserving adapter error ordering.
 pub(crate) fn range_request(headers: &HeaderMap) -> RangeRequest<'_> {
-    let mut values = headers.get_all("range").iter();
-    let Some(value) = values.next() else {
-        return RangeRequest::Whole;
-    };
-    if values.next().is_some() {
-        return RangeRequest::Whole;
-    }
-    let Ok(value) = value.to_str() else {
+    let Ok(Some(value)) = sole(headers, "range").text(TextOrder::RepetitionFirst) else {
         return RangeRequest::Whole;
     };
     let Some((unit, range)) = value.trim().split_once('=') else {

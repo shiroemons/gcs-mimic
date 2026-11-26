@@ -112,7 +112,7 @@ fn validate_source_etags(headers: &HeaderMap, record: &ObjectRecord) -> Result<(
 }
 
 fn options(headers: &HeaderMap, signing: put::Signing) -> Result<put::Headers, Error> {
-    if headers.contains_key("x-goog-gcs-idempotency-token") {
+    if headers.contains_key(crate::object::IdempotencyToken::HEADER) {
         return Err(Error::unsupported(
             "copy invocation-token replay; use destination generation conditions",
         ));

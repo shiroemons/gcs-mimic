@@ -256,7 +256,7 @@ fn request_headers(
 ) -> Result<put::Headers, Error> {
     for name in request.headers().keys() {
         let name = name.as_str();
-        if name.starts_with("x-goog-if-") || name == "x-goog-gcs-idempotency-token" {
+        if name.starts_with("x-goog-if-") || name == crate::object::IdempotencyToken::HEADER {
             return Err(Error::unsupported(
                 "multipart preconditions and invocation-token replay",
             ));

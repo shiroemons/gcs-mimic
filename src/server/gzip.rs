@@ -121,7 +121,7 @@ pub(super) fn plain_body_rejection(mut headers: HeaderMap) -> Response<ResponseB
     insert_transcoded_headers(&mut headers);
     headers.insert(
         "content-type",
-        HeaderValue::from_static("text/plain; charset=utf-8"),
+        HeaderValue::from_static(crate::mime::TEXT_PLAIN_UTF8),
     );
     headers.insert("content-length", HeaderValue::from(BODY.len()));
     let mut response = Response::new(Full::new(Bytes::from_static(BODY.as_bytes())));
