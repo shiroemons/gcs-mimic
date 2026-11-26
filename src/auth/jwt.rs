@@ -185,7 +185,7 @@ impl<'a> Candidate<'a> {
             })
             .await
             .map_err(|error| {
-                AuthError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
+                AuthError::Unavailable(crate::cause::BackendCause::from_error(error))
             })?;
         if valid {
             verified.remember(key);

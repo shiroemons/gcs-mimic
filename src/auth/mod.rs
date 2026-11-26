@@ -360,7 +360,7 @@ impl std::error::Error for AuthFailure {}
 #[derive(Debug)]
 pub(crate) enum AuthError {
     Failure(AuthFailure),
-    Unavailable(crate::storage::failure::BackendCause),
+    Unavailable(crate::cause::BackendCause),
 }
 
 impl From<AuthFailure> for AuthError {

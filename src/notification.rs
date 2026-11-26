@@ -32,7 +32,7 @@ impl std::error::Error for NotificationDecodeError {
     }
 }
 
-impl From<NotificationDecodeError> for crate::storage::failure::BackendCause {
+impl From<NotificationDecodeError> for crate::cause::BackendCause {
     fn from(error: NotificationDecodeError) -> Self {
         Self::from_error(error)
     }

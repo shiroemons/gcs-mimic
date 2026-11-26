@@ -1,6 +1,6 @@
 //! Transport-independent bucket state shared by the catalog and protocol adapters.
 
-use crate::storage::failure::{BackendCause, IoCause, Link, TypedSource};
+use crate::cause::{BackendCause, IoCause, Link, TypedSource};
 use std::{
     collections::BTreeMap,
     fmt,

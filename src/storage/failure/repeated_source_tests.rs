@@ -119,7 +119,6 @@ fn classified(link: Option<Link<'_>>, inner: &Node) -> bool {
         | Link::Io(_)
         | Link::Sqlite(_)
         | Link::Typed(_)
-        | Link::Resume(_)
         | Link::Unopenable(_) => std::ptr::addr_eq(link.as_error(), inner),
         Link::Leaf(_) => false,
     })

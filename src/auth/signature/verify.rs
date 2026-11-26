@@ -5,7 +5,8 @@ use super::*;
 use crate::{
     auth::{Profile, Registry, SigningKeys, test_signer},
     bucket::CatalogError,
-    storage::{Catalog, failure::BackendCause},
+    cause::BackendCause,
+    storage::Catalog,
 };
 use ring::hmac;
 use std::{

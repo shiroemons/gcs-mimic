@@ -1,7 +1,7 @@
 //! Pub/Sub payload encoding reuses the JSON object's supported metadata representation.
 
 use super::{NotificationConfig, NotificationError, PayloadFormat};
-use crate::{bucket::CatalogError, object::ObjectRecord, storage::failure::BackendCause};
+use crate::{bucket::CatalogError, cause::BackendCause, object::ObjectRecord};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 

@@ -101,8 +101,9 @@ undeclared one, and an `xtask` test keeps this copy equal to the table in
 | adapters (isolated) | `json`, `xml`, `grpc` |
 | transport | `server` |
 
-The foundation module `cause` owns failure identities that model and storage errors
-share, so a model can name a failure without importing its storage implementation.
+The foundation module `cause` owns backend and I/O causes, memory budgets and
+the links used to classify nested errors. Model and storage errors can expose
+those causes without importing each other's error implementations.
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |

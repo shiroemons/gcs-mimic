@@ -3,8 +3,8 @@
 use super::{
     CatalogError, ClassLocationConflict, InvalidStorageClass, Location, LocationKind, StorageClass,
 };
+use crate::cause::BackendCause;
 use crate::metadata_error::{LifecycleExample, MetadataError};
-use crate::storage::failure::BackendCause;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{collections::BTreeSet, str::FromStr};

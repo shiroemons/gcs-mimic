@@ -2,8 +2,8 @@
 
 use crate::{
     bucket::StorageClass,
+    cause::{BackendCause, IoCause, Link, TypedSource},
     hashing::Hashes,
-    storage::failure::{BackendCause, IoCause, Link, TypedSource},
 };
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 use unix_nanos::UnixNanos;
@@ -1177,12 +1177,12 @@ impl TypedSource for ObjectError {
 
 impl ObjectError {
     /// Wraps an adapter-side failure as unavailable, keeping it as the source.
-    pub(crate) fn backend(error: impl Into<crate::storage::failure::Source>) -> Self {
+    pub(crate) fn backend(error: impl Into<crate::cause::Source>) -> Self {
         Self::Unavailable(BackendCause::from_error(error))
     }
 
     /// The request body stream failed; the transport error stays the source.
-    pub(crate) fn body_aborted(error: impl Into<crate::storage::failure::Source>) -> Self {
+    pub(crate) fn body_aborted(error: impl Into<crate::cause::Source>) -> Self {
         Self::BodyAborted(BackendCause::from_error(error))
     }
 

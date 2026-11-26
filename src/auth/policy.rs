@@ -31,7 +31,7 @@ impl std::error::Error for PolicyDecodeError {
     }
 }
 
-impl From<PolicyDecodeError> for crate::storage::failure::BackendCause {
+impl From<PolicyDecodeError> for crate::cause::BackendCause {
     fn from(error: PolicyDecodeError) -> Self {
         Self::from_error(error)
     }
@@ -357,7 +357,7 @@ mod tests {
     #[test]
     fn corrupt_policy_retains_the_json_cause_through_catalog_conversion() {
         let error = Policy::from_stored("{", "etag".into()).unwrap_err();
-        let cause: crate::storage::failure::BackendCause = error.into();
+        let cause: crate::cause::BackendCause = error.into();
         let error = crate::bucket::CatalogError::Corrupt(cause);
         let mut source: &(dyn std::error::Error + 'static) = &error;
         while !source.is::<serde_json::Error>() {
