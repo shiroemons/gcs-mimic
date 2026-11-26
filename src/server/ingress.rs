@@ -604,9 +604,7 @@ mod tests {
             )
             .unwrap();
             let fixture = Self::new(Auth::strict(registry)).await;
-            let bucket = br#"{"name":"private-bucket"}"#;
-            let record =
-                crate::json::parse_insert(bucket, "project-a", std::time::UNIX_EPOCH).unwrap();
+            let record = crate::storage::test_fixtures::bucket("private-bucket", "project-a");
             fixture.state.catalog.insert_bucket(record).await.unwrap();
             fixture
         }

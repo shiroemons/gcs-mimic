@@ -14,7 +14,7 @@ use crate::grpc::{
     validate::ByteRange,
 };
 use crate::storage::test_fixtures::{PERMISSIVE, live};
-use crate::{auth::Auth, json, storage::Catalog, test_support::TestDir};
+use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
 use prost::Message;
 use serde_json::json;
 use std::sync::Arc;
@@ -284,12 +284,10 @@ pub(super) async fn setup_with_limits(
 
 /// The fixture bucket and principals over `catalog`, which a test may open with its own clock.
 async fn storage_over(catalog: Catalog, strict: bool) -> Storage {
-    let definition = json::parse_insert(
-        br#"{"name":"grpc-io","versioning":{"enabled":true}}"#,
-        "project",
-        std::time::SystemTime::now(),
-    )
-    .unwrap();
+    let definition = crate::bucket::BucketRecord {
+        versioning: crate::bucket::Versioning::Enabled,
+        ..crate::bucket::BucketRecord::for_test("grpc-io", "project", std::time::SystemTime::now())
+    };
     catalog.insert_bucket(definition).await.unwrap();
     let auth = if strict {
         Auth::strict(registry(&[

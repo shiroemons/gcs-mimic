@@ -3,10 +3,11 @@
 //! lifted, rather than the time the object was created" (`Object.event_based_hold`), and that
 //! `retention_expire_time` "is not provided for objects with an active event-based hold".
 
-use super::super::test_support::{bucket_record, upload_to};
+use super::super::test_support::upload_to;
 use super::*;
 use crate::{
     auth::Auth,
+    bucket::{BucketRecord, RetentionPolicy},
     clock::{Clock, ManualClock},
     grpc::test_support as fixtures,
     object::unix_nanos::UnixNanos,
@@ -53,11 +54,16 @@ async fn update_object_releasing_the_event_based_hold_restarts_the_retention_per
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
         .await
         .unwrap();
-    let bucket = format!(r#"{{"name":"{BUCKET}","retentionPolicy":{{"retentionPeriod":"10"}}}}"#);
-    catalog
-        .insert_bucket(bucket_record(&bucket, clock.now()))
-        .await
-        .unwrap();
+    let now = clock.now();
+    let bucket = BucketRecord {
+        retention_policy: Some(RetentionPolicy {
+            retention_period: 10,
+            effective_time: now,
+            is_locked: false,
+        }),
+        ..BucketRecord::for_test(BUCKET, "local-project", now)
+    };
+    catalog.insert_bucket(bucket).await.unwrap();
     let storage = Storage {
         compat_profile: crate::config::CompatProfile::Native,
         state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),

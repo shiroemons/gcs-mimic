@@ -2191,17 +2191,19 @@ mod tests {
             1024,
         );
         let origin = format!("https://{}.invalid", "o".repeat(5 * 1024 * 1024));
-        for body in [
-            serde_json::json!({"name":"a-small"}),
-            serde_json::json!({"name":"m-large","cors":[{"origin":[origin]}]}),
-            serde_json::json!({"name":"z-small"}),
+        let cors = vec![crate::bucket::CorsRule {
+            origin: vec![origin],
+            ..Default::default()
+        }];
+        for (name, cors) in [
+            ("a-small", Vec::new()),
+            ("m-large", cors),
+            ("z-small", Vec::new()),
         ] {
-            let record = crate::json::parse_insert(
-                body.to_string().as_bytes(),
-                "p",
-                std::time::SystemTime::now(),
-            )
-            .unwrap();
+            let record = crate::bucket::BucketRecord {
+                cors,
+                ..crate::bucket::BucketRecord::for_test(name, "p", std::time::SystemTime::now())
+            };
             storage.state.catalog.insert_bucket(record).await.unwrap();
         }
         let (mut pages, mut token) = (Vec::new(), String::new());
@@ -2862,14 +2864,11 @@ mod tests {
         storage
             .state
             .catalog
-            .insert_bucket(
-                json::parse_insert(
-                    br#"{"name":"public-bucket"}"#,
-                    "p",
-                    storage.state.clock.now(),
-                )
-                .unwrap(),
-            )
+            .insert_bucket(crate::bucket::BucketRecord::for_test(
+                "public-bucket",
+                "p",
+                storage.state.clock.now(),
+            ))
             .await
             .unwrap();
         storage

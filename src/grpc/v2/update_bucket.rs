@@ -836,12 +836,15 @@ mod tests {
     async fn grpc_retention_lock_requires_bucket_update_permission() {
         let dir = crate::test_support::TestDir::new();
         let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
-        let definition = json::parse_insert(
-            br#"{"name":"locking","retentionPolicy":{"retentionPeriod":"3600"}}"#,
-            "p",
-            std::time::SystemTime::now(),
-        )
-        .unwrap();
+        let now = std::time::SystemTime::now();
+        let definition = crate::bucket::BucketRecord {
+            retention_policy: Some(crate::bucket::RetentionPolicy {
+                retention_period: 3600,
+                effective_time: now,
+                is_locked: false,
+            }),
+            ..crate::bucket::BucketRecord::for_test("locking", "p", now)
+        };
         catalog.insert_bucket(definition).await.unwrap();
         let s = Storage {
             compat_profile: crate::config::CompatProfile::Native,

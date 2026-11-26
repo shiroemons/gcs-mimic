@@ -46,12 +46,11 @@ impl Server {
         )
         .await
         .unwrap();
-        let bucket = crate::json::parse_insert(
-            br#"{"name":"call-metadata"}"#,
+        let bucket = crate::bucket::BucketRecord::for_test(
+            "call-metadata",
             "project",
             std::time::SystemTime::now(),
-        )
-        .unwrap();
+        );
         catalog.insert_bucket(bucket).await.unwrap();
         let registry = Registry::parse(br#"{"identities":[{"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}}]}"#).unwrap();
         let state = Arc::new(State::for_test(catalog, Auth::strict(registry)));

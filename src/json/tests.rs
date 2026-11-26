@@ -387,7 +387,7 @@ fn object_and_project_query_booleans_use_the_same_parser() {
 }
 
 pub(super) fn record() -> BucketRecord {
-    parse_insert(br#"{"name":"test-bucket"}"#, "test-project", UNIX_EPOCH).unwrap()
+    crate::storage::test_fixtures::bucket("test-bucket", "test-project")
 }
 
 fn resource(bucket: &BucketRecord) -> Value {

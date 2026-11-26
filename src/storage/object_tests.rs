@@ -1602,36 +1602,16 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
     fs::write(dir.0.join("blobs/a0").join(blob_id), b"unchanged").unwrap();
     let original_paths = blobs(&dir.0);
     let original = ObjectRecord {
-        bucket: "bucket".into(),
         name: "metadata".into(),
         generation: 1234567,
-        metageneration: 1,
-        owner: None,
         content_type: "application/test".into(),
-        content_encoding: None,
-        content_disposition: None,
-        content_language: None,
-        cache_control: None,
-        metadata: Default::default(),
         size: 9,
         md5,
-        md5_availability: Default::default(),
         crc32c: crc,
-        component_count: None,
         storage_class: crate::bucket::StorageClass::Nearline,
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
-        time_storage_class_updated: None,
         updated: UNIX_EPOCH + Duration::from_millis(1234),
-        time_deleted: None,
-        soft_delete_time: None,
-        hard_delete_time: None,
-        event_based_hold: crate::object::Hold::Unset,
-        temporary_hold: crate::object::Hold::Unset,
-        event_based_hold_release_time: None,
-        custom_time: None,
-        retention_expiration_time: None,
-        retention: None,
-        customer_key_sha256: None,
+        ..crate::storage::test_fixtures::bare_object_record()
     };
     drop(connection);
     let clock = Arc::new(ManualClock::new(

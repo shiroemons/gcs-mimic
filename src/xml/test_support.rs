@@ -1,8 +1,8 @@
 use crate::{
     auth::{Auth, Registry},
+    bucket::BucketRecord,
     clock::{Clock, SystemClock},
     config::{Config, RequestEndpoints},
-    json,
     server::{ObjectActivity, State},
     storage::{Catalog, admin::LocalAdmin},
     test_support::TestDir,
@@ -43,9 +43,7 @@ impl SignedUploadFixture {
         .await
         .unwrap();
         catalog
-            .insert_bucket(
-                json::parse_insert(br#"{"name":"bucket"}"#, "local", clock.now()).unwrap(),
-            )
+            .insert_bucket(BucketRecord::for_test("bucket", "local", clock.now()))
             .await
             .unwrap();
         let key = catalog
@@ -87,31 +85,13 @@ pub(super) fn object_record(
         name: name.into(),
         generation: 42,
         metageneration: 2,
-        owner: None,
         content_type: "text/plain".into(),
-        content_encoding: None,
-        content_disposition: None,
-        content_language: None,
-        cache_control: None,
-        metadata: std::collections::BTreeMap::new(),
         size: 5,
         md5: [3; 16],
-        md5_availability: Default::default(),
         crc32c: 123,
-        component_count: None,
         storage_class: crate::bucket::StorageClass::Nearline,
         time_created: now,
-        time_storage_class_updated: None,
         updated: now,
-        time_deleted: None,
-        soft_delete_time: None,
-        hard_delete_time: None,
-        event_based_hold: crate::object::Hold::Unset,
-        temporary_hold: crate::object::Hold::Unset,
-        event_based_hold_release_time: None,
-        custom_time: None,
-        retention_expiration_time: None,
-        retention: None,
-        customer_key_sha256: None,
+        ..crate::storage::test_fixtures::bare_object_record()
     }
 }

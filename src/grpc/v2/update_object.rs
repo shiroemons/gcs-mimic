@@ -95,10 +95,10 @@ mod tests {
         RESOURCE, grants, setup, stored_object, undispatched, upload, upload_to,
     };
     use super::*;
+    use crate::bucket::{BucketRecord, RetentionPolicy};
     use crate::grpc::test_support::{
         self as fixtures, assert_code, assert_unsupported, caller, registry,
     };
-    use crate::json;
     use crate::storage::test_fixtures::{PERMISSIVE, live};
     use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
     use std::sync::Arc;
@@ -107,12 +107,8 @@ mod tests {
     #[tokio::test]
     async fn grpc_update_object_retention() {
         let (s, _dir) = setup().await;
-        let mut record = json::parse_insert(
-            br#"{"name":"retention-objects"}"#,
-            "local-project",
-            s.state.clock.now(),
-        )
-        .unwrap();
+        let mut record =
+            BucketRecord::for_test("retention-objects", "local-project", s.state.clock.now());
         record.object_retention_enabled = true;
         s.state.catalog.insert_bucket(record).await.unwrap();
         upload_to(&s, "retention-objects", "kept", 3).await;
@@ -269,12 +265,8 @@ mod tests {
         // Not a multiple of 100 ns, which a platform flooring a SystemTime would lose.
         const FINE_NANOS: i32 = 123_456_789;
         let (s, _dir) = setup().await;
-        let mut record = json::parse_insert(
-            br#"{"name":"retention-ns"}"#,
-            "local-project",
-            s.state.clock.now(),
-        )
-        .unwrap();
+        let mut record =
+            BucketRecord::for_test("retention-ns", "local-project", s.state.clock.now());
         record.object_retention_enabled = true;
         s.state.catalog.insert_bucket(record).await.unwrap();
         upload_to(&s, "retention-ns", "kept", 3).await;
@@ -317,8 +309,15 @@ mod tests {
     #[tokio::test]
     async fn grpc_bucket_policy_expire_time_is_milliseconds() {
         let (s, _dir) = setup().await;
-        let bytes = br#"{"name":"policy-ms","retentionPolicy":{"retentionPeriod":"3600"}}"#;
-        let record = json::parse_insert(bytes, "local-project", s.state.clock.now()).unwrap();
+        let now = s.state.clock.now();
+        let record = BucketRecord {
+            retention_policy: Some(RetentionPolicy {
+                retention_period: 3600,
+                effective_time: now,
+                is_locked: false,
+            }),
+            ..BucketRecord::for_test("policy-ms", "local-project", now)
+        };
         s.state.catalog.insert_bucket(record).await.unwrap();
         let object = upload_to(&s, "policy-ms", "kept", 3).await;
         let expire = convert::object(
@@ -365,12 +364,8 @@ mod tests {
     async fn grpc_update_object_retention_strict() {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
-        let mut record = json::parse_insert(
-            br#"{"name":"update-copy-bucket"}"#,
-            "p",
-            std::time::SystemTime::now(),
-        )
-        .unwrap();
+        let mut record =
+            BucketRecord::for_test("update-copy-bucket", "p", std::time::SystemTime::now());
         record.object_retention_enabled = true;
         catalog.insert_bucket(record).await.unwrap();
         let s = Storage {

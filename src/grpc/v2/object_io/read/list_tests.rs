@@ -203,17 +203,15 @@ async fn grpc_list_folders_as_prefixes_follows_the_json_rule() {
 async fn grpc_list_soft_deleted_objects_strict() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    catalog
-            .insert_bucket(
-                crate::json::parse_insert(
-                    br#"{"name":"update-copy-bucket","softDeletePolicy":{"retentionDurationSeconds":"604800"}}"#,
-                    "p",
-                    std::time::SystemTime::now(),
-                )
-                .unwrap(),
-            )
-            .await
-            .unwrap();
+    let now = std::time::SystemTime::now();
+    let bucket = crate::bucket::BucketRecord {
+        soft_delete_policy: Some(crate::bucket::SoftDeletePolicy {
+            retention_duration_seconds: 604800,
+            effective_time: now,
+        }),
+        ..crate::bucket::BucketRecord::for_test("update-copy-bucket", "p", now)
+    };
+    catalog.insert_bucket(bucket).await.unwrap();
     let s = Storage {
         compat_profile: crate::config::CompatProfile::Native,
         state: Arc::new(crate::server::State::for_test(

@@ -101,12 +101,15 @@ async fn state(budget: u64) -> Arc<State> {
     )
     .await
     .unwrap();
-    let bucket = crate::json::parse_insert(
-        br#"{"name":"memory-grpc","versioning":{"enabled":true},"softDeletePolicy":{"retentionDurationSeconds":"604800"}}"#,
-        "project",
-        std::time::SystemTime::now(),
-    )
-    .unwrap();
+    let now = std::time::SystemTime::now();
+    let bucket = crate::bucket::BucketRecord {
+        versioning: crate::bucket::Versioning::Enabled,
+        soft_delete_policy: Some(crate::bucket::SoftDeletePolicy {
+            retention_duration_seconds: 604800,
+            effective_time: now,
+        }),
+        ..crate::bucket::BucketRecord::for_test("memory-grpc", "project", now)
+    };
     catalog.insert_bucket(bucket).await.unwrap();
     Arc::new(State::for_test(catalog, Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"reader@example.test","tokens":["reader"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}"#).unwrap())))
 }

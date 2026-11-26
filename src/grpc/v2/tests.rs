@@ -456,9 +456,11 @@ async fn grpc_storage_control_bucket_iam() {
     ));
     state
         .catalog
-        .insert_bucket(
-            crate::json::parse_insert(br#"{"name":"iam-bucket"}"#, "p", state.clock.now()).unwrap(),
-        )
+        .insert_bucket(crate::bucket::BucketRecord::for_test(
+            "iam-bucket",
+            "p",
+            state.clock.now(),
+        ))
         .await
         .unwrap();
     const CONTROL: &str = "/google.storage.control.v2.StorageControl/";

@@ -233,6 +233,11 @@ impl BucketRecord {
             updated: now,
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(name: &str, project: &str, now: SystemTime) -> Self {
+        Self::new(name.into(), project, "US".parse().unwrap(), now)
+    }
 }
 
 /// A soft-deleted bucket version: the metadata it had when deleted plus its deletion times.

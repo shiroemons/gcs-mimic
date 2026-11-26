@@ -702,7 +702,6 @@ mod tests {
     use crate::grpc::test_support::{
         self as fixtures, assert_bad_request, assert_code, assert_unsupported,
     };
-    use serde_json::json;
     use tonic::Code;
 
     /// Rewrite sessions store these parameters, and a continued call must produce the same
@@ -989,19 +988,16 @@ mod tests {
     async fn grpc_regional_class_follows_the_bucket_location() {
         let (s, _dir) = setup().await;
         upload(&s, "source", 4).await;
-        let regional = json!({"name":"update-copy-regional","location":"us-central1","storageClass":"REGIONAL"});
-        s.state
-            .catalog
-            .insert_bucket(
-                crate::json::parse_insert(
-                    regional.to_string().as_bytes(),
-                    "local-project",
-                    std::time::SystemTime::now(),
-                )
-                .unwrap(),
+        let regional = crate::bucket::BucketRecord {
+            location: "us-central1".parse().unwrap(),
+            storage_class: crate::bucket::StorageClass::Regional,
+            ..crate::bucket::BucketRecord::for_test(
+                "update-copy-regional",
+                "local-project",
+                std::time::SystemTime::now(),
             )
-            .await
-            .unwrap();
+        };
+        s.state.catalog.insert_bucket(regional).await.unwrap();
         let update = |bucket: &str| pb::UpdateBucketRequest {
             bucket: Some(pb::Bucket {
                 name: format!("projects/_/buckets/{bucket}"),

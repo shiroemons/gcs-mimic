@@ -1623,12 +1623,7 @@ mod tests {
         };
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
-        let record = crate::json::parse_insert(
-            br#"{"name":"pap-permissions"}"#,
-            "project",
-            std::time::UNIX_EPOCH,
-        )
-        .unwrap();
+        let record = crate::storage::test_fixtures::bucket("pap-permissions", "project");
         let record = catalog.insert_bucket(record).await.unwrap();
         let identity = Identity {
             id: "local".into(),
@@ -1741,12 +1736,7 @@ mod tests {
         };
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
-        let record = crate::json::parse_insert(
-            br#"{"name":"acl-permissions"}"#,
-            "project",
-            std::time::UNIX_EPOCH,
-        )
-        .unwrap();
+        let record = crate::storage::test_fixtures::bucket("acl-permissions", "project");
         catalog.insert_bucket(record).await.unwrap();
         for default_acl in [false, true] {
             for readable in [false, true] {
@@ -1863,14 +1853,10 @@ mod tests {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
         catalog
-            .insert_bucket(
-                crate::json::parse_insert(
-                    br#"{"name":"acl-permissions"}"#,
-                    "project",
-                    std::time::UNIX_EPOCH,
-                )
-                .unwrap(),
-            )
+            .insert_bucket(crate::storage::test_fixtures::bucket(
+                "acl-permissions",
+                "project",
+            ))
             .await
             .unwrap();
         let (sender, body) = tokio::sync::mpsc::channel(2);

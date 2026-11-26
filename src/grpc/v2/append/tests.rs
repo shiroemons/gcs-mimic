@@ -1,7 +1,7 @@
 use super::*;
 use crate::grpc::test_support::{assert_code, registry};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
-use crate::{auth::Auth, json, storage::Catalog, test_support::TestDir};
+use crate::{auth::Auth, bucket::BucketRecord, storage::Catalog, test_support::TestDir};
 use bytes::Bytes;
 use pb::bidi_write_object_request::{Data, FirstMessage};
 use pb::bidi_write_object_response::WriteStatus;
@@ -63,12 +63,7 @@ async fn readable_selection_survives_appendable_finalization() {
 async fn setup(strict: bool) -> (TestDir, Storage) {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    let definition = json::parse_insert(
-        br#"{"name":"grpc-append"}"#,
-        "project",
-        std::time::SystemTime::now(),
-    )
-    .unwrap();
+    let definition = BucketRecord::for_test("grpc-append", "project", std::time::SystemTime::now());
     catalog.insert_bucket(definition).await.unwrap();
     let auth = if strict {
         Auth::strict(registry(&[

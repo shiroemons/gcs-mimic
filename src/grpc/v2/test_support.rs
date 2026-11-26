@@ -3,7 +3,7 @@
 use super::{Storage, pb, routing::Admitted};
 use crate::{
     auth::Auth,
-    json,
+    bucket::{BucketRecord, SoftDeletePolicy},
     object::UploadChunk,
     storage::{
         Catalog,
@@ -11,18 +11,9 @@ use crate::{
     },
     test_support::TestDir,
 };
-use serde_json::json;
 use std::sync::Arc;
 
 pub(super) const RESOURCE: &str = "projects/_/buckets/update-copy-bucket";
-
-/// A bucket record of `local-project` from a JSON API bucket resource, created at `now`.
-pub(super) fn bucket_record(
-    resource: &str,
-    now: std::time::SystemTime,
-) -> crate::bucket::BucketRecord {
-    json::parse_insert(resource.as_bytes(), "local-project", now).unwrap()
-}
 
 /// The routing admission of a handler a test calls directly, without the dispatch: nothing was
 /// admitted, so nothing is compared. Production builds have no such admission.
@@ -41,11 +32,20 @@ pub(super) async fn setup() -> (Storage, TestDir) {
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let now = std::time::SystemTime::now();
     for (name, location) in [("update-copy-bucket", "US"), ("update-copy-other", "EU")] {
-        let bytes=json!({"name":name,"location":location,"labels":{"keep":"yes","remove":"yes"},"softDeletePolicy":{"retentionDurationSeconds":"604800"}}).to_string();
-        catalog
-            .insert_bucket(bucket_record(&bytes, now))
-            .await
-            .unwrap();
+        let record = BucketRecord {
+            location: location.parse().unwrap(),
+            labels: [
+                ("keep".into(), "yes".into()),
+                ("remove".into(), "yes".into()),
+            ]
+            .into(),
+            soft_delete_policy: Some(SoftDeletePolicy {
+                retention_duration_seconds: 604800,
+                effective_time: now,
+            }),
+            ..BucketRecord::for_test(name, "local-project", now)
+        };
+        catalog.insert_bucket(record).await.unwrap();
     }
     (
         Storage {

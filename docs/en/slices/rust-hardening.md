@@ -1098,8 +1098,9 @@ These start DESIGN-098 for parsers:
   during reads.
 - **Shared helpers.** `tests/common` gets one clock and one base64 helper
   instead of nine copies.
-- **Fixtures.** Record builders under `cfg(test)` replace full `ObjectRecord`
-  literals, and replace `json::parse_insert` as a bucket fixture in 27 files.
+- **Fixtures.** Record builders under `cfg(test)` supply the defaults for
+  `ObjectRecord` fixtures and build bucket records for tests that need catalog
+  state. Parser and cross-adapter tests still exercise JSON input.
 
 ### Newer Rust
 
