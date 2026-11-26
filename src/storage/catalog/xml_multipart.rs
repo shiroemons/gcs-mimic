@@ -465,6 +465,9 @@ impl Catalog {
     }
 
     fn multipart_cleanup_failed(&self, error: ObjectError) {
+        if self.shutdown_interrupted(&error) {
+            return;
+        }
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
             crate::diagnostics::Event::MultipartCleanupDeferred,

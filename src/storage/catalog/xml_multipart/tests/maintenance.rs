@@ -2,6 +2,20 @@
 
 use super::*;
 
+#[tokio::test]
+async fn stopping_multipart_cleanup_keeps_real_failures_visible() {
+    let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
+    catalog.0.shutdown.token.cancel();
+    catalog.0.shutdown.tasks.drain().await;
+    catalog.multipart_cleanup_failed(catalog.drain_xml_multipart().await.unwrap_err());
+    assert!(catalog.resumable_maintenance_error().is_none());
+    catalog.multipart_cleanup_failed(object_unavailable(io::Error::from(
+        io::ErrorKind::StorageFull,
+    )));
+    assert!(catalog.resumable_maintenance_error().is_some());
+    catalog.close().await.unwrap();
+}
+
 async fn orphan_every_upload(catalog: &Catalog) {
     catalog
         .run::<_, CatalogError>(|connection| {

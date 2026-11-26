@@ -21,13 +21,21 @@ const PAGE_SIZE: i64 = 16;
 const RETRY_DELAY: Duration = Duration::from_secs(1);
 
 /// Each due sweep runs even if an earlier sweep failed.
-#[derive(Default)]
-pub(super) struct SweepOutcome {
+pub(super) struct SweepOutcome<'a> {
+    catalog: &'a Catalog,
     next: Option<SystemTime>,
     failure: Option<CatalogError>,
 }
 
-impl SweepOutcome {
+impl<'a> SweepOutcome<'a> {
+    pub(super) fn new(catalog: &'a Catalog) -> Self {
+        Self {
+            catalog,
+            next: None,
+            failure: None,
+        }
+    }
+
     pub(super) fn record(
         &mut self,
         sweep: &'static str,
@@ -40,7 +48,12 @@ impl SweepOutcome {
     }
 
     pub(super) fn fail(&mut self, sweep: &'static str, error: CatalogError) {
-        if self.failure.is_some() {
+        if let Some(previous) = &self.failure
+            && !self.catalog.shutdown_interrupted(previous)
+        {
+            if self.catalog.shutdown_interrupted(&error) {
+                return;
+            }
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
                 crate::diagnostics::Event::ResumableMaintenanceRetry,
@@ -302,6 +315,12 @@ impl Catalog {
 
     async fn run_resumable_maintenance(&self) -> Result<Option<SystemTime>, CatalogError> {
         let result = self.maintain_resumable_inner().await;
+        if result
+            .as_ref()
+            .is_err_and(|error| self.shutdown_interrupted(error))
+        {
+            return result;
+        }
         self.record_maintenance_error(
             result
                 .as_ref()
@@ -329,7 +348,7 @@ impl Catalog {
         // due within the current millisecond unpurged and spin the scheduler until the next one.
         let now = UnixMillis::try_from(reading)?;
         let micros = UnixMicros::try_from(reading)?;
-        let mut sweep = SweepOutcome::default();
+        let mut sweep = SweepOutcome::new(self);
         // If the probe cannot inspect one table, still let the other sweeps repair their work.
         let (mut due, probe_error) = match self.maintenance_probe(reading).await {
             Ok(due) => (due, None),
@@ -435,8 +454,11 @@ impl Catalog {
             Ok(false) => {}
             Err(error) => sweep.fail("deletion journal", error),
         }
-        let next = sweep.finish()?;
-        probe_error.map_or(Ok(next), Err)
+        match sweep.finish() {
+            Err(error) if self.shutdown_interrupted(&error) => Err(probe_error.unwrap_or(error)),
+            Err(error) => Err(error),
+            Ok(next) => probe_error.map_or(Ok(next), Err),
+        }
     }
 
     async fn sweep_resumable_sessions(
@@ -444,7 +466,7 @@ impl Catalog {
         now: UnixMillis,
     ) -> Result<Option<SystemTime>, CatalogError> {
         let mut after = After::Start;
-        let mut sweep = SweepOutcome::default();
+        let mut sweep = SweepOutcome::new(self);
         loop {
             let cursor = after.clone();
             let rows = match self
@@ -599,6 +621,7 @@ async fn maintenance_loop(
                 catalog.0.maintenance.health.pass_succeeded();
                 next.map(|deadline| clock.sleep_until(deadline))
             }
+            Err(error) if catalog.shutdown_interrupted(&error) => return,
             Err(error) => {
                 // Expiry that fails on every pass leaves sessions and staged bytes behind, so
                 // persistent failure turns readiness off until a pass succeeds again.
@@ -630,6 +653,64 @@ async fn maintenance_loop(
 mod tests {
     use super::*;
     use std::fs;
+
+    #[tokio::test]
+    async fn a_pass_interrupted_at_reclamation_leaves_its_journal_for_recovery() {
+        const CHILD: &str = "GCSM_TEST_JOURNAL_MAINTENANCE_CLOSE";
+        if std::env::var_os(CHILD).is_none() {
+            let name = std::thread::current().name().unwrap().to_owned();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &name, "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+            assert!(
+                output.stderr.is_empty(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let id = BlobId::generate().unwrap();
+        let database = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+        database
+            .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
+            .unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let gate = catalog.wait_exclusive(deadline).await.unwrap();
+        let scheduler = maintenance_loop(
+            Arc::downgrade(&catalog.0),
+            catalog.0.maintenance.wake.clone(),
+        );
+        tokio::pin!(scheduler);
+        tokio::select! {
+            biased;
+            () = &mut scheduler => panic!("the probe must wait for the writer"),
+            () = std::future::ready(()) => {}
+        }
+        catalog.0.shutdown.token.cancel();
+        catalog.0.shutdown.tasks.drain().await;
+        drop(gate);
+        // Another publication may also ask for best-effort cleanup after the last owner leaves.
+        catalog
+            .reclaim_if(super::super::objects::Journaled::SOME)
+            .await;
+        tokio::time::timeout_at(deadline, scheduler).await.unwrap();
+        assert!(catalog.resumable_maintenance_error().is_none());
+        let journal = || {
+            sql::scalar::<usize>(&database, "SELECT count(*) FROM pending_blob_deletions", [])
+                .unwrap()
+        };
+        assert_eq!(journal(), 1);
+        catalog.close().await.unwrap();
+        let reopened = Catalog::open(&dir.0).await.unwrap();
+        assert_eq!(journal(), 0);
+        reopened.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn a_cancelled_catalog_never_starts_another_maintenance_pass() {
@@ -714,14 +795,16 @@ mod tests {
         catalog.close().await.unwrap();
     }
 
-    #[test]
-    fn sweep_outcome_keeps_the_earliest_deadline_and_first_failure() {
-        let mut sweep = SweepOutcome::default();
+    #[tokio::test]
+    async fn sweep_outcome_keeps_the_earliest_deadline_and_first_failure() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let mut sweep = SweepOutcome::new(&catalog);
         let early = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
         sweep.record("later", Ok(Some(early + Duration::from_secs(10))));
         sweep.record("early", Ok(Some(early)));
         assert_eq!(sweep.finish().unwrap(), Some(early));
-        let mut sweep = SweepOutcome::default();
+        let mut sweep = SweepOutcome::new(&catalog);
         sweep.fail(
             "first",
             unavailable(std::io::Error::from(std::io::ErrorKind::StorageFull)),
@@ -730,6 +813,19 @@ mod tests {
         assert!(
             matches!(sweep.finish().unwrap_err(), CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull)
         );
+        catalog.0.shutdown.token.cancel();
+        let closed = || unavailable(crate::cause::BackendFailure::CatalogClosed);
+        let mut sweep = SweepOutcome::new(&catalog);
+        sweep.fail("interrupted", closed());
+        sweep.fail(
+            "disk",
+            unavailable(std::io::Error::from(std::io::ErrorKind::StorageFull)),
+        );
+        sweep.fail("interrupted", closed());
+        assert!(
+            matches!(sweep.finish(), Err(CatalogError::Io(cause)) if cause.kind() == std::io::ErrorKind::StorageFull)
+        );
+        catalog.close().await.unwrap();
     }
 
     #[cfg(unix)]

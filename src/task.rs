@@ -58,6 +58,7 @@ impl TaskTracker {
 
     /// A committed transaction can join cleanup until the last owner releases the catalog.
     /// The journal also serves maintenance passes, which have no request token to inherit.
+    /// Never use this for new admission: only work already journaled can join during drain.
     pub(crate) fn track_cleanup(&self) -> Option<Arc<TaskToken>> {
         self.work.upgrade()
     }

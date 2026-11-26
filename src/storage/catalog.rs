@@ -328,6 +328,14 @@ impl Catalog {
         self.0.is_closing()
     }
 
+    fn shutdown_interrupted(&self, error: &impl crate::cause::TypedSource) -> bool {
+        self.is_closing()
+            && error.typed_source().is_some_and(|source| {
+                crate::cause::chain(source).find_map(crate::cause::Link::failure)
+                    == Some(BackendFailure::CatalogClosed)
+            })
+    }
+
     pub fn is_healthy(&self) -> bool {
         !self.0.writer.resources.is_poisoned()
             && self.0.storage.backend.is_healthy()

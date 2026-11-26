@@ -125,7 +125,7 @@ impl Catalog {
         &self,
         now: UnixMillis,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
-        let mut sweep = SweepOutcome::default();
+        let mut sweep = SweepOutcome::new(self);
         let mut after = After::Start;
         loop {
             let cursor = after.clone();

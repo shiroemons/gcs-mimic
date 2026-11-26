@@ -767,8 +767,17 @@ rusqlite writes that bypass those helpers.
   take a token once draining starts. Journal reclamation can originate from an
   admitted request or an already running maintenance pass without a request
   token. It may join cleanup while an owner remains, and cannot restart a
-  drained tracker. The server's
+  drained tracker. If no owner remains, shutdown leaves the journal for startup
+  recovery. That interruption neither warns nor counts as a failed pass.
+  The server's
   `watch::Receiver<bool>` flags can become child tokens afterwards.
+
+  Two ordering checks also passed against the semaphore-based close at
+  `cc38f9a13`. `close_ends_the_readers_before_the_writer_removes_the_wal`
+  held upload admission open before checking reader shutdown and WAL removal.
+  `stopping_during_publication_and_journal_maintenance_emits_no_warnings`
+  held a local notification response and the journal commit across shutdown.
+  It observed only `stopping` on stderr and `stopped` on stdout.
 
 ## Body I/O and protocol adapters
 

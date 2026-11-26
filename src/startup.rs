@@ -947,6 +947,7 @@ async fn bind_after_time_wait(
 #[cfg(test)]
 mod tests {
     mod opening;
+    mod shutdown;
     use super::*;
     use crate::test_support::TestDir;
     use gcs_mimic::{

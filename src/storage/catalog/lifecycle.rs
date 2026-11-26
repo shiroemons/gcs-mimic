@@ -394,6 +394,9 @@ impl Catalog {
                     .await;
                 outcome.record(page);
                 if let Some(error) = error {
+                    if self.shutdown_interrupted(&error) {
+                        return Err(failure.unwrap_or(error));
+                    }
                     crate::diagnostics::emit(
                         crate::diagnostics::LogLevel::Warn,
                         crate::diagnostics::Event::LifecycleBucketFailed,

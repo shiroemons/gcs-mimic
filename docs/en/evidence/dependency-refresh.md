@@ -1611,6 +1611,7 @@ matched the existing lockfile. The direct dependency disables default features
 and enables no optional features.
 
 `cargo xtask dependencies check --scope release` at 16:29:39 UTC exited 0 with
-45 `CURRENT` lines. The full check at 16:25:20 UTC reported 144 `CURRENT` lines, including `tokio-util`,
-and exited 1 because the three development Go modules still pinned
-cloud.google.com/go/storage v1.71.0 while v1.71.1 was available.
+45 `CURRENT` lines. The full check at 16:25:20 UTC reported 144 `CURRENT`
+lines, including `tokio-util`, and exited 1 because the three development Go
+modules still pinned cloud.google.com/go/storage v1.71.0 while v1.71.1 was
+available.

@@ -404,7 +404,15 @@ async fn a_closed_catalog_refuses_new_work_at_once_without_waiting_for_anything(
 #[tokio::test]
 async fn closing_rechecks_a_released_lease_for_work_under_way() {
     let (_dir, catalog, _admin) = setup().await;
-    let exclusive = catalog.wait_exclusive(LONG.deadline()).await.unwrap();
+    // Releasing the raw gate sends no reservation notification. Only cancellation wakes the waiter.
+    let gate = catalog
+        .0
+        .admission
+        .activity
+        .lock
+        .clone()
+        .try_write_owned()
+        .unwrap();
     let waiting = catalog.await_activity(Work::UnderWay);
     tokio::pin!(waiting);
     tokio::select! {
@@ -412,16 +420,10 @@ async fn closing_rechecks_a_released_lease_for_work_under_way() {
         _ = &mut waiting => panic!("exclusive lease should block work"),
         () = std::future::ready(()) => {}
     }
-    let closing = catalog.close();
-    tokio::pin!(closing);
-    tokio::select! {
-        biased;
-        _ = &mut closing => panic!("exclusive owner still holds the writer"),
-        () = std::future::ready(()) => {}
-    }
-    drop(exclusive);
+    catalog.0.shutdown.token.cancel();
+    drop(gate);
     drop(waiting.await.unwrap());
-    closing.await.unwrap();
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]

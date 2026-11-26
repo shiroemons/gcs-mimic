@@ -215,6 +215,7 @@ impl Catalog {
         match self.reclaim_pending().await {
             Ok(RECLAIM_PAGE) => {}
             Ok(_) => return,
+            Err(error) if self.shutdown_interrupted(&error) => return,
             Err(error) => crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
                 crate::diagnostics::Event::BlobReclaimDeferred,

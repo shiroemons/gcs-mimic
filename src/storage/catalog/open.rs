@@ -8,8 +8,6 @@ use import_journal::ResumeError;
 /// statements cost on the order of a megabyte, bounded by this one connection.
 const STATEMENT_CACHE_CAPACITY: usize = 256;
 
-// Capacities of the admission semaphores that `close` drains: it waits for every permit, so the
-// two sides must agree on the count.
 /// Concurrent emulator-only admin uploads.
 pub(super) const ADMIN_UPLOADS: u32 = 2;
 /// Concurrent emulator-only admin reads.
