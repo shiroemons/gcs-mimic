@@ -3,7 +3,7 @@ use super::{
     codec::{CodecError, TimestampError},
 };
 use crate::{
-    bucket::CatalogError,
+    bucket::{CatalogError, DefaultBucketError},
     diagnostics::Diagnostics,
     storage::{admin::AdminError, import_journal::ResumeError},
 };
@@ -160,6 +160,15 @@ impl From<io::Error> for ImportError {
 impl From<AdminError> for ImportError {
     fn from(error: AdminError) -> Self {
         Self::Admin(error)
+    }
+}
+impl From<DefaultBucketError> for ImportError {
+    fn from(error: DefaultBucketError) -> Self {
+        let message = match error {
+            DefaultBucketError::Project(_) => crate::auth::InvalidProjectId::MESSAGE,
+            DefaultBucketError::Timestamp(_) => crate::time_format::TimeOutOfRange::MESSAGE,
+        };
+        Self::Invalid(message.into())
     }
 }
 impl From<CatalogError> for ImportError {

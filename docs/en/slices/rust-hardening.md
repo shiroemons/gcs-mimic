@@ -393,6 +393,9 @@ A further split waits until after `1.0.0`:
 - **`.message` extraction** goes: `url.rs`, `config.rs`, `storage::catalog::admin`,
   `import/filesystem.rs`, `seed/error.rs`, `auth`'s registry and
   `notification::event` use the typed validators and keep their texts.
+  After the configuration split, `config` uses `validate_project_id` and
+  `InvalidProjectId::MESSAGE`. The `ApiError` inside JSON slice also replaces
+  the extraction from `json::validate_fixed_metadata` in `import/reader.rs`.
 - **Cause vocabulary.** `BackendCause`, `IoCause`, `BackendFailure`,
   `MemoryExhausted`, `Source`, `Link` and a `Layer` trait move to the
   foundation module `cause`.
@@ -401,6 +404,9 @@ A further split waits until after `1.0.0`:
   - `storage::failure` keeps the one `fn unavailable`, `Classified` and the
     context helpers.
   - `Link::Resume` goes: `resume_import` returns its `ResumeError` directly.
+  - Remove the temporary `503 Service Unavailable: ` prefix from
+    `StoredTimestampError` in this slice. It preserves the existing log text
+    until the cause vocabulary moves.
 
 ### Display and `source()`
 

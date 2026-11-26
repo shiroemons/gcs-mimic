@@ -121,9 +121,6 @@ mod tests {
         let _ = Report(&error).to_string();
     }
 
-    #[derive(Debug)]
-    struct Wrapped(io::Error);
-
     #[test]
     fn joining_adjacent_equal_messages_writes_the_text_once() {
         let error = Wrapped(io::Error::other("disk detail"));
@@ -131,6 +128,9 @@ mod tests {
         join(&mut message, &error).unwrap();
         assert_eq!(message, "disk detail");
     }
+
+    #[derive(Debug)]
+    struct Wrapped(io::Error);
 
     impl std::fmt::Display for Wrapped {
         fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

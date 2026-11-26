@@ -677,14 +677,13 @@ async fn publish_bucket(
     Ok(())
 }
 
-/// The catalog bucket a source bucket becomes: what a JSON insert of its attributes yields at
-/// `now`, created at the source's creation time when it names one.
+/// Applies the source attributes to native bucket defaults, preserving the source creation
+/// time when the export supplies one.
 fn imported_bucket(
     record: &BucketRecord,
     now: SystemTime,
 ) -> Result<crate::bucket::BucketRecord, ImportError> {
-    let mut bucket = crate::bucket::BucketRecord::default_for(&record.name, "local-project", now)
-        .map_err(|error| invalid(error.as_str()))?;
+    let mut bucket = crate::bucket::BucketRecord::default_for(&record.name, "local-project", now)?;
     bucket.versioning = record.attributes.versioning_enabled.into();
     bucket.default_event_based_hold = record.attributes.default_event_based_hold;
     if let Some(created) = record.spec.created {

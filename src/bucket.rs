@@ -225,15 +225,6 @@ pub(crate) enum DefaultBucketError {
     Timestamp(#[from] crate::time_format::TimeOutOfRange),
 }
 
-impl DefaultBucketError {
-    pub(crate) fn as_str(&self) -> &'static str {
-        match self {
-            Self::Project(_) => crate::auth::InvalidProjectId::MESSAGE,
-            Self::Timestamp(_) => crate::time_format::TimeOutOfRange::MESSAGE,
-        }
-    }
-}
-
 impl BucketRecord {
     /// Native insert defaults for local callers that already validated the bucket name.
     pub(crate) fn default_for(

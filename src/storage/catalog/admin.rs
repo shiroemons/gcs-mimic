@@ -19,7 +19,7 @@ use super::{Catalog, Work, objects, read_bucket, select_bucket, unavailable};
 use crate::storage::catalog::sql;
 use crate::storage::failure::{BackendCause, IoCause, Link, TypedSource};
 use crate::{
-    bucket::{BucketAccess, BucketRecord, CatalogError},
+    bucket::{BucketAccess, BucketRecord, CatalogError, DefaultBucketError},
     clock::Clock,
     fsutil::{FsError, IdentityField},
     object::{
@@ -176,8 +176,7 @@ impl BucketDefinition {
         project: &str,
         clock: &dyn Clock,
     ) -> Result<Self, AdminError> {
-        let record = BucketRecord::default_for(name, project, clock.now())
-            .map_err(|error| AdminError::Invalid(error.as_str().into()))?;
+        let record = BucketRecord::default_for(name, project, clock.now())?;
         Self::new(record)
     }
 }
@@ -351,6 +350,11 @@ impl AdminError {
 impl From<InvalidBucketName> for AdminError {
     fn from(_: InvalidBucketName) -> Self {
         Self::Invalid("Invalid bucket name".into())
+    }
+}
+impl From<DefaultBucketError> for AdminError {
+    fn from(error: DefaultBucketError) -> Self {
+        Self::Invalid(error.to_string())
     }
 }
 impl From<crate::auth::InvalidProjectId> for AdminError {

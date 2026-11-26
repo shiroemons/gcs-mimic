@@ -1597,3 +1597,8 @@ At 10:29:38 UTC, `cargo xtask dependencies check` reported thiserror 2.0.21
 as `CURRENT`. It exited 1 because the Go facade, SDK suite and scorecard
 each pin cloud.google.com/go/storage v1.71.0 and v1.71.1 is available.
 At 10:35:45 UTC, `cargo xtask dependencies check --scope release` exited 0.
+
+With both thiserror and memchr declared directly, the release-scoped check at
+11:16:40 UTC exited 0 with 44 `CURRENT` lines. The full check at 11:18:32 UTC
+reported 143 `CURRENT` lines, including both crates, and exited 1 for the same
+three Go module updates.

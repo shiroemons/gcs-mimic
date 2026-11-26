@@ -171,15 +171,17 @@ fn transparent_payload(outer: &Node) -> Option<&Node> {
         .map(|payload| payload as &Node)
 }
 
-pub(crate) fn deferred(outer: &Node, inner: &Node) -> bool {
-    // Only the same text and forwarded link inherit the payload's classification exception.
-    if let Some(payload) = transparent_payload(outer)
-        && outer.to_string() == payload.to_string()
+fn inherits_exception(outer: &Node, payload: &Node, inner: &Node) -> bool {
+    outer.to_string() == payload.to_string()
         && payload
             .source()
             .is_some_and(|source| std::ptr::addr_eq(source, inner))
-    {
-        return deferred(payload, inner);
+        && deferred(payload, inner)
+}
+
+pub(crate) fn deferred(outer: &Node, inner: &Node) -> bool {
+    if let Some(payload) = transparent_payload(outer) {
+        return inherits_exception(outer, payload, inner);
     }
     CLASSIFIED.iter().any(|row| (row.matches)(outer, inner))
 }
@@ -219,6 +221,27 @@ fn import_reports_a_classified_catalog_cause() {
 #[test]
 fn import_reports_a_classified_resume_cause() {
     assert_reports_payload(ResumeError::Catalog(disk_full()), ImportError::Resume);
+}
+
+#[test]
+fn a_changed_message_does_not_inherit_the_payload_exception() {
+    let payload = disk_full();
+    let source = payload.source().unwrap();
+    assert!(deferred(&payload, source));
+    assert!(!inherits_exception(
+        &io::Error::other("different text"),
+        &payload,
+        source
+    ));
+}
+
+#[test]
+fn a_different_source_does_not_inherit_the_payload_exception() {
+    let outer = ImportError::Catalog(disk_full());
+    let other = disk_full();
+    assert_eq!(outer.to_string(), other.to_string());
+    assert!(deferred(&outer, outer.source().unwrap()));
+    assert!(!deferred(&outer, other.source().unwrap()));
 }
 
 #[test]
