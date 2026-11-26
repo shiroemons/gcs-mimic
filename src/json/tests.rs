@@ -24,6 +24,32 @@ fn request(method: Method, path: &str) -> Result<BucketRequest, ApiError> {
     route(&method, &path.parse::<Uri>().unwrap()).expect("bucket route")
 }
 
+#[test]
+fn route_validation_keeps_method_and_path_errors_ahead_of_query_errors() {
+    let uri = "/storage/v1/b/valid-bucket/o/%FF?fields=x&fields=y"
+        .parse()
+        .unwrap();
+    for (method, expected) in [
+        (Method::POST, "Not Found"),
+        (Method::GET, "Malformed URI encoding"),
+    ] {
+        assert_eq!(
+            route_object(&method, &uri).unwrap().unwrap_err().message(),
+            expected
+        );
+    }
+    let uri = "/storage/v1/b/valid-bucket/o/valid?fields=x&fields=y"
+        .parse()
+        .unwrap();
+    assert_eq!(
+        route_object(&Method::GET, &uri)
+            .unwrap()
+            .unwrap_err()
+            .message(),
+        "Duplicate query parameter: fields"
+    );
+}
+
 #[track_caller]
 fn assert_query_boolean_spellings<T: std::fmt::Debug + PartialEq>(
     case: &str,
