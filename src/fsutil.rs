@@ -542,6 +542,17 @@ fn windows_change_time(file: &File) -> Result<i128, FsError> {
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
     };
+    const BASIC_INFO_SIZE: u32 = {
+        let size = std::mem::size_of::<FILE_BASIC_INFO>();
+        assert!(size <= u32::MAX as usize);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the const assertion bounds the size to a DWORD"
+        )]
+        {
+            size as u32
+        }
+    };
     let mut basic = std::mem::MaybeUninit::<FILE_BASIC_INFO>::uninit();
     // SAFETY: the output buffer matches FileBasicInfo and the file handle remains live.
     if unsafe {
@@ -549,10 +560,7 @@ fn windows_change_time(file: &File) -> Result<i128, FsError> {
             file.as_raw_handle(),
             FileBasicInfo,
             basic.as_mut_ptr().cast(),
-            const {
-                assert!(std::mem::size_of::<FILE_BASIC_INFO>() == 40);
-                40
-            },
+            BASIC_INFO_SIZE,
         )
     } == 0
     {

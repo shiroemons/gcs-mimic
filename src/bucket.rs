@@ -740,6 +740,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shutdown_reports_other_for_a_full_catalog() {
+        let close = CatalogError::from(std::io::Error::from(std::io::ErrorKind::StorageFull));
+        let diagnostic =
+            crate::diagnostics::combine_shutdown_results(Ok(()), Err(close)).unwrap_err();
+        assert_eq!(
+            diagnostic.errors[0].fix,
+            "Cannot close catalog (Other): catalog I/O: no storage space; inspect persistence before restarting."
+        );
+    }
+
+    #[test]
     fn storage_class_spellings_and_json_are_stable() {
         let spellings = [
             "STANDARD",
@@ -1055,6 +1066,8 @@ impl CatalogError {
     }
 }
 
+// Startup and shutdown report catalog operations as Other even when the underlying I/O
+// has a more specific kind. Changing it would change the operator diagnostic.
 impl crate::diagnostics::RuntimeFailure for CatalogError {
     fn kind(&self) -> std::io::ErrorKind {
         std::io::ErrorKind::Other

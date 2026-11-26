@@ -1,5 +1,6 @@
 //! Process-local immutable blobs. Cloned response chunks retain their budget leases.
 
+use super::failure::{MemoryBudget, MemoryExhausted};
 use bytes::Bytes;
 use std::{
     collections::HashMap,
@@ -21,7 +22,7 @@ pub(super) struct StoreId(u64);
 /// Why a RAM blob operation that allocates failed.
 #[derive(Debug, thiserror::Error)]
 pub(in crate::storage) enum BlobError {
-    #[error("RAM blob budget exhausted")]
+    #[error("{}", MemoryExhausted::new(MemoryBudget::Blobs))]
     Exhausted,
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -485,6 +486,27 @@ mod tests {
             let cause = crate::storage::failure::IoCause::from(error);
             assert_eq!(cause.kind(), io::ErrorKind::Other);
             assert_eq!(cause.source().unwrap().to_string(), message);
+            assert_eq!(
+                crate::storage::failure::wording::object_io(&cause),
+                "Object storage is unavailable: storage I/O error (other error); check data directory permissions and available disk space"
+            );
+        }
+    }
+
+    #[test]
+    fn poisoned_blob_tables_and_disk_io_keep_the_same_object_response() {
+        let store = Store::new(2048);
+        let _ = std::panic::catch_unwind(|| {
+            let _table = store.blobs().unwrap();
+            panic!("poison the blob table");
+        });
+        let poisoned = store.blobs().err().unwrap();
+        let disk = io::Error::from(io::ErrorKind::Other);
+        for error in [crate::object::ObjectError::from(poisoned), disk.into()] {
+            let crate::object::ObjectError::Io(cause) = error else {
+                panic!("expected storage I/O, got {error:?}");
+            };
+            assert_eq!(cause.kind(), io::ErrorKind::Other);
             assert_eq!(
                 crate::storage::failure::wording::object_io(&cause),
                 "Object storage is unavailable: storage I/O error (other error); check data directory permissions and available disk space"

@@ -63,6 +63,41 @@ fn server_identity_errors_retain_the_io_cause_and_distinguish_input_settings() {
     }
 }
 
+#[test]
+fn invalid_pem_names_the_certificate_or_private_key_setting() {
+    let bad_certificate = b"-----BEGIN CERTIFICATE-----\n%%%%\n-----END CERTIFICATE-----\n";
+    let bad_key = b"-----BEGIN PRIVATE KEY-----\n%%%%\n-----END PRIVATE KEY-----\n";
+    for (certificate, key, setting, fix) in [
+        (
+            bad_certificate.as_slice(),
+            DEVELOPMENT_KEY_PEM,
+            "tls_cert",
+            "provide a readable PEM certificate chain in tls_cert, at most 1 MiB, matching tls_key",
+        ),
+        (
+            DEVELOPMENT_CERT_PEM,
+            bad_key.as_slice(),
+            "tls_key",
+            "provide exactly one readable PEM private key in tls_key, at most 1 MiB, matching tls_cert",
+        ),
+    ] {
+        let error = ServerIdentity::from_pem(certificate, key).err().unwrap();
+        assert!(matches!(
+            (&error, setting),
+            (
+                ServerIdentityError::CertificateParse(TlsError::Pem(_)),
+                "tls_cert"
+            ) | (ServerIdentityError::PrivateKeyParse(_), "tls_key")
+        ));
+        let diagnostic = error.diagnostic();
+        assert_eq!(diagnostic.key, setting);
+        assert_eq!(
+            diagnostic.fix,
+            format!("Cannot load TLS identity: base64 decode error: InvalidCharacter(37); {fix}")
+        );
+    }
+}
+
 /// The ALPN protocols a loaded listener's acceptor offers, and whether it detects.
 fn offered(security: &ListenerSecurity) -> (bool, Vec<Vec<u8>>) {
     match security {

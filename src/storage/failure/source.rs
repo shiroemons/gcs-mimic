@@ -1,9 +1,8 @@
 //! The errors a backend failure keeps as its `source()`, by type.
 //!
 //! A failure type that a storage or adapter decision reads (backend guidance, a memory budget, a
-//! retry or pause decision) has its own variant. Every other failure is a leaf, and the one list
-//! of leaves below is the only way to build one, so a new error type cannot travel inside a cause
-//! without the decision whether anything reads it.
+//! retry or pause decision) has its own variant. The leaf list names errors no decision reads.
+//! RAM blob errors are matched separately because their budget and I/O failures are classified.
 
 use super::{BackendCause, BackendFailure, MemoryBudget, MemoryExhausted};
 use crate::{
@@ -214,14 +213,15 @@ typed_sources!(
     Unopenable(Unopenable),
 );
 
-/// A RAM blob failure is the budget it exhausted or the I/O error it met.
+/// Keep the exhausted budget classifiable, expose standard errors directly, and retain each
+/// RAM invariant failure as the concrete blob error.
 impl From<BlobError> for Source {
     fn from(error: BlobError) -> Self {
         match error {
             BlobError::Exhausted => Self::Exhausted(MemoryExhausted::new(MemoryBudget::Blobs)),
             BlobError::Io(error) => Self::Io(error),
             BlobError::Size(error) => error.into(),
-            BlobError::Allocation(error) => Self::Leaf(Leaf(Box::new(error))),
+            BlobError::Allocation(error) => error.into(),
             other @ (BlobError::Missing(_) | BlobError::Poisoned(_) | BlobError::Closed) => {
                 Self::Leaf(Leaf(Box::new(other)))
             }
@@ -251,6 +251,7 @@ macro_rules! leaf_sources {
 }
 
 leaf_sources!(
+    std::collections::TryReserveError,
     std::num::TryFromIntError,
     std::array::TryFromSliceError,
     std::time::SystemTimeError,

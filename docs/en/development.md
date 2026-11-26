@@ -479,7 +479,7 @@ an object or array literal. `text::downcast` sees method calls, not
 call's arguments, not `map_err(io::Error::other)` on a
 `Result<_, Diagnostics>`. `text::layer_dependency` and
 `text::adapter_dependency` see only module names: a name that `src/lib.rs`
-re-exports at the crate root (`crate::ApiError`), a path inside a string such
+re-exports at the crate root, a path inside a string such
 as `#[serde(with = "..")]`, `use crate::*` and `use crate as alias` are not
 followed. Review still applies the written rules where the tool cannot.
 

@@ -212,10 +212,13 @@ impl Endpoint {
 /// Why the emulator could not confirm that a topic exists.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum TopicCheckError {
+    /// The emulator answered 404 for the topic.
     #[error("Pub/Sub emulator reports no such topic")]
     NotFound,
+    /// The emulator answered with another status besides 200 or 404.
     #[error("Pub/Sub emulator topic lookup returned {0}")]
     Unexpected(hyper::StatusCode),
+    /// No usable answer arrived because of a connection failure, timeout or malformed response.
     #[error("Pub/Sub emulator topic lookup failed")]
     Unreachable(#[source] PublishError),
 }
