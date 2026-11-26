@@ -7,10 +7,9 @@ pub(in crate::storage::catalog) async fn assert_point_read(
     catalog: &Catalog,
     check: impl AsyncFn(),
 ) {
-    let counts = || (catalog.0.executor.jobs_executed(), catalog.pooled_reads());
-    let (writes, reads) = counts();
+    let (writes, reads) = catalog.job_counts();
     check().await;
-    assert_eq!(counts(), (writes, reads + 1));
+    assert_eq!(catalog.job_counts(), (writes, reads + 1));
 
     // A held lease forces the exclusive job to reserve the gate while leaving the writer free.
     let lease = catalog.activity().unwrap();
@@ -23,7 +22,7 @@ pub(in crate::storage::catalog) async fn assert_point_read(
     }
     assert!(catalog.0.activity.is_reserved());
     check().await;
-    assert_eq!(counts(), (writes + 1, reads + 1));
+    assert_eq!(catalog.job_counts(), (writes + 1, reads + 1));
     drop(lease);
     drop(exclusive.await.unwrap());
 
@@ -32,7 +31,7 @@ pub(in crate::storage::catalog) async fn assert_point_read(
     let original = idle.idle().last_mut().unwrap().connection.replace(empty);
     check().await;
     idle.idle().last_mut().unwrap().connection = original;
-    assert_eq!(counts(), (writes + 2, reads + 2));
+    assert_eq!(catalog.job_counts(), (writes + 2, reads + 2));
     assert_eq!(catalog.readonly_answers(), 0);
 }
 

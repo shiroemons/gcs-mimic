@@ -1,3 +1,4 @@
+use super::super::read_pool::tests::assert_point_read;
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, body, live};
 use crate::{
@@ -301,6 +302,122 @@ async fn setup(data: &TestDir, backend: &str) -> (Catalog, Auth, crate::object::
         .await
         .unwrap();
     (catalog, auth, record)
+}
+
+#[tokio::test]
+async fn acl_reads_and_object_projections_route_with_the_committed_grant() {
+    let data = TestDir::new();
+    let (catalog, auth, record) = setup(&data, "disk").await;
+    let access = catalog
+        .bucket_access(
+            "bucket",
+            Some(&auth.principals().unwrap()[1]),
+            crate::auth::OBJECTS_GET_IAM,
+        )
+        .await
+        .unwrap();
+    let generation = record.generation;
+    let target = AclTarget::Object {
+        bucket: "bucket".into(),
+        name: "object".into(),
+        generation: Some(generation),
+    };
+    let (state, _) = catalog
+        .change_acl(
+            target.clone(),
+            AclChange::Upsert {
+                entity: "user-delegate@example.test".parse().unwrap(),
+                role: Some(AclRole::Owner),
+            },
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    assert_point_read(&catalog, async || {
+        assert_eq!(
+            catalog
+                .read_acl(target.clone(), Default::default(), &access)
+                .await
+                .unwrap(),
+            state
+        );
+    })
+    .await;
+    let generations = || vec![("object".into(), generation)];
+    assert_point_read(&catalog, async || {
+        let projection = catalog
+            .acl_projection("bucket", generations())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(projection.objects[0].entries(), state.entries);
+    })
+    .await;
+    assert_point_read(&catalog, async || {
+        let projection = catalog
+            .object_acl_projection("bucket", generations(), &access)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(projection.objects[0].entries(), state.entries);
+    })
+    .await;
+    let incarnation = catalog
+        .run::<_, CatalogError>(|connection| Ok(bucket_incarnation(connection, "bucket")?))
+        .await
+        .unwrap();
+    let snapshot = ObjectAclSnapshot::new(&record, state.entries.clone(), incarnation);
+    // Replay appends the immutable owner's grant after the stored explicit entries.
+    let mut replay_entries = snapshot.entries.clone();
+    replay_entries.push(AclEntry {
+        entity: "user-uploader@example.test".parse().unwrap(),
+        role: AclRole::Owner,
+    });
+    assert_point_read(&catalog, async || {
+        let visible = catalog
+            .object_acl_snapshot(snapshot.clone(), &access)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(visible.entries, replay_entries);
+        assert_eq!(visible.owner, record.owner);
+    })
+    .await;
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn bulk_bucket_projections_route_with_the_committed_default_acl() {
+    let data = TestDir::new();
+    let (catalog, _, _) = setup(&data, "disk").await;
+    let (state, _) = catalog
+        .change_acl(
+            AclTarget::DefaultObject("bucket".into()),
+            AclChange::Upsert {
+                entity: "user-delegate@example.test".parse().unwrap(),
+                role: Some(AclRole::Reader),
+            },
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    assert_point_read(&catalog, async || {
+        let result = catalog
+            .bucket_acl_projections(
+                vec!["missing".into(), "bucket".into()],
+                PERMISSIVE,
+                MissingBucket::Omit,
+            )
+            .await
+            .unwrap();
+        let [None, Some(acl)] = result.as_slice() else {
+            panic!("expected projections in request order");
+        };
+        assert_eq!(acl.default_object, state.entries);
+        assert_eq!(acl.bucket_metageneration, state.metageneration);
+    })
+    .await;
+    catalog.close().await.unwrap();
 }
 
 /// An upsert of the owner's own entity answers with the OWNER grant that ownership keeps,

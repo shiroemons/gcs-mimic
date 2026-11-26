@@ -458,16 +458,11 @@ impl Storage {
         };
         let acl = mask.includes_acl(AclDefault::Exclude);
         let mut projections = if acl {
-            let access = caller.map_or(crate::bucket::BucketAccess::Permissive, |caller| {
-                crate::bucket::BucketAccess::Policy {
-                    identity: match caller {
-                        Caller::Principal(identity) => Some(identity.clone()),
-                        Caller::Anonymous => None,
-                    },
-                    permission: crate::auth::Permission::BucketsGetIam,
-                    project: Some(project.to_owned()),
-                }
-            });
+            let access = crate::bucket::BucketAccess::for_caller(
+                caller,
+                crate::auth::Permission::BucketsGetIam,
+                Some(project),
+            );
             self.state
                 .catalog
                 .bucket_acl_projections(
@@ -476,6 +471,7 @@ impl Storage {
                         .map(|record| record.name.clone())
                         .collect(),
                     &access,
+                    crate::storage::MissingBucket::Omit,
                 )
                 .await?
         } else {

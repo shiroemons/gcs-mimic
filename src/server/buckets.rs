@@ -144,7 +144,13 @@ fn rendered_bucket(
 ) -> Result<Rendered, ApiError> {
     Ok(Rendered {
         value: json::bucket_resource_with_profile(record, base_url, projection, profile)?,
-        subjects: AclSubjects::Bucket(record.into()),
+        subjects: match projection {
+            json::Projection::Full => AclSubjects::Bucket {
+                project: record.project.clone(),
+                version: record.into(),
+            },
+            json::Projection::NoAcl => AclSubjects::None,
+        },
     })
 }
 
@@ -223,19 +229,10 @@ fn soft_deleted_access(
     caller: Option<Caller<'_>>,
     permission: auth::Permission,
 ) -> Result<BucketAccess, ApiError> {
-    let Some(caller) = caller else {
-        return Ok(BucketAccess::Permissive);
-    };
-    caller.authorize(permission, None)?;
-    let identity = match caller {
-        Caller::Anonymous => None,
-        Caller::Principal(identity) => Some(identity.clone()),
-    };
-    Ok(BucketAccess::Policy {
-        identity,
-        permission,
-        project: None,
-    })
+    if let Some(caller) = caller {
+        caller.authorize(permission, None)?;
+    }
+    Ok(BucketAccess::for_caller(caller, permission, None))
 }
 
 /// Header and body checks that precede every operation's own validation.
@@ -608,7 +605,13 @@ async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Rendered, 
     )?;
     Ok(Rendered {
         value,
-        subjects: AclSubjects::Buckets(page.items.iter().map(BucketVersion::from).collect()),
+        subjects: match params.projection {
+            json::Projection::Full => AclSubjects::Buckets {
+                project: params.project,
+                items: page.items.iter().map(BucketVersion::from).collect(),
+            },
+            json::Projection::NoAcl => AclSubjects::None,
+        },
     })
 }
 

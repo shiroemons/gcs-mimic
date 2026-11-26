@@ -318,7 +318,10 @@ continue. Everything queued then runs against the state the job left instead of 
 
 Advisory upload checks queue on the writer before the body is accepted. With the disk backend,
 object and bucket point reads, bucket pages, bucket IAM policy and permission lookups, resumable
-and rewrite session lookups, and notification outbox polls use up to eight read-only WAL connections.
+and rewrite session lookups, notification outbox polls and ACL reads use up to eight read-only WAL
+connections. A full JSON projection checks ACL visibility and reads the grants for the whole page
+or single resource in one additional snapshot. A bucket deleted after listing keeps its place in
+the response and loses its ACL fields.
 Each reader has its own thread, takes an admission slot and holds an activity lease while it runs.
 A snapshot is at least as new as every commit
 that finished before the read began, so clients still read their own writes. Once an exclusive job

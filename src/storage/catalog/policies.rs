@@ -176,6 +176,24 @@ pub(super) fn denied(
     ))
 }
 
+impl BucketAccess {
+    /// A caller with no grant anywhere cannot learn that a bucket is missing.
+    pub(crate) fn missing_bucket_denial(&self, bucket: &str) -> Option<CatalogError> {
+        if let Self::Policy {
+            identity,
+            permission,
+            ..
+        } = self
+            && !identity
+                .as_ref()
+                .is_some_and(|identity| identity.allows_anywhere(*permission))
+        {
+            return Some(denied(identity.as_ref(), *permission, bucket));
+        }
+        None
+    }
+}
+
 pub(super) fn check_access<'a>(
     connection: &Connection,
     bucket: &'a str,
@@ -256,23 +274,20 @@ impl Catalog {
             let snapshot = sql::read_snapshot(connection)?;
             let project: Option<String> =
                 sql::optional_scalar(&snapshot, SELECT_BUCKET_PROJECT, [&bucket])?;
-            if project.is_none()
-                && !identity
-                    .as_ref()
-                    .is_some_and(|identity| identity.allows_anywhere(permission))
-            {
-                return Err(denied(identity.as_ref(), permission, &bucket));
-            }
             let access = BucketAccess::Policy {
                 identity: identity.clone(),
                 permission,
                 project: project.clone(),
             };
             // Object ACLs can only be evaluated after selecting the exact object generation.
-            if let Some(project) = project
-                && !crate::acl::object_permission(permission)
-            {
-                check_access(&snapshot, &bucket, &project, &access)?;
+            match project {
+                Some(project) if !crate::acl::object_permission(permission) => {
+                    check_access(&snapshot, &bucket, &project, &access)?;
+                }
+                None if let Some(error) = access.missing_bucket_denial(&bucket) => {
+                    return Err(error);
+                }
+                None | Some(_) => {}
             }
             Ok(access)
         })

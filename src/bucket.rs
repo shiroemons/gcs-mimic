@@ -1092,6 +1092,25 @@ pub(crate) enum BucketAccess {
 }
 
 impl BucketAccess {
+    /// The caller and optional observed project to check inside the catalog snapshot.
+    pub(crate) fn for_caller(
+        caller: Option<crate::auth::Caller<'_>>,
+        permission: crate::auth::Permission,
+        project: Option<&str>,
+    ) -> Self {
+        match caller {
+            None => Self::Permissive,
+            Some(caller) => Self::Policy {
+                identity: match caller {
+                    crate::auth::Caller::Principal(identity) => Some(identity.clone()),
+                    crate::auth::Caller::Anonymous => None,
+                },
+                permission,
+                project: project.map(str::to_owned),
+            },
+        }
+    }
+
     /// This access re-scoped to `permission`: a policy access checks `permission` for the same
     /// principal and observed project, while permissive and administrative access stay as they
     /// are, because no Cloud Storage permission applies to them.

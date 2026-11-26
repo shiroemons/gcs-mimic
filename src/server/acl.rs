@@ -15,7 +15,7 @@ use crate::{
         acl::{AclAccess, AclOperation, AclRequest},
     },
     object::{ObjectRecord, owner::ObjectOwner},
-    storage::{AclChange, AclError, AclProjection, AclState, ObjectAcl},
+    storage::{AclChange, AclError, AclProjection, AclState, MissingBucket, ObjectAcl},
 };
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Bytes};
@@ -264,9 +264,15 @@ pub(super) enum AclSubjects {
     /// The response carries no ACL fields: a policy, a permission test, a storage layout, a
     /// soft-deleted version or a listing that renders no items.
     None,
-    Bucket(BucketVersion),
+    Bucket {
+        project: String,
+        version: BucketVersion,
+    },
     /// One per `items` element, in order.
-    Buckets(Vec<BucketVersion>),
+    Buckets {
+        project: String,
+        items: Vec<BucketVersion>,
+    },
     Object(ObjectVersion),
     /// One listing's objects, one per `items` element, in order.
     Objects {
@@ -294,13 +300,30 @@ pub(super) async fn add_full_projection(
     let Rendered { value, subjects } = rendered;
     match &*subjects {
         AclSubjects::None => Ok(()),
-        AclSubjects::Bucket(bucket) => add_bucket(state, caller, value, bucket, base_url).await,
-        AclSubjects::Buckets(buckets) => {
-            let items = rendered_items(value, buckets.len())?;
-            for (item, bucket) in items.iter_mut().zip(buckets) {
-                add_bucket(state, caller, item, bucket, base_url).await?;
-            }
-            Ok(())
+        AclSubjects::Bucket { project, version } => {
+            let access = BucketAccess::for_caller(caller, auth::BUCKETS_GET_IAM, Some(project));
+            add_buckets(
+                state,
+                &access,
+                std::slice::from_mut(value),
+                std::slice::from_ref(version),
+                MissingBucket::CheckAccess,
+                base_url,
+            )
+            .await
+        }
+        AclSubjects::Buckets { project, items } => {
+            let resources = rendered_items(value, items.len())?;
+            let access = BucketAccess::for_caller(caller, auth::BUCKETS_GET_IAM, Some(project));
+            add_buckets(
+                state,
+                &access,
+                resources,
+                items,
+                MissingBucket::Omit,
+                base_url,
+            )
+            .await
         }
         AclSubjects::Object(object) => {
             add_object(state, AclReader::Caller(caller), value, object, base_url).await
@@ -359,36 +382,38 @@ pub(crate) async fn may_read(
     }
 }
 
-async fn add_bucket(
+async fn add_buckets(
     state: &State,
-    caller: Option<Caller<'_>>,
-    value: &mut Value,
-    bucket: &BucketVersion,
+    access: &BucketAccess,
+    resources: &mut [Value],
+    buckets: &[BucketVersion],
+    missing: MissingBucket,
     base_url: &str,
 ) -> Result<(), ApiError> {
-    if !may_read(state, caller, AclKind::Bucket, &bucket.name).await? {
+    if buckets.is_empty() {
         return Ok(());
     }
-    let Some(acl) = state
+    let projections = state
         .catalog
-        .acl_projection(&bucket.name, Vec::new())
-        .await?
-    else {
-        return Ok(());
-    };
-    if acl.uniform_access {
-        // ACLs stay stored for a later UBLA disable, but they are not part of the resource, and
-        // Cloud Storage reports no `owner` either (recorded 2026-10-31).
-        return Ok(());
+        .bucket_acl_projections(
+            buckets.iter().map(|bucket| bucket.name.clone()).collect(),
+            access,
+            missing,
+        )
+        .await?;
+    for ((resource, bucket), projection) in resources.iter_mut().zip(buckets).zip(projections) {
+        let Some(acl) = projection.filter(|acl| !acl.uniform_access) else {
+            continue;
+        };
+        // The rendered metageneration belongs to the response; a later ACL change has its own etag.
+        json::acl::add_bucket_acl_fields(
+            resource_members(resource)?,
+            base_url,
+            &bucket.name,
+            bucket.metageneration,
+            &acl,
+        );
     }
-    // The rendered metageneration belongs to the response; a later ACL change has its own etag.
-    json::acl::add_bucket_acl_fields(
-        resource_members(value)?,
-        base_url,
-        &bucket.name,
-        bucket.metageneration,
-        &acl,
-    );
     Ok(())
 }
 
@@ -418,16 +443,12 @@ pub(super) enum AclReader<'a> {
 }
 
 impl AclReader<'_> {
-    /// The access that reads object ACLs in `bucket` as this reader.
-    async fn object_acl_access(
-        self,
-        state: &State,
-        bucket: &str,
-    ) -> Result<BucketAccess, ApiError> {
+    /// The access checked against each selected generation inside the projection snapshot.
+    fn object_acl_access(self) -> BucketAccess {
         let read = permission(AclKind::Object, AclAccess::Read);
         match self {
-            Self::Caller(caller) => authorize_bucket(state, caller, read, bucket).await,
-            Self::Initiator(access) => Ok(access.with_permission(read)),
+            Self::Caller(caller) => BucketAccess::for_caller(caller, read, None),
+            Self::Initiator(access) => access.with_permission(read),
         }
     }
 }
@@ -438,11 +459,17 @@ async fn object_acls(
     bucket: &str,
     generations: Vec<(String, i64)>,
 ) -> Result<Option<AclProjection>, ApiError> {
-    let access = reader.object_acl_access(state, bucket).await?;
+    let access = reader.object_acl_access();
     let acl = state
         .catalog
         .object_acl_projection(bucket, generations, &access)
         .await?;
+    if acl.is_none()
+        && matches!(reader, AclReader::Caller(_))
+        && let Some(error) = access.missing_bucket_denial(bucket)
+    {
+        return Err(error.into());
+    }
     Ok(acl.filter(|acl| !acl.uniform_access))
 }
 
@@ -539,6 +566,8 @@ fn naming_object(error: ApiError, target: &AclTarget) -> ApiError {
 
 #[cfg(test)]
 mod tests {
+    mod projections;
+
     use super::ObjectVersion;
     use serde_json::json;
 

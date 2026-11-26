@@ -372,9 +372,12 @@ async fn list(
         ));
     }
     let value = json::object_list(&page, params, ctx.endpoints.api_base_url())?;
-    let subjects = AclSubjects::Objects {
-        bucket: params.query.bucket.clone(),
-        items: page.items.iter().map(ObjectVersion::from).collect(),
+    let subjects = match params.projection {
+        json::Projection::Full => AclSubjects::Objects {
+            bucket: params.query.bucket.clone(),
+            items: page.items.iter().map(ObjectVersion::from).collect(),
+        },
+        json::Projection::NoAcl => AclSubjects::None,
     };
     Ok(Written::live(value, subjects))
 }

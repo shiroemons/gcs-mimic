@@ -398,6 +398,12 @@ impl Catalog {
             .flatten()
     }
 
+    /// Writer jobs and pooled reads executed by this catalog.
+    #[cfg(test)]
+    pub(crate) fn job_counts(&self) -> (usize, usize) {
+        (self.0.executor.jobs_executed(), self.pooled_reads())
+    }
+
     /// Reads answered by the pool, for tests that must know which path ran.
     #[cfg(test)]
     pub(crate) fn pooled_reads(&self) -> usize {

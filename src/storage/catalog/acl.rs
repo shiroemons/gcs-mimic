@@ -10,9 +10,11 @@ use super::{
     Catalog, notification_outbox,
     objects::{object_unavailable, selected},
     policies::{check_access, policy_public_access},
+    read_pool::ReadOutcome,
     unavailable, unix_micros,
 };
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
+use crate::storage::failure::{Link, TypedSource};
 use crate::{
     acl::{AclEntry, AclKind, AclRole, AclTarget, Entity, MAX_ENTRIES, project_private},
     bucket::{BucketAccess, BucketConditions, CatalogError},
@@ -220,6 +222,35 @@ impl From<ObjectError> for AclError {
     fn from(error: ObjectError) -> Self {
         Self::Object(error)
     }
+}
+
+impl TypedSource for AclError {
+    fn typed_source(&self) -> Option<Link<'_>> {
+        match self {
+            Self::Bucket(error) => Some(Link::Catalog(error)),
+            Self::Object(error) => Some(Link::Object(error)),
+            Self::UniformAccess
+            | Self::EntityNotFound { .. }
+            | Self::RoleRequired
+            | Self::TooManyEntries
+            | Self::NotModified => None,
+        }
+    }
+}
+
+impl ReadOutcome for AclError {
+    fn retry_serialized(&self) -> bool {
+        matches!(self, Self::Bucket(error) if error.retry_serialized())
+            || matches!(self, Self::Object(error) if error.retry_serialized())
+    }
+}
+
+/// A listed bucket may disappear before its ACL is projected. A single-resource request keeps
+/// its missing-bucket response when the caller may learn that the bucket is absent.
+#[derive(Clone, Copy)]
+pub(crate) enum MissingBucket {
+    Omit,
+    CheckAccess,
 }
 
 /// Stored ACLs are re-validated before they are written; a rejected entry list is invalid
@@ -829,13 +860,13 @@ fn encode_entries(
 impl Catalog {
     pub(crate) async fn object_acl_snapshot(
         &self,
-        mut snapshot: ObjectAclSnapshot,
+        snapshot: ObjectAclSnapshot,
         access: &BucketAccess,
     ) -> Result<Option<ObjectAclSnapshot>, CatalogError> {
         let access = access.clone();
         let principals = self.0.principals.get().cloned();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
+        self.run_read(move |connection| {
+            let transaction = sql::read_snapshot(connection)?;
             let Some(row) = bucket_row(&transaction, &snapshot.bucket)? else {
                 return Ok(None);
             };
@@ -880,6 +911,7 @@ impl Catalog {
                 }
                 Err(error) => return Err(error),
             }
+            let mut snapshot = snapshot.clone();
             if let Some(owner) = &mut snapshot.owner {
                 super::object_owner::canonicalize(owner, principals.as_ref());
                 owner.preserve_grant(&mut snapshot.entries);
@@ -900,8 +932,8 @@ impl Catalog {
         access: &BucketAccess,
     ) -> Result<AclState, AclError> {
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
+        self.run_read(move |connection| {
+            let transaction = sql::read_snapshot(connection).map_err(unavailable)?;
             let (state, _) = load(&transaction, &target, &access)?;
             if conditions
                 .if_metageneration_match
@@ -1032,18 +1064,24 @@ impl Catalog {
         &self,
         buckets: Vec<String>,
         access: &BucketAccess,
+        missing: MissingBucket,
     ) -> Result<Vec<Option<AclProjection>>, CatalogError> {
         if matches!(access, BucketAccess::Policy { permission, .. } if *permission != crate::auth::Permission::BucketsGetIam)
         {
             return Err(CatalogError::Forbidden);
         }
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
+        self.run_read(move |connection| {
+            let transaction = sql::read_snapshot(connection)?;
             buckets
                 .iter()
                 .map(|bucket| {
                     let Some(row) = bucket_row(&transaction, bucket)? else {
+                        if matches!(missing, MissingBucket::CheckAccess)
+                            && access.missing_bucket_denial(bucket).is_none()
+                        {
+                            return Err(CatalogError::NotFound);
+                        }
                         return Ok(None);
                     };
                     match check_access(&transaction, bucket, &row.project, &access) {
@@ -1077,8 +1115,8 @@ impl Catalog {
         access: Option<BucketAccess>,
     ) -> Result<Option<AclProjection>, CatalogError> {
         let bucket = bucket.to_owned();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
+        self.run_read(move |connection| {
+            let transaction = sql::read_snapshot(connection)?;
             let Some(row) = bucket_row(&transaction, &bucket)? else {
                 return Ok(None);
             };
