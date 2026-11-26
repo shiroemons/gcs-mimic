@@ -942,6 +942,16 @@ fn source_layout(
     }
 }
 
+fn execution_diagnostic(error: &ImportError) -> Diagnostics {
+    Diagnostics::error(
+        DiagnosticSource::Import,
+        "import",
+        format!(
+            "Import failed: {error}. Keep the source snapshot unchanged; resolve the reported cause and retry only the same source/options. Terminal failures require a new empty destination; never remove only the import marker."
+        ),
+    )
+}
+
 pub fn cli(args: &[String]) -> Result<(), ImportError> {
     if args == ["--help"] {
         println!("{HELP}");
@@ -971,13 +981,8 @@ pub fn cli(args: &[String]) -> Result<(), ImportError> {
     let summary = if arguments.dry_run {
         inspect(options, io::stdout().lock(), io::stderr().lock())?
     } else {
-        execute(options, io::stdout().lock(), io::stderr().lock()).map_err(|error| {
-            Diagnostics::error(
-                DiagnosticSource::Import,
-                "import",
-                format!("Import failed: {error}. Keep the source snapshot unchanged; resolve the reported cause and retry only the same source/options. Terminal failures require a new empty destination; never remove only the import marker."),
-            )
-        })?
+        execute(options, io::stdout().lock(), io::stderr().lock())
+            .map_err(|error| execution_diagnostic(&error))?
     };
     if !summary.eligible {
         return Err(refusal("import", "Inspection found blocking findings; apply the reported remedies and inspect a stable snapshot again.").into());

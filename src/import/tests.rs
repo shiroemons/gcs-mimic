@@ -25,6 +25,23 @@ fn import_value_flag_spellings_are_exact() {
     }
 }
 
+#[test]
+fn a_catalog_failure_keeps_its_cli_diagnostic_and_sqlite_source() {
+    use std::error::Error;
+    let sqlite = rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+        Some("malformed stored row".into()),
+    );
+    let error = crate::bucket::CatalogError::from(sqlite);
+    assert_eq!(error.to_string(), "catalog corrupt: malformed stored row");
+    assert!(error.source().unwrap().is::<rusqlite::Error>());
+    let diagnostics = execution_diagnostic(&ImportError::Catalog(error));
+    assert_eq!(
+        diagnostics.errors[0].fix,
+        "Import failed: catalog corrupt: malformed stored row. Keep the source snapshot unchanged; resolve the reported cause and retry only the same source/options. Terminal failures require a new empty destination; never remove only the import marker."
+    );
+}
+
 fn xattr_setup() -> (TestDir, Options) {
     let directory = TestDir::new();
     let source = directory.0.join("source");

@@ -86,6 +86,36 @@ fn permanently_failed_import_resume_reports_the_journal_refusal() {
 }
 
 #[test]
+fn a_terminal_catalog_failure_keeps_its_journal_bytes_on_resume() {
+    let (_dir, options) = interrupted_import();
+    let error = ImportError::Admin(AdminError::from(unavailable(
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+            Some("malformed stored row".into()),
+        ),
+    )));
+    assert!(terminal(&error));
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let catalog = Catalog::open(&options.destination).await.unwrap();
+        let journal = catalog.import_journal();
+        let state = journal.progress().await.unwrap().unwrap();
+        journal
+            .fail(state.binding, error.to_string())
+            .await
+            .unwrap();
+        catalog.close().await.unwrap();
+    });
+    let resumed = execute(options, Vec::new(), Vec::new()).unwrap_err();
+    let ImportError::Resume(ResumeError::PermanentlyFailed { reason }) = resumed else {
+        panic!("{resumed:?}");
+    };
+    assert_eq!(
+        reason.as_str().as_bytes(),
+        br#"administrative operation: Corrupt("malformed stored row")"#
+    );
+}
+
+#[test]
 fn import_refuses_an_unbound_catalog_without_changing_destination_bytes() {
     for lock_present in [true, false] {
         let dir = crate::test_support::TestDir::new();
