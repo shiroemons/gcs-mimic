@@ -19,10 +19,12 @@ pub(crate) mod resource;
 pub(crate) use location::{Location, LocationKind};
 
 crate::choice::string_enum! {
-    @enum
+    table
+    /// A storage class with a canonical API name. `from_name` keeps the reason a name was
+    /// refused, and `FromStr` returns the `CatalogError` bucket requests use.
     #[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
     #[serde(try_from = "String")]
-    pub enum StorageClass as as_str {
+    pub enum StorageClass as pub as_str {
         Standard => "STANDARD",
         Nearline => "NEARLINE",
         Coldline => "COLDLINE",
@@ -368,10 +370,10 @@ impl VersioningUpdate {
 }
 
 crate::choice::string_enum! {
-    @enum
+    table
     /// A recovery point objective a bucket update names.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub(crate) enum Rpo as as_str {
+    pub(crate) enum Rpo as pub(crate) as_str {
         Default => "DEFAULT",
         AsyncTurbo => "ASYNC_TURBO",
     };
@@ -683,11 +685,11 @@ impl TryFrom<i64> for RetentionPeriod {
 }
 
 crate::choice::string_enum! {
-    @enum
+    table
     /// A bucket's own public access prevention setting. The parent project can still prevent public
     /// access when this is `Inherited`; `crate::auth::PublicAccess` is the effective result.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    pub(crate) enum PublicAccessPrevention as as_str {
+    pub(crate) enum PublicAccessPrevention as pub(crate) as_str {
         #[default]
         Inherited => "inherited",
         Enforced => "enforced",

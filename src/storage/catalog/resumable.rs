@@ -113,7 +113,7 @@ impl fmt::Display for Overrun {
 }
 
 crate::choice::string_enum! {
-    @enum
+    table
     /// The stored `state` column.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub(super) enum StoredState as as_str {
@@ -121,7 +121,7 @@ crate::choice::string_enum! {
         Complete => "COMPLETE",
         Cancelled => "CANCELLED",
     };
-    sql(, "invalid upload state")
+    sql(parse, "invalid upload state")
 }
 
 /// Why the emulator cancelled a session. Kept in the options document's `terminal_error`, so

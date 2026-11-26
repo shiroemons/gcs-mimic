@@ -41,14 +41,14 @@ const SECRET_BYTES: usize = 30;
 const _: () = assert!(SECRET_BYTES.is_multiple_of(3));
 
 crate::choice::string_enum! {
-    @enum
+    table
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub(crate) enum HmacKeyState as as_str {
+    pub(crate) enum HmacKeyState as pub(crate) as_str {
         Active => "ACTIVE",
         Inactive => "INACTIVE",
         Deleted => "DELETED",
     };
-    sql(pub(crate), "invalid HMAC key state")
+    sql(pub(crate) parse, "invalid HMAC key state")
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -19,11 +19,11 @@ const DEFAULT_TERMINAL_STORAGE_CLASS: TerminalStorageClass = TerminalStorageClas
 const REENABLE_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 
 crate::choice::string_enum! {
-    @enum
+    table
     /// The coldest class Autoclass moves objects to.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
     #[serde(try_from = "String")]
-    pub(crate) enum TerminalStorageClass as as_str {
+    pub(crate) enum TerminalStorageClass as pub(crate) as_str {
         Nearline => "NEARLINE",
         Archive => "ARCHIVE",
     };

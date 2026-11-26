@@ -5,6 +5,26 @@ use crate::{
 };
 use std::fs::File;
 
+#[test]
+fn import_value_flag_spellings_are_exact() {
+    for (flag, spelling) in [
+        (ValueFlag::Source, "--source"),
+        (ValueFlag::DataDir, "--data-dir"),
+        (ValueFlag::MetadataMode, "--metadata-mode"),
+        (ValueFlag::SourcePlatform, "--source-platform"),
+        (ValueFlag::SourceFormat, "--source-format"),
+        (ValueFlag::MaxObjectBytes, "--max-object-bytes"),
+        (ValueFlag::MaxEntries, "--max-entries"),
+        (ValueFlag::MaxDepth, "--max-depth"),
+    ] {
+        assert_eq!(flag.as_str(), spelling);
+        assert_eq!(ValueFlag::from_flag(spelling), Some(flag));
+    }
+    for rejected in ["source", "--Source", "--source=", "--dry-run"] {
+        assert_eq!(ValueFlag::from_flag(rejected), None);
+    }
+}
+
 fn xattr_setup() -> (TestDir, Options) {
     let directory = TestDir::new();
     let source = directory.0.join("source");

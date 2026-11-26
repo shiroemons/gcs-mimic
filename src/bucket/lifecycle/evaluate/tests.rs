@@ -464,7 +464,7 @@ fn name_conditions_match_any_entry_case_sensitively_and_combine_with_and() {
 #[test]
 fn storage_class_conditions_match_any_list_entry() {
     let mut facts = version();
-    for &class in &StorageClass::ALL {
+    for &class in StorageClass::ALL {
         let other = if class == StorageClass::Regional {
             StorageClass::Archive
         } else {
@@ -792,8 +792,8 @@ fn supported_class_transitions_form_an_acyclic_graph() {
             Archive => 4,
         }
     }
-    for &source in &StorageClass::ALL {
-        for &target in &StorageClass::ALL {
+    for &source in StorageClass::ALL {
+        for &target in StorageClass::ALL {
             if supported_transition(source, target) {
                 assert!(
                     rank(source) < rank(target),

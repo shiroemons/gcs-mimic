@@ -105,23 +105,16 @@ enum Reason {
     Limit,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum RootKey {
-    Version,
-    Project,
-    Buckets,
-    SeedProject,
-}
-impl RootKey {
-    fn parse(key: &str) -> Option<Self> {
-        match key {
-            "version" => Some(Self::Version),
-            "project" => Some(Self::Project),
-            "buckets" => Some(Self::Buckets),
-            "seed_project" => Some(Self::SeedProject),
-            _ => None,
-        }
-    }
+crate::choice::string_enum! {
+    table
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    enum RootKey {
+        Version => "version",
+        Project => "project",
+        Buckets => "buckets",
+        SeedProject => "seed_project",
+    };
+    parse_option(parse)
 }
 
 #[derive(Clone, Copy)]
@@ -1811,6 +1804,21 @@ mod tests {
         fs,
         time::{Duration, UNIX_EPOCH},
     };
+
+    #[test]
+    fn root_key_spellings_are_exact() {
+        for (spelling, key) in [
+            ("version", RootKey::Version),
+            ("project", RootKey::Project),
+            ("buckets", RootKey::Buckets),
+            ("seed_project", RootKey::SeedProject),
+        ] {
+            assert!(RootKey::parse(spelling) == Some(key), "{spelling}");
+        }
+        for rejected in ["Version", "bucket", "seedProject", "project "] {
+            assert!(RootKey::parse(rejected).is_none(), "{rejected}");
+        }
+    }
 
     /// Labels of the form `"label123456":1e9`, which fit an entry as written and pass its limit
     /// once encoded: each takes 18 bytes as written and 27 with the number expanded.

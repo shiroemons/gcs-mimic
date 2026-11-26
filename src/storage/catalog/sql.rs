@@ -101,17 +101,12 @@ fn sized_blob<const N: usize>(
         .map_err(|_| conversion_error(index, rusqlite::types::Type::Blob, invalid))
 }
 
-crate::choice::string_enum!(@sql
+crate::choice::string_enum!(sql
     crate::bucket::StorageClass,
     "invalid stored storage class",
     |value: &str| value.parse().ok()
 );
-crate::choice::string_enum!(@sql
-    crate::bucket::LocationKind,
-    "invalid stored location type",
-    crate::bucket::LocationKind::from_stored
-);
-crate::choice::string_enum!(@sql
+crate::choice::string_enum!(sql
     crate::bucket::Location,
     "invalid stored bucket location",
     crate::bucket::Location::from_canonical

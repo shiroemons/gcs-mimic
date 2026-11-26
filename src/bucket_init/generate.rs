@@ -35,7 +35,7 @@ crate::choice::string_enum! {
     "public access prevention must be inherited or enforced"
 }
 
-crate::choice::string_enum!(@serde PublicAccessPrevention);
+crate::choice::string_enum!(serde PublicAccessPrevention);
 
 crate::choice::string_enum! {
     no_default

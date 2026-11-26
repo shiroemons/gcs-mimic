@@ -113,7 +113,8 @@ fn event_list(list: &str) -> Result<Option<EventTypes>, EventSettingsError> {
         .map(str::trim)
         .map(|name| {
             Event::ALL
-                .into_iter()
+                .iter()
+                .copied()
                 .find(|event| list_name(*event) == name)
                 .ok_or(EventSettingsError::EventList)
         })

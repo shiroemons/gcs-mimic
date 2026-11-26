@@ -64,7 +64,7 @@ impl From<Family> for ExpiresParameter {
 }
 
 crate::choice::string_enum! {
-    @enum
+    table
     /// What a V4 query parameter carries: the part of its name after the family prefix.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Field as as_str {
@@ -140,10 +140,11 @@ impl FromStr for V4Parameter {
 }
 
 crate::choice::string_enum! {
-    @enum
+    table
     /// A V4 signing algorithm.
+    /// Its name is the first line of the V4 string to sign.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub(super) enum Algorithm as name {
+    pub(super) enum Algorithm as pub(super) name {
         Rsa => ALGORITHM,
         GoogleHmac => "GOOG4-HMAC-SHA256",
         AwsHmac => "AWS4-HMAC-SHA256",

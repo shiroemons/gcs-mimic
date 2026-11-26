@@ -13,27 +13,15 @@ use std::time::{Duration, SystemTime};
 /// own.
 pub(crate) const MAX_RETENTION: Duration = Duration::from_secs(3_155_760_000);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum RetentionMode {
-    Unlocked,
-    Locked,
-}
-
-impl RetentionMode {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Unlocked => "Unlocked",
-            Self::Locked => "Locked",
-        }
-    }
-
-    pub(crate) fn parse(value: &str) -> Option<Self> {
-        match value {
-            "Unlocked" => Some(Self::Unlocked),
-            "Locked" => Some(Self::Locked),
-            _ => None,
-        }
-    }
+crate::choice::string_enum! {
+    table
+    /// Retention modes in the same spelling for API fields, SQLite TEXT and serialized records.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub(crate) enum RetentionMode as pub(crate) as_str {
+        Unlocked => "Unlocked",
+        Locked => "Locked",
+    };
+    parse_option(pub(crate) parse)
 }
 
 /// Held to the nanosecond, as Cloud Storage compared it; responses display the millisecond
@@ -185,6 +173,25 @@ pub(crate) fn check_transition(
 mod tests {
     use super::*;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn retention_mode_spellings_are_exact_in_text_and_json() {
+        for (mode, spelling) in [
+            (RetentionMode::Unlocked, "Unlocked"),
+            (RetentionMode::Locked, "Locked"),
+        ] {
+            assert_eq!(mode.as_str(), spelling);
+            assert_eq!(RetentionMode::parse(spelling), Some(mode));
+            let json = format!("{spelling:?}");
+            assert_eq!(serde_json::to_string(&mode).unwrap(), json);
+            assert_eq!(serde_json::from_str::<RetentionMode>(&json).unwrap(), mode);
+        }
+        for rejected in ["locked", "UNLOCKED", "Locked ", ""] {
+            assert_eq!(RetentionMode::parse(rejected), None);
+            assert!(serde_json::from_str::<RetentionMode>(&format!("{rejected:?}")).is_err());
+        }
+    }
+
     fn nanos(secs: i64, nanos: u32) -> UnixNanos {
         UnixNanos::new(secs, nanos).unwrap()
     }

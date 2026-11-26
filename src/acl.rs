@@ -175,10 +175,10 @@ pub(crate) fn parse_entries(
 }
 
 crate::choice::string_enum! {
-    @enum
+    table
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
     #[serde(try_from = "String")]
-    pub(crate) enum AclRole as as_str {
+    pub(crate) enum AclRole as pub(crate) as_str {
         Reader => "READER",
         Writer => "WRITER",
         Owner => "OWNER",
@@ -388,7 +388,7 @@ pub(crate) struct Entity {
     scope: Scope,
 }
 
-crate::choice::string_enum!(@serde Entity);
+crate::choice::string_enum!(serde Entity);
 
 /// The longest entity: `project-viewers-` and a project ID of up to 256 bytes. Emails take at most
 /// 254 bytes and domains 253, so each kind of entity fits, and ACLs and the policies derived from

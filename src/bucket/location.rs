@@ -52,31 +52,21 @@ const REGIONS: &[&str] = &[
 const DUAL_REGIONS: &[&str] = &["ASIA1", "EUR4", "EUR5", "EUR7", "EUR8", "NAM4"];
 const MULTI_REGIONS: &[&str] = &["US", "EU", "ASIA"];
 
-/// A location type, as JSON `locationType` and Storage v2 `location_type` report it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum LocationKind {
-    Region,
-    DualRegion,
-    MultiRegion,
+crate::choice::string_enum! {
+    table
+    /// A location type, as JSON `locationType` and Storage v2 `location_type` report it.
+    /// The catalog stores these exact spellings, so any other stored text is corruption.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum LocationKind as pub(crate) as_str {
+        Region => "region",
+        DualRegion => "dual-region",
+        MultiRegion => "multi-region",
+    };
+    listed(pub(self));
+    sql(pub(crate) from_stored, "invalid stored location type")
 }
 
 impl LocationKind {
-    const ALL: [Self; 3] = [Self::Region, Self::DualRegion, Self::MultiRegion];
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Region => "region",
-            Self::DualRegion => "dual-region",
-            Self::MultiRegion => "multi-region",
-        }
-    }
-
-    /// The kind a catalog row stores as `value`. Only these three spellings were ever written,
-    /// so any other text is corruption.
-    pub(crate) fn from_stored(value: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|kind| kind.as_str() == value)
-    }
-
     pub(crate) fn names(self) -> &'static [&'static str] {
         match self {
             Self::Region => REGIONS,
@@ -115,7 +105,7 @@ impl Location {
     }
 
     fn find(matches: impl Fn(&str) -> bool) -> Option<Self> {
-        LocationKind::ALL.into_iter().find_map(|kind| {
+        LocationKind::ALL.iter().copied().find_map(|kind| {
             kind.names()
                 .iter()
                 .copied()

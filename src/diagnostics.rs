@@ -11,10 +11,10 @@ use std::{
 };
 
 crate::choice::string_enum! {
-    @enum
+    table
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
     #[repr(u8)]
-    pub enum LogLevel as as_str {
+    pub enum LogLevel as pub as_str {
         Debug => "debug",
         #[default]
         Info => "info",
@@ -54,10 +54,10 @@ pub fn enabled(level: LogLevel) -> bool {
 }
 
 crate::choice::string_enum! {
-    @enum
+    table
     /// An event written as a JSON line by the server or a command.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum Event as as_str {
+    pub enum Event as pub as_str {
         /// Published event name.
         Ready => "ready",
         /// Published event name.

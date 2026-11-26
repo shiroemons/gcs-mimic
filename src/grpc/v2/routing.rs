@@ -7,8 +7,9 @@ use tonic::{Extensions, Status, metadata::MetadataMap};
 const ROUTING_METADATA: &str = "x-goog-request-params";
 
 crate::choice::string_enum! {
-    @enum
+    table
     /// A routing key some Storage v2 RPC compares with its request.
+    /// Its spelling is the key clients write in routing metadata.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub(super) enum RoutingKey as as_str {
         Bucket => "bucket",

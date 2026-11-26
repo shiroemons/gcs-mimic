@@ -77,10 +77,10 @@ pub(crate) const MAX_PER_EVENT_TYPE: usize = 10;
 pub(crate) const MAX_CUSTOM_ATTRIBUTES: usize = 10;
 
 crate::choice::string_enum! {
-    @enum
+    table
     /// What a notification message carries besides its attributes.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    pub(crate) enum PayloadFormat as as_str {
+    pub(crate) enum PayloadFormat as pub(crate) as_str {
         /// The object's JSON API resource, which the API defaults to.
         #[default]
         JsonApiV1 => "JSON_API_V1",
@@ -305,8 +305,9 @@ mod tests {
             "OBJECT_DELETE",
             "OBJECT_ARCHIVE",
         ];
-        assert_eq!(Event::ALL.map(Event::as_str), spellings);
-        for (event, spelling) in Event::ALL.into_iter().zip(spellings) {
+        assert_eq!(Event::ALL.len(), spellings.len());
+        for (&event, spelling) in Event::ALL.iter().zip(spellings) {
+            assert_eq!(event.as_str(), spelling);
             assert_eq!(spelling.parse::<Event>().unwrap(), event);
         }
         assert_eq!(

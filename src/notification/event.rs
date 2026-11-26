@@ -6,16 +6,17 @@ use serde_json::{Value, json};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 
 crate::choice::string_enum! {
-    @enum
+    table
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub(crate) enum Event as as_str {
+    pub(crate) enum Event as pub(crate) as_str {
         Finalize => "OBJECT_FINALIZE",
         MetadataUpdate => "OBJECT_METADATA_UPDATE",
         Delete => "OBJECT_DELETE",
         Archive => "OBJECT_ARCHIVE",
     };
     listed(
-        /// The order used to check and report the per-event-type limit.
+        /// Cloud Storage's documented order. The limit check reports the first event type
+        /// that exceeds its limit in this order.
         pub(crate)
     );
     from_str(NotificationError, value => Err(NotificationError::InvalidEventType(value.to_owned())))
@@ -71,7 +72,10 @@ impl EventTypes {
 
     /// Every type this selects, in [`Event::ALL`] order.
     pub(crate) fn effective(&self) -> impl Iterator<Item = Event> + '_ {
-        Event::ALL.into_iter().filter(|event| self.selects(*event))
+        Event::ALL
+            .iter()
+            .copied()
+            .filter(|event| self.selects(*event))
     }
 }
 

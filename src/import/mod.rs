@@ -764,47 +764,21 @@ fn identity_limit(limit: Option<NonZeroUsize>) -> u64 {
     limit.map_or(0, |limit| limit.get() as u64)
 }
 
-/// A value option of `import fake-gcs-server`; the flag and its value are separate arguments.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum ValueFlag {
-    Source,
-    DataDir,
-    MetadataMode,
-    SourcePlatform,
-    SourceFormat,
-    MaxObjectBytes,
-    MaxEntries,
-    MaxDepth,
-}
-
-impl ValueFlag {
-    const ALL: [Self; 8] = [
-        Self::Source,
-        Self::DataDir,
-        Self::MetadataMode,
-        Self::SourcePlatform,
-        Self::SourceFormat,
-        Self::MaxObjectBytes,
-        Self::MaxEntries,
-        Self::MaxDepth,
-    ];
-
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Source => "--source",
-            Self::DataDir => "--data-dir",
-            Self::MetadataMode => "--metadata-mode",
-            Self::SourcePlatform => "--source-platform",
-            Self::SourceFormat => "--source-format",
-            Self::MaxObjectBytes => "--max-object-bytes",
-            Self::MaxEntries => "--max-entries",
-            Self::MaxDepth => "--max-depth",
-        }
-    }
-
-    fn from_flag(flag: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|known| known.as_str() == flag)
-    }
+crate::choice::string_enum! {
+    table
+    /// A value option of `import fake-gcs-server`. The flag and its value are separate arguments.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum ValueFlag as as_str {
+        Source => "--source",
+        DataDir => "--data-dir",
+        MetadataMode => "--metadata-mode",
+        SourcePlatform => "--source-platform",
+        SourceFormat => "--source-format",
+        MaxObjectBytes => "--max-object-bytes",
+        MaxEntries => "--max-entries",
+        MaxDepth => "--max-depth",
+    };
+    parse_option(from_flag)
 }
 
 /// A refusal of the command line, named by the argument it blames.
