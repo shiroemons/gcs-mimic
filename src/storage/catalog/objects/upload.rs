@@ -331,6 +331,7 @@ impl Catalog {
         self.run_serialized_read(SerializedRead::AdvisoryUpload, move |connection| {
             let snapshot = sql::read_snapshot(connection)?;
             check_upload_destination(&snapshot, &bucket, &name, conditions, &access, clock.now())
+                .map(drop)
         })
         .await
     }

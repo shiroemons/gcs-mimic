@@ -772,10 +772,11 @@ pub(super) fn check_upload_destination(
     conditions: ObjectConditions,
     access: &BucketAccess,
     now: std::time::SystemTime,
-) -> Result<(), ObjectError> {
+) -> Result<Option<StoredObject>, ObjectError> {
     let (_, permission) = authorized_bucket(connection, bucket, access)?;
     let previous = lookup(connection, bucket, name)?;
-    check_publication(previous.as_ref(), conditions, permission, now)
+    check_publication(previous.as_ref(), conditions, permission, now)?;
+    Ok(previous)
 }
 
 /// Preconditions are evaluated first: a failing precondition means nothing would be replaced.

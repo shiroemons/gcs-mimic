@@ -71,6 +71,130 @@ fn rewrite_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
 }
 
 #[test]
+fn rewrite_destination_changes_take_effect_at_the_original_step() {
+    const CROSS: &str = "/storage/v1/b/test-bucket/o/source/rewriteTo/b/other-bucket/o/destination";
+    const CREATE: &str = "/storage/v1/b?project=local";
+    const OTHER: &[u8] = br#"{"name":"other-bucket","location":"EU"}"#;
+    const VIEWER: &str = "Authorization: Bearer viewer\r\n";
+    #[derive(Clone, Copy)]
+    enum Change {
+        CreateDestination,
+        RevokeOverwrite,
+        RevokeCreate,
+        ReplaceBucket,
+    }
+    for change in [
+        Change::CreateDestination,
+        Change::RevokeOverwrite,
+        Change::RevokeCreate,
+        Change::ReplaceBucket,
+    ] {
+        let (_dir, server, _, _) = setup(true, 3 * 1048576);
+        server.request("POST", CREATE, ADMIN, OTHER).json_ok();
+        let policy = |bindings: Value| {
+            server
+                .request(
+                    "PUT",
+                    "/storage/v1/b/other-bucket/iam",
+                    ADMIN,
+                    json!({"version":1,"bindings":bindings})
+                        .to_string()
+                        .as_bytes(),
+                )
+                .json_ok()
+        };
+        let creator =
+            json!({"role":"roles/storage.objectCreator","members":["user:viewer@example.test"]});
+        let (caller, condition) = match change {
+            Change::RevokeOverwrite => {
+                server
+                    .request(
+                        "POST",
+                        "/upload/storage/v1/b/other-bucket/o?uploadType=media&name=destination",
+                        ADMIN,
+                        b"old",
+                    )
+                    .json_ok();
+                policy(
+                    json!([creator, {"role":"roles/storage.objectAdmin","members":["user:viewer@example.test"]}]),
+                );
+                (VIEWER, "")
+            }
+            Change::RevokeCreate => {
+                policy(json!([creator]));
+                (VIEWER, "")
+            }
+            Change::CreateDestination | Change::ReplaceBucket => (ADMIN, "&ifGenerationMatch=0"),
+        };
+        let first = server
+            .request(
+                "POST",
+                &format!("{CROSS}?maxBytesRewrittenPerCall=1048576{condition}"),
+                caller,
+                b"",
+            )
+            .json_ok();
+        assert_eq!(first["done"], false);
+        let continuation = |response: &Value| {
+            format!(
+                "{CROSS}?rewriteToken={}",
+                response["rewriteToken"].as_str().unwrap()
+            )
+        };
+        let path = continuation(&first);
+        let (status, reason, body) = match change {
+            Change::CreateDestination => {
+                server
+                    .request(
+                        "POST",
+                        "/upload/storage/v1/b/other-bucket/o?uploadType=media&name=destination",
+                        ADMIN,
+                        b"new",
+                    )
+                    .json_ok();
+                (412, "conditionNotMet", b"new")
+            }
+            Change::RevokeOverwrite => {
+                policy(json!([creator]));
+                (403, "forbidden", b"old")
+            }
+            Change::RevokeCreate => {
+                policy(json!([]));
+                server
+                    .request("POST", &path, caller, b"")
+                    .json_reason(403, "forbidden");
+                continue;
+            }
+            Change::ReplaceBucket => {
+                server
+                    .request("DELETE", "/storage/v1/b/other-bucket", ADMIN, b"")
+                    .expect(204);
+                server.request("POST", CREATE, ADMIN, OTHER).json_ok();
+                server
+                    .request("POST", &path, caller, b"")
+                    .json_reason(412, "conditionNotMet");
+                server
+                    .request("POST", &path, caller, b"")
+                    .json_reason(410, "gone");
+                continue;
+            }
+        };
+        let next = server.request("POST", &path, caller, b"").json_ok();
+        assert_eq!(next["done"], false);
+        assert_eq!(next["totalBytesRewritten"], "2097152");
+        let last = server.request("POST", &continuation(&next), caller, b"");
+        last.json_reason(status, reason);
+        let persisted = server.request(
+            "GET",
+            "/storage/v1/b/other-bucket/o/destination?alt=media",
+            ADMIN,
+            b"",
+        );
+        assert_eq!(persisted.expect(200).body, body.as_slice());
+    }
+}
+
+#[test]
 fn rewrite_one_call_empty_metadata_fields_and_same_name() {
     for size in [0, 19] {
         let (_dir, server, payload, source) = setup(false, size);

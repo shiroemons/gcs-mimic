@@ -1,8 +1,8 @@
 use super::{
     Catalog,
     objects::{
-        GenerationAssignment, NewVersion, PublicationTime, PublishedVersion, authorized_bucket,
-        check_publication, lookup, publish_version, selected,
+        GenerationAssignment, NewVersion, PublicationTime, PublishedVersion,
+        check_upload_destination, publish_version, selected,
     },
 };
 use crate::storage::catalog::sql;
@@ -76,13 +76,12 @@ impl Catalog {
                     &source_read,
                 )?;
                 let source_acl = super::acl::effective_object_entries(&transaction, &record)?;
-                let (_, delete_permission) =
-                    authorized_bucket(&transaction, &bucket, &destination_create)?;
-                let previous = lookup(&transaction, &bucket, &destination)?;
-                check_publication(
-                    previous.as_ref(),
+                let previous = check_upload_destination(
+                    &transaction,
+                    &bucket,
+                    &destination,
                     conditions.destination,
-                    delete_permission,
+                    &destination_create,
                     now.time,
                 )?;
                 record.check_retention(now.time)?;

@@ -569,8 +569,9 @@ expectation where a trait requires `io::Error`.
 - **Concurrent writes.** Writes the caller has not been told about may or may
   not be visible, as through the serialized path today.
 - **Authorization.** It does not weaken: the moved reads are advisory or
-  decorate a response, and every mutation re-checks inside its writer
-  transaction.
+  decorate a response, and each mutation checks its prerequisites in its writer
+  transaction. Rewrite registration and publication recheck the destination. An
+  intermediate rewrite checkpoint checks the source, token and deadline.
 - **Unlinked blobs.** A blob unlinked after a pooled snapshot fails its open,
   and the read retries on the serialized path, as reads do today.
 
@@ -605,6 +606,7 @@ expectation where a trait requires `io::Error`.
 | `list_objects`, live and versions | under `read_snapshot`, so the page and the bucket metageneration agree; the soft-deleted listing purges and stays on the writer |
 | gRPC `open_readable`, `get_readable` | a test pins the answer when finalization unlinks between snapshot and open |
 | `session_by_id`, `session_by_token` | the guarded updates stay authoritative |
+| `rewrite_buckets` | one snapshot of destination authority, conditions and both buckets' placement; registration and publication recheck destination authority |
 | `next_notification` | one statement on the main table |
 | soft-deleted gets, XML part and upload listings, HMAC key and notification reads, `xml_completion_parts` | second batch, after reading each in full |
 

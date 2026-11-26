@@ -335,6 +335,10 @@ Advisory upload checks queue on the writer before the body is accepted. With the
 object and bucket point reads, bucket pages, bucket IAM policy and permission lookups, resumable
 and rewrite session lookups, notification outbox polls, ACL reads, live and versioned object lists,
 and gRPC reads of finalized or appendable generations use up to eight read-only WAL connections.
+Rewrite admission reads the destination grant and conditions and both buckets' placement in
+one snapshot. Registration and final publication recheck destination authority. An intermediate
+checkpoint checks the source, token and deadline. The guarded continuation lookup still detects
+a bucket recreation before copying begins.
 An object list reads its page and bucket metageneration in one snapshot. A soft-deleted object
 list stays on the writer to purge expired generations. A full JSON projection checks ACL visibility
 and reads the grants for the whole page or single resource in one additional snapshot. A bucket

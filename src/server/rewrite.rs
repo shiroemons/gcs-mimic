@@ -245,7 +245,12 @@ async fn execute(
         step
     } else {
         let source = resolve_source(&catalog, &operation, &source_access, keys).await?;
-        let mut destination = destination(&source.object, &operation, body.as_ref())?;
+        let mut destination = destination(
+            &source.object,
+            &operation,
+            body.as_ref(),
+            destination_access.clone(),
+        )?;
         super::retention_access::authorize_upload(
             &catalog,
             &destination_access,
@@ -321,6 +326,7 @@ fn destination(
     source: &crate::object::ObjectRecord,
     request: &RewriteRequest,
     body: Option<&Value>,
+    access: BucketAccess,
 ) -> Result<DerivedDestination, ApiError> {
     let json::DerivedMetadata {
         update: metadata,
@@ -348,6 +354,6 @@ fn destination(
         declared: Default::default(),
         recorded: source.hashes().into(),
         conditions: request.conditions,
-        access: BucketAccess::Permissive,
+        access,
     })
 }

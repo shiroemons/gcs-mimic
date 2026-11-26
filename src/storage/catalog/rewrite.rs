@@ -130,6 +130,8 @@ pub(crate) const DEFAULT_REWRITE_BUDGET: NonZeroU64 = NonZeroU64::new(8 * 1024 *
 
 /// The bucket identities and placement observed together when choosing a rewrite budget.
 pub(crate) struct RewriteBuckets {
+    access: BucketAccess,
+    conditions: ObjectConditions,
     source: Incarnation,
     destination: Incarnation,
     same_location: bool,
@@ -547,6 +549,14 @@ fn check_source(
     access: &BucketAccess,
 ) -> Result<ObjectRecord, ObjectError> {
     check_incarnations(connection, session)?;
+    check_source_generation(connection, session, access)
+}
+
+fn check_source_generation(
+    connection: &Connection,
+    session: &RewriteSession,
+    access: &BucketAccess,
+) -> Result<ObjectRecord, ObjectError> {
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "every other object error passes through unchanged"
@@ -642,6 +652,8 @@ impl Catalog {
             let to = super::buckets::select_bucket(&snapshot, &destination.bucket)?
                 .ok_or(ObjectError::BucketNotFound)?;
             Ok(Some(RewriteBuckets {
+                access: access.clone(),
+                conditions,
                 source: incarnation(&snapshot, &source)?,
                 destination: incarnation(&snapshot, &destination.bucket)?,
                 same_location: from.location == to.location,
@@ -706,8 +718,8 @@ impl Catalog {
                         connection,
                         &start.destination.bucket,
                         &start.destination.name,
-                        start.destination.conditions,
-                        &start.destination.access,
+                        buckets.conditions,
+                        &buckets.access,
                         catalog.0.clock.now(),
                     )?;
                     let request = encode(&start, buckets.source, buckets.destination)?;
@@ -827,20 +839,8 @@ impl Catalog {
             .await?;
         let replay = session.previous_token == Some(token);
         if let Err(error) = source_result {
-            if !matches!(session.response, Some(StoredResponse::Complete { .. }))
-                && matches!(
-                    error,
-                    ObjectError::PreconditionFailed
-                        | ObjectError::BucketNotFound
-                        | ObjectError::ObjectNotFound
-                )
-                && let Err(cleanup) = self.cancel_derived(&session.id).await
-            {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Warn,
-                    crate::diagnostics::Event::RewriteCleanupDeferred,
-                    serde_json::json!({"message":format!("terminal rewrite cleanup failed: {cleanup}")}),
-                );
+            if !matches!(session.response, Some(StoredResponse::Complete { .. })) {
+                self.cancel_terminal_rewrite(&id, &error).await;
             }
             return Err(error.into());
         }
@@ -897,20 +897,42 @@ impl Catalog {
         let saved = serde_json::to_string(&response).map_err(object_unavailable)?;
         let progress = progress(&session, &response);
         let clock = self.0.clock.clone();
-        self.run(move |connection| {
+        let checkpoint = self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             let now = clock.now();
             let changed = sql::exec(&transaction, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5 AND token=?6 AND transfer_id=id", params![id,next,current.offset,saved,UnixMillis::try_from(now)?,token])?;
             if changed != 1 {
                 return Err(ObjectError::DerivedTransferNotFound);
             }
-            check_source(&transaction, &session, &source_access)?;
-            super::objects::check_upload_destination(&transaction, &session.destination.bucket,
-                &session.destination.name, session.destination.conditions, &destination_access, now)?;
+            // Mid-copy source changes invalidate the same session as the guarded pre-check.
+            if incarnation(&transaction, &session.binding.source.bucket)? != session.source_incarnation {
+                return Err(ObjectError::PreconditionFailed);
+            }
+            check_source_generation(&transaction, &session, &source_access)?;
             transaction.commit()?;
             Ok(())
-        }).await?;
+        }).await;
+        if let Err(error) = checkpoint {
+            self.cancel_terminal_rewrite(&id, &error).await;
+            return Err(error.into());
+        }
         Ok(progress)
+    }
+
+    async fn cancel_terminal_rewrite(&self, id: &BlobId, error: &ObjectError) {
+        if matches!(
+            error,
+            ObjectError::PreconditionFailed
+                | ObjectError::BucketNotFound
+                | ObjectError::ObjectNotFound
+        ) && let Err(cleanup) = self.cancel_derived(id).await
+        {
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
+                crate::diagnostics::Event::RewriteCleanupDeferred,
+                serde_json::json!({"message":format!("terminal rewrite cleanup failed: {cleanup}")}),
+            );
+        }
     }
 
     pub(super) async fn maintain_rewrite_sessions(
@@ -1270,7 +1292,10 @@ mod tests {
                 Err(RewriteError::Object(ObjectError::PreconditionFailed))
             ));
             if budget == NonZeroU64::MIN {
-                assert_eq!(catalog.rewrite_session(&token).await.unwrap().offset, 0);
+                assert!(matches!(
+                    continue_to_end(&catalog, &token).await,
+                    Err(RewriteError::Gone)
+                ));
             }
             assert!(matches!(
                 catalog
