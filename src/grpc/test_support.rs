@@ -227,7 +227,7 @@ pub(super) async fn rpc_status<M: prost::Message, R: prost::Message + Default>(
 }
 
 /// A Storage v2 call routed by `routing`, the `x-goog-request-params` value.
-pub(super) async fn routed_rpc_status<M: prost::Message, R: prost::Message + Default>(
+pub(crate) async fn routed_rpc_status<M: prost::Message, R: prost::Message + Default>(
     path: &str,
     token: Option<&str>,
     routing: &str,

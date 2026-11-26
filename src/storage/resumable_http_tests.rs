@@ -1,5 +1,6 @@
 mod catalog_wait;
 mod cloud_storage_parity;
+mod completion_adapters;
 mod csek;
 mod fault_injection;
 mod object_retention;
