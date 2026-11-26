@@ -6267,3 +6267,129 @@ cache-control: no-cache, no-store, max-age=0, must-revalidate
 pragma: no-cache
 body: 149 bytes
 {"error":{"code":499,"message":"clientClosedRequest","errors":[{"message":"clientClosedRequest","domain":"global","reason":"clientClosedRequest"}]}}
+
+== bucket::required name
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 216 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Missing required name",
+    "errors": [
+      {
+        "message": "Missing required name",
+        "domain": "global",
+        "reason": "required"
+      }
+    ]
+  }
+}
+
+== bucket::invalid name
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 215 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "name must be a string",
+    "errors": [
+      {
+        "message": "name must be a string",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== bucket::unsupported acl
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 406 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support bucket API setting acl; omit this setting (for example, create a bucket with only name).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support bucket API setting acl; omit this setting (for example, create a bucket with only name).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+
+== bucket::invalid location
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 267 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "The specified location constraint is not valid.",
+    "errors": [
+      {
+        "message": "The specified location constraint is not valid.",
+        "domain": "global",
+        "reason": "invalid"
+      }
+    ]
+  }
+}
+
+== bucket::invalid project
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 298 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "project must be a nonempty identifier of at most 256 bytes",
+    "errors": [
+      {
+        "message": "project must be a nonempty identifier of at most 256 bytes",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== bucket::invalid timestamp
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 290 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Bucket timestamp is outside the supported RFC 3339 range",
+    "errors": [
+      {
+        "message": "Bucket timestamp is outside the supported RFC 3339 range",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}

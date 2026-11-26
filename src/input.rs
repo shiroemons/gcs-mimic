@@ -42,6 +42,7 @@ impl InputError {
     }
 }
 
+/// A recognized bucket setting the emulator cannot apply, with the request that avoids it.
 pub(crate) fn unsupported_bucket_setting(name: &str) -> String {
     format!(
         "gcs-mimic does not support bucket API setting {name}; omit this setting (for example, create a bucket with only name)."

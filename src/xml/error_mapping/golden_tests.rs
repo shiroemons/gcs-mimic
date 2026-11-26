@@ -25,16 +25,6 @@ async fn document(error: Error) -> String {
     http_response(error.response(ErrorBody::Include)).await
 }
 
-#[tokio::test]
-async fn bucket_service_errors_keep_the_xml_document() {
-    for (error, expected) in crate::api_error::test_support::bucket_service_errors() {
-        assert_eq!(
-            document(error.into()).await,
-            document(expected.into()).await
-        );
-    }
-}
-
 /// Whether the routes that answer an error name the object they act on.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Naming {
@@ -258,6 +248,12 @@ async fn every_error_keeps_its_xml_response() {
             )))),
         )
         .await;
+    for (label, error) in crate::api_error::test_support::bucket_service_errors() {
+        golden.transcript.case("bucket", label);
+        golden
+            .transcript
+            .render("response", document(Error::from(error)).await);
+    }
     golden.kinds.assert_complete();
     golden.transcript.assert_golden(GOLDEN);
 }

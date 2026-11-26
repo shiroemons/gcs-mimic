@@ -20,13 +20,6 @@ use std::{collections::HashMap, fmt::Write as _};
 
 const GOLDEN: &str = "src/grpc/v2/status/golden_tests/statuses.txt";
 
-#[test]
-fn bucket_service_errors_keep_the_storage_status() {
-    for (error, expected) in crate::api_error::test_support::bucket_service_errors() {
-        assert_eq!(rendering(&error.into()), rendering(&expected.into()));
-    }
-}
-
 const ANONYMOUS: Option<Caller<'static>> = Some(Caller::Anonymous);
 
 const BAD_REQUEST_TYPE: &str = "type.googleapis.com/google.rpc.BadRequest";
@@ -275,6 +268,12 @@ fn every_error_keeps_its_storage_v2_status() {
     golden.shared("ConflictingAcl", domain::conflicting_acl_cases());
     golden.shared("UrlError", domain::url_cases());
     golden.shared("ApiError", constructor_cases());
+    for (label, error) in crate::api_error::test_support::bucket_service_errors() {
+        golden.transcript.case("bucket", label);
+        golden
+            .transcript
+            .render("response", rendering(&Status::from(error)));
+    }
     golden.kinds.assert_complete();
     golden.transcript.assert_golden(GOLDEN);
 }

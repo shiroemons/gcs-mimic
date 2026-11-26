@@ -18,55 +18,32 @@ use std::{collections::BTreeSet, fmt::Write as _, path::Path};
 pub(crate) const UPDATE_VARIABLE: &str = "GCSM_UPDATE_GOLDENS";
 
 /// Bucket inputs that reached the adapters through the corresponding shared error.
-pub(crate) fn bucket_service_errors() -> Vec<(crate::service::ServiceError, ApiError)> {
-    use crate::{
-        auth::InvalidProjectId, config::CompatProfile, service::parse_bucket,
-        time_format::TimeOutOfRange,
-    };
+pub(crate) fn bucket_service_errors() -> Vec<(&'static str, crate::service::ServiceError)> {
+    use crate::{config::CompatProfile, service::parse_bucket};
     use serde_json::json;
     use std::time::{Duration, UNIX_EPOCH};
 
     let outside = UNIX_EPOCH + Duration::from_secs(253_402_300_800);
     [
+        ("required name", json!({}), "project", UNIX_EPOCH),
+        ("invalid name", json!({"name": 1}), "project", UNIX_EPOCH),
+        ("unsupported acl", json!({"acl": []}), "project", UNIX_EPOCH),
         (
-            json!({}),
-            "project",
-            UNIX_EPOCH,
-            ApiError::required("Missing required name"),
-        ),
-        (
-            json!({"name": 1}),
-            "project",
-            UNIX_EPOCH,
-            ApiError::invalid("name must be a string"),
-        ),
-        (
-            json!({"acl": []}),
-            "project",
-            UNIX_EPOCH,
-            ApiError::unsupported("acl"),
-        ),
-        (
+            "invalid location",
             json!({"name": "bucket", "location": "nowhere"}),
             "project",
             UNIX_EPOCH,
-            ApiError::invalid("The specified location constraint is not valid."),
         ),
+        ("invalid project", json!({}), "bad project", outside),
         (
-            json!({}),
-            "bad project",
-            outside,
-            ApiError::from(InvalidProjectId),
-        ),
-        (
+            "invalid timestamp",
             json!({"name": "bucket"}),
             "project",
             outside,
-            ApiError::from(TimeOutOfRange),
         ),
     ]
     .into_iter()
-    .map(|(body, project, now, expected)| {
+    .map(|(label, body, project, now)| {
         let error = parse_bucket(
             body.as_object().unwrap(),
             project,
@@ -76,7 +53,7 @@ pub(crate) fn bucket_service_errors() -> Vec<(crate::service::ServiceError, ApiE
         )
         .unwrap_err();
         crate::error::assert_distinct_causes(&error);
-        (error, expected)
+        (label, error)
     })
     .collect()
 }

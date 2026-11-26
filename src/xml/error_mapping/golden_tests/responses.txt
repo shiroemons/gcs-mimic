@@ -2707,3 +2707,57 @@ content-type: application/xml; charset=UTF-8
 content-length: 271
 cache-control: private, max-age=0
 body: 0 bytes
+
+== bucket::required name
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 121
+cache-control: private, max-age=0
+body: 121 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Missing required name</Message></Error>
+
+== bucket::invalid name
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 121
+cache-control: private, max-age=0
+body: 121 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>name must be a string</Message></Error>
+
+== bucket::unsupported acl
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 215
+cache-control: private, max-age=0
+body: 215 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>gcs-mimic does not support bucket API setting acl; omit this setting (for example, create a bucket with only name).</Message></Error>
+
+== bucket::invalid location
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 147
+cache-control: private, max-age=0
+body: 147 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>The specified location constraint is not valid.</Message></Error>
+
+== bucket::invalid project
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 158
+cache-control: private, max-age=0
+body: 158 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>project must be a nonempty identifier of at most 256 bytes</Message></Error>
+
+== bucket::invalid timestamp
+-- response
+503 Service Unavailable
+content-type: application/xml; charset=UTF-8
+content-length: 159
+cache-control: private, max-age=0
+body: 159 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket timestamp is outside the supported RFC 3339 range</Message></Error>

@@ -24,7 +24,9 @@ pub(crate) enum Error {
     #[error(transparent)]
     Input(#[from] InputError),
     #[error(transparent)]
-    Defaults(#[from] super::DefaultBucketError),
+    Project(#[from] crate::auth::InvalidProjectId),
+    #[error(transparent)]
+    Time(#[from] crate::time_format::TimeOutOfRange),
     #[error(transparent)]
     Catalog(#[from] super::CatalogError),
 }
@@ -196,7 +198,7 @@ pub(crate) fn parse_insert(
     profile: CompatProfile,
     default_location: &str,
 ) -> Result<BucketRecord, Error> {
-    crate::auth::validate_project_id(project).map_err(super::DefaultBucketError::from)?;
+    crate::auth::validate_project_id(project)?;
     reject_unsupported_insert_fields(body, profile)?;
     let name =
         if profile == CompatProfile::FakeGcsServer && body.get("name").is_none_or(Value::is_null) {
@@ -245,7 +247,7 @@ pub(crate) fn parse_insert(
         .transpose()?
         .flatten();
     let labels = insert_labels(body, profile)?;
-    timestamp(now).map_err(super::DefaultBucketError::from)?;
+    timestamp(now)?;
     Ok(BucketRecord {
         soft_delete_policy: parse_soft_delete_retention(body.get("softDeletePolicy"))?.map(
             |retention| SoftDeletePolicy {

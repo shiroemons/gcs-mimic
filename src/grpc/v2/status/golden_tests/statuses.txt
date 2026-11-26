@@ -2106,3 +2106,45 @@ code: Cancelled (1)
 message: "clientClosedRequest"
 details: none
 -- anonymous caller, via ApiError: same as via ApiError
+
+== bucket::required name
+-- response
+code: InvalidArgument (3)
+message: "Missing required name"
+details: none
+
+== bucket::invalid name
+-- response
+code: InvalidArgument (3)
+message: "name must be a string"
+details: none
+
+== bucket::unsupported acl
+-- response
+code: Unimplemented (12)
+message: "gcs-mimic does not support bucket API setting acl; omit this setting (for example, create a bucket with only name)."
+details: 308 bytes
+  hex: 080c12736763732d6d696d696320646f6573206e6f7420737570706f7274206275636b6574204150492073657474696e672061636c3b206f6d697420746869732073657474696e672028666f72206578616d706c652c206372656174652061206275636b65742077697468206f6e6c79206e616d65292e1aba010a28747970652e676f6f676c65617069732e636f6d2f676f6f676c652e7270632e4572726f72496e666f128d010a0a626164526571756573741206676c6f62616c1a610a0672656d656479125755736520746865204a534f4e204150493b207365742053544f524147455f454d554c41544f525f484f535420746f206170695f626173655f75726c2066726f6d2074686520736572766572207265616479206576656e741a140a077365727669636512096763732d6d696d6963
+  google.rpc.Status: code 12, message "gcs-mimic does not support bucket API setting acl; omit this setting (for example, create a bucket with only name)."
+  type.googleapis.com/google.rpc.ErrorInfo
+    reason "badRequest", domain "global"
+    metadata remedy: "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+    metadata service: "gcs-mimic"
+
+== bucket::invalid location
+-- response
+code: InvalidArgument (3)
+message: "The specified location constraint is not valid."
+details: none
+
+== bucket::invalid project
+-- response
+code: InvalidArgument (3)
+message: "project must be a nonempty identifier of at most 256 bytes"
+details: none
+
+== bucket::invalid timestamp
+-- response
+code: Unavailable (14)
+message: "Bucket timestamp is outside the supported RFC 3339 range"
+details: none

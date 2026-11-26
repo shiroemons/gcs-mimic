@@ -4,6 +4,7 @@
 //! report alike lives here, so that one adapter's wording cannot drift from another's.
 
 use super::{BackendCause, BackendFailure, IoCause, MemoryBudget};
+// Catalog refusals and input parsing send the same wording for unsupported settings.
 pub(crate) use crate::input::unsupported_bucket_setting;
 use crate::object::{HashMismatch, HeldObject, HoldKind, RetainedObject};
 use std::{borrow::Cow, io};

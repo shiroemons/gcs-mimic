@@ -8,6 +8,7 @@ use crate::{
     bucket::{CatalogError, name::ProfileNameError},
     csek::CsekError,
     hashing::InvalidDigest,
+    input::InputKind,
     metadata_error::MetadataError,
     object::{ComponentFailureKind, ObjectError, name::InvalidObjectName},
     percent::{MalformedEncoding, QueryError},
@@ -20,7 +21,12 @@ use hyper::StatusCode;
 impl From<ServiceError> for Error {
     fn from(error: ServiceError) -> Self {
         match error {
-            ServiceError::Input(error) => Self::invalid(error.message),
+            ServiceError::Input(error) => match error.kind {
+                // Unsupported bucket input also had status 400, which XML maps to InvalidArgument.
+                InputKind::Invalid | InputKind::Required | InputKind::Unsupported => {
+                    Self::invalid(error.message)
+                }
+            },
             ServiceError::Project(error) => error.into(),
             ServiceError::Catalog(error) => error.into(),
             ServiceError::Time(error) => error.into(),
