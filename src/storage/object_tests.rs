@@ -1022,18 +1022,17 @@ async fn race_upload<T: Send + 'static>(
     delete: impl std::future::Future<Output = T> + Send + 'static,
     iteration: usize,
 ) -> (Result<ObjectRecord, ObjectError>, T) {
+    let body = Bytes::from(vec![b'r'; 256 * 1024]);
+    let size = body.len() as u64;
     let (sender, receiver) = mpsc::channel(2);
-    sender
-        .send(Ok(UploadChunk::Data(Bytes::from_static(b"replacement"))))
-        .await
-        .unwrap();
+    sender.send(Ok(UploadChunk::Data(body))).await.unwrap();
     let worker = catalog.clone();
     let upload = tokio::spawn(async move {
         worker
             .put_object(
                 ObjectUpload {
                     conditions,
-                    ..permissive_upload("bucket", name, 100)
+                    ..permissive_upload("bucket", name, size)
                 },
                 receiver,
             )
@@ -1043,7 +1042,7 @@ async fn race_upload<T: Send + 'static>(
     eventually_async("the upload to stage its whole body", || async {
         fs::read_dir(dir.join("staging"))
             .unwrap()
-            .any(|entry| live_len(&entry.unwrap().path()) == 11)
+            .any(|entry| live_len(&entry.unwrap().path()) == size)
     })
     .await;
     let barrier = Arc::new(tokio::sync::Barrier::new(3));

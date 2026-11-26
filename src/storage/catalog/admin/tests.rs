@@ -1198,14 +1198,16 @@ fn bucket_definition(index: usize) -> BucketDefinition {
 #[tokio::test]
 async fn admin_cancelled_body_cleans_staging_before_unlock() {
     let (dir, catalog, admin, bucket, name) = setup().await;
+    let body = Bytes::from(vec![b'p'; super::super::objects::WRITE_BATCH_BYTES]);
+    let request = Publication {
+        max_bytes: body.len() as u64,
+        ..request(None)
+    };
     let (sender, receiver) = mpsc::channel(2);
-    sender
-        .send(Ok(UploadChunk::Data(Bytes::from_static(b"partial"))))
-        .await
-        .unwrap();
+    sender.send(Ok(UploadChunk::Data(body))).await.unwrap();
     let publish = tokio::spawn(async move {
         admin
-            .publish_object(&bucket, &name, request(None), receiver)
+            .publish_object(&bucket, &name, request, receiver)
             .await
     });
     eventually_async("the publication to stage bytes", || async {
@@ -1238,14 +1240,19 @@ async fn admin_cancelled_body_cleans_staging_before_unlock() {
 #[tokio::test]
 async fn admin_shutdown_holds_lock_through_renamed_publication() {
     let (dir, catalog, admin, bucket, name) = setup().await;
+    let body = Bytes::from(vec![b'c'; super::super::objects::WRITE_BATCH_BYTES]);
+    let request = Publication {
+        max_bytes: body.len() as u64,
+        ..request(None)
+    };
     let (sender, receiver) = mpsc::channel(2);
     sender
-        .send(Ok(UploadChunk::Data(Bytes::from_static(b"committed"))))
+        .send(Ok(UploadChunk::Data(body.clone())))
         .await
         .unwrap();
     let publish = tokio::spawn(async move {
         admin
-            .publish_object(&bucket, &name, request(None), receiver)
+            .publish_object(&bucket, &name, request, receiver)
             .await
     });
     eventually_async("the publication to stage bytes", || async {
@@ -1287,8 +1294,8 @@ async fn admin_shutdown_holds_lock_through_renamed_publication() {
         .await
         .unwrap();
     assert_eq!(
-        reader.next_chunk().await.unwrap().unwrap(),
-        b"committed"[..]
+        crate::storage::test_fixtures::read_all(&mut reader).await,
+        body
     );
     reopened.close().await.unwrap();
 }

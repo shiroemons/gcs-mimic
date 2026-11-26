@@ -114,11 +114,12 @@ fn a_retry_takes_over_the_session_when_the_abandoned_chunk_ends() {
     abandoned
         .write_all(
             format!(
-                "PUT {path} HTTP/1.1\r\nHost: local\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\na"
+                "PUT {path} HTTP/1.1\r\nHost: local\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n"
             )
             .as_bytes(),
         )
         .unwrap();
+    abandoned.write_all(&vec![b'a'; 128 * 1024]).unwrap();
     common::eventually("the abandoned chunk to reach the session", || {
         // Not `DirEntry::metadata`: on Windows that is the size the directory listing recorded,
         // which does not follow a file the server still holds open.
