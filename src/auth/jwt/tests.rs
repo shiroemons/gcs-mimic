@@ -217,7 +217,10 @@ async fn a_verified_signature_does_not_authorize_other_claims_or_a_future_issue_
 #[test]
 fn verified_signature_cache_evicts_the_oldest_distinct_entry() {
     let cache = VerifiedSignatures::default();
-    let entry = |index: usize| (sha256(&index.to_be_bytes()), sha256(b"signature"));
+    let entry = |index: usize| SignatureKey {
+        message: sha256(&index.to_be_bytes()),
+        signature: sha256(b"signature"),
+    };
     for index in 0..CACHE_CAPACITY {
         cache.remember(entry(index));
     }
@@ -228,6 +231,34 @@ fn verified_signature_cache_evicts_the_oldest_distinct_entry() {
     assert!(!entries.contains(&entry(0)));
     assert!(entries.contains(&entry(1)));
     assert!(entries.contains(&entry(CACHE_CAPACITY)));
+}
+
+#[tokio::test]
+async fn a_verified_signature_cannot_be_reused_for_another_registered_issuer() {
+    let other = "peer@example.invalid";
+    let bytes = serde_json::to_vec(&json!({"identities": [
+        {"id": ISSUER, "tokens": [], "public_keys": [PUBLIC]},
+        {"id": other, "tokens": [], "public_keys": [PUBLIC]}
+    ]}))
+    .unwrap();
+    let auth = Auth::strict(Registry::parse(&bytes).unwrap());
+    let signed = token(&claims());
+    assert!(authenticate(&auth, &signed, &Fixed(NOW)).await.is_some());
+    let (_, signature) = signed.rsplit_once('.').unwrap();
+    let mut changed = claims();
+    changed["iss"] = other.into();
+    changed["sub"] = other.into();
+    let peer = token(&changed);
+    let (message, _) = peer.rsplit_once('.').unwrap();
+    assert!(
+        authenticate(&auth, &format!("{message}.{signature}"), &Fixed(NOW))
+            .await
+            .is_none()
+    );
+    assert_eq!(
+        authenticate(&auth, &peer, &Fixed(NOW)).await.unwrap().id(),
+        other
+    );
 }
 
 #[tokio::test]

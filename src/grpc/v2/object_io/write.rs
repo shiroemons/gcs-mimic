@@ -442,14 +442,12 @@ fn nothing_persisted() -> Result<pb::BidiWriteObjectResponse, Status> {
     persisted_answer(0, Some(0))
 }
 
-/// The body of a non-resumable write as its messages arrive: offsets, sizes and checksums are
-/// checked against what was received, and the body ends only after the whole object checks
-/// out.
+/// Admits the messages of a non-resumable write. Storage verifies whole-object checksums
+/// against the declarations in `UploadChunk::EndWithHashes` before publication.
 struct SingleBody {
-    /// Counts and digests the bytes received.
+    /// Validates offsets, lengths and per-message CRCs.
     intake: Intake,
-    /// The object checksums the spec and the messages declared, which the intake checks the
-    /// complete object against once the body ends.
+    /// Whole-object checksums from the spec and the messages.
     declared: ExpectedHashes,
     /// The key the first message chose, which later messages cannot change.
     key: Option<[u8; 32]>,

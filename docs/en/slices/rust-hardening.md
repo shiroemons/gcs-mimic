@@ -913,7 +913,7 @@ parser. The run did not record whether other builds were active.
 
 | Item | Design |
 | --- | --- |
-| gRPC resumable tail | a `BytesMut` reserved once per stream, split when whole granules persist; each byte is copied once |
+| gRPC resumable tail | the first partial granule reserves a `BytesMut`; the stream reclaims its allocation after the catalog write. Aligned streams need no tail allocation |
 | Deadline renewal per frame | a per-connection progress clock; the watch notifies only on state changes, and an expiring deadline re-arms from the last frame instead of expiring. Same expiry instant. Lands last among performance slices, and only if its measured run shows a gain |
 | Query parsed three to five times per request | parsed once into `RequestCtx` on first use, so the first error appears where it does today; `percent` clones a key only for a duplicate error |
 | ACL subjects built for every listed object | built only for `projection=full` |

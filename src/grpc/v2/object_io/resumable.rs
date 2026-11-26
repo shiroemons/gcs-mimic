@@ -319,6 +319,7 @@ impl Storage {
     }
 
     /// Persists the complete granules and returns any trailing bytes to the call on success.
+    /// A finishing piece publishes the object and returns `Written::Complete`.
     async fn write_piece(
         &self,
         lease: SessionLease,

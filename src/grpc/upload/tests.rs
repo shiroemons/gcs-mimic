@@ -10,7 +10,7 @@ fn piece(offset: u64, content: &'static [u8]) -> IntakePiece {
 }
 
 #[tokio::test]
-async fn intake_overlap_modes_hash_only_new_bytes_and_keep_bounded_chunks() {
+async fn intake_stages_only_new_bytes_and_forwards_declared_checksums() {
     let expected = ExpectedHashes {
         crc32c: Some(crc32c::crc32c(b"abcd")),
         md5: None,
@@ -40,7 +40,7 @@ async fn intake_overlap_modes_hash_only_new_bytes_and_keep_bounded_chunks() {
 }
 
 #[tokio::test]
-async fn invalid_intake_never_stages_bytes_or_a_completion_marker() {
+async fn rejected_input_stages_no_data() {
     let (tx, mut rx) = mpsc::channel(2);
     let mut bad_crc = piece(0, b"abc");
     bad_crc.crc32c = Some(0);
@@ -72,6 +72,11 @@ async fn invalid_intake_never_stages_bytes_or_a_completion_marker() {
         assert_eq!(intake.accept(piece, &tx).await, Err(error));
         assert!(rx.try_recv().is_err());
     }
+}
+
+#[tokio::test]
+async fn storage_receives_the_expected_digest_even_for_an_empty_body() {
+    let (tx, mut rx) = mpsc::channel(1);
     let intake = Intake::new(
         ExpectedHashes {
             md5: Some([1; 16]),

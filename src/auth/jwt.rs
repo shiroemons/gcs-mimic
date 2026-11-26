@@ -17,7 +17,11 @@ use std::{
 pub(super) const MAX_TOKEN_BYTES: usize = 8192;
 const SCOPE: &str = "https://www.googleapis.com/auth/devstorage.full_control";
 
-type SignatureKey = ([u8; 32], [u8; 32]);
+#[derive(Debug, PartialEq, Eq)]
+struct SignatureKey {
+    message: [u8; 32],
+    signature: [u8; 32],
+}
 const CACHE_CAPACITY: usize = 64;
 
 /// Each registry owns its cache alongside the immutable issuer keys.
@@ -167,7 +171,10 @@ impl<'a> Candidate<'a> {
             message,
             signature,
         } = self;
-        let key = (sha256(message.as_bytes()), sha256(&signature));
+        let key = SignatureKey {
+            message: sha256(message.as_bytes()),
+            signature: sha256(&signature),
+        };
         if crate::sync::lock(&verified.0).contains(&key) {
             return Ok(Some(identity));
         }

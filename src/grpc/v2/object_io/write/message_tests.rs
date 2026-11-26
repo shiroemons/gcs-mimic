@@ -478,21 +478,24 @@ async fn run_on_objects(storage: &Storage, cases: Vec<Case>) {
 async fn single_shot_object_checksum_mismatches_keep_their_status_details() {
     let (_dir, storage) = setup(false).await;
     for rpc in [Rpc::WriteObject, Rpc::Bidi] {
-        for (message, expected) in [
+        let mut both = opening("bad-md5", b"abc").md5(16);
+        both.object_checksums.as_mut().unwrap().crc32c = Some(crc32c::crc32c(b"abc"));
+        const WRONG_MD5: &str = "Object md5 mismatch: server computed: '900150983cd24fb0d6963f7d28e17f72', client provided: '00000000000000000000000000000000'.";
+        for (name, message, expected) in [
             (
+                "crc",
                 opening("crc", b"abc").crc(1),
                 "Object crc32c mismatch: server computed: '364b3fb7', client provided: '00000001'.",
             ),
-            (
-                opening("md5", b"abc").md5(16),
-                "Object md5 mismatch: server computed: '900150983cd24fb0d6963f7d28e17f72', client provided: '00000000000000000000000000000000'.",
-            ),
+            ("md5", opening("md5", b"abc").md5(16), WRONG_MD5),
+            ("bad-md5", both, WRONG_MD5),
         ] {
             let (status, replies) = call(&storage, rpc, &[message.finish()]).await;
             assert_eq!(status.code(), Code::InvalidArgument);
             assert_eq!(status.message(), expected);
             assert!(status.details().is_empty());
             assert!(replies.is_empty());
+            assert_eq!(object_left(&storage, name).await, Left::Nothing);
         }
     }
     storage.state.catalog.close().await.unwrap();
