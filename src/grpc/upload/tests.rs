@@ -27,7 +27,7 @@ async fn intake_overlap_modes_hash_only_new_bytes_and_keep_bounded_chunks() {
     assert!(
         matches!(rx.recv().await.unwrap().unwrap(), UploadChunk::Data(data) if data == b"d"[..])
     );
-    intake.finish(&tx, EndMarker::WithHashes).await.unwrap();
+    intake.finish(&tx).await.unwrap();
     assert!(
         matches!(rx.recv().await.unwrap().unwrap(), UploadChunk::EndWithHashes(hashes) if hashes == expected)
     );
@@ -81,8 +81,12 @@ async fn invalid_intake_never_stages_bytes_or_a_completion_marker() {
         None,
         Resend::Reject,
     );
+    intake.finish(&tx).await.unwrap();
+    let UploadChunk::EndWithHashes(expected) = rx.recv().await.unwrap().unwrap() else {
+        panic!("expected declared checksums for storage verification")
+    };
     assert_eq!(
-        intake.finish(&tx, EndMarker::Plain).await,
+        verify_object(&expected, &crate::hashing::Hasher::default().finish()),
         Err(IntakeError::ObjectChecksum(HashMismatch::Md5 {
             expected: [1; 16],
             computed: crate::hashing::Hasher::default().finish().md5,

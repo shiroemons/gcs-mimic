@@ -5,7 +5,7 @@ use super::{
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
     grpc::{
-        upload::{self, EndMarker, Intake, IntakeError, Resend},
+        upload::{self, Intake, IntakeError, Resend},
         validate::{self, NegativeGeneration},
     },
     object::{

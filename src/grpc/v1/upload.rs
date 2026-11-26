@@ -3,8 +3,8 @@ use super::{
 };
 use crate::{
     auth::Caller,
-    grpc::upload::{self, EndMarker, Intake, IntakeError, IntakePiece, Resend},
-    object::{ExpectedHashes, ObjectConditions, UploadChunk},
+    grpc::upload::{self, Intake, IntakeError, IntakePiece, Resend},
+    object::{ExpectedHashes, ObjectConditions, ObjectError, UploadChunk},
     storage::ObjectUpload,
 };
 use tokio::sync::mpsc;
@@ -89,7 +89,13 @@ impl Storage {
         );
         let receive = receive_upload(first, stream, sender, self.max_object_bytes);
         let (sent, written) = tokio::join!(receive, write);
-        let record = upload::completed(sent, written, Status::from)?;
+        let record = upload::completed(sent, written, |error| {
+            if let ObjectError::HashMismatch(mismatch) = error {
+                intake_status(IntakeError::ObjectChecksum(*mismatch))
+            } else {
+                Status::from(error)
+            }
+        })?;
         Ok(convert::object(&record)?)
     }
 }
@@ -174,10 +180,7 @@ async fn receive_upload(
             }
         };
     }
-    intake
-        .finish(&sender, EndMarker::WithHashes)
-        .await
-        .map_err(intake_status)
+    intake.finish(&sender).await.map_err(intake_status)
 }
 
 fn intake_status(error: IntakeError) -> Status {

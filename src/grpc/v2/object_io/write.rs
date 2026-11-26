@@ -320,7 +320,13 @@ impl Storage {
             permit,
         );
         let (sent, written) = tokio::join!(producer, write);
-        let record = upload::completed(sent, written, object_status)?;
+        let record = upload::completed(sent, written, |error| {
+            if let ObjectError::HashMismatch(mismatch) = error {
+                object_checksum_mismatch(*mismatch)
+            } else {
+                object_status(error)
+            }
+        })?;
         let resource = self
             .written_object(&record, crate::csek::StoredHashes::Revealed, caller)
             .await?;
@@ -517,10 +523,7 @@ impl SingleBody {
         self.intake
             .checksums(self.declared)
             .map_err(intake_status)?;
-        self.intake
-            .finish(&tx, EndMarker::Plain)
-            .await
-            .map_err(intake_status)
+        self.intake.finish(&tx).await.map_err(intake_status)
     }
 }
 

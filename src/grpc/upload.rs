@@ -1,5 +1,5 @@
 use crate::{
-    hashing::{Hasher, Hashes},
+    hashing::Hashes,
     object::{
         ChecksumConflict, ExpectedHashes, HashMismatch, ObjectError, ObjectRecord, UploadChunk,
     },
@@ -31,11 +31,6 @@ pub(super) enum Resend {
     DiscardOverlap,
 }
 
-pub(super) enum EndMarker {
-    Plain,
-    WithHashes,
-}
-
 pub(super) struct IntakePiece {
     pub offset: u64,
     pub content: Bytes,
@@ -63,7 +58,6 @@ pub(super) enum IntakeError {
 pub(super) struct Intake {
     offset: u64,
     expected: ExpectedHashes,
-    hasher: Hasher,
     max_bytes: u64,
     total: Option<u64>,
     resend: Resend,
@@ -79,7 +73,6 @@ impl Intake {
         Self {
             offset: 0,
             expected,
-            hasher: Hasher::default(),
             max_bytes,
             total,
             resend,
@@ -103,7 +96,6 @@ impl Intake {
         }
         let (added, written) = admit_bytes(self.offset, piece, self.max_bytes, self.total)?;
         self.offset = written;
-        self.hasher.update(&added);
         Ok(added)
     }
 
@@ -116,14 +108,9 @@ impl Intake {
         stage(sender, &added).await
     }
 
-    pub(super) async fn finish(self, sender: &Sender, end: EndMarker) -> Result<(), IntakeError> {
-        verify_object(&self.expected, &self.hasher.finish())?;
-        let end = match end {
-            EndMarker::Plain => UploadChunk::End,
-            EndMarker::WithHashes => UploadChunk::EndWithHashes(self.expected),
-        };
+    pub(super) async fn finish(self, sender: &Sender) -> Result<(), IntakeError> {
         sender
-            .send(Ok(end))
+            .send(Ok(UploadChunk::EndWithHashes(self.expected)))
             .await
             .map_err(|_| IntakeError::ConsumerStopped)
     }
