@@ -63,9 +63,11 @@ fn dropping_a_queued_write_cannot_modify_a_reopened_stage() {
     runtime.block_on(async {
         let dir = TestDir::new();
         let path = dir.0.join("stage");
+        let lease = Arc::new(());
+        let retained = Arc::downgrade(&lease);
         let mut output = Output::Disk(objects::StagedFile::new(
             std::fs::File::create(&path).unwrap(),
-            Arc::new(()),
+            lease,
             &dir.0,
         ));
         let (release, blocked) = std::sync::mpsc::channel();
@@ -75,6 +77,10 @@ fn dropping_a_queued_write_cannot_modify_a_reopened_stage() {
             .await
             .unwrap();
         drop(output);
+        assert!(
+            retained.upgrade().is_none(),
+            "queued work retained the lease"
+        );
         std::fs::write(&path, b"replacement").unwrap();
         release.send(()).unwrap();
         worker.await.unwrap().unwrap();
@@ -84,6 +90,36 @@ fn dropping_a_queued_write_cannot_modify_a_reopened_stage() {
             .unwrap();
         assert_eq!(actual, b"replacement");
     });
+}
+
+#[tokio::test]
+async fn closing_waits_for_a_running_write_after_the_upload_is_dropped() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let lease = Arc::new(catalog.admit_object_upload().unwrap());
+    let mut stage = objects::StagedFile::new(
+        std::fs::File::create(dir.0.join("stage")).unwrap(),
+        lease,
+        &dir.0,
+    );
+    let (entered, release) = super::super::test_fixtures::pause_read(&catalog, Step::BodyWrite);
+    stage
+        .write(&vec![1; objects::WRITE_BATCH_BYTES])
+        .await
+        .unwrap();
+    entered.await.unwrap();
+    drop(stage);
+    let mut closing = Box::pin(catalog.close());
+    assert!(
+        closing
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+            .is_pending()
+    );
+    assert_eq!(catalog.active_uploads(), 1);
+    release.send(()).unwrap();
+    closing.await.unwrap();
+    assert_eq!(catalog.active_uploads(), 0);
 }
 
 #[tokio::test]

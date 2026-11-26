@@ -191,6 +191,7 @@ const WRITE_BEHIND_BYTES: u64 = 8 * 1024 * 1024;
 /// behind, and the kernel killed a process that itself held about 16 MiB.
 pub(in crate::storage::catalog) struct StagedFile {
     writer: Option<BatchWriter>,
+    queued: Arc<Mutex<Option<BatchWriter>>>,
     filling: Vec<u8>,
     pending: Option<WriteJob>,
     failed: bool,
@@ -209,7 +210,7 @@ impl StageOwner for () {}
 pub(in crate::storage::catalog) const WRITE_BATCH_BYTES: usize = 64 * 1024;
 
 type WriteJob = tokio::task::JoinHandle<
-    Result<(BatchWriter, Result<(), ObjectError>), crate::task::JobPanicked>,
+    Result<Option<(BatchWriter, Result<(), ObjectError>)>, crate::task::JobPanicked>,
 >;
 
 pub(in crate::storage::catalog) struct BatchWriter {
@@ -327,6 +328,7 @@ impl From<BatchWriter> for StagedFile {
     fn from(writer: BatchWriter) -> Self {
         Self {
             writer: Some(writer),
+            queued: Arc::default(),
             filling: Vec::new(),
             pending: None,
             failed: false,
@@ -348,11 +350,12 @@ impl StagedFile {
         let joined = crate::task::join_blocking(job).await;
         self.pending = None;
         let result = match joined {
-            Ok((mut writer, result)) => {
+            Ok(Some((mut writer, result))) => {
                 writer.bytes.clear();
                 self.writer = Some(writer);
                 result
             }
+            Ok(None) => Err(staged_writer_unavailable()),
             Err(error) => Err(error.into()),
         };
         self.failed |= result.is_err();
@@ -374,12 +377,16 @@ impl StagedFile {
     ) -> Result<(), ObjectError> {
         let mut writer = self.writer.take().ok_or_else(staged_writer_unavailable)?;
         std::mem::swap(&mut self.filling, &mut writer.bytes);
+        // Only the stage owns a queued writer. The pool takes ownership before touching the file.
+        *crate::sync::lock(&self.queued) = Some(writer);
+        let queued = Arc::downgrade(&self.queued);
         self.pending = Some(crate::task::spawn_blocking_on(
             &tokio::runtime::Handle::current(),
             name,
             move || {
+                let mut writer = crate::sync::lock(queued.upgrade()?.as_ref()).take()?;
                 let result = action(&mut writer);
-                (writer, result)
+                Some((writer, result))
             },
         ));
         Ok(())
@@ -412,6 +419,10 @@ impl StagedFile {
         len: u64,
     ) -> Result<(), ObjectError> {
         let written = self.settle().await;
+        // A panicking worker dropped the descriptor. Reopening truncates to the checkpoint.
+        if self.writer.is_none() {
+            return written;
+        }
         self.filling.clear();
         self.submit("staged-truncate", move |writer| {
             writer.file.set_len(len)?;

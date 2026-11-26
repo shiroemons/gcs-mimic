@@ -39,6 +39,61 @@ fn publication_failure() -> Result<Value, ResumableError> {
     Err(object_unavailable(io::Error::other("publication failed")).into())
 }
 
+#[tokio::test]
+async fn a_panicking_chunk_writer_keeps_its_cause_and_reopens_at_the_checkpoint() {
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    crate::storage::test_fixtures::seed_bucket(&catalog).await;
+    let session = catalog
+        .create_resumable_session(
+            "bucket",
+            "object",
+            ResumableOptions::new(BucketAccess::Permissive),
+            None,
+        )
+        .await
+        .unwrap();
+    let lease = catalog
+        .lock_resumable_session(&session.id.to_string(), "bucket")
+        .await
+        .unwrap();
+    let bytes = bytes::Bytes::from(vec![7; fault::MID_WRITE_BODY_BYTES]);
+    let length = bytes.len() as u64;
+    let chunk = ResumableChunk {
+        start: 0,
+        length,
+        end: ChunkEnd::Exact {
+            total: Some(length),
+            finalize: true,
+        },
+        options: session.options.clone(),
+        catalog_wait: watch::channel(ChunkWait::Transfer).0,
+    };
+    let mut body = crate::storage::test_fixtures::body(vec![bytes]);
+    let (_client, mut cancellation) = oneshot::channel();
+    catalog.inject(Step::BodyWrite, 1, fault::Fault::Panic);
+    let error = receive_chunk(&catalog, &lease, &chunk, &mut body, &mut cancellation)
+        .await
+        .err()
+        .unwrap();
+    let mut cause = &error as &(dyn std::error::Error + 'static);
+    while !cause.is::<crate::task::JobPanicked>() {
+        cause = cause
+            .source()
+            .expect("the chunk error retains the worker panic");
+    }
+    assert_eq!(catalog.pending_faults(), 0);
+    catalog.prepare_resumable_status(&lease).await.unwrap();
+    assert_eq!(
+        std::fs::metadata(session.blob_id.staging_path(&dir.0))
+            .unwrap()
+            .len(),
+        0
+    );
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
 async fn assert_restored(catalog: &Catalog, lease: &SessionLease) {
     let session = catalog
         .resumable_session(&lease.session.id.to_string(), "bucket")

@@ -703,8 +703,9 @@ journal sweep in the maintenance diagnostic.
 
   The receiver fills the second buffer while the job writes the first.
   Truncation, final sync and release of the upload lease wait for the write.
-  Dropping a stage revokes a queued job. A job already executing owns the
-  file and the upload or writer lease until it returns on the blocking pool.
+  Dropping a stage immediately releases a queued writer and its lease, even
+  when the blocking pool is full. The job takes the writer from the stage
+  before starting I/O and owns the file and lease until the write returns.
   A new writer therefore cannot truncate the stage during the old write.
   After a worker failure, only rollback may truncate and sync the old prefix.
 - **`make_durable`.** One job drains the batch and syncs, in order:

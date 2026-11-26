@@ -862,6 +862,38 @@ async fn resumable_power_loss_at_each_durable_step_keeps_the_old_or_new_object()
     h.stop().await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn interrupted_resumable_batches_recover_the_acknowledged_prefix() {
+    let snapshots = TestDir::new();
+    let h = Harness::start(16 * 1024 * 1024, Permissive, None).await;
+    let prefix = vec![b'a'; 256 * 1024];
+    assert_eq!(h.media("target", b"old").await.status, 200);
+    for &crash in Crash::ALL {
+        for (step, skip, size) in [
+            (Step::BodyWrite, 1, MID_WRITE_BODY_BYTES),
+            (Step::BodyFlush, 0, MID_WRITE_BODY_BYTES),
+            (Step::BodyWriteBehind, 0, 9 * 1024 * 1024 + 1),
+        ] {
+            let case = format!("{step:?}-{crash:?}");
+            let path = resumable_prefix(&h, "target", &prefix).await;
+            let blob = session_blob(&h, &path).await;
+            let snapshot = snapshots.0.join(&case);
+            h.inject(step, skip, crash.fault(snapshot.clone()));
+            assert_eq!(
+                put_open_tail(&h, &path, &vec![b't'; size]).await.status,
+                200,
+                "{case}"
+            );
+            h.assert_fired(&case);
+            assert_recovers(&snapshot, "target", Some(b"old"), &case).await;
+            assert_resumable_prefix(&snapshot, &blob, &prefix, &case);
+            assert_eq!(h.media("target", b"old").await.status, 200);
+        }
+    }
+    h.stop().await;
+}
+
 /// A chunk that was synced but whose checkpoint failed is cut back and written again by the
 /// retry. The bytes it rewrites were durable before the cut, so only the retry's own sync may
 /// make them durable again; power loss after the commit must still find the whole object.
@@ -902,7 +934,10 @@ async fn resumable_retry_after_a_failed_checkpoint_syncs_the_rewritten_chunk() {
 }
 
 async fn seed_sources(h: &Harness) {
-    assert_eq!(h.media("a", &vec![b'a'; 100 * 1024]).await.status, 200);
+    assert_eq!(
+        h.media("a", &vec![b'a'; MID_WRITE_BODY_BYTES]).await.status,
+        200
+    );
     assert_eq!(h.media("b", &vec![b'b'; 100 * 1024]).await.status, 200);
 }
 
@@ -1042,8 +1077,8 @@ async fn ambiguous_derived_commit_error_keeps_the_committed_destination() {
         );
         h.assert_fired(operation);
         let expected = match operation {
-            "compose" => [vec![b'a'; 100 * 1024], vec![b'b'; 100 * 1024]].concat(),
-            _ => vec![b'a'; 100 * 1024],
+            "compose" => [vec![b'a'; MID_WRITE_BODY_BYTES], vec![b'b'; 100 * 1024]].concat(),
+            _ => vec![b'a'; MID_WRITE_BODY_BYTES],
         };
         assert_eq!(h.media_bytes("derived").await.body, expected, "{operation}");
         assert_eq!(
@@ -1064,6 +1099,8 @@ async fn derived_crash_at_each_durable_step_recovers_without_a_partial_destinati
     let mut index = 0;
     for operation in ["compose", "copy", "rewrite"] {
         for (case, step, committed) in [
+            ("second full batch", Step::BodyWrite, false),
+            ("buffered tail", Step::BodyFlush, false),
             ("body written, not synced", Step::BodySync, false),
             ("blob renamed, no catalog row", Step::AfterPublish, false),
             ("publication transaction open", Step::BeforeCommit, false),
@@ -1072,12 +1109,16 @@ async fn derived_crash_at_each_durable_step_recovers_without_a_partial_destinati
             let case = format!("{operation}: {case}");
             let snapshot = crashes.0.join(index.to_string());
             index += 1;
-            h.inject(step, 0, Fault::Snapshot(snapshot.clone()));
+            h.inject(
+                step,
+                usize::from(step == Step::BodyWrite),
+                Fault::Snapshot(snapshot.clone()),
+            );
             assert_eq!(derive(&h, operation).await.status, 200, "{case}");
             h.assert_fired(&case);
             let expected = match operation {
-                "compose" => [vec![b'a'; 100 * 1024], vec![b'b'; 100 * 1024]].concat(),
-                _ => vec![b'a'; 100 * 1024],
+                "compose" => [vec![b'a'; MID_WRITE_BODY_BYTES], vec![b'b'; 100 * 1024]].concat(),
+                _ => vec![b'a'; MID_WRITE_BODY_BYTES],
             };
             assert_recovers(
                 &snapshot,
@@ -1107,7 +1148,7 @@ async fn derived_power_loss_at_each_durable_step_keeps_no_partial_destination() 
     let crashes = TestDir::new();
     let h = Harness::start(1024 * 1024, Permissive, None).await;
     seed_sources(&h).await;
-    let (a, b) = (vec![b'a'; 100 * 1024], vec![b'b'; 100 * 1024]);
+    let (a, b) = (vec![b'a'; MID_WRITE_BODY_BYTES], vec![b'b'; 100 * 1024]);
     let mut index = 0;
     for operation in ["compose", "copy", "rewrite"] {
         let expected = match operation {
@@ -1115,6 +1156,8 @@ async fn derived_power_loss_at_each_durable_step_keeps_no_partial_destination() 
             _ => a.clone(),
         };
         for (case, step, committed) in [
+            ("second full batch", Step::BodyWrite, false),
+            ("buffered tail", Step::BodyFlush, false),
             ("body written, not synced", Step::BodySync, false),
             ("body durable, not renamed", Step::BeforePublish, false),
             ("blob renamed, no catalog row", Step::AfterPublish, false),
@@ -1124,7 +1167,11 @@ async fn derived_power_loss_at_each_durable_step_keeps_no_partial_destination() 
             let case = format!("{operation}: {case}");
             let snapshot = crashes.0.join(index.to_string());
             index += 1;
-            h.inject(step, 0, Fault::PowerLoss(snapshot.clone()));
+            h.inject(
+                step,
+                usize::from(step == Step::BodyWrite),
+                Fault::PowerLoss(snapshot.clone()),
+            );
             assert_eq!(derive(&h, operation).await.status, 200, "{case}");
             h.assert_fired(&case);
             assert_recovers_objects(
