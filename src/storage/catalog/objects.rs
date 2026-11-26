@@ -156,8 +156,8 @@ pub(super) use publication::{
     retention_expiration,
 };
 use publication::{RetirementContext, retire_previous, validate_timestamps};
-pub(crate) use reader::ObjectReader;
 pub(super) use reader::ReaderData;
+pub(crate) use reader::{FrameLimit, ObjectFrames, ObjectReader};
 use reclaim::{JOURNAL_CONFLICT, live_journal_error};
 pub(super) use reclaim::{
     Journaled, StagedBlob, blob_referenced, journal_deletion, journal_new_deletion, reclaim,

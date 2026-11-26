@@ -154,8 +154,9 @@ and excess connections wait. Header validation and the known Content-Length cap
 check precede upload tracking. Shutdown closes tracking admission and waits for
 the active count to reach zero through notification after publication or cleanup.
 Each upload uses two channel slots with chunks of at most 64 KiB, incremental
-MD5/CRC32C and asynchronous short file jobs. Downloads use one channel slot and a 64 KiB
-reader. Neither a database transaction nor a blocking worker is held waiting for body input.
+MD5/CRC32C and asynchronous short file jobs. HTTP downloads and gRPC `ReadObject`
+pull frames from the open generation when the connection can send them.
+Neither a database transaction nor a blocking worker is held waiting for body input.
 Catalog admission keeps 32 slots with one executing SQLite job, and a call past them waits its
 turn instead of failing. Nothing in the catalog times out: a handler bounds the wait with its
 own deadline, a dropped caller gives up its place without using a slot, and closing the catalog
@@ -341,8 +342,10 @@ page cache holds, which the kernel guarantees cannot wait for storage. Anything 
 a blocking read. A full cache admits nothing further until the next write instead of evicting,
 because a sweep over more objects than fit defeats a recency policy entirely.
 
-A response body is pulled by the connection instead of pushed by a task, so a slow client holds at
-most one frame of 256 KiB, or 1 MiB while more than that remains. gRPC keeps its 64 KiB chunks.
+HTTP and gRPC `ReadObject` share a frame reader. HTTP reads up to 256 KiB, or 1 MiB while
+more than that remains. `ReadObject` reads up to 256 KiB per message. Dropping the response releases
+its reader and cancels a queued read. A positional read already executing in the OS releases
+its descriptor when that call returns.
 File content I/O, publication/removal and gzip decoding stay on the
 runtime's bounded blocking pool, so a saturated pool cannot hold the execution permit
 while catalog work waits for a pool thread. A serialized metadata job may pin an

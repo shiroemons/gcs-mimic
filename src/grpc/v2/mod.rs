@@ -175,7 +175,7 @@ macro_rules! storage_methods {
 
         #[tonic::async_trait]
         impl pb::storage_server::Storage for Storage {
-            type ReadObjectStream = ResponseStream<pb::ReadObjectResponse>;
+            type ReadObjectStream = object_io::ReadObjectStream;
             type BidiReadObjectStream = ResponseStream<pb::BidiReadObjectResponse>;
             type BidiWriteObjectStream = ResponseStream<pb::BidiWriteObjectResponse>;
 

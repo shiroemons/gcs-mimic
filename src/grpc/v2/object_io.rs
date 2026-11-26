@@ -29,6 +29,7 @@ mod upload_id;
 mod write;
 
 pub(super) use object_mask::ObjectField;
+pub(crate) use read::ReadObjectStream;
 pub(super) use step::{
     DeclaredChecksums, FirstMessage, Flush, Lookup, MessageError, NegativeOffset, StepEnd,
     VerifiedChunk, WriteStep, next_step,

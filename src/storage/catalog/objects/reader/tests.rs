@@ -1,5 +1,33 @@
 use super::*;
 
+#[test]
+fn cancelling_a_queued_frame_read_releases_the_file_before_a_worker_is_free() {
+    use std::task::{Context, Waker};
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let (release, blocked) = std::sync::mpsc::channel();
+        let worker = tokio::task::spawn_blocking(move || blocked.recv());
+        let dir = crate::test_support::TestDir::new();
+        let file = Arc::new(File::create(dir.0.join("blob")).unwrap());
+        let descriptor = Arc::downgrade(&file);
+        let mut reader = ObjectReader::bounded_for_test(file, 1);
+        let mut read = Box::pin(async move { reader.next_frame(FrameLimit::Grpc).await });
+        assert!(
+            read.as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+        drop(read);
+        assert!(descriptor.upgrade().is_none());
+        release.send(()).unwrap();
+        worker.await.unwrap().unwrap();
+    });
+}
+
 /// A small object or a gRPC chunk must hold no more than its own bytes, and no read may outgrow
 /// the largest buffer.
 #[test]

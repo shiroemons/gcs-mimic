@@ -26,6 +26,44 @@ fn config() -> Config {
     }
 }
 
+pub(super) async fn assert_body_panic_resets_stream(body: tonic::body::Body, message: &str) {
+    let body = std::sync::Mutex::new(Some(body));
+    let (mut client, _stop, task) = start(move |_| {
+        std::future::ready(Ok(hyper::Response::new(
+            body.lock().unwrap().take().unwrap(),
+        )))
+    })
+    .await;
+    handshake(&mut client).await;
+    request(&mut client, 1).await;
+    timeout(DEADLINE * 20, async {
+        loop {
+            let (kind, flags, data) = frame(&mut client).await.unwrap();
+            if kind == 3 {
+                break;
+            }
+            assert!(
+                !matches!(kind, 0 | 1) || flags & 1 == 0,
+                "unexpected clean end of stream"
+            );
+            acknowledge(&mut client, kind, flags, &data).await;
+        }
+    })
+    .await
+    .unwrap();
+    eventually_async(
+        "the response body panic to reach the stream supervisor",
+        || async {
+            crate::task::tests::reported_panics(STREAM_TASK)
+                .iter()
+                .any(|panic| panic.contains(message))
+        },
+    )
+    .await;
+    drop(client);
+    task.await.unwrap();
+}
+
 async fn start<S, F>(service: S) -> (TcpStream, watch::Sender<bool>, JoinHandle<()>)
 where
     S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,

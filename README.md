@@ -286,7 +286,7 @@ signer and CI.
 - **Able to say no.** Strict mode keeps private buckets private and rejects bad
   signed URLs, so a permissions bug fails on your laptop instead of in
   production.
-- **Careful with your bytes.** Bodies stream in 64 KiB chunks, so memory does
+- **Careful with your bytes.** Bodies stream in bounded chunks, so memory does
   not grow with object size. Data and unfinished resumable uploads survive a
   restart.
 

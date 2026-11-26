@@ -43,7 +43,7 @@ CancelResumableWrite は、JSON の session URI への DELETE と同じカタロ
 - 別の書き込みが session を使用中ならサーバーでは `catalog_wait_timeout_ms` まで待ち（組み込みのカタログは待ちません）、それでも解放されなければ再試行できる UNAVAILABLE で、session は変わりません。
 - strict では `storage.objects.create` が必要で、viewer は PERMISSION_DENIED、匿名は UNAUTHENTICATED になり、session はそのまま残ります。session を作った本人である必要はなく、この権限を持つ別の呼び出し元（たとえば`roles/storage.objectUser`）も取り消せます。使用中の取消の UNAVAILABLE と、作成者以外の取消は Google が定めていないため、ローカルで選んだ挙動です。
 
-本文の送受信は上限付きで、本文全体を集約しません。既存の 4 MiB の受信メッセージ制限、64 KiB の本文チャンク、max_object_bytes を使い、新しい設定は追加しません。ListObjects のページは約 2 MiB で区切って次ページのトークンを返し、進むように必ず 1 件を含みます。単発書き込みは resumable session の保存枠を使いません。
+本文の送受信は上限付きで、本文全体を集約しません。受信メッセージの上限は 4 MiB です。ReadObject は 1 メッセージにつき最大 256 KiB を返し、アップロードは 64 KiB ずつ渡します。オブジェクトサイズには既存の max_object_bytes を適用します。ListObjects のページは約 2 MiB で区切って次ページのトークンを返し、進むように必ず 1 件を含みます。単発書き込みは resumable session の保存枠を使いません。
 
 ## 読み取りの mask と順序
 

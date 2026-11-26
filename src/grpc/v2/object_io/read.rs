@@ -8,7 +8,11 @@ use crate::grpc::{
     },
     validate::{ByteRange, RangeError},
 };
-use crate::storage::ReadableMetadata;
+use crate::storage::{FrameLimit, ObjectFrames, ReadableMetadata};
+use std::{
+    pin::Pin,
+    task::{Context, Poll, ready},
+};
 
 /// Cloud Storage names the object and its size when a read starts past the end;
 /// [`read_range`] keeps the generic bound check.
@@ -139,6 +143,35 @@ impl ResponseField {
 enum DataChecksum {
     Sent,
     Omitted,
+}
+
+pub(crate) struct ReadObjectStream {
+    frames: ObjectFrames,
+    first: Option<pb::ReadObjectResponse>,
+    checksum: DataChecksum,
+}
+
+impl Stream for ReadObjectStream {
+    type Item = Result<pb::ReadObjectResponse, Status>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let bytes = match ready!(self.frames.poll_next(cx, FrameLimit::Grpc)) {
+            Some(Ok(bytes)) => bytes,
+            Some(Err(error)) => {
+                self.first.take();
+                return Poll::Ready(Some(Err(read_failure(error))));
+            }
+            // An empty object still sends the first message, with metadata and an empty payload.
+            None if self.first.is_some() => Default::default(),
+            None => return Poll::Ready(None),
+        };
+        let mut response = self.first.take().unwrap_or_default();
+        response.checksummed_data = Some(pb::ChecksummedData {
+            crc32c: self.checksum.of(&bytes),
+            content: bytes,
+        });
+        Poll::Ready(Some(Ok(response)))
+    }
 }
 
 impl DataChecksum {
@@ -359,7 +392,7 @@ impl Storage {
         &self,
         request: Request<pb::ReadObjectRequest>,
         caller: Option<Caller<'_>>,
-    ) -> Result<Response<ResponseStream<pb::ReadObjectResponse>>, Status> {
+    ) -> Result<Response<ReadObjectStream>, Status> {
         let r = request.into_inner();
         let key = customer_key::key(r.common_object_request_params.as_ref())?;
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
@@ -381,8 +414,8 @@ impl Storage {
             .first_read_metadata(caller, &record, finality, mask)
             .await?;
         let mut first = pb::ReadObjectResponse {
-            metadata: Some(object.clone()),
-            object_checksums: object.checksums,
+            object_checksums: object.checksums.clone(),
+            metadata: Some(object),
             content_range: (r.read_offset != 0 || r.read_limit != 0).then_some(pb::ContentRange {
                 start: crate::grpc::convert::signed(range.start, "read range start")?,
                 end: crate::grpc::convert::signed(
@@ -396,33 +429,11 @@ impl Storage {
             ..Default::default()
         };
         first_mask.apply(&mut first);
-        let checksum = first_mask.data_checksum;
-        let (tx, rx) = mpsc::channel(1);
-        crate::task::spawn_supervised("grpc-read-object", async move {
-            // Cloud Storage ends the stream after the last data message instead of appending an
-            // empty one (observed 2026-11-01); an empty object still gets its metadata message.
-            let mut pending = Some(first);
-            loop {
-                let (bytes, done) = match reader.next_chunk().await {
-                    Ok(Some(bytes)) => (bytes, false),
-                    Ok(None) if pending.is_some() => (Default::default(), true),
-                    Ok(None) => break,
-                    Err(error) => {
-                        let _ = tx.send(Err(read_failure(error))).await;
-                        break;
-                    }
-                };
-                let mut response = pending.take().unwrap_or_default();
-                response.checksummed_data = Some(pb::ChecksummedData {
-                    crc32c: checksum.of(&bytes),
-                    content: bytes,
-                });
-                if tx.send(Ok(response)).await.is_err() || done {
-                    break;
-                }
-            }
-        });
-        Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
+        Ok(Response::new(ReadObjectStream {
+            frames: ObjectFrames::Idle(reader),
+            first: Some(first),
+            checksum: first_mask.data_checksum,
+        }))
     }
     pub(in crate::grpc::v2) async fn list_objects(
         &self,

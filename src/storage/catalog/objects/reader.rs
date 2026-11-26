@@ -1,5 +1,10 @@
 use super::*;
 
+mod frames;
+pub(crate) use frames::{FrameLimit, ObjectFrames};
+
+const GRPC_FRAME_BYTES: usize = 256 * 1024;
+
 /// A size of read buffer and the spare ones kept for reuse. A reused buffer skips the allocation
 /// and the zero-filling that every frame would otherwise repeat. More in-flight reads than a pool
 /// keeps simply allocate.
@@ -121,6 +126,35 @@ fn read_chunk(file: &File, offset: u64, capacity: usize) -> io::Result<Bytes> {
     Ok(Bytes::from_owner(buffer))
 }
 
+struct PendingRead(tokio::task::AbortHandle);
+
+impl Drop for PendingRead {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// A queued read must not pin the blob after its client leaves. A read already inside
+/// the OS owns the descriptor only until that single positional read returns.
+async fn read_on_pool(file: &Arc<File>, offset: u64, capacity: usize) -> io::Result<Bytes> {
+    use crate::task::{BlockingFailed, spawn_blocking_on};
+
+    let file = Arc::downgrade(file);
+    let job = spawn_blocking_on(
+        &tokio::runtime::Handle::current(),
+        "object-read",
+        move || {
+            let file = file.upgrade().ok_or(io::ErrorKind::Interrupted)?;
+            read_chunk(&file, offset, capacity)
+        },
+    );
+    let _pending = PendingRead(job.abort_handle());
+    job.await
+        .map_err(BlockingFailed::Cancelled)
+        .and_then(|result| result.map_err(BlockingFailed::Panicked))
+        .map_err(io::Error::other)?
+}
+
 /// Reads up to `capacity` bytes at `offset` if the page cache holds them, without ever waiting for
 /// storage, so an async worker may call it. That saves the two thread wakeups of a blocking read,
 /// which cost more than the copy. It may return fewer bytes than asked for.
@@ -170,8 +204,8 @@ impl ObjectReader {
 
     /// Wraps an arbitrary file so server tests can exercise reader failures.
     #[cfg(test)]
-    pub(crate) fn bounded_for_test(file: File, remaining: u64) -> Self {
-        Self::bounded_data(ReaderData::Disk(Arc::new(file)), remaining)
+    pub(crate) fn bounded_for_test(file: impl Into<Arc<File>>, remaining: u64) -> Self {
+        Self::bounded_data(ReaderData::Disk(file.into()), remaining)
     }
 
     /// A reader over a generation the read cache keeps open.
@@ -195,24 +229,28 @@ impl ObjectReader {
         }
     }
 
-    /// How much the next HTTP frame carries, or nothing when no bytes remain. Measured on 1 MiB and
+    /// How much the next frame carries, or nothing when no bytes remain. Measured on 1 MiB and
     /// 10 MiB objects, frames of 1 MiB sent the large object fastest and frames of 256 KiB the
     /// smaller one, so the large size applies only while more than one large frame remains.
-    fn frame_capacity(&self) -> Option<usize> {
+    fn frame_capacity(&self, limit: FrameLimit) -> Option<usize> {
         let large = LARGE_BUFFERS.buffer_bytes as u64;
-        let capacity = if self.remaining > large {
-            large
-        } else {
-            self.remaining.min(SMALL_BUFFERS.buffer_bytes as u64)
+        let maximum = match limit {
+            FrameLimit::Grpc => GRPC_FRAME_BYTES as u64,
+            FrameLimit::Http if self.remaining > large => large,
+            FrameLimit::Http => SMALL_BUFFERS.buffer_bytes as u64,
         };
-        usize::try_from(capacity).ok().filter(|size| *size > 0)
+        usize::try_from(self.remaining.min(maximum))
+            .ok()
+            .filter(|size| *size > 0)
     }
 
     /// Reads the body's start on the calling thread, which must be one that may block: a pooled
     /// catalog reader, already away from the async workers. A failure only skips the read-ahead;
     /// the streaming read reports it where a client can tell it from a missing object.
     pub(in crate::storage::catalog) fn read_ahead(&mut self) {
-        let (ReaderData::Disk(file), Some(capacity)) = (&self.file, self.frame_capacity()) else {
+        let (ReaderData::Disk(file), Some(capacity)) =
+            (&self.file, self.frame_capacity(FrameLimit::Http))
+        else {
             return;
         };
         self.head = read_chunk(file, self.position, capacity).ok();
@@ -233,7 +271,9 @@ impl ObjectReader {
     /// Fetches the body's start only if that cannot wait for storage, so any thread may call it.
     /// Bytes that are not in the page cache are left to the streaming read.
     pub(in crate::storage::catalog) fn read_ahead_cached(&mut self) {
-        let (ReaderData::Disk(file), Some(capacity)) = (&self.file, self.frame_capacity()) else {
+        let (ReaderData::Disk(file), Some(capacity)) =
+            (&self.file, self.frame_capacity(FrameLimit::Http))
+        else {
             return;
         };
         self.head = read_cached_chunk(file, self.position, capacity);
@@ -256,13 +296,13 @@ impl ObjectReader {
         bytes
     }
 
-    /// The next bytes of an HTTP body if getting them cannot wait for storage, so an async worker
+    /// The next frame if getting it cannot wait for storage, so an async worker
     /// may call this. `None` leaves the reader where it was, for [`Self::next_frame`] to go on.
-    pub(crate) fn next_frame_at_hand(&mut self) -> Option<Bytes> {
-        let bytes = if let Some(head) = self.head.take() {
+    pub(super) fn next_frame_at_hand(&mut self, limit: FrameLimit) -> Option<Bytes> {
+        let capacity = self.frame_capacity(limit)?;
+        let bytes = if let Some(head) = self.take_head(capacity) {
             head
         } else {
-            let capacity = self.frame_capacity()?;
             match &mut self.file {
                 ReaderData::Disk(file) => read_cached_chunk(file, self.position, capacity)?,
                 ReaderData::Memory(reader) => reader.next_chunk(capacity)?,
@@ -271,11 +311,11 @@ impl ObjectReader {
         Some(self.advance(bytes))
     }
 
-    /// The next bytes of an HTTP body, after [`Self::next_frame_at_hand`] found none, so this goes
+    /// The next frame after [`Self::next_frame_at_hand`] found none, so this goes
     /// straight to a blocking read. A frame may be larger than [`Self::next_chunk`] allows,
     /// because each one costs a socket write and, for bytes not yet cached, two thread wakeups.
-    pub(crate) async fn next_frame(&mut self) -> io::Result<Option<Bytes>> {
-        let Some(limit) = self.frame_capacity() else {
+    pub(super) async fn next_frame(&mut self, limit: FrameLimit) -> io::Result<Option<Bytes>> {
+        let Some(limit) = self.frame_capacity(limit) else {
             return Ok(None);
         };
         self.next_bytes(limit, PageCache::Missed).await
@@ -341,6 +381,14 @@ impl ObjectReader {
         self.next_bytes(CHUNK_SIZE, PageCache::Try).await
     }
 
+    fn take_head(&mut self, capacity: usize) -> Option<Bytes> {
+        let mut head = self.head.take()?;
+        if head.len() > capacity {
+            self.head = Some(head.split_off(capacity));
+        }
+        Some(head)
+    }
+
     async fn next_bytes(
         &mut self,
         limit: usize,
@@ -351,10 +399,7 @@ impl ObjectReader {
         }
         let limit = self.remaining.min(limit as u64);
         let capacity = usize::try_from(limit).map_err(io::Error::other)?;
-        let bytes = if let Some(mut head) = self.head.take() {
-            if head.len() > capacity {
-                self.head = Some(head.split_off(capacity));
-            }
+        let bytes = if let Some(head) = self.take_head(capacity) {
             head
         } else {
             match &mut self.file {
@@ -370,12 +415,7 @@ impl ObjectReader {
                     if let Some(bytes) = cached {
                         bytes
                     } else {
-                        let file = file.clone();
-                        crate::task::run_blocking("object-read", move || {
-                            read_chunk(&file, offset, capacity)
-                        })
-                        .await
-                        .map_err(io::Error::other)??
+                        read_on_pool(file, offset, capacity).await?
                     }
                 }
             }

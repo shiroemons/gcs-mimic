@@ -13,6 +13,63 @@ const BUCKET: &str = "projects/_/buckets/grpc-io";
 const KEY: [u8; 32] = [3; 32];
 const OTHER: [u8; 32] = [4; 32];
 
+#[tokio::test]
+async fn an_empty_read_sends_one_message_and_only_the_first_message_has_metadata() {
+    let (_dir, storage) = setup(false).await;
+    for size in [0, 1024 * 1024 + 1] {
+        let bytes = vec![42; size];
+        put_keyed(&storage.state.catalog, "grpc-io", "frames", &bytes, None).await;
+        let messages = read(&storage, read_request("frames", None)).await.unwrap();
+        let (first, rest) = messages.split_first().unwrap();
+        assert_eq!(first.metadata.as_ref().unwrap().size, size as i64);
+        assert_eq!(
+            first.checksummed_data.as_ref().unwrap().content.is_empty(),
+            size == 0
+        );
+        assert_eq!(rest.is_empty(), size == 0);
+        assert!(
+            rest.iter()
+                .all(|message| message.metadata.is_none() && message.object_checksums.is_none())
+        );
+        assert_eq!(body(&messages), bytes);
+    }
+    storage.state.catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn dropping_a_partial_read_releases_the_generation_immediately() {
+    let dir = crate::test_support::TestDir::new();
+    let path = dir.0.join("blob");
+    std::fs::write(&path, vec![7; 1024 * 1024]).unwrap();
+    let file = std::sync::Arc::new(std::fs::File::open(path).unwrap());
+    let descriptor = std::sync::Arc::downgrade(&file);
+    let reader = crate::storage::ObjectReader::bounded_for_test(file, 1024 * 1024);
+    let mut stream = ReadObjectStream {
+        frames: ObjectFrames::Idle(reader),
+        first: Some(Default::default()),
+        checksum: DataChecksum::Omitted,
+    };
+    let first = stream.next().await.unwrap().unwrap();
+    assert!(first.checksummed_data.unwrap().content.len() < 1024 * 1024);
+    drop(stream);
+    assert!(descriptor.upgrade().is_none());
+}
+
+#[tokio::test]
+async fn a_panicking_read_resets_its_http2_stream() {
+    use tonic::codec::{Codec, EncodeBody};
+    const PANIC: &str = "injected ReadObject poll panic";
+    let stream = ReadObjectStream {
+        frames: ObjectFrames::Reading(Box::pin(async { panic!("{PANIC}") })),
+        first: Some(Default::default()),
+        checksum: DataChecksum::Sent,
+    };
+    let encoder =
+        tonic_prost::ProstCodec::<pb::ReadObjectResponse, pb::ReadObjectRequest>::new().encoder();
+    let body = EncodeBody::new_server(encoder, stream, None, Default::default(), None);
+    crate::grpc::tests::assert_body_panic_resets_stream(tonic::body::Body::new(body), PANIC).await;
+}
+
 async fn get(
     storage: &Storage,
     object: &str,

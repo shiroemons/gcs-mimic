@@ -7,7 +7,7 @@
 //! A client that stops reading stops the polling, so nothing is read ahead of it.
 
 use super::{ObjectActivity, record_progress};
-use crate::storage::ObjectReader;
+use crate::storage::{FrameLimit, ObjectFrames, ObjectReader};
 use bytes::Bytes;
 use hyper::body::{Body, Frame};
 use std::{
@@ -17,24 +17,15 @@ use std::{
 };
 use tokio::sync::watch;
 
-type Read = Pin<Box<dyn Future<Output = (ObjectReader, io::Result<Option<Bytes>>)> + Send>>;
-
-enum State {
-    Idle(ObjectReader),
-    /// The bytes were not at hand, so a blocking read owns the reader until it returns it.
-    Reading(Read),
-    Finished,
-}
-
 pub(super) struct ObjectBody {
-    state: State,
+    frames: ObjectFrames,
     activity: watch::Sender<ObjectActivity>,
 }
 
 impl ObjectBody {
     pub(super) fn new(reader: ObjectReader, activity: watch::Sender<ObjectActivity>) -> Self {
         Self {
-            state: State::Idle(reader),
+            frames: ObjectFrames::Idle(reader),
             activity,
         }
     }
@@ -66,47 +57,18 @@ impl Body for ObjectBody {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Bytes>, io::Error>>> {
         let this = self.get_mut();
-        let mut read = match std::mem::replace(&mut this.state, State::Finished) {
-            State::Finished => return Poll::Ready(None),
-            State::Reading(read) => read,
-            State::Idle(mut reader) => {
-                if reader.is_finished() {
-                    return Poll::Ready(None);
-                }
-                if let Some(bytes) = reader.next_frame_at_hand() {
-                    this.state = State::Idle(reader);
-                    return Poll::Ready(Some(Ok(this.data_frame(bytes))));
-                }
-                Box::pin(async move {
-                    let result = reader.next_frame().await;
-                    (reader, result)
-                })
-            }
-        };
-        match read.as_mut().poll(cx) {
-            Poll::Pending => {
-                this.state = State::Reading(read);
-                Poll::Pending
-            }
-            Poll::Ready((reader, Ok(Some(bytes)))) => {
-                this.state = State::Idle(reader);
-                Poll::Ready(Some(Ok(this.data_frame(bytes))))
-            }
-            Poll::Ready((_, Ok(None))) => Poll::Ready(None),
-            Poll::Ready((_, Err(error))) => {
-                report_read_failure(&error);
-                Poll::Ready(Some(Err(error)))
-            }
-        }
+        this.frames.poll_next(cx, FrameLimit::Http).map(|item| {
+            item.map(|result| {
+                result
+                    .inspect_err(report_read_failure)
+                    .map(|bytes| this.data_frame(bytes))
+            })
+        })
     }
 
     /// Lets hyper finish a response in the same write as its last frame.
     fn is_end_stream(&self) -> bool {
-        match &self.state {
-            State::Idle(reader) => reader.is_finished(),
-            State::Reading(_) => false,
-            State::Finished => true,
-        }
+        self.frames.is_finished()
     }
 }
 

@@ -757,9 +757,12 @@ async fn drain(reader: &mut ObjectReader) -> Vec<u8> {
 #[test]
 fn a_read_ahead_holds_a_small_object_whole() {
     let (_dir, contents, mut reader) = read_ahead_fixture(100 * 1024);
-    assert_eq!(reader.next_frame_at_hand().unwrap(), contents);
+    assert_eq!(
+        reader.next_frame_at_hand(FrameLimit::Http).unwrap(),
+        contents
+    );
     assert!(reader.is_finished());
-    assert!(reader.next_frame_at_hand().is_none());
+    assert!(reader.next_frame_at_hand(FrameLimit::Http).is_none());
 }
 
 #[test]
@@ -800,7 +803,12 @@ async fn a_chunk_stays_small_and_a_frame_may_be_larger() {
     );
     let mut reader = open();
     assert_eq!(
-        reader.next_frame().await.unwrap().unwrap().len(),
+        reader
+            .next_frame(FrameLimit::Http)
+            .await
+            .unwrap()
+            .unwrap()
+            .len(),
         1024 * 1024
     );
 }
@@ -811,7 +819,7 @@ async fn the_last_megabyte_goes_out_in_small_frames() {
     let (_dir, contents, mut reader) = read_ahead_fixture(1024 * 1024 + 7);
     let mut sizes = Vec::new();
     let mut bytes = Vec::new();
-    while let Some(frame) = reader.next_frame().await.unwrap() {
+    while let Some(frame) = reader.next_frame(FrameLimit::Http).await.unwrap() {
         sizes.push(frame.len());
         bytes.extend_from_slice(&frame);
     }
@@ -820,7 +828,12 @@ async fn the_last_megabyte_goes_out_in_small_frames() {
     assert_eq!(sizes[1..], [7]);
     let (_dir, _contents, mut reader) = read_ahead_fixture(1024 * 1024);
     assert_eq!(
-        reader.next_frame().await.unwrap().unwrap().len(),
+        reader
+            .next_frame(FrameLimit::Http)
+            .await
+            .unwrap()
+            .unwrap()
+            .len(),
         256 * 1024
     );
 }
@@ -830,7 +843,9 @@ async fn a_frame_not_at_hand_leaves_the_reader_where_it_was() {
     let (_dir, contents, mut reader) = read_ahead_fixture(1024);
     reader.set_range(10, 20).unwrap();
     // Whether the page cache answered depends on the platform; the bytes must not.
-    let at_hand = reader.next_frame_at_hand().unwrap_or_default();
+    let at_hand = reader
+        .next_frame_at_hand(FrameLimit::Http)
+        .unwrap_or_default();
     assert_eq!(at_hand, contents[10..10 + at_hand.len()]);
     assert_eq!(drain(&mut reader).await, contents[10 + at_hand.len()..30]);
 }

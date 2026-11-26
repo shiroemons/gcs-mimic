@@ -666,13 +666,13 @@ live blob (`publish_pinned`).
     gets one message.
   - `ObjectReader` takes a two-variant `FrameLimit { Http, Grpc }`, so both
     protocols share one implementation.
-- **Cancellation.** It drops the stream, and no task or file outlives it.
-  Today the task reads one more chunk after a cancel.
+- **Cancellation.** Dropping the stream releases its reader and cancels a queued
+  read. A positional read already executing in the OS holds its file until that
+  call returns. There is no producer to read another chunk after cancellation.
 - **Panics.** A panic resets the HTTP/2 stream through the supervised executor.
-  Today the client can see a short read that ends cleanly.
-- **Message size.** It stays 64 KiB unless the measured run (one 1 GiB
-  `ReadObject` over h2c at 64 KiB and 256 KiB, with RSS at 32 streams) shows a
-  gain. Adopting a larger size updates the memory estimate in `src/grpc/mod.rs`.
+- **Message size.** `ReadObject` uses up to 256 KiB per message. In a single
+  1 GiB h2c read, 256 KiB took 1.57 server CPU seconds against 2.27 at 64 KiB.
+  Server RSS with 32 concurrent streams rose from 21,728 KiB to 34,928 KiB.
 - **Boxing.** The response body is boxed once instead of twice.
 - **Scope.** `BidiReadObject` stays push-based.
 

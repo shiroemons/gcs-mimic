@@ -41,8 +41,8 @@ pub(crate) use catalog::{
 pub(crate) use catalog::{CopyReplaySource, ReplayInvocation, UploadCheck};
 pub(crate) use catalog::{DerivedDestination, DerivedRequestGuard, DerivedSource, DerivedTransfer};
 pub(crate) use catalog::{
-    FoldersAsPrefixes, ListQueryError, ObjectListCursor, ObjectListPage, ObjectListQuery,
-    ObjectReader,
+    FoldersAsPrefixes, FrameLimit, ListQueryError, ObjectFrames, ObjectListCursor, ObjectListPage,
+    ObjectListQuery, ObjectReader,
 };
 pub(crate) use catalog::{MoveAccess, MoveConditions, MoveNames, ObjectUpload, RestoreAccess};
 pub(crate) use catalog::{ResumableOptions, SessionState};

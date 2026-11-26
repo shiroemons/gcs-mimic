@@ -135,6 +135,13 @@ struct Activity {
 #[must_use = "dropping the guard marks the stream inactive"]
 struct StreamGuard(watch::Sender<Activity>);
 
+impl StreamGuard {
+    fn progress(&self) {
+        self.0
+            .send_modify(|activity| activity.last_frame = Instant::now());
+    }
+}
+
 impl Drop for StreamGuard {
     fn drop(&mut self) {
         self.0.send_modify(|activity| activity.streams -= 1);
@@ -155,6 +162,11 @@ impl hyper::body::Body for ResponseBody {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         let result = Pin::new(&mut self.body).poll_frame(cx);
+        if matches!(result, Poll::Ready(Some(Ok(_))))
+            && let Some(guard) = &self.active
+        {
+            guard.progress();
+        }
         if matches!(result, Poll::Ready(None | Some(Err(_)))) || self.body.is_end_stream() {
             self.active.take();
         }
@@ -268,12 +280,12 @@ fn http2_builder(config: &Config) -> http2::Builder<SupervisedExecutor> {
     // stream, which hyper resets.
     let mut builder = http2::Builder::new(SupervisedExecutor::new(STREAM_TASK));
     // What a stream can hold is bounded, but only per stream, so a connection's ceiling grows
-    // with the stream limit. An object read holds this buffer and one 64 KiB frame, about 13 MiB
-    // across 100 streams. HTTP/2 flow control limits unreleased input to 1 MiB per connection,
-    // but tonic releases it into a message of up to 4 MiB per stream, so 100 streams carrying
-    // that size at once could reach 400 MiB. Each stream also holds its encoded response until the
-    // client takes it: list pages stay near 2 MiB or hold one bucket, and only a bucket resource
-    // that large takes more, up to the response limit in `v2`. A lower max_grpc_streams brings
+    // with the stream limit. ReadObject holds this 64 KiB send buffer and a frame of up to
+    // 256 KiB, about 31 MiB across 100 streams. HTTP/2 flow control limits unreleased input
+    // to 1 MiB per connection, but tonic releases it into a message of up to 4 MiB per stream,
+    // so 100 streams carrying that size could reach 400 MiB. Each stream also holds its encoded
+    // response until the client takes it: list pages stay near 2 MiB or hold one bucket, and only
+    // a bucket that large takes more, up to the response limit in `v2`. A lower max_grpc_streams brings
     // all of that down.
     builder
         .max_concurrent_streams(config.max_grpc_streams.get())
@@ -306,7 +318,6 @@ where
     });
     let guard = StreamGuard(active.clone());
     let incoming = active.clone();
-    let outgoing = active.clone();
     let request = request.map(|body| {
         tonic::body::Body::new(body.map_frame(move |frame| {
             incoming.send_modify(|activity| activity.last_frame = Instant::now());
@@ -316,12 +327,9 @@ where
     let response = service(request);
     async move {
         let response = response.await?;
-        outgoing.send_modify(|activity| activity.last_frame = Instant::now());
+        guard.progress();
         Ok::<_, Infallible>(response.map(|body| ResponseBody {
-            body: tonic::body::Body::new(body.map_frame(move |frame| {
-                outgoing.send_modify(|activity| activity.last_frame = Instant::now());
-                frame
-            })),
+            body,
             active: Some(guard),
         }))
     }

@@ -254,8 +254,9 @@ waiting for capacity in the listen backlog (requested at 1024; macOS lowers it t
 can be [reset by the kernel](evidence/zero-config-defaults.md#simultaneous-connections-on-macos)).
 There is no separate upload admission cap. Each upload uses
 a two-slot channel with at most 64 KiB
-per chunk, and independent size checks before publication. Downloads use one channel
-slot and a 64 KiB reader. No transaction or blocking worker waits for incoming body data.
+per chunk, and independent size checks before publication. HTTP downloads and gRPC
+`ReadObject` pull frames from the selected generation as the connection can send them.
+No transaction or blocking worker waits for incoming body data.
 Unknown routes return 404 without body reads; probes retain
 GET/HEAD support and body rejection. Catalog work has 32 admission slots that later calls
 wait for, one
