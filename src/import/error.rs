@@ -180,6 +180,18 @@ impl From<DefaultBucketError> for ImportError {
         Self::Invalid(Cow::Borrowed(message))
     }
 }
+impl From<ResumeError> for ImportError {
+    fn from(error: ResumeError) -> Self {
+        match error {
+            ResumeError::Catalog(CatalogError::PreconditionFailed) => Self::OtherImport,
+            ResumeError::Catalog(error) => Self::Catalog(error),
+            refusal @ ResumeError::PermanentlyFailed { .. } => Self::Resume(refusal),
+            #[cfg(not(unix))]
+            refusal @ ResumeError::MissingLock => Self::Resume(refusal),
+        }
+    }
+}
+
 impl From<CatalogError> for ImportError {
     fn from(error: CatalogError) -> Self {
         Self::Catalog(error)

@@ -5,7 +5,6 @@ use super::{
     Page, Record, SourceChange, Summary, codec, scan_with_baseline,
 };
 use crate::{
-    bucket::CatalogError,
     fsutil::IdentityField,
     storage::{
         Catalog,
@@ -374,9 +373,7 @@ async fn run(
         Some(metadata_scan(options, baseline, BaselineMode::Record, diagnostics).await?)
     };
     let catalog = if start == ImportStart::Resume {
-        Catalog::resume_import(&options.destination, source)
-            .await
-            .map_err(resume_error)?
+        Catalog::resume_import(&options.destination, source).await?
     } else {
         Catalog::open(&options.destination).await?
     };
@@ -450,26 +447,6 @@ async fn run(
         (Ok(_), Err(error)) => Err(error.into()),
         (Err(original), Err(close)) => Err(original.with_cleanup(CleanupOperation::Catalog, close)),
     }
-}
-
-/// Names the refusal a resume reports. `Catalog::resume_import` carries the journal's refusal
-/// as a typed source of a catalog failure, so this is where it is read back.
-fn resume_error(error: CatalogError) -> ImportError {
-    if matches!(error, CatalogError::PreconditionFailed) {
-        return ImportError::OtherImport;
-    }
-    let refusal = crate::storage::failure::chain(crate::storage::failure::Link::Typed(&error))
-        .find_map(crate::storage::failure::Link::resume_refusal)
-        .and_then(|refusal| match refusal {
-            ResumeError::PermanentlyFailed { reason } => Some(ResumeError::PermanentlyFailed {
-                reason: reason.clone(),
-            }),
-            #[cfg(not(unix))]
-            ResumeError::MissingLock => Some(ResumeError::MissingLock),
-            // A catalog failure the journal met is reported as that failure.
-            ResumeError::Catalog(_) => None,
-        });
-    refusal.map_or_else(|| error.into(), ImportError::Resume)
 }
 
 /// Whether a failure of the import itself is recorded in the journal, so that a resume refuses

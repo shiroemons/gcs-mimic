@@ -93,7 +93,7 @@ async fn import_resume_checks_the_binding_before_schema_migration_and_recovery()
         std::fs::write(&stage, b"keep until authorized recovery").unwrap();
         assert!(matches!(
             Catalog::resume_import(&dir.0, [9; 32]).await,
-            Err(CatalogError::PreconditionFailed)
+            Err(ResumeError::Catalog(CatalogError::PreconditionFailed))
         ));
         assert_eq!(std::fs::read(&path).unwrap(), before);
         assert_eq!(dir.0.join("catalog.lock").exists(), lock_present);

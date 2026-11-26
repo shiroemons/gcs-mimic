@@ -66,21 +66,17 @@ fn permanently_failed() -> ResumeError {
     }
 }
 
-/// A resume reads the journal's refusal back from the catalog failure that carries it, and a
-/// catalog failure the journal met is not a refusal.
+/// Public conversion preserves the journal refusal itself and unwraps real catalog failures.
 #[test]
-fn resume_refusals_are_found_in_the_catalog_failures_that_carry_them() {
+fn catalog_conversion_keeps_a_refusal_and_preserves_a_catalog_failure() {
     let refused = CatalogError::from(permanently_failed());
     assert_matches!(
-        chain(Link::Typed(&refused)).find_map(Link::resume_refusal),
+        refused.source().unwrap().downcast_ref::<ResumeError>(),
         Some(ResumeError::PermanentlyFailed { .. })
     );
     let failed = CatalogError::from(ResumeError::Catalog(CatalogError::Unavailable(closed())));
-    assert!(
-        chain(Link::Typed(&failed))
-            .find_map(Link::resume_refusal)
-            .is_none()
-    );
+    assert_eq!(failed, CatalogError::Unavailable(closed()));
+    assert!(failed.source().unwrap().is::<BackendFailure>());
 }
 
 /// The typed chain from `first` visits exactly the errors `source()` returns, node for node.

@@ -123,15 +123,6 @@ impl<'a> Link<'a> {
             None
         }
     }
-
-    /// The import journal refusal this link is, if it is one.
-    pub(crate) fn resume_refusal(self) -> Option<&'a ResumeError> {
-        if let Self::Resume(refusal) = self {
-            Some(refusal)
-        } else {
-            None
-        }
-    }
 }
 
 /// An error whose `source()` is derived from this typed link, so decisions that read the chain

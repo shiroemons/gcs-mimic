@@ -1,4 +1,5 @@
 use super::*;
+use import_journal::ResumeError;
 
 /// Bounds the parsed statements the catalog's single connection keeps. Request paths prepare
 /// about 150 distinct static SQL texts (some list and derived shapes are chosen at run time),
@@ -20,12 +21,7 @@ pub(super) const PUBLICATION_REQUESTS: u32 = 2;
 
 /// Where a catalog keeps its data, decided once at open.
 pub(super) enum Backing {
-    /// A data directory. `resume` is an unfinished import's source digest, verified under the
-    /// directory lock before migration and recovery.
-    Disk {
-        data_dir: PathBuf,
-        resume: Option<[u8; 32]>,
-    },
+    Disk(PathBuf),
     /// A volatile catalog with budgets for blob bytes and catalog database pages. `data_dir` is
     /// only the path the catalog reports: a server passes an empty one, and tests a directory
     /// that keeps their fault injection apart.
@@ -55,10 +51,7 @@ impl Backing {
     }
 
     pub(super) fn test_disk(data_dir: PathBuf) -> Self {
-        Self::Disk {
-            data_dir,
-            resume: None,
-        }
+        Self::Disk(data_dir)
     }
 }
 
@@ -86,30 +79,39 @@ fn open_storage(backing: Backing) -> Result<OpenedStorage, CatalogError> {
                 data_dir,
             })
         }
-        Backing::Disk { data_dir, resume } => {
+        Backing::Disk(data_dir) => {
             let data_dir = std::path::absolute(data_dir)?;
-            let backend = BlobBackend::Disk(data_dir.clone());
-            let path = data_dir.join("catalog.sqlite3");
-            let (lock, (version, readonly)) = if let Some(source) = resume {
-                lock::acquire_import(&data_dir, || {
-                    let (version, readonly) = inspect_catalog(&path)?;
-                    import_journal::verify_resume(&readonly, version, source)?;
-                    Ok((version, readonly))
-                })?
-            } else {
-                let lock = lock::acquire(&data_dir)?;
-                (lock, inspect_catalog(&path)?)
-            };
+            let lock = lock::acquire(&data_dir)?;
+            let (version, readonly) = inspect_catalog(&data_dir.join("catalog.sqlite3"))?;
             drop(readonly);
-            Ok(OpenedStorage {
-                backend,
-                lock: Some(lock),
-                stored_version: version,
-                connection: open_writable(&path)?,
-                data_dir,
-            })
+            open_locked_disk(data_dir, lock, version)
         }
     }
+}
+
+fn open_locked_disk(
+    data_dir: PathBuf,
+    lock: lock::DirectoryLock,
+    stored_version: i64,
+) -> Result<OpenedStorage, CatalogError> {
+    Ok(OpenedStorage {
+        connection: open_writable(&data_dir.join("catalog.sqlite3"))?,
+        backend: BlobBackend::Disk(data_dir.clone()),
+        lock: Some(lock),
+        stored_version,
+        data_dir,
+    })
+}
+
+fn resume_storage(data_dir: &Path, source: [u8; 32]) -> Result<OpenedStorage, ResumeError> {
+    let data_dir = std::path::absolute(data_dir).map_err(CatalogError::from)?;
+    let (lock, (version, readonly)) = lock::acquire_import(&data_dir, || {
+        let (version, readonly) = inspect_catalog(&data_dir.join("catalog.sqlite3"))?;
+        import_journal::verify_resume(&readonly, version, source)?;
+        Ok((version, readonly))
+    })?;
+    drop(readonly);
+    Ok(open_locked_disk(data_dir, lock, version)?)
 }
 
 #[cfg_attr(
@@ -338,10 +340,7 @@ impl Catalog {
         clock: Arc<dyn Clock>,
         local_admin: admin::LocalAdmin,
     ) -> Result<Self, CatalogError> {
-        let backing = Backing::Disk {
-            data_dir: data_dir.as_ref().to_owned(),
-            resume: None,
-        };
+        let backing = Backing::Disk(data_dir.as_ref().to_owned());
         Self::open_backend(backing, clock, local_admin).await
     }
 
@@ -349,19 +348,19 @@ impl Catalog {
     pub(crate) async fn resume_import(
         data_dir: &Path,
         source: [u8; 32],
-    ) -> Result<Self, CatalogError> {
-        Self::open_options(
-            Backing::Disk {
-                data_dir: data_dir.to_owned(),
-                resume: Some(source),
-            },
-            CatalogOptions {
-                principals: Some(principals::Profile::TrustedLocal),
-                ..CatalogOptions::embedded(Arc::new(SystemClock), admin::LocalAdmin::Disabled)
-            },
-        )
+    ) -> Result<Self, ResumeError> {
+        let data_dir = data_dir.to_owned();
+        let options = CatalogOptions {
+            principals: Some(principals::Profile::TrustedLocal),
+            ..CatalogOptions::embedded(Arc::new(SystemClock), admin::LocalAdmin::Disabled)
+        };
+        crate::task::run_blocking("catalog-open", move || {
+            let storage = resume_storage(&data_dir, source)?;
+            let recovered = RecoveredCatalog::recover_storage(storage, options)?;
+            Ok(recovered.start().map_err(CatalogOpenError::into_cause)?)
+        })
         .await
-        .map_err(CatalogOpenError::into_cause)
+        .map_err(CatalogError::from)?
     }
 
     /// Opens an isolated volatile catalog without reading or creating a data directory.
@@ -421,10 +420,7 @@ impl TryFrom<CatalogBacking<'_>> for Backing {
 
     fn try_from(backing: CatalogBacking<'_>) -> Result<Self, Self::Error> {
         Ok(match backing {
-            CatalogBacking::Disk(data_dir) => Backing::Disk {
-                data_dir: data_dir.to_owned(),
-                resume: None,
-            },
+            CatalogBacking::Disk(data_dir) => Backing::Disk(data_dir.to_owned()),
             CatalogBacking::Memory {
                 blob_bytes,
                 catalog_bytes,
@@ -473,7 +469,13 @@ impl RecoveredCatalog {
     }
 
     fn open(backing: Backing, options: CatalogOptions) -> Result<Self, CatalogError> {
-        let mut storage = open_storage(backing)?;
+        Self::recover_storage(open_storage(backing)?, options)
+    }
+
+    fn recover_storage(
+        mut storage: OpenedStorage,
+        options: CatalogOptions,
+    ) -> Result<Self, CatalogError> {
         upgrade_catalog(
             &mut storage.connection,
             storage.stored_version,

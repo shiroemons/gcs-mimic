@@ -1,5 +1,6 @@
 use crate::bucket::CatalogError;
 use crate::storage::failure::BackendCause;
+use crate::storage::import_journal::ResumeError;
 use std::{
     fs::{self, File, OpenOptions, TryLockError},
     io,
@@ -83,8 +84,8 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
 /// Directory ownership lets a valid resume restore its lock file after read-only inspection.
 pub(super) fn acquire_import<T>(
     data_dir: &Path,
-    inspect: impl FnOnce() -> Result<T, CatalogError>,
-) -> Result<(DirectoryLock, T), CatalogError> {
+    inspect: impl FnOnce() -> Result<T, ResumeError>,
+) -> Result<(DirectoryLock, T), ResumeError> {
     #[cfg(unix)]
     let mut lock = DirectoryLock {
         directory: None,
@@ -101,9 +102,9 @@ pub(super) fn acquire_import<T>(
             .open(lock_path(data_dir))
             .map_err(|error| {
                 if error.kind() == io::ErrorKind::NotFound {
-                    CatalogError::from(super::import_journal::ResumeError::MissingLock)
+                    ResumeError::MissingLock
                 } else {
-                    open_failure(error)
+                    ResumeError::Catalog(open_failure(error))
                 }
             })?;
         DirectoryLock {
