@@ -79,14 +79,13 @@ impl SeedBatch {
             })
             .await?;
         batch.clean_up_staged().await?;
-        if let Ok(outcome) = &outcome
-            && outcome.counts.published + outcome.counts.deleted > 0
-        {
+        let (outcome, journaled) = outcome?;
+        if outcome.counts.published + outcome.counts.deleted > 0 {
             // A replaced or deleted version may wait in a bucket that retains deletions.
             catalog.0.maintenance_wake.notify_one();
-            catalog.reclaim_after_commit().await;
         }
-        outcome
+        catalog.reclaim_if(journaled).await;
+        Ok(outcome)
     }
 
     /// The recorded names whose proof of absence a pass clears ([`SeedRecord::found`]): every
@@ -144,7 +143,7 @@ fn commit(
     found: &[RecordKey],
     pass: u64,
     mut counts: LiveCounts,
-) -> Result<LiveOutcome, AdminError> {
+) -> Result<(LiveOutcome, objects::Journaled), AdminError> {
     let transaction = sql::immediate(connection).map_err(objects_error)?;
     let now = super::super::recorded_instant(batch.admin.catalog.0.clock.now())?;
     check_guards(&transaction, SeedMode::Merge, now)?;
@@ -154,8 +153,24 @@ fn commit(
         ..
     } = walk;
     take_buckets(&transaction, batch, &mut counts, &mut problems)?;
-    replay_live_files(&transaction, batch, now, &mut counts, &mut problems)?;
-    replay_live_absences(&transaction, batch, pass, now, &mut counts, &mut problems)?;
+    let mut journaled = objects::Journaled::NOTHING;
+    replay_live_files(
+        &transaction,
+        batch,
+        now,
+        &mut counts,
+        &mut problems,
+        &mut journaled,
+    )?;
+    replay_live_absences(
+        &transaction,
+        batch,
+        pass,
+        now,
+        &mut counts,
+        &mut problems,
+        &mut journaled,
+    )?;
     counts.tombstones += replay_unproven(&transaction, batch, now, |bucket, name, reason| {
         problems.report(Some(&format!("{bucket}/{name}")), &reason);
     })?;
@@ -163,11 +178,14 @@ fn commit(
         seed_records::found(&transaction, bucket, name)?;
     }
     objects::commit_publication(transaction)?;
-    Ok(LiveOutcome {
-        complete,
-        counts,
-        problems,
-    })
+    Ok((
+        LiveOutcome {
+            complete,
+            counts,
+            problems,
+        },
+        journaled,
+    ))
 }
 
 /// Creates the bucket of each directory the walk found without a mark, or takes over a bucket of
@@ -223,6 +241,7 @@ fn replay_live_files(
     now: SystemTime,
     counts: &mut LiveCounts,
     problems: &mut Problems,
+    journaled: &mut objects::Journaled,
 ) -> Result<(), AdminError> {
     let mut current = HashMap::new();
     for SeedEntry {
@@ -244,7 +263,7 @@ fn replay_live_files(
         let kept = match replay::live_read(&file, record.as_ref(), live.as_ref()) {
             Reread::Refresh => record.map(|record| record.refreshed(*fingerprint)),
             Reread::Changed(Replay::Publish) => {
-                let object = publish_entry(transaction, entry, &batch.admin.grant, now)?;
+                let object = publish_entry(transaction, entry, &batch.admin.grant, now, journaled)?;
                 published = true;
                 counts.published += 1;
                 Some(SeedRecord::new(
@@ -284,6 +303,7 @@ fn replay_live_absences(
     now: SystemTime,
     counts: &mut LiveCounts,
     problems: &mut Problems,
+    journaled: &mut objects::Journaled,
 ) -> Result<(), AdminError> {
     let access = batch.admin.grant.access();
     for ((bucket, name), proof) in &batch.absences {
@@ -295,7 +315,14 @@ fn replay_live_absences(
             Vanished::Delete { owned } => match replay::confirm_absence(record.absent, pass, now) {
                 // A refused deletion keeps the record, and the next pass decides again.
                 Confirmation::Confirmed
-                    if delete_owned(transaction, (bucket, name), owned, now, &access)? =>
+                    if delete_owned(
+                        transaction,
+                        (bucket, name),
+                        owned,
+                        now,
+                        &access,
+                        journaled,
+                    )? =>
                 {
                     counts.deleted += 1;
                     deleted(bucket, name);

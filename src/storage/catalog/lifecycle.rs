@@ -147,6 +147,7 @@ pub(crate) enum LifecycleOutcome {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct LifecycleCounts {
+    journaled: objects::Journaled,
     pub(crate) aborted: u64,
     pub(crate) scanned: u64,
     pub(crate) deleted: u64,
@@ -201,6 +202,7 @@ impl serde::Serialize for LifecycleOutcome {
 
 impl LifecycleCounts {
     fn record(&mut self, other: Self) {
+        self.journaled |= other.journaled;
         self.aborted += other.aborted;
         self.scanned += other.scanned;
         self.deleted += other.deleted;
@@ -232,6 +234,9 @@ impl Catalog {
 
     pub(crate) async fn run_lifecycle_now(&self) -> Result<LifecycleOutcome, CatalogError> {
         let outcome = self.run_lifecycle(Pass::Forced).await;
+        if let Ok(LifecycleOutcome::Executed(counts)) = &outcome {
+            self.reclaim_if(counts.journaled).await;
+        }
         self.0.maintenance_wake.notify_one();
         outcome
     }
@@ -859,6 +864,7 @@ fn retire_version(
     )?;
     let archived = deleted.retirement == objects::Retirement::Noncurrent;
     Ok(LifecycleCounts {
+        journaled: deleted.retired.into(),
         deleted: u64::from(!archived),
         archived: u64::from(archived),
         ..Default::default()

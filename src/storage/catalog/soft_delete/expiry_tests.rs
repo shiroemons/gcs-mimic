@@ -126,6 +126,62 @@ fn memory_blobs(catalog: &Catalog) -> usize {
 }
 
 #[tokio::test]
+async fn only_journaled_generations_add_reclamation_jobs() {
+    let data = TestDir::new();
+    let (catalog, _) = open_disk(&data.0).await;
+    catalog
+        .insert_bucket(bucket("bucket", "project"))
+        .await
+        .unwrap();
+    let (writes, reads) = catalog.job_counts();
+    let generation = put(&catalog, "bucket", "object").await;
+    // Advisory upload check and publication, with no reclamation probe.
+    assert_eq!(catalog.job_counts(), (writes + 2, reads));
+    catalog
+        .update_object_metadata(
+            version("bucket", "object", generation),
+            Default::default(),
+            Default::default(),
+            |_| Ok(()),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    assert_eq!(catalog.job_counts(), (writes + 3, reads));
+    let replacement = put(&catalog, "bucket", "object").await;
+    assert_ne!(generation, replacement);
+    // A journaled overwrite adds selection and acknowledgement on the writer.
+    assert_eq!(catalog.job_counts(), (writes + 7, reads));
+    assert_eq!(blob_files(&data.0), 1);
+    catalog
+        .delete_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(catalog.job_counts(), (writes + 10, reads));
+    assert_eq!(blob_files(&data.0), 0);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_failed_delete_reclaims_the_separately_committed_purge() {
+    let data = TestDir::new();
+    let (catalog, clock) = open_disk(&data.0).await;
+    retaining_bucket(&catalog, "bucket", 5).await;
+    soft_delete(&catalog, "bucket", "expired").await;
+    clock.advance(Duration::from_secs(5));
+    let (writes, reads) = catalog.job_counts();
+    assert_eq!(
+        catalog
+            .delete_object(live("bucket", "absent"), Default::default(), PERMISSIVE)
+            .await,
+        Err(ObjectError::ObjectNotFound)
+    );
+    assert_eq!(catalog.job_counts(), (writes + 3, reads));
+    assert_eq!(blob_files(&data.0), 0);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn a_soft_deleted_listing_purges_expired_rows_on_the_writer() {
     let data = TestDir::new();
     let (catalog, clock) = open_disk(&data.0).await;
@@ -136,17 +192,20 @@ async fn a_soft_deleted_listing_purges_expired_rows_on_the_writer() {
         soft_deleted: true,
         ..Default::default()
     };
+    let (writes, reads) = catalog.job_counts();
     let readable = catalog
         .list_objects(query.clone(), 10, PERMISSIVE)
         .await
         .unwrap();
+    assert_eq!(catalog.job_counts(), (writes + 1, reads));
     assert_eq!(readable.items[0].generation, generation);
+    // The former unconditional post-commit probe spent a second writer job on this empty journal.
+    assert_eq!(catalog.reclaim_pending().await.unwrap(), 0);
+    assert_eq!(catalog.job_counts(), (writes + 2, reads));
     clock.advance(Duration::from_secs(5));
     let (writes, reads) = catalog.job_counts();
     let expired = catalog.list_objects(query, 10, PERMISSIVE).await.unwrap();
-    let (after_writes, after_reads) = catalog.job_counts();
-    assert!(after_writes > writes);
-    assert_eq!(after_reads, reads);
+    assert_eq!(catalog.job_counts(), (writes + 3, reads));
     assert!(expired.items.is_empty());
     assert_eq!(soft_deleted_rows(&catalog).await, 0);
     assert_eq!(blob_files(&data.0), 0);

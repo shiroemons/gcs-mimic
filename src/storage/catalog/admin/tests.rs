@@ -380,10 +380,10 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
         })
         .await
         .unwrap();
-    catalog.reclaim_after_commit().await;
+    catalog.reclaim_if(objects::Journaled::SOME).await;
     assert_eq!(publication_blobs(&dir.0).len(), 13);
     assert_eq!(catalog.0.execution.available_permits(), 1);
-    catalog.reclaim_after_commit().await;
+    catalog.reclaim_if(objects::Journaled::SOME).await;
     assert_eq!(publication_blobs(&dir.0), vec![live_path.clone()]);
     let id = live_id.clone();
     catalog
@@ -395,7 +395,7 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
         })
         .await
         .unwrap();
-    catalog.reclaim_after_commit().await;
+    catalog.reclaim_if(objects::Journaled::SOME).await;
     assert_eq!(fs::read(live_path).unwrap(), b"retained");
     catalog
         .run_upload::<_, ObjectError>(move |connection| {
@@ -457,7 +457,7 @@ async fn cancelled_reclamation_retains_directory_ownership_until_sql_settles() {
     let (dir, catalog, _admin, _bucket, _name) = setup().await;
     let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
     let worker = catalog.clone();
-    let cleanup = tokio::spawn(async move { worker.reclaim_after_commit().await });
+    let cleanup = tokio::spawn(async move { worker.reclaim_if(objects::Journaled::SOME).await });
     eventually_async("reclamation to hold its permit", || async {
         catalog.0.reclamation.available_permits() == 0
     })

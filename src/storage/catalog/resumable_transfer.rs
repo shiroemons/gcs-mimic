@@ -526,7 +526,7 @@ impl Catalog {
             .backend
             .finish_draft(&lease.session.blob_id)
             .map_err(object_unavailable)?;
-        self.reclaim_after_commit().await;
+        self.reclaim_if(retired.into()).await;
         Ok(resource)
     }
 }

@@ -849,7 +849,7 @@ impl Admin {
         let target = ObjectTarget::new(bucket.as_str().to_owned(), name.as_str().to_owned(), None);
         let access = self.grant.access();
         let clock = self.catalog.0.clock.clone();
-        let retired = self
+        let (purged, result) = self
             .catalog
             .run_admin_with_error(move |connection| {
                 objects::delete_selected(
@@ -862,9 +862,7 @@ impl Admin {
                 .map_err(AdminError::from)
             })
             .await?;
-        self.catalog.schedule_expiry(retired);
-        self.catalog.reclaim_after_commit().await;
-        Ok(())
+        Ok(self.catalog.finish_delete(purged, result).await?)
     }
 }
 

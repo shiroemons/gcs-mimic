@@ -138,7 +138,7 @@ impl Catalog {
             })
             .await?;
         self.schedule_expiry(retired);
-        self.reclaim_after_commit().await;
+        self.reclaim_if(retired.into()).await;
         Ok(record)
     }
 }

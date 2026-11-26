@@ -63,11 +63,11 @@ impl Catalog {
 
     pub(super) async fn cleanup_derived(&self, id: &BlobId) -> Result<(), ObjectError> {
         let id = *id;
-        let discarded = self
+        let (discarded, journaled) = self
             .run_upload(move |connection| discard_transfer(connection, &id))
             .await?;
         self.release_transfer(discarded).await;
-        self.reclaim_after_commit().await;
+        self.reclaim_if(journaled).await;
         Ok(())
     }
 
@@ -115,9 +115,6 @@ impl Catalog {
         now: UnixMillis,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
         let mut sweep = SweepOutcome::default();
-        if let Err(error) = self.reclaim_pending().await {
-            sweep.fail(DERIVED_SWEEP, super::super::unavailable(error));
-        }
         let mut after = After::Start;
         loop {
             let cursor = after.clone();
@@ -166,16 +163,6 @@ impl Catalog {
                 "SELECT min(deadline) FROM derived_transfers WHERE deadline > ?1",
                 [now],
             )?;
-            let pending: bool = sql::scalar(
-                connection,
-                "SELECT EXISTS(SELECT 1 FROM derived_deletions)",
-                [],
-            )?;
-            let deadline = if pending {
-                Some(deadline.map_or(now, |deadline| deadline.min(now)))
-            } else {
-                deadline
-            };
             deadline
                 .map(UnixMillis::system_time)
                 .transpose()
@@ -194,7 +181,7 @@ pub(super) struct DiscardedTransfer {
 pub(super) fn discard_transfer(
     connection: &mut Connection,
     id: &BlobId,
-) -> Result<DiscardedTransfer, ObjectError> {
+) -> Result<(DiscardedTransfer, objects::Journaled), ObjectError> {
     let transaction = sql::immediate(connection)?;
     let exists: bool = sql::scalar(
         &transaction,
@@ -208,9 +195,12 @@ pub(super) fn discard_transfer(
         .into_iter()
         .map(|source| source.id)
         .collect();
-    if !objects::blob_referenced(&transaction, id)? {
+    let journaled = if objects::blob_referenced(&transaction, id)? {
+        objects::Journaled::NOTHING
+    } else {
         objects::journal_deletion(&transaction, id)?;
-    }
+        objects::Journaled::SOME
+    };
     sql::exec(
         &transaction,
         "DELETE FROM derived_inputs WHERE transfer_id=?1",
@@ -228,5 +218,5 @@ pub(super) fn discard_transfer(
     )
     .map_err(object_unavailable)?;
     transaction.commit()?;
-    Ok(DiscardedTransfer { id: *id, pins })
+    Ok((DiscardedTransfer { id: *id, pins }, journaled))
 }

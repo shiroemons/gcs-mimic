@@ -144,6 +144,7 @@ pub(in crate::storage::catalog) fn validate_reset_epoch(
 
 /// What a reset or replacing reseed removed, and the reset epoch it committed.
 pub(super) struct Cleared {
+    pub(super) journaled: objects::Journaled,
     pub(super) buckets: i64,
     pub(super) objects: i64,
     pub(super) epoch: i64,
@@ -171,16 +172,18 @@ pub(super) fn clear_in_transaction(
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    if matches!(mode, Reclamation::Journal) {
-        sql::exec(
+    let journaled = if matches!(mode, Reclamation::Journal) {
+        let inserted = sql::exec(
             transaction,
             "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects UNION SELECT blob_id FROM resumable_sessions UNION SELECT blob_id FROM derived_inputs UNION SELECT id FROM derived_transfers UNION SELECT blob_id FROM derived_deletions UNION SELECT blob_id FROM appendable_objects UNION SELECT blob_id FROM xml_multipart_parts UNION SELECT blob_id FROM xml_multipart_deletions",
             [],
         )?;
+        objects::Journaled::for_rows(inserted as u64)
     } else {
         // RAM can drop its whole registry after commit; growing a disk recovery journal would block a full catalog's reset.
         sql::exec(transaction, "DELETE FROM pending_blob_deletions", [])?;
-    }
+        objects::Journaled::NOTHING
+    };
     for query in CLEAR {
         sql::exec(transaction, query, [])?;
     }
@@ -190,6 +193,7 @@ pub(super) fn clear_in_transaction(
         [next],
     )?;
     Ok(Cleared {
+        journaled,
         buckets,
         objects,
         epoch: next,

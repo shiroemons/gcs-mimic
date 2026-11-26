@@ -870,10 +870,12 @@ async fn multipart_aborts_transitions_deletes_and_archives_share_one_strict_acti
     );
     clock.advance(COALESCE);
     assert_counts(execute(&catalog).await, 4, 0, 0, None);
+    // The forced pass reclaimed its hard deletion; there is no journal write to rearm lifecycle.
     assert_eq!(
-        catalog.maintain_resumable_sessions().await.unwrap(),
-        Some(clock.now() + COALESCE)
+        count(&catalog, "SELECT count(*) FROM pending_blob_deletions").await,
+        0
     );
+    assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     clock.advance(COALESCE);
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     catalog.close().await.unwrap();

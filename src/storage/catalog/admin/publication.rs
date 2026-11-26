@@ -895,7 +895,7 @@ async fn run_batch(
     catalog.0.maintenance_wake.notify_one();
     let unattempted = entries.split_off(committed.results.len());
     cleanup_entries(entries).await?;
-    catalog.reclaim_after_commit().await;
+    catalog.reclaim_if(committed.journaled).await;
     Ok(BatchResult {
         results: committed.results,
         unattempted,
@@ -953,6 +953,7 @@ fn journal_check_error(error: CatalogError) -> ObjectError {
 
 /// The attempted prefix of a batch; `results.len()` elements were attempted.
 struct Committed {
+    journaled: objects::Journaled,
     results: Vec<Result<ObjectRecord, AdminError>>,
     budget_exceeded: bool,
 }
@@ -971,13 +972,14 @@ fn commit_batch(
         import_journal::check_publication(&transaction, &import.binding, import.cursor)
             .map_err(journal_check_error)?;
     }
+    let mut journaled = objects::Journaled::NOTHING;
     let mut results = Vec::new();
     for entry in entries {
         if !results.is_empty() && started.elapsed() >= budget {
             break;
         }
         transaction.execute_batch("SAVEPOINT publication_element")?;
-        match publish_entry(&transaction, entry, grant, clock.now()) {
+        match publish_entry(&transaction, entry, grant, clock.now(), &mut journaled) {
             Ok(record) => {
                 transaction.execute_batch("RELEASE publication_element")?;
                 results.push(Ok(record));
@@ -1025,6 +1027,7 @@ fn commit_batch(
     }
     transaction.commit()?;
     Ok(Committed {
+        journaled,
         results,
         budget_exceeded: started.elapsed() > budget,
     })
@@ -1067,16 +1070,13 @@ fn publish_entry(
     entry: &BatchPublication,
     grant: &AdminGrant,
     now: SystemTime,
+    journaled: &mut objects::Journaled,
 ) -> Result<ObjectRecord, AdminError> {
     let micros = checked_entry_micros(entry, now)?;
     check_import_requirements(entry)?;
-    Ok(publish_checked_entry(
-        transaction,
-        entry,
-        grant,
-        now,
-        micros,
-    )?)
+    let (record, retired) = publish_checked_entry(transaction, entry, grant, now, micros)?;
+    *journaled |= retired.into();
+    Ok(record)
 }
 
 /// The only request an import builds: it names both hashes and replaces an absent object. An
@@ -1119,7 +1119,7 @@ fn publish_checked_entry(
     grant: &AdminGrant,
     now: SystemTime,
     micros: i64,
-) -> Result<ObjectRecord, ObjectError> {
+) -> Result<(ObjectRecord, objects::Retired), ObjectError> {
     let access = grant.access();
     let bucket = entry.bucket.as_str();
     let name = entry.name.as_str();
@@ -1145,7 +1145,7 @@ fn publish_checked_entry(
         staged.hashes.crc32c,
     ) {
         return previous
-            .map(|stored| stored.record)
+            .map(|stored| (stored.record, objects::Retired::Nothing))
             .ok_or(ObjectError::ObjectNotFound);
     }
     let time = super::super::system_time_micros(micros)?;
@@ -1164,7 +1164,11 @@ fn publish_checked_entry(
             )?)
         },
     };
-    let objects::PublishedVersion { mut record, .. } = objects::publish_version(
+    let objects::PublishedVersion {
+        mut record,
+        retired,
+        ..
+    } = objects::publish_version(
         transaction,
         previous.as_ref(),
         &publication,
@@ -1188,7 +1192,7 @@ fn publish_checked_entry(
         },
     )?;
     record_publication_metadata(transaction, entry, &access, &mut record)?;
-    Ok(record)
+    Ok((record, retired))
 }
 
 fn record_publication_metadata(

@@ -83,16 +83,20 @@ impl Catalog {
                 })
                 .await;
         }
-        let result = self
+        let (journaled, result) = self
             .run(move |connection| {
                 authorized_bucket(connection, &query.bucket, &access)?;
                 let time = clock.now();
                 soft_delete::require_policy(connection, &query.bucket, SoftDeletedRequest::List)?;
-                soft_delete::purge_expired(connection, &query.bucket, time.try_into()?)?;
-                page_with_metageneration(connection, &query, limit, time)
+                soft_delete::after_purge(
+                    connection,
+                    &query.bucket,
+                    time.try_into()?,
+                    |connection| page_with_metageneration(connection, &query, limit, time),
+                )
             })
-            .await;
-        self.reclaim_after_commit().await;
+            .await?;
+        self.reclaim_if(journaled).await;
         result
     }
 }

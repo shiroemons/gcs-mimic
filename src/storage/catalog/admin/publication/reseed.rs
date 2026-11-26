@@ -368,8 +368,9 @@ impl SeedBatch {
         batch.clean_up_staged().await?;
         // Any element may have replaced a version in a bucket that retains deletions.
         catalog.0.maintenance_wake.notify_one();
-        catalog.reclaim_after_commit().await;
-        outcome
+        let (counts, journaled) = outcome?;
+        catalog.reclaim_if(journaled).await;
+        Ok(counts)
     }
 
     /// Publishes the staged body of each entry, in staging order, before the commit that may
@@ -513,7 +514,7 @@ fn commit(
     batch: &SeedBatch,
     mode: SeedMode,
     initialization: Option<Initialization>,
-) -> Result<Counts, AdminError> {
+) -> Result<(Counts, objects::Journaled), AdminError> {
     let transaction = sql::immediate(connection).map_err(objects_error)?;
     let catalog = &batch.admin.catalog;
     // One instant for the whole commit, at the microsecond that publication records: the
@@ -522,9 +523,11 @@ fn commit(
     let now = super::recorded_instant(catalog.0.clock.now())?;
     check_guards(&transaction, mode, now)?;
     let mut counts = Counts::default();
+    let mut journaled = objects::Journaled::NOTHING;
     let epoch = if mode.clears() {
         let reclamation = super::super::reset::Reclamation::for_backend(&catalog.0.backend);
         let cleared = super::super::reset::clear_in_transaction(&transaction, reclamation)?;
+        journaled |= cleared.journaled;
         counts.removed = Removed {
             buckets: cleared.buckets,
             objects: cleared.objects,
@@ -543,9 +546,9 @@ fn commit(
             Bucket::OtherProject => return Err(AdminError::SeedProjectMismatch),
         }
     }
-    let published = replay_files(&transaction, batch, now, &mut counts)?;
+    let published = replay_files(&transaction, batch, now, &mut counts, &mut journaled)?;
     if batch.records.is_some() {
-        replay_absences(&transaction, batch, now)?;
+        replay_absences(&transaction, batch, now, &mut journaled)?;
         replay_unproven(&transaction, batch, now, unproven_kept)?;
         seed_records::clear_absences(&transaction)?;
         mark_buckets(&transaction, batch)?;
@@ -563,8 +566,11 @@ fn commit(
     }
     if mode.clears() {
         counts.cleanup_pending = !clear_replaced(connection, batch);
+        if !counts.cleanup_pending {
+            journaled = objects::Journaled::NOTHING;
+        }
     }
-    Ok(counts)
+    Ok((counts, journaled))
 }
 
 /// What a replay found under the name of a top-level directory's bucket.
@@ -610,6 +616,7 @@ fn replay_files(
     batch: &SeedBatch,
     now: SystemTime,
     counts: &mut Counts,
+    journaled: &mut objects::Journaled,
 ) -> Result<Vec<BlobId>, AdminError> {
     let mut published = Vec::new();
     for SeedEntry {
@@ -629,7 +636,7 @@ fn replay_files(
         let record = seed_records::get(transaction, bucket, name)?;
         let owned = match replay::startup_file(&file, record.as_ref(), live.as_ref()) {
             Replay::Publish => {
-                let object = publish_entry(transaction, entry, &batch.admin.grant, now)?;
+                let object = publish_entry(transaction, entry, &batch.admin.grant, now, journaled)?;
                 published.push(entry.staged.blob_id());
                 if previous.is_some() {
                     counts.replaced += 1;
@@ -677,6 +684,7 @@ fn replay_absences(
     transaction: &rusqlite::Transaction<'_>,
     batch: &SeedBatch,
     now: SystemTime,
+    journaled: &mut objects::Journaled,
 ) -> Result<(), AdminError> {
     let access = batch.admin.grant.access();
     for ((bucket, name), proof) in &batch.absences {
@@ -686,7 +694,7 @@ fn replay_absences(
         let live = absent_object(transaction, bucket, name, now)?;
         match replay::absent(Phase::Startup, proof, &record, live.as_ref()) {
             Vanished::Delete { owned } => {
-                if delete_owned(transaction, (bucket, name), owned, now, &access)? {
+                if delete_owned(transaction, (bucket, name), owned, now, &access, journaled)? {
                     seed_records::save(transaction, bucket, name, &record.after_deleting(owned))?;
                     deleted(bucket, name);
                 } else {
@@ -798,6 +806,7 @@ pub(super) fn delete_owned(
     owned: Version,
     now: SystemTime,
     access: &BucketAccess,
+    journaled: &mut objects::Journaled,
 ) -> Result<bool, AdminError> {
     let target = ObjectTarget {
         bucket: bucket.to_owned(),
@@ -826,8 +835,9 @@ pub(super) fn delete_owned(
         Ok(deleted)
     });
     match outcome {
-        Ok(_) => {
+        Ok(deleted) => {
             sql::exec(transaction, "RELEASE seed_delete", []).map_err(objects_error)?;
+            *journaled |= deleted.retired.into();
             Ok(true)
         }
         Err(error) if refused(&error) => {

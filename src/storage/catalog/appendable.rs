@@ -762,12 +762,12 @@ impl AppendWriter {
     /// The publication commit already removed the row, so the data file is unreferenced and
     /// only its removal remains.
     async fn retire(&self) {
-        let data = if self.catalog.0.backend.is_memory() {
-            Unreferenced::Journaled
-        } else {
-            Unreferenced::DiskFile(self.blob_id)
-        };
-        self.catalog.release_appendable_data(data).await;
+        // The publication already reclaimed the RAM draft it journaled.
+        if !self.catalog.0.backend.is_memory() {
+            self.catalog
+                .release_appendable_data(Unreferenced::DiskFile(self.blob_id))
+                .await;
+        }
     }
 }
 
@@ -879,7 +879,7 @@ impl Catalog {
             return;
         }
         match data {
-            Unreferenced::Journaled => self.reclaim_after_commit().await,
+            Unreferenced::Journaled => self.reclaim_if(super::objects::Journaled::SOME).await,
             Unreferenced::DiskFile(id) => {
                 let catalog = self.clone();
                 match crate::task::run_blocking("append-cleanup", move || {

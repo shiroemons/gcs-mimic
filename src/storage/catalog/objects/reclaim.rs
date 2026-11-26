@@ -93,6 +93,10 @@ pub(in crate::storage::catalog) struct Journaled(bool);
 impl Journaled {
     pub(in crate::storage::catalog) const NOTHING: Self = Self(false);
     pub(in crate::storage::catalog) const SOME: Self = Self(true);
+    pub(in crate::storage::catalog) fn for_rows(rows: u64) -> Self {
+        Self(rows != 0)
+    }
+
     pub(in crate::storage::catalog) fn any(self) -> bool {
         self.0
     }
@@ -111,6 +115,12 @@ impl std::ops::BitOr for Journaled {
     type Output = Self;
     fn bitor(self, other: Self) -> Self {
         Self(self.0 | other.0)
+    }
+}
+
+impl std::ops::BitOrAssign for Journaled {
+    fn bitor_assign(&mut self, other: Self) {
+        self.0 |= other.0;
     }
 }
 
@@ -162,34 +172,27 @@ impl Catalog {
                 Ok(Journaled::SOME)
             })
             .await?;
-        if journaled.any() {
-            self.reclaim_after_commit().await;
-        }
+        self.reclaim_if(journaled).await;
         Ok(())
     }
 }
 
 impl Catalog {
     pub(in crate::storage::catalog) async fn reclaim_if(&self, journaled: Journaled) {
-        if journaled.any() {
-            self.reclaim_after_commit().await;
+        if !journaled.any() {
+            return;
         }
-    }
-
-    pub(in crate::storage::catalog) async fn reclaim_after_commit(&self) {
-        if let Err(error) = self.reclaim_pending().await {
-            crate::diagnostics::emit(
+        match self.reclaim_pending().await {
+            Ok(RECLAIM_PAGE) => {}
+            Ok(_) => return,
+            Err(error) => crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
                 "blob_reclaim_deferred",
                 serde_json::json!({"message":format!("deferred blob reclamation: {error}")}),
-            );
-            // The request has succeeded; the maintenance loop owns the retry from here.
-            self.0.maintenance_wake.notify_one();
+            ),
         }
-    }
-
-    pub(in crate::storage::catalog) async fn reclaim_pending(&self) -> Result<(), ObjectError> {
-        self.reclaim_page().await.map(drop)
+        // A full page can leave work behind even if no later request journals a blob.
+        self.0.maintenance_wake.notify_one();
     }
 
     /// Reclaims the whole journal, one bounded page at a time, for the maintenance scheduler.
@@ -201,12 +204,12 @@ impl Catalog {
     pub(in crate::storage::catalog) async fn maintain_deletion_journal(
         &self,
     ) -> Result<Option<std::time::SystemTime>, CatalogError> {
-        while self.reclaim_page().await.map_err(unavailable)? == RECLAIM_PAGE {}
+        while self.reclaim_pending().await.map_err(unavailable)? == RECLAIM_PAGE {}
         Ok(None)
     }
 
     /// Reclaims up to `RECLAIM_PAGE` journaled blobs and returns how many it selected.
-    async fn reclaim_page(&self) -> Result<usize, ObjectError> {
+    pub(in crate::storage::catalog) async fn reclaim_pending(&self) -> Result<usize, ObjectError> {
         // An upload reclaims under its own lease after it commits, so this must not line up behind
         // an exclusive job that is waiting for that upload to finish.
         let activity = self.await_activity(Work::UnderWay).await?;

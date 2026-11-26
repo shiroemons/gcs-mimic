@@ -83,6 +83,17 @@ pub(super) fn purge_expired(
     Ok(removed)
 }
 
+/// The purge commits independently, even when the operation that follows fails.
+pub(super) fn after_purge<T>(
+    connection: &mut Connection,
+    bucket: &str,
+    now: UnixMicros,
+    op: impl FnOnce(&mut Connection) -> Result<T, ObjectError>,
+) -> Result<(objects::Journaled, Result<T, ObjectError>), ObjectError> {
+    let removed = purge_expired(connection, bucket, now)?;
+    Ok((objects::Journaled::for_rows(removed as u64), op(connection)))
+}
+
 /// What one catalog turn of the expiry sweep did.
 enum ExpiryStep {
     /// One batch was removed; more rows may be due.
@@ -348,12 +359,19 @@ impl Catalog {
                     SoftDeletedRequest::Restore,
                 )?;
                 let now = objects::PublicationTime::read(clock.as_ref())?;
-                purge_expired(connection, &selection.target.bucket, now.time.try_into()?)?;
-                let transaction = connection.transaction()?;
-                let (source, _) = restore_candidate(&transaction, &selection, now)?;
-                Ok(backend.pin(&source.blob, &id).map(|()| source.blob))
+                after_purge(
+                    connection,
+                    &selection.target.bucket,
+                    now.time.try_into()?,
+                    |connection| {
+                        let transaction = connection.transaction()?;
+                        let (source, _) = restore_candidate(&transaction, &selection, now)?;
+                        Ok(backend.pin(&source.blob, &id).map(|()| source.blob))
+                    },
+                )
             })
-            .await;
+            .await?;
+        let (mut journaled, pinned) = pinned;
         let pin_attempted = pinned.is_ok();
         let outcome = async {
             let source = pinned??;
@@ -381,6 +399,7 @@ impl Catalog {
                 })
                 .await?;
             self.schedule_expiry(retired);
+            journaled |= retired.into();
             Ok(record)
         }
         .await;
@@ -392,7 +411,7 @@ impl Catalog {
             ))
             .await;
         }
-        self.reclaim_after_commit().await;
+        self.reclaim_if(journaled).await;
         outcome
     }
 }

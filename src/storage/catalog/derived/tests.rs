@@ -1548,9 +1548,9 @@ async fn callback_reclamation_failure_preserves_success_and_maintenance_retries(
         .await
         .unwrap();
     assert_eq!(bytes(&catalog, "copy").await, b"bytes");
-    assert!(catalog.maintain_derived_transfers().await.is_err());
+    assert!(catalog.maintain_resumable_sessions().await.is_err());
     fs::remove_dir(&blob).unwrap();
-    assert_eq!(catalog.maintain_derived_transfers().await.unwrap(), None);
+    assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     let tagged = catalog
         .run(|connection| {
             connection

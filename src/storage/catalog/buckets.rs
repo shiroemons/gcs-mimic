@@ -111,7 +111,7 @@ impl Catalog {
         let access = access.clone();
         let catalog = self.clone();
         let clock = self.0.clock.clone();
-        self.run(move |connection| {
+        let journaled = self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             let (metageneration, project): (i64, String) = sql::row(
                 &transaction,
@@ -131,14 +131,15 @@ impl Catalog {
             // With a soft delete policy the version and its retained objects move aside first,
             // so the permanent deletions below no longer find them.
             bucket_soft_delete::retire(&transaction, &name, unix_micros(clock.now())?)?;
-            remove_live_bucket(&transaction, &name)?;
+            let removed = remove_live_bucket(&transaction, &name)?;
             let result = transaction.commit().map_err(unavailable);
             // Commit failures may be ambiguous; cleanup rechecks the current bucket incarnation.
             catalog.schedule_multipart_orphan_scan();
-            result
+            result?;
+            Ok::<_, CatalogError>(objects::Journaled::for_rows(removed))
         })
         .await?;
-        self.reclaim_after_commit().await;
+        self.reclaim_if(journaled).await;
         Ok(())
     }
 }

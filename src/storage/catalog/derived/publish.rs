@@ -33,6 +33,7 @@ struct TransferPublication<P, C> {
 }
 
 struct Published<T> {
+    journaled: objects::Journaled,
     record: ObjectRecord,
     pins: Vec<BlobId>,
     /// What completion produced; `None` when a replay returned the stored record instead.
@@ -83,11 +84,11 @@ where
         .map(|replay| replay.cached(&transaction, micros))
         .transpose()?
         .flatten();
-    let (record, completion) = if let Some(record) = cached {
+    let (record, completion, journaled) = if let Some(record) = cached {
         objects::journal_new_deletion(&transaction, &id)?;
-        (record, None)
+        (record, None, objects::Journaled::SOME)
     } else {
-        let (record, completion) = publish_destination(
+        let (record, completion, journaled) = publish_destination(
             &transaction,
             request,
             &progress,
@@ -95,7 +96,7 @@ where
             now,
             micros,
         )?;
-        (record, Some(completion))
+        (record, Some(completion), journaled)
     };
     sql::exec(
         &transaction,
@@ -128,6 +129,7 @@ where
     }
     committed?;
     Ok(Published {
+        journaled,
         record,
         pins: if backend.is_memory() {
             Vec::new()
@@ -145,7 +147,7 @@ fn publish_destination<P, C, T>(
     hashes: Hashes,
     now: std::time::SystemTime,
     micros: i64,
-) -> Result<(ObjectRecord, T), ObjectError>
+) -> Result<(ObjectRecord, T, objects::Journaled), ObjectError>
 where
     P: FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError>,
     C: FnOnce(&Connection, &ObjectRecord) -> Result<T, ObjectError>,
@@ -191,7 +193,9 @@ where
         acl: super::super::acl::PublicationAcl::requested(&destination.metadata.acl),
     };
     // Publishing a transfer always wakes the maintenance scheduler once it settles.
-    let objects::PublishedVersion { record, .. } = objects::publish_version(
+    let objects::PublishedVersion {
+        record, retired, ..
+    } = objects::publish_version(
         transaction,
         previous.as_ref(),
         &bucket,
@@ -229,7 +233,17 @@ where
     if let Some(replay) = replay {
         replay.store(transaction, micros, &record)?;
     }
-    Ok((record, completion))
+    // Compose completion can hard-delete sources as part of this same publication.
+    let journaled = if retired == objects::Retired::Journaled {
+        objects::Journaled::SOME
+    } else {
+        objects::Journaled::for_rows(sql::scalar(
+            transaction,
+            "SELECT EXISTS(SELECT 1 FROM derived_deletions WHERE transfer_id = ?1)",
+            [id],
+        )?)
+    };
+    Ok((record, completion, journaled))
 }
 
 impl DerivedDestination {
@@ -354,11 +368,9 @@ impl Catalog {
             let publication = TransferPublication { id, destination, backend, clock: catalog.0.clock.clone(), principals, replay, prepare, complete };
             let published = catalog.run_upload(move |connection| publish_transfer(connection, publication)).await?;
             catalog.release_transfer(DiscardedTransfer { id, pins: published.pins }).await;
+            catalog.reclaim_if(published.journaled).await;
             Ok::<_, ObjectError>(DerivedPublication { record: published.record, completion: published.completion })
             }.await;
-            if result.is_ok() {
-                catalog.reclaim_after_commit().await;
-            }
             catalog.0.maintenance_wake.notify_one();
             // Check SQL references even after an ambiguous commit error before removing bytes.
             if matches!(&result, Err(error) if !error.is_backend_failure() && !matches!(error, ObjectError::DerivedTransferBusy | ObjectError::DerivedTransferIncomplete | ObjectError::DerivedTransferNotFound))

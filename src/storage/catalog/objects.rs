@@ -325,14 +325,23 @@ impl Catalog {
     ) -> Result<(), ObjectError> {
         let access = access.clone();
         let clock = self.0.clock.clone();
-        let retired = self
+        let (purged, result) = self
             .run(move |connection| {
                 delete_selected(connection, clock.as_ref(), &target, conditions, &access)
             })
             .await?;
+        self.finish_delete(purged, result).await
+    }
+
+    pub(super) async fn finish_delete(
+        &self,
+        purged: Journaled,
+        result: Result<Retired, ObjectError>,
+    ) -> Result<(), ObjectError> {
+        let retired = result.as_ref().copied().unwrap_or(Retired::Nothing);
         self.schedule_expiry(retired);
-        self.reclaim_after_commit().await;
-        Ok(())
+        self.reclaim_if(purged | retired.into()).await;
+        result.map(drop)
     }
 }
 
@@ -503,22 +512,23 @@ pub(super) fn delete_selected(
     target: &ObjectTarget,
     conditions: ObjectConditions,
     access: &BucketAccess,
-) -> Result<Retired, ObjectError> {
+) -> Result<(Journaled, Result<Retired, ObjectError>), ObjectError> {
     let bucket = &target.bucket;
     authorized_bucket(connection, bucket, access)?;
-    super::soft_delete::purge_expired(connection, bucket, clock.now().try_into()?)?;
-    let transaction = sql::immediate(connection)?;
-    let deleted = delete_in_transaction(
-        &transaction,
-        target,
-        DeleteContext {
-            now: clock.now(),
-            conditions,
-            access,
-        },
-    )?;
-    transaction.commit()?;
-    Ok(deleted.retired)
+    super::soft_delete::after_purge(connection, bucket, clock.now().try_into()?, |connection| {
+        let transaction = sql::immediate(connection)?;
+        let deleted = delete_in_transaction(
+            &transaction,
+            target,
+            DeleteContext {
+                now: clock.now(),
+                conditions,
+                access,
+            },
+        )?;
+        transaction.commit()?;
+        Ok(deleted.retired)
+    })
 }
 
 pub(super) struct Deleted {

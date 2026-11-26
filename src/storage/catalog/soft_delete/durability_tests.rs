@@ -299,7 +299,7 @@ async fn expired_restore_source_is_rechecked_after_pinning() {
     catalog
         .discard_staged(objects::StagedBlob::pin(&catalog.0.backend, &data.0, id))
         .await;
-    catalog.reclaim_after_commit().await;
+    catalog.reclaim_if(objects::Journaled::SOME).await;
     assert_eq!(blob_count(&data.0), 0);
     catalog.close().await.unwrap();
 }
