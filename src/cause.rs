@@ -1,3 +1,5 @@
+//! Failure identities shared by storage and its callers.
+
 use std::{error::Error, fmt};
 
 /// Fixed storage failures whose identity must survive contextual error messages.
@@ -64,3 +66,12 @@ impl fmt::Display for BackendFailure {
 }
 
 impl Error for BackendFailure {}
+
+/// A `backend=memory` budget, each with its own remedy when it runs out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemoryBudget {
+    /// Object bytes, bounded by `memory_max_bytes`.
+    Blobs,
+    /// Catalog database pages, bounded by `memory_catalog_max_bytes`.
+    Catalog,
+}

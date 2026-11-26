@@ -16,8 +16,8 @@ use std::{
     sync::{Arc, PoisonError},
 };
 
-mod kind;
-pub(crate) use kind::BackendFailure;
+pub(crate) use crate::cause::BackendFailure;
+pub use crate::cause::MemoryBudget;
 mod source;
 pub(crate) use source::{Link, Source, TypedSource, chain};
 pub(crate) mod wording;
@@ -200,15 +200,6 @@ impl TypedSource for IoCause {
     fn typed_source(&self) -> Option<Link<'_>> {
         self.source.as_deref().map(Source::link)
     }
-}
-
-/// A `backend=memory` budget, each with its own remedy when it runs out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MemoryBudget {
-    /// Object bytes, bounded by `memory_max_bytes`.
-    Blobs,
-    /// Catalog database pages, bounded by `memory_catalog_max_bytes`.
-    Catalog,
 }
 
 /// A `backend=memory` budget that ran out. It travels inside the `StorageFull` failure, so a reply

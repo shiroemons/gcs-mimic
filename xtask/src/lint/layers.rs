@@ -40,6 +40,8 @@ const LAYERS: [Layer; 7] = [
             "hex",
             "percent",
             "decimal",
+            // Model and storage errors share these identities without depending on each other.
+            "cause",
             "choice",
             "clock",
             "hashing",
