@@ -121,6 +121,7 @@ crate::choice::string_enum! {
         NotificationTopicCheckFailed => "notification_topic_check_failed",
         ObjectBackendFailure => "object_backend_failure",
         ObjectBodyReadFailed => "object_body_read_failed",
+        ObjectDeleteRollbackFailed => "object_delete_rollback_failed",
         ObjectRequestTimeout => "object_request_timeout",
         ObjectTranscodingFailed => "object_transcoding_failed",
         PublicationCleanupFailed => "publication_cleanup_failed",

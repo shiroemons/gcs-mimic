@@ -178,6 +178,7 @@ struct Reads {
     buckets: usize,
     policies: usize,
     bucket_acls: usize,
+    // A post-change regression check, outside the before/after authority counts.
     retention_subqueries: usize,
 }
 
@@ -202,7 +203,7 @@ async fn deletion_and_upload_bucket_authority_costs() {
                 TraceEventCodes::SQLITE_TRACE_STMT,
                 Some(move |event: TraceEvent<'_>| {
                     if let TraceEvent::Stmt(stmt, query) = event {
-                        let mut counts = counts.lock().unwrap();
+                        let mut counts = crate::sync::lock(&counts);
                         counts.transactions += usize::from(query.starts_with("BEGIN"));
                         counts.buckets += usize::from(
                             query.starts_with("SELECT")
@@ -237,7 +238,7 @@ async fn deletion_and_upload_bucket_authority_costs() {
     .unwrap();
     assert_eq!(catalog.job_counts(), (writes + 1, pooled));
     assert_eq!(
-        std::mem::take(&mut *reads.lock().unwrap()),
+        std::mem::take(&mut *crate::sync::lock(&reads)),
         Reads {
             transactions: 1,
             buckets: 1,
@@ -255,7 +256,7 @@ async fn deletion_and_upload_bucket_authority_costs() {
         .unwrap();
     assert_eq!(catalog.job_counts(), (writes + 2, pooled));
     assert_eq!(
-        *reads.lock().unwrap(),
+        *crate::sync::lock(&reads),
         Reads {
             transactions: 1,
             buckets: 1,

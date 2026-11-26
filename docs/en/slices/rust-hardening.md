@@ -615,9 +615,11 @@ The reader statement cache grows from 32 to 96 statements when listing moves.
 W counts writer jobs and R counts reader jobs. The projection rows compare
 nonempty responses immediately before and after bulk ACL projection, with
 point reads already on the pool. The XML disk fixture measured 3 W per part and
-9 or 11 W for one- or three-part completion on the implementation preceding
-`27a3ac250`. Disk cleanup selects, acknowledges and checks the journal in three
-jobs, accounting for the two extra jobs over the N+6 W estimate.
+9 or 11 W for one- or three-part completion before completion reused the
+validated part rows. These counts include three disk cleanup jobs to select,
+acknowledge and check the journal. The delete and upload rows count standalone
+bucket queries. The trace test also checks for zero retention subqueries after
+the change.
 
 | Change | Before → after |
 | --- | --- |

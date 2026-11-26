@@ -443,6 +443,7 @@ unchanged. 0.43.0 rejects preparing empty or comment-only SQL with
 `Error::Empty`; production code prepares only static, non-empty statements, and
 `execute_batch` still skips empty and comment-only parts. The [dependency snapshot](../../compatibility/dependency-status.json)
 and [refresh evidence](evidence/dependency-refresh.md#rusqlite-0430) record it.
+Tests also enable `trace` to count statements executed by a catalog operation.
 On 2026-10-29 rusqlite also enables its `cache` feature so request paths reuse
 prepared statements through `prepare_cached`; the connection cache holds at most
 64 statements. Cargo.lock adds hashlink 0.12.2 (MIT OR Apache-2.0, 33,361

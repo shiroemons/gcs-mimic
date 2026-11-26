@@ -56,37 +56,23 @@ impl<'a> BucketAuthority<'a> {
         bucket: &'a str,
         access: &'a BucketAccess,
     ) -> Result<Self, ObjectError> {
-        let authority = sql::row(connection, PUBLICATION, [bucket], |row| {
-            let class = row.get(0)?;
-            let project: String = row.get(7)?;
-            let local = row.get(9)?;
-            let grant = super::super::policies::check_access_with_public(
+        let publication = BucketPublication::load(connection, bucket);
+        let overwrite = match &publication {
+            Ok(settings) => super::super::policies::check_access_with_public(
                 connection,
                 bucket,
-                &project,
+                &settings.project,
                 access,
-                || effective_public_access(connection, local, &project),
-            );
-            Ok(grant.map(|overwrite| Self {
-                publication: BucketPublication::read(row, class, project, local)
-                    .map_err(ObjectError::from),
-                overwrite,
-            }))
+                || settings.public_access(connection),
+            )?,
+            Err(ObjectError::BucketNotFound) => return Err(ObjectError::BucketNotFound),
+            // Invalid settings still follow authorization and the caller's replay or selection.
+            Err(_) => authorized_bucket(connection, bucket, access)?.1,
+        };
+        Ok(Self {
+            publication,
+            overwrite,
         })
-        .optional();
-        match authority {
-            Ok(Some(grant)) => grant.map_err(Into::into),
-            Ok(None) => Err(ObjectError::BucketNotFound),
-            Err(error) => {
-                // SQLite can reject malformed policy JSON before yielding the bucket row.
-                // Authorization, then replay or object selection, still precede that failure.
-                let (_, overwrite) = authorized_bucket(connection, bucket, access)?;
-                Ok(Self {
-                    publication: Err(error.into()),
-                    overwrite,
-                })
-            }
-        }
     }
 }
 

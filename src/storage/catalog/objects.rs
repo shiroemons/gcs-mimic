@@ -535,7 +535,14 @@ pub(super) fn delete_selected(
         // SQLITE_FULL and some I/O errors can roll back the whole transaction.
         Err(error) if transaction.is_autocommit() => return Err(error),
         Err(error) => {
-            sql::exec(&transaction, "ROLLBACK TO object_delete", [])?;
+            if let Err(rollback) = sql::exec(&transaction, "ROLLBACK TO object_delete", []) {
+                crate::diagnostics::emit_lazy(
+                    crate::diagnostics::LogLevel::Warn,
+                    crate::diagnostics::Event::ObjectDeleteRollbackFailed,
+                    || serde_json::json!({"message": format!("rolling back failed delete ({error}): {rollback}")}),
+                );
+                return Err(error);
+            }
             Err(error)
         }
     };

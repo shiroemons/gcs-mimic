@@ -2013,7 +2013,7 @@ mod tests {
                 {"id":"transitive", "name":"getrandom", "version":"0.2.17", "source":"registry+https://github.com/rust-lang/crates.io-index"}
             ],
             "resolve": {"nodes":[
-                {"id":"app", "deps":[{"pkg":"direct"}]},
+                {"id":"app", "deps":[{"pkg":"direct", "dep_kinds":[{"kind":null},{"kind":"dev"}]}]},
                 {"id":"direct", "deps":[{"pkg":"transitive"}]}
             ]}
         });

@@ -219,6 +219,36 @@ async fn restart_before_delete_commit_recovers_both_the_purged_row_and_live_targ
 }
 
 #[tokio::test]
+async fn a_failed_delete_commit_preserves_the_target_and_the_expired_generation() {
+    let data = TestDir::new();
+    let (catalog, clock) = open_disk(&data.0).await;
+    retaining_bucket(&catalog, "bucket", 5).await;
+    soft_delete(&catalog, "bucket", "expired").await;
+    let generation = put(&catalog, "bucket", "target").await;
+    clock.advance(Duration::from_secs(5));
+    fault::arm(
+        &data.0,
+        Step::ExpiryCommit,
+        0,
+        Fault::Io(io::ErrorKind::Other),
+    );
+    catalog
+        .delete_object(live("bucket", "target"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap_err();
+    assert_eq!(fault::pending(&data.0), 0);
+    let live = catalog
+        .get_object(live("bucket", "target"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(live.generation, generation);
+    assert_eq!(soft_deleted_rows(&catalog).await, 1);
+    assert_eq!(journal_rows(&catalog).await, 0);
+    assert_eq!(blob_files(&data.0), 2);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn a_partial_delete_rolls_back_to_the_purge_or_with_the_whole_transaction() {
     for (trigger, purge_commits) in [
         (
