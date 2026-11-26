@@ -42,10 +42,10 @@ resource past 8 KiB, holds custom metadata to that size. It wrote values up to
 40,000 bytes, which stay under gcs-mimic's local bound, so every step can match.
 
 The three partial recordings, without the ladder, were merged with `--add-new`
-into the committed [reference](../../../compatibility/differential/reference/gcs.json),
+into the committed reference,
 which now holds **119 cases** and **1658 requests** (the total counts the ladder's
 requests too). The case definitions are in
-[compatibility/differential/cases](../../../compatibility/differential/cases).
+compatibility/differential/cases.
 
 ## Outcomes
 

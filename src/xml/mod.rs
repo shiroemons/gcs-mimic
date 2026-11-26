@@ -431,7 +431,7 @@ impl From<ApiError> for Error {
         } else {
             error.message
         };
-        // shortcut: auth wording and error precedence are local choices until cloud differential evidence exists.
+        // shortcut: auth wording and error precedence are local choices.
         let mut xml = Self::new(code, message);
         xml.denied = error.denied;
         xml

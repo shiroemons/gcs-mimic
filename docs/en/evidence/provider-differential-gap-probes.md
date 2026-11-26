@@ -27,10 +27,10 @@ cargo xtask differential run --record <partial-reference>
   object, so no Autoclass fee or transition applied.
 
 The partial recording was merged into the committed
-[reference](../../../compatibility/differential/reference/gcs.json), which now
+reference, which now
 holds **98 cases** and **1380 requests** across the recordings of 2026-11-01,
 2026-11-02, 2026-11-04, 2026-11-09 and 2026-11-13. The case definitions are in
-[compatibility/differential/cases](../../../compatibility/differential/cases).
+compatibility/differential/cases.
 Each case's recorded responses can be read with
 `jq '.cases[] | select(.id == "<case>")' compatibility/differential/reference/gcs.json`.
 
@@ -735,9 +735,9 @@ that the ledger had kept as local choices: bucket and object conditions, read an
 update masks, object ETags, routing metadata, write streams and resumable
 sessions, and derived-write destinations. They hold **230** recorded steps; the
 reference now holds **157** cases. The case definitions are in
-[compatibility/differential/cases](../../../compatibility/differential/cases) and
+compatibility/differential/cases and
 the recorded answers in the committed
-[reference](../../../compatibility/differential/reference/gcs.json). Opaque
+reference. Opaque
 per-request values (upload IDs, the trailing detail of an INTERNAL message) are
 masked, and the four INTERNAL steps of `grpc-probe-resumable-sessions` compare
 without their message.
@@ -775,9 +775,9 @@ all named `grpc-probe-inferred-*`, asked about every Storage v2 answer that
 gcs-mimic had decided by inference: the questions the twelfth recording did not
 reach and the answers its code marked as not recorded. They hold **202**
 recorded steps. The case definitions are in
-[compatibility/differential/cases](../../../compatibility/differential/cases)
+compatibility/differential/cases
 and the recorded answers in the committed
-[reference](../../../compatibility/differential/reference/gcs.json). Upload IDs
+reference. Upload IDs
 and the trailing detail of an INTERNAL message are masked.
 
 gcs-mimic was changed to give each recorded answer below, and the offline

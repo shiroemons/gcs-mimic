@@ -2,7 +2,6 @@ use serde_json::Value;
 pub mod container;
 mod date;
 pub mod dependencies;
-pub mod differential;
 mod ledger;
 pub mod lint;
 pub mod release;

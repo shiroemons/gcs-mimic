@@ -7,7 +7,7 @@ cases, with the self-check and offline replay repeated on **2026-11-07** over
 its 61 cases. This evidence covers the optional harness workflows and the
 normalized fields of those cases; it does not establish unrestricted Cloud
 Storage API parity. The committed
-[reference](../../../compatibility/differential/reference/gcs.json) combines
+reference combines
 cases from **2026-11-01** with `obj-resumable` re-recorded on **2026-11-02** and
 `xml-content-length-range` added on **2026-11-04**.
 The [comparison report](differential-comparison.md) retains every description.

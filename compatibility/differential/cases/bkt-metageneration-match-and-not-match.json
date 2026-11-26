@@ -1,9 +1,0 @@
-{
-  "id": "bkt-metageneration-match-and-not-match",
-  "description": "A bucket read with ifMetagenerationMatch and ifMetagenerationNotMatch sent together, both satisfiable (the current metageneration and one it does not have), through JSON and gRPC GetBucket. The 2026-11-15 live recording shows that Cloud Storage evaluates both conditions and answers the bucket.",
-  "steps": [
-    {"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "metageneration"}, "capture": {"mg": "body:metageneration"}, "expect_status": 200},
-    {"name": "json-get-both", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"ifMetagenerationMatch": "{mg}", "ifMetagenerationNotMatch": "99999", "fields": "name"}, "expect_status": 200},
-    {"name": "grpc-get-both", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"name": "projects/_/buckets/{bucket}", "ifMetagenerationMatch": "{mg}", "ifMetagenerationNotMatch": "99999", "readMask": {"paths": ["name"]}}, "expect_status": 0}
-  ]
-}

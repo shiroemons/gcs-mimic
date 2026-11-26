@@ -769,7 +769,7 @@ Build a contract corpus at the wire level, not only unit tests of the internal s
 
 Prioritize Go and Ruby/Rails Active Storage. Verify Ruby SDK usage and browser direct uploads, public and private delivery, signed upload/download, and object deletion; include Node.js, Python and official Rust next. Java, .NET and PHP suites also run; add C++, gcloud and FUSE according to the scope and transport. Record exact versions and endpoint settings. Do not assume one `STORAGE_EMULATOR_HOST` value configures all SDKs or their URL signers.
 
-Use differential tests against an explicitly authorized disposable GCS environment for unresolved behavior. Offline CI remains the default and blocks unintended outbound network access. fake-gcs-server and storage-testbench help find differences, but neither replaces Google documentation or real-service evidence, especially for IAM/ACLs.
+Do not send requests to Cloud Storage or any other Google API endpoint from tests, tools or coding agents, and do not record or commit answers from it. Section 17 (Google Cloud Platform Access Tools) of the Google Cloud General Service Terms, posted on 2026-11-24, restricts storing information obtained from those endpoints for more than 30 days and using it to develop a similar product. Resolve unclear behavior from Google documentation, the googleapis protos, the Discovery document copies in Google's open-source client repositories, and what the official SDKs send and expect. fake-gcs-server and storage-testbench help find differences, but neither replaces Google documentation. Offline CI remains the default and blocks unintended outbound network access.
 
 ## Performance plan
 

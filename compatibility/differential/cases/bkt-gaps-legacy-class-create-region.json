@@ -1,9 +1,0 @@
-{
-  "id": "bkt-gaps-legacy-class-create-region",
-  "description": "Bucket creation with the legacy REGIONAL class in a dual-region (nam4), which is expected to fail, and then in a region (us-central1), recording the stored class, location and locationType. The bucket is deleted at the end. Checks SPEC-SDK-UNSUPPORTED for the REGIONAL class.",
-  "steps": [
-    {"name": "create-dual-region-regional", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "fields": "location,locationType,storageClass"}, "body": {"name": "{new_bucket}", "location": "nam4", "storageClass": "REGIONAL", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"publicAccessPrevention": "enforced"}}},
-    {"name": "create-region-regional", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "fields": "location,locationType,storageClass"}, "body": {"name": "{new_bucket}", "location": "us-central1", "storageClass": "REGIONAL", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"publicAccessPrevention": "enforced"}}},
-    {"name": "delete-bucket", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false, "always": true}
-  ]
-}

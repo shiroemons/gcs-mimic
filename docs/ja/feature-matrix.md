@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 97 | 10 | 0 | 0 |
 | behavior | 201 | 80 | 0 | 79 | 42 | 0 | 0 |
-| project_requirement | 99 | 20 | 0 | 45 | 34 | 0 | 0 |
+| project_requirement | 99 | 20 | 0 | 45 | 33 | 0 | 1 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 61 | 28 | 18 | 0 | 0 |
 | behavior | 80 | 70 | 48 | 3 | 0 | 0 |
-| project_requirement | 20 | 0 | 0 | 0 | 1 | 78 |
+| project_requirement | 21 | 0 | 0 | 0 | 0 | 78 |
 
 ## api_operation
 
@@ -965,7 +965,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-086 | Python公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 2 |
 | DESIGN-087 | Rust公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 0 |
 | DESIGN-088 | SDK試験の意図しない外部通信防止 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-089 | 任意の実GCS差分適合試験 | IMPLEMENTED | P0 | EXTERNAL | EXTERNAL | 0 |
+| DESIGN-089 | 任意の実GCS差分適合試験 | NOT_APPLICABLE | P0 | EXTERNAL | NONE | 0 |
 | DESIGN-090 | 決定的な障害注入 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 
 ### Signed access

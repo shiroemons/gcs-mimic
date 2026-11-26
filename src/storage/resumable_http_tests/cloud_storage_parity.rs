@@ -27,7 +27,7 @@ async fn cancelled_sessions_repeat_the_json_499_envelope() {
         );
         assert_eq!(reply.headers["expires"], "Mon, 01 Jan 1990 00:00:00 GMT");
         assert_eq!(reply.headers["pragma"], "no-cache");
-        // Reply retains the last Vary line; differential replay compares the combined field.
+        // Reply retains the last Vary line; HTTP clients read the combined field.
         assert_eq!(reply.headers["vary"], "X-Origin");
     }
     h.stop().await;

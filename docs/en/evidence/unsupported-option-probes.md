@@ -27,9 +27,9 @@ cargo xtask differential run --filter unsupported --record <partial-reference>
   not exist.
 
 The partial recording was merged with `--add-new` into the committed
-[reference](../../../compatibility/differential/reference/gcs.json), which now
+reference, which now
 holds **108 cases** and **1546 requests**. The case definitions are in
-[compatibility/differential/cases](../../../compatibility/differential/cases).
+compatibility/differential/cases.
 
 ## Outcomes
 

@@ -1,7 +1,6 @@
 use std::{env, path::Path, process::ExitCode};
-use xtask::Verdict;
 
-const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check [--scope all|release] | dependencies update-images --checked-at UTC_TIMESTAMP | differential validate|run|merge|sweep [options] | lint [--target TRIPLE|--baseline [--target TRIPLE]|--test-clock-baseline] | release prepare TARGET BINARY OUTPUT_DIR | release notices TARGET OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
+const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check [--scope all|release] | dependencies update-images --checked-at UTC_TIMESTAMP | lint [--target TRIPLE|--baseline [--target TRIPLE]|--test-clock-baseline] | release prepare TARGET BINARY OUTPUT_DIR | release notices TARGET OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
 
 fn main() -> ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
@@ -42,33 +41,6 @@ fn main() -> ExitCode {
             Err(error) => {
                 eprintln!("error: {error}");
                 ExitCode::FAILURE
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|command| command == "differential")
-    {
-        let result = match args.get(1).map(String::as_str) {
-            Some("validate") => {
-                xtask::differential::validate(root, &args[2..]).map(|()| Verdict::Pass)
-            }
-            Some("run") => xtask::differential::run(root, &args[2..]),
-            Some("merge") => xtask::differential::merge(&args[2..]).map(|()| Verdict::Pass),
-            Some("sweep") => xtask::differential::sweep(&args[2..]),
-            Some("pubsub-stub") if args.len() == 2 => xtask::differential::pubsub_stub()
-                .map(|()| Verdict::Pass)
-                .map_err(|e| format!("Pub/Sub stub: {e}")),
-            _ => {
-                eprintln!("{}", xtask::differential::USAGE);
-                return ExitCode::FAILURE;
-            }
-        };
-        return match result {
-            Ok(verdict) => verdict.into(),
-            Err(error) => {
-                eprintln!("error: {error}");
-                ExitCode::from(2)
             }
         };
     }
