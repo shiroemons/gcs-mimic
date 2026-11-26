@@ -267,6 +267,8 @@ struct Inner {
     #[cfg(test)]
     maintenance_panics: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
+    cleanup_tasks: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
     admission_waiters: std::sync::atomic::AtomicUsize,
 }
 

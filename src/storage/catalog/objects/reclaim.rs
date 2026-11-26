@@ -222,6 +222,8 @@ impl Catalog {
             .map_err(object_unavailable)?;
         let catalog = self.clone();
         // Detached callers retain the cleanup slot until filesystem work and SQL settle.
+        #[cfg(test)]
+        self.count_cleanup_task();
         let task = crate::task::spawn_supervised("blob-reclamation", async move {
             let (_permit, _activity) = (permit, activity);
             let (ids, conflict) = catalog

@@ -792,7 +792,7 @@ impl Catalog {
             }
             for id in ids {
                 after = super::After::Key(id);
-                let _guard = match self.claim_writer(WriterKey::Rewrite(id), KeyOrigin::Catalog) {
+                let _guard = match self.claim_sweep_writer(WriterKey::Rewrite(id)).await {
                     Ok(guard) => guard,
                     Err(ClaimError::Busy) => continue,
                     Err(error) => {
@@ -800,7 +800,7 @@ impl Catalog {
                         continue;
                     }
                 };
-                match self.cancel_derived(&id).await {
+                match self.expire_derived(&id).await {
                     Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
                     Err(ObjectError::DerivedTransferBusy) => continue,
                     Err(error) => {

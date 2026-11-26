@@ -471,6 +471,8 @@ impl Catalog {
                 #[cfg(test)]
                 maintenance_panics: std::sync::atomic::AtomicUsize::new(0),
                 #[cfg(test)]
+                cleanup_tasks: Default::default(),
+                #[cfg(test)]
                 admission_waiters: std::sync::atomic::AtomicUsize::new(0),
             })))
         })

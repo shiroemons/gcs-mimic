@@ -16,10 +16,7 @@ use bytes::Bytes;
 use std::{
     fs, io,
     path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -609,25 +606,33 @@ async fn delete_overwrite_move_and_restore_wake_the_scheduler() {
     catalog.close().await.unwrap();
 }
 
-/// Counts readings so a test can tell when a maintenance pass has reached its timer.
-struct CountingClock {
+/// Exposes the actual armed deadline so advancing the clock cannot race the scheduling assertion.
+struct ObservedClock {
     time: ManualClock,
-    readings: AtomicUsize,
+    deadline: tokio::sync::watch::Sender<Option<SystemTime>>,
 }
 
-impl Clock for CountingClock {
+impl Clock for ObservedClock {
     fn now(&self) -> SystemTime {
-        self.readings.fetch_add(1, Ordering::SeqCst);
         self.time.now()
+    }
+
+    fn sleep_until(
+        &self,
+        deadline: SystemTime,
+    ) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        self.deadline.send_replace(Some(deadline));
+        self.time.sleep_until(deadline)
     }
 }
 
 #[tokio::test]
 async fn a_shorter_retention_wakes_a_scheduler_sleeping_until_a_later_deadline() {
     let data = TestDir::new();
-    let clock = Arc::new(CountingClock {
+    let (deadline, mut timer) = tokio::sync::watch::channel(None);
+    let clock = Arc::new(ObservedClock {
         time: ManualClock::new(start_time()),
-        readings: AtomicUsize::new(0),
+        deadline,
     });
     let catalog = Catalog::open_with_clock(&data.0, clock.clone())
         .await
@@ -635,18 +640,29 @@ async fn a_shorter_retention_wakes_a_scheduler_sleeping_until_a_later_deadline()
     retaining_bucket(&catalog, "weekly", 604_800).await;
     retaining_bucket(&catalog, "brief", 1).await;
     soft_delete(&catalog, "weekly", "object").await;
-    // A pass reads the clock when it starts and again to turn its deadline into a delay, so two
-    // readings put the scheduler on the week-long timer with nothing else due to wake it.
-    let before = clock.readings.load(Ordering::SeqCst);
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+        .await
+        .unwrap();
     catalog.start_resumable_maintenance();
-    eventually_async("the scheduler to reach its timer", || async {
-        clock.readings.load(Ordering::SeqCst) >= before + 2
-    })
-    .await;
+    let week = start_time() + Duration::from_secs(604_800);
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        timer.wait_for(|due| *due == Some(week)),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     soft_delete(&catalog, "brief", "object").await;
-    // Whichever pass observes the row as due purges it, within one real second of its deadline
-    // at worst. A scheduler left on the week-long timer never does.
+    let brief = start_time() + Duration::from_secs(1);
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        timer.wait_for(|due| *due == Some(brief)),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     clock.time.advance(Duration::from_secs(1));
     eventually_async("the brief retention to expire", || async {
         // The journal row outlives the unlink until the removal is durable.

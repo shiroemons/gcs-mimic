@@ -381,6 +381,7 @@ impl Catalog {
         lease: &SessionLease,
         reason: TerminalReason,
     ) -> Result<(), ResumableError> {
+        let wake = self.0.maintenance_wake.clone();
         let id = lease.session.id;
         let blob_id = lease.session.blob_id;
         #[cfg(test)]
@@ -393,7 +394,7 @@ impl Catalog {
             }
             #[cfg(test)]
             fault::hit(&data_dir, Step::SessionFailureCommit).map_err(object_unavailable)?;
-            transaction.commit()?;
+            super::resumable_maintenance::commit_cancellation(transaction, changed, &wake)?;
             #[cfg(test)]
             fault::hit(&data_dir, Step::SessionFailureCommitted).map_err(object_unavailable)?;
             Ok(changed)

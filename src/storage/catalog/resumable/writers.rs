@@ -25,12 +25,18 @@ pub(in crate::storage::catalog) enum WriterKey {
     Derived(BlobId),
 }
 
-/// Who holds a writer. Releasing one a request held rearms the maintenance work it made skip;
-/// maintenance releasing its own would wake itself in a loop.
+/// A sweep that skips a busy writer must retry when its key becomes available.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::storage::catalog) enum KeyOrigin {
     Client,
     Catalog,
+    Sweep(Deferred),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::storage::catalog) enum Deferred {
+    Maintenance,
+    Lifecycle,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -151,6 +157,7 @@ impl UploadWriters {
 #[derive(Default)]
 pub(in crate::storage::catalog) struct SessionWriters {
     held: HashSet<WriterKey>,
+    deferred: HashMap<WriterKey, Deferred>,
     /// Only uploads someone holds or waits for, so its size follows the requests in flight.
     uploads: HashMap<String, UploadWriters>,
 }
@@ -158,7 +165,7 @@ pub(in crate::storage::catalog) struct SessionWriters {
 impl SessionWriters {
     #[cfg(test)]
     pub(in crate::storage::catalog) fn is_empty(&self) -> bool {
-        self.held.is_empty() && self.uploads.is_empty()
+        self.held.is_empty() && self.uploads.is_empty() && self.deferred.is_empty()
     }
 
     fn upload(&mut self, id: &str) -> &mut UploadWriters {
@@ -178,6 +185,39 @@ impl SessionWriters {
             Ok(())
         } else {
             Err(ClaimError::Busy)
+        }
+    }
+
+    fn claim_from(&mut self, key: &WriterKey, origin: KeyOrigin) -> Result<(), ClaimError> {
+        let result = self.claim(key);
+        if let (Err(ClaimError::Busy), KeyOrigin::Sweep(retry)) = (&result, origin) {
+            // Mark under the claim lock; the last holder cannot release between failure and arming.
+            let waiting = self.deferred.entry(key.clone()).or_insert(retry);
+            if retry == Deferred::Lifecycle {
+                *waiting = retry;
+            }
+        }
+        result
+    }
+
+    fn take_deferred(&mut self, key: &WriterKey) -> Option<Deferred> {
+        if self.deferred.is_empty() {
+            return None;
+        }
+        match key {
+            WriterKey::Multipart(id)
+            | WriterKey::MultipartAbort(id)
+            | WriterKey::MultipartPart(id, _) => {
+                if self.uploads.get(id).is_some_and(|upload| {
+                    !matches!(&upload.holders, UploadHolders::Parts(parts) if parts.is_empty())
+                }) {
+                    return None;
+                }
+                self.deferred.remove(&WriterKey::Multipart(id.clone()))
+            }
+            WriterKey::Derived(_) | WriterKey::Resumable(_) | WriterKey::Rewrite(_) => {
+                self.deferred.remove(key)
+            }
         }
     }
 
@@ -228,7 +268,6 @@ impl Drop for WholeUploadTurn<'_> {
 pub(in crate::storage::catalog) struct WriterGuard {
     pub(super) catalog: Catalog,
     key: WriterKey,
-    origin: KeyOrigin,
     _activity: Activity,
 }
 
@@ -248,38 +287,21 @@ impl WriterGuard {
 
 impl Drop for WriterGuard {
     fn drop(&mut self) {
-        self.catalog.registry_for_release().release(&self.key);
+        let retry = {
+            let mut writers = self.catalog.registry_for_release();
+            writers.release(&self.key);
+            writers.take_deferred(&self.key)
+        };
         self.catalog.0.writer_released.notify_waiters();
-        if matches!(self.origin, KeyOrigin::Client)
-            && matches!(
-                self.key,
-                WriterKey::Multipart(_)
-                    | WriterKey::MultipartAbort(_)
-                    | WriterKey::MultipartPart(..)
-            )
-        {
-            self.catalog
-                .0
-                .lifecycle
-                .multipart_released(&self.catalog.0.maintenance_wake);
+        if matches!(self.key, WriterKey::Derived(_)) {
+            self.catalog.0.derived_wake.notify_waiters();
         }
-        match (&self.key, self.origin) {
-            (WriterKey::Derived(_), _) => {
-                self.catalog.0.derived_wake.notify_waiters();
-                self.catalog.0.maintenance_wake.notify_one();
+        if let Some(retry) = retry {
+            let wake = &self.catalog.0.maintenance_wake;
+            if retry == Deferred::Lifecycle {
+                self.catalog.0.lifecycle.mark_dirty();
             }
-            (
-                WriterKey::Rewrite(_)
-                | WriterKey::Multipart(_)
-                | WriterKey::MultipartAbort(_)
-                | WriterKey::MultipartPart(..),
-                _,
-            )
-            | (WriterKey::Resumable(_), KeyOrigin::Client) => {
-                self.catalog.0.maintenance_wake.notify_one()
-            }
-            // Maintenance failures already schedule a retry; only requests rearm skipped work.
-            (WriterKey::Resumable(_), KeyOrigin::Catalog) => {}
+            wake.notify_one();
         }
     }
 }
@@ -352,13 +374,21 @@ impl Catalog {
         key: WriterKey,
         origin: KeyOrigin,
     ) -> Result<WriterGuard, ClaimError> {
-        self.registry_for_claim()?.claim(&key)?;
+        self.registry_for_claim()?.claim_from(&key, origin)?;
         Ok(WriterGuard {
             catalog: self.clone(),
             key,
-            origin,
             _activity: activity,
         })
+    }
+
+    /// Only registry keys can be marked deferred. Wait out an exclusive job before trying the key.
+    pub(in crate::storage::catalog) async fn claim_sweep_writer(
+        &self,
+        key: WriterKey,
+    ) -> Result<WriterGuard, ClaimError> {
+        let activity = self.client_activity(Work::UnderWay).await?;
+        self.claim_leased(activity, key, KeyOrigin::Sweep(Deferred::Maintenance))
     }
 
     /// The lease for a client request's writer, once any exclusive job is done. `work` says
@@ -470,6 +500,33 @@ mod tests {
         },
     };
     use std::sync::Arc;
+
+    #[tokio::test]
+    async fn only_the_last_holder_of_the_deferred_upload_wakes_maintenance() {
+        let (catalog, _) = open(0).await;
+        let hold = |key| catalog.claim_writer(key, KeyOrigin::Client).unwrap();
+        let first = hold(WriterKey::MultipartPart("busy".into(), 1));
+        let last = hold(WriterKey::MultipartPart("busy".into(), 2));
+        let unrelated = hold(WriterKey::Multipart("other".into()));
+        catalog.0.maintenance_wake.notified().await;
+        let wake = catalog.0.maintenance_wake.notified();
+        tokio::pin!(wake);
+        wake.as_mut().enable();
+        assert!(matches!(
+            catalog.claim_writer(
+                WriterKey::Multipart("busy".into()),
+                KeyOrigin::Sweep(Deferred::Maintenance)
+            ),
+            Err(ClaimError::Busy)
+        ));
+        drop(unrelated);
+        drop(first);
+        assert!(!wake.as_mut().enable());
+        drop(last);
+        assert!(wake.as_mut().enable());
+        assert!(catalog.0.session_writers.lock().unwrap().is_empty());
+        catalog.close().await.unwrap();
+    }
 
     #[test]
     fn namespaces_keep_equal_ids_apart_and_a_held_key_is_busy_until_released() {

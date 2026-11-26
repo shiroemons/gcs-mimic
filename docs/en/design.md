@@ -724,11 +724,13 @@ earlier deadline is inserted or shutdown begins; sleep until due work, with no
 periodic polling and no timer when no work exists. Startup must run due cleanup
 before readiness and rearm the next deadline. Tests advance the injected clock
 and invoke maintenance without waiting a week.
-Each pass runs independent derived, resumable, rewrite, XML multipart and bucket
-cleanup sweeps even if another fails. The first typed failure fails the pass; later
-failures are logged, and successful deadlines are combined by their earliest value.
-Busy resumable sessions are skipped; releasing their request's writer guard wakes
-maintenance to retry them, including journaled cleanup failures.
+Each pass probes the persisted deadlines and cleanup journals in one read snapshot.
+It runs due sweeps, checks the lifecycle schedule, and drains any blob deletions
+journaled during the pass. Independent sweeps continue after a failure. The
+earliest remaining deadline arms the injected clock. When a sweep encounters a
+busy session or upload, it marks that key under the writer registry lock. Its
+last holder wakes maintenance to retry it. The notification publisher has its
+own outbox reader and wake signal.
 Session cleanup keeps its writer lease and upload slot through blocking unlink/sync
 and catalog journal removal, including after the requesting future is dropped.
 

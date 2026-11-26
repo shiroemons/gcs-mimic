@@ -101,6 +101,17 @@ impl Catalog {
         self.cleanup_derived(id).await
     }
 
+    pub(in crate::storage::catalog) async fn expire_derived(
+        &self,
+        id: &BlobId,
+    ) -> Result<(), ObjectError> {
+        let _guard = self
+            .claim_sweep_writer(WriterKey::Derived(*id))
+            .await
+            .map_err(derived_claim_error)?;
+        self.cleanup_derived(id).await
+    }
+
     /// The existing maintenance scheduler includes these deadlines and sleeps until work is due.
     #[cfg(test)]
     pub(crate) async fn maintain_derived_transfers(
@@ -132,18 +143,12 @@ impl Catalog {
             }
             for id in due {
                 after = After::Key(id);
-                let _guard = match self.derived_guard(&id) {
-                    Ok(guard) => guard,
-                    Err(ObjectError::DerivedTransferBusy) => continue,
-                    Err(error) => {
-                        sweep.fail(DERIVED_SWEEP, super::super::unavailable(error));
-                        continue;
-                    }
-                };
-                if let Err(error) = self.cleanup_derived(&id).await
-                    && error != ObjectError::DerivedTransferNotFound
-                {
-                    sweep.fail(DERIVED_SWEEP, super::super::unavailable(error));
+                match self.expire_derived(&id).await {
+                    Ok(())
+                    | Err(
+                        ObjectError::DerivedTransferNotFound | ObjectError::DerivedTransferBusy,
+                    ) => {}
+                    Err(error) => sweep.fail(DERIVED_SWEEP, super::super::unavailable(error)),
                 }
             }
         }

@@ -36,6 +36,37 @@ pub(in crate::storage::catalog) async fn assert_point_read(
 }
 
 #[tokio::test]
+async fn idle_maintenance_reads_the_committed_deadline_without_cleanup_or_a_wake() {
+    let dir = TestDir::new();
+    let catalog = open_with_object(&dir).await;
+    let session = catalog
+        .create_resumable_session(
+            "bucket",
+            "object",
+            ResumableOptions::new(BucketAccess::Permissive),
+            None,
+        )
+        .await
+        .unwrap();
+    // Consume the insertion wake, then register before running each routing case.
+    catalog.0.maintenance_wake.notified().await;
+    let next = catalog.0.maintenance_wake.notified();
+    tokio::pin!(next);
+    next.as_mut().enable();
+    let tasks = catalog.0.cleanup_tasks.load(Ordering::Relaxed);
+    assert_point_read(&catalog, async || {
+        assert_eq!(
+            catalog.maintain_resumable_sessions().await.unwrap(),
+            Some(session.deadline)
+        );
+    })
+    .await;
+    assert_eq!(catalog.0.cleanup_tasks.load(Ordering::Relaxed), tasks);
+    assert!(!next.as_mut().enable());
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn permission_reads_see_the_new_grant() {
     let dir = TestDir::new();
     let catalog = open_with_object(&dir).await;

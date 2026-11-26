@@ -102,12 +102,17 @@ enum ExpiryStep {
     Idle(Option<UnixMicros>),
 }
 
-fn expiry_step(connection: &mut Connection, now: UnixMicros) -> Result<ExpiryStep, CatalogError> {
-    let earliest: Option<(String, UnixMicros)> = sql::row(connection, EARLIEST_EXPIRY, [], |row| {
+pub(super) fn earliest_expiry(
+    connection: &Connection,
+) -> rusqlite::Result<Option<(String, UnixMicros)>> {
+    sql::row(connection, EARLIEST_EXPIRY, [], |row| {
         Ok((row.get(0)?, row.get(1)?))
     })
-    .optional()?;
-    match earliest {
+    .optional()
+}
+
+fn expiry_step(connection: &mut Connection, now: UnixMicros) -> Result<ExpiryStep, CatalogError> {
+    match earliest_expiry(connection)? {
         Some((bucket, expiry)) if expiry <= now => {
             match purge_expired(connection, &bucket, now).map_err(unavailable)? {
                 // The lookup and the purge share this connection, so a due row cannot vanish

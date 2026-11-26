@@ -83,7 +83,6 @@ impl Drop for RuleWriteScope {
 }
 
 pub(super) struct LifecycleSchedule {
-    multipart_busy: AtomicBool,
     armed: AtomicBool,
     dirty: AtomicBool,
     enabled: AtomicBool,
@@ -108,7 +107,6 @@ impl LifecycleSchedule {
         )?;
         let armed = sql::scalar(connection, HAS_RULES, [])?;
         Ok(Self {
-            multipart_busy: AtomicBool::new(false),
             armed: AtomicBool::new(armed),
             dirty: AtomicBool::new(armed),
             enabled: AtomicBool::new(false),
@@ -117,11 +115,31 @@ impl LifecycleSchedule {
         })
     }
 
+    pub(super) fn scheduled_at(&self, now: SystemTime) -> Option<SystemTime> {
+        if !self.enabled.load(Ordering::Acquire) {
+            return None;
+        }
+        let state = self.state();
+        if !self.dirty.load(Ordering::Acquire) || state.next.is_some_and(|due| due <= now) {
+            return state.next;
+        }
+        Some(
+            state
+                .last_scan
+                .and_then(|last| last.checked_add(COALESCE))
+                .unwrap_or(now),
+        )
+    }
+
     /// Every ordinary write pays just this load when no bucket has rules.
     pub(super) fn on_write(&self, wake: &tokio::sync::Notify) {
-        if self.armed.load(Ordering::Acquire) && !self.dirty.swap(true, Ordering::AcqRel) {
+        if self.mark_dirty() {
             wake.notify_one();
         }
+    }
+
+    pub(super) fn mark_dirty(&self) -> bool {
+        self.armed.load(Ordering::Acquire) && !self.dirty.swap(true, Ordering::AcqRel)
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, ScheduleState> {
@@ -249,20 +267,10 @@ impl Catalog {
         }
         let now = self.0.clock.now();
         if matches!(pass, Pass::Scheduled) {
-            let state = schedule.state();
-            if !schedule.dirty.load(Ordering::Acquire) && state.next.is_none_or(|due| now < due) {
+            let next = schedule.scheduled_at(now);
+            if next.is_none_or(|due| now < due) {
                 return Ok(LifecycleOutcome::Executed(LifecycleCounts {
-                    next: state.next,
-                    ..Default::default()
-                }));
-            }
-            if schedule.dirty.load(Ordering::Acquire)
-                && state.next.is_none_or(|due| now < due)
-                && let Some(gate) = state.last_scan.and_then(|last| last.checked_add(COALESCE))
-                && now < gate
-            {
-                return Ok(LifecycleOutcome::Executed(LifecycleCounts {
-                    next: Some(gate),
+                    next,
                     ..Default::default()
                 }));
             }

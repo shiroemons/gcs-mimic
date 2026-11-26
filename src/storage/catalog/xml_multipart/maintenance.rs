@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::catalog::{After, Work, sql};
+use crate::storage::catalog::{After, Work, resumable::writers::Deferred, sql};
 use rusqlite::{Transaction, TransactionBehavior};
 use std::sync::atomic::Ordering;
 
@@ -231,6 +231,8 @@ impl Catalog {
             .await
             .map_err(object_unavailable)?;
         let catalog = self.clone();
+        #[cfg(test)]
+        self.count_cleanup_task();
         crate::task::spawn_supervised("multipart-reclamation", async move {
             let (_activity, _permit) = (activity, permit);
             let pending = if catalog.0.backend.is_memory() {
@@ -282,17 +284,19 @@ impl Catalog {
     ) -> Result<usize, CatalogError> {
         let mut held = 0;
         for id in ids {
-            let _guard =
-                match self.claim_writer(WriterKey::Multipart(id.to_owned()), KeyOrigin::Catalog) {
-                    Ok(guard) => guard,
-                    Err(ClaimError::Busy) => {
-                        held += 1;
-                        continue;
-                    }
-                    Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => {
-                        return Err(CatalogError::from(error));
-                    }
-                };
+            let _guard = match self.claim_writer(
+                WriterKey::Multipart(id.to_owned()),
+                KeyOrigin::Sweep(Deferred::Maintenance),
+            ) {
+                Ok(guard) => guard,
+                Err(ClaimError::Busy) => {
+                    held += 1;
+                    continue;
+                }
+                Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => {
+                    return Err(CatalogError::from(error));
+                }
+            };
             let transaction = sql::immediate(connection)?;
             retire(&transaction, id).map_err(super::super::unavailable)?;
             transaction.commit()?;
@@ -370,11 +374,11 @@ impl Catalog {
         self.retire_expired(now).await?;
         self.retire_orphaned().await?;
         let deadline: Option<UnixMillis> = self
-            .run(|connection| {
+            .run(move |connection| {
                 sql::scalar(
                     connection,
-                    "SELECT min(deadline) FROM xml_multipart_uploads",
-                    [],
+                    "SELECT min(deadline) FROM xml_multipart_uploads WHERE deadline > ?1",
+                    [now],
                 )
                 .map_err(super::super::unavailable)
             })
@@ -391,7 +395,6 @@ impl Catalog {
         }
         // Busy expired uploads wake the scheduler when their owned operation releases its lease.
         deadline
-            .filter(|value| *value > now)
             .map(UnixMillis::system_time)
             .transpose()
             .map_err(super::super::unavailable)

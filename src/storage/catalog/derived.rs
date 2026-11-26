@@ -168,12 +168,14 @@ pub(super) fn transfer(
 impl Catalog {
     fn derived_guard(&self, id: &BlobId) -> Result<WriterGuard, ObjectError> {
         self.claim_writer(WriterKey::Derived(*id), KeyOrigin::Catalog)
-            .map_err(|error| match error {
-                ClaimError::Busy => ObjectError::DerivedTransferBusy,
-                error @ (ClaimError::Poisoned | ClaimError::Catalog(_)) => {
-                    CatalogError::from(error).into()
-                }
-            })
+            .map_err(derived_claim_error)
+    }
+}
+
+fn derived_claim_error(error: ClaimError) -> ObjectError {
+    match error {
+        ClaimError::Busy => ObjectError::DerivedTransferBusy,
+        error @ (ClaimError::Poisoned | ClaimError::Catalog(_)) => CatalogError::from(error).into(),
     }
 }
 

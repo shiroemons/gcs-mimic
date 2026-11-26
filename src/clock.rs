@@ -17,6 +17,11 @@ pub trait Clock: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         Box::pin(tokio::time::sleep(duration))
     }
+
+    /// Waits for a stored deadline on this clock, including when it advances before the first poll.
+    fn sleep_until(&self, deadline: SystemTime) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        self.sleep(deadline.duration_since(self.now()).unwrap_or_default())
+    }
 }
 
 pub struct SystemClock;
@@ -78,7 +83,10 @@ impl Clock for ManualClock {
         &self,
         duration: std::time::Duration,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        let end = self.now() + duration;
+        self.sleep_until(self.now() + duration)
+    }
+
+    fn sleep_until(&self, end: SystemTime) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         let mut time = self.0.subscribe();
         Box::pin(async move {
             // The sender lives as long as the clock this wait borrows, so the wait ends only when

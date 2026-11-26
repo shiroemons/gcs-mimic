@@ -1,9 +1,10 @@
 use super::{
     After, BlobBackend, Catalog, CatalogError, ResumableError, SessionId, SessionState, UnixMicros,
     UnixMillis,
-    resumable::writers::{ClaimError, KeyOrigin, WriterKey},
+    resumable::writers::{ClaimError, WriterKey},
     unavailable,
 };
+use crate::clock::{Clock, SystemClock};
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
 use crate::storage::failure::BackendCause;
@@ -13,10 +14,13 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+mod probe;
+use probe::DueWork;
+
 const PAGE_SIZE: i64 = 16;
 const RETRY_DELAY: Duration = Duration::from_secs(1);
 
-/// Every sweep runs; the first failure fails the pass and later failures remain visible.
+/// Each due sweep runs even if an earlier sweep failed.
 #[derive(Default)]
 pub(super) struct SweepOutcome {
     next: Option<SystemTime>,
@@ -47,6 +51,22 @@ impl SweepOutcome {
         }
     }
 
+    async fn when_due(
+        &mut self,
+        sweep: &'static str,
+        deadline: Option<SystemTime>,
+        now: SystemTime,
+        work: impl Future<Output = Result<Option<SystemTime>, CatalogError>>,
+    ) -> bool {
+        let due = deadline.is_some_and(|time| time <= now);
+        if due {
+            self.record(sweep, work.await);
+        } else {
+            self.record(sweep, Ok(deadline));
+        }
+        due
+    }
+
     pub(super) fn finish(self) -> Result<Option<SystemTime>, CatalogError> {
         self.failure.map_or(Ok(self.next), Err)
     }
@@ -70,6 +90,19 @@ fn cleanup_page(
     connection.prepare_cached("SELECT id, blob_id, deadline FROM resumable_sessions INDEXED BY resumable_sessions_deadline WHERE deadline <= ?2 AND id > ?1 UNION ALL SELECT session.id, session.blob_id, session.deadline FROM pending_blob_deletions AS pending CROSS JOIN resumable_sessions AS session ON session.blob_id = pending.blob_id WHERE session.id > ?1 AND session.state = 'CANCELLED' AND session.deadline > ?2 ORDER BY id LIMIT ?3")?
         .query_map(params![after, now, PAGE_SIZE], |row| Ok(DueSession { id: row.get(0)?, blob_id: row.get(1)?, deadline: row.get(2)? }))?
         .collect::<rusqlite::Result<_>>().map_err(unavailable)
+}
+
+/// Signal from the writer even if the request is cancelled or the commit result is ambiguous.
+pub(super) fn commit_cancellation(
+    transaction: rusqlite::Transaction<'_>,
+    changed: usize,
+    wake: &tokio::sync::Notify,
+) -> rusqlite::Result<()> {
+    let result = transaction.commit();
+    if changed != 0 {
+        wake.notify_one();
+    }
+    result
 }
 
 fn clean_record(
@@ -176,6 +209,8 @@ impl Catalog {
     ) -> Result<(), CatalogError> {
         let permit = self.admit_object_upload().map_err(unavailable)?;
         let (catalog, writer) = (self.clone(), writer.clone());
+        #[cfg(test)]
+        self.count_cleanup_task();
         crate::task::spawn_supervised("session-cleanup", async move {
             let (_writer, _permit) = (writer, permit);
             let cleanup = catalog
@@ -216,13 +251,14 @@ impl Catalog {
         let id = lease.session.id;
         let now = UnixMillis::try_from(self.0.clock.now())?;
         let blob_id = lease.session.blob_id;
+        let wake = self.0.maintenance_wake.clone();
         let changed = self.run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now])?;
             if changed == 1 {
                 super::objects::journal_deletion(&transaction, &blob_id)?;
             }
-            transaction.commit()?;
+            commit_cancellation(transaction, changed, &wake)?;
             Ok(changed)
         }).await?;
         if changed != 1 {
@@ -241,9 +277,14 @@ impl Catalog {
             );
             self.record_maintenance_error(Some(BackendCause::from_error(error)));
         }
-        drop(lease);
-        self.0.maintenance_wake.notify_one();
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(super) fn count_cleanup_task(&self) {
+        self.0
+            .cleanup_tasks
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Runs bounded cleanup against the injected clock; failed records remain the retry journal.
@@ -252,7 +293,10 @@ impl Catalog {
         &self,
     ) -> Result<Option<SystemTime>, CatalogError> {
         let result = self.run_resumable_maintenance().await;
-        self.0.maintenance_wake.notify_one();
+        if result.is_err() {
+            // A manually triggered pass can discover work while the scheduler is asleep.
+            self.0.maintenance_wake.notify_one();
+        }
         result
     }
 
@@ -291,35 +335,112 @@ impl Catalog {
         // sweep gets its own unit from one reading: truncating to milliseconds would leave a row
         // due within the current millisecond unpurged and spin the scheduler until the next one.
         let now = UnixMillis::try_from(reading)?;
-        let hard_delete_now = UnixMicros::try_from(reading)?;
+        let micros = UnixMicros::try_from(reading)?;
         let mut sweep = SweepOutcome::default();
-        sweep.record(
-            "derived transfer",
-            self.maintain_derived_transfers_at(now).await,
-        );
-        sweep.record(
-            "resumable session",
-            self.sweep_resumable_sessions(now).await,
-        );
-        sweep.record("rewrite session", self.maintain_rewrite_sessions(now).await);
-        sweep.record(
-            "lifecycle",
-            self.run_lifecycle(super::lifecycle::Pass::Scheduled)
-                .await
-                .map(|outcome| outcome.next()),
-        );
-        sweep.record("XML multipart", self.maintain_xml_multipart(now).await);
-        sweep.record(
-            "soft-deleted bucket",
-            self.maintain_soft_deleted_buckets(hard_delete_now).await,
-        );
-        sweep.record(
-            "soft-deleted object",
-            self.maintain_soft_deleted_objects(hard_delete_now).await,
-        );
-        // Last, so one pass also removes the blobs of every row the sweeps above journaled.
-        sweep.record("deletion journal", self.maintain_deletion_journal().await);
-        sweep.finish()
+        // If the probe cannot inspect one table, still let the other sweeps repair their work.
+        let (mut due, probe_error) = match self.maintenance_probe(reading).await {
+            Ok(due) => (due, None),
+            Err(error) => (DueWork::all(reading), Some(error)),
+        };
+        let mut may_have_journaled = sweep
+            .when_due(
+                "derived transfer",
+                due.derived,
+                reading,
+                self.maintain_derived_transfers_at(now),
+            )
+            .await;
+        may_have_journaled |= sweep
+            .when_due(
+                "resumable session",
+                due.resumable,
+                reading,
+                self.sweep_resumable_sessions(now),
+            )
+            .await;
+        may_have_journaled |= sweep
+            .when_due(
+                "rewrite session",
+                due.rewrite,
+                reading,
+                self.maintain_rewrite_sessions(now),
+            )
+            .await;
+
+        // Earlier sweeps can mark lifecycle dirty. Its gate and quarantine belong to the writer.
+        let lifecycle = self.0.lifecycle.scheduled_at(reading);
+        if lifecycle.is_some_and(|time| time <= reading) {
+            use super::lifecycle::{LifecycleOutcome, Pass};
+            let result = self.run_lifecycle(Pass::Scheduled).await;
+            let retired = match &result {
+                Ok(LifecycleOutcome::Executed(counts)) => {
+                    counts.aborted != 0 || counts.deleted != 0
+                }
+                Ok(LifecycleOutcome::Disabled) => false,
+                Err(_) => true, // An earlier page may have committed.
+            };
+            sweep.record("lifecycle", result.map(|outcome| outcome.next()));
+            if retired {
+                may_have_journaled = true;
+                // Lifecycle can create a multipart journal or a new soft-delete deadline.
+                match self.maintenance_probe(reading).await {
+                    Ok(updated) => due = updated,
+                    Err(error) => {
+                        sweep.fail("lifecycle", error);
+                        due = DueWork::all(reading);
+                    }
+                }
+            }
+        } else {
+            sweep.record("lifecycle", Ok(lifecycle));
+        }
+        sweep
+            .when_due(
+                "XML multipart",
+                due.multipart,
+                reading,
+                self.maintain_xml_multipart(now),
+            )
+            .await;
+        if sweep
+            .when_due(
+                "soft-deleted bucket",
+                due.buckets,
+                reading,
+                self.maintain_soft_deleted_buckets(micros),
+            )
+            .await
+        {
+            may_have_journaled = true;
+            // Removing a retained bucket may also have removed the earliest object deadline.
+            if due.objects.is_some() {
+                match self.run_read(probe::object_expiry).await {
+                    Ok(next) => due.objects = next,
+                    Err(error) => sweep.fail("soft-deleted object", error),
+                }
+            }
+        }
+        may_have_journaled |= sweep
+            .when_due(
+                "soft-deleted object",
+                due.objects,
+                reading,
+                self.maintain_soft_deleted_objects(micros),
+            )
+            .await;
+        // A committed earlier sweep can create or empty the journal after the initial snapshot.
+        let journal = if may_have_journaled {
+            self.run_read(probe::journal_due).await
+        } else {
+            Ok(due.journal)
+        };
+        match journal {
+            Ok(true) => sweep.record("deletion journal", self.maintain_deletion_journal().await),
+            Ok(false) => {}
+            Err(error) => sweep.fail("deletion journal", error),
+        }
+        let next = sweep.finish()?;
+        probe_error.map_or(Ok(next), Err)
     }
 
     async fn sweep_resumable_sessions(
@@ -351,7 +472,7 @@ impl Catalog {
             } in rows
             {
                 // A held session is swept once its request releases it, so this never waits.
-                let writer = match self.claim_writer(WriterKey::Resumable(id), KeyOrigin::Catalog) {
+                let writer = match self.claim_sweep_writer(WriterKey::Resumable(id)).await {
                     Ok(writer) => Arc::new(writer),
                     Err(ClaimError::Busy) => continue,
                     Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => {
@@ -480,14 +601,11 @@ async fn maintenance_loop(
             panic!("injected resumable maintenance panic");
         }
         let catalog = Catalog(inner);
-        let delay = match catalog.run_resumable_maintenance().await {
+        let clock = catalog.0.clock.clone();
+        let sleep = match catalog.run_resumable_maintenance().await {
             Ok(next) => {
                 catalog.0.maintenance_health.pass_succeeded();
-                next.map(|deadline| {
-                    deadline
-                        .duration_since(catalog.0.clock.now())
-                        .unwrap_or_default()
-                })
+                next.map(|deadline| clock.sleep_until(deadline))
             }
             Err(error) => {
                 // Expiry that fails on every pass leaves sessions and staged bytes behind, so
@@ -498,13 +616,14 @@ async fn maintenance_loop(
                     "resumable_maintenance_retry",
                     serde_json::json!({"message":format!("resumable maintenance failed; retrying: {error}")}),
                 );
-                Some(RETRY_DELAY)
+                // Operational retries continue even while the emulated clock is stopped.
+                Some(SystemClock.sleep(RETRY_DELAY))
             }
         };
         drop(catalog);
-        match delay {
-            Some(delay) => {
-                tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = &mut notified => {} }
+        match sleep {
+            Some(sleep) => {
+                tokio::select! { _ = sleep => {}, _ = &mut notified => {} }
             }
             None => notified.await,
         }
@@ -515,6 +634,61 @@ async fn maintenance_loop(
 mod tests {
     use super::*;
     use std::fs;
+
+    #[tokio::test]
+    async fn expired_resumable_runs_only_session_cleanup_and_leaves_future_work_asleep() {
+        use crate::{
+            bucket::BucketAccess,
+            clock::ManualClock,
+            storage::{ResumableOptions, test_fixtures::bucket},
+            test_support::TestDir,
+        };
+        use std::sync::atomic::Ordering;
+        let data = TestDir::new();
+        let clock = Arc::new(ManualClock::new(SystemTime::UNIX_EPOCH));
+        let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+            .await
+            .unwrap();
+        catalog
+            .insert_bucket(bucket("bucket", "project"))
+            .await
+            .unwrap();
+        let session = catalog
+            .create_resumable_session(
+                "bucket",
+                "first",
+                ResumableOptions::new(BucketAccess::Permissive),
+                None,
+            )
+            .await
+            .unwrap();
+        clock.advance(Duration::from_secs(1));
+        let later = catalog
+            .create_resumable_session(
+                "bucket",
+                "later",
+                ResumableOptions::new(BucketAccess::Permissive),
+                None,
+            )
+            .await
+            .unwrap();
+        catalog.close().await.unwrap();
+        let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+            .await
+            .unwrap();
+        let (w, r) = catalog.job_counts();
+        let tasks = catalog.0.cleanup_tasks.load(Ordering::Relaxed);
+        clock.set(session.deadline);
+        assert_eq!(
+            catalog.maintain_resumable_sessions().await.unwrap(),
+            Some(later.deadline)
+        );
+        assert_eq!(catalog.job_counts(), (w + 6, r + 2));
+        assert_eq!(catalog.0.cleanup_tasks.load(Ordering::Relaxed), tasks + 1);
+        assert!(!session.blob_id.staging_path(&data.0).exists());
+        assert!(later.blob_id.staging_path(&data.0).exists());
+        catalog.close().await.unwrap();
+    }
 
     #[test]
     fn sweep_outcome_keeps_the_earliest_deadline_and_first_failure() {

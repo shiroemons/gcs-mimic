@@ -1,19 +1,19 @@
 //! Indexed XML multipart retirement under the shared lifecycle pass and action budget.
 
 use super::{
-    BucketRules, Catalog, CatalogError, LifecycleCounts, LifecycleSchedule, ObjectError,
-    bucket_rules, emit_quarantines, sql, unavailable,
+    BucketRules, Catalog, CatalogError, LifecycleCounts, ObjectError, bucket_rules,
+    emit_quarantines, sql, unavailable,
 };
 use crate::storage::catalog::Incarnation;
 use crate::{
     bucket::lifecycle::{LifecycleAction, evaluate::multipart_abort_due},
     storage::catalog::{
         UnixMillis,
-        resumable::writers::{ClaimError, KeyOrigin, WriterGuard, WriterKey},
+        resumable::writers::{ClaimError, Deferred, KeyOrigin, WriterGuard, WriterKey},
     },
 };
 use rusqlite::{Connection, params};
-use std::{sync::atomic::Ordering, time::SystemTime};
+use std::time::SystemTime;
 
 #[cfg(test)]
 mod tests;
@@ -44,17 +44,6 @@ struct Page {
 struct Bucket<'a> {
     name: &'a str,
     incarnation: Incarnation,
-}
-
-impl LifecycleSchedule {
-    pub(in crate::storage::catalog) fn multipart_released(&self, wake: &tokio::sync::Notify) {
-        if self.multipart_busy.load(Ordering::Acquire)
-            && self.enabled.load(Ordering::Acquire)
-            && self.multipart_busy.swap(false, Ordering::AcqRel)
-        {
-            self.on_write(wake);
-        }
-    }
 }
 
 impl Catalog {
@@ -203,18 +192,11 @@ impl Catalog {
     }
 
     fn claim_abort_upload(&self, id: &str) -> Result<Option<WriterGuard>, ObjectError> {
-        // Arm before claiming: a client releasing between Busy and arming cannot lose its wake.
-        let was_busy = self.0.lifecycle.multipart_busy.swap(true, Ordering::AcqRel);
-        match self.claim_writer(WriterKey::Multipart(id.to_owned()), KeyOrigin::Catalog) {
-            Ok(lease) => {
-                if !was_busy {
-                    self.0
-                        .lifecycle
-                        .multipart_busy
-                        .store(false, Ordering::Release);
-                }
-                Ok(Some(lease))
-            }
+        match self.claim_writer(
+            WriterKey::Multipart(id.to_owned()),
+            KeyOrigin::Sweep(Deferred::Lifecycle),
+        ) {
+            Ok(lease) => Ok(Some(lease)),
             Err(ClaimError::Busy) => Ok(None),
             Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => {
                 Err(CatalogError::from(error).into())

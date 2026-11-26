@@ -305,7 +305,9 @@ pub(super) fn remove_versions(connection: &Connection, name: &str) -> Result<u64
     Ok(removed)
 }
 
-fn earliest_hard_delete(connection: &Connection) -> Result<Option<UnixMicros>, CatalogError> {
+pub(super) fn earliest_hard_delete(
+    connection: &Connection,
+) -> Result<Option<UnixMicros>, CatalogError> {
     sql::scalar(
         connection,
         "SELECT min(hard_delete_time) FROM soft_deleted_buckets",
@@ -407,9 +409,7 @@ impl Catalog {
         now: UnixMicros,
     ) -> Result<Option<SystemTime>, CatalogError> {
         self.run::<_, CatalogError>(move |connection| {
-            // Every maintenance pass reaches this sweep, including passes that requests
-            // wake. Taking the write lock only when a version is due keeps a pass with
-            // nothing to purge from waiting on another writer and holding the connection.
+            // A concurrent restore may have taken the last due version since the probe.
             let mut next = earliest_hard_delete(connection)?;
             while next.is_some_and(|time| time <= now) {
                 let removed = purge_batch(connection, now)?;
