@@ -869,6 +869,11 @@ try_from = "i64")]`.
   Precondition values stay `i64`, because 0 and negatives mean something there.
 - **Custom time.** `CustomTime { text, instant }` is parsed once, ordered by
   instant and rendered as its text. It replaces four re-parses.
+  - Text that cannot be parsed keeps its spelling with an empty
+    `Option<UnixNanos>`. This preserves corrupt stored rows for readers and
+    defers request errors to the existing checks through `instant()`.
+    Comparison sites order the returned `UnixNanos`, and equality keeps the
+    original spelling significant.
   - A property test shows that values the current import can publish also
     parse as `CustomTime`. Preflight also accepts year zero and some longer
     zero-padded fractions that publication rejects.

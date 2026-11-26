@@ -40,6 +40,7 @@ impl<T> Patch<T> {
         }
     }
 
+    /// Transforms a `Set` value while preserving `Keep` and `Clear`.
     pub(crate) fn map<U>(self, f: impl FnOnce(T) -> U) -> Patch<U> {
         match self {
             Self::Keep => Patch::Keep,

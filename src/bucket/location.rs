@@ -63,7 +63,7 @@ crate::choice::string_enum! {
         MultiRegion => "multi-region",
     };
     listed(pub(self));
-    sql(pub(crate) from_stored, "invalid stored location type")
+    parse_option(pub(crate) from_stored)
 }
 
 impl LocationKind {

@@ -6,7 +6,7 @@ use gcs_mimic::{
     import::{self, Fingerprint, MetadataMode, Options, SourcePlatform},
     storage::{
         Catalog,
-        admin::{BucketName, ObjectName, Origin},
+        admin::{AdminError, BucketName, ObjectName, Origin},
     },
 };
 use serde_json::{Value, json};
@@ -731,6 +731,53 @@ fn filesystem_import_preserves_classes_and_custom_time_through_resume_and_restar
             Fingerprint::of(&fs::metadata(&sidecar).unwrap()).unwrap(),
             before
         );
+    }
+}
+
+#[test]
+fn filesystem_import_rejects_preflight_only_custom_times_at_publication() {
+    for custom_time in ["0000-12-31T23:59:59Z", "1969-12-31T23:59:59.0000000000Z"] {
+        let (_dir, options) = fixture();
+        let mut attrs: Value = serde_json::from_slice(ATTRS).unwrap();
+        attrs["CustomTime"] = json!(custom_time);
+        fs::write(
+            options.source.join("bucket-one/a.metadata"),
+            serde_json::to_vec(&attrs).unwrap(),
+        )
+        .unwrap();
+
+        let summary = import::inspect(options.clone(), Vec::new(), Vec::new()).unwrap();
+        assert!(summary.complete && summary.eligible, "{custom_time}");
+        assert_eq!(summary.eligible_objects, 2);
+        assert_eq!(summary.blocking_findings, 0);
+        assert!(!options.destination.exists());
+
+        let error = execute(options.clone()).unwrap_err();
+        let import::ImportError::Admin(AdminError::Invalid(reason)) = error else {
+            panic!("{custom_time}: {error:?}");
+        };
+        assert_eq!(
+            reason,
+            concat!(
+                "Parse Error: Invalid value for type.googleapis.com/google.protobuf.Timestamp ",
+                "field: 'Field 'customTime', Illegal timestamp format; ",
+                "timestamps must end with 'Z' or have a valid timezone offset.'.",
+            )
+        );
+        runtime().block_on(async {
+            let catalog = Catalog::open(&options.destination).await.unwrap();
+            assert!(catalog.import_journal().in_progress().await.unwrap());
+            let admin = catalog.admin(Origin::Import);
+            let bucket = BucketName::new("bucket-one").unwrap();
+            assert!(admin.get_bucket(&bucket).await.unwrap().is_some());
+            assert!(matches!(
+                admin
+                    .get_object(&bucket, &ObjectName::new("a").unwrap(), None)
+                    .await,
+                Err(AdminError::NotFound)
+            ));
+            catalog.close().await.unwrap();
+        });
     }
 }
 

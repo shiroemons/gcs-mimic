@@ -107,6 +107,11 @@ crate::choice::string_enum!(sql
     |value: &str| value.parse().ok()
 );
 crate::choice::string_enum!(sql
+    crate::bucket::LocationKind,
+    "invalid stored location type",
+    crate::bucket::LocationKind::from_stored
+);
+crate::choice::string_enum!(sql
     crate::bucket::Location,
     "invalid stored bucket location",
     crate::bucket::Location::from_canonical

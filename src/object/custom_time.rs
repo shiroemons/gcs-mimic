@@ -14,6 +14,7 @@ pub struct CustomTime {
 
 impl CustomTime {
     /// Keeps rejected text so requests and old stored rows still fail at the same checks.
+    /// Before publishing a new value, check it through metadata validation or `instant()`.
     pub(crate) fn from_text(text: String) -> Self {
         let instant = custom_time_key(&text).ok();
         Self { text, instant }
