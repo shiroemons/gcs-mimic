@@ -839,7 +839,7 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
     for offset in downcasts(masked) {
         add(DOWNCAST, offset);
     }
-    for offset in io_error_other(masked) {
+    for offset in io_error_other(masked, &tests) {
         add(IO_ERROR_OTHER, offset);
     }
     for offset in diagnostics_in_io_errors(masked) {
@@ -1001,8 +1001,9 @@ fn path_receiver(prefix: &str) -> Option<(&str, &str)> {
 }
 
 /// Calls and function values share the same path. Also recognize direct imports in this file.
-fn io_error_other(masked: &str) -> Vec<usize> {
+fn io_error_other(masked: &str, tests: &[bool]) -> Vec<usize> {
     let imported: BTreeSet<_> = words(masked, "use")
+        .filter(|&at| !tests[line_index(masked, at)])
         .filter_map(|at| {
             let (item, _) = masked[at + 3..].split_once(';')?;
             let mut segments = item
@@ -1805,6 +1806,17 @@ mod tests {
         );
         let mixed = "fn live() { io::Error::other(x); }\n#[cfg(test)]\nfn fixture() { io::Error::other(x); }";
         assert_eq!(lines_of(IO_ERROR_OTHER, mixed), [1]);
+        for condition in ["#![cfg(not(test))]", "#![cfg(all(test, unix))]"] {
+            let source = format!("{condition}\nfn live() {{ io::Error::other(x); }}");
+            assert_eq!(lines_of(IO_ERROR_OTHER, &source), [2]);
+        }
+        assert_eq!(
+            lines_of(
+                IO_ERROR_OTHER,
+                "#![expect(dead_code)]\n#![cfg(test)]\nfn f() { io::Error::other(x); }"
+            ),
+            [3]
+        );
     }
 
     #[test]
@@ -2230,6 +2242,9 @@ fn fixture() { io::Error::other("fixture"); }
         assert_eq!(lines_of(IO_ERROR_OTHER, text), [3, 4, 5, 6, 7]);
         assert!(lines_of(IO_ERROR_OTHER, "use domain::Error; Error::other(cause);").is_empty());
         assert!(lines_of(IO_ERROR_OTHER, "domain::io::Error::other(cause);").is_empty());
+        let fixture_import =
+            "#[cfg(test)]\nmod tests { use std::io::Error; }\nfn live() { Error::other(cause); }";
+        assert!(lines_of(IO_ERROR_OTHER, fixture_import).is_empty());
     }
 
     #[test]

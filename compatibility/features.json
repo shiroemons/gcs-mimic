@@ -64254,7 +64254,7 @@
         },
         {
           "id": "DESIGN-105-ERRORS",
-          "description": "Adapters map protocol-neutral errors exhaustively, ApiError is private to the JSON adapter, error chains repeat no text, and io::Error::other remains only under reasoned expectations.",
+          "description": "Adapters map protocol-neutral errors exhaustively, ApiError is private to the JSON adapter, error chains repeat no text, and io::Error::other remains only under reasoned text-rule exceptions.",
           "result": "PENDING",
           "test_ids": []
         },
