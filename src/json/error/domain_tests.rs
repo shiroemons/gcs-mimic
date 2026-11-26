@@ -165,7 +165,7 @@ fn backend_causes_are_actionable_and_private_details_stay_private() {
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
-        assert_eq!(events.len(), 15);
+        assert_eq!(events.len(), 14);
         assert!(events.iter().all(|event| {
             event["event"] == "object_backend_failure" && event["level"] == "error"
         }));
@@ -173,8 +173,8 @@ fn backend_causes_are_actionable_and_private_details_stay_private() {
         assert_eq!(events[2]["cause"], "Permission denied");
         assert_eq!(events[6]["cause"], "database is locked");
         assert_eq!(events[7]["cause"], "invalid opaque blob ID");
-        assert_eq!(events[11]["cause"], "Acknowledged upload prefix is missing");
-        assert_eq!(events[13]["cause"], "database is locked");
+        assert_eq!(events[10]["cause"], "Acknowledged upload prefix is missing");
+        assert_eq!(events[12]["cause"], "database is locked");
         return;
     }
     for cause in [
