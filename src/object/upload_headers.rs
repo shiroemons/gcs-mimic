@@ -54,7 +54,7 @@ pub(crate) enum UploadHeaderError {
 
 pub(crate) struct CustomMetadataHeader<'a> {
     pub(crate) name: &'a HeaderName,
-    pub(crate) metadata: Result<Option<(&'a str, &'a str)>, UploadHeaderError>,
+    pub(crate) metadata: Option<Result<(&'a str, &'a str), UploadHeaderError>>,
 }
 
 /// Visits the original header order so callers can interleave their other header refusals.
@@ -64,16 +64,19 @@ pub(crate) fn custom_metadata_headers(
     order: TextOrder,
 ) -> impl Iterator<Item = CustomMetadataHeader<'_>> {
     headers.keys().map(move |name| {
-        let metadata = match name.as_str().strip_prefix(CUSTOM_METADATA_PREFIX) {
-            Some(key) => sole(headers, name)
-                .text(order)
-                .map(|value| value.map(|value| (key, value)))
-                .map_err(|source| UploadHeaderError::CustomMetadata {
-                    name: name.clone(),
-                    source,
-                }),
-            None => Ok(None),
-        };
+        let metadata = name
+            .as_str()
+            .strip_prefix(CUSTOM_METADATA_PREFIX)
+            .and_then(|key| {
+                sole(headers, name)
+                    .text(order)
+                    .map_err(|source| UploadHeaderError::CustomMetadata {
+                        name: name.clone(),
+                        source,
+                    })
+                    .transpose()
+                    .map(|value| value.map(|value| (key, value)))
+            });
         CustomMetadataHeader { name, metadata }
     })
 }
@@ -178,7 +181,7 @@ mod tests {
             ("x-goog-meta-value", " Mixed Case "),
         ]);
         let fields = custom_metadata_headers(&headers, TextOrder::ValueFirst)
-            .filter_map(|field| field.metadata.transpose())
+            .filter_map(|field| field.metadata)
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         assert_eq!(fields, [("", ""), ("value", " Mixed Case ")]);
@@ -197,7 +200,7 @@ mod tests {
             (TextOrder::RepetitionFirst, "Duplicate x-goog-meta-key"),
         ] {
             let field = custom_metadata_headers(&headers, order).next().unwrap();
-            let error = field.metadata.unwrap_err();
+            let error = field.metadata.unwrap().unwrap_err();
             assert_eq!(error.to_string(), message);
             assert!(std::error::Error::source(&error).is_some());
         }

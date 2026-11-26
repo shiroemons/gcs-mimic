@@ -281,7 +281,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     }
     let mut custom = BTreeMap::new();
     for field in custom_metadata_headers(headers, TextOrder::RepetitionFirst) {
-        if let Some((key, value)) = field.metadata? {
+        if let Some((key, value)) = field.metadata.transpose()? {
             custom.insert(key.to_owned(), Some(value.to_owned()));
         }
     }

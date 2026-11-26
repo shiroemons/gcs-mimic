@@ -454,8 +454,8 @@ what it uses (`unused_async`, `unused_self`, `bool_to_int_with_if`,
 `cast_lossless`), and conversions and borrows that hide their meaning
 (`checked_conversions`, `mut_mut`, `ref_binding_to_reference`).
 `[workspace.lints]` instead sets
-`clippy::disallowed_methods` to `allow`, so tests may spawn tasks and run
-ad-hoc SQL, and the gate's `-W` raises it for production code only. A unit
+`clippy::disallowed_methods` to `allow`, so tests may spawn tasks, run
+ad-hoc SQL and acquire raw locks. The gate's `-W` raises it for production code only. A unit
 test in `xtask` fails if a lint is denied there and also passed with `-W`.
 
 `cargo::unused_dependencies` is also a workspace deny. Cargo checks normal

@@ -344,7 +344,7 @@ pub(crate) fn final_options(
         if field.name.as_str().starts_with("x-goog-upload-") {
             return Err(ApiError::unsupported_object(field.name.as_str()));
         }
-        if let Some((key, value)) = field.metadata? {
+        if let Some((key, value)) = field.metadata.transpose()? {
             custom.insert(key.into(), value.into());
             clean.remove(field.name);
         }

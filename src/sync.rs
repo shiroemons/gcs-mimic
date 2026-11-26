@@ -96,6 +96,7 @@ pub(crate) fn report_recovery() {
 mod tests {
     use super::*;
     use std::panic::catch_unwind;
+    use std::sync::Barrier;
 
     #[test]
     fn mutex_cleanup_preserves_poison_until_recovery() {
@@ -133,6 +134,84 @@ mod tests {
                 assert_eq!(*write(&value), expected);
             }
             assert!(!value.is_poisoned());
+        }
+    }
+
+    #[test]
+    fn poison_warnings_are_once_per_recovery_and_cleanup_is_quiet() {
+        const MODE: &str = "GCSM_TEST_POISON_WARNINGS";
+        if let Ok(mode) = std::env::var(MODE) {
+            crate::diagnostics::set_log_level(LogLevel::Warn);
+            match mode.as_str() {
+                "read" => recover_with_concurrent_readers(),
+                "cleanup" => {
+                    let lock = Mutex::new(());
+                    assert!(
+                        catch_unwind(|| {
+                            let _guard = super::lock(&lock);
+                            panic!("poison mutex");
+                        })
+                        .is_err()
+                    );
+                    drop(lock_for_cleanup(&lock));
+                    assert!(lock.is_poisoned());
+                }
+                _ => panic!("unknown test mode {mode}"),
+            }
+            return;
+        }
+
+        for (mode, expected) in [("read", 2), ("cleanup", 0)] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "sync::tests::poison_warnings_are_once_per_recovery_and_cleanup_is_quiet",
+                    "--nocapture",
+                ])
+                .env(MODE, mode)
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                output.status.success() && stdout.contains("1 passed"),
+                "{stdout}\n{stderr}"
+            );
+            let reports: Vec<serde_json::Value> = stderr
+                .lines()
+                .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                .filter(|event| event["event"] == "lock_poison_recovered")
+                .collect();
+            assert_eq!(reports.len(), expected, "{mode}: {stderr}");
+            assert!(
+                reports.iter().all(|event| event["level"] == "warn"),
+                "{stderr}"
+            );
+        }
+    }
+
+    fn recover_with_concurrent_readers() {
+        let lock = RwLock::new(0);
+        for expected in [1, 2] {
+            assert!(
+                catch_unwind(|| {
+                    let mut guard = write(&lock);
+                    *guard = expected;
+                    panic!("poison write lock");
+                })
+                .is_err()
+            );
+            assert!(lock.is_poisoned());
+            let start = Barrier::new(2);
+            std::thread::scope(|scope| {
+                let read_after_start = || {
+                    start.wait();
+                    assert_eq!(*read(&lock), expected);
+                };
+                scope.spawn(read_after_start);
+                read_after_start();
+            });
+            assert!(!lock.is_poisoned());
         }
     }
 }
