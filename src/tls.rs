@@ -17,19 +17,28 @@ pub const DEVELOPMENT_CA_PEM: &str = include_str!("tls/development-ca.pem");
 const DEVELOPMENT_CERT_PEM: &[u8] = include_bytes!("tls/development-cert.pem");
 const DEVELOPMENT_KEY_PEM: &[u8] = include_bytes!("tls/development-key.pem");
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ServerIdentityError {
-    Certificate(io::Error),
-    PrivateKey(io::Error),
-    Identity(io::Error),
+    #[error("{0}")]
+    Certificate(#[source] io::Error),
+    #[error("{0}")]
+    PrivateKey(#[source] io::Error),
+    #[error("{0}")]
+    Identity(#[source] io::Error),
+    #[error("TLS listeners require a server identity")]
+    MissingIdentity,
     /// rustls refused the pair, such as a key that does not match the certificate.
-    Rejected(rustls::Error),
+    #[error("{0}")]
+    Rejected(#[source] rustls::Error),
 }
 
 impl ServerIdentityError {
     pub fn setting(&self) -> &'static str {
         match self {
-            Self::Certificate(_) | Self::Identity(_) | Self::Rejected(_) => "tls_cert",
+            Self::Certificate(_)
+            | Self::Identity(_)
+            | Self::MissingIdentity
+            | Self::Rejected(_) => "tls_cert",
             Self::PrivateKey(_) => "tls_key",
         }
     }
@@ -42,19 +51,12 @@ impl ServerIdentityError {
             Self::PrivateKey(_) => {
                 "provide exactly one readable PEM private key in tls_key, at most 1 MiB, matching tls_cert"
             }
-            Self::Identity(_) => {
+            Self::Identity(_) | Self::MissingIdentity => {
                 "provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with a certificate chain and exactly one private key; use scheme=auto, https or both, or grpc_listen with grpc_scheme=auto or tls"
             }
             Self::Rejected(_) => {
                 "provide a tls_key that matches the first certificate in tls_cert, as an RSA, ECDSA P-256 or P-384, or Ed25519 key"
             }
-        }
-    }
-
-    fn cause(&self) -> &(dyn std::error::Error + 'static) {
-        match self {
-            Self::Certificate(error) | Self::PrivateKey(error) | Self::Identity(error) => error,
-            Self::Rejected(error) => error,
         }
     }
 
@@ -65,18 +67,6 @@ impl ServerIdentityError {
             self.setting(),
             format!("Cannot load TLS identity: {self}; {}", self.repair()),
         )
-    }
-}
-
-impl std::fmt::Display for ServerIdentityError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.cause(), f)
-    }
-}
-
-impl std::error::Error for ServerIdentityError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.cause())
     }
 }
 
@@ -287,10 +277,7 @@ impl ServerSecurity {
         let grpc = ListenerSecurity::grpc(grpc, unix_socket);
         let Some(tls) = tls else {
             if primary.uses_tls() || grpc.uses_tls() {
-                return Err(ServerIdentityError::Identity(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "TLS listeners require a server identity",
-                )));
+                return Err(ServerIdentityError::MissingIdentity);
             }
             return Ok(Self::plain());
         };

@@ -239,7 +239,12 @@ struct BoundListeners {
     primary: PrimaryListener,
     http: Option<tokio::net::TcpListener>,
     trusted: Option<tokio::net::TcpListener>,
-    grpc: Option<tokio::net::TcpListener>,
+    grpc: Option<BoundGrpcListener>,
+}
+
+struct BoundGrpcListener {
+    listener: tokio::net::TcpListener,
+    scheme: GrpcScheme,
 }
 
 struct BoundStartup {
@@ -335,16 +340,6 @@ impl ListenerSetting {
 
 async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
     if let Some(_path) = config.unix_socket() {
-        if matches!(
-            config.scheme(),
-            gcs_mimic::config::Scheme::Https | gcs_mimic::config::Scheme::Both
-        ) {
-            return Err(Diagnostics::error(
-                DiagnosticSource::Listener,
-                "unix_socket",
-                "Unix transport serves plain HTTP; it requires scheme=auto or http and no TCP HTTP/gRPC listener settings.",
-            ));
-        }
         #[cfg(unix)]
         return server::unix::Listener::bind(_path).await.map(|listener| PrimaryListener::Unix { listener, path: _path.to_owned() }).map_err(|error| {
             Diagnostics::error(DiagnosticSource::Listener, "unix_socket", format!(
@@ -511,7 +506,13 @@ async fn prepare_startup(
         let http = bind_optional(config.listen_http(), ListenerSetting::ListenHttp).await?;
         let trusted =
             bind_optional(config.trusted_listen(), ListenerSetting::TrustedListen).await?;
-        let grpc = bind_optional(config.grpc_listen(), ListenerSetting::GrpcListen).await?;
+        let grpc = match config.grpc_listen().zip(config.grpc_scheme()) {
+            Some((address, scheme)) => Some(BoundGrpcListener {
+                listener: bind_configured_listener(address, ListenerSetting::GrpcListen).await?,
+                scheme,
+            }),
+            None => None,
+        };
         Ok::<_, Diagnostics>(BoundListeners {
             primary,
             http,
@@ -637,7 +638,13 @@ pub(crate) async fn serve(
             server::Listeners::from(server::TcpListeners {
                 public,
                 trusted,
-                grpc: grpc.map(|listener| (listener, grpc_security)),
+                grpc: grpc.map(
+                    |BoundGrpcListener { listener, scheme }| server::GrpcListener {
+                        listener,
+                        security: grpc_security,
+                        scheme,
+                    },
+                ),
             })
         }
         #[cfg(unix)]
@@ -649,7 +656,7 @@ pub(crate) async fn serve(
 }
 
 /// The bound listeners in the order readiness reports them. A Unix socket is the only listener
-/// its server binds, which `bind_primary` enforces.
+/// its configuration permits.
 fn ready_transport(
     config: &Config,
     listeners: &BoundListeners,
@@ -671,9 +678,9 @@ fn ready_transport(
                     scheme: "http",
                 });
             }
-            if let (Some(grpc), Some(scheme)) = (&listeners.grpc, config.grpc_scheme()) {
+            if let Some(BoundGrpcListener { listener, scheme }) = &listeners.grpc {
                 entries.push(ReadyListener {
-                    listen: ListenerSetting::GrpcListen.local_addr(grpc)?,
+                    listen: ListenerSetting::GrpcListen.local_addr(listener)?,
                     scheme: scheme.listener_scheme(),
                 });
             }
@@ -1199,7 +1206,7 @@ mod tests {
             panic!("unexpected stop");
         };
         let listener = bound.listeners.grpc.as_ref().unwrap();
-        let address = listener.local_addr().unwrap();
+        let address = listener.listener.local_addr().unwrap();
         let failure = bind_configured_listener(address, ListenerSetting::GrpcListen)
             .await
             .unwrap_err();

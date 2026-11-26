@@ -4,7 +4,7 @@ use crate::{
     auth::{self, Auth, Caller, ListenerRole},
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
-    config::{Config, ConnectionScheme},
+    config::{Config, ConnectionScheme, GrpcScheme},
     diagnostics::Diagnostics,
     http_conditions::{EtagError, etag_not_modified},
     json,
@@ -934,7 +934,14 @@ pub struct TcpListeners {
     /// credentials acts as `trusted_principal`.
     pub trusted: Option<TcpListener>,
     /// The separate gRPC listener, with how it secures its connections.
-    pub grpc: Option<(TcpListener, ListenerSecurity)>,
+    pub grpc: Option<GrpcListener>,
+}
+
+/// The bound gRPC listener and its configured transport.
+pub struct GrpcListener {
+    pub listener: TcpListener,
+    pub security: ListenerSecurity,
+    pub scheme: GrpcScheme,
 }
 
 impl TcpListeners {
@@ -972,7 +979,7 @@ impl TcpListeners {
                 "at least one listener is required",
             )));
         }
-        entries.extend(grpc.map(|(listener, security)| Entry::Grpc(listener, security)));
+        entries.extend(grpc.map(Entry::Grpc));
         Ok(entries)
     }
 }
@@ -1024,13 +1031,13 @@ enum Entry {
     Http(transport::Listener, Serving),
     /// The gRPC listener, with how it secures its connections. gRPC serves its connections
     /// itself, and its calls always authenticate as on a public listener, so it needs no role.
-    Grpc(TcpListener, ListenerSecurity),
+    Grpc(GrpcListener),
 }
 
 /// A connection one entry accepted, with what serving it needs.
 enum NewConnection {
     Http(transport::Stream, Serving),
-    Grpc(tokio::net::TcpStream, ListenerSecurity),
+    Grpc(tokio::net::TcpStream, ListenerSecurity, GrpcScheme),
 }
 
 impl Entry {
@@ -1039,8 +1046,12 @@ impl Entry {
             Self::Http(listener, serving) => listener
                 .poll_accept(cx)
                 .map_ok(|stream| NewConnection::Http(stream, serving.clone())),
-            Self::Grpc(listener, security) => transport::poll_accept_tcp(listener, cx)
-                .map_ok(|stream| NewConnection::Grpc(stream, security.clone())),
+            Self::Grpc(GrpcListener {
+                listener,
+                security,
+                scheme,
+            }) => transport::poll_accept_tcp(listener, cx)
+                .map_ok(|stream| NewConnection::Grpc(stream, security.clone(), *scheme)),
         }
     }
 
@@ -1218,7 +1229,7 @@ impl ConnectionStarter<'_> {
         let task = async move {
             let config = &shared.config;
             match connection {
-                NewConnection::Grpc(stream, security) => {
+                NewConnection::Grpc(stream, security, scheme) => {
                     let Some(established) = establish_tcp(
                         stream,
                         security,
@@ -1231,7 +1242,7 @@ impl ConnectionStarter<'_> {
                     else {
                         return;
                     };
-                    serve_grpc(established, shared, stopping).await;
+                    serve_grpc(established, scheme, shared, stopping).await;
                 }
                 NewConnection::Http(transport::Stream::Tcp(stream), serving) => {
                     let Some(established) = establish_tcp(
@@ -1411,6 +1422,7 @@ async fn serve_http(
 
 async fn serve_grpc(
     established: Established<impl AsyncRead + AsyncWrite + Unpin + Send + 'static>,
+    scheme: GrpcScheme,
     shared: Shared,
     stopping: watch::Receiver<bool>,
 ) {
@@ -1422,10 +1434,12 @@ async fn serve_grpc(
     let Established { stream, since } = established;
     match stream {
         Secured::Plain(stream) => {
-            crate::grpc::serve_connection(stream, since, &config, state, stopping, &slots).await;
+            crate::grpc::serve_connection(stream, since, scheme, &config, state, stopping, &slots)
+                .await;
         }
         Secured::Tls(stream) => {
-            crate::grpc::serve_connection(stream, since, &config, state, stopping, &slots).await;
+            crate::grpc::serve_connection(stream, since, scheme, &config, state, stopping, &slots)
+                .await;
         }
     }
 }

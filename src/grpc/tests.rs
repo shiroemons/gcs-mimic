@@ -132,7 +132,16 @@ async fn serve_accepted<S, F>(
     S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
     F: Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send + 'static,
 {
-    serve_with_service(stream, Instant::now(), config, stopping, slots, service).await;
+    serve_with_service(
+        stream,
+        Instant::now(),
+        GrpcScheme::Auto,
+        config,
+        stopping,
+        slots,
+        service,
+    )
+    .await;
 }
 
 /// Reads frames for `wait`, acknowledging what asks for it, and returns the kinds seen.

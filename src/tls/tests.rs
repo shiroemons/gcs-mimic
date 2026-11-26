@@ -17,9 +17,18 @@ fn a_tls_listener_without_an_identity_is_rejected() {
     ] {
         assert!(matches!(
             ServerSecurity::load_settings(scheme, None, grpc, None),
-            Err(ServerIdentityError::Identity(error)) if error.kind() == io::ErrorKind::InvalidInput
+            Err(ServerIdentityError::MissingIdentity)
         ));
     }
+}
+
+#[test]
+fn an_auto_unix_listener_does_not_need_a_tls_identity() {
+    let security =
+        ServerSecurity::load_settings(Scheme::Auto, Some(Path::new("private/s")), None, None)
+            .unwrap();
+    assert!(matches!(security.primary, ListenerSecurity::Plain));
+    assert!(matches!(security.grpc, ListenerSecurity::Plain));
 }
 
 #[test]

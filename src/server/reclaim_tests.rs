@@ -235,7 +235,11 @@ impl MixedServer {
         let listeners = TcpListeners {
             public: vec![(http, ListenerSecurity::Plain)],
             trusted: None,
-            grpc: Some((grpc, ListenerSecurity::Plain)),
+            grpc: Some(GrpcListener {
+                listener: grpc,
+                security: ListenerSecurity::Plain,
+                scheme: GrpcScheme::H2c,
+            }),
         };
         let task = tokio::spawn(serve(
             listeners,

@@ -77,15 +77,22 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> Transport for S {}
 pub(crate) async fn serve_connection(
     stream: impl Transport,
     since: Instant,
+    scheme: GrpcScheme,
     config: &Config,
     state: Arc<State>,
     stopping: watch::Receiver<bool>,
     slots: &Arc<SlotReclaim>,
 ) {
     let router = StorageRouter::new(config, state);
-    serve_with_service(stream, since, config, stopping, slots, move |request| {
-        router.clone().route(request)
-    })
+    serve_with_service(
+        stream,
+        since,
+        scheme,
+        config,
+        stopping,
+        slots,
+        move |request| router.clone().route(request),
+    )
     .await;
 }
 
@@ -261,15 +268,15 @@ fn shutdown_grace(peer_wait: Duration, shutdown: TimeLimit) -> Duration {
 
 /// How a client should connect, for the diagnostics of a connection that failed or never sent
 /// its preface: the listener's configured scheme decides what it accepts.
-fn client_advice(scheme: Option<GrpcScheme>) -> &'static str {
+fn client_advice(scheme: GrpcScheme) -> &'static str {
     match scheme {
-        None | Some(GrpcScheme::Auto) => {
+        GrpcScheme::Auto => {
             "connect an h2c gRPC client, or a TLS gRPC client that trusts the server's CA and offers ALPN h2, to grpc_listen, for example 127.0.0.1:4444"
         }
-        Some(GrpcScheme::H2c) => {
+        GrpcScheme::H2c => {
             "connect a plaintext h2c gRPC client to grpc_listen, for example 127.0.0.1:4444, or set grpc_scheme=auto or tls for TLS clients"
         }
-        Some(GrpcScheme::Tls) => {
+        GrpcScheme::Tls => {
             "connect a TLS gRPC client that trusts the server's CA and offers ALPN h2 to grpc_listen, or set grpc_scheme=auto or h2c for plaintext clients"
         }
     }
@@ -340,6 +347,7 @@ where
 async fn serve_with_service<S, F>(
     stream: impl Transport,
     since: Instant,
+    scheme: GrpcScheme,
     config: &Config,
     mut stopping: watch::Receiver<bool>,
     slots: &Arc<SlotReclaim>,
@@ -381,7 +389,7 @@ async fn serve_with_service<S, F>(
                     let (event, message) = if error.is_timeout() {
                         ("grpc_keepalive_timeout", "gRPC peer did not acknowledge an HTTP/2 keepalive ping; check the client connection or raise header_read_timeout_ms, for example 60000".to_owned())
                     } else {
-                        ("grpc_connection_failed", format!("gRPC connection failed; {}", client_advice(config.grpc_scheme())))
+                        ("grpc_connection_failed", format!("gRPC connection failed; {}", client_advice(scheme)))
                     };
                     crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, event, serde_json::json!({"message":message,"cause":error.to_string()}));
                 }
@@ -446,7 +454,7 @@ async fn serve_with_service<S, F>(
                         break;
                     }
                     (ConnectionPhase::Handshake, _) => {
-                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_handshake_timeout", serde_json::json!({"message":format!("gRPC client sent no HTTP/2 preface before header_read_timeout_ms; sending GOAWAY; {}, or raise header_read_timeout_ms, for example 60000", client_advice(config.grpc_scheme()))}));
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_handshake_timeout", serde_json::json!({"message":format!("gRPC client sent no HTTP/2 preface before header_read_timeout_ms; sending GOAWAY; {}, or raise header_read_timeout_ms, for example 60000", client_advice(scheme))}));
                         (ConnectionPhase::Draining, peer_wait)
                     }
                     (ConnectionPhase::Idle { .. } | ConnectionPhase::Streaming, 0) => {
