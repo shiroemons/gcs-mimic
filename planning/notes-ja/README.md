@@ -8,7 +8,6 @@
 実装状態の正本は[機能台帳](../../compatibility/features.json)です。
 
 - [現在のロードマップ](../../docs/ja/roadmap.md)
-- [並列開発の進め方](../../docs/ja/delivery-plan.md)
 - [同じ台帳から生成する日本語機能表](../../docs/ja/feature-matrix.md)
 - [バージョン方針](../../docs/ja/release-policy.md)
 

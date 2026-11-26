@@ -34,13 +34,13 @@ socket. These boundaries and the full acceptance map are recorded in
 [migration integration](evidence/migration-integration.md). They do not establish
 full replacement; 0.7.0 and earlier images do not include them.
 
-P0-P7 group coverage; the ordered capabilities and prerequisites in
-`delivery_plan` determine execution. Complete a bounded useful scope before
-expanding it, retaining broader PARTIAL rows and all existing evidence.
+P0-P7 group coverage; the [roadmap](roadmap.md) orders the work. Complete a
+bounded useful scope before expanding it, retaining broader PARTIAL rows and
+all existing evidence.
 
 ## Compatibility surfaces
 
-Cover core JSON REST, XML operations, Storage v2 gRPC, Storage Control v2, FeatureConfigs, Storage Intelligence, Storage Insights, Storage Batch Operations, and optional Cloud Storage MCP tools. Keep separate rows for different transports even when they share domain logic. Operation counts are inventory counts, not a count of independent product features.
+Cover the JSON REST, XML and Storage v2 gRPC surfaces that the official SDKs use. The [roadmap's scope](roadmap.md#scope) lists the surfaces left out, such as Storage Control v2, FeatureConfigs, Storage Intelligence, Storage Insights, Storage Batch Operations and the Cloud Storage MCP server; their ledger rows are `NOT_APPLICABLE`. Keep separate rows for different transports even when they share domain logic. Operation counts are inventory counts, not a count of independent product features.
 
 Method names alone are insufficient. Compatibility includes required and optional parameters, field masks, defaults, errors, response headers, ACL/IAM permissions, pagination, state transitions, consistency, timing and interactions. The inventory is a dated public-contract baseline. Expand acceptance cases when a feature is selected, and refresh sources before implementing fast-moving or preview features.
 

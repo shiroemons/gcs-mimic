@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false, "MD024": {"siblings_only": true}} -->
 
-2026-10-24 作成。対象は [detailed delivery plan](../docs/en/delivery-plan.md#parallel-work-and-acceptance) の
+2026-10-24 作成。対象は detailed delivery plan（`docs/en/delivery-plan.md`、2026-11-26 に削除）の
 「Parallel work and acceptance」表のうち First / Next の 6 トラックです。
 2026-10-25 に実利用アプリの調査から足した fake-gcs-server からの移行トラック（第 9 節）と、
 SDK 互換トラック（第 12 節）も扱います。

@@ -1,146 +1,56 @@
 # ロードマップ
 
-0.28.1の内容を対象に更新しています。公開イメージの例は`0.28.1`です。0.8.0で追加した移行機能のSDK・ブラウザー・配布物の検証範囲と結果は[統合検証（英語）](../en/evidence/migration-integration.md)にまとめています。この結果によって未達の受入条件が変わるわけではありません。fake-gcs-serverで使っていた用途の不足を、使える単位の`0.x`として公開します。`1.0.0`は公開契約を凍結し、サポート対象の全リリースからのデータディレクトリの更新を検証した段階です。fake-gcs-serverの完全な上位互換は別の目標として続けます。以下は着手順の目安で、公開日を約束するものではありません。
+[English](../en/roadmap.md)
 
-[English](../en/roadmap.md) ·
-[実装状態の原本](../../compatibility/features.json)
+2026-11-26 に更新しました。以下は着手の順番で、日付は約束しません。
 
-## 現在使えること
+## 目標
 
-[0.28.1](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.28.1)では、ネイティブ版とLinux AMD64・ARM64イメージを提供しています。イメージはGHCRとDocker Hubから取得できます。既定で1つのポートがHTTPとHTTPSを受け付けます。HTTP/HTTPS同時待受、公開ホストのルーティング、locationの既定値、ログレベルを設定できます。[19個の元環境変数の対応表](fake-gcs-server-configuration.md)に、設定の対応と診断をまとめています。
+gcs-mimic は、開発とテストのためのローカルな Cloud Storage エミュレーターです。
+公式の Cloud Storage SDK と、それを使う Rails Active Storage や`gcloud storage`などのツールが、接続先の設定を変えるだけで動くことを目指します。
 
-複数バケット、バケット別のCORS・IAM、ストリーミング転送、rewrite・compose・moveを利用できます。世代履歴、hold、バケット・オブジェクトのretention、soft delete・restoreも、宣言した範囲で実装しています。V2/V4 RSA署名転送とV4署名POST policyにも対応しています。JSON ACL、通知設定、HMACキー管理、Autoclass設定もありますが、後述の効果には制約があります。バケット・オブジェクトのPATCH・PUTでは、ACLをほかのメタデータと同じトランザクションで置き換えます。media・multipart・コピーの呼び出しトークンは、上限付きのローカル保持期間内で元の応答を再送します。JSONのmedia GETとXMLのGETは、gzipで保存したオブジェクトを展開して返します。Storage v2 gRPCは再開可能アップロード、追記、範囲読込に対応しています。旧Storage v1も参照版の12個のRPCに対応していますが、入力・応答には制限があります。0.9.0以降は、`gcloud storage`で[例の手順（英語）](../../examples/gcloud/README.md)を実行でき、[examples（英語）](../../examples/README.md)で8種類の公式クライアントの例を用意しています。0.10.0以降は、`x-goog-content-length-range`に対応したため、Rails Active Storage 8.1.4.1のダイレクトアップロードが動きます。XMLの読み取りも条件付きヘッダーを評価します。詳細は[0.17.1のリリースノート](../en/releases/0.17.1.md)、[0.16.0のリリースノート](../en/releases/0.16.0.md)、[0.15.0のリリースノート](../en/releases/0.15.0.md)、[0.14.0のリリースノート](../en/releases/0.14.0.md)、[0.13.0のリリースノート](../en/releases/0.13.0.md)、[0.12.0のリリースノート](../en/releases/0.12.0.md)、[0.11.0のリリースノート](../en/releases/0.11.0.md)、[0.10.0のリリースノート](../en/releases/0.10.0.md)、[0.9.0のリリースノート](../en/releases/0.9.0.md)、[0.8.0のリリースノート](../en/releases/0.8.0.md)、[0.5.0のリリースノート](../en/releases/0.5.0.md)と[0.4.0の機能範囲と制限](../en/releases/0.4.0.md)を参照してください。
+次のことは目標にしません。
 
-バケット初期設定は未作成分だけを設定付きで作り、APIの変更を保持します。
-0.14.0以降は、項目でバケットの最初のIAMポリシーも指定でき、文書を`GCS_MIMIC_BUCKETS`にインラインで書けます。
-インラインの文書の既定であるreconcileモードは、編集した項目を既存のバケットに書きます。
-seedは毎回の起動時に適用し、拡張子からMIMEを決めます。
-0.8.0以降はツリー全体を準備して一括公開し、変更した保護対象があると全体を戻してreadyを出しません。
-同一のオブジェクトは世代を保持します。
-ディレクトリ同期は削除されました。`seed_dir`へは書き込まず、稼働中は`seed_watch_interval_ms`ごとに、変更・追加・削除したファイルを再反映します
-（[seedの契約（英語）](../en/slices/seed.md#passes-while-the-server-runs)）。
-移行はファイルシステムに加え、停止前に取得したメモリsnapshotの
-元の名前と履歴を、対応範囲を明示して扱います。
-[コンテナの使い方](container-usage.md)と[移行ガイド](fake-gcs-server-migration.md)に条件があります。
+- Cloud Storage と応答をバイト単位で一致させること
+- Cloud Storage のすべての API と管理サービスに対応すること
+- fake-gcs-server の完全な上位互換になること
 
-SDKとブラウザーの検証は、宣言した範囲が対象です。
-[9つのSDKのスコアカード](../../sdk-scorecard/README.md)では、
-0.26.0のソースでの[最新の結果](../../sdk-scorecard/results/2026-11-18/summary.md)では、9つのSDKの全ケースが通ります。
-最後まで残っていた未対応は0.23.0で解消しました。バケットの読み取りマスクがgcs-mimicの保存しない設定を受け付け（[範囲](grpc-v2-buckets.md)）、追記型を開くと必ず応答し（[範囲](grpc-v2-rapid-append.md)）、Storage v2が顧客指定の暗号鍵を受け付け（[範囲](grpc-v2-customer-supplied-keys.md)）、XMLマルチパートの各パートの応答がハッシュを返し（[範囲（英語）](../en/slices/xml-multipart-upload.md)）、宣言されたアップロードの長さ0を合計未定として扱います（[範囲（英語）](../en/slices/resumable-upload.md)）。範囲と残りの条件は
-[SDK統合](../en/slices/sdk-scorecard-integration.md)と[C++のスライス（英語）](../en/slices/sdk-scorecard-cpp.md)に記録しています。
-Rails Active Storageには[非Google universeを使うstorage.ymlの手順](rails-active-storage.md)があります。
-0.8.0では登録したローカルJWTと最終originの署名アダプターも追加しています。
-Googleの既定universeを使うOAuthは、引き続きローカル認証の手順ではありません。
-0.14.0以降は、組み込みのテスト署名者の鍵を使えば、この手順がstrictでも動きます。鍵の登録はいりません。
-strictのRailsテストは、署名者が`roles/storage.objectUser`だけを持つ構成で通ります。
-API全体の完全互換を意味しません。範囲と制約は
-[機能比較](feature-comparison.md)と[生成機能表](feature-matrix.md)にあります。
+公式の資料が動作を決めていない箇所では、SDK が動き続ける動作を選び、ローカルの動作として記録します。
+互換性は、公式 SDK、Google のドキュメント、googleapis の proto で判断します。リポジトリの中のものは Cloud Storage に接続しません（[理由（英語）](../en/development.md#no-live-cloud-storage-contact)）。
 
-本番に近いローカルのアクセスには、0.14.0以降が必要です。
-strictでは信頼済みリスナーがアプリのサーバー用のポートを用意し、`STORAGE_EMULATOR_HOST`を使うGo storageのような認証情報のないクライアントを1つのIDとして扱います。
-ブラウザーは匿名のままで、非公開バケットには署名付きURLでだけ届きます。
-組み込みのテスト署名者は公開済みの鍵でそのURLに署名し、`signed_urls=verify`はpermissiveでも署名を検査します。
-ID文書とバケット文書は`GCS_MIMIC_IDENTITIES`と`GCS_MIMIC_BUCKETS`にインラインで書けます。
-[strictのローカル構成（英語）](../../examples/strict-local/README.md)は、これらを少数の設定で組み合わせます。
-これらはローカル独自の機能で、Cloud Storageの動作ではありません。
-Chromiumは構成のメインのリスナーとtrustedリスナーの両方に対して実行済みです。
-Composeネットワーク上のブラウザーには、結果を見せないままtrustedリスナー経由で読ませることができ、ほかのプログラムを防ぐのはポートを公開しないことだけなので、DESIGN-101は`PARTIAL`のままです。
+## 対象範囲
 
-## 不足機能の優先順位
+この節は、[機能台帳](../../compatibility/features.json)の`NOT_APPLICABLE`の行が参照する製品プロファイルです。
+状態の原本は台帳で、[機能表](feature-matrix.md)で一覧できます。
 
-優先度は着手する仕事を選ぶための順序です。
-上の行が終わるまで、下のすべてを待たせる計画ではありません。
+対象にするもの:
 
-| 優先度 | 利用者に届く成果 | 必要な前提 | 並行できる仕事 |
-| --- | --- | --- | --- |
-| 最優先 | 移行とローカルadapterをまとめて検証する | 元環境の静止、明示的な切替、最終SDK・コンテナ実行 | 独立したSDK・プロトコル |
-| その後 | 参照版の残機能と通常のRails設定に対応する | API・プロファイル・認証の仕様 | 独立した参照機能 |
-| 各公開時 | 証跡を整理し、配布条件を満たす | 環境別検証・依存・成果物の確認 | すべての実装 |
-| 安定契約 | 凍結した公開契約を`1.0.0`として公開する | 契約の見直し、リリース版データの更新検証、候補版の期間、最終検証 | 上位互換の作業は後続のminorで継続 |
-| 上位互換の目標 | fake-gcs-serverの完全な上位互換を宣言する | 全参照機能・移行・追加機能の証跡 | 検証済みの範囲を統合 |
+- 公式 SDK が JSON API で呼ぶ操作。バケットとオブジェクトの作成・取得・更新・削除、media・multipart・再開可能アップロード、ダウンロードと範囲指定、一覧、copy・rewrite・compose・move、メタデータと前提条件、世代、hold、retention、soft delete です。
+- SDK の gRPC クライアントが使う範囲の Storage v2 gRPC と、すでに提供している旧 Storage v1 の RPC。
+- SDK とブラウザーが使う XML API。署名付き URL、署名付き POST policy、XML マルチパートアップロード、Rails Active Storage のダイレクトアップロードです。
+- SDK の利用で関わる権限制御。IAM ポリシー、ACL、均一なバケットレベルのアクセス、公開アクセスの防止、HMAC キー、strict でのローカル ID です。
+- エミュレーターの運用。設定、バケットの初期設定、seed と移行、fake-gcs-server からの移行、ネイティブ版とコンテナイメージです。
 
-現在は小さな実装単位で、残る受入条件に対応しています。
-移行の検証記録は、その後のXML・ACL・認証変更の証拠には使いません。
-変更後の最終統合検証は残っています。
-最終的なプラットフォーム・SDK・コンテナの統合検証は、それぞれの受入条件を満たしてから対応済みにします。
+対象にしないもの:
 
-移行では、対応するstorage class・customTime・ACLと、独立したメモリsnapshotの履歴保持を追加しています。
-元環境のファイル名正規化で既に失った情報、quiescence、切替・rollback、環境別の制約は残ります。
-seedの`.metadata`は通常の本文で、永続移行のsidecar形式とは別です。
-[移行の契約](../en/slices/import-filesystem.md)に条件があります。
+- Storage Control v2、フォルダー、管理フォルダー、階層型名前空間
+- Storage Insights、Storage Intelligence、Storage Batch Operations
+- Anywhere Cache、Rapid Cache、Cloud Storage の MCP サーバー
+- 長時間実行オペレーション、ロケーション、FeatureConfigs
+- XML API のバケット設定・ACL・retention・暗号化・HMAC のサブリソース、XML の複数オブジェクト削除、XML の compose、HTML フォームのアップロード
+- オブジェクトコンテキスト、バケットの移転、一括復元、オブジェクトの IAM、ウェブサイトのルーティング、利用ログ、IP フィルター、暗号化の強制、RPO、Autoclass の自動変更
+- Google の基盤とほかのサービス。KMS、OAuth トークンの発行、VPC Service Controls、CDN、課金、Monitoring と Logging、Storage Transfer Service、Firebase、Cloud Storage FUSE
+- ベンチマークの比較表、fake-gcs-server との性能比較、ローカル開発の規模を超える資源の上限
 
-0.8.0にはHTTP batch・method override、XML一覧・コピー・multipartがあります。
-管理・reset・reseed、ローカルイベント配信、Go子プロセスfacade、上限付きRAM保存もあります。
-対象を限定した統合検証は成功しています。
-残りのJSON/XMLフィールド、全Go公開API、
-環境別・Google契約との差分は未完了です。
-旧Storage v1も、参照版が受け付ける入力と応答全体への対応は未完了です。
-通知は上限付きoutboxへ保存し、別途用意したローカルPub/Subエミュレーターへ配信します。
-Googleの配信サービス全体は再現しません。
-HMACキーは、登録した主体と現在の鍵状態を使ってV4のXML署名を検証します。
-クエリとAuthorizationヘッダーに対応しています。
-V4 HMACとV2 RSA/HMACのフォーム署名は、方式ごとの基本動作と書込障害を検証しました。
-フォームの経路、項目、ブラウザー・SDK、Google契約には未達条件が残ります。
-旧V2のHMACクエリ署名とGOOG1/AWSヘッダー署名は、明記した操作と仮想ホストのオブジェクトで検証しました。
-署名付き再開可能アップロード、仮想ホストのバケットクエリ、プロバイダー差分、SDKの残項目はDESIGN-040に残しています。
-AWS4ヘッダー署名のチャンク転送は、通常のオブジェクトPUTに対応しました。
-他の操作・形式とGoogle契約の未解決点はDESIGN-039で追跡しています。
-lifecycleのDelete、対応する保管クラス変更、未完了XML multipartの中断は、注入クロックを使うローカルシミュレーションとして実行します。設定で実行を無効にし、保存だけにすることもできます。
-Autoclassの自動階層変更は未対応です。
-顧客指定キーは読込時に照合しますが、ローカルディスクのデータは暗号化しません。
-Google機能の追加範囲は、固定参照版の必須範囲と分けて進めます。
-最終対象は全ソース調査で確定し、ここにない参照機能を除外したことにはしません。
+すでに`PARTIAL`の行は、コード・状態・未達ケースをそのまま残します。
+対象外の機能も、公式 SDK の利用で必要になれば、新しいスライスとして戻します。
 
-今回の移行作業では、fake-gcs-serverの利用調査で確認した障害と、
-[開発計画](delivery-plan.md)で承認した対応を扱います。
-一般的なGoogle API全体への対応は別の目標です。
-[機能一覧](feature-matrix.md)の行数は、今回の作業総数や工数を示しません。
-台帳の既存状態と未達ケースは保持します。
+## 次の作業
 
-## 並列開発の分け方
+1. **SDK が動き続けるようにする。** [9つの SDK のスコアカード](../../sdk-scorecard/README.md)と SDK のテストを、毎回の公開で通します。利用者から届いた SDK の使い方を追加し、テストが外部へ通信しないことを確かめます（DESIGN-088）。
+2. **SDK の利用で当たる不足を埋める。** `PARTIAL`の行の未達ケースは、SDK の利用で必要になったときに対応します。行を完了させること自体は目的にしません。
+3. **いつでも公開できる状態を保つ。** 毎回の公開で、配布と依存の条件を満たします。
 
-監視・移行・参照版への対応は、それぞれの前提が揃えば独立して進められます。
-既存のバケット識別、ローカル管理権限、起動・readinessの順序を保ちます。
+## 1.0.0
 
-初期化担当は設定読込と未作成バケットの作成、
-移行担当は読取専用の形式解析と保持結果の報告を受け持ちます。
-共通カタログや公開処理の変更は1人の統合担当へ集約します。
-既存SDK・ブラウザーの確認は、これらの完成前から実行できます。
-受け入れ条件と境界は[開発計画](delivery-plan.md)にまとめています。
-
-## 決まった動作と未決定事項
-
-初期設定ファイルは、既定では未作成のバケットだけを作ります。
-再起動で既存設定やオブジェクトを上書きせず、APIによる変更を保持します。
-編集した項目を適用しなかった場合は警告します。
-ファイルから項目を削除しても、バケットは削除しません。
-JSON v1をstrict・permissive共通のローカル管理権限で適用します。
-新しいバケットに最初から付ける`iamPolicy`も書けます。
-既定の`buckets_mode=reconcile`は、起動時に各項目が書いたフィールドを既存バケットへ反映します。
-ロケーションと所有者は変えません。ファイルでも`GCS_MIMIC_BUCKETS`にインラインで書いた同じ文書でも既定は同じです。文書での編集は次の起動で反映するためのものだからです。
-reconcileでも、項目が書かなくなったフィールドは元に戻しません。
-[使い方と制限](container-usage.md#初期バケット設定ファイルを使う)を参照してください。
-
-ディレクトリ同期は削除されました。`seed_dir`は読み取り専用の入力で、起動時と稼働中に再反映し、書き込みはしません。
-SQLiteはカタログとして維持します。
-[保存方式と同期の要件](storage-backends.md)を参照してください。
-
-## 公開と1.0.0
-
-機能追加は`0.x`のminor、互換性を保つ修正はpatchとして公開します。
-初期化・移行を別々に公開でき、機能ごとの番号は予約しません。
-`1.0.0`は、公開契約の凍結、サポート対象（`0.8.0`以降）の全リリースからのデータディレクトリの更新、リリース候補の期間を経て公開します。
-固定参照版の完全な上位互換とGoogle API全体への対応は別の目標です。
-[バージョン方針](release-policy.md#100の条件)に判定条件があります。
-`0.1.0`〜`0.7.0`は[撤回](release-policy.md#撤回したリリース)しました。
-
-初回`0.x`は公開済みで、公開イメージの例は`0.28.1`です。初回の対象は、宣言済みのJSON・公開/非公開転送・URL・永続化・seed・Go/Ruby・CORS・HTTPSでした。Rails、lifecycle、gRPC、完全互換の完成は前提にしていません。環境別CI、依存更新、リリースノート、ライセンス同梱、checksum、公開イメージ取得の検証は、各公開で必要です。
-台帳のDIST-001〜DIST-005は`PARTIAL`のままで、残りの受入条件や証跡の整理が必要です。
-公開物が存在することやローカル検証の成功だけで、配布要件全体を完了とはしません。
-
-参照版を超えるGoogle機能も、独立した範囲で進めます。
-追加SDK、XML・Storage v2 gRPCの残フィールドと操作が対象です。
-詳細な権限制御・retention、lifecycleの効果、階層ストレージ、Rapidバケット全体の動作、
-外部サービスのシミュレーションも含みます。
-標準バケット上の追記対応だけでは、ゾーン単位のRapidストレージを再現したことにはなりません。
-実装状態は常に台帳を原本とし、計画だけで対応済みにしません。
+1.0.0 の条件は[バージョン方針](release-policy.md#100の条件)にあります。

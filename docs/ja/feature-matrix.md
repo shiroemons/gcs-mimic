@@ -14,9 +14,9 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 203 | 0 | 97 | 10 | 0 | 0 |
-| behavior | 201 | 80 | 0 | 79 | 42 | 0 | 0 |
-| project_requirement | 99 | 20 | 0 | 45 | 33 | 0 | 1 |
+| api_operation | 310 | 0 | 0 | 97 | 10 | 0 | 203 |
+| behavior | 201 | 0 | 0 | 79 | 42 | 0 | 80 |
+| project_requirement | 99 | 5 | 0 | 45 | 33 | 0 | 16 |
 
 ## Achieved fidelity
 
@@ -45,37 +45,37 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-MCP-001 | MCP バケット一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-MCP-002 | MCP オブジェクト一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-MCP-003 | MCP バケット作成 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-MCP-004 | MCP バケット削除 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-MCP-005 | MCP テキスト取得（非推奨） | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-MCP-006 | MCP オブジェクト取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-MCP-007 | MCP テキスト書き込み | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-MCP-008 | MCP オブジェクト削除 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-MCP-009 | MCP メタデータ取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| EXT-MCP-001 | MCP バケット一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-MCP-002 | MCP オブジェクト一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-MCP-003 | MCP バケット作成 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-MCP-004 | MCP バケット削除 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-MCP-005 | MCP テキスト取得（非推奨） | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-MCP-006 | MCP オブジェクト取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-MCP-007 | MCP テキスト書き込み | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-MCP-008 | MCP オブジェクト削除 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-MCP-009 | MCP メタデータ取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### FeatureConfigs
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-FEATURECONFIG-001 | FeatureConfigs.create | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-FEATURECONFIG-002 | FeatureConfigs.delete | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-FEATURECONFIG-003 | FeatureConfigs.get | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-FEATURECONFIG-004 | FeatureConfigs.list | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-FEATURECONFIG-005 | FeatureConfigs.patch | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-FEATURECONFIG-001 | FeatureConfigs.create | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-FEATURECONFIG-002 | FeatureConfigs.delete | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-FEATURECONFIG-003 | FeatureConfigs.get | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-FEATURECONFIG-004 | FeatureConfigs.list | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-FEATURECONFIG-005 | FeatureConfigs.patch | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
 
 ### JSON API / anywhereCaches
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-ANYWHERECACHES-001 | anywhereCaches.disable | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-ANYWHERECACHES-002 | anywhereCaches.get | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-ANYWHERECACHES-003 | anywhereCaches.insert | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-ANYWHERECACHES-004 | anywhereCaches.list | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-ANYWHERECACHES-005 | anywhereCaches.pause | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-ANYWHERECACHES-006 | anywhereCaches.resume | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-ANYWHERECACHES-007 | anywhereCaches.update | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-ANYWHERECACHES-001 | anywhereCaches.disable | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-ANYWHERECACHES-002 | anywhereCaches.get | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-ANYWHERECACHES-003 | anywhereCaches.insert | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-ANYWHERECACHES-004 | anywhereCaches.list | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-ANYWHERECACHES-005 | anywhereCaches.pause | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-ANYWHERECACHES-006 | anywhereCaches.resume | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-ANYWHERECACHES-007 | anywhereCaches.update | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
 
 ### JSON API / bucketAccessControls
 
@@ -100,7 +100,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-BUCKETS-007 | buckets.lockRetentionPolicy | PARTIAL | P4 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-008 | buckets.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
-| JSON-BUCKETS-009 | buckets.relocate | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| JSON-BUCKETS-009 | buckets.relocate | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 | JSON-BUCKETS-010 | buckets.restore | PARTIAL | P4 | EXACT | EXACT | 1 |
 | JSON-BUCKETS-011 | buckets.setIamPolicy | PARTIAL | P2 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-012 | buckets.testIamPermissions | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
@@ -121,25 +121,25 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-FOLDERS-001 | folders.delete | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-FOLDERS-002 | folders.deleteRecursive | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-FOLDERS-003 | folders.get | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-FOLDERS-004 | folders.insert | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-FOLDERS-005 | folders.list | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-FOLDERS-006 | folders.rename | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| JSON-FOLDERS-001 | folders.delete | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-FOLDERS-002 | folders.deleteRecursive | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-FOLDERS-003 | folders.get | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-FOLDERS-004 | folders.insert | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-FOLDERS-005 | folders.list | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-FOLDERS-006 | folders.rename | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
 
 ### JSON API / managedFolders
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-MANAGEDFOLDERS-001 | managedFolders.delete | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-MANAGEDFOLDERS-002 | managedFolders.get | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-MANAGEDFOLDERS-003 | managedFolders.getIamPolicy | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-MANAGEDFOLDERS-004 | managedFolders.insert | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-MANAGEDFOLDERS-005 | managedFolders.list | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-MANAGEDFOLDERS-006 | managedFolders.setIamPolicy | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-MANAGEDFOLDERS-007 | managedFolders.testIamPermissions | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-MANAGEDFOLDERS-008 | managedFolders.update | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| JSON-MANAGEDFOLDERS-001 | managedFolders.delete | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-MANAGEDFOLDERS-002 | managedFolders.get | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-MANAGEDFOLDERS-003 | managedFolders.getIamPolicy | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-MANAGEDFOLDERS-004 | managedFolders.insert | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-MANAGEDFOLDERS-005 | managedFolders.list | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-MANAGEDFOLDERS-006 | managedFolders.setIamPolicy | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-MANAGEDFOLDERS-007 | managedFolders.testIamPermissions | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-MANAGEDFOLDERS-008 | managedFolders.update | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
 
 ### JSON API / notifications
 
@@ -165,31 +165,31 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-OBJECTS-001 | objects.bulkRestore | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| JSON-OBJECTS-001 | objects.bulkRestore | NOT_APPLICABLE | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-002 | objects.compose | IMPLEMENTED | P3 | EXACT | EXACT | 2 |
 | JSON-OBJECTS-003 | objects.copy | PARTIAL | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | EXACT | 5 |
 | JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | EXACT | 7 |
-| JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| JSON-OBJECTS-006 | objects.getIamPolicy | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | EXACT | 7 |
 | JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | EXACT | 4 |
 | JSON-OBJECTS-009 | objects.move | PARTIAL | P3 | EXACT | EXACT | 2 |
 | JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | EXACT | 5 |
 | JSON-OBJECTS-011 | objects.restore | PARTIAL | P4 | EXACT | EXACT | 2 |
 | JSON-OBJECTS-012 | objects.rewrite | PARTIAL | P3 | EXACT | EXACT | 1 |
-| JSON-OBJECTS-013 | objects.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-014 | objects.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| JSON-OBJECTS-013 | objects.setIamPolicy | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
+| JSON-OBJECTS-014 | objects.testIamPermissions | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | EXACT | 4 |
-| JSON-OBJECTS-016 | objects.viewFullContext | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| JSON-OBJECTS-016 | objects.viewFullContext | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### JSON API / operations
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-OPERATIONS-001 | operations.advanceRelocateBucket | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-OPERATIONS-002 | operations.cancel | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-OPERATIONS-003 | operations.get | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-OPERATIONS-004 | operations.list | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| JSON-OPERATIONS-001 | operations.advanceRelocateBucket | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-OPERATIONS-002 | operations.cancel | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-OPERATIONS-003 | operations.get | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| JSON-OPERATIONS-004 | operations.list | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
 
 ### JSON API / projects.hmacKeys
 
@@ -211,182 +211,182 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-RAPIDCACHES-001 | rapidCaches.disable | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-RAPIDCACHES-002 | rapidCaches.get | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-RAPIDCACHES-003 | rapidCaches.insert | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-RAPIDCACHES-004 | rapidCaches.list | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| JSON-RAPIDCACHES-005 | rapidCaches.update | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-RAPIDCACHES-001 | rapidCaches.disable | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-RAPIDCACHES-002 | rapidCaches.get | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-RAPIDCACHES-003 | rapidCaches.insert | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-RAPIDCACHES-004 | rapidCaches.list | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| JSON-RAPIDCACHES-005 | rapidCaches.update | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
 
 ### Shared location RPC
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-LOC-RPC-001 | Insights ロケーション一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-LOC-RPC-002 | Insights ロケーション取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-LOC-RPC-003 | Batch ロケーション一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-LOC-RPC-004 | Batch ロケーション取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| EXT-LOC-RPC-001 | Insights ロケーション一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-LOC-RPC-002 | Insights ロケーション取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-LOC-RPC-003 | Batch ロケーション一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-LOC-RPC-004 | Batch ロケーション取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### Shared long-running RPC
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-LRO-001 | オペレーションのキャンセル | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-LRO-002 | オペレーション結果の削除 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-LRO-003 | オペレーション取得 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-LRO-004 | オペレーション一覧 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-LRO-005 | オペレーション完了待ち | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| EXT-LRO-001 | オペレーションのキャンセル | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-LRO-002 | オペレーション結果の削除 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-LRO-003 | オペレーション取得 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-LRO-004 | オペレーション一覧 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-LRO-005 | オペレーション完了待ち | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
 
 ### Storage Batch Operations
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-BATCH-001 | Storage Batch locations get | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-002 | Storage Batch locations list | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-003 | Storage Batch jobs cancel | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-004 | Storage Batch jobs create | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-005 | Storage Batch jobs delete | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-006 | Storage Batch jobs get | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-007 | Storage Batch jobs list | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-008 | Storage Batch jobs.bucketOperations get | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-009 | Storage Batch jobs.bucketOperations list | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-010 | Storage Batch operations cancel | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-011 | Storage Batch operations delete | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-012 | Storage Batch operations get | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-013 | Storage Batch operations list | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-001 | Storage Batch locations get | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-002 | Storage Batch locations list | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-003 | Storage Batch jobs cancel | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-004 | Storage Batch jobs create | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-005 | Storage Batch jobs delete | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-006 | Storage Batch jobs get | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-007 | Storage Batch jobs list | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-008 | Storage Batch jobs.bucketOperations get | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-009 | Storage Batch jobs.bucketOperations list | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-010 | Storage Batch operations cancel | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-011 | Storage Batch operations delete | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-012 | Storage Batch operations get | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-013 | Storage Batch operations list | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### Storage Batch Operations RPC
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-BATCH-RPC-001 | RPC ジョブ一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-RPC-002 | RPC ジョブ取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-RPC-003 | RPC ジョブ作成 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-RPC-004 | RPC ジョブ削除 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-RPC-005 | RPC ジョブ中止 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-RPC-006 | RPC バケット別処理一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BATCH-RPC-007 | RPC バケット別処理取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-RPC-001 | RPC ジョブ一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-RPC-002 | RPC ジョブ取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-RPC-003 | RPC ジョブ作成 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-RPC-004 | RPC ジョブ削除 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-RPC-005 | RPC ジョブ中止 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-RPC-006 | RPC バケット別処理一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BATCH-RPC-007 | RPC バケット別処理取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### Storage Control REST
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-023 | ViewObjectFullContextのv2 HTTPバインディング | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| AUDIT-023 | ViewObjectFullContextのv2 HTTPバインディング | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### Storage Control v2
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-CTRL-001 | Rapid Cache作成 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-002 | HNSフォルダ作成 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-003 | 管理フォルダ作成 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-004 | HNSフォルダ削除 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-005 | 管理フォルダ削除 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-006 | Rapid Cache無効化 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-007 | Rapid Cache取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-008 | HNSフォルダ取得 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-009 | フォルダ階層Intelligence設定取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-010 | 管理フォルダ取得 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-011 | 組織Intelligence設定取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-012 | プロジェクトIntelligence設定取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-013 | ストレージ配置情報取得 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-014 | Rapid Cache一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-015 | HNSフォルダ一覧 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-016 | 管理フォルダ一覧 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-017 | Rapid Cache一時停止 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-018 | HNSフォルダ名変更 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-019 | Rapid Cache再開 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-020 | Rapid Cache更新 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-021 | フォルダ階層Intelligence設定更新 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-022 | 組織Intelligence設定更新 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-023 | プロジェクトIntelligence設定更新 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-024 | HNSフォルダ再帰削除 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-025 | 管理フォルダ更新 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-026 | Rapid Cache作成 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-027 | Rapid Cache更新 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-028 | Rapid Cache無効化 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-029 | Rapid Cache取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-030 | Rapid Cache一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-001 | Rapid Cache作成 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-002 | HNSフォルダ作成 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-003 | 管理フォルダ作成 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-004 | HNSフォルダ削除 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-005 | 管理フォルダ削除 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-006 | Rapid Cache無効化 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-007 | Rapid Cache取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-008 | HNSフォルダ取得 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-009 | フォルダ階層Intelligence設定取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-010 | 管理フォルダ取得 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-011 | 組織Intelligence設定取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-012 | プロジェクトIntelligence設定取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-013 | ストレージ配置情報取得 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-014 | Rapid Cache一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-015 | HNSフォルダ一覧 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-016 | 管理フォルダ一覧 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-017 | Rapid Cache一時停止 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-018 | HNSフォルダ名変更 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-019 | Rapid Cache再開 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-020 | Rapid Cache更新 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-021 | フォルダ階層Intelligence設定更新 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-022 | 組織Intelligence設定更新 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-023 | プロジェクトIntelligence設定更新 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-024 | HNSフォルダ再帰削除 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-025 | 管理フォルダ更新 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-026 | Rapid Cache作成 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-027 | Rapid Cache更新 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-028 | Rapid Cache無効化 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-029 | Rapid Cache取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-030 | Rapid Cache一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 | EXT-CTRL-031 | IAMポリシー取得 | PARTIAL | P5 | EXACT | EXACT | 0 |
 | EXT-CTRL-032 | IAMポリシー設定 | PARTIAL | P5 | EXACT | EXACT | 0 |
 | EXT-CTRL-033 | IAM権限テスト | PARTIAL | P5 | EXACT | LOCAL_SIMULATION | 0 |
-| EXT-CTRL-034 | Intelligence検出事項取得 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-CTRL-035 | Intelligence検出事項一覧 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-CTRL-036 | Intelligence検出事項集計 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-CTRL-037 | Intelligence検出事項の指定履歴取得 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-CTRL-038 | Intelligence検出事項の履歴一覧 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-CTRL-039 | オブジェクトの拡張コンテキスト取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| EXT-CTRL-034 | Intelligence検出事項取得 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-CTRL-035 | Intelligence検出事項一覧 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-CTRL-036 | Intelligence検出事項集計 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-CTRL-037 | Intelligence検出事項の指定履歴取得 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-CTRL-038 | Intelligence検出事項の履歴一覧 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-CTRL-039 | オブジェクトの拡張コンテキスト取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### Storage Control v2 REST binding
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-CTRL-REST-001 | v2 REST HNSフォルダ作成 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-REST-002 | v2 REST HNSフォルダ削除 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-REST-003 | v2 REST HNSフォルダ取得 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-REST-004 | v2 REST HNSフォルダ一覧 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-REST-005 | v2 REST HNSフォルダ名変更 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-REST-006 | v2 REST HNSフォルダ再帰削除 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-REST-007 | v2 REST ストレージ配置情報取得 | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-REST-001 | v2 REST HNSフォルダ作成 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-REST-002 | v2 REST HNSフォルダ削除 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-REST-003 | v2 REST HNSフォルダ取得 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-REST-004 | v2 REST HNSフォルダ一覧 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-REST-005 | v2 REST HNSフォルダ名変更 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-REST-006 | v2 REST HNSフォルダ再帰削除 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-REST-007 | v2 REST ストレージ配置情報取得 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
 
 ### Storage Insights
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-INS-001 | Storage Insights locations get | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-002 | Storage Insights locations list | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-003 | Storage Insights datasetConfigs create | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-004 | Storage Insights datasetConfigs delete | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-005 | Storage Insights datasetConfigs get | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-006 | Storage Insights datasetConfigs linkDataset | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-INS-007 | Storage Insights datasetConfigs list | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-008 | Storage Insights datasetConfigs patch | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-009 | Storage Insights datasetConfigs unlinkDataset | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-INS-010 | Storage Insights operations cancel | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-011 | Storage Insights operations delete | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-012 | Storage Insights operations get | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-013 | Storage Insights operations list | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-014 | Storage Insights reportConfigs create | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-015 | Storage Insights reportConfigs delete | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-016 | Storage Insights reportConfigs get | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-017 | Storage Insights reportConfigs list | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-018 | Storage Insights reportConfigs patch | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-019 | Storage Insights reportConfigs.reportDetails get | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-020 | Storage Insights reportConfigs.reportDetails list | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| EXT-INS-001 | Storage Insights locations get | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-002 | Storage Insights locations list | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-003 | Storage Insights datasetConfigs create | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-004 | Storage Insights datasetConfigs delete | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-005 | Storage Insights datasetConfigs get | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-006 | Storage Insights datasetConfigs linkDataset | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-INS-007 | Storage Insights datasetConfigs list | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-008 | Storage Insights datasetConfigs patch | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-009 | Storage Insights datasetConfigs unlinkDataset | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-INS-010 | Storage Insights operations cancel | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-011 | Storage Insights operations delete | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-012 | Storage Insights operations get | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-013 | Storage Insights operations list | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-014 | Storage Insights reportConfigs create | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-015 | Storage Insights reportConfigs delete | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-016 | Storage Insights reportConfigs get | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-017 | Storage Insights reportConfigs list | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-018 | Storage Insights reportConfigs patch | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-019 | Storage Insights reportConfigs.reportDetails get | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-020 | Storage Insights reportConfigs.reportDetails list | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### Storage Insights RPC
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-INS-RPC-001 | RPC レポート設定一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-002 | RPC レポート設定取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-003 | RPC レポート設定作成 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-004 | RPC レポート設定更新 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-005 | RPC レポート設定削除 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-006 | RPC レポート詳細一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-007 | RPC レポート詳細取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-008 | RPC データセット設定一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-009 | RPC データセット設定取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-010 | RPC データセット設定作成 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-011 | RPC データセット設定更新 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-012 | RPC データセット設定削除 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INS-RPC-013 | RPC BigQueryデータセットのリンク | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-INS-RPC-014 | RPC BigQueryデータセットのリンク解除 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-INS-RPC-001 | RPC レポート設定一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-002 | RPC レポート設定取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-003 | RPC レポート設定作成 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-004 | RPC レポート設定更新 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-005 | RPC レポート設定削除 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-006 | RPC レポート詳細一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-007 | RPC レポート詳細取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-008 | RPC データセット設定一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-009 | RPC データセット設定取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-010 | RPC データセット設定作成 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-011 | RPC データセット設定更新 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-012 | RPC データセット設定削除 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INS-RPC-013 | RPC BigQueryデータセットのリンク | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-INS-RPC-014 | RPC BigQueryデータセットのリンク解除 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
 
 ### Storage Intelligence
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-INT-001 | projects Intelligence設定 getIntelligenceConfig | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INT-002 | projects Intelligence設定 updateIntelligenceConfig | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INT-003 | folders Intelligence設定 getIntelligenceConfig | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INT-004 | folders Intelligence設定 updateIntelligenceConfig | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INT-005 | organizations Intelligence設定 getIntelligenceConfig | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INT-006 | organizations Intelligence設定 updateIntelligenceConfig | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-INT-007 | 検出事項取得 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-INT-008 | 検出事項一覧 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-INT-009 | 検出事項集計 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-INT-010 | 検出事項の履歴一覧 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-INT-011 | 検出事項の指定履歴取得 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-INT-001 | projects Intelligence設定 getIntelligenceConfig | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INT-002 | projects Intelligence設定 updateIntelligenceConfig | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INT-003 | folders Intelligence設定 getIntelligenceConfig | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INT-004 | folders Intelligence設定 updateIntelligenceConfig | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INT-005 | organizations Intelligence設定 getIntelligenceConfig | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INT-006 | organizations Intelligence設定 updateIntelligenceConfig | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-INT-007 | 検出事項取得 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-INT-008 | 検出事項一覧 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-INT-009 | 検出事項集計 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-INT-010 | 検出事項の履歴一覧 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-INT-011 | 検出事項の指定履歴取得 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
 
 ### XML API
 
@@ -396,54 +396,54 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-002 | バケット削除 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-003 | オブジェクト一覧 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-004 | マルチパートセッション一覧 | PARTIAL | P3 | EXACT | EXACT | 0 |
-| EXT-XML-005 | バケットACL取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-005 | バケットACL取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
 | EXT-XML-006 | バケット存在確認 | PARTIAL | P2 | EXACT | EXACT | 0 |
-| EXT-XML-007 | 複数オブジェクト削除 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-007 | 複数オブジェクト削除 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
 | EXT-XML-008 | バケット作成 | PARTIAL | P2 | EXACT | EXACT | 0 |
-| EXT-XML-009 | バケットACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-009 | バケットACL設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | オブジェクト削除 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-011 | マルチパート中止 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-012 | オブジェクトダウンロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 8 |
 | EXT-XML-013 | アップロード済みパート一覧 | PARTIAL | P3 | EXACT | EXACT | 0 |
-| EXT-XML-014 | オブジェクトACL取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-015 | オブジェクト暗号化情報取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-016 | オブジェクト保持設定取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-014 | オブジェクトACL取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-015 | オブジェクト暗号化情報取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-016 | オブジェクト保持設定取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
 | EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 5 |
 | EXT-XML-018 | 再開可能アップロード開始 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-019 | XMLマルチパート開始 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-020 | XMLマルチパート完了 | PARTIAL | P3 | EXACT | EXACT | 0 |
-| EXT-XML-021 | HTMLフォームアップロード | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-021 | HTMLフォームアップロード | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
 | EXT-XML-022 | オブジェクトアップロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
 | EXT-XML-023 | XMLマルチパートのパート送信 | PARTIAL | P3 | EXACT | EXACT | 1 |
 | EXT-XML-024 | オブジェクトコピー | PARTIAL | P3 | EXACT | EXACT | 0 |
-| EXT-XML-025 | オブジェクト合成 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-026 | オブジェクトACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-027 | オブジェクト保持設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-028 | HMAC鍵一覧 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-029 | HMAC鍵作成 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-030 | HMAC鍵更新 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-031 | HMAC鍵削除 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-032 | バケットRequester Pays取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-033 | バケットCORS取得 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| EXT-XML-034 | バケット配置リージョン取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-035 | バケット暗号化設定取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-036 | バケットライフサイクル取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-037 | バケットロケーション取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-038 | バケットアクセスログ取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-039 | バケットオブジェクト保持の有効化状態取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-040 | バケットストレージクラス取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-041 | バケットラベル取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-042 | バケットバージョニング取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-043 | バケットウェブサイト設定取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-044 | バケットRequester Pays設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-045 | バケットCORS設定 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| EXT-XML-046 | バケット暗号化設定設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-047 | バケットライフサイクル設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-048 | バケットアクセスログ設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-049 | バケットストレージクラス設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-050 | バケットラベル設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-051 | バケットバージョニング設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-052 | バケットウェブサイト設定設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-025 | オブジェクト合成 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-026 | オブジェクトACL設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-027 | オブジェクト保持設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-028 | HMAC鍵一覧 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-029 | HMAC鍵作成 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-030 | HMAC鍵更新 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-031 | HMAC鍵削除 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-032 | バケットRequester Pays取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-033 | バケットCORS取得 | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
+| EXT-XML-034 | バケット配置リージョン取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-035 | バケット暗号化設定取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-036 | バケットライフサイクル取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-037 | バケットロケーション取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-038 | バケットアクセスログ取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-039 | バケットオブジェクト保持の有効化状態取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-040 | バケットストレージクラス取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-041 | バケットラベル取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-042 | バケットバージョニング取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-043 | バケットウェブサイト設定取得 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-044 | バケットRequester Pays設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-045 | バケットCORS設定 | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
+| EXT-XML-046 | バケット暗号化設定設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-047 | バケットライフサイクル設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-048 | バケットアクセスログ設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-049 | バケットストレージクラス設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-050 | バケットラベル設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-051 | バケットバージョニング設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
+| EXT-XML-052 | バケットウェブサイト設定設定 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
 
 ### gRPC Storage v1 legacy
 
@@ -497,9 +497,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-017 | IAM Denyのローカル評価範囲 | NOT_STARTED | P4 | LOCAL_SIMULATION | NONE | 0 |
-| AUDIT-018 | 公開設定以外の組織ポリシー効果 | NOT_STARTED | P4 | LOCAL_SIMULATION | NONE | 0 |
-| AUDIT-020 | タグから決まるSoft delete既定値 | NOT_STARTED | P4 | LOCAL_SIMULATION | NONE | 0 |
+| AUDIT-017 | IAM Denyのローカル評価範囲 | NOT_APPLICABLE | P4 | LOCAL_SIMULATION | NONE | 0 |
+| AUDIT-018 | 公開設定以外の組織ポリシー効果 | NOT_APPLICABLE | P4 | LOCAL_SIMULATION | NONE | 0 |
+| AUDIT-020 | タグから決まるSoft delete既定値 | NOT_APPLICABLE | P4 | LOCAL_SIMULATION | NONE | 0 |
 
 ### Authentication
 
@@ -507,10 +507,10 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-002 | 認証・認可を検証する厳密モード | PARTIAL | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
 | DESIGN-004 | 匿名ユーザーと認証済みユーザーの区別 | PARTIAL | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
-| DESIGN-005 | サービスアカウント署名者の対応付け | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
-| DESIGN-007 | Google OAuthトークン発行との境界 | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
+| DESIGN-005 | サービスアカウント署名者の対応付け | NOT_APPLICABLE | P2 | LOCAL_SIMULATION | NONE | 0 |
+| DESIGN-007 | Google OAuthトークン発行との境界 | NOT_APPLICABLE | P2 | EXTERNAL | NONE | 0 |
 | DESIGN-008 | Storage定義済みロールの権限展開 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
-| DESIGN-010 | 未知の主体・失効した認証情報の拒否 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-010 | 未知の主体・失効した認証情報の拒否 | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
 
 ### BUCKET
 
@@ -520,41 +520,41 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-002 | バケットラベル | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-BUCKET-003 | ロケーションと配置設定 | PARTIAL | P7 | LOCAL_SIMULATION | METADATA_ONLY | 0 |
 | BEHAVIOR-BUCKET-004 | ストレージクラス | PARTIAL | P1 | EXACT | METADATA_ONLY | 2 |
-| BEHAVIOR-BUCKET-005 | RPO・レプリケーション設定 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-BUCKET-006 | バケット既定暗号鍵 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-007 | 暗号方式の強制設定 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-008 | IPフィルター設定 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-005 | RPO・レプリケーション設定 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| BEHAVIOR-BUCKET-006 | バケット既定暗号鍵 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-007 | 暗号方式の強制設定 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-008 | IPフィルター設定 | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-009 | CORS設定の保存・取得 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
-| BEHAVIOR-BUCKET-010 | Webサイト設定 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-011 | アクセスログ設定 | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-010 | Webサイト設定 | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-011 | アクセスログ設定 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-012 | 既定のイベントベース保留 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-BUCKET-013 | 均一なバケットレベルアクセス設定 | PARTIAL | P2 | EXACT | EXACT | 2 |
 | BEHAVIOR-BUCKET-014 | 公開アクセス防止 | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-BUCKET-015 | Soft deleteポリシー | PARTIAL | P4 | EXACT | EXACT | 2 |
-| BEHAVIOR-BUCKET-016 | 恒久削除一時停止フィールド | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-016 | 恒久削除一時停止フィールド | NOT_APPLICABLE | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-017 | バケットのSoft deleteと復元 | PARTIAL | P4 | EXACT | EXACT | 1 |
-| BEHAVIOR-BUCKET-018 | 階層名前空間設定 | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-018 | 階層名前空間設定 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-019 | Autoclass設定 | PARTIAL | P4 | EXACT | EXACT | 2 |
-| BEHAVIOR-BUCKET-020 | Autoclassの状態遷移 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-020 | Autoclassの状態遷移 | NOT_APPLICABLE | P4 | EXACT | NONE | 0 |
 
 ### Batch semantics
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-BEH-016 | バッチ保持設定変更 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-017 | バッチオブジェクト削除 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-018 | バッチメタデータ更新 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-019 | バッチオブジェクト再書き込み | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-020 | バッチカスタムコンテキスト更新 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-021 | バッチACL更新 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-022 | バッチ対象選択・ドライラン | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| EXT-BEH-016 | バッチ保持設定変更 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-017 | バッチオブジェクト削除 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-018 | バッチメタデータ更新 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-019 | バッチオブジェクト再書き込み | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-020 | バッチカスタムコンテキスト更新 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-021 | バッチACL更新 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-022 | バッチ対象選択・ドライラン | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### CACHE
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-CACHE-001 | Anywhere・Rapid Cacheの状態遷移 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-CACHE-002 | Managed folderのRapid Cacheポリシー | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
+| BEHAVIOR-CACHE-001 | Anywhere・Rapid Cacheの状態遷移 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| BEHAVIOR-CACHE-002 | Managed folderのRapid Cacheポリシー | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
 
 ### COMMON
 
@@ -569,7 +569,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-COMMON-007 | HTTPステータスとJSONエラー | IMPLEMENTED | P1 | EXACT | EXACT | 0 |
 | BEHAVIOR-COMMON-008 | HTTPバッチ形式 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | BEHAVIOR-COMMON-009 | データと一覧の強整合性 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-COMMON-010 | 認可変更の反映モデル | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
+| BEHAVIOR-COMMON-010 | 認可変更の反映モデル | NOT_APPLICABLE | P2 | LOCAL_SIMULATION | NONE | 0 |
 | BEHAVIOR-COMMON-011 | 世代・メタ世代の前提条件 | IMPLEMENTED | P1 | EXACT | EXACT | 1 |
 | BEHAVIOR-COMMON-012 | HTTP条件付き要求 | IMPLEMENTED | P1 | EXACT | EXACT | 1 |
 | BEHAVIOR-COMMON-013 | ページングとトークン検証 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
@@ -579,20 +579,20 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-CONTEXT-001 | Object contextsの更新・検証 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| BEHAVIOR-CONTEXT-002 | 各操作でのcontexts継承 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| BEHAVIOR-CONTEXT-003 | 拡張contexts表現 | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| BEHAVIOR-CONTEXT-001 | Object contextsの更新・検証 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| BEHAVIOR-CONTEXT-002 | 各操作でのcontexts継承 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| BEHAVIOR-CONTEXT-003 | 拡張contexts表現 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### Control semantics
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-BEH-006 | HNSフォルダの原子的リネームと階層 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-BEH-007 | 管理フォルダとIAM継承 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-BEH-008 | Rapid Cacheの状態遷移 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-009 | 実際のゾーンキャッシュ性能 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-BEH-010 | Storage Intelligenceの階層・フィルタ | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-011 | 長時間オペレーションの状態遷移 | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| EXT-BEH-006 | HNSフォルダの原子的リネームと階層 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-BEH-007 | 管理フォルダとIAM継承 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| EXT-BEH-008 | Rapid Cacheの状態遷移 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-009 | 実際のゾーンキャッシュ性能 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-010 | Storage Intelligenceの階層・フィルタ | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-011 | 長時間オペレーションの状態遷移 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
 
 ### Cross-protocol semantics
 
@@ -604,44 +604,44 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-BEH-023 | Object enrichments対象設定 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-024 | 自動解析の予約コンテキスト | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-BEH-025 | 拡張コンテキスト取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-026 | 自動解析データの破棄・再書き込み | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-027 | 顔検出の結果フィクスチャ | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-BEH-028 | 物体検出の結果フィクスチャ | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-BEH-029 | 画像ラベルの結果フィクスチャ | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-BEH-030 | コンテンツ分類の結果フィクスチャ | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-BEH-031 | PDF分類の結果フィクスチャ | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-023 | Object enrichments対象設定 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-024 | 自動解析の予約コンテキスト | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-025 | 拡張コンテキスト取得 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-026 | 自動解析データの破棄・再書き込み | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-027 | 顔検出の結果フィクスチャ | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-028 | 物体検出の結果フィクスチャ | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-029 | 画像ラベルの結果フィクスチャ | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-030 | コンテンツ分類の結果フィクスチャ | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-031 | PDF分類の結果フィクスチャ | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
 
 ### External integration
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-019 | Resource Managerタグとtag bindingの境界 | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
+| AUDIT-019 | Resource Managerタグとtag bindingの境界 | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
 | EXT-BEH-032 | Pub/Subイベントと永続送信キュー | PARTIAL | P7 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 | EXT-BEH-033 | Google Pub/Subサービス | PARTIAL | P7 | EXTERNAL | LOCAL_SIMULATION | 0 |
-| EXT-BEH-034 | Firebase Storage API・Security Rules | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-035 | Cloud Storage FUSEクライアント互換 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-036 | 実際の地理冗長化・耐久性 | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-037 | バケットロケーション変更の状態遷移 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-BEH-038 | Google KMSによる鍵管理 | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-039 | Google OAuth・IAM本人確認 | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-040 | Storage Transfer Service・バケット間レプリケーション | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-041 | Cloud Monitoring・Loggingバックエンド | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-042 | VPC Service Controls・ネットワーク境界 | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-043 | IPフィルタのローカル判定 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-BEH-044 | CDN・DNS・公開HTTPSの構築 | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-045 | 課金・Requester Paysの実課金 | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-034 | Firebase Storage API・Security Rules | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-035 | Cloud Storage FUSEクライアント互換 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-036 | 実際の地理冗長化・耐久性 | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-037 | バケットロケーション変更の状態遷移 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-038 | Google KMSによる鍵管理 | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-039 | Google OAuth・IAM本人確認 | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-040 | Storage Transfer Service・バケット間レプリケーション | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-041 | Cloud Monitoring・Loggingバックエンド | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-042 | VPC Service Controls・ネットワーク境界 | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-043 | IPフィルタのローカル判定 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-044 | CDN・DNS・公開HTTPSの構築 | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-045 | 課金・Requester Paysの実課金 | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
 
 ### FOLDER
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-FOLDER-001 | 3種類のフォルダー表現の区別 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| BEHAVIOR-FOLDER-002 | HNSの再帰作成・削除 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| BEHAVIOR-FOLDER-003 | HNSフォルダー名変更トランザクション | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| BEHAVIOR-FOLDER-004 | Managed folderの認可継承 | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| BEHAVIOR-FOLDER-001 | 3種類のフォルダー表現の区別 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| BEHAVIOR-FOLDER-002 | HNSの再帰作成・削除 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| BEHAVIOR-FOLDER-003 | HNSフォルダー名変更トランザクション | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
+| BEHAVIOR-FOLDER-004 | Managed folderの認可継承 | NOT_APPLICABLE | P5 | EXACT | NONE | 0 |
 
 ### IAM enforcement
 
@@ -655,12 +655,12 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-018 | 作成時のデフォルトオブジェクトACL適用 | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
 | DESIGN-019 | 定義済みACLの権限への反映 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-020 | UBLAによるACL操作・権限の無効化 | PARTIAL | P2 | EXACT | EXACT | 0 |
-| DESIGN-021 | UBLAの90日経過後の解除不可制約 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-021 | UBLAの90日経過後の解除不可制約 | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
 | DESIGN-022 | 公開アクセス防止の継承・強制状態の評価 | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 | DESIGN-023 | 公開アクセス防止による既存公開権限の抑止 | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 | DESIGN-024 | 公開アクセス防止時の公開権限追加エラー | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-025 | 公開アクセス防止下の有効な署名付きアクセス | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
-| DESIGN-026 | IAMポリシーversion 3と条件の評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-026 | IAMポリシーversion 3と条件の評価 | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
 | DESIGN-027 | IAMポリシーetagによる競合制御 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-028 | testIamPermissionsの実効権限結果 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-029 | 署名付きリクエストに対する署名者権限の確認 | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
@@ -669,10 +669,10 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-BEH-012 | インベントリレポート生成 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-013 | BigQuery連携データセット | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-014 | 公開アクセス分析フィールド | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| EXT-BEH-015 | 本番の最適化提案・異常検出 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-012 | インベントリレポート生成 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-013 | BigQuery連携データセット | NOT_APPLICABLE | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-014 | 公開アクセス分析フィールド | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
+| EXT-BEH-015 | 本番の最適化提案・異常検出 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
 
 ### LIFECYCLE
 
@@ -693,7 +693,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-009 | 版管理されたAPI制限と任意のクォータ再現 | NOT_STARTED | P1 | LOCAL_SIMULATION | NONE | 0 |
+| AUDIT-009 | 版管理されたAPI制限と任意のクォータ再現 | NOT_APPLICABLE | P1 | LOCAL_SIMULATION | NONE | 0 |
 
 ### OBJECT
 
@@ -720,7 +720,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-019 | 一覧の範囲・glob条件 | PARTIAL | P1 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-020 | フォルダーをprefixに含める一覧 | PARTIAL | P5 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-021 | 世代・Soft deleteの一覧 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
-| BEHAVIOR-OBJECT-022 | contextsによるオブジェクト一覧検索 | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-022 | contextsによるオブジェクト一覧検索 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-023 | コピー時の意味論 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-024 | rewriteの継続セッション | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-025 | オブジェクト合成 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
@@ -730,19 +730,19 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-029 | オブジェクトの世代管理 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-030 | Soft deleteと恒久削除期限 | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-031 | オブジェクト復元の意味論 | PARTIAL | P4 | EXACT | EXACT | 2 |
-| BEHAVIOR-OBJECT-032 | HNSのrestoreToken識別 | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-033 | 一括復元の条件と件数 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-032 | HNSのrestoreToken識別 | NOT_APPLICABLE | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-033 | 一括復元の条件と件数 | NOT_APPLICABLE | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-034 | オブジェクト保持設定 | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-035 | 一時保留・イベントベース保留 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 3 |
 | BEHAVIOR-OBJECT-036 | バケット保持期間の強制 | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-037 | 顧客指定暗号鍵の検証 | PARTIAL | P7 | LOCAL_SIMULATION | LOCAL_SIMULATION | 3 |
-| BEHAVIOR-OBJECT-038 | CMEKのローカル再現 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
+| BEHAVIOR-OBJECT-038 | CMEKのローカル再現 | NOT_APPLICABLE | P7 | LOCAL_SIMULATION | NONE | 0 |
 
 ### RAPID
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-RAPID-001 | RAPIDのゾーン構成と制約 | NOT_STARTED | P6 | LOCAL_SIMULATION | NONE | 0 |
+| BEHAVIOR-RAPID-001 | RAPIDのゾーン構成と制約 | NOT_APPLICABLE | P6 | LOCAL_SIMULATION | NONE | 0 |
 | BEHAVIOR-RAPID-002 | 追記可能オブジェクト作成 | PARTIAL | P6 | EXACT | EXACT | 3 |
 | BEHAVIOR-RAPID-003 | 追記の単一writer制御 | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RAPID-004 | 追記flush・確定 | PARTIAL | P6 | EXACT | EXACT | 1 |
@@ -775,7 +775,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-040 | 従来のV2署名付きURL | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-041 | 署名付きPOSTフォームポリシーの検証 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-042 | 署名による再開可能アップロード開始 | PARTIAL | P3 | EXACT | EXACT | 0 |
-| DESIGN-043 | 再開可能アップロードのセッションURI権限 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| DESIGN-043 | 再開可能アップロードのセッションURI権限 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
 | DESIGN-044 | 署名失敗時のXMLエラー応答 | PARTIAL | P2 | EXACT | EXACT | 0 |
 
 ### Transport
@@ -788,8 +788,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-BEH-046 | MCP初期化・ツール一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-047 | Rapid BucketのAPI制約 | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| EXT-BEH-046 | MCP初期化・ツール一覧 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
+| EXT-BEH-047 | Rapid BucketのAPI制約 | NOT_APPLICABLE | P7 | EXACT | NONE | 0 |
 
 ### URL and routing
 
@@ -797,22 +797,22 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-047 | パス形式のオブジェクトURL | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-048 | 仮想ホスト形式のオブジェクトURL | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
-| DESIGN-049 | メディア取得URLとメタデータURLの区別 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-050 | ウェブサイト用ホスト・index・エラーページの解決 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-049 | メディア取得URLとメタデータURLの区別 | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
+| DESIGN-050 | ウェブサイト用ホスト・index・エラーページの解決 | NOT_APPLICABLE | P2 | EXACT | NONE | 0 |
 | DESIGN-051 | JSON API固有のCORS既定動作 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-052 | XML APIのバケットCORS設定反映 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-053 | プリフライトとオブジェクト認可の独立 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
-| DESIGN-054 | ブラウザ認証付きダウンロードURLとの境界 | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
+| DESIGN-054 | ブラウザ認証付きダウンロードURLとの境界 | NOT_APPLICABLE | P2 | EXTERNAL | NONE | 0 |
 
 ### XML semantics
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | EXT-BEH-001 | XML一覧のページング | PARTIAL | P3 | EXACT | EXACT | 0 |
-| EXT-BEH-002 | XML名前空間・エラー形式 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-BEH-002 | XML名前空間・エラー形式 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
 | EXT-BEH-003 | 再開可能アップロード継続・状態確認・中止 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-BEH-004 | 署名付きフォームのポリシー検証 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
-| EXT-BEH-005 | 独自ドメインの静的サイト挙動 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-BEH-005 | 独自ドメインの静的サイト挙動 | NOT_APPLICABLE | P3 | EXACT | NONE | 0 |
 
 ## project_requirement
 
@@ -822,16 +822,16 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-001 | 認証を省略する開発モードの明示 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-003 | ローカル主体とテストトークンの登録 | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
-| DESIGN-006 | ユーザー・グループ所属のローカル定義 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| DESIGN-009 | カスタムロールのローカル設定 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| DESIGN-011 | プロジェクトをまたぐ主体・所有関係の再現 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-006 | ユーザー・グループ所属のローカル定義 | NOT_APPLICABLE | P2 | PROJECT | NONE | 0 |
+| DESIGN-009 | カスタムロールのローカル設定 | NOT_APPLICABLE | P2 | PROJECT | NONE | 0 |
+| DESIGN-011 | プロジェクトをまたぐ主体・所有関係の再現 | NOT_APPLICABLE | P2 | PROJECT | NONE | 0 |
 | DESIGN-101 | strictモードでアプリのサーバー向けに使う信頼済みリスナー | PARTIAL | P2 | PROJECT | PROJECT | 1 |
 
 ### CLI compatibility
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-005 | gcloud storageコマンド互換 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
+| AUDIT-005 | gcloud storageコマンド互換 | NOT_APPLICABLE | P3 | PROJECT | NONE | 0 |
 | AUDIT-006 | 既存gsutilの互換範囲 | PARTIAL | P7 | PROJECT | PROJECT | 0 |
 
 ### Container distribution
@@ -898,7 +898,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-015 | プロジェクト・フォルダ・組織の継承設定 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-015 | プロジェクト・フォルダ・組織の継承設定 | NOT_APPLICABLE | P2 | PROJECT | NONE | 0 |
 
 ### Native distribution
 
@@ -911,7 +911,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-015 | 上限付き観測情報と認証情報の秘匿 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| AUDIT-015 | 上限付き観測情報と認証情報の秘匿 | NOT_APPLICABLE | P1 | PROJECT | NONE | 0 |
 
 ### Project governance
 
@@ -933,9 +933,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-011 | 切断クライアントの資源解放 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| AUDIT-012 | ディスク枯渇・書込失敗時の整合性 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| AUDIT-013 | ファイル記述子・稼働セッションの上限 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| AUDIT-011 | 切断クライアントの資源解放 | NOT_APPLICABLE | P1 | PROJECT | NONE | 0 |
+| AUDIT-012 | ディスク枯渇・書込失敗時の整合性 | NOT_APPLICABLE | P1 | PROJECT | NONE | 0 |
+| AUDIT-013 | ファイル記述子・稼働セッションの上限 | NOT_APPLICABLE | P1 | PROJECT | NONE | 0 |
 | DESIGN-070 | 固定上限バッファによる本体ストリーミング | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | DESIGN-071 | リクエスト・ワーカー同時実行数の上限 | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | DESIGN-072 | ディスク上メタデータ・索引付き一覧取得 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
@@ -944,10 +944,10 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-075 | 不透明なblob保存パスとキーの完全保持 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-076 | データディレクトリの単一プロセス制約 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-077 | 上限付きインメモリ動作 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
-| DESIGN-078 | ビジーループを避けたアイドルCPU低減 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-078 | ビジーループを避けたアイドルCPU低減 | NOT_APPLICABLE | P1 | PROJECT | NONE | 0 |
 | DESIGN-079 | RSS・cgroupメモリ測定 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
-| DESIGN-080 | CPU・レイテンシ・スループット測定表 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-081 | fake-gcs-serverとの同条件比較 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-080 | CPU・レイテンシ・スループット測定表 | NOT_APPLICABLE | P1 | PROJECT | NONE | 0 |
+| DESIGN-081 | fake-gcs-serverとの同条件比較 | NOT_APPLICABLE | P1 | PROJECT | NONE | 0 |
 
 ### SDK compatibility
 
@@ -966,7 +966,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-087 | Rust公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 0 |
 | DESIGN-088 | SDK試験の意図しない外部通信防止 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-089 | 任意の実GCS差分適合試験 | NOT_APPLICABLE | P0 | EXTERNAL | NONE | 0 |
-| DESIGN-090 | 決定的な障害注入 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-090 | 決定的な障害注入 | NOT_APPLICABLE | P0 | PROJECT | NONE | 0 |
 
 ### Signed access
 
@@ -979,7 +979,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | AUDIT-014 | カタログ形式の更新と互換方針 | PARTIAL | P3 | PROJECT | PROJECT | 0 |
-| AUDIT-016 | 読み取り中のblobの安全な回収 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| AUDIT-016 | 読み取り中のblobの安全な回収 | NOT_APPLICABLE | P1 | PROJECT | NONE | 0 |
 
 ### URL and routing
 
@@ -987,5 +987,5 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-046 | 権限を変えない公開URLの組み立て | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-055 | 待受・API公開先・オブジェクト公開先の分離 | PARTIAL | P2 | PROJECT | PROJECT | 2 |
-| DESIGN-056 | 明示的なプロキシ信頼設定とURL生成 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-056 | 明示的なプロキシ信頼設定とURL生成 | NOT_APPLICABLE | P2 | PROJECT | NONE | 0 |
 | DESIGN-057 | クライアントから到達できる再開用Location | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |

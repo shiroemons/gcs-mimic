@@ -2,188 +2,83 @@
 
 [日本語](../ja/roadmap.md)
 
-Updated **2026-11-25** for the 0.28.1 release. Published installation examples use `0.28.1`. The scoped SDK, browser and distribution results of the 0.8.0 migration additions are recorded in the [combined verification](evidence/migration-integration.md); they do not complete the broader feature rows.
-Continue closing the gaps in existing fake-gcs-server workflows through useful `0.x` increments.
-**1.0.0** freezes the public contract and requires tested data directory upgrades from every supported release; the complete fake-gcs-server superset remains a separate goal.
-The order below selects work, not release dates.
+Updated 2026-11-26. The order below selects work; it does not promise dates.
 
-## Available today
+## Goal
 
-The [0.28.1 release](releases/0.28.1.md) provides native archives and Linux AMD64/ARM64 images on GHCR and Docker Hub. HTTP and HTTPS on one port by default, simultaneous HTTP/HTTPS listeners, public-host routing, default bucket location and log-level controls are available. The [configuration mapping](fake-gcs-server-configuration.md) documents native equivalents and diagnostics for all 19 known source environment variables.
+gcs-mimic is a local Cloud Storage emulator for development and tests. The
+official Cloud Storage SDKs, and tools built on them such as Rails Active
+Storage and `gcloud storage`, should work against it with nothing changed but
+the endpoint setting.
 
-Scoped workflows include multiple buckets, per-bucket CORS/IAM, streaming transfers, rewrite/compose/move, version history, holds, bucket/object retention, soft delete/restore, V2/V4 RSA signed transfers and V4 signed POST policies. JSON ACL resources, notification configurations, HMAC key management and Autoclass settings also exist, with the effect limitations below. Bucket and object PATCH/PUT replace ACLs atomically with other metadata. Media, multipart and copy invocation tokens replay the original response within bounded local retention, and JSON media GET and XML GET expand gzip-encoded objects. Storage v2 gRPC includes resumable and appendable writes and ranged reads; legacy Storage v1 serves the twelve inventoried reference RPCs with field limits. Since 0.9.0, `gcloud storage` runs the [example workflow](../../examples/gcloud/README.md), and [examples](../../examples/README.md) cover eight official clients. Since 0.10.0, Rails Active Storage 8.1.4.1 direct uploads work through `x-goog-content-length-range` enforcement, and XML reads evaluate conditional headers. See the [0.17.1 release notes](releases/0.17.1.md), the [0.16.0 release notes](releases/0.16.0.md), the [0.15.0 release notes](releases/0.15.0.md), the [0.14.0 release notes](releases/0.14.0.md), the [0.13.0 release notes](releases/0.13.0.md), the [0.12.0 release notes](releases/0.12.0.md), the [0.11.0 release notes](releases/0.11.0.md), the [0.10.0 release notes](releases/0.10.0.md), the [0.9.0 release notes](releases/0.9.0.md), the [0.8.0 release notes](releases/0.8.0.md), the [0.5.0 release notes](releases/0.5.0.md) and the [0.4.0 feature scope and limits](releases/0.4.0.md).
+These are not goals:
 
-Bucket initialization creates missing buckets with their settings and
-preserves API changes. Since 0.14.0, an entry can also give its bucket an
-initial IAM policy, the document can be written inline in `GCS_MIMIC_BUCKETS`,
-and reconcile mode, the default for the inline document, writes edited entries
-to existing buckets. Seed files replay on every startup with extension-derived MIME types. Since
-0.8.0 the replay prepares the complete tree and publishes it atomically; a
-changed protected fixture fails the replay instead of skipping that file.
-Identical objects keep their generation. Directory synchronization was removed:
-`seed_dir` never has files written to it, and while the server runs, passes every
-`seed_watch_interval_ms` replay changed, new and removed files
-([seed contract](slices/seed.md#passes-while-the-server-runs)).
-The importer converts scoped filesystem snapshots, while a separate Go capture
-and snapshot reader preserve declared memory history and original names.
-See [container usage](container-usage.md) and the
-[migration guide](fake-gcs-server-migration.md).
+- answering byte for byte as Cloud Storage does;
+- covering every Google Cloud Storage API and management service;
+- becoming a complete superset of fake-gcs-server.
 
-SDK and browser evidence covers declared subsets. The
-[nine-SDK scorecard](../../sdk-scorecard/README.md) passes every case for all
-nine SDKs in its latest [run](../../sdk-scorecard/results/2026-11-18/summary.md)
-on the 0.26.0 source. The last gaps it found closed in 0.23.0: bucket read
-masks accept the settings gcs-mimic never stores
-([scope](slices/grpc-v2-buckets.md)), every appendable open is answered
-([scope](slices/grpc-v2-rapid-append.md)), Storage v2 accepts
-customer-supplied keys ([scope](slices/grpc-v2-customer-supplied-keys.md)),
-each XML multipart part reports its hashes
-([scope](slices/xml-multipart-upload.md)), and a declared upload length of 0
-leaves the total open ([scope](slices/resumable-upload.md)). Scope and
-remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integration.md)
-and the [C++ slice](slices/sdk-scorecard-cpp.md).
-Rails Active Storage has a [working storage.yml recipe](rails-active-storage.md)
-with a non-Google universe. Since 0.8.0 it also verifies registered local
-JWTs and supplies final-origin signing adapters; default Google-universe
-OAuth still requires Google and is not a local credential recipe. Since 0.14.0,
-the recipe also runs in strict mode with the built-in test signer's key, which
-needs no registration; the strict Rails suite passes with the signer holding only
-`roles/storage.objectUser`.
-These are not whole-API compatibility claims. See the
-[comparison](feature-comparison.md) and [feature matrix](feature-matrix.md).
+Where official sources leave behavior open, gcs-mimic picks what keeps the
+SDKs working and records it as local behavior. Compatibility is judged by the
+official SDKs, Google documentation and the googleapis protos; nothing in the
+repository contacts Cloud Storage
+([why](development.md#no-live-cloud-storage-contact)).
 
-Production-like local access needs 0.14.0 or later. In strict
-mode, a trusted listener gives the application's own servers a port where their
-credential-free clients, such as Go storage with `STORAGE_EMULATOR_HOST`, act
-as one identity, while browsers stay anonymous and reach private buckets only
-through signed URLs. The built-in test signer signs those URLs with a published
-key, `signed_urls=verify` checks signatures in permissive mode as well, and the
-identity and bucket documents can be written inline in `GCS_MIMIC_IDENTITIES`
-and `GCS_MIMIC_BUCKETS`. The [strict local recipe](../../examples/strict-local/README.md)
-combines them in a few settings. These are local extensions, not Cloud Storage
-behavior. Chromium has run against both the recipe's main listener and its
-trusted listener; DESIGN-101 stays `PARTIAL` because a browser on the Compose
-network can still be made to read through the trusted listener without seeing
-the result, and because nothing but an unpublished port keeps other programs out.
+## Scope
 
-## Missing capabilities, in priority order
+This is the product profile that `NOT_APPLICABLE` rows in the
+[feature ledger](../../compatibility/features.json) refer to. The ledger owns
+every status; the [feature matrix](feature-matrix.md) shows them.
 
-Priority selects work when capacity is limited. Only an explicit prerequisite
-blocks another track; a higher-priority row does not make every later row wait.
+In scope:
 
-| Priority | User outcome | Prerequisite | Can run alongside |
-| --- | --- | --- | --- |
-| First | Verify migration and local adapters together | Quiesced source, explicit cutover and final SDK/container runs | Independent client/protocol work |
-| Then | Close reference behavior and ordinary Rails setup | Scoped API/profile and credential contracts | Independent reference capabilities |
-| Every release | Reconcile evidence and pass distribution gates | Platform, dependency and artifact verification | All implementation tracks |
-| Stable contract | Release the frozen public contract as 1.0.0 | Contract review, release-data upgrades, candidate soak and final verification | Superset work continues in later minors |
-| Superset goal | Claim the complete fake-gcs-server superset | Complete baseline and named extensions | Combine verified scopes |
+- What the official SDKs call over the JSON API: bucket and object CRUD,
+  media, multipart and resumable uploads, downloads and ranges, listing,
+  copy, rewrite, compose and move, metadata and preconditions, versions,
+  holds, retention and soft delete.
+- Storage v2 gRPC as the SDKs' gRPC clients use it, and the legacy Storage v1
+  RPCs already served.
+- The XML API that SDKs and browsers use: signed URLs, signed POST policies,
+  XML multipart upload and Rails Active Storage direct uploads.
+- The access control SDK workflows meet: IAM policies, ACLs, uniform
+  bucket-level access, public access prevention, HMAC keys and local
+  identities in strict mode.
+- Running the emulator: configuration, bucket initialization, seed and import,
+  migration from fake-gcs-server, native archives and container images.
 
-Current work closes remaining acceptance cases in small increments.
-The recorded migration checkpoint does not validate subsequent XML, ACL or
-authentication changes; final combined verification remains an integration gate.
-Import is no longer an unimplemented track. The source-state and memory-snapshot
-contracts add scoped class, metadata, names and history preservation. Remaining
-limits include information already lost by filesystem normalization, quiescence,
-cutover/rollback and platform boundaries. Seed `.metadata` files are literal
-objects; durable import sidecars remain a separate explicitly selected format.
-See the [import contract](slices/import-filesystem.md).
+Out of scope:
 
-Since 0.8.0 there are scoped HTTP batch/method override, XML
-list/copy/multipart, helper/reset/reseed routes, local event delivery, a Go
-subprocess facade and bounded RAM storage. Scoped checks passed for the
-checkpoint recorded in the combined evidence. Remaining work includes declared
-JSON/XML fields,
-the full exported Go API,
-platform and provider-contract differences.
-Existing legacy v1 RPCs still need full reference input/response coverage.
-Notification configurations select immutable events into a bounded transactional
-outbox; delivery requires a separately supplied local Pub/Sub emulator. This
-does not implement Google's delivery service. HMAC keys now authenticate V4 XML
-query and Authorization signatures through registered principals and current
-key state. V4 HMAC and V2 RSA/HMAC form-policy cores now pass their declared
-variant and write-failure subsets. Full form routing, fields, browser/client
-and provider contracts remain pending. Legacy V2 HMAC queries and GOOG1/AWS
-headers support the named native method and virtual-object subsets;
-DESIGN-040 retains signed resumable, virtual bucket, provider and SDK boundaries.
-AWS4 header-authenticated signed chunks now work for ordinary object PUT;
-DESIGN-039 retains other operation/format and exact provider questions.
-Lifecycle Delete, supported storage class transitions and XML multipart abort
-execute through the injected clock and bounded maintenance pass as local
-simulations, with a disable option for store-only operation. Autoclass automatic transitions remain
-absent; customer-supplied keys enforce reads without encrypting local disk bytes.
-Broader Google behavior is separate from the pinned-reference minimum.
-Source inventory determines the final reference set; these examples do not exclude
-an unlisted source capability.
+- Storage Control v2, folders, managed folders and hierarchical namespace.
+- Storage Insights, Storage Intelligence and Storage Batch Operations.
+- Anywhere Cache, Rapid Cache and the Cloud Storage MCP server.
+- Long-running operations, locations and FeatureConfigs.
+- XML bucket configuration, ACL, retention, encryption and HMAC
+  subresources, XML multi-object delete, XML compose and HTML form upload.
+- Object contexts, bucket relocation, bulk restore, object IAM, website
+  routing, usage logging, IP filters, encryption enforcement, RPO and Autoclass
+  transitions.
+- Google infrastructure and other services: KMS, OAuth token issuance, VPC
+  Service Controls, CDN, billing, Monitoring and Logging, Storage Transfer
+  Service, Firebase and Cloud Storage FUSE.
+- Benchmark matrices, performance comparisons with fake-gcs-server, and
+  resource budgets beyond local-development scale.
 
-Current migration work follows the investigated fake-gcs-server workflow
-obstacles and the approved responses in the [delivery plan](delivery-plan.md).
-General Google API coverage is a separate objective; the
-[feature inventory](feature-matrix.md) is not the task list or effort estimate
-for this migration work. Its existing statuses and pending cases remain intact.
+A row that is already `PARTIAL` keeps its code, status and pending cases. An
+out-of-scope capability returns as a new slice when an official SDK workflow
+needs it.
 
-## Parallel development boundaries
+## Next
 
-Import and reference work can proceed independently where their own
-prerequisites are satisfied. Preserve the existing bucket identity, local
-administrative authority and startup/readiness ordering.
+1. **Keep the SDKs working.** The
+   [nine-SDK scorecard](../../sdk-scorecard/README.md) and the SDK suites pass
+   on every release. Add the SDK workflows that users report, and make the
+   suites prove that they never leave the machine (DESIGN-088).
+2. **Close gaps that SDK workflows reach.** Finish a `PARTIAL` row's pending
+   cases when an SDK workflow needs them, not to complete the row for its own
+   sake.
+3. **Keep releases shippable.** Every release passes the distribution and
+   dependency gates.
 
-The initializer owns file parsing and create-missing orchestration. The importer
-owns read-only source decoding and preservation reports. Shared catalog/publication changes have one
-integration owner; adapters must not bypass conditions, hashes or generations.
-Existing SDK/browser checks can run throughout, without waiting for these adapters.
+## 1.0.0
 
-See the [detailed plan](delivery-plan.md#parallel-work-and-acceptance) for
-dependencies, acceptance cases and ownership boundaries.
-
-## Agreed behavior and open decisions
-
-By default the bucket initialization file creates **missing buckets only**.
-Restart keeps existing settings and objects, including API changes, and warns
-when an edited entry was not applied. Removing a file entry does not delete a
-bucket. Its [version-1 schema and local administrative authority](slices/bucket-initialization.md)
-are implemented, including an `iamPolicy` a new bucket starts with.
-`buckets_mode=reconcile`, the default for a file and for the same document
-written inline in `GCS_MIMIC_BUCKETS`, applies the fields each entry writes to
-its existing bucket at startup, except its location and owner, because an edit
-to the document is meant to apply at the next start; reconcile never resets a field that
-an entry stops writing.
-
-Directory synchronization was removed: `seed_dir` is read-only input, replayed at
-startup and while the server runs, and never written to. SQLite remains the catalog. See the
-[filesystem requirements](fake-gcs-server-storage.md#required-gcs-mimic-follow-up).
-
-## Releases
-
-Publish feature additions as successive `0.x` minor releases and compatible
-fixes as patches. Do not wait for complete parity while staying at `0.1.0`.
-Initializer and import can ship separately; version numbers are assigned
-to actual release scopes rather than reserved for tracks.
-
-`1.0.0` freezes the public contract, upgrades data directories from every supported release (`0.8.0` and later) and follows a release-candidate soak.
-The complete pinned-reference superset and full Google API coverage are separate goals.
-See the [version policy and exact gate](release-policy.md#the-100-gate).
-Releases `0.1.0` through `0.7.0` are [withdrawn](release-policy.md#withdrawn-releases).
-
-## First useful release
-
-The first useful `0.x` release has shipped; published examples now use `0.28.1`. The original gate covered scoped JSON, public/private access and URL workflows, persistent storage, fixtures, Go/Ruby, CORS and local HTTPS. Rails, lifecycle, gRPC and full parity were not prerequisites for that first release.
-
-Native CI/platform checks, current dependencies, release notes, packaged
-notices/checksums and verified public image access still gate each release.
-The DIST-001 through DIST-005 ledger rows remain `PARTIAL`; published artifacts
-do not close their remaining acceptance or evidence-reconciliation work.
-Local checks alone do not complete the [distribution gates](container-distribution.md).
-
-## Beyond reference compatibility
-
-Continue broader Google coverage in independently verified slices: remaining
-XML and Storage v2 gRPC fields/operations, additional SDKs, advanced policy,
-retention and lifecycle effects, hierarchical storage, full Rapid bucket
-semantics and service simulations. Existing appendable-object support does not
-reproduce zonal Rapid storage. These remain in the
-[detailed coverage plan](delivery-plan.md#coverage-retained-for-later-delivery).
-
-The [feature ledger](../../compatibility/features.json) owns implementation
-status. This roadmap sets priorities without promoting planned work to supported
-behavior or changing existing feature IDs.
+The conditions for 1.0.0 are in the
+[release policy](release-policy.md#the-100-gate).

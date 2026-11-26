@@ -7,7 +7,7 @@ arm64 and mirror it to Docker Hub. The [Docker usage guide](container-usage.md)
 supplies the consumer
 workflow; [local preparation evidence](evidence/container-onboarding.md) records
 both image builds, container smoke checks and the README walkthrough.
-The first release retains the [roadmap requirements](roadmap.md#first-useful-release).
+The [release policy](release-policy.md) lists what each release must pass.
 
 ## Tags and immutable identity
 

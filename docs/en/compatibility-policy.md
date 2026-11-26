@@ -6,6 +6,21 @@
 
 The initial kit was a planning baseline with every row unstarted. Current status is recorded only in the ledger. Documentation preparation does not count as API implementation. Fill acceptance cases and dependencies before changing a row to `IN_PROGRESS`.
 
+## Product profile
+
+gcs-mimic is an emulator for the official Cloud Storage SDKs. The
+[roadmap's scope](roadmap.md#scope) lists what is in and out of the product.
+A row outside it is `NOT_APPLICABLE`; it returns to `NOT_STARTED` when an
+official SDK workflow needs it, with the reason recorded in its notes.
+
+Behavior is decided by what the version-pinned official SDKs send and accept,
+then by Google documentation and the googleapis protos. Nothing in the
+repository contacts Cloud Storage, so no row waits for or cites new
+real-service evidence; see
+[no live Cloud Storage contact](development.md#no-live-cloud-storage-contact).
+Earlier rows that cite recorded Cloud Storage answers keep those dated
+records.
+
 Historical evidence, past release notes and recorded verification commands retain the environment names used at the time; current non-server variables use `GCSM_*`, as listed in the [environment migration table](releases/0.18.0.md#environment-variable-names). The documentation check permits only the explicit historical file/suffix counts in `scripts/environment-history-baseline.txt`, so a new record or an increased count still fails.
 
 | Status | Meaning |
@@ -15,7 +30,7 @@ Historical evidence, past release notes and recorded verification commands retai
 | `PARTIAL` | Some documented cases work; missing cases are explicit |
 | `IMPLEMENTED` | All acceptance cases for the declared scope pass with evidence |
 | `BLOCKED` | A concrete dependency or contract question prevents completion |
-| `NOT_APPLICABLE` | Outside the declared product/profile; reason recorded and kept in the ledger |
+| `NOT_APPLICABLE` | Outside the [product profile](#product-profile); the row's notes give the date and reason, and the row stays in the ledger |
 
 | Fidelity | Meaning |
 | --- | --- |
@@ -55,19 +70,12 @@ All of these rows stay `PARTIAL` until their known deviations are resolved.
 
 ## Definition of done
 
-### Capability delivery and broad feature rows
+### Broad feature rows
 
-The ledger's optional `delivery_plan` records existing scoped evidence and the
-ordered capability queue. It contains prerequisites, completion conditions and
-exclusions, but no independent implementation statuses. Existing scope/case
-references are navigation aids, not automatic completion of a delivery gate.
-
-P0-P7 are coverage groups. A capability gate covers only its declared scope; a
-clock-injection gate does not depend on later lifecycle scheduling, and a
-single-request upload gate does not depend on resumable or gRPC support.
-Before coding, map the gate to concrete acceptance cases on the affected feature
-records. Keep known differences within that scope visible and unresolved until
-evidence supports their resolution.
+P0-P7 are coverage groups, not execution gates. Before coding, map a slice to
+concrete acceptance cases on the affected feature records. Keep known
+differences within that scope visible and unresolved until evidence supports
+their resolution.
 
 A completed narrow behavior does not complete its parent API method. Preserve
 parent status, fidelity, pending cases and historical evidence. New requirements
@@ -86,35 +94,28 @@ an enforcing test, or one whose code still lacks the behavior, stays a known
 deviation. When a moved item's gap entry says to keep the row `PARTIAL`, update
 that `required_resolution` in the same change.
 
-Missing opted-in real-service evidence alone does not keep an `EXACT` row
-`PARTIAL`. `EXACT` means the observable contract is reproduced for the
+Real-service evidence is not collected, and its absence never keeps an `EXACT`
+row `PARTIAL`. `EXACT` means the observable contract is reproduced for the
 explicitly tested local scope; open provider questions belong in the gap ledger
 as `SOURCE_QUESTION` entries and in the row as scoped differences. A row still
 stays `PARTIAL` while its local behavior is untested, unimplemented or known to
 differ from documented Google behavior.
 
-Report completed scopes with evidence against a fixed selected delivery scope,
-separately from method/behavior/project counts. Do not infer a delivery percentage
-from planning metadata or treat overlapping feature references as independent
+Report completed scopes with evidence, separately from method/behavior/project
+counts. Do not treat overlapping feature references as independent
 capabilities. README comparisons must use the same named scope for every product.
 
-The JSON schema describes this planning metadata. The current Rust xtask still
-validates feature records and generated views; it does not validate delivery-plan
-references or execute its conditions. Review those references separately until
-dedicated tooling is explicitly implemented.
+### Migration claims
 
-### Migration and behavioral-superset claims
+Legacy emulator parity is not Google `EXACT` fidelity. Verify legacy behavior
+and strict permissions/signatures in separate profiles; neither may silently
+override the other's contract.
 
-`delivery_plan.migration` records a target and completion conditions, with no
-second implementation-status system. Legacy emulator parity is not Google
-`EXACT` fidelity. Verify legacy behavior and strict permissions/signatures in
-separate profiles; neither may silently override the other's contract.
-
-Full replacement requires every declared source surface and lossless-data
-case, including renamed configuration, TLS, helpers/events, Go embedding,
-legacy Storage v1 gRPC and both backends. An early subset must name its limits.
-Retain source identities and metadata; unsupported state blocks a lossless
-migration claim. Documentation and source inspection are not passing evidence.
+gcs-mimic does not claim to replace fake-gcs-server completely. The
+[migration guide](fake-gcs-server-migration.md) names the supported workflows
+and their limits. Retain source identities and metadata; unsupported state
+blocks a lossless migration claim. Documentation and source inspection are not
+passing evidence.
 
 ### Feature implementation gate
 
@@ -173,4 +174,4 @@ This repository-specific validator is not a general JSON Schema engine or proof 
 
 Each record includes `acceptance_cases`, `test_ids`, `verification`, `sdk_evidence`, `known_deviations`, `implemented_in`, and `last_verified`. Rows without completed work keep them empty. Do not populate these with invented future results. Include output capture or CI links when they exist.
 
-Cloud-dependent tests are opt-in. Local fixtures are not proof of real Google token verification, billing, KMS execution, BigQuery query behavior, Pub/Sub delivery guarantees or geographical durability. Record those boundaries honestly even when local state transitions are useful and complete.
+The repository has no cloud-dependent tests. Local fixtures are not proof of real Google token verification, billing, KMS execution, BigQuery query behavior, Pub/Sub delivery guarantees or geographical durability. Record those boundaries honestly even when local state transitions are useful and complete.

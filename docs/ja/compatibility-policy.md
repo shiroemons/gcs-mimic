@@ -3,6 +3,19 @@
 [英語の正本](../en/compatibility-policy.md)に従い、実装状態は
 `compatibility/features.json` だけで管理する。機能表は同じ台帳から生成する。
 
+## 製品プロファイル
+
+gcs-mimic は公式の Cloud Storage SDK のためのエミュレーターである。
+対象にするものとしないものは[ロードマップの対象範囲](roadmap.md#対象範囲)に示す。
+範囲の外の行は `NOT_APPLICABLE` にし、日付と理由を行の notes に書く。
+公式 SDK の利用で必要になったら `NOT_STARTED` に戻す。
+
+動作は、バージョンを固定した公式 SDK が送るもの・受け付けるものを第一に、
+次に Google のドキュメントと googleapis の proto で決める。
+リポジトリの中のものは Cloud Storage に接続しないので、新しい実機の証拠を待つ行や引く行はない
+（[Cloud Storage に接続しない規則（英語）](../en/development.md#no-live-cloud-storage-contact)）。
+過去に記録した実機の応答を引く行は、その日付付きの記録をそのまま残す。
+
 認識している未対応の意味は、JSON API では 400 `badRequest`、XML API では
 400 `InvalidArgument` で断る。既知の未実装 Google JSON ルートも同じ応答に揃える。
 SDK が 501 をリトライして待ち続けたり、404 をリソースの不在と誤認したりすることを防ぐ。
@@ -24,7 +37,7 @@ native と fake-gcs-server の両プロファイルで同じ方針を使う。
 `scoped_differences` は既にテストで固定した意図的なローカル仕様で、`IMPLEMENTED` を妨げない。
 各項目は `compatibility/gaps.json` の項目を参照し、その項目の `affected_features` に行が含まれ、
 挙動を固定する PASS 済みのテストを持つ必要がある。
-Google 実機での未確認だけを理由に `EXACT` の行を `PARTIAL` に留めない。
+実機の証拠は集めないので、実機での未確認を理由に `EXACT` の行を `PARTIAL` に留めない。
 実機の疑問は gap 台帳の `SOURCE_QUESTION` として扱う。
 
 ## 目標忠実度の選び方

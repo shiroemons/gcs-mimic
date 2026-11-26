@@ -420,9 +420,8 @@ all versions. No baseline
 capability is excluded from the full-superset target merely because it is absent
 from the current GCS inventory or the early-release queue.
 
-The ledger's `delivery_plan.migration` owns the planning scope and acceptance
-milestones. Existing feature statuses and evidence remain authoritative; this
-broader target adds no passing full-migration result.
+Existing feature statuses and evidence in the ledger remain authoritative; this
+guide adds no passing full-migration result.
 
 ## Concurrent uploads and storage errors
 
@@ -717,8 +716,6 @@ required conflict blocks the full compatibility claim.
 Directory synchronization was removed: `seed_dir` is read-only input, replayed at
 startup and while the server runs, and never written to ([seed contract](slices/seed.md)),
 so API writes do not appear as files. SQLite remains the metadata/index catalog with opaque immutable blobs.
-The ledger entry `delivery_plan.migration.filesystem_sync_contract` records the
-withdrawn requirement.
 See the [source investigation and executed file-edit cases](fake-gcs-server-storage.md).
 
 ## Data movement without coupling internal formats

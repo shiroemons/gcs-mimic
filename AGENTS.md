@@ -1,6 +1,6 @@
 # gcs-mimic implementation rules
 
-gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It targets local development and integration tests, with fake-gcs-server-inspired ergonomics and independently verified Google API compatibility.
+gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It targets local development and integration tests: the version-pinned official SDKs must work against it, with fake-gcs-server-inspired ergonomics. Byte-for-byte parity with Cloud Storage and a complete fake-gcs-server superset are not goals; `docs/en/roadmap.md` ("Scope") defines the product profile.
 
 ## Scope and workflow
 

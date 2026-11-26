@@ -196,8 +196,8 @@ follows one major line instead and advances with each stable release of that
 major under the same rule as `X.Y`. No `0` alias is published, because a `0.x`
 minor release may break.
 
-The first general developer release retains the
-[roadmap's P1 plus essential P2 public/private and URL target](roadmap.md#first-useful-release).
+The first general developer release covered scoped JSON, public/private access
+and URL workflows, persistent storage, fixtures, Go/Ruby, CORS and local HTTPS.
 Before publication, update the version and lockfile together, reconcile the
 feature ledger and documentation, run dependency freshness and pre-push checks,
 and verify the release's supported platforms in CI. Follow the existing
