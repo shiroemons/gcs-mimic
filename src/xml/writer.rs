@@ -25,12 +25,13 @@ pub(super) enum Quotes {
     Escaped,
 }
 
-struct Escaped<'a> {
+/// Writes formatted XML text directly into the document using its quote policy.
+struct EscapingWriter<'a> {
     body: &'a mut String,
     quotes: Quotes,
 }
 
-impl Escaped<'_> {
+impl EscapingWriter<'_> {
     fn push_run(&mut self, mut run: &str) {
         if self.quotes == Quotes::Escaped {
             while let Some(index) = memchr::memchr2(b'"', b'\'', run.as_bytes()) {
@@ -61,7 +62,7 @@ impl Escaped<'_> {
     }
 }
 
-impl Write for Escaped<'_> {
+impl Write for EscapingWriter<'_> {
     fn write_str(&mut self, text: &str) -> fmt::Result {
         self.push_text(text);
         Ok(())
@@ -113,8 +114,8 @@ impl XmlWriter {
         self.close(name);
     }
 
-    fn escaped(&mut self) -> Escaped<'_> {
-        Escaped {
+    fn escaped(&mut self) -> EscapingWriter<'_> {
+        EscapingWriter {
             body: &mut self.body,
             quotes: self.quotes,
         }

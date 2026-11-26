@@ -288,8 +288,7 @@ impl Storage {
             let options = self
                 .message_options(&lease, options, expected, &piece, end)
                 .await?;
-            let written = self.write_piece(lease, options, &piece).await?;
-            call.persisted(piece);
+            let written = self.write_piece(lease, options, &mut call, piece).await?;
             let answer = match written {
                 Written::Complete(value) => finished(
                     self.completed_resource(stored::from_completion(Some(&value))?, caller, bucket)
@@ -319,12 +318,13 @@ impl Storage {
         }
     }
 
-    /// Persists `piece` under `lease` and finalizes the upload when the piece ends it.
+    /// Persists the complete granules and returns any trailing bytes to the call on success.
     async fn write_piece(
         &self,
         lease: SessionLease,
         options: ResumableOptions,
-        piece: &Piece,
+        call: &mut Call,
+        piece: Piece,
     ) -> Result<Written, Status> {
         let (tx, rx) = mpsc::channel(2);
         let (catalog_wait, _wait) = watch::channel(ChunkWait::Transfer);
@@ -358,6 +358,7 @@ impl Storage {
         let (sent, written) = tokio::join!(producer, write);
         let written = written.map_err(session_status)?;
         sent?;
+        call.persisted(piece);
         Ok(written)
     }
 }
@@ -445,7 +446,7 @@ impl Default for Call {
     fn default() -> Self {
         Self {
             position: MessagePosition::First,
-            tail: BytesMut::with_capacity(WRITE_GRANULE),
+            tail: BytesMut::new(),
             tail_start: 0,
             uploaded: 0,
             declared: ExpectedHashes::default(),
@@ -569,24 +570,34 @@ impl Call {
         let kept = match end {
             StepEnd::Finish => 0,
             StepEnd::Continue { .. } if length < WRITE_GRANULE => {
-                self.tail.extend_from_slice(&added);
+                self.append_tail(&added);
                 return ([Bytes::new(), Bytes::new()], Bytes::new());
             }
             StepEnd::Continue { .. } => length % WRITE_GRANULE,
         };
         let prefix = added.split_to(added.len() - kept);
-        ([self.tail.split().freeze(), prefix], added)
+        let prior = if self.tail.is_empty() {
+            Bytes::new()
+        } else {
+            self.tail.split().freeze()
+        };
+        ([prior, prefix], added)
     }
 
     pub(super) fn persisted(&mut self, piece: Piece) {
-        let reclaim = !piece.parts[0].is_empty();
         drop(piece.parts);
-        if reclaim {
-            // The catalog has consumed the previous granule. Reclaim its allocation before
-            // copying the new tail so it cannot keep an entire incoming message alive.
+        self.append_tail(&piece.remainder);
+    }
+
+    fn append_tail(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        if self.tail.is_empty() {
+            // Allocate on the first partial granule, then reclaim it after the catalog write.
             self.tail.reserve(WRITE_GRANULE);
         }
-        self.tail.extend_from_slice(&piece.remainder);
+        self.tail.extend_from_slice(bytes);
     }
 
     /// The client closed the stream without `finish_write`: bytes still waiting for a whole
