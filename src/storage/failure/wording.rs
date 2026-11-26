@@ -4,6 +4,7 @@
 //! report alike lives here, so that one adapter's wording cannot drift from another's.
 
 use super::{BackendCause, BackendFailure, IoCause, MemoryBudget};
+pub(crate) use crate::input::unsupported_bucket_setting;
 use crate::object::{HashMismatch, HeldObject, HoldKind, RetainedObject};
 use std::{borrow::Cow, io};
 
@@ -92,13 +93,6 @@ pub(crate) fn hash_mismatch(mismatch: &HashMismatch) -> String {
         ),
     };
     format!("Provided {name} \"{expected}\" doesn't match calculated {name} \"{computed}\".")
-}
-
-/// A recognized bucket setting gcs-mimic does not implement, with the request that avoids it.
-pub(crate) fn unsupported_bucket_setting(name: &str) -> String {
-    format!(
-        "gcs-mimic does not support bucket API setting {name}; omit this setting (for example, create a bucket with only name)."
-    )
 }
 
 /// A rejected ACL entity, role or entry list. Cloud Storage's wording covers the two most common

@@ -17,6 +17,70 @@ use std::{collections::BTreeSet, fmt::Write as _, path::Path};
 /// The variable that asks the golden tests to rewrite the files they compare.
 pub(crate) const UPDATE_VARIABLE: &str = "GCSM_UPDATE_GOLDENS";
 
+/// Bucket inputs that reached the adapters through the corresponding shared error.
+pub(crate) fn bucket_service_errors() -> Vec<(crate::service::ServiceError, ApiError)> {
+    use crate::{
+        auth::InvalidProjectId, config::CompatProfile, service::parse_bucket,
+        time_format::TimeOutOfRange,
+    };
+    use serde_json::json;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    let outside = UNIX_EPOCH + Duration::from_secs(253_402_300_800);
+    [
+        (
+            json!({}),
+            "project",
+            UNIX_EPOCH,
+            ApiError::required("Missing required name"),
+        ),
+        (
+            json!({"name": 1}),
+            "project",
+            UNIX_EPOCH,
+            ApiError::invalid("name must be a string"),
+        ),
+        (
+            json!({"acl": []}),
+            "project",
+            UNIX_EPOCH,
+            ApiError::unsupported("acl"),
+        ),
+        (
+            json!({"name": "bucket", "location": "nowhere"}),
+            "project",
+            UNIX_EPOCH,
+            ApiError::invalid("The specified location constraint is not valid."),
+        ),
+        (
+            json!({}),
+            "bad project",
+            outside,
+            ApiError::from(InvalidProjectId),
+        ),
+        (
+            json!({"name": "bucket"}),
+            "project",
+            outside,
+            ApiError::from(TimeOutOfRange),
+        ),
+    ]
+    .into_iter()
+    .map(|(body, project, now, expected)| {
+        let error = parse_bucket(
+            body.as_object().unwrap(),
+            project,
+            now,
+            CompatProfile::Native,
+            "US",
+        )
+        .unwrap_err();
+        crate::error::assert_distinct_causes(&error);
+        (error, expected)
+    })
+    .collect()
+}
+
 /// Every constructor and modifier, each with the input it takes in production where one call
 /// site gives it a fixed text, and a status for each arm the adapters map without a kind.
 pub(crate) fn constructor_cases() -> Vec<Case<ApiError>> {

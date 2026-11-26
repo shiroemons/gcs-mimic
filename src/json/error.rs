@@ -4,10 +4,44 @@
 //! [`crate::api_error`], which the XML and gRPC adapters map to their own answers.
 
 use crate::api_error::{ApiError, PlainCache};
+use crate::input::{InputError, InputKind};
 use crate::object::media_headers::NO_STORE_CACHE_CONTROL;
+use crate::service::ServiceError;
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
 use serde_json::{Map, Value, json};
+
+impl From<InputError> for ApiError {
+    fn from(input: InputError) -> Self {
+        let error = match input.kind {
+            InputKind::Invalid => Self::invalid(input.message),
+            InputKind::Required => Self::required(input.message),
+            InputKind::Unsupported => Self::unsupported_message(input.message),
+        };
+        match input.field {
+            Some(field) => error.at_parameter(field),
+            None => error,
+        }
+    }
+}
+
+impl From<ServiceError> for ApiError {
+    fn from(error: ServiceError) -> Self {
+        match error {
+            ServiceError::Input(error) => error.into(),
+            ServiceError::Project(error) => error.into(),
+            ServiceError::Catalog(error) => error.into(),
+            ServiceError::Time(error) => error.into(),
+        }
+    }
+}
+
+// PATCH and PUT read individual members of the same resource as an insert.
+impl From<crate::bucket::resource::Error> for ApiError {
+    fn from(error: crate::bucket::resource::Error) -> Self {
+        ServiceError::from(error).into()
+    }
+}
 
 /// The `Cache-Control` of a media download that Cloud Storage answers with a plain error; its
 /// `Expires` is the response time.

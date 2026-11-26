@@ -1056,8 +1056,8 @@ fn bucket_inserts_from_members_match_inserts_from_json_bodies() {
     for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
         let insert = |body: &Value, project: &str| {
             let members = body.as_object().unwrap();
-            let from_members =
-                crate::bucket::resource::parse_insert(members, project, now, profile, "US");
+            let from_members = crate::service::parse_bucket(members, project, now, profile, "US")
+                .map_err(ApiError::from);
             let bytes = serde_json::to_vec(body).unwrap();
             let from_bytes =
                 buckets::parse_insert_with_profile(&bytes, project, now, profile, "US");

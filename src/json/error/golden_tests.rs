@@ -23,6 +23,16 @@ use crate::{
 
 const GOLDEN: &str = "src/json/error/golden_tests/responses.txt";
 
+#[tokio::test]
+async fn bucket_service_errors_keep_the_json_response() {
+    for (error, expected) in crate::api_error::test_support::bucket_service_errors() {
+        assert_eq!(
+            http_response(ApiError::from(error).into_response()).await,
+            http_response(expected.into_response()).await,
+        );
+    }
+}
+
 /// Which routes reword an error, and so which renderings it gets besides the plain response.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Routes {

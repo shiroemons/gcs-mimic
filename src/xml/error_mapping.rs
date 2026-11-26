@@ -11,10 +11,22 @@ use crate::{
     metadata_error::MetadataError,
     object::{ComponentFailureKind, ObjectError, name::InvalidObjectName},
     percent::{MalformedEncoding, QueryError},
+    service::ServiceError,
     storage::failure::{BackendCause, wording},
     time_format::TimeOutOfRange,
 };
 use hyper::StatusCode;
+
+impl From<ServiceError> for Error {
+    fn from(error: ServiceError) -> Self {
+        match error {
+            ServiceError::Input(error) => Self::invalid(error.message),
+            ServiceError::Project(error) => error.into(),
+            ServiceError::Catalog(error) => error.into(),
+            ServiceError::Time(error) => error.into(),
+        }
+    }
+}
 
 impl Error {
     /// A refused permission, naming the principal and the permission as Cloud Storage does.

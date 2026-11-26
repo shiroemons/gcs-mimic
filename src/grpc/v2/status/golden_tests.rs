@@ -20,6 +20,13 @@ use std::{collections::HashMap, fmt::Write as _};
 
 const GOLDEN: &str = "src/grpc/v2/status/golden_tests/statuses.txt";
 
+#[test]
+fn bucket_service_errors_keep_the_storage_status() {
+    for (error, expected) in crate::api_error::test_support::bucket_service_errors() {
+        assert_eq!(rendering(&error.into()), rendering(&expected.into()));
+    }
+}
+
 const ANONYMOUS: Option<Caller<'static>> = Some(Caller::Anonymous);
 
 const BAD_REQUEST_TYPE: &str = "type.googleapis.com/google.rpc.BadRequest";

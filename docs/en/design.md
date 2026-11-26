@@ -61,8 +61,11 @@ entity tags (`etag`), bounded request bodies (`bounded_body`), bucket names and 
 (`bucket::name`, `bucket::cors`), testable IAM permissions (`auth::testable`) and digest
 decoding (`hashing::decode_hash`), bucket creation from resource members
 (`bucket::resource`), media and upload headers (`object::media_headers`,
-`object::upload_headers`), the streaming multipart parser (`multipart`) and the error the
-shared server logic and request parsers return (`api_error::ApiError`). Each adapter
+`object::upload_headers`) and the streaming multipart parser (`multipart`). Bucket creation
+returns `service::ServiceError`. Each adapter maps rejected input, project, catalog and time
+errors directly. Admin and filesystem import build native defaults with `BucketRecord::default_for`,
+which exposes only the project and timestamp failures those callers can encounter.
+Other shared request parsers and server logic still return `api_error::ApiError`. Each adapter
 answers that error in its own protocol: the JSON adapter renders the envelope through
 `json::JsonErrorResponse`, the XML adapter maps it and the domain errors to its codes
 (`src/xml/error_mapping.rs`), and the gRPC adapter maps them to statuses
@@ -91,10 +94,10 @@ undeclared one, and an `xtask` test keeps this copy equal to the table in
 | Layer | Modules |
 | --- | --- |
 | foundation | `base64`, `hex`, `percent`, `decimal`, `clock`, `hashing`, `serde_util`, `error`, `task`, `diagnostics`, `fsutil`, `bounded_body`, `bounded_file`, `time_limit`, `memory_limit`, `fd_limit`, `net`, `match_glob`, `source_tree`, `mime`, `http_conditions` |
-| model | `project`, `acl`, `bucket`, `object`, `metadata_error`, `etag`, `csek`, `auth`, `url`, `notification`, `time_format` |
+| model | `project`, `acl`, `bucket`, `object`, `metadata_error`, `etag`, `csek`, `auth`, `url`, `notification`, `time_format`, `input` |
 | settings | `config`, `config_input`, `tls` |
 | storage | `storage`, `import`, `seed`, `bucket_init` |
-| service | `page_token`, `multipart`, `api_error` |
+| service | `page_token`, `multipart`, `api_error`, `service` |
 | adapters (isolated) | `json`, `xml`, `grpc` |
 | transport | `server` |
 

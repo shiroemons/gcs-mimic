@@ -5,7 +5,7 @@ use super::{
     names,
 };
 use crate::auth::Caller;
-use crate::bucket::{BucketConditions, CatalogError, name::MAX_BUCKET_NAME_BYTES, resource};
+use crate::bucket::{BucketConditions, CatalogError, name::MAX_BUCKET_NAME_BYTES};
 use serde_json::{Map, Value, json};
 use tonic::{Request, Response, Status};
 
@@ -110,7 +110,7 @@ fn autoclass_body(autoclass: pb::bucket::Autoclass) -> Result<Value, Status> {
 }
 
 /// The CreateBucket settings as the JSON insert object every protocol's bucket creation
-/// validates ([`resource::parse_insert`]). Destructuring the whole message makes a new proto
+/// validates ([`crate::service::parse_bucket`]). Destructuring the whole message makes a new proto
 /// field a compile error, so each field is read here, ignored because the proto marks it
 /// output only, or required to be empty; a setting is never silently dropped. Only settings the
 /// request carries are added, never update-mask reset defaults.
@@ -385,7 +385,7 @@ impl Storage {
             ));
         }
         let body = create_body(bucket, &request.bucket_id)?;
-        let mut record = resource::parse_insert(
+        let mut record = crate::service::parse_bucket(
             &body,
             project,
             self.state.clock.now(),

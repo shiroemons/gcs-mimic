@@ -1,6 +1,6 @@
 use super::{ApiError, Projection, WriteMode, query::validate_project};
 use crate::bucket::resource::{
-    self, LEGACY_LOCATION, UNSUPPORTED_FIELDS, parse_cors, parse_lifecycle, parse_object_retention,
+    LEGACY_LOCATION, UNSUPPORTED_FIELDS, parse_cors, parse_lifecycle, parse_object_retention,
     parse_public_access_prevention, parse_retention_period, parse_soft_delete_retention,
     parse_uniform_access,
 };
@@ -67,7 +67,13 @@ pub(crate) fn parse_insert_with_profile(
     let body = value
         .as_object()
         .ok_or_else(|| ApiError::invalid("Bucket resource must be a JSON object"))?;
-    resource::parse_insert(body, project, now, profile, default_location)
+    Ok(crate::service::parse_bucket(
+        body,
+        project,
+        now,
+        profile,
+        default_location,
+    )?)
 }
 
 /// Rejects a body whose `name` disagrees with the bucket named in the path, as Cloud Storage does

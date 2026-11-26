@@ -74,6 +74,7 @@ const LAYERS: [Layer; 7] = [
             "url",
             "notification",
             "time_format",
+            "input",
         ],
     },
     Layer {
@@ -89,7 +90,7 @@ const LAYERS: [Layer; 7] = [
     Layer {
         name: "service",
         peers: Peers::Shared,
-        modules: &["page_token", "multipart", "api_error"],
+        modules: &["page_token", "multipart", "api_error", "service"],
     },
     Layer {
         name: "adapters",

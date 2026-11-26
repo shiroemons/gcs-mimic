@@ -1,12 +1,28 @@
 use crate::{
     bucket::CatalogError,
     grpc::generated::google::rpc::{BadRequest, ErrorInfo, Status as RpcStatus, bad_request},
+    input::InputKind,
     metadata_error::MetadataError,
     object::{ComponentFailure, ComponentFailureKind, ObjectError},
+    service::ServiceError,
     storage::failure::{BackendCause, wording},
 };
 use prost::Message;
 use tonic::{Code, Status};
+
+impl From<ServiceError> for Status {
+    fn from(error: ServiceError) -> Self {
+        match error {
+            ServiceError::Input(error) => match error.kind {
+                InputKind::Invalid | InputKind::Required => Self::invalid_argument(error.message),
+                InputKind::Unsupported => unsupported_message(error.message),
+            },
+            ServiceError::Project(error) => error.into(),
+            ServiceError::Catalog(error) => error.into(),
+            ServiceError::Time(error) => Self::unavailable(error.to_string()),
+        }
+    }
+}
 
 /// The gRPC message of a request whose `if_*_not_match` named the current value: a read
 /// (recorded on `GetObject`) and, unlike the JSON API's 304, a write (recorded 2026-11-18 on

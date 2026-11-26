@@ -11,12 +11,23 @@ use super::{
     SoftDeletePolicy, SoftDeleteRetention, UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest,
     Versioning, cors_from_value, lifecycle::LifecycleRules, valid_label, validate_storage_class,
 };
-use crate::api_error::ApiError;
 use crate::config::CompatProfile;
+use crate::input::InputError;
 use crate::object::Patch;
 use crate::time_format::timestamp;
 use serde_json::{Map, Value, json};
 use std::{collections::BTreeMap, time::SystemTime};
+
+/// Failures of reading bucket members, including the checks shared with local bucket defaults.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum Error {
+    #[error(transparent)]
+    Input(#[from] InputError),
+    #[error(transparent)]
+    Defaults(#[from] super::DefaultBucketError),
+    #[error(transparent)]
+    Catalog(#[from] super::CatalogError),
+}
 
 /// The location the fake-gcs-server profile reports for every bucket.
 pub(crate) const LEGACY_LOCATION: &str = "US-CENTRAL1";
@@ -39,21 +50,21 @@ pub(crate) const UNSUPPORTED_FIELDS: &[&str] = &[
 /// The name of a bucket being created. Insert reports the offending value in the body error, and
 /// a name below the minimum length has its own message (recorded 2026-10-31); a bucket named in
 /// a path keeps the shorter `Invalid bucket name` error.
-fn validate_new_bucket_name(name: &str) -> Result<(), ApiError> {
+fn validate_new_bucket_name(name: &str) -> Result<(), InputError> {
     if name.len() < 3 {
-        return Err(ApiError::invalid(format!(
+        return Err(InputError::invalid(format!(
             "Bucket names must be at least 3 characters in length, got {}: '{name}'",
             name.len()
         )));
     }
     super::name::validate(name)
-        .map_err(|_| ApiError::invalid(format!("Invalid bucket name: '{name}'")))
+        .map_err(|_| InputError::invalid(format!("Invalid bucket name: '{name}'")))
 }
 
 fn reject_unsupported_insert_fields(
     body: &Map<String, Value>,
     profile: CompatProfile,
-) -> Result<(), ApiError> {
+) -> Result<(), InputError> {
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
             if *field == "rpo"
@@ -70,7 +81,7 @@ fn reject_unsupported_insert_fields(
             {
                 continue;
             }
-            return Err(ApiError::unsupported(field));
+            return Err(InputError::unsupported_bucket(field));
         }
     }
     Ok(())
@@ -88,15 +99,15 @@ fn insert_string(
     body: &Map<String, Value>,
     field: &str,
     default: Option<&str>,
-) -> Result<String, ApiError> {
+) -> Result<String, InputError> {
     match body.get(field) {
         Some(value) => value
             .as_str()
             .map(str::to_owned)
-            .ok_or_else(|| ApiError::invalid(format!("{field} must be a string"))),
+            .ok_or_else(|| InputError::invalid(format!("{field} must be a string"))),
         None => default
             .map(str::to_owned)
-            .ok_or_else(|| ApiError::required(format!("Missing required {field}"))),
+            .ok_or_else(|| InputError::missing(field)),
     }
 }
 
@@ -105,13 +116,13 @@ fn insert_bool(
     value: Option<&Value>,
     field: &str,
     profile: CompatProfile,
-) -> Result<bool, ApiError> {
+) -> Result<bool, InputError> {
     match value {
         None => Ok(false),
         Some(Value::Null) if profile == CompatProfile::FakeGcsServer => Ok(false),
         Some(value) => value
             .as_bool()
-            .ok_or_else(|| ApiError::invalid(format!("{field} must be a boolean"))),
+            .ok_or_else(|| InputError::invalid(format!("{field} must be a boolean"))),
     }
 }
 
@@ -127,13 +138,13 @@ fn insert_location(
     body: &Map<String, Value>,
     profile: CompatProfile,
     default_location: &str,
-) -> Result<String, ApiError> {
+) -> Result<String, InputError> {
     if profile == CompatProfile::FakeGcsServer {
         if body
             .get("location")
             .is_some_and(|value| !value.as_str().is_some_and(fake_gcs_server_accepts_location))
         {
-            return Err(ApiError::unsupported("location"));
+            return Err(InputError::unsupported_bucket("location"));
         }
         return Ok("US".into());
     }
@@ -149,7 +160,7 @@ fn insert_location(
 fn insert_labels(
     body: &Map<String, Value>,
     profile: CompatProfile,
-) -> Result<BTreeMap<String, String>, ApiError> {
+) -> Result<BTreeMap<String, String>, InputError> {
     let mut labels = BTreeMap::new();
     let Some(value) = body
         .get("labels")
@@ -159,16 +170,16 @@ fn insert_labels(
     };
     let object = value
         .as_object()
-        .ok_or_else(|| ApiError::invalid("labels must be a string map"))?;
+        .ok_or_else(|| InputError::invalid("labels must be a string map"))?;
     if object.len() > MAX_LABELS {
-        return Err(ApiError::invalid("A bucket can have at most 64 labels"));
+        return Err(InputError::invalid("A bucket can have at most 64 labels"));
     }
     for (key, value) in object {
         let value = value
             .as_str()
-            .ok_or_else(|| ApiError::invalid("Label values must be strings"))?;
+            .ok_or_else(|| InputError::invalid("Label values must be strings"))?;
         if !valid_label(key, LabelPart::Key) || !valid_label(value, LabelPart::Value) {
-            return Err(ApiError::invalid("Invalid bucket label"));
+            return Err(InputError::invalid("Invalid bucket label"));
         }
         labels.insert(key.clone(), value.to_owned());
     }
@@ -184,8 +195,8 @@ pub(crate) fn parse_insert(
     now: SystemTime,
     profile: CompatProfile,
     default_location: &str,
-) -> Result<BucketRecord, ApiError> {
-    crate::auth::validate_project_id(project)?;
+) -> Result<BucketRecord, Error> {
+    crate::auth::validate_project_id(project).map_err(super::DefaultBucketError::from)?;
     reject_unsupported_insert_fields(body, profile)?;
     let name =
         if profile == CompatProfile::FakeGcsServer && body.get("name").is_none_or(Value::is_null) {
@@ -197,7 +208,7 @@ pub(crate) fn parse_insert(
         validate_new_bucket_name(&name)?;
     } else {
         super::name::validate_for_profile(&name, profile)
-            .map_err(|_| ApiError::invalid("invalid bucket name"))?;
+            .map_err(|_| InputError::invalid("invalid bucket name"))?;
     }
     let versioning = match body.get("versioning") {
         None => Versioning::Unset,
@@ -205,7 +216,7 @@ pub(crate) fn parse_insert(
         Some(value) => {
             let enabled = value
                 .as_object()
-                .ok_or_else(|| ApiError::invalid("versioning must be an object"))?
+                .ok_or_else(|| InputError::invalid("versioning must be an object"))?
                 .get("enabled");
             // Only a boolean configures versioning; the fake-gcs-server profile reads a null as
             // no setting.
@@ -234,7 +245,7 @@ pub(crate) fn parse_insert(
         .transpose()?
         .flatten();
     let labels = insert_labels(body, profile)?;
-    timestamp(now)?;
+    timestamp(now).map_err(super::DefaultBucketError::from)?;
     Ok(BucketRecord {
         soft_delete_policy: parse_soft_delete_retention(body.get("softDeletePolicy"))?.map(
             |retention| SoftDeletePolicy {
@@ -269,7 +280,7 @@ pub(crate) fn parse_insert(
         .is_some_and(|request| request.enabled(None))
         {
             Some(now.checked_add(UNIFORM_ACCESS_LOCK_PERIOD).ok_or_else(|| {
-                ApiError::invalid("Uniform access deadline is outside the supported time range")
+                InputError::invalid("Uniform access deadline is outside the supported time range")
             })?)
         } else {
             None
@@ -284,24 +295,24 @@ pub(crate) fn parse_insert(
 pub(crate) fn parse_lifecycle(
     value: Option<&Value>,
     profile: CompatProfile,
-) -> Result<Option<LifecycleRules>, ApiError> {
+) -> Result<Option<LifecycleRules>, super::CatalogError> {
     match value {
         Some(Value::Array(_)) if profile == CompatProfile::Native => Ok(None),
-        Some(value) => Ok(Some(LifecycleRules::from_json(value)?)),
+        Some(value) => LifecycleRules::from_json(value).map(Some),
         None => Ok(None),
     }
 }
 
 /// Cloud Storage's rejection of a value that is not an int64: the offending JSON is quoted.
-fn int64_parse_error(value: &Value) -> ApiError {
-    ApiError::invalid(format!(
+fn int64_parse_error(value: &Value) -> InputError {
+    InputError::invalid(format!(
         "Parse Error: Invalid value for TYPE_INT64 field: '{value}'."
     ))
 }
 
 /// An int64 setting sent as a JSON number or a decimal string, as the Discovery document
 /// declares it.
-fn int64_setting(value: &Value) -> Result<i64, ApiError> {
+fn int64_setting(value: &Value) -> Result<i64, InputError> {
     crate::serde_util::int64(value).ok_or_else(|| int64_parse_error(value))
 }
 
@@ -310,13 +321,13 @@ fn int64_setting(value: &Value) -> Result<i64, ApiError> {
 /// resource (recorded 2026-10-31).
 pub(crate) fn parse_soft_delete_retention(
     value: Option<&Value>,
-) -> Result<Option<SoftDeleteRetention>, ApiError> {
+) -> Result<Option<SoftDeleteRetention>, Error> {
     let Some(value) = value.filter(|v| !v.is_null()) else {
         return Ok(None);
     };
     let policy = value
         .as_object()
-        .ok_or_else(|| ApiError::invalid(SOFT_DELETE_RANGE_MESSAGE))?;
+        .ok_or_else(|| InputError::invalid(SOFT_DELETE_RANGE_MESSAGE))?;
     let Some(duration) = policy
         .get("retentionDurationSeconds")
         .filter(|v| !v.is_null())
@@ -332,7 +343,7 @@ pub(crate) fn parse_soft_delete_retention(
 /// Storage treated as no change) keeps the policy; null or a policy without a period clears it.
 pub(crate) fn parse_retention_period(
     value: Option<&Value>,
-) -> Result<Patch<RetentionPeriod>, ApiError> {
+) -> Result<Patch<RetentionPeriod>, Error> {
     let Some(value) = value else {
         return Ok(Patch::Keep);
     };
@@ -341,7 +352,7 @@ pub(crate) fn parse_retention_period(
     }
     let policy = value
         .as_object()
-        .ok_or_else(|| ApiError::invalid(RETENTION_RANGE_MESSAGE))?;
+        .ok_or_else(|| InputError::invalid(RETENTION_RANGE_MESSAGE))?;
     if policy.is_empty() {
         return Ok(Patch::Keep);
     }
@@ -356,7 +367,7 @@ pub(crate) fn parse_retention_period(
 /// Parses an echoed bucket `objectRetention`: `Some(true)` for `{"mode":"Enabled"}`.
 ///
 /// The value is output-only after creation; callers compare it with the stored state.
-pub(crate) fn parse_object_retention(value: Option<&Value>) -> Result<Option<bool>, ApiError> {
+pub(crate) fn parse_object_retention(value: Option<&Value>) -> Result<Option<bool>, InputError> {
     let Some(value) = value.filter(|value| !value.is_null() && *value != &json!({})) else {
         return Ok(None);
     };
@@ -364,7 +375,7 @@ pub(crate) fn parse_object_retention(value: Option<&Value>) -> Result<Option<boo
         Some("Enabled") if value.as_object().is_some_and(|fields| fields.len() == 1) => {
             Ok(Some(true))
         }
-        _ => Err(ApiError::invalid(
+        _ => Err(InputError::invalid(
             "objectRetention only reports {\"mode\":\"Enabled\"}; enable object retention with the enableObjectRetention=true query parameter on bucket insert",
         )),
     }
@@ -372,24 +383,24 @@ pub(crate) fn parse_object_retention(value: Option<&Value>) -> Result<Option<boo
 
 pub(crate) fn parse_uniform_access(
     value: Option<&Value>,
-) -> Result<Option<UniformAccessRequest>, ApiError> {
+) -> Result<Option<UniformAccessRequest>, InputError> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
     };
     let config = value
         .as_object()
-        .ok_or_else(|| ApiError::invalid("iamConfiguration must be an object"))?;
+        .ok_or_else(|| InputError::invalid("iamConfiguration must be an object"))?;
     let mut enabled = None;
     for field in ["uniformBucketLevelAccess", "bucketPolicyOnly"] {
         if let Some(value) = config.get(field).filter(|value| !value.is_null()) {
             let setting = value.as_object().ok_or_else(|| {
-                ApiError::invalid(format!(
+                InputError::invalid(format!(
                     "{field} must be an object; use {{\"enabled\":true}}"
                 ))
             })?;
             if let Some(value) = setting.get("enabled").filter(|value| !value.is_null()) {
                 let value = value.as_bool().ok_or_else(|| {
-                    ApiError::invalid(format!(
+                    InputError::invalid(format!(
                         "{field}.enabled must be a boolean; use true or false"
                     ))
                 })?;
@@ -408,30 +419,33 @@ pub(crate) fn parse_uniform_access(
 
 pub(crate) fn parse_public_access_prevention(
     value: Option<&Value>,
-) -> Result<Option<PublicAccessPrevention>, ApiError> {
+) -> Result<Option<PublicAccessPrevention>, Error> {
     // A null `iamConfiguration` leaves the settings alone (recorded 2026-10-31).
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
     };
     let config = value
         .as_object()
-        .ok_or_else(|| ApiError::invalid("iamConfiguration must be an object"))?;
+        .ok_or_else(|| InputError::invalid("iamConfiguration must be an object"))?;
     config
         .get("publicAccessPrevention")
         .filter(|value| !value.is_null())
         .map(|value| match value.as_str() {
             Some(value) => value.parse::<PublicAccessPrevention>().map_err(Into::into),
-            _ => Err(ApiError::invalid(format!(
+            _ => Err(InputError::invalid(format!(
                 "Invalid value for: {} is not a valid value",
                 value
                     .as_str()
                     .map_or_else(|| value.to_string(), str::to_owned)
-            ))),
+            ))
+            .into()),
         })
         .transpose()
 }
 
-pub(crate) fn parse_cors(value: Option<&Value>) -> Result<Option<Vec<CorsRule>>, ApiError> {
+pub(crate) fn parse_cors(
+    value: Option<&Value>,
+) -> Result<Option<Vec<CorsRule>>, super::CatalogError> {
     value
         .map(|value| {
             let rules = if value.is_null() {
@@ -462,7 +476,10 @@ mod tests {
         for (project, now) in [("bad project", outside), ("project", outside)] {
             let error = BucketRecord::default_for(&name, project, now).unwrap_err();
             crate::error::assert_distinct_causes(&error);
-            assert_eq!(error.to_string(), insert(project, now).unwrap_err().message);
+            assert_eq!(
+                error.to_string(),
+                insert(project, now).unwrap_err().to_string()
+            );
         }
     }
 
