@@ -164,6 +164,27 @@ async fn jwt_resolves_registered_keys_and_keeps_opaque_tokens_and_project_permis
 }
 
 #[tokio::test]
+async fn failed_signatures_do_not_change_the_result_for_the_same_claims() {
+    let auth = Auth::strict(registry(&[PUBLIC], &[]));
+    let signed = token(&claims());
+    let (message, _) = signed.rsplit_once('.').unwrap();
+    let other_signature = format!("{message}.AA");
+    for _ in 0..2 {
+        assert!(
+            authenticate(&auth, &other_signature, &Fixed(NOW))
+                .await
+                .is_none()
+        );
+        assert!(authenticate(&auth, &signed, &Fixed(NOW)).await.is_some());
+    }
+    assert!(
+        authenticate(&auth, &signed, &Fixed(NOW + 60))
+            .await
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
     let registry = Auth::strict(registry(&[PUBLIC], &[]));
     let valid = token(&claims());
