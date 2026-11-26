@@ -143,7 +143,7 @@ fn warn_failed(number: u64, error: &SeedError) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
         crate::diagnostics::Event::SeedPassFailed,
-        serde_json::json!({"pass": number, "cause": crate::error::Report(error).to_string()}),
+        serde_json::json!({"pass": number, "cause": error.failed_pass_diagnostic()}),
     );
 }
 

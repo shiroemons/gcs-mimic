@@ -178,6 +178,22 @@ fn closed_connection_and_executor_keep_their_guidance_without_a_synthetic_source
     }
 }
 
+#[test]
+fn a_failed_seed_pass_preserves_the_rollback_diagnostic() {
+    let sqlite = rusqlite::Error::InvalidParameterName("key".into());
+    let sqlite_text = sqlite.to_string();
+    let rollback = format!("transaction could not be rolled back: {sqlite_text}");
+    let unusable = format!("catalog connection is unusable: {rollback}");
+    let error = ConnectionUnavailable::Unrecovered(RollbackError::Rollback(sqlite));
+    let seed = SeedError::Admin(error.into());
+    assert_eq!(
+        seed.failed_pass_diagnostic(),
+        format!(
+            "administrative operation: Backend({unusable:?}): {unusable}: {rollback}: {sqlite_text}"
+        )
+    );
+}
+
 fn disk_full() -> CatalogError {
     io::Error::from(io::ErrorKind::StorageFull).into()
 }
