@@ -1106,6 +1106,13 @@ async fn compose_write_behind_failure_and_crashes_leave_the_destination_unpublis
     );
     h.assert_fired("write-behind");
     assert_eq!(h.resource("derived").await.status, 404);
+    eventually_async("write-behind cleanup", || async {
+        UploadCleanup::observe(&h.dir.0, h.state.catalog.active_uploads()).is_complete()
+            && h.state.catalog.session_writers_idle()
+    })
+    .await;
+    assert_eq!(count(&h.dir.0, "SELECT count(*) FROM derived_transfers"), 0);
+    assert_no_leaks(&h.dir.0, "write-behind");
     for crash in Crash::ALL {
         let snapshot = TestDir::new();
         h.inject(Step::BodyWriteBehind, 0, crash.fault(snapshot.0.clone()));

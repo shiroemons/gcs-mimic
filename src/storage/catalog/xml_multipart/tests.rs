@@ -604,8 +604,6 @@ async fn abort_commit_and_reclaim_crash_snapshots_never_resurrect_retired_parts(
 
 #[tokio::test]
 async fn completion_rejects_corrupt_and_truncated_parts_without_replacing_the_object() {
-    use http_body_util::BodyExt;
-
     for (damaged, reason) in [
         (&b"parX"[..], "multipart part data is corrupt"),
         (&b"par"[..], "multipart part is truncated"),
@@ -625,15 +623,6 @@ async fn completion_rejects_corrupt_and_truncated_parts_without_replacing_the_ob
             panic!("expected an object storage failure");
         };
         assert_eq!(error.to_string(), format!("catalog unavailable: {reason}"));
-        let response = crate::xml::Error::from(error).response(crate::xml::ErrorBody::Include);
-        assert_eq!(response.status(), hyper::StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            response.into_body().collect().await.unwrap().to_bytes(),
-            concat!(
-                "<?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code>",
-                "<Message>Object storage is unavailable: internal storage failure (private backend details withheld)</Message></Error>"
-            )
-        );
         assert_eq!(
             catalog
                 .get_object(live("bucket", "value"), Default::default(), PERMISSIVE)

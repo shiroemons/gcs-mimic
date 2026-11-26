@@ -30,6 +30,25 @@ async fn a_rolled_back_writer_replaces_both_written_and_buffered_bytes() {
 }
 
 #[tokio::test]
+async fn a_panicked_writer_defers_rollback_to_reopen() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let mut output = Output::Disk(objects::StagedFile::new(
+        std::fs::File::create(dir.0.join("stage")).unwrap(),
+        Arc::new(()),
+        &dir.0,
+    ));
+    catalog.inject(Step::BodyWrite, 0, Fault::Panic);
+    output.write(b"unacknowledged").await.unwrap();
+    assert!(output.finish().await.is_err());
+    assert_eq!(
+        output.rollback(0).await.unwrap(),
+        objects::Rollback::Deferred
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn rollback_flush_and_sync_failures_keep_the_acknowledged_prefix() {
     for (step, kind) in [
         (Step::BodyFlush, io::ErrorKind::StorageFull),

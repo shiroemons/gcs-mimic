@@ -788,6 +788,7 @@ journal sweep in the maintenance diagnostic.
     Copies share the blocking pool with reads, writes and syncs. With the
     default eight threads, eight simultaneous long copies can make those
     operations wait until a copy finishes. There is no reserved I/O thread.
+    Raising `max_blocking_threads` makes more workers available to concurrent I/O.
   - The re-hash itself is kept, as
     [resumable upload](resumable-upload.md) requires.
 - **Derived advance.** One job restores the draft, opens the output, copies

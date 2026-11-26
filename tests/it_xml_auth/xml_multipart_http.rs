@@ -181,6 +181,34 @@ fn complete(server: &Server, name: &str, id: &str, auth: &str, parts: &[(u16, &s
 }
 
 #[test]
+fn completion_of_a_damaged_part_returns_the_storage_failure_document() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    bucket(&server, "");
+    let id = begin(&server, "value", "");
+    let etag = part(&server, "value", &id, 1, "", b"part");
+    let staging = std::fs::read_dir(dir.0.join("staging"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    let [blob] = staging.as_slice() else {
+        panic!("expected only the uploaded part")
+    };
+    for bytes in [&b"parX"[..], &b"par"[..]] {
+        std::fs::write(blob, bytes).unwrap();
+        let reply = complete(&server, "value", &id, "", &[(1, &etag)]);
+        reply.status(503);
+        assert_eq!(
+            reply.body,
+            concat!(
+                "<?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code>",
+                "<Message>Object storage is unavailable: internal storage failure (private backend details withheld)</Message></Error>"
+            )
+        );
+    }
+}
+
+#[test]
 fn multipart_manifest_rejects_malformed_xml_without_publication_and_accepts_chunked_standard_xml() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);

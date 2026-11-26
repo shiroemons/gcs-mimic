@@ -250,7 +250,7 @@ impl Catalog {
         &self,
         lease: &UploadLease,
         first: CompletedPart,
-        requested: std::vec::IntoIter<CompletedPart>,
+        mut requested: std::vec::IntoIter<CompletedPart>,
         max_bytes: u64,
     ) -> Result<CompletionParts, Error> {
         let target = lease.upload.target.clone();
@@ -281,7 +281,6 @@ impl Catalog {
             };
             let first = load(first, requested.len())?;
             let mut remaining = Vec::with_capacity(requested.len());
-            let mut requested = requested;
             while let Some(wanted) = requested.next() {
                 remaining.push(load(wanted, requested.len())?);
             }
