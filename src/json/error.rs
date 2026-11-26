@@ -66,7 +66,8 @@ impl From<ServiceError> for ApiError {
                 UploadHeaderError::UnsupportedAlgorithm => {
                     Self::unsupported_message(error.to_string())
                 }
-                UploadHeaderError::InvalidContentType
+                UploadHeaderError::CustomMetadata { .. }
+                | UploadHeaderError::InvalidContentType
                 | UploadHeaderError::DuplicateContentType
                 | UploadHeaderError::DuplicateAlgorithm
                 | UploadHeaderError::MalformedHash(_)

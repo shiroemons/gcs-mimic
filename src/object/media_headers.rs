@@ -16,6 +16,9 @@ impl StoredHeaderError {
 /// The `Cache-Control` Cloud Storage sends with JSON API errors and media downloads.
 pub(crate) const NO_STORE_CACHE_CONTROL: &str = "no-cache, no-store, max-age=0, must-revalidate";
 
+/// Wire prefix for custom metadata on uploads and XML media responses.
+pub(crate) const CUSTOM_METADATA_PREFIX: &str = "x-goog-meta-";
+
 /// Representation headers for an untranscoded media download.
 pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, StoredHeaderError> {
     let mut headers = HeaderMap::new();

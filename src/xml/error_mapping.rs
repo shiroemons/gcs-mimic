@@ -58,6 +58,9 @@ impl From<ServiceError> for Error {
                 | MultipartError::UnsupportedParameter(_) => Self::invalid(error.to_string()),
             },
             ServiceError::UploadHeader(error) => match error {
+                UploadHeaderError::CustomMetadata { source, .. } => {
+                    super::put::header_error(&source)
+                }
                 UploadHeaderError::InvalidContentType
                 | UploadHeaderError::DuplicateContentType
                 | UploadHeaderError::UnsupportedAlgorithm => Self::invalid(error.to_string()),

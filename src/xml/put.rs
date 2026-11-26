@@ -11,7 +11,7 @@ use crate::{
     object::{
         Checksum, ChecksumConflict, ExpectedHashes, HashAlgorithm, HashMismatch, IdempotencyToken,
         MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, TextTokenError,
-        content_type,
+        content_type, upload_headers::custom_metadata_headers,
     },
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
     storage::ObjectUpload,
@@ -279,14 +279,9 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     if let Some(value) = single(headers, super::CUSTOM_TIME)? {
         metadata.custom_time = Patch::Set(super::custom_time(value)?);
     }
-    // A bare `x-goog-meta-` names the empty key, which Cloud Storage stored (recorded
-    // 2026-11-17, case obj-gaps-empty-metadata-key). `name` comes from this map, so `single`
-    // finds the header.
     let mut custom = BTreeMap::new();
-    for name in headers.keys() {
-        if let Some(key) = name.as_str().strip_prefix("x-goog-meta-")
-            && let Some(value) = single(headers, name.as_str())?
-        {
+    for field in custom_metadata_headers(headers, TextOrder::RepetitionFirst) {
+        if let Some((key, value)) = field.metadata? {
             custom.insert(key.to_owned(), Some(value.to_owned()));
         }
     }

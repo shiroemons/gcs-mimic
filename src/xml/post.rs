@@ -18,7 +18,7 @@ use crate::{
     multipart::{Multipart, form_data_boundary},
     object::{
         ExpectedHashes, MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate,
-        ObjectRecord, Patch, UploadChunk, content_type,
+        ObjectRecord, Patch, UploadChunk, content_type, media_headers::CUSTOM_METADATA_PREFIX,
     },
     server::{ObjectCtx, RequestCtx, ResponseBody, anonymous_error, boxed},
     storage::ObjectUpload,
@@ -546,7 +546,8 @@ fn plan<'f>(form: &'f Form, bucket: &str) -> Result<Plan<'f>, Error> {
             | "content-length"
             | super::CUSTOM_TIME => {}
             name if policy::V2_FIELDS.contains(&name) || policy::V4_FIELDS.contains(&name) => {}
-            name if name.len() > "x-goog-meta-".len() && name.starts_with("x-goog-meta-") => {}
+            name if name.len() > CUSTOM_METADATA_PREFIX.len()
+                && name.starts_with(CUSTOM_METADATA_PREFIX) => {}
             name => return Err(Error::unsupported(&format!("POST form field {name}"))),
         }
     }
@@ -643,7 +644,7 @@ fn form_metadata(fields: &BTreeMap<String, String>) -> Result<ObjectMetadataUpda
     }
     let mut custom = BTreeMap::new();
     for (field, value) in fields {
-        if let Some(key) = field.strip_prefix("x-goog-meta-") {
+        if let Some(key) = field.strip_prefix(CUSTOM_METADATA_PREFIX) {
             custom.insert(key.to_owned(), Some(header_value(field, value)?));
         }
     }

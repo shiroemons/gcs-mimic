@@ -340,16 +340,13 @@ pub(crate) fn final_options(
     clean.remove("content-range");
     clean.remove("x-goog-hash");
     let mut custom = serde_json::Map::new();
-    for key in headers.keys() {
-        let name = key.as_str();
-        if name.starts_with("x-goog-upload-") {
-            return Err(ApiError::unsupported_object(name));
+    for field in upload_headers::custom_metadata_headers(headers, TextOrder::ValueFirst) {
+        if field.name.as_str().starts_with("x-goog-upload-") {
+            return Err(ApiError::unsupported_object(field.name.as_str()));
         }
-        if let Some(key) = name.strip_prefix("x-goog-meta-") {
-            let value = single(headers, name)?
-                .ok_or_else(|| ApiError::invalid_parameter("Invalid final metadata"))?;
+        if let Some((key, value)) = field.metadata? {
             custom.insert(key.into(), value.into());
-            clean.remove(name);
+            clean.remove(field.name);
         }
     }
     upload_content_type(&clean)?;
@@ -377,6 +374,27 @@ pub(crate) fn final_options(
         }
     }
     Ok(options)
+}
+
+#[cfg(test)]
+#[test]
+fn final_metadata_errors_follow_the_request_header_order() {
+    use hyper::header::HeaderValue;
+    let invalid_metadata = ("x-goog-meta-key", HeaderValue::from_bytes(&[0xff]).unwrap());
+    let unsupported = ("x-goog-upload-example", HeaderValue::from_static("ignored"));
+    let invalid = ApiError::invalid_parameter("Invalid x-goog-meta-key");
+    let unsupported_error = ApiError::unsupported_object(unsupported.0);
+    for (fields, expected) in [
+        ([invalid_metadata.clone(), unsupported.clone()], invalid),
+        ([unsupported, invalid_metadata], unsupported_error),
+    ] {
+        let mut headers = HeaderMap::new();
+        for (name, value) in fields {
+            headers.insert(name, value);
+        }
+        let options = ResumableOptions::new(BucketAccess::Permissive);
+        assert_eq!(final_options(&headers, options).unwrap_err(), expected);
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

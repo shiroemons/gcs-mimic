@@ -12,7 +12,7 @@ use crate::{
         resumable::{self, Range},
         resumable_cancel::Cancellation,
     },
-    object::{ObjectError, ObjectRecord},
+    object::{ObjectError, ObjectRecord, media_headers::CUSTOM_METADATA_PREFIX},
     storage::{
         ChunkEnd, ChunkWait, Overrun, Progress, ResumableChunk, ResumableError, ResumableOptions,
         SessionLease, SessionState, Written,
@@ -601,7 +601,7 @@ pub(crate) async fn transfer(
     if !plan.finalize
         && headers
             .keys()
-            .any(|k| k.as_str().starts_with("x-goog-meta-"))
+            .any(|k| k.as_str().starts_with(CUSTOM_METADATA_PREFIX))
     {
         return Err(ApiError::invalid_parameter(
             "Final metadata requires a final request",

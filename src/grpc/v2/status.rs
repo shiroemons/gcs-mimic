@@ -25,7 +25,8 @@ impl From<ServiceError> for Status {
             ServiceError::Catalog(error) => error.into(),
             ServiceError::UploadHeader(error) => match error {
                 UploadHeaderError::UnsupportedAlgorithm => unsupported_message(error.to_string()),
-                UploadHeaderError::InvalidContentType
+                UploadHeaderError::CustomMetadata { .. }
+                | UploadHeaderError::InvalidContentType
                 | UploadHeaderError::DuplicateContentType
                 | UploadHeaderError::DuplicateAlgorithm
                 | UploadHeaderError::MalformedHash(_)

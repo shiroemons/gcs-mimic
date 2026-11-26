@@ -1,6 +1,23 @@
 use super::*;
 
 #[test]
+fn custom_metadata_headers_keep_xml_upload_diagnostics() {
+    use hyper::header::HeaderValue;
+    let mut headers = HeaderMap::new();
+    headers.append(
+        "x-goog-meta-value",
+        HeaderValue::from_bytes(&[0xff]).unwrap(),
+    );
+    let error = metadata(&headers).unwrap_err();
+    assert_eq!(error.code, XmlCode::InvalidArgument);
+    assert_eq!(error.message, "Header must be representable as ASCII.");
+    headers.append("x-goog-meta-value", HeaderValue::from_static("second"));
+    let error = metadata(&headers).unwrap_err();
+    assert_eq!(error.code, XmlCode::ExcessHeaderValues);
+    assert_eq!(error.message, "Expected one header value.");
+}
+
+#[test]
 fn a_repeated_xml_put_header_wins_over_a_non_text_first_value() {
     let mut headers = HeaderMap::new();
     headers.append(

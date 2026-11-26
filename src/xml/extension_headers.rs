@@ -4,6 +4,7 @@
 
 use super::{Error, canned_acl};
 use crate::auth::signature::ExtensionDialect;
+use crate::object::media_headers::CUSTOM_METADATA_PREFIX;
 use hyper::{HeaderMap, Method, Request, header::HeaderName};
 
 /// The XML surface a request reached. Without an AWS signature only object writes have a
@@ -87,7 +88,7 @@ impl Equivalent {
 const EQUIVALENTS: &[Equivalent] = &{
     use WithoutAwsSignature::{Ignored, MissingCopySource, Unchanged};
     [
-        Equivalent::prefix("x-amz-meta-", "x-goog-meta-", Ignored),
+        Equivalent::prefix("x-amz-meta-", CUSTOM_METADATA_PREFIX, Ignored),
         Equivalent::exact("x-amz-acl", canned_acl::HEADER, Ignored),
         Equivalent::exact("x-amz-storage-class", "x-goog-storage-class", Ignored),
         Equivalent::exact(
@@ -204,7 +205,7 @@ pub(crate) fn spell_read_metadata(
             let renamed: Vec<_> = headers
                 .keys()
                 .filter_map(|name| {
-                    let suffix = name.as_str().strip_prefix("x-goog-meta-")?;
+                    let suffix = name.as_str().strip_prefix(CUSTOM_METADATA_PREFIX)?;
                     Some((name.clone(), format!("x-amz-meta-{suffix}")))
                 })
                 .collect();

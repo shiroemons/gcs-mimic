@@ -6,7 +6,10 @@ use crate::{
     hashing::Hashes,
     http_header::{TextError, TextOrder, sole},
     net::{TrailingDot, normalized_host},
-    object::{IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget, OpaqueTokenError},
+    object::{
+        IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget, OpaqueTokenError,
+        media_headers::CUSTOM_METADATA_PREFIX,
+    },
 };
 use http_body_util::{BodyExt, Full};
 use hyper::{
@@ -1158,8 +1161,8 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
         headers.insert("x-goog-component-count", HeaderValue::from(count));
     }
     for (key, value) in &record.metadata {
-        let key =
-            HeaderName::from_bytes(format!("x-goog-meta-{key}").as_bytes()).map_err(|_| {
+        let key = HeaderName::from_bytes(format!("{CUSTOM_METADATA_PREFIX}{key}").as_bytes())
+            .map_err(|_| {
                 Error::unsupported(&format!(
                     "custom metadata key {key}; use JSON metadata reads"
                 ))

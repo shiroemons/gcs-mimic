@@ -5,7 +5,7 @@ use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
 };
 use crate::{
-    object::ObjectError,
+    object::{ObjectError, media_headers::CUSTOM_METADATA_PREFIX},
     server::{
         ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed, empty_response, stream_upload,
     },
@@ -262,7 +262,7 @@ fn request_headers(
             ));
         }
         if metadata == InitiationMetadata::Refused
-            && (name.starts_with("x-goog-meta-")
+            && (name.starts_with(CUSTOM_METADATA_PREFIX)
                 || matches!(
                     name,
                     "x-goog-storage-class"

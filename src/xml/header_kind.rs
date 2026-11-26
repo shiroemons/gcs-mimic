@@ -1,5 +1,7 @@
 //! What a request header is to the XML adapter, decided from its name alone.
 
+use crate::object::media_headers::CUSTOM_METADATA_PREFIX;
+
 /// What a request header is to the XML adapter. Each operation matches on it to accept or refuse
 /// a header, so a new kind makes every operation decide.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,7 +41,7 @@ impl HeaderKind {
             Self::Signing
         } else if name == "x-amz-decoded-content-length" {
             Self::DecodedLength
-        } else if name.starts_with("x-goog-meta-") {
+        } else if name.starts_with(CUSTOM_METADATA_PREFIX) {
             Self::CustomMetadata
         } else if is_common_object_header(name) {
             Self::CommonObject

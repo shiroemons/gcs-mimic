@@ -234,6 +234,12 @@ Pending the evidence below:
   `a_repeated_batch_header_wins_over_a_non_text_first_value` pin the choice.
   Repetition first is a candidate for a common rule because it rejects an
   ambiguous field without interpreting either value.
+- **Custom metadata headers.** JSON resumable completion checks the first
+  `x-goog-meta-*` value before reporting repetition, and checks unsupported
+  `x-goog-upload-*` fields in the same header order. XML object uploads report
+  repeated metadata first. Both accept an empty key from a bare header prefix;
+  the XML POST form requires a nonempty field suffix. Using repetition first
+  for metadata headers is a candidate, as with the other upload headers.
 - **Idempotency token input.** JSON and XML read checks accept one opaque,
   nonblank byte value. JSON replay and XML PUT require visible text as well.
   XML copy refuses the field whenever it is present. The tests

@@ -1,12 +1,11 @@
 //! Upload request headers that the JSON and XML adapters read the same way: the `Content-Type`
-//! an upload stores and the digests `X-Goog-Hash` declares. Each caller keeps its own rule for
-//! a repeated digest and its own wording, which recorded answers and tests pin, so this module
-//! only reads the declarations.
+//! an upload stores, custom metadata and the digests `X-Goog-Hash` declares. The adapters keep
+//! their rules for repeated values and their error wording.
 
-use super::{Checksum, ExpectedHashes, HashAlgorithm};
+use super::{Checksum, ExpectedHashes, HashAlgorithm, media_headers::CUSTOM_METADATA_PREFIX};
 use crate::hashing::{InvalidDigest, decode_hash};
 use crate::http_header::{TextError, TextOrder, sole};
-use hyper::HeaderMap;
+use hyper::{HeaderMap, header::HeaderName};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum HashHeader {
@@ -25,6 +24,15 @@ impl HashHeader {
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UploadHeaderError {
+    #[error("{kind} {name}", kind = match .source {
+        TextError::Repeated(_) => "Duplicate",
+        TextError::Invalid(_) => "Invalid",
+    })]
+    CustomMetadata {
+        name: HeaderName,
+        #[source]
+        source: TextError,
+    },
     #[error("Duplicate Content-Type header")]
     DuplicateContentType,
     #[error("Invalid Content-Type header")]
@@ -42,6 +50,32 @@ pub(crate) enum UploadHeaderError {
     Digest(#[from] InvalidDigest),
     #[error("Conflicting {} declarations", .0.name())]
     Conflicting(HashAlgorithm),
+}
+
+pub(crate) struct CustomMetadataHeader<'a> {
+    pub(crate) name: &'a HeaderName,
+    pub(crate) metadata: Result<Option<(&'a str, &'a str)>, UploadHeaderError>,
+}
+
+/// Visits the original header order so callers can interleave their other header refusals.
+/// A bare prefix names the empty key (recorded 2026-11-17). XML forms have their own grammar.
+pub(crate) fn custom_metadata_headers(
+    headers: &HeaderMap,
+    order: TextOrder,
+) -> impl Iterator<Item = CustomMetadataHeader<'_>> {
+    headers.keys().map(move |name| {
+        let metadata = match name.as_str().strip_prefix(CUSTOM_METADATA_PREFIX) {
+            Some(key) => sole(headers, name)
+                .text(order)
+                .map(|value| value.map(|value| (key, value)))
+                .map_err(|source| UploadHeaderError::CustomMetadata {
+                    name: name.clone(),
+                    source,
+                }),
+            None => Ok(None),
+        };
+        CustomMetadataHeader { name, metadata }
+    })
 }
 
 /// The `Content-Type` an upload stores: empty when the header is absent (recorded: the resource
@@ -134,6 +168,39 @@ mod tests {
             headers.append(HeaderName::from_static(name), value.parse().unwrap());
         }
         headers
+    }
+
+    #[test]
+    fn custom_metadata_preserves_empty_keys_values_and_original_text() {
+        let headers = header_map([
+            ("x-goog-meta-", ""),
+            ("content-type", "text/plain"),
+            ("x-goog-meta-value", " Mixed Case "),
+        ]);
+        let fields = custom_metadata_headers(&headers, TextOrder::ValueFirst)
+            .filter_map(|field| field.metadata.transpose())
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(fields, [("", ""), ("value", " Mixed Case ")]);
+    }
+
+    #[test]
+    fn custom_metadata_keeps_the_selected_header_error_precedence() {
+        let mut headers = HeaderMap::new();
+        headers.append(
+            "x-goog-meta-key",
+            hyper::header::HeaderValue::from_bytes(&[0xff]).unwrap(),
+        );
+        headers.append("x-goog-meta-key", "second".parse().unwrap());
+        for (order, message) in [
+            (TextOrder::ValueFirst, "Invalid x-goog-meta-key"),
+            (TextOrder::RepetitionFirst, "Duplicate x-goog-meta-key"),
+        ] {
+            let field = custom_metadata_headers(&headers, order).next().unwrap();
+            let error = field.metadata.unwrap_err();
+            assert_eq!(error.to_string(), message);
+            assert!(std::error::Error::source(&error).is_some());
+        }
     }
 
     #[test]

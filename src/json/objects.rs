@@ -14,7 +14,8 @@ use crate::{
     csek::CustomerKey,
     http_header::{TextOrder, sole},
     object::{
-        IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget, retention::UnlockedOverride,
+        IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget,
+        media_headers::CUSTOM_METADATA_PREFIX, retention::UnlockedOverride,
     },
 };
 use hyper::{HeaderMap, Method, StatusCode, Uri};
@@ -816,7 +817,7 @@ fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), ApiErro
         }
         if name.starts_with(crate::csek::DESTINATION_PREFIX)
             || name.starts_with(crate::csek::SOURCE_PREFIX)
-            || name.starts_with("x-goog-meta-")
+            || name.starts_with(CUSTOM_METADATA_PREFIX)
             || matches!(name, "x-goog-user-project" | "x-http-method-override")
         {
             return Err(ApiError::unsupported_object(name));
