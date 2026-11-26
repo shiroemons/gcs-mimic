@@ -99,8 +99,13 @@ mod tests {
         fn encoded_bytes_round_trip_with_both_alphabets(bytes in prop::collection::vec(any::<u8>(), 0..256)) {
             let standard = encode(&bytes);
             let url_safe = standard.replace('+', "-").replace('/', "_");
+            if standard.contains(['+', '/']) {
+                prop_assert!(decode(&standard, Alphabet::UrlSafe, Padding::Required).is_none());
+                prop_assert!(decode(&url_safe, Alphabet::Standard, Padding::Required).is_none());
+            }
             for (encoded, alphabet) in [(&standard, Alphabet::Standard), (&url_safe, Alphabet::UrlSafe)] {
                 prop_assert_eq!(&decode(encoded, alphabet, Padding::Required).unwrap(), &bytes);
+                prop_assert_eq!(&decode(encoded, alphabet, Padding::RequiredUncheckedBits).unwrap(), &bytes);
                 prop_assert_eq!(&decode(encoded, Alphabet::Either, Padding::Required).unwrap(), &bytes);
                 let unpadded = encoded.trim_end_matches('=');
                 prop_assert_eq!(&decode(unpadded, alphabet, Padding::Forbidden).unwrap(), &bytes);

@@ -820,7 +820,7 @@ try_from = "i64")]`.
 | Anonymous canned ACL refusal and the uniform-access precheck | `acl::refuse_anonymous_canned_acl`, `BucketRecord::uniform_access` |
 | CSEK hash visibility | `csek::StoredHashes::for_key`, used by the JSON resource |
 | Default content type | `object::content_type::{DEFAULT, or_default}` |
-| Calendar math | `time_format::civil`, after a property test against the old code |
+| Calendar math | `time_format::civil`, including weekday calculation and checked against an independent day-by-day test. The standalone `xtask` keeps its ledger date implementation so it can validate ledgers without depending on the server. |
 | XML precondition headers | `xml::conditions(headers, messages)`, keeping both message sets |
 | Bucket conditions from the query | `json::query::bucket_conditions` and one table of parameter names |
 | Host lowercase and trailing-dot removal | `net::normalized_host` |

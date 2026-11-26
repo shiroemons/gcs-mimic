@@ -5,7 +5,7 @@
 //! independent of the bucket retention policy: an object is protected until both are met.
 
 use super::{ObjectError, ObjectRecord, unix_nanos::UnixNanos};
-use crate::time_format::civil::{civil_from_days, days_from_civil};
+use crate::time_format::civil::{CivilDate, civil_from_days, days_from_civil, weekday};
 use std::time::{Duration, SystemTime};
 
 /// The official guide caps retain-until at 3,155,760,000 seconds (100 years) from now. The
@@ -64,7 +64,7 @@ pub(crate) fn pacific_rfc3339(time: UnixNanos) -> String {
     let local = seconds - offset_hours * 3600;
     let days = local.div_euclid(86_400);
     let day_seconds = local.rem_euclid(86_400);
-    let (year, month, day) = civil_from_days(days);
+    let CivilDate { year, month, day } = civil_from_days(days);
     let mut fraction = format!("{:09}", time.subsec_nanos());
     while fraction.ends_with('0') {
         fraction.pop();
@@ -83,11 +83,14 @@ pub(crate) fn pacific_rfc3339(time: UnixNanos) -> String {
 }
 
 fn pacific_daylight_time(utc_seconds: i64) -> bool {
-    let (year, _, _) = civil_from_days((utc_seconds - 8 * 3600).div_euclid(86_400));
+    let year = civil_from_days((utc_seconds - 8 * 3600).div_euclid(86_400)).year;
     let nth_sunday = |month, nth: i64| {
-        let first = days_from_civil(year, month, 1);
-        let weekday = (first + 4).rem_euclid(7);
-        first + (7 - weekday) % 7 + 7 * (nth - 1)
+        let first = days_from_civil(CivilDate {
+            year,
+            month,
+            day: 1,
+        });
+        first + (7 - weekday(first)) % 7 + 7 * (nth - 1)
     };
     // 02:00 PST is 10:00 UTC; 02:00 PDT is 09:00 UTC.
     let start = nth_sunday(3, 2) * 86_400 + 10 * 3600;

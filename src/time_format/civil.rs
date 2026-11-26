@@ -4,8 +4,15 @@
 const DAYS_PER_ERA: i64 = 146_097;
 const UNIX_EPOCH_FROM_MARCH: i64 = 719_468;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct CivilDate {
+    pub(crate) year: i64,
+    pub(crate) month: i64,
+    pub(crate) day: i64,
+}
+
 /// Days since 1970-01-01. Callers decide which calendar dates their grammar admits.
-pub(crate) fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+pub(crate) fn days_from_civil(CivilDate { year, month, day }: CivilDate) -> i64 {
     let year = year - i64::from(month <= 2);
     let era = year.div_euclid(400);
     let year_of_era = year.rem_euclid(400);
@@ -16,7 +23,7 @@ pub(crate) fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 }
 
 /// The year, month and day of a Unix day count derived from a timestamp.
-pub(crate) fn civil_from_days(days: i64) -> (i64, i64, i64) {
+pub(crate) fn civil_from_days(days: i64) -> CivilDate {
     let shifted = days + UNIX_EPOCH_FROM_MARCH;
     let era = shifted.div_euclid(DAYS_PER_ERA);
     let day_of_era = shifted.rem_euclid(DAYS_PER_ERA);
@@ -26,7 +33,16 @@ pub(crate) fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let month_from_march = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * month_from_march + 2) / 5 + 1;
     let month = month_from_march + if month_from_march < 10 { 3 } else { -9 };
-    (year_of_era + era * 400 + i64::from(month <= 2), month, day)
+    CivilDate {
+        year: year_of_era + era * 400 + i64::from(month <= 2),
+        month,
+        day,
+    }
+}
+
+/// Sunday is 0. Day 0 of the Unix epoch was a Thursday.
+pub(crate) fn weekday(days: i64) -> i64 {
+    (days.rem_euclid(7) + 4) % 7
 }
 
 pub(crate) fn days_in_month(year: i64, month: i64) -> Option<i64> {

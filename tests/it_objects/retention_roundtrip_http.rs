@@ -3,8 +3,9 @@ use crate::common::process::declare_server;
 
 use common::TestDir;
 use common::process::http_command;
+use gcs_mimic::auth::signature::parse_timestamp;
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 impl Server {
     fn start(dir: &TestDir) -> Self {
@@ -347,10 +348,10 @@ fn bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention
     assert!(offset == "-07:00" || offset == "-08:00", "{until}");
     let (whole, fraction) = local.split_once('.').unwrap_or((local, ""));
     assert!(fraction.len() <= 6 && !fraction.ends_with('0'), "{until}");
-    let offset_hours: i64 = offset[1..3].parse().unwrap();
+    let offset_hours: u64 = offset[1..3].parse().unwrap();
     assert_eq!(
-        epoch_seconds(whole) + offset_hours * 3600,
-        epoch_seconds(&expires[..19]),
+        utc_whole_second(whole) + Duration::from_secs(offset_hours * 3600),
+        utc_whole_second(&expires[..19]),
         "{until} {expires}"
     );
     assert_eq!(
@@ -398,17 +399,10 @@ fn unlocked_removal_and_shortening_share_one_refusal_without_the_override() {
     server.stop();
 }
 
-/// Seconds since the epoch of `YYYY-MM-DDTHH:MM:SS`, read as UTC (civil-date arithmetic).
-fn epoch_seconds(stamp: &str) -> i64 {
-    let field = |range: std::ops::Range<usize>| stamp[range].parse::<i64>().unwrap();
-    let (year, month, day) = (field(0..4), field(5..7), field(8..10));
-    let year = year - i64::from(month <= 2);
-    let era = year.div_euclid(400);
-    let year_of_era = year.rem_euclid(400);
-    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    let days = era * 146_097 + day_of_era - 719_468;
-    days * 86_400 + field(11..13) * 3600 + field(14..16) * 60 + field(17..19)
+/// Read `YYYY-MM-DDTHH:MM:SS` as UTC so the caller can apply the displayed offset separately.
+fn utc_whole_second(stamp: &str) -> SystemTime {
+    let basic = stamp.replace(['-', ':'], "");
+    parse_timestamp(&format!("{basic}Z")).unwrap()
 }
 
 declare_server!();

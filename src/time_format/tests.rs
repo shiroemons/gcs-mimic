@@ -33,14 +33,17 @@ proptest! {
     fn timestamp_text_sorts_by_its_displayed_instant(
         left in RFC3339_MIN_MICROS..=RFC3339_MAX_MICROS,
         offset in -2000i64..=2000,
+        distant in RFC3339_MIN_MICROS..=RFC3339_MAX_MICROS,
     ) {
-        let right = (left + offset).clamp(RFC3339_MIN_MICROS, RFC3339_MAX_MICROS);
         let a = UnixNanos::from_micros_and_remainder(left, 0).unwrap();
-        let b = UnixNanos::from_micros_and_remainder(right, 0).unwrap();
-        prop_assert_eq!(timestamp_nanos(a).unwrap().cmp(&timestamp_nanos(b).unwrap()),
-            left.div_euclid(1000).cmp(&right.div_euclid(1000)));
-        prop_assert_eq!(rfc3339(a, Fraction::Micros).unwrap().cmp(&rfc3339(b, Fraction::Micros).unwrap()),
-            left.cmp(&right));
+        let nearby = (left + offset).clamp(RFC3339_MIN_MICROS, RFC3339_MAX_MICROS);
+        for right in [nearby, distant] {
+            let b = UnixNanos::from_micros_and_remainder(right, 0).unwrap();
+            prop_assert_eq!(timestamp_nanos(a).unwrap().cmp(&timestamp_nanos(b).unwrap()),
+                left.div_euclid(1000).cmp(&right.div_euclid(1000)));
+            prop_assert_eq!(rfc3339(a, Fraction::Micros).unwrap().cmp(&rfc3339(b, Fraction::Micros).unwrap()),
+                left.cmp(&right));
+        }
     }
 
     #[test]

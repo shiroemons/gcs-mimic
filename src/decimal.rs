@@ -51,13 +51,25 @@ mod tests {
         }
 
         #[test]
-        fn arbitrary_decimal_text_respects_the_sign_and_digit_grammars(
-            text in prop_oneof![any::<String>(), "[+-]?[0-9]{0,24}"],
+        fn generated_digits_respect_the_sign_and_digit_grammars(
+            digits in prop::collection::vec(0u8..10, 0..=20),
+            sign in prop_oneof![Just(""), Just("+"), Just("-")],
         ) {
-            let parsed = text.parse::<i64>().ok();
-            prop_assert_eq!(Grammar::Signed.parse::<i64>(&text), parsed);
-            prop_assert_eq!(Grammar::SignedNoPlus.parse::<i64>(&text), parsed.filter(|_| !text.starts_with('+')));
-            prop_assert_eq!(Grammar::Digits.parse::<i64>(&text), parsed.filter(|_| !text.starts_with(['+', '-'])));
+            let magnitude = digits.iter().fold(0i128, |value, &digit| value * 10 + i128::from(digit));
+            let signed = if sign == "-" { -magnitude } else { magnitude };
+            let expected = i64::try_from(signed).ok().filter(|_| !digits.is_empty());
+            let mut text = sign.to_owned();
+            text.extend(digits.into_iter().map(|digit| char::from(b'0' + digit)));
+            prop_assert_eq!(Grammar::Signed.parse::<i64>(&text), expected);
+            prop_assert_eq!(Grammar::SignedNoPlus.parse::<i64>(&text), expected.filter(|_| sign != "+"));
+            prop_assert_eq!(Grammar::Digits.parse::<i64>(&text), expected.filter(|_| sign.is_empty()));
+        }
+
+        #[test]
+        fn arbitrary_decimal_text_never_panics(text in any::<String>()) {
+            for grammar in [Grammar::Signed, Grammar::SignedNoPlus, Grammar::Digits] {
+                let _ = grammar.parse::<i64>(&text);
+            }
         }
     }
 

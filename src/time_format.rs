@@ -3,6 +3,7 @@
 //! answers a time it cannot render in its own protocol.
 
 use crate::object::unix_nanos::UnixNanos;
+use civil::CivilDate;
 use hyper::header::HeaderValue;
 use std::time::SystemTime;
 
@@ -20,18 +21,15 @@ impl TimeOutOfRange {
     pub(crate) const MESSAGE: &str = "Bucket timestamp is outside the supported RFC 3339 range";
 }
 
-/// Weekday names from 1970-01-01, a Thursday.
-const WEEKDAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
+/// Weekday names starting on Sunday, as `civil::weekday` counts them.
+const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
 /// A UTC instant broken into the calendar fields that both RFC 3339 and HTTP dates render.
 struct CivilTime {
-    year: i64,
-    /// 1 to 12.
-    month: i64,
-    day: i64,
+    date: CivilDate,
     /// Seconds into the day.
     daytime: i64,
     /// Microseconds into the second.
@@ -50,11 +48,8 @@ fn civil_time(time: UnixNanos) -> Result<CivilTime, TimeOutOfRange> {
     let micros = i64::try_from(micros).map_err(|_| TimeOutOfRange)?;
     let seconds = micros.div_euclid(1_000_000);
     let days = seconds.div_euclid(86400);
-    let (year, month, day) = civil::civil_from_days(days);
     Ok(CivilTime {
-        year,
-        month,
-        day,
+        date: civil::civil_from_days(days),
         daytime: seconds.rem_euclid(86400),
         micros: micros.rem_euclid(1_000_000),
         days,
@@ -64,16 +59,19 @@ fn civil_time(time: UnixNanos) -> Result<CivilTime, TimeOutOfRange> {
 /// The RFC 9110 date of a stored timestamp, as `Last-Modified` carries it.
 pub(crate) fn http_date(time: SystemTime) -> Result<String, TimeOutOfRange> {
     let CivilTime {
-        year,
-        month,
-        day,
+        date: CivilDate { year, month, day },
         daytime,
         days,
         ..
     } = civil_time(UnixNanos::from(time))?;
     // A negative day count is an instant before the epoch, which is never rendered as a date.
-    let days = usize::try_from(days).map_err(|_| TimeOutOfRange)?;
-    let weekday = WEEKDAYS.get(days % 7).ok_or(TimeOutOfRange)?;
+    if days < 0 {
+        return Err(TimeOutOfRange);
+    }
+    let weekday = usize::try_from(civil::weekday(days))
+        .ok()
+        .and_then(|index| WEEKDAYS.get(index))
+        .ok_or(TimeOutOfRange)?;
     let month = usize::try_from(month - 1)
         .ok()
         .and_then(|index| MONTHS.get(index))
@@ -118,9 +116,7 @@ enum Fraction {
 
 fn rfc3339(time: UnixNanos, fraction: Fraction) -> Result<String, TimeOutOfRange> {
     let CivilTime {
-        year,
-        month,
-        day,
+        date: CivilDate { year, month, day },
         daytime,
         micros,
         ..

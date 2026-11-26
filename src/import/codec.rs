@@ -1,6 +1,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use crate::time_format::civil::{days_from_civil, days_in_month};
+use crate::time_format::civil::{CivilDate, days_from_civil, days_in_month};
 use serde::{
     Deserialize, Serialize,
     de::{self, MapAccess, Visitor},
@@ -372,7 +372,7 @@ fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32)
     } else {
         return Err(invalid);
     };
-    let days = days_from_civil(year, month, day);
+    let days = days_from_civil(CivilDate { year, month, day });
     let micros = (days * 86400 + hour * 3600 + minute * 60 + second - offset) * 1_000_000 + micros;
     if !crate::clock::rfc3339_micros(i128::from(micros)) {
         return Err(TimestampError(
