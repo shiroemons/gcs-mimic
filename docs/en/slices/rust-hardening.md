@@ -766,6 +766,22 @@ live blob (`publish_pinned`).
   1 GiB h2c read, 256 KiB took 1.57 server CPU seconds against 2.27 at 64 KiB.
   Server RSS with 32 concurrent streams rose from 21,728 KiB to 34,928 KiB.
 - **Boxing.** The response body is boxed once instead of twice.
+- **Go SDK comparison.** On macOS arm64 with Rust 1.100.0 release builds,
+  Go 1.27.4 and the Storage SDK v1.71.0 read the same 1 GiB object to
+  `io.Discard` over loopback h2c. Each run started a fresh server. In each
+  round the order was push, pull, then pull with one frame read ahead.
+  All three used 256 KiB messages. Each cell gives elapsed / server CPU seconds.
+
+  | Implementation | First round | Second round |
+  | --- | --- | --- |
+  | Producer and one channel slot | 0.603 / 0.97 | 0.585 / 0.99 |
+  | Pull on demand | 0.571 / 1.01 | 0.589 / 1.01 |
+  | Pull with one frame read ahead | 0.640 / 1.00 | 0.599 / 0.95 |
+
+  The on-demand stream stayed within 10% of push in both rounds and used
+  less elapsed time than prefetch in both. It keeps the 256 KiB message
+  limit and starts a disk read only on demand. Other builds were active
+  throughout (one or two rustc processes and four cargo processes).
 - **Scope.** `BidiReadObject` stays push-based.
 
 ### Multipart and batch parsing

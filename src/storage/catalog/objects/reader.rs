@@ -28,7 +28,7 @@ impl BufferPool {
     }
 }
 
-/// The frames of a large object's last megabyte. This pool retains at most 8 MiB.
+/// Full gRPC frames and HTTP frames in a large object's last megabyte share up to 8 MiB of spares.
 static SMALL_BUFFERS: BufferPool = BufferPool::new(256 * 1024, 32);
 /// The most one HTTP frame carries, and so what a connection holds in flight. A frame costs about
 /// 4 µs beyond its copies, which a large object spreads over more bytes. This pool retains at most
@@ -126,33 +126,18 @@ fn read_chunk(file: &File, offset: u64, capacity: usize) -> io::Result<Bytes> {
     Ok(Bytes::from_owner(buffer))
 }
 
-struct PendingRead(tokio::task::AbortHandle);
-
-impl Drop for PendingRead {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 /// A queued read must not pin the blob after its client leaves. A read already inside
 /// the OS owns the descriptor only until that single positional read returns.
 async fn read_on_pool(file: &Arc<File>, offset: u64, capacity: usize) -> io::Result<Bytes> {
-    use crate::task::{BlockingFailed, spawn_blocking_on};
-
     let file = Arc::downgrade(file);
-    let job = spawn_blocking_on(
-        &tokio::runtime::Handle::current(),
-        "object-read",
-        move || {
-            let file = file.upgrade().ok_or(io::ErrorKind::Interrupted)?;
-            read_chunk(&file, offset, capacity)
-        },
-    );
-    let _pending = PendingRead(job.abort_handle());
-    job.await
-        .map_err(BlockingFailed::Cancelled)
-        .and_then(|result| result.map_err(BlockingFailed::Panicked))
-        .map_err(io::Error::other)?
+    crate::task::run_blocking_cancellable("object-read", move || {
+        let file = file.upgrade().ok_or(io::ErrorKind::Interrupted)?;
+        #[cfg(test)]
+        tests::POOL_READS.update(|n| n + 1);
+        read_chunk(&file, offset, capacity)
+    })
+    .await
+    .map_err(io::Error::other)?
 }
 
 /// Reads up to `capacity` bytes at `offset` if the page cache holds them, without ever waiting for
@@ -206,6 +191,12 @@ impl ObjectReader {
     #[cfg(test)]
     pub(crate) fn bounded_for_test(file: impl Into<Arc<File>>, remaining: u64) -> Self {
         Self::bounded_data(ReaderData::Disk(file.into()), remaining)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_read_ahead_for_test(mut self) -> Self {
+        self.read_ahead();
+        self
     }
 
     /// A reader over a generation the read cache keeps open.
@@ -354,7 +345,12 @@ impl ObjectReader {
         if let ReaderData::Memory(reader) = &mut self.file {
             io::Seek::seek(reader, io::SeekFrom::Start(offset))?;
         }
-        self.head = None;
+        self.head = self.head.take().and_then(|head| {
+            let start = usize::try_from(offset.checked_sub(self.position)?).ok()?;
+            let available = head.len().checked_sub(start)?;
+            let count = available.min(usize::try_from(length).unwrap_or(usize::MAX));
+            (count != 0).then(|| head.slice(start..start + count))
+        });
         self.remaining = length;
         self.position = offset;
         Ok(())

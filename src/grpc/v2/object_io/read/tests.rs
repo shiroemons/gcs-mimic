@@ -16,7 +16,7 @@ const OTHER: [u8; 32] = [4; 32];
 #[tokio::test]
 async fn an_empty_read_sends_one_message_and_only_the_first_message_has_metadata() {
     let (_dir, storage) = setup(false).await;
-    for size in [0, 1024 * 1024 + 1] {
+    for size in [0, 256 * 1024, 1024 * 1024 + 1] {
         let bytes = vec![42; size];
         put_keyed(&storage.state.catalog, "grpc-io", "frames", &bytes, None).await;
         let messages = read(&storage, read_request("frames", None)).await.unwrap();
@@ -26,7 +26,14 @@ async fn an_empty_read_sends_one_message_and_only_the_first_message_has_metadata
             first.checksummed_data.as_ref().unwrap().content.is_empty(),
             size == 0
         );
-        assert_eq!(rest.is_empty(), size == 0);
+        assert_eq!(rest.is_empty(), size <= 256 * 1024);
+        let (last, full) = messages.split_last().unwrap();
+        assert!(full.iter().all(|message| {
+            message.checksummed_data.as_ref().unwrap().content.len() == 256 * 1024
+        }));
+        let tail = last.checksummed_data.as_ref().unwrap().content.len();
+        assert!(tail <= 256 * 1024);
+        assert_eq!(tail == 0, size == 0);
         assert!(
             rest.iter()
                 .all(|message| message.metadata.is_none() && message.object_checksums.is_none())
@@ -40,12 +47,15 @@ async fn an_empty_read_sends_one_message_and_only_the_first_message_has_metadata
 async fn dropping_a_partial_read_releases_the_generation_immediately() {
     let dir = crate::test_support::TestDir::new();
     let path = dir.0.join("blob");
-    std::fs::write(&path, vec![7; 1024 * 1024]).unwrap();
+    let size = 2 * 1024 * 1024;
+    std::fs::write(&path, vec![7; size]).unwrap();
     let file = std::sync::Arc::new(std::fs::File::open(path).unwrap());
     let descriptor = std::sync::Arc::downgrade(&file);
-    let reader = crate::storage::ObjectReader::bounded_for_test(file, 1024 * 1024);
+    // The first frame is already buffered, so there cannot be a read inside the OS at drop.
+    let reader = crate::storage::ObjectReader::bounded_for_test(file, size as u64)
+        .with_read_ahead_for_test();
     let mut stream = ReadObjectStream {
-        frames: ObjectFrames::Idle(reader),
+        frames: reader.into(),
         first: Some(Default::default()),
         checksum: DataChecksum::Omitted,
     };
@@ -60,7 +70,7 @@ async fn a_panicking_read_resets_its_http2_stream() {
     use tonic::codec::{Codec, EncodeBody};
     const PANIC: &str = "injected ReadObject poll panic";
     let stream = ReadObjectStream {
-        frames: ObjectFrames::Reading(Box::pin(async { panic!("{PANIC}") })),
+        frames: ObjectFrames::panicking_read(PANIC),
         first: Some(Default::default()),
         checksum: DataChecksum::Sent,
     };

@@ -288,7 +288,9 @@ fn http2_builder(config: &Config) -> http2::Builder<SupervisedExecutor> {
     let mut builder = http2::Builder::new(SupervisedExecutor::new(STREAM_TASK));
     // What a stream can hold is bounded, but only per stream, so a connection's ceiling grows
     // with the stream limit. ReadObject holds this 64 KiB send buffer and a frame of up to
-    // 256 KiB, about 31 MiB across 100 streams. HTTP/2 flow control limits unreleased input
+    // 256 KiB, about 31 MiB across 100 streams. Tonic's encoding scratch can hold another
+    // 256 KiB per stream, about 56 MiB in total. The pool retains up to 8 MiB of spare
+    // 256 KiB buffers. HTTP/2 flow control limits unreleased input
     // to 1 MiB per connection, but tonic releases it into a message of up to 4 MiB per stream,
     // so 100 streams carrying that size could reach 400 MiB. Each stream also holds its encoded
     // response until the client takes it: list pages stay near 2 MiB or hold one bucket, and only

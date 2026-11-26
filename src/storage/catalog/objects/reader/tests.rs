@@ -1,5 +1,9 @@
 use super::*;
 
+thread_local! {
+    pub(super) static POOL_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 #[test]
 fn cancelling_a_queued_frame_read_releases_the_file_before_a_worker_is_free() {
     use std::task::{Context, Waker};
@@ -23,8 +27,26 @@ fn cancelling_a_queued_frame_read_releases_the_file_before_a_worker_is_free() {
         );
         drop(read);
         assert!(descriptor.upgrade().is_none());
+        // A cached file would still upgrade if its queued read escaped cancellation.
+        let cached = Arc::new(File::create(dir.0.join("cached")).unwrap());
+        let mut reader = ObjectReader::bounded_for_test(cached.clone(), 1);
+        let mut queued = Box::pin(reader.next_frame(FrameLimit::Grpc));
+        assert!(
+            queued
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+        drop(queued);
         release.send(()).unwrap();
         worker.await.unwrap().unwrap();
+        assert_eq!(
+            tokio::task::spawn_blocking(|| POOL_READS.get())
+                .await
+                .unwrap(),
+            0
+        );
+        drop(cached);
     });
 }
 

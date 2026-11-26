@@ -16,18 +16,31 @@ pub(crate) enum FrameLimit {
 
 type Read = Pin<Box<dyn Future<Output = (ObjectReader, io::Result<Option<Bytes>>)> + Send>>;
 
-pub(crate) enum ObjectFrames {
+pub(crate) struct ObjectFrames(State);
+
+enum State {
     Idle(ObjectReader),
     Reading(Read),
     Finished,
 }
 
+impl From<ObjectReader> for ObjectFrames {
+    fn from(reader: ObjectReader) -> Self {
+        Self(State::Idle(reader))
+    }
+}
+
 impl ObjectFrames {
+    #[cfg(test)]
+    pub(crate) fn panicking_read(message: &'static str) -> Self {
+        Self(State::Reading(Box::pin(async move { panic!("{message}") })))
+    }
+
     pub(crate) fn is_finished(&self) -> bool {
-        match self {
-            Self::Idle(reader) => reader.is_finished(),
-            Self::Reading(_) => false,
-            Self::Finished => true,
+        match &self.0 {
+            State::Idle(reader) => reader.is_finished(),
+            State::Reading(_) => false,
+            State::Finished => true,
         }
     }
 
@@ -36,15 +49,15 @@ impl ObjectFrames {
         cx: &mut Context<'_>,
         limit: FrameLimit,
     ) -> Poll<Option<io::Result<Bytes>>> {
-        let mut read = match std::mem::replace(self, Self::Finished) {
-            Self::Finished => return Poll::Ready(None),
-            Self::Reading(read) => read,
-            Self::Idle(mut reader) => {
+        let mut read = match std::mem::replace(&mut self.0, State::Finished) {
+            State::Finished => return Poll::Ready(None),
+            State::Reading(read) => read,
+            State::Idle(mut reader) => {
                 if reader.is_finished() {
                     return Poll::Ready(None);
                 }
                 if let Some(bytes) = reader.next_frame_at_hand(limit) {
-                    *self = Self::Idle(reader);
+                    self.0 = State::Idle(reader);
                     return Poll::Ready(Some(Ok(bytes)));
                 }
                 Box::pin(async move {
@@ -55,11 +68,11 @@ impl ObjectFrames {
         };
         match read.as_mut().poll(cx) {
             Poll::Pending => {
-                *self = Self::Reading(read);
+                self.0 = State::Reading(read);
                 Poll::Pending
             }
             Poll::Ready((reader, Ok(Some(bytes)))) => {
-                *self = Self::Idle(reader);
+                self.0 = State::Idle(reader);
                 Poll::Ready(Some(Ok(bytes)))
             }
             Poll::Ready((_, result)) => Poll::Ready(result.transpose()),

@@ -25,7 +25,7 @@ pub(super) struct ObjectBody {
 impl ObjectBody {
     pub(super) fn new(reader: ObjectReader, activity: watch::Sender<ObjectActivity>) -> Self {
         Self {
-            frames: ObjectFrames::Idle(reader),
+            frames: reader.into(),
             activity,
         }
     }

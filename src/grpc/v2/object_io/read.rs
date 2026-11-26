@@ -430,7 +430,7 @@ impl Storage {
         };
         first_mask.apply(&mut first);
         Ok(Response::new(ReadObjectStream {
-            frames: ObjectFrames::Idle(reader),
+            frames: reader.into(),
             first: Some(first),
             checksum: first_mask.data_checksum,
         }))
