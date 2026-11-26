@@ -3,7 +3,11 @@
 #[cfg(test)]
 mod write_tx_tests;
 
-use rusqlite::{Connection, OptionalExtension, Params, Row, config::DbConfig, types::FromSql};
+use rusqlite::{
+    Connection, OptionalExtension, Params, Row,
+    config::DbConfig,
+    types::{FromSql, Type},
+};
 
 impl rusqlite::ToSql for crate::object::CustomTime {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
@@ -71,13 +75,38 @@ macro_rules! column_positions {
 
 pub(super) use column_positions;
 
+pub(super) fn blob<'row>(row: &'row Row<'_>, index: usize) -> rusqlite::Result<&'row [u8]> {
+    let value = row.get_ref(index)?;
+    value
+        .as_blob()
+        .map_err(|_| invalid_blob_type(row, index, value.data_type()))
+}
+
+pub(super) fn optional_blob<'row>(
+    row: &'row Row<'_>,
+    index: usize,
+) -> rusqlite::Result<Option<&'row [u8]>> {
+    let value = row.get_ref(index)?;
+    value
+        .as_blob_or_null()
+        .map_err(|_| invalid_blob_type(row, index, value.data_type()))
+}
+
+fn invalid_blob_type(row: &Row<'_>, index: usize, actual: Type) -> rusqlite::Error {
+    // Match Row::get's column name and actual SQLite type for a malformed stored value.
+    row.as_ref().column_name(index).map_or_else(
+        |error| error,
+        |name| rusqlite::Error::InvalidColumnType(index, name.into(), actual),
+    )
+}
+
 /// A BLOB column that holds exactly `N` bytes, such as a digest; another length is `invalid`.
 pub(super) fn fixed_blob<const N: usize>(
     row: &Row<'_>,
     index: usize,
     invalid: &'static str,
 ) -> rusqlite::Result<[u8; N]> {
-    sized_blob(row.get(index)?, index, invalid)
+    sized_blob(blob(row, index)?, index, invalid)
 }
 
 /// A nullable [`fixed_blob`] column.
@@ -86,13 +115,13 @@ pub(super) fn optional_fixed_blob<const N: usize>(
     index: usize,
     invalid: &'static str,
 ) -> rusqlite::Result<Option<[u8; N]>> {
-    row.get::<_, Option<Vec<u8>>>(index)?
+    optional_blob(row, index)?
         .map(|bytes| sized_blob(bytes, index, invalid))
         .transpose()
 }
 
 fn sized_blob<const N: usize>(
-    bytes: Vec<u8>,
+    bytes: &[u8],
     index: usize,
     invalid: &'static str,
 ) -> rusqlite::Result<[u8; N]> {
@@ -396,6 +425,38 @@ pub(super) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn borrowed_blobs_keep_the_original_type_and_length_errors() {
+        let connection = Connection::open_in_memory().unwrap();
+        row(
+            &connection,
+            "SELECT x'6162' AS digest, 'ab' AS text, NULL AS missing",
+            [],
+            |row| {
+                assert_eq!(blob(row, 0)?, b"ab");
+                assert_eq!(fixed_blob::<2>(row, 0, "bad length")?, *b"ab");
+                assert_eq!(
+                    optional_fixed_blob::<2>(row, 0, "bad length")?,
+                    Some(*b"ab")
+                );
+                assert_eq!(optional_fixed_blob::<2>(row, 2, "bad length")?, None);
+                for index in [1, 2] {
+                    let original = row.get::<_, Vec<u8>>(index).unwrap_err();
+                    assert_eq!(blob(row, index).unwrap_err(), original);
+                }
+                let original = row.get::<_, Option<Vec<u8>>>(1).unwrap_err();
+                assert_eq!(optional_blob(row, 1).unwrap_err(), original);
+                let error = fixed_blob::<3>(row, 0, "bad length").unwrap_err();
+                let rusqlite::Error::FromSqlConversionFailure(0, Type::Blob, cause) = error else {
+                    panic!("unexpected error: {error}");
+                };
+                assert_eq!(cause.to_string(), "bad length");
+                Ok(())
+            },
+        )
+        .unwrap();
+    }
 
     #[test]
     fn sql_enum_spellings_are_stable() {

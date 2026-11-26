@@ -126,43 +126,34 @@ pub(super) fn transfer(
     id: &BlobId,
     now: UnixMillis,
 ) -> Result<(DerivedTransfer, Hasher), ObjectError> {
-    /// A transfer row as stored.
-    struct TransferRow {
-        total: u64,
-        offset: u64,
-        md5_state: Vec<u8>,
-        crc32c: u32,
-        created: UnixMillis,
-        deadline: UnixMillis,
-    }
     const SELECT: &str = "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1";
-    let row = sql::row(connection, SELECT, [id], |row| {
-        Ok(TransferRow {
-            total: row.get(0)?,
-            offset: row.get(1)?,
-            md5_state: row.get(2)?,
-            crc32c: row.get(3)?,
-            created: row.get(4)?,
-            deadline: row.get(5)?,
-        })
+    sql::row(connection, SELECT, [id], |row| {
+        let total = row.get(0)?;
+        let offset = row.get(1)?;
+        let md5_state = sql::blob(row, 2)?;
+        let crc32c = row.get(3)?;
+        let created: UnixMillis = row.get(4)?;
+        let deadline: UnixMillis = row.get(5)?;
+        if now >= deadline {
+            return Ok(Err(ObjectError::DerivedTransferExpired));
+        }
+        let hasher = match Hasher::from_md5_state(md5_state, crc32c, offset) {
+            Ok(hasher) => hasher,
+            Err(error) => return Ok(Err(object_unavailable(error))),
+        };
+        Ok(Ok((
+            DerivedTransfer {
+                id: *id,
+                total,
+                offset,
+                created: created.system_time()?,
+                deadline: deadline.system_time()?,
+            },
+            hasher,
+        )))
     })
     .optional()?
-    .ok_or(ObjectError::DerivedTransferNotFound)?;
-    if now >= row.deadline {
-        return Err(ObjectError::DerivedTransferExpired);
-    }
-    let hasher = Hasher::from_md5_state(&row.md5_state, row.crc32c, row.offset)
-        .map_err(object_unavailable)?;
-    Ok((
-        DerivedTransfer {
-            id: *id,
-            total: row.total,
-            offset: row.offset,
-            created: row.created.system_time()?,
-            deadline: row.deadline.system_time()?,
-        },
-        hasher,
-    ))
+    .ok_or(ObjectError::DerivedTransferNotFound)?
 }
 
 impl Catalog {

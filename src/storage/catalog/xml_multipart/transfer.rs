@@ -24,52 +24,6 @@ struct CompletionParts {
 const OTHER_PARTS_BYTES: &str =
     "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2";
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        clock::SystemClock, storage::catalog::read_pool::tests::assert_point_read_with_setup,
-    };
-    use std::sync::Arc;
-
-    #[tokio::test]
-    async fn completion_reads_the_committed_parts() {
-        let (_dir, catalog) = super::super::tests::setup(Arc::new(SystemClock)).await;
-        let target = super::super::tests::begin(&catalog).await;
-        let written = super::super::tests::put(&catalog, &target, 1, b"part")
-            .await
-            .unwrap();
-        assert_point_read_with_setup(
-            &catalog,
-            async || {
-                catalog
-                    .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
-                    .await
-                    .unwrap()
-            },
-            async |lease| {
-                let parts = catalog
-                    .xml_completion_parts(
-                        &lease,
-                        CompletedPart {
-                            number: written.number,
-                            etag: written.etag.clone(),
-                        },
-                        Vec::new().into_iter(),
-                        4,
-                    )
-                    .await
-                    .unwrap();
-                assert_eq!(parts.first.blob_id, written.blob_id);
-                assert!(parts.remaining.is_empty());
-                assert_eq!(parts.total, 4);
-            },
-        )
-        .await;
-        catalog.close().await.unwrap();
-    }
-}
-
 /// Sync the directory on the blocking pool before committing the row that names the new entry.
 #[cfg(unix)]
 fn sync_staging_entry(
@@ -449,5 +403,51 @@ impl Assembly {
             usize::try_from(part.size).map_err(object_unavailable)?,
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        clock::SystemClock, storage::catalog::read_pool::tests::assert_point_read_with_setup,
+    };
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn completion_reads_the_committed_parts() {
+        let (_dir, catalog) = super::super::tests::setup(Arc::new(SystemClock)).await;
+        let target = super::super::tests::begin(&catalog).await;
+        let written = super::super::tests::put(&catalog, &target, 1, b"part")
+            .await
+            .unwrap();
+        assert_point_read_with_setup(
+            &catalog,
+            async || {
+                catalog
+                    .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+                    .await
+                    .unwrap()
+            },
+            async |lease| {
+                let parts = catalog
+                    .xml_completion_parts(
+                        &lease,
+                        CompletedPart {
+                            number: written.number,
+                            etag: written.etag.clone(),
+                        },
+                        Vec::new().into_iter(),
+                        4,
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(parts.first.blob_id, written.blob_id);
+                assert!(parts.remaining.is_empty());
+                assert_eq!(parts.total, 4);
+            },
+        )
+        .await;
+        catalog.close().await.unwrap();
     }
 }

@@ -535,10 +535,10 @@ fn running_hash(
 ) -> rusqlite::Result<Option<HasherState>> {
     use rusqlite::types::Type;
     let offset: u64 = row.get(offset_column)?;
-    let Some(bytes) = row.get::<_, Option<Vec<u8>>>(hash_column)? else {
+    let Some(bytes) = sql::optional_blob(row, hash_column)? else {
         return Ok(None);
     };
-    let state = HasherState::from_bytes(&bytes)
+    let state = HasherState::from_bytes(bytes)
         .map_err(|error| sql::conversion_error(hash_column, Type::Blob, error))?;
     if state.bytes() != offset {
         return Err(sql::conversion_error(

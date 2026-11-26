@@ -330,9 +330,11 @@ its reservation, so a stream of uploads cannot keep it out, while reads and work
 continue. Everything queued then runs against the state the job left instead of answering 503.
 
 Advisory upload checks queue on the writer before the body is accepted. With the disk backend,
-object and bucket point reads, bucket pages, bucket IAM policy and permission lookups, resumable
-and rewrite session lookups, notification outbox polls, ACL reads, live and versioned object lists,
-and gRPC reads of finalized or appendable generations use up to eight read-only WAL connections.
+object and bucket point reads (including soft-deleted versions), bucket pages, bucket IAM policy
+and permission lookups, resumable and rewrite session lookups, HMAC key reads, notification
+configuration reads and outbox polls, XML multipart listings and completion part reads, ACL reads,
+live and versioned object lists, and gRPC reads of finalized or appendable generations use up to
+eight read-only WAL connections.
 Rewrite admission reads the destination grant and conditions and both buckets' placement in
 one snapshot. Registration and final publication recheck destination authority. An intermediate
 checkpoint checks the source, token and deadline. The guarded continuation lookup still detects
@@ -347,7 +349,7 @@ Each reader has its own thread, takes an admission slot and holds an activity le
 A snapshot is at least as new as every commit that finished before the read began, so clients
 still read their own writes. Once an exclusive job has reserved the gate, reads take the serialized
 path behind it. A reader's snapshot can select a blob that reclamation or appendable finalization
-unlinks before the open. Any failure on a reader, including an attempted write, retries on the
+unlinks before the open. A transient reader failure, including an attempted write, retries on the
 serialized path, whose answer stands. A RAM catalog exists only inside the writer's connection
 and always reads there.
 

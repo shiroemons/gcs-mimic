@@ -242,6 +242,88 @@ async fn only_matching_noncurrent_generations_are_removed_with_newer_versions_ac
 }
 
 #[tokio::test]
+async fn deleting_a_newer_version_refreshes_the_older_versions_count_in_the_same_page() {
+    let (catalog, _clock) = memory().await;
+    let mut record = bucket("bucket", "project");
+    record.versioning = crate::bucket::Versioning::Enabled;
+    catalog.insert_bucket(record).await.unwrap();
+    let oldest = put(&catalog, "object").await;
+    let mut upload = permissive_upload("bucket", "object", 100);
+    upload.metadata.storage_class = Some(StorageClass::Coldline);
+    let middle = catalog
+        .put_object(upload, body(vec![Bytes::from_static(b"data")]))
+        .await
+        .unwrap();
+    put(&catalog, "object").await;
+    rules(
+        &catalog,
+        vec![
+            delete(json!({"isLive":false,"matchesStorageClass":["COLDLINE"]})),
+            delete(json!({"isLive":false,"numNewerVersions":2})),
+        ],
+    )
+    .await;
+    assert_eq!(execute(&catalog).await.deleted, 1);
+    assert!(!exists(&catalog, version("bucket", "object", middle.generation)).await);
+    assert!(exists(&catalog, version("bucket", "object", oldest.generation)).await);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_lifecycle_page_reads_newer_version_counts_in_the_page_scan() {
+    use rusqlite::trace::{TraceEvent, TraceEventCodes};
+    use std::sync::atomic::AtomicUsize;
+
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![delete(json!({"age":99}))]).await;
+    for name in ["a", "b", "c"] {
+        put(&catalog, name).await;
+    }
+    let standalone = Arc::new(AtomicUsize::new(0));
+    let counts = standalone.clone();
+    catalog
+        .run::<_, CatalogError>(move |connection| {
+            connection.trace_v2(
+                TraceEventCodes::SQLITE_TRACE_STMT,
+                Some(move |event: TraceEvent<'_>| {
+                    if let TraceEvent::Stmt(_, query) = event
+                        && query.starts_with("SELECT count(*) FROM objects")
+                        && query.contains("generation >")
+                    {
+                        counts.fetch_add(1, Ordering::Relaxed);
+                    }
+                }),
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let incarnation = incarnation(&catalog).await;
+    let now = clock.now();
+    let (writes, reads) = catalog.job_counts();
+    let page = catalog
+        .run::<_, CatalogError>(move |connection| {
+            sweep_page(
+                connection,
+                "bucket",
+                incarnation,
+                None,
+                now,
+                ACTION_LIMIT,
+                BucketRules::Absent,
+            )
+            .map_err(unavailable)
+        })
+        .await
+        .unwrap();
+    assert_eq!(page.outcome.scanned, 3);
+    assert_eq!(page.outcome.applied(), 0);
+    assert_eq!(standalone.load(Ordering::Relaxed), 0);
+    assert_eq!(catalog.job_counts(), (writes + 1, reads));
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn releasing_each_hold_allows_a_matching_delete() {
     for metadata in [
         ObjectMetadataUpdate {
@@ -1181,7 +1263,10 @@ async fn candidate(
             };
             let outcome = evaluate_version(
                 &transaction,
-                &target,
+                &VersionCandidate {
+                    target: &target,
+                    newer_versions: None,
+                },
                 &rules,
                 now,
                 incarnation,

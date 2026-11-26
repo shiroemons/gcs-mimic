@@ -30,8 +30,36 @@ const VERSION_PAGE: usize = 128;
 const ACTION_LIMIT: u64 = 1024;
 const COALESCE: Duration = Duration::from_secs(1);
 const HAS_RULES: &str = "SELECT EXISTS(SELECT 1 FROM buckets WHERE lifecycle != '[]')";
-const VERSION_SCAN: &str = "SELECT name, generation FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL AND (name, generation) < (?2, ?3) ORDER BY name DESC, generation DESC LIMIT ?4";
-const VERSION_FIRST: &str = "SELECT name, generation FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL ORDER BY name DESC, generation DESC LIMIT ?2";
+
+macro_rules! newer_versions {
+    ($bucket:literal, $name:literal, $generation:literal) => {
+        concat!(
+            "SELECT count(*) FROM objects AS newer WHERE newer.bucket = ",
+            $bucket,
+            " AND newer.name = ",
+            $name,
+            " AND newer.generation > ",
+            $generation,
+            " AND newer.soft_delete_time IS NULL"
+        )
+    };
+}
+
+macro_rules! version_page {
+    ($seek:literal, $limit:literal) => {
+        concat!(
+            "SELECT name, generation, (",
+            newer_versions!("objects.bucket", "objects.name", "objects.generation"),
+            ") FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL",
+            $seek,
+            " ORDER BY name DESC, generation DESC LIMIT ",
+            $limit
+        )
+    };
+}
+
+const VERSION_SCAN: &str = version_page!(" AND (name, generation) < (?2, ?3)", "?4");
+const VERSION_FIRST: &str = version_page!("", "?2");
 
 /// Where the catalog writer's thread stands on lifecycle rule writes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -496,35 +524,56 @@ fn sweep_page(
             rules,
         });
     };
-    let rows = if let Some((name, generation)) = cursor {
+    let read_version = |row: &rusqlite::Row<'_>| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, u64>(2)?,
+        ))
+    };
+    let versions = if let Some((name, generation)) = cursor {
         transaction
             .prepare_cached(VERSION_SCAN)?
-            .query_map(params![bucket, name, generation, VERSION_PAGE], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?
+            .query_map(
+                params![bucket, name, generation, VERSION_PAGE],
+                read_version,
+            )?
             .collect::<rusqlite::Result<Vec<_>>>()?
     } else {
         transaction
             .prepare_cached(VERSION_FIRST)?
-            .query_map(params![bucket, VERSION_PAGE], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?
+            .query_map(params![bucket, VERSION_PAGE], read_version)?
             .collect::<rusqlite::Result<Vec<_>>>()?
     };
-    let after = (rows.len() == VERSION_PAGE)
-        .then(|| rows.last().cloned())
+    let after = (versions.len() == VERSION_PAGE)
+        .then(|| {
+            versions
+                .last()
+                .map(|(name, generation, _)| (name.clone(), *generation))
+        })
         .flatten();
     let mut outcome = LifecycleCounts::default();
-    for (name, generation) in rows {
-        outcome.record(evaluate_version(
+    let mut deleted_name = None;
+    for (name, generation, newer) in &versions {
+        let target = ObjectTarget::new(bucket, name.as_str(), *generation);
+        let result = evaluate_version(
             &transaction,
-            &ObjectTarget::new(bucket, &name, generation),
+            &VersionCandidate {
+                target: &target,
+                // An earlier deletion of the same name changes this version's count. Archiving
+                // keeps the newer generation visible to the count.
+                newer_versions: (deleted_name != Some(name)).then_some(*newer),
+            },
             parsed,
             now,
             incarnation,
             &mut diagnostics,
             limit - outcome.applied(),
-        )?);
+        )?;
+        if result.deleted > 0 {
+            deleted_name = Some(name);
+        }
+        outcome.record(result);
         if outcome.applied() == limit {
             break;
         }
@@ -625,22 +674,28 @@ fn bucket_rules(
     }
 }
 
+struct VersionCandidate<'a> {
+    target: &'a ObjectTarget<i64>,
+    newer_versions: Option<u64>,
+}
+
 fn evaluate_version(
     transaction: &sql::WriteTx<'_>,
-    target: &ObjectTarget<i64>,
+    candidate: &VersionCandidate<'_>,
     rules: &[LifecycleRule],
     now: SystemTime,
     incarnation: Incarnation,
     diagnostics: &mut Vec<QuarantineEvent>,
     limit: u64,
 ) -> Result<LifecycleCounts, ObjectError> {
+    let target = candidate.target;
     let key = QuarantineKey::Version {
         bucket: &target.bucket,
         incarnation,
         name: &target.name,
         generation: target.generation,
     };
-    let plan = match plan_version(transaction, target, rules, now) {
+    let plan = match plan_version(transaction, target, rules, now, candidate.newer_versions) {
         Ok(plan) => plan,
         Err(error) if deterministic_read_error(&error) => {
             let revision: String = sql::scalar(
@@ -684,7 +739,7 @@ fn evaluate_version(
             break;
         }
         // Re-evaluate the changed class in this transaction, up to the shared action budget.
-        let (next, action) = plan_version(transaction, target, rules, now)?;
+        let (next, action) = plan_version(transaction, target, rules, now, None)?;
         outcome.blocked += next.blocked;
         outcome.next = next.next;
         selected = action;
@@ -745,6 +800,7 @@ fn plan_version(
     target: &ObjectTarget<i64>,
     rules: &[LifecycleRule],
     now: SystemTime,
+    newer_versions: Option<u64>,
 ) -> Result<(LifecycleCounts, Option<(ObjectRecord, PlannedAction)>), ObjectError> {
     let object = match objects::selected(
         transaction,
@@ -759,11 +815,14 @@ fn plan_version(
         Err(ObjectError::ObjectNotFound) => return Ok((LifecycleCounts::default(), None)),
         Err(error) => return Err(error),
     };
-    let newer_versions = sql::scalar(
-        transaction,
-        "SELECT count(*) FROM objects WHERE bucket = ?1 AND name = ?2 AND generation > ?3 AND soft_delete_time IS NULL",
-        params![target.bucket, target.name, target.generation],
-    )?;
+    let newer_versions = match newer_versions {
+        Some(count) => count,
+        None => sql::scalar(
+            transaction,
+            newer_versions!("?1", "?2", "?3"),
+            params![target.bucket, target.name, target.generation],
+        )?,
+    };
     let facts = version_facts(&object.record, newer_versions)?;
     let evaluation = evaluate(rules, &facts, now);
     let transition = matches!(

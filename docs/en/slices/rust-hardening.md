@@ -660,7 +660,7 @@ kind when constructing its `io::Error`.
 | `session_by_id`, `session_by_token` | the guarded updates stay authoritative |
 | `rewrite_buckets` | one snapshot of destination authority, conditions and both buckets' placement; registration and publication recheck destination authority |
 | `next_notification` | one statement on the main table |
-| soft-deleted gets, XML part and upload listings, HMAC key and notification reads, `xml_completion_parts` | one snapshot for each read that uses several statements; soft-deleted object listings still purge on the writer |
+| soft-deleted gets, XML part and upload listings, HMAC key and notification reads, `xml_completion_parts` | One snapshot for each read that uses several statements. Soft-deleted object listings still purge on the writer. |
 
 The reader statement cache grows from 32 to 96 statements when listing moves.
 
@@ -693,8 +693,8 @@ the change.
 | Soft-deleted bucket and object gets, XML upload and part listings and completion part lookup, HMAC key reads, notification get and list | 1 W → 1 R per read |
 | Writer settings: `keep_plans_across_bindings` (QPSG) as on readers; prepared `BEGIN IMMEDIATE` and `COMMIT`; a written reason for `wal_autocheckpoint = 256` | CPU only |
 | Read cache: invalidation still swaps the map before the reply, and the stale files close in a tracked blocking task | up to 1,024 `close(2)` calls on the writer → none |
-| BLOB columns read through `get_ref` | one allocation less per row |
-| Lifecycle scan: statements batched per page | to count at slice start |
+| BLOB columns read through `get_ref` | one fewer allocation per decoded fixed-width digest or seed field, resumable hash or derived hash state |
+| Lifecycle scan counts newer versions in the bounded page query | One fewer standalone statement per evaluated version. A same-name deletion or transition re-evaluation can require a fresh count. Each page uses 1 W. |
 
 `read_pool.rs` stops holding the idle-pool mutex while it starts an executor
 thread: the pop moves into its own statement. Derived inputs hold independent
