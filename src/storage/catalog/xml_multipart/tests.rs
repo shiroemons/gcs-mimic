@@ -178,6 +178,8 @@ async fn deletion_count(catalog: &Catalog) -> u64 {
         .unwrap()
 }
 
+/// With the implementation before 27a3ac250, the same disk fixture measured 3 jobs per new part
+/// and 9 or 11 for completion with one or three parts, starting just after lease acquisition.
 #[tokio::test]
 async fn part_and_completion_use_bounded_writer_jobs_under_their_leases() {
     for count in [1_u16, 3] {

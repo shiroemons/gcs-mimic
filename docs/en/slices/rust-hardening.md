@@ -603,12 +603,15 @@ The reader statement cache grows from 32 to 96 statements when listing moves.
 
 W counts writer jobs and R counts reader jobs. The projection rows compare
 nonempty responses immediately before and after bulk ACL projection, with
-point reads already on the pool.
+point reads already on the pool. The XML disk fixture measured 3 W per part and
+9 or 11 W for one- or three-part completion on the implementation preceding
+`27a3ac250`. Disk cleanup selects, acknowledges and checks the journal in three
+jobs, accounting for the two extra jobs over the N+6 W estimate.
 
 | Change | Before → after |
 | --- | --- |
-| XML part: sync on the blocking pool before the commit job; the pending check inside the commit job; the reference probe only after an error | new part after acquiring its lease: 3 W → 2 W |
-| XML completion: reuse the rows from `xml_completion_parts` under the upload lease; sync off the writer | disk, after acquiring the lease, publishing a new object and reclaiming one page of parts: N+8 W → 8 W |
+| XML part: check pending cleanup in the commit job and probe references only after an error | new part after acquiring its lease: 3 W → 2 W |
+| XML completion: reuse the rows from `xml_completion_parts` under the upload lease | disk, after acquiring the lease, publishing a new object and reclaiming one page of parts: N+8 W → 8 W |
 | Maintenance: a busy sweep marks its key deferred and a release wakes only for a deferred key; a pass starts with one snapshot probe of every kind of due work and runs only the sweeps with work | about 12 W and 3 tasks per idle wake → 1 R, and no self-wake |
 | Reclamation: each retiring transaction reports whether it journaled; all sites use `reclaim_if` | 1 W, a task and a permit per commit → none when nothing was journaled |
 | Delete: one `BucketAuthority` (bucket row, policy, public access prevention and ACL decoded once); purge inside the delete transaction | 2 transactions, the row read 3 times, the ACL decoded up to 4 times → 1 transaction, everything once |
