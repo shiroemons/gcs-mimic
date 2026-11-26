@@ -113,7 +113,7 @@ fn trim_finished(
         if trimmed.len() == wanted {
             break;
         }
-        let guard = match catalog.claim_writer(WriterKey::Resumable(id), KeyOrigin::Catalog) {
+        let guard = match catalog.claim_writer(WriterKey::Resumable(id), KeyOrigin::Holder) {
             Ok(guard) => guard,
             // A request holding the session (such as a finalizer re-reading its outcome) keeps
             // it, and a catalog blocking new work only postpones the trim.

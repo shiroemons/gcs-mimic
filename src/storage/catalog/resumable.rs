@@ -616,7 +616,7 @@ impl Catalog {
     ) -> Result<SessionLease, ResumableError> {
         let id: SessionId = id.parse().map_err(|_| ResumableError::NotFound)?;
         let guard = self
-            .wait_for_writer(WriterKey::Resumable(id), KeyOrigin::Client)
+            .wait_for_writer(WriterKey::Resumable(id), KeyOrigin::Holder)
             .await
             .map_err(CatalogError::from)?;
         let session = self.session_by_id(id, bucket).await?;
@@ -628,7 +628,7 @@ impl Catalog {
 
     #[cfg(test)]
     pub(super) fn try_resumable_writer(&self, id: SessionId) -> Result<WriterGuard, CatalogError> {
-        self.claim_writer(WriterKey::Resumable(id), KeyOrigin::Client)
+        self.claim_writer(WriterKey::Resumable(id), KeyOrigin::Holder)
             .map_err(CatalogError::from)
     }
 

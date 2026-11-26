@@ -162,7 +162,6 @@ impl Catalog {
         now: UnixMillis,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
         self.run(move |connection| {
-            // Derived transfers wake the maintenance sweep, so these run per request.
             let deadline: Option<UnixMillis> = sql::scalar(
                 connection,
                 "SELECT min(deadline) FROM derived_transfers WHERE deadline > ?1",

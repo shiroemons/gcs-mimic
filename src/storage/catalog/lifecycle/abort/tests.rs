@@ -486,6 +486,39 @@ fn multipart_abort_evaluation_rejects_object_only_conditions_without_validation(
 }
 
 #[tokio::test]
+async fn scheduled_abort_reclaims_its_parts_in_the_same_maintenance_pass() {
+    let data = TestDir::new();
+    let (catalog, clock) = disk(&data).await;
+    create(&catalog, vec![abort(json!({"age":1}))]).await;
+    let target = begin(&catalog, "object").await;
+    put(&catalog, &target).await;
+    let due = clock.now() + DAY;
+    assert_eq!(
+        catalog.maintain_resumable_sessions().await.unwrap(),
+        Some(due)
+    );
+    let staged = || std::fs::read_dir(data.0.join("staging")).unwrap().count();
+    assert_eq!(staged(), 1);
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM xml_multipart_deletions").await,
+        0
+    );
+
+    clock.set(due);
+    catalog.maintain_resumable_sessions().await.unwrap();
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
+        0
+    );
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM xml_multipart_deletions").await,
+        0
+    );
+    assert_eq!(staged(), 0);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory() {
     for disk_backend in [false, true] {
         let data = TestDir::new();

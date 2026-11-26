@@ -330,7 +330,7 @@ impl Catalog {
         let guard = self
             .wait_for_writer(
                 WriterKey::MultipartPart(target.id.clone(), number),
-                KeyOrigin::Client,
+                KeyOrigin::Holder,
             )
             .await
             .map_err(claim_failure)?;
@@ -371,7 +371,7 @@ impl Catalog {
         let guard = self
             .wait_for_writer(
                 WriterKey::MultipartAbort(target.id.clone()),
-                KeyOrigin::Client,
+                KeyOrigin::Holder,
             )
             .await
             .map_err(claim_failure)?;

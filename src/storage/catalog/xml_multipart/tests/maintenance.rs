@@ -1,4 +1,4 @@
-//! What one maintenance pass reads, which runs after every part request.
+//! How multipart maintenance selects due uploads and orphaned parts.
 
 use super::*;
 
@@ -14,6 +14,36 @@ async fn orphan_every_upload(catalog: &Catalog) {
         })
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn a_busy_expired_upload_keeps_the_next_upload_deadline_scheduled() {
+    let clock = Arc::new(ManualClock::new(
+        UNIX_EPOCH + Duration::from_secs(1_000_000),
+    ));
+    let (_dir, catalog) = setup(clock.clone()).await;
+    let first = begin(&catalog).await;
+    let held = catalog
+        .lease_xml_multipart(first, BucketAccess::Permissive)
+        .await
+        .unwrap();
+    let lifetime = Duration::from_secs(7 * 86_400);
+    let first_due = clock.now() + lifetime;
+    clock.advance(Duration::from_secs(1));
+    begin(&catalog).await;
+    let second_due = clock.now() + lifetime;
+
+    clock.set(first_due);
+    let sweep = || catalog.maintain_xml_multipart(UnixMillis::try_from(clock.now()).unwrap());
+    assert_eq!(sweep().await.unwrap(), Some(second_due));
+    assert_eq!(upload_count(&catalog).await, 2);
+    clock.set(second_due);
+    assert_eq!(sweep().await.unwrap(), None);
+    assert_eq!(upload_count(&catalog).await, 1);
+    drop(held);
+    assert_eq!(sweep().await.unwrap(), None);
+    assert_eq!(upload_count(&catalog).await, 0);
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]

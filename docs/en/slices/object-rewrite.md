@@ -223,7 +223,7 @@ Extend the existing injected-clock/next-deadline maintenance scheduler. Query
 bounded pages, wake on session creation/checkpoint/expiry, and sleep only until
 the next deadline; no periodic scan when idle. Skip a busy expired session,
 continue reclaiming other expired sessions and return only future deadlines.
-Releasing a rewrite writer wakes maintenance, so no periodic busy retry is needed.
+When a sweep skips a busy rewrite, releasing its writer wakes maintenance.
 Journal failed physical cleanup
 with pending blob deletions and retry on a bounded deadline. Recovery runs
 before generic orphan scans, so active stages survive restart. Completed

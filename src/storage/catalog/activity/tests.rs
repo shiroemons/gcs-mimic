@@ -660,7 +660,7 @@ async fn maintenance_skips_a_writer_while_an_exclusive_job_runs() {
         crate::storage::catalog::resumable::writers::WriterKey::Resumable(
             "0".repeat(64).parse().unwrap(),
         ),
-        crate::storage::catalog::resumable::writers::KeyOrigin::Catalog,
+        crate::storage::catalog::resumable::writers::KeyOrigin::Holder,
     );
     assert!(matches!(
         claim,

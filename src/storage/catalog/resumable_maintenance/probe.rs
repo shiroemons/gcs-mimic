@@ -30,7 +30,7 @@ impl DueWork {
 
 impl Catalog {
     pub(super) async fn maintenance_probe(&self, now: SystemTime) -> Result<DueWork, CatalogError> {
-        let catalog = self.clone();
+        let orphans = self.0.multipart_orphan_scan.load(Ordering::Acquire);
         self.run_read(move |connection| {
             let snapshot = sql::read_snapshot(connection)?;
             let (derived, resumable, rewrite, multipart, cancelled, parts) = sql::row(
@@ -47,7 +47,6 @@ impl Catalog {
                     Ok((deadline(0)?, deadline(1)?, deadline(2)?, deadline(3)?, row.get::<_, bool>(4)?, row.get::<_, bool>(5)?))
                 },
             )?;
-            let orphans = catalog.0.multipart_orphan_scan.load(Ordering::Acquire);
             Ok(DueWork {
                 derived,
                 resumable: if cancelled { Some(now) } else { resumable },

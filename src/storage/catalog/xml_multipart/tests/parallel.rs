@@ -177,7 +177,7 @@ async fn the_same_part_number_waits_and_the_last_to_finish_wins() {
     let open = OpenPart::start(&catalog, &target, 1, &b"first "[..]).await;
     let same_number = WriterKey::MultipartPart(target.id.clone(), 1);
     assert!(matches!(
-        catalog.claim_writer(same_number, KeyOrigin::Client),
+        catalog.claim_writer(same_number, KeyOrigin::Holder),
         Err(ClaimError::Busy)
     ));
     let (worker, waiting) = (catalog.clone(), target.clone());
@@ -241,7 +241,7 @@ async fn a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overt
     assert!(matches!(
         catalog.claim_writer(
             WriterKey::MultipartPart(target.id.clone(), 3),
-            KeyOrigin::Client
+            KeyOrigin::Holder
         ),
         Err(ClaimError::Busy)
     ));

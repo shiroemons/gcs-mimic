@@ -219,6 +219,10 @@ impl serde::Serialize for LifecycleOutcome {
 }
 
 impl LifecycleCounts {
+    pub(super) fn journaled(&self) -> objects::Journaled {
+        self.journaled
+    }
+
     fn record(&mut self, other: Self) {
         self.journaled |= other.journaled;
         self.aborted += other.aborted;

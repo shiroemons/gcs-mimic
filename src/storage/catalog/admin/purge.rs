@@ -320,7 +320,7 @@ impl Sessions {
         if appendable::bucket_in_use(catalog, name) {
             return Err(PurgeError::WriterBusy);
         }
-        let claim = |key| catalog.claim_writer(key, KeyOrigin::Client);
+        let claim = |key| catalog.claim_writer(key, KeyOrigin::Holder);
         Ok(Writers {
             _resumable: self
                 .resumable

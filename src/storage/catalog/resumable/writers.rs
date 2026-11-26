@@ -28,12 +28,11 @@ pub(in crate::storage::catalog) enum WriterKey {
 /// A sweep that skips a busy writer must retry when its key becomes available.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::storage::catalog) enum KeyOrigin {
-    Client,
-    Catalog,
+    Holder,
     Sweep(Deferred),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::storage::catalog) enum Deferred {
     Maintenance,
     Lifecycle,
@@ -192,10 +191,17 @@ impl SessionWriters {
         let result = self.claim(key);
         if let (Err(ClaimError::Busy), KeyOrigin::Sweep(retry)) = (&result, origin) {
             // Mark under the claim lock; the last holder cannot release between failure and arming.
-            let waiting = self.deferred.entry(key.clone()).or_insert(retry);
-            if retry == Deferred::Lifecycle {
-                *waiting = retry;
-            }
+            let key = match key {
+                WriterKey::MultipartAbort(id) | WriterKey::MultipartPart(id, _) => {
+                    WriterKey::Multipart(id.clone())
+                }
+                WriterKey::Multipart(_)
+                | WriterKey::Derived(_)
+                | WriterKey::Rewrite(_)
+                | WriterKey::Resumable(_) => key.clone(),
+            };
+            let waiting = self.deferred.entry(key).or_insert(retry);
+            *waiting = (*waiting).max(retry);
         }
         result
     }
@@ -446,7 +452,7 @@ impl Catalog {
         id: &str,
     ) -> Result<WriterGuard, ClaimError> {
         let _turn = self.take_whole_upload_turn(id)?;
-        self.wait_for_writer(WriterKey::Multipart(id.to_owned()), KeyOrigin::Client)
+        self.wait_for_writer(WriterKey::Multipart(id.to_owned()), KeyOrigin::Holder)
             .await
     }
 
@@ -504,7 +510,7 @@ mod tests {
     #[tokio::test]
     async fn only_the_last_holder_of_the_deferred_upload_wakes_maintenance() {
         let (catalog, _) = open(0).await;
-        let hold = |key| catalog.claim_writer(key, KeyOrigin::Client).unwrap();
+        let hold = |key| catalog.claim_writer(key, KeyOrigin::Holder).unwrap();
         let first = hold(WriterKey::MultipartPart("busy".into(), 1));
         let last = hold(WriterKey::MultipartPart("busy".into(), 2));
         let unrelated = hold(WriterKey::Multipart("other".into()));
@@ -526,6 +532,31 @@ mod tests {
         assert!(wake.as_mut().enable());
         assert!(catalog.0.session_writers.lock().unwrap().is_empty());
         catalog.close().await.unwrap();
+    }
+
+    #[test]
+    fn deferred_part_and_abort_retry_lifecycle_when_the_upload_is_released() {
+        let mut writers = SessionWriters::default();
+        let whole = WriterKey::Multipart("upload".into());
+        writers.claim(&whole).unwrap();
+        for (key, retry) in [
+            (
+                WriterKey::MultipartPart("upload".into(), 1),
+                Deferred::Lifecycle,
+            ),
+            (
+                WriterKey::MultipartAbort("upload".into()),
+                Deferred::Maintenance,
+            ),
+        ] {
+            assert_eq!(
+                writers.claim_from(&key, KeyOrigin::Sweep(retry)),
+                Err(ClaimError::Busy)
+            );
+        }
+        writers.release(&whole);
+        assert_eq!(writers.take_deferred(&whole), Some(Deferred::Lifecycle));
+        assert!(writers.is_empty());
     }
 
     #[test]
@@ -712,10 +743,7 @@ mod tests {
         let (catalog, id) = open(60_000).await;
         let lease = catalog.lock_resumable_session(&id, "bucket").await.unwrap();
         assert!(matches!(
-            catalog.claim_writer(
-                WriterKey::Resumable(id.parse().unwrap()),
-                KeyOrigin::Catalog
-            ),
+            catalog.claim_writer(WriterKey::Resumable(id.parse().unwrap()), KeyOrigin::Holder),
             Err(ClaimError::Busy)
         ));
         drop(lease);

@@ -669,14 +669,14 @@ impl Catalog {
         let token: RewriteToken = token.parse().map_err(|_| RewriteError::Invalid)?;
         let session = self.session_by_token(token).await?;
         let _guard = self
-            .wait_for_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
+            .wait_for_writer(WriterKey::Rewrite(session.id), KeyOrigin::Holder)
             .await
             .map_err(CatalogError::from)?;
         // A request cancelled mid-step leaves that step running detached, holding the transfer. It
         // may yet finish the rewrite, so wait it out before reading the state this call acts on.
         // This writer keeps any later step out, so the claim need not outlive the wait.
         drop(
-            self.wait_for_writer_under_way(WriterKey::Derived(session.id), KeyOrigin::Catalog)
+            self.wait_for_writer_under_way(WriterKey::Derived(session.id), KeyOrigin::Holder)
                 .await
                 .map_err(CatalogError::from)?,
         );
@@ -834,7 +834,6 @@ impl Catalog {
         now: UnixMillis,
     ) -> Result<Option<SystemTime>, CatalogError> {
         self.run(move |connection| {
-            // Rewrite calls wake the maintenance sweep, so this runs per request.
             let deadline: Option<UnixMillis> = sql::scalar(
                 connection,
                 "SELECT min(deadline) FROM rewrite_sessions WHERE deadline>?1",
@@ -1153,10 +1152,10 @@ mod tests {
         let token = first.unwrap();
         let session = catalog.rewrite_session(&token).await.unwrap();
         let guard = catalog
-            .claim_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
+            .claim_writer(WriterKey::Rewrite(session.id), KeyOrigin::Holder)
             .unwrap();
         let derived_guard = catalog
-            .claim_writer(WriterKey::Derived(session.id), KeyOrigin::Catalog)
+            .claim_writer(WriterKey::Derived(session.id), KeyOrigin::Holder)
             .unwrap();
         clock.set(UNIX_EPOCH + Duration::from_millis(604801000));
         assert!(matches!(
@@ -1462,7 +1461,7 @@ mod tests {
         owner.disarm();
         let session = catalog.rewrite_session(&token).await.unwrap();
         let running = catalog
-            .claim_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
+            .claim_writer(WriterKey::Rewrite(session.id), KeyOrigin::Holder)
             .unwrap();
         let worker = catalog.clone();
         let retry = tokio::spawn(async move {
@@ -1517,7 +1516,7 @@ mod tests {
     async fn claimed_its_session(catalog: &Catalog, session: BlobId) {
         crate::test_support::eventually_async("the continuation to claim its session", || async {
             matches!(
-                catalog.claim_writer(WriterKey::Rewrite(session), KeyOrigin::Catalog),
+                catalog.claim_writer(WriterKey::Rewrite(session), KeyOrigin::Holder),
                 Err(ClaimError::Busy)
             )
         })
@@ -1532,7 +1531,7 @@ mod tests {
         owner.disarm();
         let session = catalog.rewrite_session(&token).await.unwrap();
         let detached = catalog
-            .claim_writer(WriterKey::Derived(session.id), KeyOrigin::Catalog)
+            .claim_writer(WriterKey::Derived(session.id), KeyOrigin::Holder)
             .unwrap();
         let mut retry = spawn_continuation(&catalog, token);
         claimed_its_session(&catalog, session.id).await;
@@ -1590,7 +1589,7 @@ mod tests {
         owner.disarm();
         let session = catalog.rewrite_session(&token).await.unwrap();
         let detached = catalog
-            .claim_writer(WriterKey::Derived(session.id), KeyOrigin::Catalog)
+            .claim_writer(WriterKey::Derived(session.id), KeyOrigin::Holder)
             .unwrap();
         let retry = spawn_continuation(&catalog, token);
         claimed_its_session(&catalog, session.id).await;

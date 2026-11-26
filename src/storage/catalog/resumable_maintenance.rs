@@ -84,9 +84,8 @@ fn cleanup_page(
     now: UnixMillis,
     after: &After<SessionId>,
 ) -> Result<Vec<DueSession>, CatalogError> {
-    // Requests wake maintenance, so this runs per request and must not read every session. Both
-    // arms start from what is due: the deadline index, and the journal (CROSS JOIN keeps SQLite
-    // from scanning sessions in id order instead).
+    // Start from the deadline index and the journal to bound the work by the due sessions.
+    // CROSS JOIN keeps SQLite from scanning sessions in id order.
     connection.prepare_cached("SELECT id, blob_id, deadline FROM resumable_sessions INDEXED BY resumable_sessions_deadline WHERE deadline <= ?2 AND id > ?1 UNION ALL SELECT session.id, session.blob_id, session.deadline FROM pending_blob_deletions AS pending CROSS JOIN resumable_sessions AS session ON session.blob_id = pending.blob_id WHERE session.id > ?1 AND session.state = 'CANCELLED' AND session.deadline > ?2 ORDER BY id LIMIT ?3")?
         .query_map(params![after, now, PAGE_SIZE], |row| Ok(DueSession { id: row.get(0)?, blob_id: row.get(1)?, deadline: row.get(2)? }))?
         .collect::<rusqlite::Result<_>>().map_err(unavailable)
@@ -372,16 +371,19 @@ impl Catalog {
         if lifecycle.is_some_and(|time| time <= reading) {
             use super::lifecycle::{LifecycleOutcome, Pass};
             let result = self.run_lifecycle(Pass::Scheduled).await;
-            let retired = match &result {
+            let refresh_deadlines = match &result {
                 Ok(LifecycleOutcome::Executed(counts)) => {
+                    may_have_journaled |= counts.journaled().any();
                     counts.aborted != 0 || counts.deleted != 0
                 }
                 Ok(LifecycleOutcome::Disabled) => false,
-                Err(_) => true, // An earlier page may have committed.
+                Err(_) => {
+                    may_have_journaled = true; // An earlier page may have committed.
+                    true
+                }
             };
             sweep.record("lifecycle", result.map(|outcome| outcome.next()));
-            if retired {
-                may_have_journaled = true;
+            if refresh_deadlines {
                 // Lifecycle can create a multipart journal or a new soft-delete deadline.
                 match self.maintenance_probe(reading).await {
                     Ok(updated) => due = updated,
@@ -471,7 +473,7 @@ impl Catalog {
                 deadline,
             } in rows
             {
-                // A held session is swept once its request releases it, so this never waits.
+                // Wait for exclusive catalog work, but defer a session held by a request.
                 let writer = match self.claim_sweep_writer(WriterKey::Resumable(id)).await {
                     Ok(writer) => Arc::new(writer),
                     Err(ClaimError::Busy) => continue,

@@ -167,7 +167,7 @@ pub(super) fn transfer(
 
 impl Catalog {
     fn derived_guard(&self, id: &BlobId) -> Result<WriterGuard, ObjectError> {
-        self.claim_writer(WriterKey::Derived(*id), KeyOrigin::Catalog)
+        self.claim_writer(WriterKey::Derived(*id), KeyOrigin::Holder)
             .map_err(derived_claim_error)
     }
 }
