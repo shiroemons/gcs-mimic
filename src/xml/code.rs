@@ -38,6 +38,7 @@ pub(super) enum XmlCode {
     AccessDenied,
     PreconditionFailed,
     UploadBrokenConnection,
+    CancelledUpload,
     /// A storage class the bucket's location cannot hold.
     InvalidLocationConstraintStorageClassCombination,
     /// The XML API lists a socket that was not read from or written to in time under 400.
@@ -71,6 +72,8 @@ impl XmlCode {
         match self {
             // The JSON adapter also forwards otherwise unmapped statuses under this code.
             Self::Forwarded(ForwardedStatus(status)) => status,
+            #[expect(clippy::expect_used, reason = "499 is a valid three-digit HTTP status")]
+            Self::CancelledUpload => StatusCode::from_u16(499).expect("499 is a valid status"),
             Self::AuthenticationRequired => StatusCode::UNAUTHORIZED,
             Self::InvalidAccessKeyId
             | Self::SignatureDoesNotMatch
@@ -110,7 +113,7 @@ impl XmlCode {
 
     pub(super) fn as_str(self) -> &'static str {
         match self {
-            Self::InvalidArgument | Self::Forwarded(_) => "InvalidArgument",
+            Self::InvalidArgument | Self::CancelledUpload | Self::Forwarded(_) => "InvalidArgument",
             Self::InvalidAuthentication => "InvalidAuthentication",
             Self::AuthenticationRequired => "AuthenticationRequired",
             Self::InvalidAccessKeyId => "InvalidAccessKeyId",

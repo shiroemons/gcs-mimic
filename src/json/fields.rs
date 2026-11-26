@@ -1,4 +1,5 @@
 use super::ApiError;
+use crate::input::{InputError, InputKind};
 use crate::percent::{MAX_QUERY_BYTES, parse_query};
 use serde_json::{Map, Value};
 use std::{collections::BTreeMap, sync::LazyLock};
@@ -116,7 +117,7 @@ impl Fields {
     /// Parses a selection without a schema. A resumable upload stores the selection it was
     /// started with and parses it again here on completion, so this accepts exactly what
     /// `parse` accepted at initiation, even if the schema has changed since.
-    pub(crate) fn parse_syntax(value: &str) -> Result<Self, ApiError> {
+    pub(crate) fn parse_syntax(value: &str) -> Result<Self, InputError> {
         // An empty selection selects nothing, unlike an absent `fields` parameter. Cloud
         // Storage answered a whitespace selection with `{}` on objects, buckets, the bucket
         // list and the IAM policy (cases obj-fields-selectors and bkt-edges-fields); the empty
@@ -147,7 +148,7 @@ impl Fields {
 
     /// Checks the selection against `schema`. `source` is the whole expression, which Cloud
     /// Storage quotes after a wildcard that has a child.
-    fn validate(&self, schema: &Value, source: &str) -> Result<(), ApiError> {
+    fn validate(&self, schema: &Value, source: &str) -> Result<(), InputError> {
         let schema = match schema["$ref"].as_str() {
             Some(name) => definition(name),
             None => schema,
@@ -209,8 +210,11 @@ const INVALID_SELECTION: &str = "Invalid field selection";
 /// with the whole expression (case bkt-edges-fields).
 const NESTED_WILDCARD: &str = "Leading and nested wildcards are unsupported in field selection:";
 
-fn invalid(message: impl Into<String>) -> ApiError {
-    ApiError::invalid_parameter(message).at_parameter("fields")
+fn invalid(message: impl Into<String>) -> InputError {
+    InputError {
+        field: Some("fields"),
+        ..InputError::parameter(message)
+    }
 }
 
 /// A selector parser. Cloud Storage ignored an empty segment such as the middle of
@@ -227,13 +231,13 @@ struct Parser<'a> {
 impl Parser<'_> {
     /// Cloud Storage follows the selection wording with the expression, without a colon
     /// ("Invalid field selection metadata/", case obj-fields-selectors).
-    fn invalid_selection(&self) -> ApiError {
+    fn invalid_selection(&self) -> InputError {
         invalid(format!("{INVALID_SELECTION} {}", self.source))
     }
 
     /// Any other syntax problem, followed by `: ` and the expression. The FieldMask wording
     /// quotes the expression itself and does not use this.
-    fn rejected(&self, problem: &str) -> ApiError {
+    fn rejected(&self, problem: &str) -> InputError {
         invalid(format!("{problem}: {}", self.source))
     }
 
@@ -241,7 +245,7 @@ impl Parser<'_> {
         self.rest = self.rest.trim_start();
     }
 
-    fn list(&mut self, depth: usize) -> Result<Fields, ApiError> {
+    fn list(&mut self, depth: usize) -> Result<Fields, InputError> {
         let mut fields = Fields::default();
         loop {
             self.skip_whitespace();
@@ -260,7 +264,7 @@ impl Parser<'_> {
         Ok(fields)
     }
 
-    fn path(&mut self, depth: usize) -> Result<Fields, ApiError> {
+    fn path(&mut self, depth: usize) -> Result<Fields, InputError> {
         if depth >= MAX_DEPTH {
             return Err(self.rejected("fields exceeds depth 32"));
         }
@@ -289,10 +293,14 @@ impl Parser<'_> {
             self.rest = rest;
             let child = self.list(depth + 1)?;
             let Some(rest) = self.rest.strip_prefix(')') else {
-                return Err(ApiError::field_mask_syntax(format!(
-                    "Invalid FieldMask '{}'. Cannot find matching ')' for all '('.",
-                    self.source
-                )));
+                return Err(InputError {
+                    kind: InputKind::FieldMaskSyntax,
+                    field: Some("fields"),
+                    message: format!(
+                        "Invalid FieldMask '{}'. Cannot find matching ')' for all '('.",
+                        self.source
+                    ),
+                });
             };
             self.rest = rest;
             child

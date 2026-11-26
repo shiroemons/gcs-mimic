@@ -38,7 +38,7 @@ pub(crate) const DESTINATION_PREFIX: &str = "x-goog-encryption-";
 /// Header prefix carrying the source object's key on copy and rewrite.
 pub(crate) const SOURCE_PREFIX: &str = "x-goog-copy-source-encryption-";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum CsekError {
     AlgorithmInvalid,
     KeyFormatInvalid,

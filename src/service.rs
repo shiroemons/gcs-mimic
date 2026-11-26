@@ -5,9 +5,11 @@ use crate::{
     bounded_body::BodyError,
     bucket::{BucketRecord, CatalogError, resource},
     config::CompatProfile,
+    csek::CsekError,
     input::InputError,
     multipart::MultipartError,
-    object::{media_headers::StoredHeaderError, upload_headers::UploadHeaderError},
+    object::{ObjectError, media_headers::StoredHeaderError, upload_headers::UploadHeaderError},
+    storage::ResumableError,
     time_format::TimeOutOfRange,
 };
 use serde_json::{Map, Value};
@@ -24,6 +26,12 @@ pub(crate) enum ServiceError {
     #[error(transparent)]
     Multipart(#[from] MultipartError),
     #[error(transparent)]
+    Object(Box<ObjectError>),
+    #[error(transparent)]
+    Resumable(Box<ResumableError>),
+    #[error(transparent)]
+    Csek(#[from] CsekError),
+    #[error(transparent)]
     UploadHeader(#[from] UploadHeaderError),
     #[error(transparent)]
     Body(#[from] BodyError),
@@ -31,6 +39,18 @@ pub(crate) enum ServiceError {
     StoredHeader(#[from] StoredHeaderError),
     #[error(transparent)]
     Time(#[from] TimeOutOfRange),
+}
+
+impl From<ObjectError> for ServiceError {
+    fn from(error: ObjectError) -> Self {
+        Self::Object(Box::new(error))
+    }
+}
+
+impl From<ResumableError> for ServiceError {
+    fn from(error: ResumableError) -> Self {
+        Self::Resumable(Box::new(error))
+    }
 }
 
 impl From<resource::Error> for ServiceError {
@@ -68,8 +88,10 @@ mod tests {
         );
         assert!(
             size_of::<ServiceError>() <= 56,
-            "service {} bytes",
-            size_of::<ServiceError>()
+            "service {} bytes with object {} and resumable {} bytes",
+            size_of::<ServiceError>(),
+            size_of::<ObjectError>(),
+            size_of::<ResumableError>()
         );
     }
 }

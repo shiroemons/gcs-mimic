@@ -13,10 +13,12 @@ use crate::{
     config::CompatProfile,
     csek::CustomerKey,
     http_header::{TextOrder, sole},
+    input::InputError,
     object::{
         IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget,
         media_headers::CUSTOM_METADATA_PREFIX, retention::UnlockedOverride,
     },
+    service::ServiceError,
 };
 use hyper::{HeaderMap, Method, StatusCode, Uri};
 use serde_json::{Map, Value, json};
@@ -801,11 +803,9 @@ pub(super) fn match_and_not_match(conditions: &ObjectConditions) -> bool {
 }
 
 /// `keys` lists the customer-supplied key header prefixes the caller parses itself.
-fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), ApiError> {
+fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), InputError> {
     IdempotencyToken::validate_opaque(headers).map_err(|_| {
-        ApiError::invalid_parameter(
-            "Expected a single non-empty x-goog-gcs-idempotency-token header",
-        )
+        InputError::parameter("Expected a single non-empty x-goog-gcs-idempotency-token header")
     })?;
     for key in headers.keys() {
         let name = key.as_str();
@@ -820,7 +820,7 @@ fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), ApiErro
             || name.starts_with(CUSTOM_METADATA_PREFIX)
             || matches!(name, "x-goog-user-project" | "x-http-method-override")
         {
-            return Err(ApiError::unsupported_object(name));
+            return Err(InputError::unsupported_object(name));
         }
     }
     Ok(())
@@ -829,16 +829,17 @@ fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), ApiErro
 /// The `Content-Type` an upload stores, checked with the rest of its headers without consuming
 /// or collecting the body. Callers read the destination customer-supplied key separately with
 /// [`super::request_key`].
-pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ApiError> {
+pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ServiceError> {
     unsupported_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
     validate_read_condition_headers(headers, EtagConditions::Unsupported)?;
     if let Some(mime) = super::resumable::single(headers, "x-upload-content-type")? {
-        crate::object::validate_fixed_metadata("contentType", mime)?;
+        crate::object::validate_fixed_metadata("contentType", mime)
+            .map_err(crate::object::ObjectError::from)?;
         let mut advisory = HeaderMap::new();
         advisory.insert(
             "content-type",
             mime.parse()
-                .map_err(|_| ApiError::invalid_parameter("Invalid upload content type"))?,
+                .map_err(|_| InputError::parameter("Invalid upload content type"))?,
         );
         crate::object::upload_headers::content_type(&advisory)?;
     }
@@ -850,7 +851,7 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ApiErro
         "x-upload-content-length",
     ] {
         if headers.contains_key(name) {
-            return Err(ApiError::unsupported_object(name));
+            return Err(InputError::unsupported_object(name).into());
         }
     }
     // `X-Goog-Hash` is not examined either. Recorded JSON media uploads that named a wrong,
@@ -892,7 +893,7 @@ pub(crate) enum EtagConditions {
 pub(crate) fn validate_read_condition_headers(
     headers: &HeaderMap,
     etags: EtagConditions,
-) -> Result<(), ApiError> {
+) -> Result<(), InputError> {
     if matches!(etags, EtagConditions::Supported | EtagConditions::MatchOnly) {
         for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
             if (name == "if-modified-since" && headers.contains_key("if-none-match"))
@@ -901,7 +902,7 @@ pub(crate) fn validate_read_condition_headers(
                 continue;
             }
             if headers.contains_key(name) {
-                return Err(ApiError::unsupported_object(name));
+                return Err(InputError::unsupported_object(name));
             }
         }
     }
@@ -910,7 +911,7 @@ pub(crate) fn validate_read_condition_headers(
             && (etags == EtagConditions::Unsupported
                 || (etags == EtagConditions::MatchOnly && name == "if-none-match"))
         {
-            return Err(ApiError::unsupported_object(name));
+            return Err(InputError::unsupported_object(name));
         }
     }
     Ok(())
@@ -1235,7 +1236,7 @@ pub(crate) enum Gunzip {
 pub(crate) fn object_media_transcoding(
     headers: &HeaderMap,
     object: &ObjectRecord,
-) -> Result<Transcoding, ApiError> {
+) -> Result<Transcoding, InputError> {
     if !object_media_negotiable(object) {
         return Ok(Transcoding::Stored);
     }
@@ -1249,13 +1250,13 @@ pub(crate) fn object_media_transcoding(
 }
 
 /// Whether `Accept-Encoding` admits gzip, directly or through `*`.
-fn accepts_gzip(headers: &HeaderMap) -> Result<bool, ApiError> {
+fn accepts_gzip(headers: &HeaderMap) -> Result<bool, InputError> {
     let mut gzip = None;
     let mut wildcard = None;
     for header in headers.get_all("accept-encoding") {
         let value = header
             .to_str()
-            .map_err(|_| ApiError::invalid_parameter("Invalid Accept-Encoding"))?;
+            .map_err(|_| InputError::parameter("Invalid Accept-Encoding"))?;
         for entry in value
             .split(',')
             .map(str::trim)
@@ -1265,13 +1266,12 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, ApiError> {
             // `split` always yields at least one item, so the default is never used.
             let encoding = parts.next().unwrap_or_default().trim();
             let allowed = if let Some(parameter) = parts.next() {
-                let (name, quality) = parameter.trim().split_once('=').ok_or_else(|| {
-                    ApiError::invalid_parameter("Invalid Accept-Encoding quality")
-                })?;
+                let (name, quality) = parameter
+                    .trim()
+                    .split_once('=')
+                    .ok_or_else(|| InputError::parameter("Invalid Accept-Encoding quality"))?;
                 if !name.eq_ignore_ascii_case("q") || parts.next().is_some() {
-                    return Err(ApiError::invalid_parameter(
-                        "Invalid Accept-Encoding parameter",
-                    ));
+                    return Err(InputError::parameter("Invalid Accept-Encoding parameter"));
                 }
                 let quality = quality.trim();
                 let (whole, fraction) = quality.split_once('.').unwrap_or((quality, ""));
@@ -1280,9 +1280,7 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, ApiError> {
                     || !fraction.bytes().all(|byte| byte.is_ascii_digit())
                     || (whole == "1" && fraction.bytes().any(|byte| byte != b'0'))
                 {
-                    return Err(ApiError::invalid_parameter(
-                        "Invalid Accept-Encoding quality",
-                    ));
+                    return Err(InputError::parameter("Invalid Accept-Encoding quality"));
                 }
                 whole == "1" || fraction.bytes().any(|byte| byte != b'0')
             } else {
@@ -1296,9 +1294,7 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, ApiError> {
                 continue;
             };
             if selected.replace(allowed).is_some() {
-                return Err(ApiError::invalid_parameter(
-                    "Duplicate Accept-Encoding token",
-                ));
+                return Err(InputError::parameter("Duplicate Accept-Encoding token"));
             }
         }
     }

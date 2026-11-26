@@ -21,6 +21,9 @@ use serde_json::{Map, Value, json};
 impl From<InputError> for ApiError {
     fn from(input: InputError) -> Self {
         let error = match input.kind {
+            InputKind::Parameter => Self::invalid_parameter(input.message),
+            InputKind::FieldMaskSyntax => Self::field_mask_syntax(input.message),
+            InputKind::SessionProtocol => Self::session_protocol(input.message),
             InputKind::Invalid => Self::invalid(input.message),
             InputKind::Required => Self::required(input.message),
             InputKind::Unsupported => Self::unsupported_message(input.message),
@@ -62,6 +65,9 @@ impl From<ServiceError> for ApiError {
             ServiceError::Input(error) => error.into(),
             ServiceError::Project(error) => error.into(),
             ServiceError::Catalog(error) => error.into(),
+            ServiceError::Object(error) => (*error).into(),
+            ServiceError::Resumable(error) => (*error).into(),
+            ServiceError::Csek(error) => error.into(),
             ServiceError::UploadHeader(error) => match error {
                 UploadHeaderError::UnsupportedAlgorithm => {
                     Self::unsupported_message(error.to_string())

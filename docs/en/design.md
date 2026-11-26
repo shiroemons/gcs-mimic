@@ -68,16 +68,11 @@ which exposes only the project and timestamp failures those callers can encounte
 Upload headers, stored media headers, bounded request bodies and multipart framing also
 preserve their typed errors through the protocol mappings. A resumable writer keeps its
 storage error until the upload driver chooses between a body abort and a producer failure.
-Other shared request parsers and server logic still return `api_error::ApiError`. Each adapter
-answers that error in its own protocol: the JSON adapter renders the envelope through
-`json::JsonErrorResponse`, the XML adapter maps it and the domain errors to its codes
-(`src/xml/error_mapping.rs`), and the gRPC adapter maps them to statuses
-(`src/grpc/v2/status.rs`). `ApiError` still carries an HTTP status and Cloud Storage's
-JSON `reason`, which the XML and gRPC conversions read; it is shared, not yet
-protocol-neutral. The module layer lint below only sees a named reference, so it does not
-measure this coupling. Removing it means the shared server logic and request parsers return domain and
-request-validation errors, as catalog, object and authentication failures already are, and
-each adapter chooses its own status, code and wording; that is a slice of its own.
+Shared object reads, resumable uploads and authorization return domain or service errors.
+The JSON adapter selects an HTTP response and Cloud Storage reason. The XML adapter
+selects its own code and document in `src/xml/error_mapping.rs`, and the gRPC adapter
+selects a status and details in `src/grpc/v2/status.rs`. JSON handlers render their
+errors through `json::JsonErrorResponse`.
 
 The library's modules form the layers below, from the lowest to the highest. A module may
 name modules in its own layer and in lower layers, and the three adapters may not name each

@@ -5,7 +5,7 @@ use super::{Error, MinValue, Namespace, ReadRequest, XmlWriter, accepted_paramet
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth,
-    server::{ObjectCtx, ResponseBody, anonymous_error, boxed},
+    server::{ObjectCtx, ResponseBody, boxed},
     storage::{ObjectListCursor, ObjectListPage, ObjectListQuery},
 };
 use hyper::header::HeaderValue;
@@ -293,7 +293,7 @@ pub(crate) async fn respond(
             &access,
         ))
         .await
-        .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
+        .map_err(|error| Error::from(error).for_caller(ctx.caller))?;
     let body = render(&params, &page)?;
     let mut response = super::document_response(body);
     // The catalog read that produced the page also reports the bucket's metageneration, so the

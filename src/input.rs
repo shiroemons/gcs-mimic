@@ -12,6 +12,9 @@ pub(crate) struct InputError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InputKind {
     Invalid,
+    Parameter,
+    FieldMaskSyntax,
+    SessionProtocol,
     Required,
     Unsupported,
 }
@@ -21,6 +24,30 @@ impl InputError {
         Self {
             kind: InputKind::Invalid,
             message: message.into(),
+            field: None,
+        }
+    }
+
+    pub(crate) fn parameter(message: impl Into<String>) -> Self {
+        Self {
+            kind: InputKind::Parameter,
+            message: message.into(),
+            field: None,
+        }
+    }
+
+    pub(crate) fn session_protocol(message: impl Into<String>) -> Self {
+        Self {
+            kind: InputKind::SessionProtocol,
+            message: message.into(),
+            field: None,
+        }
+    }
+
+    pub(crate) fn unsupported_object(field: &str) -> Self {
+        Self {
+            kind: InputKind::Unsupported,
+            message: unsupported_object_setting(field),
             field: None,
         }
     }

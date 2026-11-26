@@ -13,7 +13,7 @@ use crate::{
         MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, TextTokenError,
         content_type, upload_headers::custom_metadata_headers,
     },
-    server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
+    server::{ObjectCtx, ResponseBody, boxed, empty_response, stream_upload},
     storage::ObjectUpload,
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes};
@@ -356,7 +356,7 @@ pub(super) fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> E
         ObjectError::BodyAborted(_) => {
             Error::new(XmlCode::IncompleteBody, "The upload body did not complete.")
         }
-        error => anonymous_error(error.into(), caller).into(),
+        error => Error::from(error).for_caller(caller),
     }
 }
 

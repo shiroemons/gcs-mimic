@@ -96,7 +96,7 @@ const UPLOAD_CANCELLED: &str = "Upload has already been cancelled.";
 /// includes a session that expired: the catalog answers an expired session as a missing one and
 /// its maintenance deletes the expired row, so it cannot tell an ID that once named a session
 /// from one that never did.
-fn session_status(error: ResumableError) -> Status {
+pub(super) fn session_status(error: ResumableError) -> Status {
     match error {
         ResumableError::NotFound => internal_error(),
         ResumableError::Cancelled => Status::invalid_argument(UPLOAD_CANCELLED),

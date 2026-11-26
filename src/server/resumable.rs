@@ -7,12 +7,14 @@ use crate::json::JsonErrorResponse;
 use crate::{
     api_error::ApiError,
     bucket::BucketAccess,
+    input::InputError,
     json::{
         self, ObjectInsertParams,
         resumable::{self, Range},
         resumable_cancel::Cancellation,
     },
     object::{ObjectError, ObjectRecord, media_headers::CUSTOM_METADATA_PREFIX},
+    service::ServiceError,
     storage::{
         ChunkEnd, ChunkWait, Overrun, Progress, ResumableChunk, ResumableError, ResumableOptions,
         SessionLease, SessionState, Written,
@@ -120,7 +122,7 @@ pub(crate) async fn create_session(
     name: &str,
     options: ResumableOptions,
     total: Option<u64>,
-) -> Result<crate::storage::SessionId, ApiError> {
+) -> Result<crate::storage::SessionId, ServiceError> {
     let state = ctx.state;
     super::retention_access::authorize_upload(
         &state.catalog,
@@ -142,7 +144,7 @@ pub(crate) async fn create_session(
 pub(super) fn incomplete(
     progress: Progress,
     headers: &hyper::HeaderMap,
-) -> Result<Response<ResponseBody>, ApiError> {
+) -> Result<Response<ResponseBody>, ServiceError> {
     let override_status = resumable::single(headers, "x-guploader-no-308")? == Some("yes");
     let mut response = empty_response(if override_status {
         StatusCode::OK
@@ -250,7 +252,7 @@ struct SessionPosition {
 fn chunk_framing(
     headers: &hyper::HeaderMap,
     max_bytes: u64,
-) -> Result<(Option<Range>, Option<u64>), ApiError> {
+) -> Result<(Option<Range>, Option<u64>), ServiceError> {
     let range = resumable::range(headers)?;
     let length = resumable::single(headers, "content-length")?
         .map(resumable::unsigned)
@@ -285,9 +287,9 @@ fn chunk_framing(
         _ => false,
     };
     if mismatch {
-        return Err(ApiError::session_protocol(
-            "Content-Length does not match Content-Range",
-        ));
+        return Err(
+            InputError::session_protocol("Content-Length does not match Content-Range").into(),
+        );
     }
     Ok((range, length))
 }
@@ -302,19 +304,20 @@ fn open_extent(
     length: Option<u64>,
     session_total: Option<u64>,
     max_bytes: u64,
-) -> Result<Extent, ApiError> {
+) -> Result<Extent, ServiceError> {
     if total.is_some_and(|n| session_total.is_some_and(|t| n != t)) {
-        return Err(ApiError::session_protocol("Inconsistent upload total"));
+        return Err(InputError::session_protocol("Inconsistent upload total").into());
     }
     match (total.or(session_total), length) {
         (Some(total), length) => {
             let remaining = total
                 .checked_sub(start)
-                .ok_or_else(|| ApiError::session_protocol("Inconsistent upload total"))?;
+                .ok_or_else(|| InputError::session_protocol("Inconsistent upload total"))?;
             if length.is_some_and(|n| n != remaining) {
-                return Err(ApiError::session_protocol(
+                return Err(InputError::session_protocol(
                     "Content-Length does not match Content-Range",
-                ));
+                )
+                .into());
             }
             Ok(Extent {
                 start,
@@ -326,7 +329,7 @@ fn open_extent(
         (None, Some(length)) => {
             let end = start
                 .checked_add(length)
-                .ok_or_else(|| ApiError::session_protocol("Upload offset overflow"))?;
+                .ok_or_else(|| InputError::session_protocol("Upload offset overflow"))?;
             Ok(Extent {
                 start,
                 length,
@@ -346,15 +349,21 @@ fn open_extent(
 /// Why a chunk request cannot be planned.
 enum Refusal {
     /// Refuses this request and leaves the session as it was.
-    Request(ApiError),
+    Request(ServiceError),
     /// A data chunk with an open total that runs past the session's total. Cloud Storage
     /// failed the JSON session on it (recorded 2026-11-15, case obj-resumable-declared-length).
     Overrun(Overrun),
 }
 
-impl From<ApiError> for Refusal {
-    fn from(error: ApiError) -> Self {
+impl From<ServiceError> for Refusal {
+    fn from(error: ServiceError) -> Self {
         Self::Request(error)
+    }
+}
+
+impl From<InputError> for Refusal {
+    fn from(error: InputError) -> Self {
+        Self::Request(error.into())
     }
 }
 
@@ -374,7 +383,7 @@ fn plan_chunk(
     } = match range {
         Some(Range::Status(total)) => {
             if length != Some(0) || headers.contains_key("transfer-encoding") {
-                return Err(ApiError::session_protocol("Status requires an empty body").into());
+                return Err(InputError::session_protocol("Status requires an empty body").into());
             }
             Extent {
                 start: session.offset,
@@ -394,13 +403,13 @@ fn plan_chunk(
         }
         None => {
             if session.offset != 0 && session.state != SessionState::Complete {
-                return Err(ApiError::session_protocol(
+                return Err(InputError::session_protocol(
                     "Content-Range required after the first chunk",
                 )
                 .into());
             }
             let length = length.ok_or_else(|| {
-                ApiError::session_protocol("Content-Length required without Content-Range")
+                InputError::session_protocol("Content-Length required without Content-Range")
             })?;
             Extent {
                 start: 0,
@@ -411,13 +420,13 @@ fn plan_chunk(
         }
     };
     if start > session.offset {
-        return Err(ApiError::session_protocol("Upload offset leaves a gap").into());
+        return Err(InputError::session_protocol("Upload offset leaves a gap").into());
     }
     let end = start
         .checked_add(length)
-        .ok_or_else(|| ApiError::session_protocol("Upload offset overflow"))?;
+        .ok_or_else(|| InputError::session_protocol("Upload offset overflow"))?;
     if end > max_bytes || total.is_some_and(|n| n > max_bytes) {
-        return Err(ApiError::from(ObjectError::TooLarge).into());
+        return Err(ServiceError::from(ObjectError::TooLarge).into());
     }
     if total.is_some_and(|n| session.total.is_some_and(|t| n != t) || n < session.offset)
         || session.total.is_some_and(|n| end > n)
@@ -432,7 +441,7 @@ fn plan_chunk(
                     room: declared.saturating_sub(start),
                 })
             }
-            _ => ApiError::session_protocol("Inconsistent upload total").into(),
+            _ => InputError::session_protocol("Inconsistent upload total").into(),
         });
     }
     let total = total.or(session.total);
@@ -450,7 +459,7 @@ fn plan_chunk(
                 "Invalid request.  The number of bytes uploaded is required to be equal or greater than 262144, except for the final request (it's recommended to be the exact multiple of 262144).  The received request contained {length} bytes, which does not meet this requirement."
             )
         };
-        return Err(ApiError::session_protocol(message).into());
+        return Err(InputError::session_protocol(message).into());
     }
     Ok(ChunkPlan {
         start,
@@ -527,7 +536,7 @@ async fn session_framing(
     headers: &hyper::HeaderMap,
     target: &SessionTarget<'_>,
     ctx: ObjectCtx<'_>,
-) -> Result<(Option<Range>, Option<u64>), ApiError> {
+) -> Result<(Option<Range>, Option<u64>), ServiceError> {
     let framing = chunk_framing(headers, ctx.config.max_object_bytes());
     // The recordings prove a terminal JSON session failure for malformed syntax and for a
     // chunk that overruns its declared total.
@@ -552,7 +561,7 @@ pub(crate) async fn transfer(
     request: Request<Incoming>,
     target: SessionTarget<'_>,
     ctx: ObjectCtx<'_>,
-) -> Result<Transfer, ApiError> {
+) -> Result<Transfer, ServiceError> {
     let ObjectCtx { state, config, .. } = ctx;
     let SessionTarget { bucket, id, name } = target;
     let headers = request.headers().clone();
@@ -603,16 +612,15 @@ pub(crate) async fn transfer(
             .keys()
             .any(|k| k.as_str().starts_with(CUSTOM_METADATA_PREFIX))
     {
-        return Err(ApiError::invalid_parameter(
-            "Final metadata requires a final request",
-        ));
+        return Err(InputError::parameter("Final metadata requires a final request").into());
     }
     if (session.state == SessionState::Complete || status_only)
         && options.expected != session.options.expected
     {
-        return Err(ApiError::invalid_parameter(
+        return Err(InputError::parameter(
             "Status or completed retries cannot introduce new checksum declarations",
-        ));
+        )
+        .into());
     }
     if session.state == SessionState::Complete {
         let view = CompletionView::of(&session.options)?;
@@ -663,7 +671,7 @@ pub(crate) async fn transfer(
 
 /// The answer to a chunk that cannot be planned. An overrun first fails the session, so that
 /// every later request on it repeats the refusal.
-async fn refuse(refusal: Refusal, lease: &SessionLease, ctx: ObjectCtx<'_>) -> ApiError {
+async fn refuse(refusal: Refusal, lease: &SessionLease, ctx: ObjectCtx<'_>) -> ServiceError {
     match refusal {
         Refusal::Request(error) => error,
         Refusal::Overrun(overrun) => {
@@ -709,7 +717,7 @@ struct CompletionView {
 
 impl CompletionView {
     /// Parses the initiation's field selection, so a bad one fails before any byte is stored.
-    fn of(options: &ResumableOptions) -> Result<Self, ApiError> {
+    fn of(options: &ResumableOptions) -> Result<Self, ServiceError> {
         Ok(Self {
             acl_reader: (options.projection == json::Projection::Full)
                 .then(|| options.access.clone()),
@@ -725,7 +733,7 @@ impl CompletionView {
         &self,
         ctx: ObjectCtx<'_>,
         mut resource: serde_json::Value,
-    ) -> Result<serde_json::Value, ApiError> {
+    ) -> Result<serde_json::Value, ServiceError> {
         if let Some(initiator) = &self.acl_reader {
             super::acl::add_full_projection_to_stored(
                 ctx.state,

@@ -275,10 +275,10 @@ impl Expiry {
     }
 }
 
+const REQUEST_TIMED_OUT: &str = "The request timed out before a response was ready; retry the request, or raise request_timeout_ms (0 disables it).";
+
 fn request_timed_out() -> ApiError {
-    ApiError::service_unavailable(
-        "The request timed out before a response was ready; retry the request, or raise request_timeout_ms (0 disables it).",
-    )
+    ApiError::service_unavailable(REQUEST_TIMED_OUT)
 }
 
 /// The JSON API documents 408 `uploadBrokenConnection` as its only request timeout.
@@ -293,19 +293,21 @@ fn request_body_silent() -> ApiError {
 /// The XML API documents a silent socket as 400 `RequestTimeout`; this repeats its meaning.
 const XML_REQUEST_BODY_SILENT: &str = "Your socket connection to the server was not read from or written to within the timeout period: no request body bytes arrived within body_inactivity_timeout_ms; retry the request, or raise body_inactivity_timeout_ms for slow clients (0 disables it).";
 
+const UPLOAD_TIMED_OUT: &str = "The upload timed out: it did not finish within object_request_timeout_ms; retry the request, or raise object_request_timeout_ms for large uploads (0 disables it).";
+
 fn upload_timed_out() -> ApiError {
     ApiError::new(
         StatusCode::REQUEST_TIMEOUT,
         "uploadBrokenConnection",
-        "The upload timed out: it did not finish within object_request_timeout_ms; retry the request, or raise object_request_timeout_ms for large uploads (0 disables it).",
+        UPLOAD_TIMED_OUT,
     )
 }
 
 /// A copy, rewrite, compose or media read past its whole-request limit: a server-side timeout.
+const OBJECT_REQUEST_TIMED_OUT: &str = "The request timed out: it did not finish within object_request_timeout_ms; retry the request, or raise object_request_timeout_ms for large transfers (0 disables it).";
+
 fn object_request_timed_out() -> ApiError {
-    ApiError::service_unavailable(
-        "The request timed out: it did not finish within object_request_timeout_ms; retry the request, or raise object_request_timeout_ms for large transfers (0 disables it).",
-    )
+    ApiError::service_unavailable(OBJECT_REQUEST_TIMED_OUT)
 }
 
 /// Whether the request declares a body: any `Transfer-Encoding`, or a `Content-Length` that is
@@ -356,10 +358,16 @@ impl DeadlineReply {
     }
 
     fn xml_error(&self, expiry: Expiry) -> xml::Error {
-        match expiry {
+        match (expiry, self.payload) {
             // The XML API lists a silent socket under 400, apart from the JSON API's 408.
-            Expiry::BodyInactivity => xml::Error::request_timeout(XML_REQUEST_BODY_SILENT),
-            Expiry::Request | Expiry::ObjectRequest => expiry.json_error(self.payload).into(),
+            (Expiry::BodyInactivity, _) => xml::Error::request_timeout(XML_REQUEST_BODY_SILENT),
+            (Expiry::Request, _) => xml::Error::service_unavailable(REQUEST_TIMED_OUT),
+            (Expiry::ObjectRequest, Payload::Upload) => {
+                xml::Error::upload_broken_connection(UPLOAD_TIMED_OUT)
+            }
+            (Expiry::ObjectRequest, Payload::Other) => {
+                xml::Error::service_unavailable(OBJECT_REQUEST_TIMED_OUT)
+            }
         }
     }
 

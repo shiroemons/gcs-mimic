@@ -270,10 +270,8 @@ async fn route_xml(
 ) -> Response<ResponseBody> {
     if request.headers().contains_key("x-http-method-override") {
         return boxed(
-            xml::Error::from(ApiError::invalid_argument(
-                "Method override is supported only by the JSON API",
-            ))
-            .response(xml::ErrorBody::for_method(request.method())),
+            xml::Error::invalid("Method override is supported only by the JSON API")
+                .response(xml::ErrorBody::for_method(request.method())),
         );
     }
     // CORS must also wrap invalid object names and signed queries without authorizing them.

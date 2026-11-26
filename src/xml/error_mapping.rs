@@ -22,15 +22,53 @@ use crate::{
 };
 use hyper::StatusCode;
 
+impl From<crate::input::InputError> for Error {
+    fn from(input: crate::input::InputError) -> Self {
+        ServiceError::from(input).into()
+    }
+}
+
 impl From<MultipartError> for Error {
     fn from(error: MultipartError) -> Self {
         ServiceError::from(error).into()
     }
 }
 
+impl Error {
+    fn upload_header(
+        error: &UploadHeaderError,
+        route: crate::object::upload_headers::HashHeader,
+    ) -> Self {
+        match error {
+            UploadHeaderError::CustomMetadata { source, .. } => match route {
+                crate::object::upload_headers::HashHeader::Put => super::put::header_error(source),
+                crate::object::upload_headers::HashHeader::Session => {
+                    Self::invalid(error.to_string())
+                }
+            },
+            UploadHeaderError::InvalidContentType
+            | UploadHeaderError::DuplicateContentType
+            | UploadHeaderError::UnsupportedAlgorithm => Self::invalid(error.to_string()),
+            // XML PUT omits the algorithm. Its malformed CRC32C code is tracked in
+            // SPEC-XML-PUT-EDGES. Only resumable sessions produce Conflicting.
+            UploadHeaderError::Digest(_)
+            | UploadHeaderError::MalformedHash(_)
+            | UploadHeaderError::Conflicting(_)
+            | UploadHeaderError::DuplicateAlgorithm => match route {
+                crate::object::upload_headers::HashHeader::Put => {
+                    Self::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
+                }
+                crate::object::upload_headers::HashHeader::Session => {
+                    Self::invalid(error.to_string())
+                }
+            },
+        }
+    }
+}
+
 impl From<UploadHeaderError> for Error {
     fn from(error: UploadHeaderError) -> Self {
-        ServiceError::from(error).into()
+        Self::upload_header(&error, crate::object::upload_headers::HashHeader::Put)
     }
 }
 
@@ -45,34 +83,27 @@ impl From<ServiceError> for Error {
         match error {
             ServiceError::Input(error) => match error.kind {
                 // Unsupported bucket input also had status 400, which XML maps to InvalidArgument.
-                InputKind::Invalid | InputKind::Required | InputKind::Unsupported => {
-                    Self::invalid(error.message)
-                }
+                InputKind::Parameter
+                | InputKind::SessionProtocol
+                | InputKind::FieldMaskSyntax
+                | InputKind::Invalid
+                | InputKind::Required
+                | InputKind::Unsupported => Self::invalid(error.message),
             },
             ServiceError::Project(error) => error.into(),
             ServiceError::Catalog(error) => error.into(),
+            ServiceError::Object(error) => (*error).into(),
+            ServiceError::Resumable(error) => (*error).into(),
+            ServiceError::Csek(error) => error.into(),
             ServiceError::Multipart(error) => match error {
                 MultipartError::Framing
                 | MultipartError::BadContentType
                 | MultipartError::MissingEnd
                 | MultipartError::UnsupportedParameter(_) => Self::invalid(error.to_string()),
             },
-            ServiceError::UploadHeader(error) => match error {
-                UploadHeaderError::CustomMetadata { source, .. } => {
-                    super::put::header_error(&source)
-                }
-                UploadHeaderError::InvalidContentType
-                | UploadHeaderError::DuplicateContentType
-                | UploadHeaderError::UnsupportedAlgorithm => Self::invalid(error.to_string()),
-                // XML PUT omits the algorithm. Its malformed CRC32C code is tracked in
-                // SPEC-XML-PUT-EDGES. Only resumable sessions produce Conflicting.
-                UploadHeaderError::Digest(_)
-                | UploadHeaderError::MalformedHash(_)
-                | UploadHeaderError::Conflicting(_)
-                | UploadHeaderError::DuplicateAlgorithm => {
-                    Self::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
-                }
-            },
+            ServiceError::UploadHeader(error) => {
+                Self::upload_header(&error, crate::object::upload_headers::HashHeader::Session)
+            }
             ServiceError::StoredHeader(error) => {
                 Self::new(XmlCode::ServiceUnavailable, error.to_string())
             }
@@ -137,6 +168,25 @@ impl Error {
             message,
             details: None,
             denied: self.denied.map(Denied::into_anonymous),
+        }
+    }
+}
+
+impl From<crate::storage::ResumableError> for Error {
+    fn from(error: crate::storage::ResumableError) -> Self {
+        use crate::storage::ResumableError;
+        match error {
+            ResumableError::Object(error) => error.into(),
+            ResumableError::NotFound => Self::new(XmlCode::NoSuchKey, "Upload session not found"),
+            ResumableError::Gone => Self::new(
+                XmlCode::forwarded(StatusCode::GONE),
+                "Upload session is no longer active",
+            ),
+            ResumableError::Cancelled => Self::new(XmlCode::CancelledUpload, error.to_string()),
+            ResumableError::Invalid(message) => Self::invalid(message),
+            ResumableError::Overrun(_) | ResumableError::InvalidContentRange => {
+                Self::invalid(error.to_string())
+            }
         }
     }
 }

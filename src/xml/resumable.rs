@@ -5,12 +5,13 @@
 use super::{Error, HeaderKind, ObjectPath, Validators, XmlCode, accepted_parameter, put};
 use crate::server::RequestBody as Incoming;
 use crate::{
-    api_error::{ApiError, ErrorKind},
     auth,
+    input::InputError,
     server::{
-        ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response,
+        ObjectCtx, ResponseBody, boxed, empty_response,
         resumable::{self, SessionTarget, Transfer},
     },
+    service::ServiceError,
     storage::{ResumableError, ResumableOptions},
 };
 use hyper::{
@@ -136,7 +137,7 @@ pub(crate) async fn start(
         .map_err(|_| Error::invalid("Resumable upload initiation carries no body."))?;
     let id = resumable::create_session(ctx, &object.bucket, &name, options, None)
         .await
-        .map_err(|error| Error::from(anonymous_error(error, caller)))?;
+        .map_err(|error| Error::from(error).for_caller(caller))?;
     // The raw path keeps the client's object-name encoding; the session URI is path-style on
     // the advertised endpoint, which serves every bucket.
     let location = format!(
@@ -184,17 +185,17 @@ pub(crate) async fn session(
             ));
         }
     };
-    match result {
+    match result.map_err(Error::from) {
         Ok(Some(Transfer::Incomplete(response))) => Ok(response),
         Ok(Some(Transfer::Complete(value))) => completed(&value),
         Ok(None) => Ok(no_content()),
-        Err(error) if error.status == StatusCode::GONE => Ok(no_content()),
-        Err(error) if error.kind == ErrorKind::CancelledUpload => Ok(no_content()),
-        Err(error) if error.status == StatusCode::NOT_FOUND => Err(Error::new(
+        Err(error) if error.status() == StatusCode::GONE => Ok(no_content()),
+        Err(error) if error.code == XmlCode::CancelledUpload => Ok(no_content()),
+        Err(error) if error.status() == StatusCode::NOT_FOUND => Err(Error::new(
             XmlCode::NoSuchUpload,
             "The upload session does not exist or has expired.",
         )),
-        Err(error) => Err(error.into()),
+        Err(error) => Err(error),
     }
 }
 
@@ -202,11 +203,11 @@ async fn cancel(
     request: Request<Incoming>,
     target: SessionTarget<'_>,
     ctx: ObjectCtx<'_>,
-) -> Result<(), ApiError> {
+) -> Result<(), ServiceError> {
     let catalog = &ctx.state.catalog;
     crate::bounded_body::read_body(request.into_body(), 0)
         .await
-        .map_err(|_| ApiError::invalid_parameter("Cancellation requires an empty body"))?;
+        .map_err(|_| InputError::parameter("Cancellation requires an empty body"))?;
     let session = ctx
         .await_catalog(catalog.resumable_session(target.id, target.bucket))
         .await?;

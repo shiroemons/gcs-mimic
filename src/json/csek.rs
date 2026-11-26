@@ -10,8 +10,10 @@ use hyper::HeaderMap;
 use serde_json::{Map, Value, json};
 
 /// The key for the addressed (or destination) object: `x-goog-encryption-*`.
-pub(crate) fn request_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, ApiError> {
-    CustomerKey::from_headers(headers, DESTINATION_PREFIX).map_err(ApiError::from)
+pub(crate) fn request_key(
+    headers: &HeaderMap,
+) -> Result<Option<CustomerKey>, crate::csek::CsekError> {
+    CustomerKey::from_headers(headers, DESTINATION_PREFIX)
 }
 
 /// The copy/rewrite source key: `x-goog-copy-source-encryption-*`.

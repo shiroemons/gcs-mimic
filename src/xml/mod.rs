@@ -1,7 +1,8 @@
 //! XML objects. Shared authorization, generation selection and bytes live in storage.
 
+#[cfg(test)]
+use crate::api_error::{ApiError, ErrorKind};
 use crate::{
-    api_error::{ApiError, ErrorKind},
     config::{Config, EndpointSnapshot},
     hashing::Hashes,
     http_header::{TextError, TextOrder, sole},
@@ -267,8 +268,16 @@ impl Error {
         }
     }
 
+    pub(crate) fn service_unavailable(message: &'static str) -> Self {
+        Self::new(XmlCode::ServiceUnavailable, message)
+    }
+
     pub(crate) fn precondition_failed() -> Self {
         Self::new(XmlCode::PreconditionFailed, PRECONDITION_NOT_HELD)
+    }
+
+    pub(crate) fn upload_broken_connection(message: &'static str) -> Self {
+        Self::new(XmlCode::UploadBrokenConnection, message)
     }
 
     /// The 400 `RequestTimeout` for a client whose socket stayed silent too long.
@@ -393,6 +402,7 @@ fn document_response(body: impl Into<Bytes>) -> Response<Full<Bytes>> {
 /// The `Cache-Control` Cloud Storage sends with XML API lists, errors and private objects.
 pub(crate) const PRIVATE_CACHE_CONTROL: &str = "private, max-age=0";
 
+#[cfg(test)]
 impl From<ApiError> for Error {
     fn from(error: ApiError) -> Self {
         if error.kind == ErrorKind::UniformAccessAcl {

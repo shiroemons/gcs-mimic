@@ -2,8 +2,8 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    ObjectCtx, ResponseBody, anonymous_error, body_read_ahead, boxed, empty_response, gzip,
-    insert_content_range, object_body,
+    ObjectCtx, ResponseBody, body_read_ahead, boxed, empty_response, gzip, insert_content_range,
+    object_body,
 };
 use crate::{
     auth,
@@ -62,7 +62,7 @@ pub(super) async fn respond(
                 .delete_object(operation.target, conditions, &access),
         )
         .await
-        .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
+        .map_err(|error| xml::Error::from(error).for_caller(ctx.caller))?;
         return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
     }
     read(&request, operation, conditions, ctx, &access, key).await
@@ -125,7 +125,7 @@ async fn read(
             .open_object_keyed(target, conditions, access, key, body_read_ahead(request))
             .await
     }
-    .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
+    .map_err(|error| xml::Error::from(error).for_caller(ctx.caller))?;
     let scope = if reader.publicly_readable {
         xml::CacheScope::Public
     } else {
@@ -194,11 +194,9 @@ async fn read(
     };
     if let Some((offset, length)) = range {
         if !head {
-            reader.set_range(offset, length).map_err(|_| {
-                xml::Error::from(crate::api_error::ApiError::service_unavailable(
-                    "Cannot seek object data",
-                ))
-            })?;
+            reader
+                .set_range(offset, length)
+                .map_err(|_| xml::Error::service_unavailable("Cannot seek object data"))?;
         }
         // A compressed stored-gzip HEAD states no length, with or without a Range.
         if !(head && json::object_media_negotiable(&record)) {
@@ -234,11 +232,7 @@ async fn gunzipped(
         reason,
     } = representation;
     let head = method == Method::HEAD;
-    if !head
-        && gzip::is_plain(&mut reader, record.size)
-            .await
-            .map_err(crate::api_error::ApiError::from)?
-    {
+    if !head && gzip::is_plain(&mut reader, record.size).await? {
         // The rejection is private whatever the object's own Cache-Control says.
         let mut response = gzip::plain_body_rejection(headers);
         let rejection = response.headers_mut();

@@ -471,11 +471,19 @@ pub(super) async fn add_full_projection_to_stored(
     reader: AclReader<'_>,
     resource: &mut Value,
     base_url: &str,
-) -> Result<(), ApiError> {
+) -> Result<(), CatalogError> {
     let Some(object) = ObjectVersion::of_stored(resource) else {
         return Ok(());
     };
-    add_object(state, reader, resource, &object, base_url).await
+    let generations = vec![(object.name.clone(), object.generation)];
+    let projection = object_acls(state, reader, &object.bucket, generations).await?;
+    if let Some(ObjectAcl::Visible { entries, owner }) =
+        projection.as_ref().and_then(|acl| acl.objects.first())
+        && let Some(fields) = resource.as_object_mut()
+    {
+        write_object_acl(fields, base_url, &object, entries, owner.as_ref());
+    }
+    Ok(())
 }
 
 async fn add_object(
@@ -532,7 +540,23 @@ pub(super) fn add_object_acl(
     entries: &[AclEntry],
     owner: Option<&ObjectOwner>,
 ) -> Result<(), ApiError> {
-    let resource = resource_members(resource)?;
+    write_object_acl(
+        resource_members(resource)?,
+        base_url,
+        object,
+        entries,
+        owner,
+    );
+    Ok(())
+}
+
+fn write_object_acl(
+    resource: &mut Map<String, Value>,
+    base_url: &str,
+    object: &ObjectVersion,
+    entries: &[AclEntry],
+    owner: Option<&ObjectOwner>,
+) {
     json::acl::add_object_acl_fields(resource, base_url, object.acl_owner(), entries);
     if let Some(entity) = owner.and_then(ObjectOwner::entity) {
         resource.insert(
@@ -543,7 +567,6 @@ pub(super) fn add_object_acl(
             )])),
         );
     }
-    Ok(())
 }
 
 /// Cloud Storage names the requested object in its not-found message.

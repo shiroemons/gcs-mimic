@@ -732,7 +732,7 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
     assert!(validate_object_get_headers(&headers).is_ok());
     let headers = header_map([("x-goog-meta-example", "value")]);
     assert_eq!(
-        upload_content_type(&headers).unwrap_err().status,
+        ApiError::from(upload_content_type(&headers).unwrap_err()).status,
         StatusCode::BAD_REQUEST
     );
 }
@@ -764,7 +764,7 @@ fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditio
                 .iter()
                 .map(|&value| ("x-goog-gcs-idempotency-token", value)),
         );
-        let error = upload_content_type(&headers).unwrap_err();
+        let error = ApiError::from(upload_content_type(&headers).unwrap_err());
         assert_eq!(
             (error.status, error.reason),
             (StatusCode::BAD_REQUEST, "invalidParameter"),
@@ -849,7 +849,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     ] {
         let headers = header_map([(name, value)]);
         assert!(upload_content_type(&headers).is_ok(), "{name}");
-        let error = super::request_key(&headers).unwrap_err();
+        let error = ApiError::from(super::request_key(&headers).unwrap_err());
         assert_eq!(
             (error.status, error.reason),
             (StatusCode::BAD_REQUEST, reason),
@@ -863,7 +863,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     ] {
         let headers = header_map([(name, "AES256")]);
         assert_eq!(
-            upload_content_type(&headers).unwrap_err().reason,
+            ApiError::from(upload_content_type(&headers).unwrap_err()).reason,
             "badRequest",
             "{name}"
         );
@@ -876,7 +876,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     ] {
         let headers = header_map([(name, value)]);
         assert_eq!(
-            upload_content_type(&headers).unwrap_err().status,
+            ApiError::from(upload_content_type(&headers).unwrap_err()).status,
             StatusCode::BAD_REQUEST,
             "{name}"
         );
@@ -909,7 +909,7 @@ fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected()
         let headers = header_map([(key, "\"value\"")]);
         assert!(validate_object_get_headers(&headers).is_ok(), "{key}");
         assert_eq!(
-            upload_content_type(&headers).unwrap_err().status,
+            ApiError::from(upload_content_type(&headers).unwrap_err()).status,
             StatusCode::BAD_REQUEST,
             "{key}"
         );

@@ -18,11 +18,18 @@ impl From<ServiceError> for Status {
     fn from(error: ServiceError) -> Self {
         match error {
             ServiceError::Input(error) => match error.kind {
-                InputKind::Invalid | InputKind::Required => Self::invalid_argument(error.message),
+                InputKind::Invalid
+                | InputKind::Required
+                | InputKind::SessionProtocol
+                | InputKind::FieldMaskSyntax
+                | InputKind::Parameter => Self::invalid_argument(error.message),
                 InputKind::Unsupported => unsupported_message(error.message),
             },
             ServiceError::Project(error) => error.into(),
             ServiceError::Catalog(error) => error.into(),
+            ServiceError::Object(error) => (*error).into(),
+            ServiceError::Resumable(error) => super::object_io::session_status(*error),
+            ServiceError::Csek(error) => error.into(),
             ServiceError::UploadHeader(error) => match error {
                 UploadHeaderError::UnsupportedAlgorithm => unsupported_message(error.to_string()),
                 UploadHeaderError::CustomMetadata { .. }

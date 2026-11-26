@@ -7,10 +7,13 @@ use crate::{
     config::CompatProfile,
     decimal::Grammar,
     http_header::{TextError, TextOrder, sole},
+    input::InputError,
     object::{
-        ChecksumConflict, ExpectedHashes, MapPatch, ObjectError, content_type,
+        ChecksumConflict, ExpectedHashes, MapPatch, ObjectError, ObjectMetadataUpdate,
+        content_type,
         upload_headers::{self, HashHeader},
     },
+    service::ServiceError,
     storage::ResumableOptions,
 };
 use hyper::{HeaderMap, Method, Uri};
@@ -73,12 +76,15 @@ fn parse_session(
     Ok(UploadSession { bucket, upload_id })
 }
 
-pub(crate) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, ApiError> {
+pub(crate) fn single<'a>(
+    headers: &'a HeaderMap,
+    name: &str,
+) -> Result<Option<&'a str>, InputError> {
     sole(headers, name)
         .text(TextOrder::ValueFirst)
         .map_err(|error| match error {
-            TextError::Invalid(_) => ApiError::invalid_parameter(format!("Invalid {name}")),
-            TextError::Repeated(_) => ApiError::invalid_parameter(format!("Duplicate {name}")),
+            TextError::Invalid(_) => InputError::parameter(format!("Invalid {name}")),
+            TextError::Repeated(_) => InputError::parameter(format!("Duplicate {name}")),
         })
 }
 
@@ -100,15 +106,15 @@ fn a_non_text_first_resumable_header_wins_over_repetition() {
     );
 }
 
-pub(crate) fn unsigned(value: &str) -> Result<u64, ApiError> {
+pub(crate) fn unsigned(value: &str) -> Result<u64, InputError> {
     if !Grammar::Digits.admits(value) {
-        return Err(ApiError::invalid_parameter(
+        return Err(InputError::parameter(
             "Expected an unsigned decimal integer",
         ));
     }
     value
         .parse()
-        .map_err(|_| ApiError::invalid_parameter("Upload integer overflow"))
+        .map_err(|_| InputError::parameter("Upload integer overflow"))
 }
 
 /// What a resumable initiation declares in its headers. `X-Goog-Hash` is not among them:
@@ -335,17 +341,17 @@ fn validate_duplicate_fields(bytes: &[u8]) -> Result<(), ApiError> {
 pub(crate) fn final_options(
     headers: &HeaderMap,
     mut options: ResumableOptions,
-) -> Result<ResumableOptions, ApiError> {
+) -> Result<ResumableOptions, ServiceError> {
     let mut clean = headers.clone();
     clean.remove("content-range");
     clean.remove("x-goog-hash");
-    let mut custom = serde_json::Map::new();
+    let mut custom = std::collections::BTreeMap::new();
     for field in upload_headers::custom_metadata_headers(headers, TextOrder::ValueFirst) {
         if field.name.as_str().starts_with("x-goog-upload-") {
-            return Err(ApiError::unsupported_object(field.name.as_str()));
+            return Err(InputError::unsupported_object(field.name.as_str()).into());
         }
         if let Some((key, value)) = field.metadata.transpose()? {
-            custom.insert(key.into(), value.into());
+            custom.insert(key.to_owned(), Some(value.to_owned()));
             clean.remove(field.name);
         }
     }
@@ -361,12 +367,11 @@ pub(crate) fn final_options(
             })
     })?;
     if !custom.is_empty() {
-        let resource = serde_json::Map::from_iter([(
-            "metadata".to_owned(),
-            serde_json::Value::Object(custom),
-        )]);
-        let update = super::object_metadata_from_map(&resource, super::WriteMode::Patch)?.update;
-        // Header values are strings, so the parsed headers always merge at least one key.
+        let update = ObjectMetadataUpdate {
+            metadata: MapPatch::Merge(custom),
+            ..Default::default()
+        };
+        update.check_encoded_size()?;
         if let MapPatch::Merge(incoming) = update.metadata {
             for (key, value) in incoming {
                 options.metadata.metadata.merge_entry(key, value);
@@ -393,7 +398,10 @@ fn final_metadata_errors_follow_the_request_header_order() {
             headers.insert(name, value);
         }
         let options = ResumableOptions::new(BucketAccess::Permissive);
-        assert_eq!(final_options(&headers, options).unwrap_err(), expected);
+        assert_eq!(
+            ApiError::from(final_options(&headers, options).unwrap_err()),
+            expected
+        );
     }
 }
 
@@ -416,13 +424,8 @@ pub(crate) enum Range {
 
 /// A `Content-Range` Cloud Storage refused: every malformed or inconsistent one got the same
 /// bare text page.
-pub(crate) fn unusable_content_range() -> ApiError {
-    ApiError::invalid_parameter("Failed to parse Content-Range header.")
-        .with_plain(&crate::api_error::CONTENT_RANGE_TEXT)
-}
-
-pub(crate) fn range(headers: &HeaderMap) -> Result<Option<Range>, ApiError> {
-    parse_range(headers).map_err(|_| unusable_content_range())
+pub(crate) fn range(headers: &HeaderMap) -> Result<Option<Range>, crate::storage::ResumableError> {
+    parse_range(headers).map_err(|_| crate::storage::ResumableError::InvalidContentRange)
 }
 
 enum RangeError {
