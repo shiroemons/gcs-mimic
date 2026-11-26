@@ -1,6 +1,29 @@
 use super::cleanup::DiscardedTransfer;
 use super::*;
 
+pub(crate) struct DerivedBody {
+    transfer: BlobId,
+    pin: Option<PublicationPin>,
+}
+
+impl DerivedTransfer {
+    pub(crate) fn publication_body(&self, pin: Option<PublicationPin>) -> DerivedBody {
+        DerivedBody {
+            transfer: self.id,
+            pin,
+        }
+    }
+}
+
+impl From<&BlobId> for DerivedBody {
+    fn from(id: &BlobId) -> Self {
+        Self {
+            transfer: *id,
+            pin: None,
+        }
+    }
+}
+
 /// Adapters supply inherited or replacement metadata explicitly; bytes and destination defaults
 /// are transport independent. Adapters pass the inherited source class for an absent/null body;
 /// `None` selects the destination bucket default for an explicit resource without storageClass.
@@ -23,6 +46,7 @@ pub(crate) struct DerivedDestination {
 
 struct TransferPublication<P, C> {
     id: BlobId,
+    pinned: Option<(BlobId, Hashes)>,
     destination: DerivedDestination,
     backend: super::super::BlobBackend,
     clock: std::sync::Arc<dyn crate::clock::Clock>,
@@ -59,14 +83,15 @@ where
     let backend = request.backend.clone();
     let now = request.clock.now();
     let (progress, hasher) = transfer(connection, &id, UnixMillis::try_from(now)?)?;
-    if progress.offset != progress.total {
+    if request.pinned.is_none() && progress.offset != progress.total {
         return Err(ObjectError::DerivedTransferIncomplete);
     }
     let pins = inputs(connection, &id)?
         .into_iter()
         .map(|source| source.id)
         .collect::<Vec<_>>();
-    if backend.is_memory() {
+    let (blob, hashes) = request.pinned.unwrap_or_else(|| (id, hasher.finish()));
+    if backend.is_memory() && request.pinned.is_none() {
         backend.publish_draft(&id)?;
     }
     let transaction = sql::immediate(connection)?;
@@ -85,17 +110,11 @@ where
         .transpose()?
         .flatten();
     let (record, completion, journaled) = if let Some(record) = cached {
-        objects::journal_new_deletion(&transaction, &id)?;
+        objects::journal_new_deletion(&transaction, &blob)?;
         (record, None, objects::Journaled::SOME)
     } else {
-        let (record, completion, journaled) = publish_destination(
-            &transaction,
-            request,
-            &progress,
-            hasher.finish(),
-            now,
-            micros,
-        )?;
+        let (record, completion, journaled) =
+            publish_destination(&transaction, request, &progress, hashes, now, micros)?;
         (record, Some(completion), journaled)
     };
     sql::exec(
@@ -154,6 +173,7 @@ where
 {
     let TransferPublication {
         id,
+        pinned,
         destination,
         principals,
         replay,
@@ -185,7 +205,7 @@ where
     destination.declared.verify(&hashes)?;
     let time = system_time_micros(micros)?;
     let version = objects::NewVersion {
-        blob_id: id,
+        blob_id: pinned.map_or(id, |(blob, _)| blob),
         assignment: objects::GenerationAssignment::Automatic,
         micros,
         notification_mode: crate::notification::NotificationMode::Emit,
@@ -285,7 +305,7 @@ impl Catalog {
         + 'static,
     ) -> Result<ObjectRecord, ObjectError> {
         self.publish_derived_prepared(
-            id,
+            id.into(),
             destination,
             move |connection, record| validate(connection, record),
             complete,
@@ -299,7 +319,7 @@ impl Catalog {
     /// Completion's value, computed in the same transaction, returns with the record.
     pub(crate) async fn publish_derived_prepared<T: Send + 'static>(
         &self,
-        id: &BlobId,
+        body: DerivedBody,
         destination: DerivedDestination,
         prepare: impl FnOnce(&sql::WriteTx<'_>, &mut ObjectRecord) -> Result<(), ObjectError>
         + Send
@@ -310,7 +330,14 @@ impl Catalog {
         admission_deadline: Option<tokio::time::Instant>,
     ) -> Result<(ObjectRecord, T), ObjectError> {
         let published = self
-            .publish_derived_replayed(id, destination, prepare, complete, admission_deadline, None)
+            .publish_derived_replayed(
+                body,
+                destination,
+                prepare,
+                complete,
+                admission_deadline,
+                None,
+            )
             .await?;
         // Without a replay binding the publication always runs completion.
         let completion = published
@@ -321,7 +348,7 @@ impl Catalog {
 
     pub(crate) async fn publish_derived_replayed<T: Send + 'static>(
         &self,
-        id: &BlobId,
+        body: DerivedBody,
         destination: DerivedDestination,
         prepare: impl FnOnce(&sql::WriteTx<'_>, &mut ObjectRecord) -> Result<(), ObjectError>
         + Send
@@ -332,9 +359,13 @@ impl Catalog {
         admission_deadline: Option<tokio::time::Instant>,
         replay: Option<super::super::upload_replay::BoundCopyReplay>,
     ) -> Result<DerivedPublication<T>, ObjectError> {
+        let DerivedBody {
+            transfer: id,
+            mut pin,
+        } = body;
         let admission = async {
             let permit = self.continue_object_upload().await?;
-            let guard = self.derived_guard(id)?;
+            let guard = self.derived_guard(&id)?;
             let execution = self
                 .0
                 .writer
@@ -354,31 +385,45 @@ impl Catalog {
             None => admission.await?,
         };
         let catalog = self.clone();
-        let id = *id;
         crate::task::spawn_supervised("derived-publication", async move {
             let (_permit, _guard) = (permit, guard);
             let query = id;
             let backend = catalog.0.storage.backend.clone();
             let clock = catalog.0.policy.clock.clone();
             let principals = catalog.0.policy.principals.clone();
+            let input = pin.as_ref().map(|p| p.input);
+            let pinned = pin.as_mut().map(|p| {
+                p.pin.backend = None;
+                (p.pin.id, p.hashes)
+            });
+            let blob = pinned.map_or(id, |(blob, _)| blob);
             let result = async {
             catalog.run_upload_admitted(execution, move |connection| {
-                let (progress, hasher) = transfer(connection, &query, UnixMillis::try_from(clock.now())?)?;
+                let (progress, _) = transfer(connection, &query, UnixMillis::try_from(clock.now())?)?;
                 let sources = inputs(connection, &query)?;
-                if progress.offset != progress.total { return Err(ObjectError::DerivedTransferIncomplete); }
-                Ok((hasher, sources))
+                let ready = match input {
+                    Some(input) => matches!(sources.as_slice(), [s] if s.id == input && s.start == 0 && s.length == s.size && s.size == progress.total && progress.offset == 0),
+                    None => progress.offset == progress.total,
+                };
+                if !ready { return Err(ObjectError::DerivedTransferIncomplete); }
+                Ok(())
             }).await?;
             if !backend.is_memory() {
-                let files = backend.clone();
-                crate::task::run_blocking("derived-restore", move || files.restore_draft(&id)).await??;
-                catalog.publish_staged(id.staging_path(&catalog.0.storage.data_dir), id.blob_path(&catalog.0.storage.data_dir)).await?;
+                if pinned.is_none() {
+                    let files = backend.clone();
+                    crate::task::run_blocking("derived-restore", move || files.restore_draft(&id)).await??;
+                }
+                catalog.publish_staged(blob.staging_path(&catalog.0.storage.data_dir), blob.blob_path(&catalog.0.storage.data_dir)).await?;
             }
-            let publication = TransferPublication { id, destination, backend, clock: catalog.0.policy.clock.clone(), principals, replay, prepare, complete };
+            let publication = TransferPublication { id, pinned, destination, backend, clock: catalog.0.policy.clock.clone(), principals, replay, prepare, complete };
             let published = catalog.run_upload(move |connection| publish_transfer(connection, publication)).await?;
             catalog.release_transfer(DiscardedTransfer { id, pins: published.pins }).await;
             catalog.reclaim_if(published.journaled).await;
             Ok::<_, ObjectError>(DerivedPublication { record: published.record, completion: published.completion })
             }.await;
+            if result.is_err() && pinned.is_some() {
+                catalog.discard_staged(objects::StagedBlob::pin(&catalog.0.storage.backend, &catalog.0.storage.data_dir, blob)).await;
+            }
             catalog.0.maintenance.wake.notify_one();
             // Check SQL references even after an ambiguous commit error before removing bytes.
             if matches!(&result, Err(error) if !error.is_backend_failure() && !matches!(error, ObjectError::DerivedTransferBusy | ObjectError::DerivedTransferIncomplete | ObjectError::DerivedTransferNotFound))

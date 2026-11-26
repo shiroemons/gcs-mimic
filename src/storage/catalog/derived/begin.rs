@@ -28,7 +28,7 @@ fn insert_inputs(
         statement.execute(params![
             id,
             position,
-            segment.source.id,
+            segment.source.pin.id,
             segment.offset,
             segment.length,
             segment.source.object.size
@@ -232,7 +232,7 @@ impl Catalog {
                             );
                             if !matches!(begun.outcome, Err(CommitFailure::Rejected(_))) {
                                 for segment in &mut segments {
-                                    segment.source.backend = None;
+                                    segment.source.pin.backend = None;
                                 }
                             }
                             Ok::<_, ObjectError>((begun, segments))

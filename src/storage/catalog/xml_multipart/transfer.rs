@@ -212,7 +212,7 @@ impl Catalog {
             };
             let result = catalog
                 .publish_derived_prepared(
-                    &id,
+                    (&id).into(),
                     destination,
                     move |connection, record| {
                         record.md5_availability = crate::object::Md5Availability::Unavailable;

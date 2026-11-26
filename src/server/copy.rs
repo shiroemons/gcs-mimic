@@ -133,6 +133,9 @@ pub(crate) async fn execute(
     let source_record = source.object.clone();
     let replay = replay.map(|replay| replay.bind_source(&source_record));
     let wait = begin_catalog_wait(activity).await;
+    let pin = tokio::time::timeout_at(deadline, source.publication_pin())
+        .await
+        .map_err(|_| object_unavailable(BackendFailure::CopyDeadline))??;
     let transfer = tokio::time::timeout_at(
         deadline,
         catalog.begin_derived_ephemeral(vec![source.whole()], config.max_object_bytes()),
@@ -146,7 +149,7 @@ pub(crate) async fn execute(
     tokio::time::timeout_at(deadline, async {
         let mut progress = transfer.clone();
         checkpoint_at(&progress).await?;
-        while progress.offset < progress.total {
+        while pin.is_none() && progress.offset < progress.total {
             let wait = begin_catalog_wait(activity).await;
             progress = catalog.advance_derived(&transfer.id, BYTE_BUDGET).await?;
             drop(wait);
@@ -161,7 +164,7 @@ pub(crate) async fn execute(
     // rather than reporting a timeout while a detached mutation can still commit.
     let result = catalog
         .publish_derived_replayed(
-            &transfer.id,
+            transfer.publication_body(pin),
             destination,
             move |connection, destination| {
                 Catalog::check_derived_source_access_in_transaction(
@@ -283,6 +286,12 @@ mod tests {
         oneshot::Sender<()>,
     ) {
         let catalog = catalog.clone();
+        // These checkpoints exercise cancellation and authorization during the streaming fallback.
+        catalog.inject(
+            crate::storage::fault::Step::CopyLink,
+            0,
+            crate::storage::fault::Fault::Io(std::io::ErrorKind::Unsupported),
+        );
         let (reached, observed) = oneshot::channel();
         let (resume, paused) = oneshot::channel();
         let request = tokio::spawn(async move {

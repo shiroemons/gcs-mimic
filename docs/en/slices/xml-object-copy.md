@@ -65,8 +65,9 @@ prefixes; source keys must match before pinning, and destination key fingerprint
 are recorded without storing the keys. Local disk encryption remains simulated
 under the existing customer-key contract.
 
-The copy engine streams bounded disk chunks and computes MD5/CRC32C incrementally.
-By default the resulting hashes must match the pinned source metadata.
+The copy engine publishes an independent link to the immutable source and uses
+its recorded MD5 and CRC32C. If the filesystem cannot create a link, the engine
+streams bounded chunks and checks the computed hashes against the source metadata.
 Optional `Content-MD5` and `x-goog-hash` verify the copied object under the local
 integrity contract; malformed or conflicting declarations fail explicitly and
 mismatches return `BadDigest` without changing the destination.

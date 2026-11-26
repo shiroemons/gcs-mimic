@@ -1,16 +1,24 @@
+use super::super::{BlobBackend, transfer_io::InputReader};
 use super::*;
+use crate::storage::memory::BlobError;
+use std::io;
 
 /// A metadata snapshot and independent link to immutable bytes, including after source deletion.
 /// Unconsumed handles clean their staging link; `begin_derived` transfers ownership to SQLite.
 #[must_use = "dropping an unconsumed source removes its staging link"]
 pub(crate) struct DerivedSource {
     pub object: ObjectRecord,
-    pub(super) backend: Option<super::super::BlobBackend>,
-    pub(super) id: BlobId,
-    _activity: std::sync::Arc<super::super::Activity>,
+    pub(super) pin: SourcePin,
+    linkable: bool,
+    activity: std::sync::Arc<super::super::Activity>,
 }
 
-impl Drop for DerivedSource {
+pub(super) struct SourcePin {
+    pub(super) backend: Option<BlobBackend>,
+    pub(super) id: BlobId,
+}
+
+impl Drop for SourcePin {
     fn drop(&mut self) {
         if let Some(backend) = &self.backend
             && let Err(error) = backend.remove_pin(&self.id)
@@ -18,6 +26,19 @@ impl Drop for DerivedSource {
             deferred_cleanup(&error);
         }
     }
+}
+
+pub(crate) struct PublicationPin {
+    pub(super) pin: SourcePin,
+    pub(super) input: BlobId,
+    pub(super) hashes: Hashes,
+    _activity: std::sync::Arc<super::super::Activity>,
+}
+
+fn link_unavailable(error: &BlobError) -> bool {
+    matches!(error, BlobError::Io(error) if matches!(error.kind(),
+        io::ErrorKind::CrossesDevices | io::ErrorKind::Unsupported |
+        io::ErrorKind::TooManyLinks | io::ErrorKind::PermissionDenied))
 }
 
 pub(crate) struct DerivedSegment {
@@ -82,6 +103,39 @@ pub(crate) struct DerivedSourceSpec {
 }
 
 impl DerivedSource {
+    pub(crate) async fn publication_pin(&self) -> Result<Option<PublicationPin>, ObjectError> {
+        let Some(backend) = self.pin.backend.clone().filter(|_| self.linkable) else {
+            return Ok(None);
+        };
+        let input = self.pin.id;
+        let hashes = self.object.hashes();
+        let size = self.object.size;
+        // A cancelled caller can leave the blocking link operation running until it returns.
+        let activity = self.activity.clone();
+        crate::task::run_blocking("derived-publication-pin", move || {
+            if let BlobBackend::Disk(root) = &backend
+                && fs::metadata(input.staging_path(root))?.len() != size
+            {
+                return Ok(None);
+            }
+            let id = random_id()?;
+            match backend.pin_staged(&input, &id) {
+                Ok(()) => Ok(Some(PublicationPin {
+                    pin: SourcePin {
+                        backend: Some(backend),
+                        id,
+                    },
+                    input,
+                    hashes,
+                    _activity: activity,
+                })),
+                Err(error) if link_unavailable(&error) => Ok(None),
+                Err(error) => Err(error.into()),
+            }
+        })
+        .await?
+    }
+
     pub(crate) fn whole(self) -> DerivedSegment {
         let length = self.object.size;
         DerivedSegment {
@@ -250,7 +304,17 @@ impl Catalog {
             })
             .await?;
         let Some(error) = failure else {
-            return Ok(pinned);
+            let mut resolved = Vec::with_capacity(pinned.len());
+            for (source, file) in pinned {
+                let source = if let Some(file) = file {
+                    // Keep the fallback's owned metadata out of the common request future.
+                    Box::pin(self.copy_source_snapshot(source, file)).await?
+                } else {
+                    source
+                };
+                resolved.push(source);
+            }
+            return Ok(resolved);
         };
         // The pins a failed batch already made are unlinked on the blocking pool rather than in
         // the writer job, so the requests queued behind that job do not wait for the device.
@@ -260,6 +324,41 @@ impl Catalog {
             deferred_cleanup(&released);
         }
         Err(error)
+    }
+
+    // Opening the source in the selecting transaction keeps its bytes alive across replacement.
+    async fn copy_source_snapshot(
+        &self,
+        mut source: DerivedSource,
+        file: fs::File,
+    ) -> Result<DerivedSource, ObjectError> {
+        let permit = self.continue_object_upload().await?;
+        let catalog = self.clone();
+        crate::task::run_blocking("derived-source-snapshot", move || {
+            let root = &catalog.0.storage.data_dir;
+            let mut output = objects::BatchWriter::create(
+                source.pin.id.staging_path(root),
+                std::sync::Arc::new(permit),
+                #[cfg(test)]
+                root,
+            )?;
+            source.pin.backend = Some(catalog.0.storage.backend.clone());
+            #[cfg(all(test, unix))]
+            fault::file_created(&source.pin.id.staging_path(root));
+            let mut reader = InputReader::Disk(file);
+            objects::with_copy_buffer(|buffer| {
+                catalog.copy_range(
+                    &mut reader,
+                    source.object.size,
+                    buffer,
+                    |bytes| output.write(bytes),
+                    InputReader::short_derived_input,
+                )
+            })?;
+            output.make_durable()?;
+            Ok(source)
+        })
+        .await?
     }
 }
 
@@ -271,7 +370,7 @@ fn pin_source(
     key: Option<crate::csek::CustomerKey>,
     role: SourceRole,
     activity: &std::sync::Arc<super::super::Activity>,
-) -> Result<DerivedSource, ObjectError> {
+) -> Result<(DerivedSource, Option<fs::File>), ObjectError> {
     let objects::StoredObject {
         record: object,
         blob: original,
@@ -290,15 +389,26 @@ fn pin_source(
     })?;
     super::super::customer_keys::check(&object, key)?;
     let id = random_id()?;
-    backend.pin(&original, &id)?;
-    #[cfg(all(test, unix))]
-    if let super::super::BlobBackend::Disk(root) = backend {
-        fault::file_created(&id.staging_path(root));
-    }
-    Ok(DerivedSource {
-        object,
-        backend: Some(backend.clone()),
-        id,
-        _activity: activity.clone(),
-    })
+    let file = match backend.pin(&original, &id) {
+        Ok(()) => None,
+        Err(error) if matches!(role, SourceRole::Copied) && link_unavailable(&error) => {
+            let BlobBackend::Disk(root) = backend else {
+                return Err(error.into());
+            };
+            Some(fs::File::open(original.blob_path(root))?)
+        }
+        Err(error) => return Err(error.into()),
+    };
+    Ok((
+        DerivedSource {
+            object,
+            pin: SourcePin {
+                backend: file.is_none().then(|| backend.clone()),
+                id,
+            },
+            linkable: file.is_none(),
+            activity: activity.clone(),
+        },
+        file,
+    ))
 }

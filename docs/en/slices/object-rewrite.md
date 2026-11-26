@@ -180,8 +180,10 @@ Use the
 HTTP `max_connections` limit and exclusive per-session writer guard.
 Admission and cleanup errors stay visible and never drop existing data.
 
-Each call opens the pinned source revision and copies at most the permitted
-progress using a 64 KiB buffer. No object-size allocation or catalog transaction
+An initial same-location, same-class rewrite can publish a link to the entire
+immutable source with its recorded hashes. Other calls open the pinned source
+revision and copy at most the permitted progress using a pooled 1 MiB buffer.
+No object-size allocation or catalog transaction
 spans file I/O. Flush/sync the staged prefix before committing offset/checksums
 and the next token. Hash checkpoints use md-5 0.11.0's SerializableState API and
 CRC32C, pinned with the catalog format; a format change requires migration.

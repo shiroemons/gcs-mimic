@@ -66,6 +66,7 @@ mod source;
 pub(crate) use cleanup::DerivedRequestGuard;
 pub(crate) use publish::DerivedDestination;
 pub(super) use recovery::recover;
+pub(super) use source::PublicationPin;
 pub(crate) use source::{DerivedSegment, DerivedSource, DerivedSourceSpec};
 
 fn random_id() -> Result<BlobId, ObjectError> {
@@ -127,33 +128,37 @@ pub(super) fn transfer(
     now: UnixMillis,
 ) -> Result<(DerivedTransfer, Hasher), ObjectError> {
     const SELECT: &str = "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1";
-    sql::row(connection, SELECT, [id], |row| {
+    let (total, offset, hasher, created, deadline) = sql::row(connection, SELECT, [id], |row| {
         let total = row.get(0)?;
         let offset = row.get(1)?;
         let md5_state = sql::blob(row, 2)?;
         let crc32c = row.get(3)?;
         let created: UnixMillis = row.get(4)?;
         let deadline: UnixMillis = row.get(5)?;
-        if now >= deadline {
-            return Ok(Err(ObjectError::DerivedTransferExpired));
-        }
-        let hasher = match Hasher::from_md5_state(md5_state, crc32c, offset) {
-            Ok(hasher) => hasher,
-            Err(error) => return Ok(Err(object_unavailable(error))),
-        };
-        Ok(Ok((
-            DerivedTransfer {
-                id: *id,
-                total,
-                offset,
-                created: created.system_time()?,
-                deadline: deadline.system_time()?,
-            },
-            hasher,
-        )))
+        Ok((
+            total,
+            offset,
+            Hasher::from_md5_state(md5_state, crc32c, offset),
+            created,
+            deadline,
+        ))
     })
     .optional()?
-    .ok_or(ObjectError::DerivedTransferNotFound)?
+    .ok_or(ObjectError::DerivedTransferNotFound)?;
+    if now >= deadline {
+        return Err(ObjectError::DerivedTransferExpired);
+    }
+    let hasher = hasher.map_err(object_unavailable)?;
+    Ok((
+        DerivedTransfer {
+            id: *id,
+            total,
+            offset,
+            created: created.system_time()?,
+            deadline: deadline.system_time()?,
+        },
+        hasher,
+    ))
 }
 
 impl Catalog {

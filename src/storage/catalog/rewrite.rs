@@ -139,13 +139,21 @@ pub(crate) struct RewriteBuckets {
 }
 
 impl RewriteBuckets {
+    fn keeps_placement(
+        &self,
+        source: crate::bucket::StorageClass,
+        requested: Option<crate::bucket::StorageClass>,
+    ) -> bool {
+        self.same_location && requested.unwrap_or(self.destination_class) == source
+    }
+
     pub(crate) fn budget(
         &self,
         source: crate::bucket::StorageClass,
         requested: Option<crate::bucket::StorageClass>,
         limit: Option<NonZeroU64>,
     ) -> NonZeroU64 {
-        if self.same_location && requested.unwrap_or(self.destination_class) == source {
+        if self.keeps_placement(source, requested) {
             UNLIMITED_REWRITE_BUDGET
         } else {
             limit.unwrap_or(DEFAULT_REWRITE_BUDGET)
@@ -154,10 +162,10 @@ impl RewriteBuckets {
 }
 
 /// The lookup supplies the lease key. The guarded read authorizes the step.
-#[derive(Clone, Copy)]
 pub(crate) struct RewriteStep {
     id: BlobId,
     token: RewriteToken,
+    pin: Option<super::derived::PublicationPin>,
 }
 
 pub(crate) struct RewriteStart {
@@ -692,6 +700,20 @@ impl Catalog {
         buckets: RewriteBuckets,
     ) -> Result<(RewriteStep, super::derived::DerivedRequestGuard), RewriteError> {
         let token = RewriteToken::generate().map_err(object_unavailable)?;
+        let pin = match segments.as_slice() {
+            [segment]
+                if segment.offset == 0
+                    && segment.length == segment.source.object.size
+                    && start.budget == UNLIMITED_REWRITE_BUDGET
+                    && buckets.keeps_placement(
+                        segment.source.object.storage_class,
+                        start.destination.storage_class,
+                    ) =>
+            {
+                segment.source.publication_pin().await?
+            }
+            _ => None,
+        };
         // shortcut: crash before delivery leaves durable state until expiry; add a delivered marker for eager recovery.
         let catalog = self.clone();
         let (transfer, owner) = self
@@ -749,6 +771,7 @@ impl Catalog {
             RewriteStep {
                 id: transfer.id,
                 token,
+                pin,
             },
             owner,
         ))
@@ -773,6 +796,7 @@ impl Catalog {
             RewriteStep {
                 id: session.id,
                 token,
+                pin: None,
             },
             session,
         ))
@@ -805,7 +829,7 @@ impl Catalog {
         destination_access: BucketAccess,
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
     ) -> Result<RewriteProgress, RewriteError> {
-        let RewriteStep { id, token } = step;
+        let RewriteStep { id, token, pin } = step;
         let _guard = self
             .wait_for_writer(WriterKey::Rewrite(id), KeyOrigin::Holder)
             .await
@@ -859,19 +883,21 @@ impl Catalog {
             .offset
             .saturating_add(session.budget.get())
             .min(session.total);
-        let current = self
-            .advance_derived(&session.id, target.saturating_sub(current.offset))
-            .await?;
-        if current.offset == current.total {
+        let current = if pin.is_some() {
+            current
+        } else {
+            self.advance_derived(&session.id, target.saturating_sub(current.offset))
+                .await?
+        };
+        if pin.is_some() || current.offset == current.total {
             session.destination.access = destination_access;
             let destination = session.destination.clone();
-            let id = session.id;
             let clock = self.0.policy.clock.clone();
             let validate_session = session.clone();
             let completed_session = session.clone();
             let finished_budget = self.session_limits().finished_session_bytes;
             // shortcut: publish-time permission failures discard progress; specialize cleanup when retry must survive revocation.
-            let (_, response) = self.publish_derived_prepared(&id,destination,move |connection,record| {
+            let (_, response) = self.publish_derived_prepared(current.publication_body(pin),destination,move |connection,record| {
                 if validate_session.deadline<=UnixMillis::try_from(clock.now())? {return Err(ObjectError::DerivedTransferExpired);}
                 let source = check_source(connection,&validate_session,&source_access)?;
                 let same_location: bool = sql::scalar(connection, "SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1", params![source.bucket,record.bucket])?;
@@ -1160,6 +1186,55 @@ mod tests {
             .begin_rewrite_session(vec![segment], 8, start)
             .await
             .map(|(token, guard)| (token.to_string(), guard))
+    }
+
+    #[tokio::test]
+    async fn only_same_placement_one_call_rewrites_publish_the_pinned_body() {
+        let (catalog, directory, _) = fixture().await;
+        catalog
+            .put_object(
+                permissive_upload("bucket", "source", 8),
+                body(vec![bytes::Bytes::from_static(b"bytes")]),
+            )
+            .await
+            .unwrap();
+        for class in [None, Some(crate::bucket::StorageClass::Nearline)] {
+            let (segment, mut start) = start_request(&catalog).await;
+            let buckets = catalog
+                .rewrite_buckets(
+                    "bucket",
+                    &start.binding.destination,
+                    Default::default(),
+                    PERMISSIVE,
+                )
+                .await
+                .unwrap()
+                .unwrap();
+            start.budget = buckets.budget(segment.source.object.storage_class, class, None);
+            start.destination.storage_class = class;
+            let (step, mut owner) = catalog
+                .begin_checked_rewrite(vec![segment], 8, start, buckets)
+                .await
+                .unwrap();
+            assert_eq!(step.pin.is_some(), class.is_none());
+            let token = step.token.to_string();
+            let result = catalog
+                .advance_rewrite(
+                    step,
+                    BucketAccess::Permissive,
+                    BucketAccess::Permissive,
+                    |_| Ok(serde_json::json!({"size":"5"})),
+                )
+                .await
+                .unwrap();
+            owner.disarm();
+            assert_eq!(result.offset, 5);
+            assert_eq!(result.token, None);
+            let replay = continue_to_end(&catalog, &token).await.unwrap();
+            assert_eq!(replay.resource, result.resource);
+        }
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     async fn grant_create(catalog: &Catalog, name: &str) -> BucketAccess {

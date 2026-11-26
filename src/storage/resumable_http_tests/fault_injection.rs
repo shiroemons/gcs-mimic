@@ -1020,6 +1020,15 @@ fn derived_failures() -> Vec<(&'static str, Step, usize, Fault)> {
     ]
 }
 
+fn inject_derived(h: &Harness, operation: &str, step: Step, skip: usize, fault: Fault) {
+    if operation != "compose" && matches!(step, Step::BodyWrite | Step::BodyFlush | Step::BodySync)
+    {
+        // Only the streaming fallback writes bytes. Publication faults exercise the linked body.
+        h.inject(Step::CopyLink, 1, Fault::Io(ErrorKind::Unsupported));
+    }
+    h.inject(step, skip, fault);
+}
+
 #[tokio::test]
 async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
     let h = Harness::start(1024 * 1024, Permissive, None).await;
@@ -1030,7 +1039,7 @@ async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
         for (case, step, skip, fault) in derived_failures() {
             let case = format!("{operation}: {case}");
             let expect = expect_for(&fault);
-            h.inject(step, skip, fault);
+            inject_derived(&h, operation, step, skip, fault);
             let reply = derive(&h, operation).await;
             assert_backend_failure(&reply, &expect, &case);
             h.assert_fired(&case);
@@ -1152,7 +1161,9 @@ async fn derived_crash_at_each_durable_step_recovers_without_a_partial_destinati
             let case = format!("{operation}: {case}");
             let snapshot = crashes.0.join(index.to_string());
             index += 1;
-            h.inject(
+            inject_derived(
+                &h,
+                operation,
                 step,
                 usize::from(step == Step::BodyWrite),
                 Fault::Snapshot(snapshot.clone()),
@@ -1210,7 +1221,9 @@ async fn derived_power_loss_at_each_durable_step_keeps_no_partial_destination() 
             let case = format!("{operation}: {case}");
             let snapshot = crashes.0.join(index.to_string());
             index += 1;
-            h.inject(
+            inject_derived(
+                &h,
+                operation,
                 step,
                 usize::from(step == Step::BodyWrite),
                 Fault::PowerLoss(snapshot.clone()),

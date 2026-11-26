@@ -10,6 +10,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
+mod pinned;
+
 #[tokio::test]
 async fn md5_availability_survives_restart_without_component_count() {
     let (catalog, path) = setup().await;
@@ -17,7 +19,7 @@ async fn md5_availability_survives_restart_without_component_count() {
     let transfer = ready(&catalog, "source").await;
     let (record, ()) = catalog
         .publish_derived_prepared(
-            &transfer.id,
+            (&transfer.id).into(),
             destination("multipart"),
             |_, record| {
                 record.md5_availability = crate::object::Md5Availability::Unavailable;
@@ -1095,7 +1097,7 @@ async fn unknown_transfer_ids_cannot_remove_another_transfers_source() {
     let (catalog, path) = setup().await;
     put(&catalog, "source", b"bytes").await;
     let source = source(&catalog, "source").await;
-    let snapshot_id = source.id;
+    let snapshot_id = source.pin.id;
     let transfer = catalog
         .begin_derived(vec![source.whole()], 5)
         .await
@@ -1406,7 +1408,7 @@ async fn corrupt_transfer_is_discarded_without_blocking_catalog_recovery() {
     let (catalog, path) = setup().await;
     put(&catalog, "source", b"bytes").await;
     let source = source(&catalog, "source").await;
-    let snapshot = source.id.staging_path(&path);
+    let snapshot = source.pin.id.staging_path(&path);
     let transfer = catalog
         .begin_derived(vec![source.whole()], 5)
         .await
@@ -1470,7 +1472,7 @@ async fn cleanup_failure_preserves_original_publication_error() {
     put(&catalog, "source", b"bytes").await;
     put(&catalog, "copy", b"old").await;
     let source = source(&catalog, "source").await;
-    let snapshot = source.id.staging_path(&path);
+    let snapshot = source.pin.id.staging_path(&path);
     let transfer = catalog
         .begin_derived(vec![source.whole()], 5)
         .await

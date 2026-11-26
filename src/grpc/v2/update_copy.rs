@@ -404,7 +404,8 @@ impl Storage {
                     .map_err(rewrite_error)?,
             )
         };
-        let binding = session.as_ref().map(|(_, s)| &s.binding);
+        let (step, session) = session.unzip();
+        let binding = session.as_ref().map(|s| &s.binding);
         let target = RewriteTarget::resolve(&r, binding, self.compat_profile)?;
         Admitted::of(&extensions)?.compare(&[
             Route::SourceBucket(Some(target.source_bucket)),
@@ -419,7 +420,7 @@ impl Storage {
             .await?;
         // A new session's guard stays armed until its first response is stored and read back;
         // returning early drops it, which cancels the session.
-        let (step, mut owner) = if let Some((step, session)) = &session {
+        let (step, mut owner) = if let Some((step, session)) = step.zip(session.as_ref()) {
             let binding = &session.binding;
             if !target.matches(binding)
                 || parameters
@@ -436,7 +437,7 @@ impl Storage {
             // Neither the proto nor Cloud Storage's recorded answers say whether a
             // continuation may omit the keys; this follows the JSON API, which requires both.
             session.check_customer_keys(options.keys)?;
-            (*step, None)
+            (step, None)
         } else {
             let new = NewRewrite {
                 target,

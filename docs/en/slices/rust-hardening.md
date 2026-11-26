@@ -861,12 +861,22 @@ live blob (`publish_pinned`).
   - No bytes are copied, so the copied-bytes verification has nothing to
     check. The source hashes were verified when the source was written.
   - The memory backend shares the stored bytes.
-- **Checks at slice start:**
-  - whether a customer-key change alters stored bytes (if so, that rewrite
-    keeps the copy);
-  - that nothing else on these paths, such as gzip transcoding, alters bytes.
+- Customer-supplied keys change the recorded fingerprint. Gzip transcoding
+  runs on download. Both leave the stored bytes available for sharing.
+- Publication uses a separate blob ID from the transfer draft. Recovery can
+  truncate a draft without changing the source or destination. Each object
+  retains its own catalog reference and can be reclaimed independently.
+- If a filesystem rejects a hard link, the request streams the selected bytes.
+  When selection itself cannot link, it opens the source in the selecting
+  transaction and copies it to private staging on the blocking pool.
 - **Tests.** Publication gets the crash and `Fault::PowerLoss` tests at the
   rename and directory-sync seams.
+- A single 1 GiB JSON copy on the disk backend over HTTP/1 loopback on
+  macOS 27.2.1 arm64 took 3.289 s with streaming and 0.017 s with the link.
+  Server CPU time advanced by 2.34 s and by less than the 0.01 s sampling
+  resolution, respectively. Cargo and rustc were active at both samples for
+  the linked copy and at neither sample for the streaming copy. Both returned
+  the source size, MD5 and CRC32C.
 
 ### Pull-based gRPC `ReadObject`
 

@@ -148,12 +148,29 @@ impl BlobBackend {
     pub(super) fn pin(&self, original: &BlobId, id: &BlobId) -> Result<(), BlobError> {
         match self {
             Self::Disk(root) => {
+                #[cfg(test)]
+                hit_io(root, super::fault::Step::CopyLink)?;
                 fs::hard_link(original.blob_path(root), id.staging_path(root))?;
                 #[cfg(all(test, unix))]
                 super::fault::file_created(&id.staging_path(root));
                 Ok(())
             }
             Self::Memory(store) => store.pin(&original.to_hex(), id.to_hex()),
+        }
+    }
+
+    /// A publication pin has its own ID so recovery can never truncate a shared inode as a draft.
+    pub(super) fn pin_staged(&self, source: &BlobId, id: &BlobId) -> Result<(), BlobError> {
+        match self {
+            Self::Disk(root) => {
+                #[cfg(test)]
+                hit_io(root, super::fault::Step::CopyLink)?;
+                fs::hard_link(source.staging_path(root), id.staging_path(root))?;
+                #[cfg(all(test, unix))]
+                super::fault::file_created(&id.staging_path(root));
+                Ok(())
+            }
+            Self::Memory(store) => store.pin(&source.to_hex(), id.to_hex()),
         }
     }
 
