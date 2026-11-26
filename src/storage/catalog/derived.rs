@@ -111,6 +111,56 @@ pub(crate) struct DerivedTransfer {
     pub deadline: std::time::SystemTime,
 }
 
+/// Owned by the single request that can advance this transfer. Recovery discards its SQL row.
+pub(crate) struct RequestTransfer {
+    progress: DerivedTransfer,
+    hasher: Hasher,
+}
+
+impl RequestTransfer {
+    pub(crate) fn progress(&self) -> &DerivedTransfer {
+        &self.progress
+    }
+}
+
+enum Checkpoint {
+    Stored(BlobId),
+    Request(RequestTransfer),
+}
+
+impl Checkpoint {
+    fn id(&self) -> BlobId {
+        match self {
+            Self::Stored(id) => *id,
+            Self::Request(state) => state.progress.id,
+        }
+    }
+
+    fn read(
+        &self,
+        connection: &Connection,
+        now: UnixMillis,
+    ) -> Result<(DerivedTransfer, Hasher), ObjectError> {
+        match self {
+            Self::Stored(id) => transfer(connection, id, now),
+            Self::Request(state) => {
+                let deadline = sql::optional_scalar::<UnixMillis>(
+                    connection,
+                    "SELECT deadline FROM derived_transfers WHERE id=?1 AND ephemeral=1",
+                    [state.progress.id],
+                )?
+                .ok_or(ObjectError::DerivedTransferNotFound)?;
+                if now >= deadline {
+                    return Err(ObjectError::DerivedTransferExpired);
+                }
+                let mut progress = state.progress.clone();
+                progress.deadline = deadline.system_time()?;
+                Ok((progress, state.hasher.clone()))
+            }
+        }
+    }
+}
+
 struct Input {
     id: BlobId,
     start: u64,

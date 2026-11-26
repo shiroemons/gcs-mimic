@@ -145,9 +145,13 @@ impl Catalog {
         &self,
         segments: Vec<DerivedSegment>,
         max_bytes: u64,
-    ) -> Result<DerivedTransfer, ObjectError> {
+    ) -> Result<RequestTransfer, ObjectError> {
         self.begin_derived_with_kind(segments, max_bytes, TransferKind::Ephemeral)
             .await
+            .map(|progress| RequestTransfer {
+                progress,
+                hasher: Hasher::default(),
+            })
     }
 
     pub(super) async fn begin_derived_with_kind(

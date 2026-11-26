@@ -240,6 +240,9 @@ async fn derived_transfers_wait_for_admission_while_the_queue_is_full() {
     assert!(!transfer.is_finished());
     drop(held);
     let transfer = transfer.await.unwrap().unwrap();
-    catalog.cancel_derived(&transfer.id).await.unwrap();
+    catalog
+        .cancel_derived(&transfer.progress().id)
+        .await
+        .unwrap();
     catalog.close().await.unwrap();
 }

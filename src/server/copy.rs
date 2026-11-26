@@ -144,19 +144,19 @@ pub(crate) async fn execute(
     .await
     .map_err(|_| object_unavailable(BackendFailure::CopyDeadline))??;
     drop(wait);
-    let mut owner = catalog.guard_derived_request(&transfer.id);
+    let mut owner = catalog.guard_derived_request(&transfer.progress().id);
     // The request owns this future: cancellation can finish an in-flight bounded advance,
     // but cannot start publication after its handler and cleanup guard have been dropped.
-    tokio::time::timeout_at(deadline, async {
-        let mut progress = transfer.clone();
-        checkpoint_at(&progress).await?;
-        while pin.is_none() && progress.offset < progress.total {
+    let transfer = tokio::time::timeout_at(deadline, async {
+        let mut transfer = transfer;
+        checkpoint_at(transfer.progress()).await?;
+        while pin.is_none() && transfer.progress().offset < transfer.progress().total {
             let wait = begin_catalog_wait(activity).await;
-            progress = catalog.advance_derived(&transfer.id, BYTE_BUDGET).await?;
+            transfer = transfer.advance(catalog, BYTE_BUDGET).await?;
             drop(wait);
-            checkpoint_at(&progress).await?;
+            checkpoint_at(transfer.progress()).await?;
         }
-        Ok::<_, ObjectError>(())
+        Ok::<_, ObjectError>(transfer)
     })
     .await
     .map_err(|_| object_unavailable(BackendFailure::CopyDeadline))??;

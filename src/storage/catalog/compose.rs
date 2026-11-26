@@ -262,9 +262,10 @@ impl Catalog {
             disposal,
             keys,
         };
-        let result = self.publish_composed(&transfer, destination, plan).await;
+        let id = transfer.progress().id;
+        let result = self.publish_composed(transfer, destination, plan).await;
         if result.is_err() {
-            match self.cancel_derived(&transfer.id).await {
+            match self.cancel_derived(&id).await {
                 Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
                 Err(error) => crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
@@ -310,16 +311,17 @@ impl Catalog {
 
     async fn publish_composed(
         &self,
-        transfer: &super::derived::DerivedTransfer,
+        transfer: super::derived::RequestTransfer,
         destination: DerivedDestination,
         plan: ComposePlan,
     ) -> Result<ObjectRecord, ObjectError> {
-        self.advance_derived(&transfer.id, transfer.total).await?;
+        let total = transfer.progress().total;
+        let transfer = transfer.advance(self, total).await?;
         let checked = plan.clone();
         let check_clock: Arc<dyn Clock> = self.0.policy.clock.clone();
         let delete_clock = check_clock.clone();
         self.publish_derived_with_validation(
-            &transfer.id,
+            transfer.publication_body(None),
             destination,
             move |connection, _| checked.validate(connection, &*check_clock),
             move |connection, record| plan.dispose_sources(connection, record, &*delete_clock),

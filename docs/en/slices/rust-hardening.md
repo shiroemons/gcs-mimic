@@ -153,7 +153,10 @@ These change no documented behavior:
   offset and hasher in memory instead of rereading the checkpoint.
   - Crash recovery already discards these rows without reading the offset
     (`derived/recovery.rs`), so recovery does not change.
-  - The in-process invariant documented in `derived/advance.rs` is restated.
+  - A single owner carries the offset and hash state only after the output
+    has synced and the catalog has renewed its lifetime. Advance and publication
+    still check the row and its deadline. Both paths record the durable prefix
+    in the same format. Only a continuable rewrite reloads its offset and hashes.
 - **Shutdown tracking.** It uses `tokio_util::sync::CancellationToken`, with
   `tokio-util` promoted from the lockfile (it adds no package), plus a small
   task tracker in `src/task.rs`.

@@ -219,7 +219,7 @@ async fn a_request_dropped_while_its_transfer_waits_leaves_no_draft() {
     })
     .await;
     request.abort();
-    assert!(request.await.unwrap_err().is_cancelled());
+    assert!(matches!(request.await, Err(error) if error.is_cancelled()));
     drop(permits);
     crate::test_support::eventually_async("the abandoned transfer to be reclaimed", || async {
         fs::read_dir(path.join("staging")).unwrap().count() == 0 && catalog.session_writers_idle()
@@ -891,7 +891,7 @@ async fn validation_sees_same_name_source_before_retirement_and_completion_sees_
     target.component_count = Some(2);
     let record = catalog
         .publish_derived_with_validation(
-            &transfer.id,
+            (&transfer.id).into(),
             target,
             move |connection, destination| {
                 let source = Catalog::check_derived_source_in_transaction(
@@ -990,7 +990,10 @@ async fn transfers_past_the_former_quota_survive_reopening_and_recovery_pages_th
         .begin_derived_ephemeral(vec![source(&catalog, "source").await.whole()], 5)
         .await
         .unwrap();
-    catalog.cancel_derived(&ephemeral.id).await.unwrap();
+    catalog
+        .cancel_derived(&ephemeral.progress.id)
+        .await
+        .unwrap();
     catalog.close().await.unwrap();
     fs::remove_dir_all(path).unwrap();
 }
@@ -1003,7 +1006,7 @@ async fn restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfer
         .begin_derived_ephemeral(vec![source(&catalog, "source").await.whole()], 5)
         .await
         .unwrap();
-    catalog.advance_derived(&ephemeral.id, 2).await.unwrap();
+    let ephemeral = ephemeral.advance(&catalog, 2).await.unwrap();
     let persistent = catalog
         .begin_derived(vec![source(&catalog, "source").await.whole()], 5)
         .await
@@ -1012,7 +1015,7 @@ async fn restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfer
     drop(catalog);
     let catalog = Catalog::open(&path).await.unwrap();
     assert_eq!(
-        catalog.get_derived(&ephemeral.id).await,
+        catalog.get_derived(&ephemeral.progress.id).await,
         Err(ObjectError::DerivedTransferNotFound)
     );
     assert_eq!(
@@ -1228,6 +1231,7 @@ async fn abandoned_handler_guard_waits_for_writer_then_reclaims_transfer() {
         .begin_derived_ephemeral(vec![source(&catalog, "source").await.whole()], 5)
         .await
         .unwrap();
+    let transfer = transfer.progress;
     let writer = catalog.derived_guard(&transfer.id).unwrap();
     let request = catalog.guard_derived_request(&transfer.id);
     drop(request);
@@ -1268,22 +1272,20 @@ async fn advancing_renews_an_ephemeral_lifetime_and_an_idle_transfer_still_expir
         .begin_derived_ephemeral(vec![source(&catalog, "source").await.whole()], 5)
         .await
         .unwrap();
+    let mut transfer = transfer;
     let lifetime = Duration::from_millis(EPHEMERAL_LIFETIME_MILLIS.unsigned_abs());
     let within_lifetime = lifetime - Duration::from_secs(1);
     for offset in 1..=3 {
         clock.advance(within_lifetime);
-        assert_eq!(
-            catalog
-                .advance_derived(&transfer.id, 1)
-                .await
-                .unwrap()
-                .offset,
-            offset
-        );
+        transfer = transfer.advance(&catalog, 1).await.unwrap();
+        assert_eq!(transfer.progress.offset, offset);
     }
     clock.advance(lifetime);
     assert_eq!(
-        catalog.advance_derived(&transfer.id, 1).await,
+        transfer
+            .advance(&catalog, 1)
+            .await
+            .map(|state| state.progress),
         Err(ObjectError::DerivedTransferExpired)
     );
     catalog.close().await.unwrap();

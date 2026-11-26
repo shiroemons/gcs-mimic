@@ -1259,6 +1259,108 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
+    #[tokio::test]
+    async fn a_crash_discards_request_progress_but_replays_the_issued_rewrite_token() {
+        use super::super::fault::{Crash, Step};
+        for &crash in Crash::ALL {
+            let (catalog, directory, clock) = fixture().await;
+            let original = catalog
+                .put_object(
+                    permissive_upload("bucket", "source", 8),
+                    body(vec![bytes::Bytes::from_static(b"abcdef")]),
+                )
+                .await
+                .unwrap();
+            let (segment, mut start) = start_request(&catalog).await;
+            start.budget = NonZeroU64::new(3).unwrap();
+            let (token, mut owner) = catalog
+                .begin_rewrite_session(vec![segment], 8, start)
+                .await
+                .unwrap();
+            let token = token.to_string();
+            let first = continue_to_end(&catalog, &token).await.unwrap();
+            owner.disarm();
+            assert_eq!((first.offset, first.total), (3, 6));
+            let next = first.token.unwrap();
+            let (segment, mut start) = start_request(&catalog).await;
+            start.destination.name = "copy".into();
+            let request = catalog
+                .begin_derived_ephemeral(vec![segment], 8)
+                .await
+                .unwrap();
+            let request = request.advance(&catalog, 2).await.unwrap();
+            let id = request.progress().id;
+            assert_eq!(request.progress().offset, 2);
+            assert_eq!(catalog.get_derived(&id).await.unwrap().offset, 2);
+            // A one-request copy must finish from its own prefix even if the SQL copy is unreadable.
+            catalog
+                .run(move |connection| {
+                    sql::exec_on_writer(
+                        connection,
+                        "UPDATE derived_transfers SET md5_state=x'00' WHERE id=?1 AND ephemeral=1",
+                        [id],
+                    )?;
+                    Ok::<_, ObjectError>(())
+                })
+                .await
+                .unwrap();
+            let snapshot = crate::test_support::TestDir::new();
+            catalog.inject(Step::BodySync, 0, crash.fault(snapshot.0.clone()));
+            let request = request.advance(&catalog, 4).await.unwrap();
+            assert_eq!(catalog.pending_faults(), 0);
+            let (copy, ()) = catalog
+                .publish_derived_prepared(
+                    request.publication_body(None),
+                    start.destination,
+                    |_, _| Ok(()),
+                    |_, _| Ok(()),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(copy.hashes(), original.hashes());
+            catalog.close().await.unwrap();
+
+            let recovered = Catalog::open_with_clock(&snapshot.0, clock).await.unwrap();
+            assert_eq!(
+                recovered.get_derived(&id).await,
+                Err(ObjectError::DerivedTransferNotFound)
+            );
+            let replay = continue_to_end(&recovered, &token).await.unwrap();
+            assert_eq!((replay.offset, replay.total), (3, 6));
+            assert!(replay.resource.is_none());
+            assert_eq!(replay.token.as_ref(), Some(&next));
+            let completed = continue_to_end(&recovered, &next).await.unwrap();
+            assert_eq!((completed.offset, completed.total), (6, 6));
+            assert!(completed.token.is_none());
+            let (destination, mut reader) = recovered
+                .open_object(
+                    live("bucket", "destination"),
+                    Default::default(),
+                    PERMISSIVE,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                completed.resource,
+                Some(json!({"generation": destination.generation}))
+            );
+            assert_eq!(destination.hashes(), original.hashes());
+            assert_eq!(
+                crate::storage::test_fixtures::read_all(&mut reader).await,
+                b"abcdef"
+            );
+            assert_eq!(
+                std::fs::read_dir(snapshot.0.join("staging"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+            recovered.close().await.unwrap();
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
     async fn grant_create(catalog: &Catalog, name: &str) -> BucketAccess {
         let mut policy = catalog.get_policy(name, PERMISSIVE).await.unwrap();
         policy.bindings.push(crate::auth::Binding {

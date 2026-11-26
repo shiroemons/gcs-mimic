@@ -3,14 +3,23 @@ use super::source::PublicationFile;
 use super::*;
 
 pub(crate) struct DerivedBody {
-    transfer: BlobId,
+    checkpoint: Checkpoint,
     pin: Option<PublicationPin>,
 }
 
 impl DerivedTransfer {
     pub(crate) fn publication_body(&self, pin: Option<PublicationPin>) -> DerivedBody {
         DerivedBody {
-            transfer: self.id,
+            checkpoint: Checkpoint::Stored(self.id),
+            pin,
+        }
+    }
+}
+
+impl RequestTransfer {
+    pub(crate) fn publication_body(self, pin: Option<PublicationPin>) -> DerivedBody {
+        DerivedBody {
+            checkpoint: Checkpoint::Request(self),
             pin,
         }
     }
@@ -19,7 +28,7 @@ impl DerivedTransfer {
 impl From<&BlobId> for DerivedBody {
     fn from(id: &BlobId) -> Self {
         Self {
-            transfer: *id,
+            checkpoint: Checkpoint::Stored(*id),
             pin: None,
         }
     }
@@ -46,7 +55,7 @@ pub(crate) struct DerivedDestination {
 }
 
 struct TransferPublication<P, C> {
-    id: BlobId,
+    checkpoint: Checkpoint,
     pinned: Option<(BlobId, Hashes)>,
     destination: DerivedDestination,
     backend: super::super::BlobBackend,
@@ -81,10 +90,12 @@ where
     P: FnOnce(&sql::WriteTx<'_>, &mut ObjectRecord) -> Result<(), ObjectError>,
     C: FnOnce(&sql::WriteTx<'_>, &ObjectRecord) -> Result<T, ObjectError>,
 {
-    let id = request.id;
     let backend = request.backend.clone();
     let now = request.clock.now();
-    let (progress, hasher) = transfer(connection, &id, UnixMillis::try_from(now)?)?;
+    let (progress, hasher) = request
+        .checkpoint
+        .read(connection, UnixMillis::try_from(now)?)?;
+    let id = progress.id;
     if request.pinned.is_none() && progress.offset != progress.total {
         return Err(ObjectError::DerivedTransferIncomplete);
     }
@@ -170,7 +181,6 @@ where
     C: FnOnce(&sql::WriteTx<'_>, &ObjectRecord) -> Result<T, ObjectError>,
 {
     let TransferPublication {
-        id,
         pinned,
         destination,
         principals,
@@ -179,6 +189,7 @@ where
         complete,
         ..
     } = request;
+    let id = progress.id;
     let authority =
         objects::BucketAuthority::load(transaction, &destination.bucket, &destination.access)?;
     if replay.is_some() {
@@ -288,14 +299,14 @@ impl Catalog {
         + Send
         + 'static,
     ) -> Result<ObjectRecord, ObjectError> {
-        self.publish_derived_with_validation(id, destination, |_, _| Ok(()), complete)
+        self.publish_derived_with_validation(id.into(), destination, |_, _| Ok(()), complete)
             .await
     }
 
     /// Validation precedes retirement so same-name sources remain visible in unversioned buckets.
     pub(crate) async fn publish_derived_with_validation(
         &self,
-        id: &BlobId,
+        body: DerivedBody,
         destination: DerivedDestination,
         validate: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
         complete: impl FnOnce(&sql::WriteTx<'_>, &ObjectRecord) -> Result<(), ObjectError>
@@ -303,7 +314,7 @@ impl Catalog {
         + 'static,
     ) -> Result<ObjectRecord, ObjectError> {
         self.publish_derived_prepared(
-            id.into(),
+            body,
             destination,
             move |connection, record| validate(connection, record),
             complete,
@@ -358,9 +369,10 @@ impl Catalog {
         replay: Option<super::super::upload_replay::BoundCopyReplay>,
     ) -> Result<DerivedPublication<T>, ObjectError> {
         let DerivedBody {
-            transfer: id,
+            checkpoint,
             mut pin,
         } = body;
+        let id = checkpoint.id();
         let admission = async {
             let permit = self.continue_object_upload().await?;
             let guard = self.derived_guard(&id)?;
@@ -400,8 +412,8 @@ impl Catalog {
             });
             let blob = pinned.map_or(id, |(blob, _)| blob);
             let result = async {
-            let pins = catalog.run_upload_admitted(execution, move |connection| {
-                let (progress, _) = transfer(connection, &query, UnixMillis::try_from(clock.now())?)?;
+            let (pins, checkpoint) = catalog.run_upload_admitted(execution, move |connection| {
+                let (progress, _) = checkpoint.read(connection, UnixMillis::try_from(clock.now())?)?;
                 let sources = inputs(connection, &query)?;
                 let ready = match input {
                     Some(input) => matches!(sources.as_slice(), [s] if s.id == input && s.start == 0 && s.length == s.size && s.size == progress.total && progress.offset == 0),
@@ -412,9 +424,9 @@ impl Catalog {
                     // This first and only call has issued no token. Once its sole input
                     // moves to blobs, a crash must abandon the transfer and sweep the orphan.
                     sql::exec_on_writer(connection, "UPDATE derived_transfers SET ephemeral=1 WHERE id=?1 AND ephemeral=0", [query])?;
-                    return Ok(Vec::new());
+                    return Ok((Vec::new(), checkpoint));
                 }
-                Ok(sources.into_iter().map(|source| source.id).collect())
+                Ok((sources.into_iter().map(|source| source.id).collect(), checkpoint))
             }).await?;
             if !backend.is_memory() {
                 if pinned.is_none() {
@@ -423,7 +435,7 @@ impl Catalog {
                 }
                 catalog.publish_staged(blob.staging_path(&catalog.0.storage.data_dir), blob.blob_path(&catalog.0.storage.data_dir)).await?;
             }
-            let publication = TransferPublication { id, pinned, destination, backend, clock: catalog.0.policy.clock.clone(), principals, replay, prepare, complete };
+            let publication = TransferPublication { checkpoint, pinned, destination, backend, clock: catalog.0.policy.clock.clone(), principals, replay, prepare, complete };
             let published = catalog.run_upload(move |connection| publish_transfer(connection, publication, pins)).await?;
             catalog.release_transfer(DiscardedTransfer { id, pins: published.pins }).await;
             catalog.reclaim_if(published.journaled).await;

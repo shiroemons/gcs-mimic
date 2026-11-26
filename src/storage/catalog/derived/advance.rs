@@ -1,6 +1,14 @@
 use super::super::transfer_io::InputReader;
 use super::*;
 
+impl RequestTransfer {
+    pub(crate) async fn advance(self, catalog: &Catalog, budget: u64) -> Result<Self, ObjectError> {
+        catalog
+            .advance_from(Checkpoint::Request(self), budget)
+            .await
+    }
+}
+
 impl Catalog {
     #[cfg(test)]
     pub(crate) async fn get_derived(&self, id: &BlobId) -> Result<DerivedTransfer, ObjectError> {
@@ -17,17 +25,27 @@ impl Catalog {
         id: &BlobId,
         budget: u64,
     ) -> Result<DerivedTransfer, ObjectError> {
+        self.advance_from(Checkpoint::Stored(*id), budget)
+            .await
+            .map(|state| state.progress)
+    }
+
+    async fn advance_from(
+        &self,
+        checkpoint: Checkpoint,
+        budget: u64,
+    ) -> Result<RequestTransfer, ObjectError> {
+        let id = checkpoint.id();
         let permit = self.continue_object_upload().await?;
-        let guard = self.derived_guard(id)?;
+        let guard = self.derived_guard(&id)?;
         let catalog = self.clone();
-        let id = *id;
         // Detached ownership keeps cancellation from racing directory closure or cleanup.
         crate::task::spawn_supervised("derived-transfer", async move {
             let (_permit, guard) = (permit, std::sync::Arc::new(guard));
             let query = id;
             let now = UnixMillis::try_from(catalog.0.policy.clock.now())?;
             let (mut progress, mut hasher, sources) = catalog.run_upload::<_, ObjectError>(move |connection| {
-                let (progress, hasher) = transfer(connection, &query, now)?;
+                let (progress, hasher) = checkpoint.read(connection, now)?;
                 Ok((progress, hasher, inputs(connection, &query)?))
             }).await?;
             let worker = catalog.clone();
@@ -70,7 +88,7 @@ impl Catalog {
                 sql::exec_on_writer(connection, "UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4, deadline = CASE ephemeral WHEN 1 THEN max(deadline, ?5) ELSE deadline END WHERE id = ?1", params![id, progress.offset, md5_state.as_slice(), crc, renewed])?;
                 // The queued SQL job owns the draft until its acknowledged prefix is updated.
                 output.acknowledge(progress.offset);
-                Ok(progress)
+                Ok(RequestTransfer { progress, hasher })
             }).await
         }).await?
     }
