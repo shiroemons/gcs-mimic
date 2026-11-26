@@ -104,9 +104,17 @@ mod tests {
             object_media_headers(&object).unwrap()["content-length"],
             u64::MAX.to_string()
         );
+    }
+
+    #[test]
+    fn invalid_stored_media_headers_keep_the_header_error_as_their_source() {
+        let mut object = crate::storage::test_fixtures::bare_object_record();
         object.content_type = "text/plain\r\nx-injected: yes".to_owned();
+        let error = object_media_headers(&object).unwrap_err();
+        let source = std::error::Error::source(&error).expect("stored header error has a source");
+        assert!(source.is::<hyper::header::InvalidHeaderValue>());
         assert_eq!(
-            crate::api_error::ApiError::from(object_media_headers(&object).unwrap_err()).status,
+            crate::api_error::ApiError::from(error).status,
             StatusCode::SERVICE_UNAVAILABLE
         );
     }

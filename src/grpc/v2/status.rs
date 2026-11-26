@@ -1,12 +1,13 @@
-use crate::bounded_body::BodyError;
-use crate::multipart::MultipartError;
-use crate::object::upload_headers::UploadHeaderError;
 use crate::{
+    bounded_body::BodyError,
     bucket::CatalogError,
     grpc::generated::google::rpc::{BadRequest, ErrorInfo, Status as RpcStatus, bad_request},
     input::InputKind,
     metadata_error::MetadataError,
-    object::{ComponentFailure, ComponentFailureKind, ObjectError},
+    multipart::MultipartError,
+    object::{
+        ComponentFailure, ComponentFailureKind, ObjectError, upload_headers::UploadHeaderError,
+    },
     service::ServiceError,
     storage::failure::{BackendCause, wording},
 };

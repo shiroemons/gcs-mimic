@@ -164,7 +164,11 @@ impl From<AdminError> for ImportError {
 }
 impl From<DefaultBucketError> for ImportError {
     fn from(error: DefaultBucketError) -> Self {
-        Self::Invalid(error.to_string().into())
+        let message = match error {
+            DefaultBucketError::Project(_) => crate::auth::InvalidProjectId::MESSAGE,
+            DefaultBucketError::Timestamp(_) => crate::time_format::TimeOutOfRange::MESSAGE,
+        };
+        Self::Invalid(Cow::Borrowed(message))
     }
 }
 impl From<CatalogError> for ImportError {

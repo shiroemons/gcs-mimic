@@ -439,8 +439,9 @@ A further split waits until after `1.0.0`:
   Multipart framing, upload headers, bounded bodies and stored media headers
   use `Multipart`, `UploadHeader`, `Body` and `StoredHeader`. The upload driver
   distinguishes a resumable body abort from other storage failures on the
-  typed session error. The other variants enter with the paths that produce them. A size test
-  decides which variants are boxed.
+  typed session error. The multipart parser returns `MultipartError`; the adapters
+  convert it through `ServiceError`. The other variants enter with the paths that
+  produce them. A size test decides which variants are boxed.
 - **JSON.** `ApiError` moves to `src/json/error.rs` with private fields. Its
   status, reason, location, plain and HTML choices are made in the JSON
   mapping from the domain variant, reproducing today's constructor calls.

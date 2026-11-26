@@ -8,14 +8,29 @@ use crate::hashing::{InvalidDigest, decode_hash};
 use crate::http_header::{TextError, TextOrder, sole};
 use hyper::HeaderMap;
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum HashHeader {
+    Put,
+    Session,
+}
+
+impl HashHeader {
+    fn malformed_message(self) -> &'static str {
+        match self {
+            Self::Put => "Invalid x-goog-hash header",
+            Self::Session => "Invalid x-goog-hash",
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UploadHeaderError {
     #[error("Duplicate Content-Type header")]
     DuplicateContentType,
     #[error("Invalid Content-Type header")]
     InvalidContentType,
-    #[error("{0}")]
-    MalformedHash(&'static str),
+    #[error("{}", .0.malformed_message())]
+    MalformedHash(HashHeader),
     #[error("Duplicate x-goog-hash algorithm")]
     DuplicateAlgorithm,
     #[error(
@@ -63,7 +78,7 @@ pub(crate) fn content_type(headers: &HeaderMap) -> Result<String, UploadHeaderEr
 pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, UploadHeaderError> {
     let mut hashes = ExpectedHashes::default();
     // A repeated algorithm is refused even with an equal value, before it is decoded.
-    each_declared_hash(headers, "Invalid x-goog-hash header", |algorithm, value| {
+    each_declared_hash(headers, HashHeader::Put, |algorithm, value| {
         if hashes.declares(algorithm) {
             return Err(UploadHeaderError::DuplicateAlgorithm);
         }
@@ -81,23 +96,22 @@ pub(crate) fn decode(algorithm: HashAlgorithm, text: &str) -> Result<Checksum, U
     })
 }
 
-/// Passes each `algorithm=value` entry of the `X-Goog-Hash` headers, in order, to `declare`. A
-/// header that is not visible ASCII, or an entry without `=`, fails with `malformed`; an
-/// algorithm other than `md5` and `crc32c` is unsupported.
+/// Passes each `algorithm=value` entry to `declare` in header order. The upload route determines
+/// the error message for malformed entries. Both routes accept only `md5` and `crc32c`.
 pub(crate) fn each_declared_hash(
     headers: &HeaderMap,
-    malformed: &'static str,
+    route: HashHeader,
     mut declare: impl FnMut(HashAlgorithm, &str) -> Result<(), UploadHeaderError>,
 ) -> Result<(), UploadHeaderError> {
     for header in headers.get_all("x-goog-hash") {
         let header = header
             .to_str()
-            .map_err(|_| UploadHeaderError::MalformedHash(malformed))?;
+            .map_err(|_| UploadHeaderError::MalformedHash(route))?;
         for entry in header.split(',') {
             let (token, value) = entry
                 .trim()
                 .split_once('=')
-                .ok_or(UploadHeaderError::MalformedHash(malformed))?;
+                .ok_or(UploadHeaderError::MalformedHash(route))?;
             let algorithm = match token {
                 "md5" => HashAlgorithm::Md5,
                 "crc32c" => HashAlgorithm::Crc32c,

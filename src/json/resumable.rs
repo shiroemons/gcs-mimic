@@ -8,7 +8,8 @@ use crate::{
     decimal::Grammar,
     http_header::{TextError, TextOrder, sole},
     object::{
-        ChecksumConflict, ExpectedHashes, MapPatch, ObjectError, content_type, upload_headers,
+        ChecksumConflict, ExpectedHashes, MapPatch, ObjectError, content_type,
+        upload_headers::{self, HashHeader},
     },
     storage::ResumableOptions,
 };
@@ -354,7 +355,7 @@ pub(crate) fn final_options(
     upload_content_type(&clean)?;
     // An equal value agrees with the metadata's or an earlier chunk's declaration; a different
     // one conflicts.
-    upload_headers::each_declared_hash(headers, "Invalid x-goog-hash", |algorithm, value| {
+    upload_headers::each_declared_hash(headers, HashHeader::Session, |algorithm, value| {
         options
             .expected
             .agree(upload_headers::decode(algorithm, value)?)

@@ -2,9 +2,6 @@
 //! keeps the code, message and details the XML adapter has always sent for that failure.
 
 use super::{Error, XmlCode};
-use crate::multipart::MultipartError;
-use crate::object::upload_headers::UploadHeaderError;
-
 use crate::{
     auth::{AuthError, AuthFailure, Caller, Denied, InvalidProjectId},
     bounded_body::BodyError,
@@ -13,7 +10,11 @@ use crate::{
     hashing::InvalidDigest,
     input::InputKind,
     metadata_error::MetadataError,
-    object::{ComponentFailureKind, ObjectError, name::InvalidObjectName},
+    multipart::MultipartError,
+    object::{
+        ComponentFailureKind, ObjectError, media_headers::StoredHeaderError,
+        name::InvalidObjectName, upload_headers::UploadHeaderError,
+    },
     percent::{MalformedEncoding, QueryError},
     service::ServiceError,
     storage::failure::{BackendCause, wording},
@@ -21,13 +22,20 @@ use crate::{
 };
 use hyper::StatusCode;
 
+impl From<MultipartError> for Error {
+    fn from(error: MultipartError) -> Self {
+        ServiceError::from(error).into()
+    }
+}
+
 impl From<UploadHeaderError> for Error {
     fn from(error: UploadHeaderError) -> Self {
         ServiceError::from(error).into()
     }
 }
-impl From<crate::object::media_headers::StoredHeaderError> for Error {
-    fn from(error: crate::object::media_headers::StoredHeaderError) -> Self {
+
+impl From<StoredHeaderError> for Error {
+    fn from(error: StoredHeaderError) -> Self {
         ServiceError::from(error).into()
     }
 }
@@ -53,7 +61,8 @@ impl From<ServiceError> for Error {
                 UploadHeaderError::InvalidContentType
                 | UploadHeaderError::DuplicateContentType
                 | UploadHeaderError::UnsupportedAlgorithm => Self::invalid(error.to_string()),
-                // XML PUT omits the algorithm from a malformed or repeated digest.
+                // XML PUT omits the algorithm. Its malformed CRC32C code is tracked in
+                // SPEC-XML-PUT-EDGES. Only resumable sessions produce Conflicting.
                 UploadHeaderError::Digest(_)
                 | UploadHeaderError::MalformedHash(_)
                 | UploadHeaderError::Conflicting(_)
