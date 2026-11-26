@@ -619,7 +619,7 @@ impl Catalog {
         let token = hash(token.as_bytes())?;
         let request = replay_request(request, &access)?;
         let clock = self.0.clock.clone();
-        let principals = self.0.principals.get().cloned();
+        let principals = self.0.principals.clone();
         self.run_serialized_read(SerializedRead::AdvisoryUpload, move |connection| {
             let snapshot = sql::read_snapshot(connection)?;
             let (_, delete_permission) = objects::authorized_bucket(&snapshot, &bucket, &access)?;

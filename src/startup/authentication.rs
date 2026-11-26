@@ -3,7 +3,6 @@
 use gcs_mimic::{
     bucket::CatalogError,
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
-    storage::Catalog,
 };
 use std::{error::Error, fmt};
 
@@ -69,7 +68,8 @@ impl Error for Failure {
     }
 }
 
-pub(super) async fn close(catalog: &Catalog, cause: CatalogError) -> Failure {
+#[cfg(test)]
+pub(super) async fn close(catalog: &gcs_mimic::storage::Catalog, cause: CatalogError) -> Failure {
     let cleanup = catalog.close().await.err();
     Failure::new(cause, cleanup)
 }

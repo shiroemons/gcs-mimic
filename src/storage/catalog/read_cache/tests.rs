@@ -101,17 +101,21 @@ async fn a_repeated_download_does_not_reach_the_catalog() {
 }
 
 async fn open_ram_catalog(max_bytes: u64) -> Catalog {
-    let catalog = Catalog::open_memory_for_server(
-        max_bytes,
-        1 << 20,
-        Arc::new(crate::clock::SystemClock),
-        super::super::admin::LocalAdmin::Disabled,
+    let catalog = Catalog::open_with_options(
+        crate::storage::CatalogBacking::Memory {
+            blob_bytes: max_bytes,
+            catalog_bytes: 1 << 20,
+        },
+        crate::storage::CatalogOptions {
+            principals: Some(super::super::principals::Profile::TrustedLocal),
+            ..crate::storage::CatalogOptions::embedded(
+                Arc::new(crate::clock::SystemClock),
+                super::super::admin::LocalAdmin::Disabled,
+            )
+        },
     )
     .await
     .unwrap();
-    catalog
-        .set_principal_profile(super::super::principals::Profile::TrustedLocal)
-        .unwrap();
     catalog
         .insert_bucket(bucket("bucket", "project"))
         .await

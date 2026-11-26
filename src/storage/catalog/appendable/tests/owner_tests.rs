@@ -27,25 +27,20 @@ fn auth(creator_alias: &str, finalizer_alias: &str, finalizer_roles: &[&str]) ->
 }
 
 async fn open_catalog(data: &TestDir, backend: Backend, auth: &Auth) -> Catalog {
-    let catalog = match backend {
-        Backend::Disk => Catalog::open_for_server(
-            &data.0,
-            Arc::new(Clock),
-            super::super::super::admin::LocalAdmin::Disabled,
-        )
-        .await
-        .unwrap(),
-        Backend::Memory => Catalog::open_memory_for_server(
-            8192,
-            1024 * 1024,
-            Arc::new(Clock),
-            super::super::super::admin::LocalAdmin::Disabled,
-        )
-        .await
-        .unwrap(),
+    use crate::storage::{CatalogBacking, CatalogOptions, admin::LocalAdmin};
+    let backing = match backend {
+        Backend::Disk => CatalogBacking::Disk(&data.0),
+        Backend::Memory => CatalogBacking::Memory {
+            blob_bytes: 8192,
+            catalog_bytes: 1024 * 1024,
+        },
     };
-    catalog.configure_authentication(auth).await.unwrap();
-    catalog
+    Catalog::open_with_options(
+        backing,
+        CatalogOptions::authenticated(Arc::new(Clock), LocalAdmin::Disabled, auth),
+    )
+    .await
+    .unwrap()
 }
 
 #[tokio::test]

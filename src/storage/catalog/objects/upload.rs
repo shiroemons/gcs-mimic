@@ -488,7 +488,7 @@ impl Catalog {
                     metadata,
                     conditions,
                     access,
-                    principals: catalog.0.principals.get().cloned(),
+                    principals: catalog.0.principals.clone(),
                     mode,
                     identity,
                     owner,

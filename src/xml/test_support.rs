@@ -25,9 +25,6 @@ impl SignedUploadFixture {
     pub(super) async fn new(public_key: Option<&str>) -> Self {
         let dir = TestDir::new();
         let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-        let catalog = Catalog::open_for_server(&dir.0, clock.clone(), LocalAdmin::Disabled)
-            .await
-            .unwrap();
         let mut identity = json!({"id":"signer@example.invalid","tokens":[],"project_roles":{"local":["roles/storage.admin"]}});
         if let Some(public_key) = public_key {
             identity["public_keys"] = json!([public_key]);
@@ -35,7 +32,16 @@ impl SignedUploadFixture {
         let auth = Auth::strict(
             Registry::parse(json!({"identities":[identity]}).to_string().as_bytes()).unwrap(),
         );
-        catalog.configure_authentication(&auth).await.unwrap();
+        let catalog = Catalog::open_with_options(
+            crate::storage::CatalogBacking::Disk(&dir.0),
+            crate::storage::CatalogOptions::authenticated(
+                clock.clone(),
+                LocalAdmin::Disabled,
+                &auth,
+            ),
+        )
+        .await
+        .unwrap();
         catalog
             .insert_bucket(
                 json::parse_insert(br#"{"name":"bucket"}"#, "local", clock.now()).unwrap(),

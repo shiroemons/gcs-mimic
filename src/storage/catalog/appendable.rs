@@ -980,7 +980,7 @@ impl Catalog {
         );
         let clock = self.0.clock.clone();
         let backend = self.0.backend.clone();
-        let principals = self.0.principals.get().cloned();
+        let principals = self.0.principals.clone();
         self.run_upload::<_, AppendError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let (storage_class, _) = authorized_bucket(&transaction, &bucket, &options.access)?;
@@ -1061,7 +1061,7 @@ impl Catalog {
         } = target;
         let handle = new_handle.clone();
         let presented = write_handle.map(<[u8]>::to_vec);
-        let principals = self.0.principals.get().cloned();
+        let principals = self.0.principals.clone();
         let selected = self
             .run_upload::<_, AppendError>(move |connection| {
                 let transaction = sql::immediate(connection)?;
@@ -1170,7 +1170,7 @@ impl Catalog {
         let access = access.clone();
         let backend = self.0.backend.kind();
         let clock = self.0.clock.clone();
-        let principals = self.0.principals.get().cloned();
+        let principals = self.0.principals.clone();
         let id = self
             .run_upload(move |connection| {
                 let transaction = sql::immediate(connection)?;

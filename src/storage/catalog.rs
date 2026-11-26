@@ -119,6 +119,8 @@ mod connection;
 mod keyset;
 mod known_projects;
 mod open;
+mod options;
+pub use options::{CatalogBacking, CatalogOpenError, CatalogOptions};
 mod schema;
 #[cfg(test)]
 use bucket_list::bucket_list_page;
@@ -203,7 +205,7 @@ fn bucket_incarnation(connection: &Connection, bucket: &str) -> rusqlite::Result
 }
 
 struct Inner {
-    principals: OnceLock<principals::Profile>,
+    principals: Option<principals::Profile>,
     activity: ActivityGate,
     resources: Mutex<Option<Resources>>,
     admission: Arc<Semaphore>,

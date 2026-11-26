@@ -35,7 +35,7 @@ impl Admin {
         source_created: Option<std::time::SystemTime>,
     ) -> Result<EnsureBucket, AdminError> {
         let origin = self.origin();
-        let principals = self.catalog.0.principals.get().cloned();
+        let principals = self.catalog.0.principals.clone();
         self.catalog
             .run_admin(move |connection| {
                 let transaction = sql::immediate(connection)?;

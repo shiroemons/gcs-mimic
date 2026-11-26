@@ -46,7 +46,7 @@ fn selected_appendable(
         &target.name,
         storage_class,
         &row,
-        catalog.0.principals.get(),
+        catalog.0.principals.as_ref(),
     )?;
     check_conditions(Some(&record), conditions, objects::RequestKind::Read)?;
     Ok((record, row.blob_id))

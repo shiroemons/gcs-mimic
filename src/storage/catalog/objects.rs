@@ -272,7 +272,7 @@ impl Catalog {
         } = target;
         let clock = self.0.clock.clone();
         let access = access.clone();
-        let principals = self.0.principals.get().cloned();
+        let principals = self.0.principals.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             let StoredObject { mut record, .. } = selected(

@@ -191,7 +191,7 @@ impl Context {
             grant,
             clock: catalog.0.clock.clone(),
             default_retention: catalog.default_soft_delete_retention(),
-            principals: catalog.0.principals.get().cloned(),
+            principals: catalog.0.principals.clone(),
         }
     }
 }

@@ -6,6 +6,18 @@ use crate::{
 use rusqlite::params;
 use serde_json::json;
 
+async fn open(data: &TestDir, auth: &Auth) -> Result<Catalog, crate::storage::CatalogOpenError> {
+    Catalog::open_with_options(
+        crate::storage::CatalogBacking::Disk(&data.0),
+        crate::storage::CatalogOptions::authenticated(
+            Arc::new(SystemClock),
+            LocalAdmin::Disabled,
+            auth,
+        ),
+    )
+    .await
+}
+
 async fn bucket(catalog: &Catalog, name: &str, project: &str) {
     let record = crate::json::parse_insert(
         json!({"name":name}).to_string().as_bytes(),
@@ -26,22 +38,18 @@ async fn empty_catalog_installs_each_authentication_profile_without_a_write_tran
         ),
     ] {
         let data = TestDir::new();
-        let catalog =
-            Catalog::open_for_server(&data.0, Arc::new(SystemClock), LocalAdmin::Disabled)
-                .await
-                .unwrap();
-        let writer = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
-        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
-        catalog.configure_authentication(&auth).await.unwrap();
+        let catalog = open(&data, &auth).await.unwrap();
         assert_eq!(
-            matches!(catalog.0.principals.get(), Some(Profile::Strict(_))),
+            matches!(catalog.0.principals, Some(Profile::Strict(_))),
             auth.principals().is_some()
         );
-        assert!(catalog.0.principals.get().is_some());
-        assert!(matches!(
-            catalog.configure_authentication(&auth).await,
-            Err(CatalogError::AuthenticationAlreadyConfigured)
-        ));
+        let path = data.0.join("catalog.sqlite3");
+        let writer = rusqlite::Connection::open(&path).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let mut reader = rusqlite::Connection::open(path).unwrap();
+        Profile::from(&auth)
+            .reconcile(&mut reader, &SystemClock)
+            .unwrap();
         writer.execute_batch("ROLLBACK").unwrap();
         catalog.close().await.unwrap();
     }
@@ -60,11 +68,14 @@ async fn an_orphan_object_cannot_take_the_empty_catalog_authentication_path() {
         })
         .await
         .unwrap();
+    let mut connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
     assert!(matches!(
-        catalog.configure_authentication(&Auth::permissive()).await,
+        Profile::from(&Auth::permissive()).reconcile(&mut connection, &SystemClock),
         Err(CatalogError::Corrupt(reason)) if reason == "object records exist without a bucket"
     ));
+    drop(connection);
     catalog.close().await.unwrap();
+    assert!(open(&data, &Auth::permissive()).await.is_err());
 }
 
 #[tokio::test]
@@ -87,7 +98,12 @@ async fn partial_startup_reconciliation_does_not_union_an_already_bound_bucket_a
         Ok(policy)
     }).await.unwrap();
     let original = Auth::strict(Registry::parse(br#"{"identities":[{"id":"local:reader-user","tokens":[],"acl_entity":"user-reader@example.test"},{"id":"other@example.test","tokens":[]}]}"#).unwrap());
-    assert!(catalog.configure_authentication(&original).await.is_err());
+    catalog.close().await.unwrap();
+    assert!(matches!(
+        open(&data, &original).await,
+        Err(crate::storage::CatalogOpenError::Authentication(_))
+    ));
+    let catalog = Catalog::open(&data.0).await.unwrap();
     catalog
         .run::<_, CatalogError>(|connection| {
             let flags: Vec<i64> = connection
@@ -108,10 +124,7 @@ async fn partial_startup_reconciliation_does_not_union_an_already_bound_bucket_a
         connection.execute("UPDATE acl_bucket_entries SET entries='[]' WHERE bucket='second-bucket' AND scope='bucket'", []).unwrap();
     }
     let current = Auth::strict(Registry::parse(br#"{"identities":[{"id":"local:reader-user","tokens":[],"acl_entity":"user-new@example.test"},{"id":"other@example.test","tokens":[],"acl_entity":"user-reader@example.test"}]}"#).unwrap());
-    let reopened = Catalog::open_for_server(&data.0, Arc::new(SystemClock), LocalAdmin::Disabled)
-        .await
-        .unwrap();
-    reopened.configure_authentication(&current).await.unwrap();
+    let reopened = open(&data, &current).await.unwrap();
     assert!(
         reopened
             .bucket_access(
@@ -149,13 +162,7 @@ async fn partial_startup_reconciliation_does_not_union_an_already_bound_bucket_a
 #[tokio::test]
 async fn new_and_recreated_buckets_start_bound_without_inheriting_old_grants() {
     let data = TestDir::new();
-    let catalog = Catalog::open_for_server(&data.0, Arc::new(SystemClock), LocalAdmin::Disabled)
-        .await
-        .unwrap();
-    catalog
-        .configure_authentication(&Auth::permissive())
-        .await
-        .unwrap();
+    let catalog = open(&data, &Auth::permissive()).await.unwrap();
     bucket(&catalog, "bucket", "project").await;
     let original = catalog.run::<_, CatalogError>(|connection| {
         let bound: bool = connection.query_row("SELECT acl_policy_bound FROM buckets WHERE name='bucket'", [], |row| row.get(0)).unwrap();
@@ -215,10 +222,8 @@ async fn old_bucket_without_stored_acl_does_not_invent_virtual_default_grants() 
         })
         .await
         .unwrap();
-    catalog
-        .configure_authentication(&Auth::permissive())
-        .await
-        .unwrap();
+    catalog.close().await.unwrap();
+    let catalog = open(&data, &Auth::permissive()).await.unwrap();
     assert_eq!(
         catalog.get_policy("bucket", PERMISSIVE).await.unwrap(),
         before
@@ -233,13 +238,7 @@ async fn old_bucket_without_stored_acl_does_not_invent_virtual_default_grants() 
         .unwrap();
     assert!(acl.entries.is_empty());
     catalog.close().await.unwrap();
-    let reopened = Catalog::open_for_server(&data.0, Arc::new(SystemClock), LocalAdmin::Disabled)
-        .await
-        .unwrap();
-    reopened
-        .configure_authentication(&Auth::permissive())
-        .await
-        .unwrap();
+    let reopened = open(&data, &Auth::permissive()).await.unwrap();
     assert_eq!(
         reopened.get_policy("bucket", PERMISSIVE).await.unwrap(),
         before

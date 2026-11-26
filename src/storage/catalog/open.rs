@@ -322,9 +322,13 @@ impl Catalog {
         data_dir: impl AsRef<Path>,
         clock: Arc<dyn Clock>,
     ) -> Result<Self, CatalogError> {
-        let catalog = Self::open_for_server(data_dir, clock, admin::LocalAdmin::Disabled).await?;
-        catalog.set_principal_profile(principals::Profile::TrustedLocal)?;
-        Ok(catalog)
+        let options = CatalogOptions {
+            principals: Some(principals::Profile::TrustedLocal),
+            ..CatalogOptions::embedded(clock, admin::LocalAdmin::Disabled)
+        };
+        Self::open_with_options(CatalogBacking::Disk(data_dir.as_ref()), options)
+            .await
+            .map_err(CatalogOpenError::into_cause)
     }
 
     /// Issues local management authority only while opening the operator-owned catalog.
@@ -345,17 +349,18 @@ impl Catalog {
         data_dir: &Path,
         source: [u8; 32],
     ) -> Result<Self, CatalogError> {
-        let catalog = Self::open_backend(
+        Self::open_options(
             Backing::Disk {
                 data_dir: data_dir.to_owned(),
                 resume: Some(source),
             },
-            Arc::new(SystemClock),
-            admin::LocalAdmin::Disabled,
+            CatalogOptions {
+                principals: Some(principals::Profile::TrustedLocal),
+                ..CatalogOptions::embedded(Arc::new(SystemClock), admin::LocalAdmin::Disabled)
+            },
         )
-        .await?;
-        catalog.set_principal_profile(principals::Profile::TrustedLocal)?;
-        Ok(catalog)
+        .await
+        .map_err(CatalogOpenError::into_cause)
     }
 
     /// Opens an isolated volatile catalog without reading or creating a data directory.
@@ -365,23 +370,45 @@ impl Catalog {
         clock: Arc<dyn Clock>,
         local_admin: admin::LocalAdmin,
     ) -> Result<Self, CatalogError> {
-        if max_bytes == 0 || catalog_max_bytes < 1024 * 1024 {
-            return Err(unavailable(
-                "RAM requires a positive blob budget and at least 1 MiB of catalog pages",
-            ));
-        }
-        Self::open_backend(
-            Backing::Memory {
-                limits: MemoryLimits {
-                    blob_bytes: max_bytes,
-                    catalog_bytes: catalog_max_bytes,
-                },
-                data_dir: PathBuf::new(),
+        Self::open_with_options(
+            CatalogBacking::Memory {
+                blob_bytes: max_bytes,
+                catalog_bytes: catalog_max_bytes,
             },
-            clock,
-            local_admin,
+            CatalogOptions::embedded(clock, local_admin),
         )
         .await
+        .map_err(CatalogOpenError::into_cause)
+    }
+
+    pub async fn open_with_options(
+        backing: CatalogBacking<'_>,
+        options: CatalogOptions,
+    ) -> Result<Self, CatalogOpenError> {
+        let backing = match backing {
+            CatalogBacking::Disk(data_dir) => Backing::Disk {
+                data_dir: data_dir.to_owned(),
+                resume: None,
+            },
+            CatalogBacking::Memory {
+                blob_bytes,
+                catalog_bytes,
+            } => {
+                if blob_bytes == 0 || catalog_bytes < 1024 * 1024 {
+                    return Err(CatalogOpenError::Storage(unavailable(
+                        "RAM requires a positive blob budget and at least 1 MiB of catalog pages",
+                    )));
+                }
+                Backing::Memory {
+                    limits: MemoryLimits {
+                        blob_bytes,
+                        catalog_bytes,
+                    },
+                    data_dir: PathBuf::new(),
+                }
+            }
+        };
+        Self::open_options(backing, options).await
     }
 
     pub(super) async fn open_backend(
@@ -389,7 +416,21 @@ impl Catalog {
         clock: Arc<dyn Clock>,
         local_admin: admin::LocalAdmin,
     ) -> Result<Self, CatalogError> {
-        crate::task::run_blocking("catalog-open", move || -> Result<Self, CatalogError> {
+        Self::open_options(backing, CatalogOptions::embedded(clock, local_admin))
+            .await
+            .map_err(CatalogOpenError::into_cause)
+    }
+
+    async fn open_options(
+        backing: Backing,
+        options: CatalogOptions,
+    ) -> Result<Self, CatalogOpenError> {
+        let CatalogOptions {
+            clock,
+            local_admin,
+            principals,
+        } = options;
+        crate::task::run_blocking("catalog-open", move || -> Result<Self, CatalogOpenError> {
             let OpenedStorage {
                 backend,
                 lock,
@@ -406,11 +447,14 @@ impl Catalog {
             upgrade_catalog(&mut connection, stored_version, &backend)?;
             match backend.kind() {
                 crate::config::Backend::Memory => {
-                    connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
+                    connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(CatalogError::from)?;
                     notification_outbox::open(&connection)?;
                     resumable::open(&connection)?;
                 }
                 crate::config::Backend::Disk => recover_on_open(&mut connection, &backend, &*clock)?,
+            }
+            if let Some(profile @ (principals::Profile::Strict(_) | principals::Profile::Permissive { .. })) = &principals {
+                profile.reconcile(&mut connection, &*clock).map_err(CatalogOpenError::Authentication)?;
             }
             let parent_policy = Arc::<read_pool::ParentPolicy>::default();
             let lifecycle = lifecycle::LifecycleSchedule::open(&connection)?;
@@ -423,12 +467,12 @@ impl Catalog {
                 )),
             };
             Ok(Self(Arc::new(Inner {
-                principals: OnceLock::new(),
+                principals,
                 activity: ActivityGate::default(),
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
-                executor: executor::Executor::start("gcs-mimic-catalog")?,
+                executor: executor::Executor::start("gcs-mimic-catalog").map_err(CatalogError::from)?,
                 upload_commits: objects::CommitQueue::default(),
                 read_pool,
                 parent_policy,
@@ -443,7 +487,7 @@ impl Catalog {
                 publication_batch: Arc::new(Semaphore::new(1)),
                 seed_commit: Arc::new(Semaphore::new(1)),
                 publication_requests: Arc::new(Semaphore::new(PUBLICATION_REQUESTS as usize)),
-                file_workers: admin::FileWorkers::new()?,
+                file_workers: admin::FileWorkers::new().map_err(CatalogError::from)?,
                 admin_shutdown: Notify::new(),
                 local_admin: admin::startup_grant(local_admin),
                 notification_wake: Arc::new(Notify::new()),
@@ -477,6 +521,6 @@ impl Catalog {
                 admission_waiters: std::sync::atomic::AtomicUsize::new(0),
             })))
         })
-        .await?
+        .await.map_err(CatalogError::from)?
     }
 }

@@ -375,7 +375,7 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let access = access.clone();
         let clock = self.0.clock.clone();
-        let principals = self.0.principals.get().cloned();
+        let principals = self.0.principals.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             authorize_policy(&transaction, &bucket, &access)?;

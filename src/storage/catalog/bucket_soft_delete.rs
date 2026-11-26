@@ -383,7 +383,7 @@ impl Catalog {
         access: &BucketAccess,
     ) -> Result<BucketRecord, CatalogError> {
         let (name, access, clock) = (name.to_owned(), access.clone(), self.0.clock.clone());
-        let principals = self.0.principals.get().cloned();
+        let principals = self.0.principals.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             let now = unix_micros(clock.now())?;

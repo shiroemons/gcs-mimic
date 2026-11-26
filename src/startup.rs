@@ -9,7 +9,9 @@ use gcs_mimic::{
     },
     seed::{SeedError, SeedOutcome},
     server::{self, State},
-    storage::{Catalog, DataDirState, MemoryBudget, admin::AdminError},
+    storage::{
+        Catalog, CatalogOpenError, CatalogOptions, DataDirState, MemoryBudget, admin::AdminError,
+    },
     time_limit::TimeLimit,
 };
 use serde::Serialize;
@@ -361,29 +363,18 @@ async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
 
 async fn open_catalog(
     config: &Config,
+    auth: &Auth,
     clock: Arc<dyn Clock>,
     shutdown: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<()>>>,
-) -> Result<PhaseResult<Catalog>, Diagnostics> {
+) -> Result<PhaseResult<Catalog>, crate::CliError> {
     let opening = async {
         let admin = if config.admin_enabled() {
             gcs_mimic::storage::admin::LocalAdmin::Enabled
         } else {
             gcs_mimic::storage::admin::LocalAdmin::Disabled
         };
-        let opened = match config.backend() {
-            gcs_mimic::config::Backend::Disk => {
-                Catalog::open_for_server(config.data_dir(), clock, admin).await
-            }
-            gcs_mimic::config::Backend::Memory => {
-                Catalog::open_memory_for_server(
-                    config.memory_max_bytes(),
-                    config.memory_catalog_max_bytes(),
-                    clock,
-                    admin,
-                )
-                .await
-            }
-        };
+        let options = CatalogOptions::authenticated(clock, admin, auth);
+        let opened = Catalog::open_with_options(config.into(), options).await;
         // Applied before seeding, bucket files and listeners create any bucket. The reference
         // emulator profile never gets a default policy.
         if let Ok(catalog) = &opened {
@@ -403,7 +394,12 @@ async fn open_catalog(
             catalog.apply_session_limits(config);
             catalog.configure_lifecycle(config);
         }
-        opened.map_err(|error| catalog_open_failure(&error))
+        opened.map_err(|error| match error {
+            CatalogOpenError::Storage(cause) => crate::CliError::from(catalog_open_failure(&cause)),
+            CatalogOpenError::Authentication(cause) => {
+                authentication::Failure::new(cause, None).into()
+            }
+        })
     };
     tokio::pin!(opening);
     // Dropping this borrowed wait keeps the pinned owner alive for the required recovery drain.
@@ -574,14 +570,11 @@ pub(crate) async fn serve(
 ) -> Result<(), crate::CliError> {
     tokio::pin!(shutdown);
     let clock = Arc::new(SystemClock);
-    let opened = open_catalog(&config, clock.clone(), shutdown.as_mut()).await?;
+    let opened = open_catalog(&config, &auth, clock.clone(), shutdown.as_mut()).await?;
     let catalog = match opened {
         PhaseResult::Complete(catalog) => catalog,
         PhaseResult::Stopped => return Ok(()),
     };
-    if let Err(cause) = catalog.configure_authentication(&auth).await {
-        return Err(authentication::close(&catalog, cause).await.into());
-    }
     let BoundStartup {
         listeners,
         seed,
@@ -1510,11 +1503,16 @@ mod tests {
         let catalog = Catalog::open(&dir.0).await.unwrap();
         let shutdown = std::future::pending();
         tokio::pin!(shutdown);
-        let error = open_catalog(&dir.config(), Arc::new(SystemClock), shutdown.as_mut())
-            .await
-            .err()
-            .expect("live owner must reject open");
-        let diagnostics = &error;
+        let error = open_catalog(
+            &dir.config(),
+            &Auth::permissive(),
+            Arc::new(SystemClock),
+            shutdown.as_mut(),
+        )
+        .await
+        .err()
+        .expect("live owner must reject open");
+        let diagnostics = error.diagnostics().unwrap();
         assert_eq!(diagnostics.errors[0].source, DiagnosticSource::Catalog);
         assert_eq!(diagnostics.errors[0].key, "data_dir");
         assert!(catalog.is_healthy());
@@ -1559,7 +1557,7 @@ mod tests {
                 Ok(())
             };
             tokio::pin!(shutdown);
-            open_catalog(&config, clock, shutdown.as_mut()).await
+            open_catalog(&config, &Auth::permissive(), clock, shutdown.as_mut()).await
         });
         // Hang guards only: opening the catalog on a loaded Windows runner disk
         // has exceeded five seconds before recovery began.

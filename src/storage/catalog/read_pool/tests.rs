@@ -458,17 +458,21 @@ async fn close_ends_the_readers_before_the_writer_removes_the_wal() {
 /// A RAM catalog's database exists only inside the writer's connection.
 #[tokio::test]
 async fn a_ram_catalog_reads_on_the_serialized_path() {
-    let catalog = Catalog::open_memory_for_server(
-        1 << 20,
-        1 << 20,
-        Arc::new(crate::clock::SystemClock),
-        super::super::admin::LocalAdmin::Disabled,
+    let catalog = Catalog::open_with_options(
+        crate::storage::CatalogBacking::Memory {
+            blob_bytes: 1 << 20,
+            catalog_bytes: 1 << 20,
+        },
+        crate::storage::CatalogOptions {
+            principals: Some(super::super::principals::Profile::TrustedLocal),
+            ..crate::storage::CatalogOptions::embedded(
+                Arc::new(crate::clock::SystemClock),
+                super::super::admin::LocalAdmin::Disabled,
+            )
+        },
     )
     .await
     .unwrap();
-    catalog
-        .set_principal_profile(super::super::principals::Profile::TrustedLocal)
-        .unwrap();
     catalog
         .insert_bucket(bucket("bucket", "project"))
         .await

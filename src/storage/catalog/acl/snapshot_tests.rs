@@ -253,21 +253,21 @@ fn stored_writer_role_is_only_valid_for_bucket_acls() {
 
 async fn setup(data: &TestDir, backend: &str) -> (Catalog, Auth, crate::object::ObjectRecord) {
     let auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"uploader@example.test","tokens":[],"project_roles":{"local":["roles/storage.objectCreator"]}},{"id":"delegate@example.test","tokens":[]}]}"#).unwrap());
-    let catalog = if backend == "disk" {
-        Catalog::open_for_server(&data.0, Arc::new(SystemClock), LocalAdmin::Disabled)
-            .await
-            .unwrap()
+    use crate::storage::{CatalogBacking, CatalogOptions};
+    let backing = if backend == "disk" {
+        CatalogBacking::Disk(&data.0)
     } else {
-        Catalog::open_memory_for_server(
-            1024 * 1024,
-            1024 * 1024,
-            Arc::new(SystemClock),
-            LocalAdmin::Disabled,
-        )
-        .await
-        .unwrap()
+        CatalogBacking::Memory {
+            blob_bytes: 1024 * 1024,
+            catalog_bytes: 1024 * 1024,
+        }
     };
-    catalog.configure_authentication(&auth).await.unwrap();
+    let catalog = Catalog::open_with_options(
+        backing,
+        CatalogOptions::authenticated(Arc::new(SystemClock), LocalAdmin::Disabled, &auth),
+    )
+    .await
+    .unwrap();
     catalog
         .insert_bucket(
             crate::json::parse_insert(br#"{"name":"bucket"}"#, "local", std::time::UNIX_EPOCH)

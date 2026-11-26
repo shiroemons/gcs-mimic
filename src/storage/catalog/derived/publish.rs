@@ -347,7 +347,7 @@ impl Catalog {
             let query = id;
             let backend = catalog.0.backend.clone();
             let clock = catalog.0.clock.clone();
-            let principals = catalog.0.principals.get().cloned();
+            let principals = catalog.0.principals.clone();
             let result = async {
             catalog.run_upload_admitted(execution, move |connection| {
                 let (progress, hasher) = transfer(connection, &query, UnixMillis::try_from(clock.now())?)?;

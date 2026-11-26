@@ -372,13 +372,16 @@ async fn restore_rebinds_policy_acl_entities_to_the_current_principals() {
         }
     };
     let dir = TestDir::new();
-    let catalog = Catalog::open_for_server(&dir.0, Arc::new(SystemClock), LocalAdmin::Disabled)
-        .await
-        .unwrap();
-    catalog
-        .configure_authentication(&strict("user-old@example.test"))
-        .await
-        .unwrap();
+    let catalog = Catalog::open_with_options(
+        crate::storage::CatalogBacking::Disk(&dir.0),
+        crate::storage::CatalogOptions::authenticated(
+            Arc::new(SystemClock),
+            LocalAdmin::Disabled,
+            &strict("user-old@example.test"),
+        ),
+    )
+    .await
+    .unwrap();
     catalog.insert_bucket(record("rebound")).await.unwrap();
     set_retention(&catalog, "rebound", 7 * DAY).await;
     catalog
@@ -409,13 +412,16 @@ async fn restore_rebinds_policy_acl_entities_to_the_current_principals() {
     delete(&catalog, "rebound").await.unwrap();
     catalog.close().await.unwrap();
 
-    let reopened = Catalog::open_for_server(&dir.0, Arc::new(SystemClock), LocalAdmin::Disabled)
-        .await
-        .unwrap();
-    reopened
-        .configure_authentication(&strict("user-new@example.test"))
-        .await
-        .unwrap();
+    let reopened = Catalog::open_with_options(
+        crate::storage::CatalogBacking::Disk(&dir.0),
+        crate::storage::CatalogOptions::authenticated(
+            Arc::new(SystemClock),
+            LocalAdmin::Disabled,
+            &strict("user-new@example.test"),
+        ),
+    )
+    .await
+    .unwrap();
     reopened
         .restore_bucket("rebound", generation, PERMISSIVE)
         .await

@@ -447,7 +447,7 @@ impl Catalog {
             .await?;
         let session = lease.session.clone();
         let clock = self.0.clock.clone();
-        let principals = self.0.principals.get().cloned();
+        let principals = self.0.principals.clone();
         catalog_wait.send_replace(ChunkWait::Catalog);
         let publication =
             move |connection: &mut rusqlite::Connection| -> Result<(Value, objects::Retired), ResumableError> {
