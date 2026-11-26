@@ -71,16 +71,18 @@ struct Event<'a, T> {
     fields: T,
 }
 
-fn write_event(
-    mut writer: impl Write,
+fn write_event<T: Serialize, W: Write>(
+    writer: impl FnOnce() -> W,
     threshold: LogLevel,
     level: LogLevel,
     event: &str,
-    fields: impl Serialize,
+    fields: impl FnOnce() -> T,
 ) -> io::Result<()> {
     if level < threshold {
         return Ok(());
     }
+    let fields = fields();
+    let mut writer = writer();
     serde_json::to_writer(
         &mut writer,
         &Event {
@@ -94,8 +96,12 @@ fn write_event(
 
 /// Ordinary events must not turn a closed stderr pipe into a storage failure.
 pub fn emit(level: LogLevel, event: &str, fields: impl Serialize) {
+    emit_lazy(level, event, || fields);
+}
+
+pub(crate) fn emit_lazy<T: Serialize>(level: LogLevel, event: &str, fields: impl FnOnce() -> T) {
     let _ = write_event(
-        io::stderr().lock(),
+        || io::stderr().lock(),
         configured_level(),
         level,
         event,
@@ -192,11 +198,11 @@ impl Diagnostics {
             let mut records: Vec<_> = records.iter().collect();
             records.sort_by(|a, b| (a.source, &a.key).cmp(&(b.source, &b.key)));
             write_event(
-                &mut writer,
+                || &mut writer,
                 LogLevel::Debug,
                 level,
                 "diagnostics",
-                serde_json::json!({"diagnostics": records}),
+                || serde_json::json!({"diagnostics": records}),
             )?;
         }
         Ok(())
@@ -297,14 +303,24 @@ mod tests {
         for threshold in levels {
             for level in levels {
                 let mut bytes = Vec::new();
+                let mut opened_writer = false;
+                let mut built_fields = false;
                 write_event(
-                    &mut bytes,
+                    || {
+                        opened_writer = true;
+                        &mut bytes
+                    },
                     threshold,
                     level,
                     "operation",
-                    serde_json::json!({"message":"line\n\"quoted\""}),
+                    || {
+                        built_fields = true;
+                        serde_json::json!({"message":"line\n\"quoted\""})
+                    },
                 )
                 .unwrap();
+                assert_eq!(opened_writer, level >= threshold);
+                assert_eq!(built_fields, level >= threshold);
                 if level < threshold {
                     assert!(bytes.is_empty());
                 } else {

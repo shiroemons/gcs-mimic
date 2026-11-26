@@ -877,7 +877,7 @@ Checked on rustc 1.100.0 on 2026-11-26.
 | Writer-thread I/O | XML part and completion syncs on the blocking pool; a failed source batch's pins and unclaimed replies released there; the read-pool pop; the close-time thread-I/O assertion with the reset and reseed allowance | new failed-sync, crash and power-loss tests for both XML paths; the full suite passes the assertion; design "Persistence and concurrency" states the rule |
 | Writer settings | QPSG on the writer; the `wal_autocheckpoint` reason; the writer settings and schema version in design "Persistence and concurrency". The reader cache grows with the listing move, as [Jobs that move to the read pool](#jobs-that-move-to-the-read-pool) says | existing suite |
 | Lint quick wins | `significant_drop_in_scrutinee`, `or_fun_call`, `ignore_without_reason`, `return_and_then`, `unused_dependencies`, `#[must_use]` on guards | Rules table |
-| Small fixes | the head-limit comment and 40 KiB head test; the diagnostics level check; `public-contract-review.md` names schema version 57 where the code writes 59 | — |
+| Small fixes | the head-limit comment and 40 KiB head test, the diagnostics level check, and a reference to `CATALOG_SCHEMA_VERSION` in `public-contract-review.md` | — |
 
 ### Catalog round trips
 
