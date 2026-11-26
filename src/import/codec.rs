@@ -1,5 +1,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+use crate::time_format::civil::{days_from_civil, days_in_month};
 use serde::{
     Deserialize, Serialize,
     de::{self, MapAccess, Visitor},
@@ -330,16 +331,9 @@ fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32)
                 }
             })
     };
-    let (mut year, month, day) = (number(0, 4)?, number(5, 7)?, number(8, 10)?);
+    let (year, month, day) = (number(0, 4)?, number(5, 7)?, number(8, 10)?);
     let (hour, minute, second) = (number(11, 13)?, number(14, 16)?, number(17, 19)?);
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let days = match month {
-        2 if leap => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        _ => return Err(invalid),
-    };
+    let days = days_in_month(year, month).ok_or(invalid)?;
     if day < 1 || day > days || hour > 23 || minute > 59 || second > 59 {
         return Err(invalid);
     }
@@ -390,17 +384,8 @@ fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32)
     } else {
         return Err(invalid);
     };
-    // Gregorian civil-date conversion keeps pre-epoch instants exact without a time dependency.
-    year -= i64::from(month <= 2);
-    let era = year.div_euclid(400);
-    let yoe = year - era * 400;
-    let mp = month + if month > 2 { -3 } else { 9 };
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let micros = ((era * 146097 + doe - 719468) * 86400 + hour * 3600 + minute * 60 + second
-        - offset)
-        * 1_000_000
-        + micros;
+    let days = days_from_civil(year, month, day);
+    let micros = (days * 86400 + hour * 3600 + minute * 60 + second - offset) * 1_000_000 + micros;
     if !crate::clock::rfc3339_micros(i128::from(micros)) {
         return Err(TimestampError(
             "timestamp is outside the supported RFC3339 UTC range after timezone normalization",

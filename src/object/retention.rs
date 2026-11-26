@@ -5,6 +5,7 @@
 //! independent of the bucket retention policy: an object is protected until both are met.
 
 use super::{ObjectError, ObjectRecord, unix_nanos::UnixNanos};
+use crate::time_format::civil::{civil_from_days, days_from_civil};
 use std::time::{Duration, SystemTime};
 
 /// The official guide caps retain-until at 3,155,760,000 seconds (100 years) from now. The
@@ -83,7 +84,7 @@ pub(crate) fn pacific_rfc3339(time: UnixNanos) -> String {
 
 fn pacific_daylight_time(utc_seconds: i64) -> bool {
     let (year, _, _) = civil_from_days((utc_seconds - 8 * 3600).div_euclid(86_400));
-    let nth_sunday = |month: u32, nth: i64| {
+    let nth_sunday = |month, nth: i64| {
         let first = days_from_civil(year, month, 1);
         let weekday = (first + 4).rem_euclid(7);
         first + (7 - weekday) % 7 + 7 * (nth - 1)
@@ -92,39 +93,6 @@ fn pacific_daylight_time(utc_seconds: i64) -> bool {
     let start = nth_sunday(3, 2) * 86_400 + 10 * 3600;
     let end = nth_sunday(11, 1) * 86_400 + 9 * 3600;
     (start..end).contains(&utc_seconds)
-}
-
-pub(crate) fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
-    let year = year - i64::from(month <= 2);
-    let era = year.div_euclid(400);
-    let year_of_era = year.rem_euclid(400);
-    let month_from_march = i64::from((month + 9) % 12);
-    let day_of_year = (153 * month_from_march + 2) / 5 + i64::from(day) - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "Gregorian conversion bounds day to 1..=31 and month to 1..=12"
-)]
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let days = days + 719_468;
-    let era = days.div_euclid(146_097);
-    let day_of_era = days.rem_euclid(146_097);
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_from_march = (5 * day_of_year + 2) / 153;
-    let day = (day_of_year - (153 * month_from_march + 2) / 5 + 1) as u32;
-    let month = if month_from_march < 10 {
-        month_from_march + 3
-    } else {
-        month_from_march - 9
-    } as u32;
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    (year, month, day)
 }
 
 fn invalid(message: &str) -> ObjectError {

@@ -149,18 +149,9 @@ impl FromStr for LifecycleDate {
         let year: u16 = part(0..4)?.parse().map_err(|_| InvalidLifecycleDate)?;
         let month: u8 = part(5..7)?.parse().map_err(|_| InvalidLifecycleDate)?;
         let day: u8 = part(8..10)?.parse().map_err(|_| InvalidLifecycleDate)?;
-        let days = match month {
-            4 | 6 | 9 | 11 => 30,
-            2 => {
-                28 + u8::from(
-                    year.is_multiple_of(4)
-                        && (!year.is_multiple_of(100) || year.is_multiple_of(400)),
-                )
-            }
-            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-            _ => return Err(InvalidLifecycleDate),
-        };
-        if year == 0 || day == 0 || day > days {
+        let days = crate::time_format::civil::days_in_month(i64::from(year), i64::from(month))
+            .ok_or(InvalidLifecycleDate)?;
+        if year == 0 || day == 0 || i64::from(day) > days {
             return Err(InvalidLifecycleDate);
         }
         Ok(Self { year, month, day })

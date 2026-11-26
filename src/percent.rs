@@ -111,6 +111,31 @@ pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, QueryEr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::url::{encode_listing_name, encode_object_name, encode_unreserved};
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn encoded_paths_and_form_components_round_trip(value in any::<String>()) {
+            prop_assert_eq!(&decode(&encode_object_name(&value), Decoding::Path).unwrap(), &value);
+            prop_assert_eq!(&decode(&encode_listing_name(&value), Decoding::Form).unwrap(), &value);
+        }
+
+        #[test]
+        fn arbitrary_uri_text_never_panics(raw in any::<String>()) {
+            for decoding in [Decoding::Path, Decoding::Form] {
+                let _ = decode(&raw, decoding);
+                let _ = parse_query_with(&raw, decoding);
+            }
+        }
+
+        #[test]
+        fn encoded_query_separators_stay_inside_their_components(key in any::<String>(), value in any::<String>()) {
+            let query = format!("{}={}", encode_unreserved(&key), encode_unreserved(&value));
+            let parsed = parse_query(&query).unwrap();
+            prop_assert_eq!(parsed, BTreeMap::from([(key, value)]));
+        }
+    }
 
     #[test]
     fn form_decoding_turns_plus_into_a_space_and_path_decoding_keeps_it() {
@@ -123,6 +148,23 @@ mod tests {
         for raw in ["%", "%4", "%GG", "%FF"] {
             assert_eq!(decode(raw, Decoding::Path), Err(MalformedEncoding), "{raw}");
         }
+    }
+
+    #[test]
+    fn query_limits_and_duplicate_keys_use_their_own_decoding_stage() {
+        let count = (MAX_QUERY_BYTES - 2) / 3;
+        let tail = (MAX_QUERY_BYTES - 2) % 3;
+        let encoded = format!("x={}{}", "%41".repeat(count), "A".repeat(tail));
+        assert_eq!(encoded.len(), MAX_QUERY_BYTES);
+        assert_eq!(
+            parse_query(&encoded).unwrap()["x"],
+            "A".repeat(count + tail)
+        );
+        assert_eq!(parse_query(&(encoded + "A")), Err(QueryError::TooLong));
+        assert_eq!(
+            parse_query("a=1&%61=2"),
+            Err(QueryError::Duplicate("a".into()))
+        );
     }
 
     #[test]

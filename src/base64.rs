@@ -92,6 +92,33 @@ pub(crate) fn encode(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn encoded_bytes_round_trip_with_both_alphabets(bytes in prop::collection::vec(any::<u8>(), 0..256)) {
+            let standard = encode(&bytes);
+            let url_safe = standard.replace('+', "-").replace('/', "_");
+            for (encoded, alphabet) in [(&standard, Alphabet::Standard), (&url_safe, Alphabet::UrlSafe)] {
+                prop_assert_eq!(&decode(encoded, alphabet, Padding::Required).unwrap(), &bytes);
+                prop_assert_eq!(&decode(encoded, Alphabet::Either, Padding::Required).unwrap(), &bytes);
+                let unpadded = encoded.trim_end_matches('=');
+                prop_assert_eq!(&decode(unpadded, alphabet, Padding::Forbidden).unwrap(), &bytes);
+                prop_assert_eq!(&decode(unpadded, alphabet, Padding::OptionalUncheckedBits).unwrap(), &bytes);
+                prop_assert_eq!(decode(encoded, alphabet, Padding::Forbidden).is_some(), unpadded.len() == encoded.len());
+                prop_assert_eq!(decode(unpadded, alphabet, Padding::Required).is_some(), unpadded.len() == encoded.len());
+            }
+        }
+
+        #[test]
+        fn arbitrary_base64_text_never_panics(raw in any::<String>()) {
+            for alphabet in [Alphabet::Standard, Alphabet::UrlSafe, Alphabet::Either] {
+                for padding in [Padding::Required, Padding::Forbidden, Padding::RequiredUncheckedBits, Padding::OptionalUncheckedBits] {
+                    let _ = decode(&raw, alphabet, padding);
+                }
+            }
+        }
+    }
 
     #[test]
     fn standard_vectors_and_boundary_lengths() {

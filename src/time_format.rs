@@ -5,6 +5,11 @@
 use crate::object::unix_nanos::UnixNanos;
 use std::time::SystemTime;
 
+pub(crate) mod civil;
+
+#[cfg(test)]
+mod tests;
+
 /// A stored time outside the RFC 3339 range that every rendering shares.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("{}", Self::MESSAGE)]
@@ -44,18 +49,9 @@ fn civil_time(time: UnixNanos) -> Result<CivilTime, TimeOutOfRange> {
     let micros = i64::try_from(micros).map_err(|_| TimeOutOfRange)?;
     let seconds = micros.div_euclid(1_000_000);
     let days = seconds.div_euclid(86400);
-    // Gregorian 400-year cycles avoid platform-local timezone and time_t limits.
-    let shifted = days + 719468;
-    let era = shifted.div_euclid(146097);
-    let day_of_era = shifted.rem_euclid(146097);
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_from_march = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_from_march + 2) / 5 + 1;
-    let month = month_from_march + if month_from_march < 10 { 3 } else { -9 };
+    let (year, month, day) = civil::civil_from_days(days);
     Ok(CivilTime {
-        year: year_of_era + era * 400 + i64::from(month <= 2),
+        year,
         month,
         day,
         daytime: seconds.rem_euclid(86400),

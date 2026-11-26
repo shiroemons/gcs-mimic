@@ -335,6 +335,49 @@ fn groups(query: &ObjectListQuery, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn bucket_cursors_round_trip_in_their_own_listing(
+            prefix in "[a-z][a-z0-9]{0,12}", suffix in "[a-z0-9]{3,24}", generation in any::<i64>(),
+        ) {
+            let project = "local-project";
+            let name = format!("{prefix}{suffix}");
+            let buckets = encode_page_token(project, &prefix, &name).unwrap();
+            let all = encode_all_projects_page_token(&prefix, &name).unwrap();
+            let deleted = encode_soft_deleted_page_token(project, &prefix, &name, generation).unwrap();
+            prop_assert_eq!(&decode_page_token(&buckets, project, &prefix).unwrap(), &name);
+            prop_assert_eq!(&decode_all_projects_page_token(&all, &prefix).unwrap(), &name);
+            prop_assert_eq!(decode_soft_deleted_page_token(&deleted, project, &prefix).unwrap(), (name, generation));
+            prop_assert!(decode_page_token(&buckets, project, "").is_err());
+            prop_assert!(decode_all_projects_page_token(&buckets, &prefix).is_err());
+            prop_assert!(decode_page_token(&all, project, &prefix).is_err());
+            prop_assert!(decode_soft_deleted_page_token(&buckets, project, &prefix).is_err());
+        }
+
+        #[test]
+        fn object_cursors_round_trip_and_refuse_a_changed_checksum(
+            suffix in "[^\r\n]{1,48}", generation in proptest::option::of(1i64..=i64::MAX),
+        ) {
+            let cursor = ObjectListCursor { name: format!("folder/{suffix}"), is_prefix: false, generation };
+            let query = ObjectListQuery { versions: true, ..Default::default() };
+            let token = encode_object_page_token(&cursor);
+            prop_assert_eq!(decode_object_page_token(&token, &query).unwrap(), cursor);
+            let mut changed = token;
+            let last = changed.pop().unwrap();
+            changed.push(if last == '0' { '1' } else { '0' });
+            prop_assert!(decode_object_page_token(&changed, &query).is_err());
+        }
+
+        #[test]
+        fn arbitrary_page_tokens_never_panic(token in prop_oneof![any::<String>(), "[0-9a-f]{0,96}\\.[0-9a-f]{16}"]) {
+            let _ = decode_page_token(&token, "local-project", "");
+            let _ = decode_all_projects_page_token(&token, "");
+            let _ = decode_soft_deleted_page_token(&token, "local-project", "");
+            let _ = decode_object_page_token(&token, &ObjectListQuery::default());
+        }
+    }
 
     fn refusal(token: &str) -> String {
         decode_object_page_token(token, &ObjectListQuery::default())

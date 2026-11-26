@@ -4,6 +4,7 @@ use super::{Auth, Caller};
 use crate::{
     clock::Clock,
     hashing::encode_lower,
+    time_format::civil::days_from_civil,
     url::{is_unreserved, push_percent_encoded},
 };
 use hyper::{HeaderMap, Method, Uri, header::HeaderValue};
@@ -835,12 +836,7 @@ pub fn parse_timestamp(raw: &str) -> Result<SystemTime, SigningError> {
             .map_err(|_| invalid())
     };
     let (year, month, day) = (n(0..4)?, n(4..6)?, n(6..8)?);
-    let y = year - i64::from(month <= 2);
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let m = month + if month > 2 { -3 } else { 9 };
-    let days =
-        era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + (153 * m + 2) / 5 + day - 1 - 719468;
+    let days = days_from_civil(year, month, day);
     let seconds = days * 86400 + n(9..11)? * 3600 + n(11..13)? * 60 + n(13..15)?;
     let time = crate::clock::system_time_from_unix_seconds(seconds).ok_or_else(invalid)?;
     if timestamp(time)? != raw {

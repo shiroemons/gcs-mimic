@@ -35,6 +35,31 @@ impl Grammar {
 #[cfg(test)]
 mod tests {
     use super::Grammar;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn canonical_decimal_text_round_trips(signed in any::<i64>(), unsigned in any::<u64>()) {
+            let signed_text = signed.to_string();
+            prop_assert_eq!(Grammar::Signed.parse::<i64>(&signed_text), Some(signed));
+            prop_assert_eq!(Grammar::SignedNoPlus.parse::<i64>(&signed_text), Some(signed));
+            prop_assert_eq!(Grammar::Digits.parse::<i64>(&signed_text), (signed >= 0).then_some(signed));
+            let unsigned_text = unsigned.to_string();
+            for grammar in [Grammar::Signed, Grammar::SignedNoPlus, Grammar::Digits] {
+                prop_assert_eq!(grammar.parse::<u64>(&unsigned_text), Some(unsigned));
+            }
+        }
+
+        #[test]
+        fn arbitrary_decimal_text_respects_the_sign_and_digit_grammars(
+            text in prop_oneof![any::<String>(), "[+-]?[0-9]{0,24}"],
+        ) {
+            let parsed = text.parse::<i64>().ok();
+            prop_assert_eq!(Grammar::Signed.parse::<i64>(&text), parsed);
+            prop_assert_eq!(Grammar::SignedNoPlus.parse::<i64>(&text), parsed.filter(|_| !text.starts_with('+')));
+            prop_assert_eq!(Grammar::Digits.parse::<i64>(&text), parsed.filter(|_| !text.starts_with(['+', '-'])));
+        }
+    }
 
     #[test]
     fn each_grammar_accepts_its_own_spelling() {

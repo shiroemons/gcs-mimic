@@ -203,10 +203,10 @@ impl LifecycleDate {
     fn midnight(self) -> Option<UnixNanos> {
         // Accepted calendar dates include times before Windows' 1601 SystemTime epoch, so the
         // instant is computed from the date rather than through the platform clock.
-        let days = crate::object::retention::days_from_civil(
+        let days = crate::time_format::civil::days_from_civil(
             i64::from(self.year),
-            u32::from(self.month),
-            u32::from(self.day),
+            i64::from(self.month),
+            i64::from(self.day),
         );
         UnixNanos::new(days.checked_mul(86_400)?, 0)
     }
