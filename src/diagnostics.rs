@@ -277,6 +277,27 @@ fn append_shutdown_failure(
 mod tests {
     use super::*;
 
+    #[test]
+    fn log_level_spellings_and_json_are_stable() {
+        for (level, spelling) in [
+            (LogLevel::Debug, "debug"),
+            (LogLevel::Info, "info"),
+            (LogLevel::Warn, "warn"),
+            (LogLevel::Error, "error"),
+        ] {
+            assert_eq!(spelling.parse::<LogLevel>().unwrap(), level);
+            assert_eq!(
+                serde_json::to_string(&level).unwrap(),
+                format!("{spelling:?}")
+            );
+        }
+        assert_eq!("warning".parse::<LogLevel>().unwrap(), LogLevel::Warn);
+        assert_eq!(
+            "WARN".parse::<LogLevel>().unwrap_err().to_string(),
+            "log_level must be debug, info, warn or error (warning aliases warn)"
+        );
+    }
+
     /// Every startup or shutdown failure without advice of its own reports this one text.
     #[test]
     fn startup_failures_render_their_kind_message_and_where_to_look() {

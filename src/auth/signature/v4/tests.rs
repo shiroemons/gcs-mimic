@@ -1,5 +1,36 @@
 use super::*;
 
+#[test]
+fn algorithm_names_are_exact_and_fields_accept_ascii_case() {
+    for (algorithm, spelling) in [
+        (Algorithm::Rsa, "GOOG4-RSA-SHA256"),
+        (Algorithm::GoogleHmac, "GOOG4-HMAC-SHA256"),
+        (Algorithm::AwsHmac, "AWS4-HMAC-SHA256"),
+    ] {
+        assert_eq!(algorithm.name(), spelling);
+        assert_eq!(spelling.parse::<Algorithm>().unwrap(), algorithm);
+        assert!(matches!(
+            spelling.to_ascii_lowercase().parse::<Algorithm>(),
+            Err(Failure::Malformed)
+        ));
+    }
+    for (field, spelling) in [
+        (Field::Algorithm, "Algorithm"),
+        (Field::Credential, "Credential"),
+        (Field::Date, "Date"),
+        (Field::Expires, "Expires"),
+        (Field::SignedHeaders, "SignedHeaders"),
+        (Field::Signature, "Signature"),
+    ] {
+        assert_eq!(spelling.parse::<Field>().unwrap(), field);
+        assert_eq!(
+            spelling.to_ascii_lowercase().parse::<Field>().unwrap(),
+            field
+        );
+    }
+    assert!("Signature ".parse::<Field>().is_err());
+}
+
 const DATE: &str = "20261023T120000Z";
 const SCOPE: &str = "20261023/auto/storage/goog4_request";
 const AWS_SCOPE: &str = "20261023/auto/s3/aws4_request";

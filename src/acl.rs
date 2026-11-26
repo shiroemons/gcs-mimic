@@ -943,6 +943,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn acl_role_spellings_and_json_are_stable() {
+        for (role, spelling) in [
+            (AclRole::Reader, "READER"),
+            (AclRole::Writer, "WRITER"),
+            (AclRole::Owner, "OWNER"),
+        ] {
+            let json = format!("{spelling:?}");
+            assert_eq!(spelling.parse::<AclRole>().unwrap(), role);
+            assert_eq!(serde_json::to_string(&role).unwrap(), json);
+            assert_eq!(serde_json::from_str::<AclRole>(&json).unwrap(), role);
+        }
+        assert_eq!(
+            "reader".parse::<AclRole>().unwrap_err().to_string(),
+            "invalid ACL role"
+        );
+    }
+
+    #[test]
     fn anonymous_canned_acl_refusals_keep_each_field_and_wording() {
         use crate::{auth, bucket::BucketAccess};
         let anonymous =

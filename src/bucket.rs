@@ -817,6 +817,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn storage_class_spellings_and_json_are_stable() {
+        let spellings = [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ];
+        assert_eq!(StorageClass::ALL.len(), spellings.len());
+        for (&class, spelling) in StorageClass::ALL.iter().zip(spellings) {
+            assert_eq!(spelling.parse::<StorageClass>().unwrap(), class);
+            let json = format!("{spelling:?}");
+            assert_eq!(serde_json::to_string(&class).unwrap(), json);
+            assert_eq!(serde_json::from_str::<StorageClass>(&json).unwrap(), class);
+            assert_eq!(
+                spelling
+                    .to_ascii_lowercase()
+                    .parse::<StorageClass>()
+                    .unwrap_err()
+                    .to_string(),
+                "The storage class you specified is not valid."
+            );
+        }
+        assert_eq!(
+            "RAPID".parse::<StorageClass>().unwrap_err().to_string(),
+            "storageClass RAPID requires a zonal bucket"
+        );
+    }
+
+    #[test]
+    fn bucket_setting_spellings_are_exact() {
+        for (setting, spelling) in [
+            (PublicAccessPrevention::Inherited, "inherited"),
+            (PublicAccessPrevention::Enforced, "enforced"),
+        ] {
+            assert_eq!(setting.as_str(), spelling);
+            assert_eq!(spelling.parse::<PublicAccessPrevention>().unwrap(), setting);
+        }
+        assert_eq!(
+            "ENFORCED"
+                .parse::<PublicAccessPrevention>()
+                .unwrap_err()
+                .to_string(),
+            "Invalid value for: ENFORCED is not a valid value"
+        );
+        for (rpo, spelling) in [(Rpo::Default, "DEFAULT"), (Rpo::AsyncTurbo, "ASYNC_TURBO")] {
+            assert_eq!(rpo.as_str(), spelling);
+            assert_eq!(spelling.parse::<Rpo>().unwrap(), rpo);
+        }
+        assert_eq!("default".parse::<Rpo>(), Err(UnknownRpo));
+    }
+
+    #[test]
     fn uniform_access_precheck_honors_stored_and_requested_policy() {
         let now = SystemTime::UNIX_EPOCH;
         let mut bucket = BucketRecord::new("bucket".into(), "project", Location::US, now);

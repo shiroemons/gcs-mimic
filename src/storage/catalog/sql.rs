@@ -360,6 +360,91 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sql_enum_spellings_are_stable() {
+        use super::super::{acl::BucketScope, hmac_keys::HmacKeyState, resumable::StoredState};
+        use crate::bucket::{Location, LocationKind, StorageClass};
+
+        fn check<T: FromSql + rusqlite::ToSql + Eq + std::fmt::Debug>(
+            choices: &[(T, &str)],
+            rejected: &str,
+            message: &str,
+        ) {
+            use rusqlite::types::{FromSqlError, ToSqlOutput, ValueRef};
+            for (choice, spelling) in choices {
+                let text = ValueRef::Text(spelling.as_bytes());
+                assert_eq!(choice.to_sql().unwrap(), ToSqlOutput::Borrowed(text));
+                assert_eq!(&T::column_result(text).unwrap(), choice);
+            }
+            let error = T::column_result(ValueRef::Text(rejected.as_bytes())).unwrap_err();
+            let FromSqlError::Other(error) = error else {
+                panic!("{error:?}")
+            };
+            assert_eq!(error.to_string(), message);
+            assert_eq!(
+                T::column_result(ValueRef::Integer(1)),
+                Err(FromSqlError::InvalidType)
+            );
+        }
+
+        use StorageClass::*;
+        check(
+            &[
+                (Standard, "STANDARD"),
+                (Nearline, "NEARLINE"),
+                (Coldline, "COLDLINE"),
+                (Archive, "ARCHIVE"),
+                (MultiRegional, "MULTI_REGIONAL"),
+                (Regional, "REGIONAL"),
+                (DurableReducedAvailability, "DURABLE_REDUCED_AVAILABILITY"),
+            ],
+            "RAPID",
+            "invalid stored storage class",
+        );
+        check(
+            &[
+                (LocationKind::Region, "region"),
+                (LocationKind::MultiRegion, "multi-region"),
+                (LocationKind::DualRegion, "dual-region"),
+            ],
+            "Region",
+            "invalid stored location type",
+        );
+        let us = Location::from_canonical("US").unwrap();
+        check(
+            &[(us, "US")],
+            "us",
+            "invalid stored bucket location",
+        );
+        assert_eq!("us".parse::<Location>().unwrap(), us);
+        check(
+            &[
+                (BucketScope::Bucket, "bucket"),
+                (BucketScope::DefaultObject, "defaultObject"),
+            ],
+            "defaultobject",
+            "invalid stored ACL scope",
+        );
+        check(
+            &[
+                (StoredState::Active, "ACTIVE"),
+                (StoredState::Complete, "COMPLETE"),
+                (StoredState::Cancelled, "CANCELLED"),
+            ],
+            "CANCELED",
+            "invalid upload state",
+        );
+        check(
+            &[
+                (HmacKeyState::Active, "ACTIVE"),
+                (HmacKeyState::Inactive, "INACTIVE"),
+                (HmacKeyState::Deleted, "DELETED"),
+            ],
+            "active",
+            "invalid HMAC key state",
+        );
+    }
+
+    #[test]
     fn unknown_stored_storage_class_is_catalog_corruption() {
         let connection = Connection::open_in_memory().unwrap();
         for class in ["unknown", "standard", "RAPID", ""] {

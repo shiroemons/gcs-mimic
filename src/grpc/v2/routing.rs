@@ -536,6 +536,23 @@ mod tests {
     use super::*;
     use tonic::{Code, metadata::AsciiMetadataValue};
 
+    #[test]
+    fn routing_key_spellings_and_refusal_are_stable() {
+        for (key, spelling) in [
+            (RoutingKey::Bucket, "bucket"),
+            (RoutingKey::SourceBucket, "source_bucket"),
+            (RoutingKey::Project, "project"),
+            (RoutingKey::Appendable, "appendable"),
+        ] {
+            assert_eq!(key.as_str(), spelling);
+            assert_eq!(spelling.parse::<RoutingKey>().unwrap(), key);
+        }
+        assert_eq!(
+            "Bucket".parse::<RoutingKey>().unwrap_err().to_string(),
+            "unknown routing metadata key"
+        );
+    }
+
     /// GetObject on the bucket `b`.
     const GET_OBJECT: Routes<'static> =
         Routes::Request(&[Route::Bucket(Some("projects/_/buckets/b"))]);

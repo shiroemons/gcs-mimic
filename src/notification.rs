@@ -305,6 +305,35 @@ pub(crate) fn check_limits(
 mod tests {
     use super::*;
 
+    #[test]
+    fn notification_enum_spellings_and_refusals_are_stable() {
+        for (format, spelling) in [
+            (PayloadFormat::JsonApiV1, "JSON_API_V1"),
+            (PayloadFormat::None, "NONE"),
+        ] {
+            assert_eq!(format.as_str(), spelling);
+            assert_eq!(spelling.parse::<PayloadFormat>().unwrap(), format);
+        }
+        assert_eq!(
+            "none".parse::<PayloadFormat>().unwrap_err().to_string(),
+            "Invalid payload_format \"none\"; use JSON_API_V1 or NONE"
+        );
+        let spellings = [
+            "OBJECT_FINALIZE",
+            "OBJECT_METADATA_UPDATE",
+            "OBJECT_DELETE",
+            "OBJECT_ARCHIVE",
+        ];
+        assert_eq!(Event::ALL.map(Event::as_str), spellings);
+        for (event, spelling) in Event::ALL.into_iter().zip(spellings) {
+            assert_eq!(spelling.parse::<Event>().unwrap(), event);
+        }
+        assert_eq!(
+            "object_delete".parse::<Event>().unwrap_err().to_string(),
+            "Invalid event type \"object_delete\"; use OBJECT_FINALIZE, OBJECT_METADATA_UPDATE, OBJECT_DELETE or OBJECT_ARCHIVE"
+        );
+    }
+
     fn config(events: &[&str]) -> NotificationConfig {
         NotificationConfig {
             topic: "//pubsub.googleapis.com/projects/p/topics/topic"

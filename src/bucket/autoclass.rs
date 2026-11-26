@@ -354,6 +354,31 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn terminal_storage_class_spellings_and_json_are_stable() {
+        for (class, spelling) in [
+            (TerminalStorageClass::Nearline, "NEARLINE"),
+            (TerminalStorageClass::Archive, "ARCHIVE"),
+        ] {
+            let json = format!("{spelling:?}");
+            assert_eq!(spelling.parse::<TerminalStorageClass>().unwrap(), class);
+            assert_eq!(serde_json::to_string(&class).unwrap(), json);
+            assert_eq!(
+                serde_json::from_str::<TerminalStorageClass>(&json).unwrap(),
+                class
+            );
+        }
+        for rejected in ["nearline", "STANDARD", "ARCHIVE "] {
+            assert_eq!(
+                rejected
+                    .parse::<TerminalStorageClass>()
+                    .unwrap_err()
+                    .to_string(),
+                "Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE"
+            );
+        }
+    }
+
     fn at(seconds: u64) -> SystemTime {
         UNIX_EPOCH + Duration::from_secs(1_700_000_000 + seconds)
     }
