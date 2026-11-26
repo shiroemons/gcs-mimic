@@ -613,7 +613,7 @@ async fn respond_unselected(
         JsonRoute::Notifications(parsed) => respond_notifications(request, ctx, parsed).await,
         JsonRoute::Session(parsed) => respond_session(request, ctx, parsed).await,
         JsonRoute::Rewrite(parsed) => respond_rewrite(request, ctx, parsed).await,
-        JsonRoute::Object(parsed) => respond_json_object(request, ctx, parsed).await,
+        JsonRoute::Object(parsed) => Box::pin(respond_json_object(request, ctx, parsed)).await,
         JsonRoute::Project(parsed) => respond_project(request, ctx, parsed).await,
         JsonRoute::Bucket(parsed) => {
             respond_bucket(request, ctx, ctx.config.compat_profile(), parsed).await
