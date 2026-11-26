@@ -921,8 +921,14 @@ parser. The run did not record whether other builds were active.
 | XML writer | escapes through a `fmt::Write` adapter and copies runs between special bytes found with `memchr3` |
 | Strict JWT verification | a bounded cache of RSA results keyed by message and signature digests; expiry, issuer and audience are checked every request. Adopted only if verifier keys cannot change at runtime, or keyed by key-set generation if they can |
 | gRPC upload hashing | the intake stops hashing and passes the expected hashes; the catalog's mismatch maps to today's gRPC wording in the write adapters |
-| HTTP/1 head limit | the comment on `CONNECTION_READ_BUFFER` explains when an incomplete head gets 431; a test sends a 40 KiB head. `MAX_QUERY_BYTES` stays, since it still bounds gRPC v1 |
-| `CONNECTION_READ_BUFFER` | stays 16 KiB unless the measured run (one 1 GiB upload at 16 and 64 KiB) shows a gain after coalescing. Raising it also raises the documented header limit, which the same change updates |
+| HTTP/1 head limit | the comment on `CONNECTION_READ_BUFFER` explains when an incomplete head gets 431; a test accepts a 40 KiB head and rejects a 160 KiB head. `MAX_QUERY_BYTES` stays, since it still bounds gRPC v1 |
+| `CONNECTION_READ_BUFFER` | 64 KiB, selected after the upload measurement below |
+
+On macOS 27.2.1 arm64 with Rust 1.100.0, one 1 GiB HTTP/1 upload from
+curl to a local release server used 3.47 CPU seconds at 16 KiB and 2.79
+at 64 KiB. The lower server CPU time supported selecting 64 KiB. Elapsed
+time was 6.456 and 2.259 seconds respectively, with other builds running
+during both uploads.
 
 ## Types, configuration and duplicated rules
 
@@ -1114,7 +1120,7 @@ Checked on rustc 1.100.0 on 2026-11-26.
 | Writer-thread I/O | XML part and completion syncs on the blocking pool; a failed source batch's pins and unclaimed replies released there; the read-pool pop; the close-time thread-I/O assertion with the reset and reseed allowance | new failed-sync, crash and power-loss tests for both XML paths; the full suite passes the assertion; design "Persistence and concurrency" states the rule |
 | Writer settings | QPSG on the writer; the `wal_autocheckpoint` reason; the writer settings and schema version in design "Persistence and concurrency". The reader cache grows with the listing move, as [Jobs that move to the read pool](#jobs-that-move-to-the-read-pool) says | existing suite |
 | Lint quick wins | `significant_drop_in_scrutinee`, `or_fun_call`, `ignore_without_reason`, `return_and_then`, `unused_dependencies`, `#[must_use]` on guards | Rules table |
-| Small fixes | the head-limit comment and 40 KiB head test, the diagnostics level check, and a reference to `CATALOG_SCHEMA_VERSION` in `public-contract-review.md` | — |
+| Small fixes | the head-limit comment and request head boundary test, the diagnostics level check, and a reference to `CATALOG_SCHEMA_VERSION` in `public-contract-review.md` | — |
 
 ### Catalog round trips
 

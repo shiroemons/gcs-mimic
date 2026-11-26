@@ -321,7 +321,7 @@ storage writer independently enforce the limit for unknown-length streams.
 
 Uploads have a two-slot Tokio channel with chunks of at most 64 KiB; a queued chunk
 shares an incoming transport frame, which hyper bounds. Hyper parsing remains bounded by its
-16 KiB connection buffer. HTTP downloads pull the next frame directly from the selected
+64 KiB connection buffer. HTTP downloads pull the next frame directly from the selected
 generation, up to 1 MiB while more than 1 MiB remains and up to 256 KiB thereafter.
 The disk writer holds no database transaction or blocking worker while waiting for a body.
 Uploads have no separate permit count; ordinary catalog

@@ -64302,7 +64302,7 @@
         "lint::layers::tests::the_design_guide_shows_the_same_layer_table",
         "lint::layers::tests::both_rules_take_a_reasoned_suppression",
         "lint::tests::test_items_include_multi_line_attributes_after_the_cfg",
-        "server::protocol_tests::http1_rejects_a_40_kib_request_header",
+        "server::protocol_tests::http1_enforces_the_request_head_buffer_limit",
         "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
         "lint::tests::every_gate_rule_has_one_row_in_the_development_guide",
         "lint::tests::workspace_denied_lints_are_not_downgraded_by_the_gate"
@@ -64359,10 +64359,18 @@
           "verified_at": "2026-11-26",
           "artifact": "docs/en/evidence/rust-hardening.md",
           "test_ids": [
-            "server::protocol_tests::http1_rejects_a_40_kib_request_header",
             "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
             "lint::tests::every_gate_rule_has_one_row_in_the_development_guide",
             "lint::tests::workspace_denied_lints_are_not_downgraded_by_the_gate"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib -- server::protocol_tests::http1_enforces_the_request_head_buffer_limit",
+          "result": "PASS",
+          "verified_at": "2026-11-26",
+          "artifact": "docs/en/evidence/rust-hardening.md",
+          "test_ids": [
+            "server::protocol_tests::http1_enforces_the_request_head_buffer_limit"
           ]
         }
       ],

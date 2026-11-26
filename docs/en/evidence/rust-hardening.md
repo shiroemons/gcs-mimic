@@ -158,3 +158,9 @@ Limits
 
 - The HTTP/1 test covers rejection at 40 KiB. Hyper checks the 16 KiB threshold while
   the request head is incomplete, so a read that completes it can exceed the threshold.
+
+## HTTP/1 read buffer at 64 KiB
+
+On 2026-11-26, `cargo test --locked --lib -- server::protocol_tests::http1_enforces_the_request_head_buffer_limit`
+passed one test on the 64 KiB source. The HTTP/1 service accepted a request carrying
+a 40 KiB header value with status 200 and rejected a 160 KiB value with status 431.

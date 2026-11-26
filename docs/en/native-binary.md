@@ -216,7 +216,7 @@ The identity document is read once at startup; an invalid registry, `strict` wit
 signatures fails before readiness. Run
 `gcs-mimic url public --help` for the URL helper, which accepts no serve options.
 
-HTTP/1.1 connections stay open for further requests, with a 16 KiB parser buffer and
+HTTP/1.1 connections stay open for further requests, with a 64 KiB parser buffer and
 64 headers. Each request has its own deadlines. An idle connection closes when no next
 request starts within `--keep-alive-timeout-ms` (default two minutes). When a client waits
 for a slot at a full server, the connection that turned idle first closes, and only that

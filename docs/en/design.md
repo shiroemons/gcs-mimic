@@ -119,8 +119,11 @@ development identity before startup loads the certificate and key.
 
 The server caps connections (default 1024), shutdown drain (5 seconds), async workers (2)
 and blocking workers (8). HTTP/1 allows at most 64 headers and returns 431 if the request
-head is still incomplete when the read buffer reaches 16 KiB. A head that completes in the
-same read can reach about 32 KiB.
+head is still incomplete when the read buffer reaches 64 KiB. A head that completes in the
+same read can reach about 128 KiB. Incoming body frames stay below 128 KiB, and each
+of the two upload channel slots forwards up to 64 KiB from a frame.
+A single upload can retain two queued frames and the frame being read, each below
+128 KiB, for less than 384 KiB of transport frame data.
 Startup raises the soft `RLIMIT_NOFILE` to three descriptors per connection plus 64; when
 the platform refuses that, it warns and starts anyway. With `grpc_listen`, the raise also aims at
 two descriptors for every stream of every connection (`max_connections` times

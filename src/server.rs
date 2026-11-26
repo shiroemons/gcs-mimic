@@ -1503,10 +1503,10 @@ mod upload_frame_tests;
 /// For request bodies, the limit bounds how much hyper reserves before each read. A read
 /// fills the buffer's spare capacity, which can grow to about twice this value, so HTTP/1
 /// body frames stay below `2 * CONNECTION_READ_BUFFER`
-/// (24 KiB observed). [`stream_upload`] forwards frames without copying, so this bound is what
+/// (128 KiB). [`stream_upload`] forwards slices without copying, so this bound is what
 /// keeps the memory an upload's two-slot channel retains small; `upload_frame_tests` fails if
 /// the value or the frame bound changes.
-const CONNECTION_READ_BUFFER: usize = 16 * 1024;
+const CONNECTION_READ_BUFFER: usize = 64 * 1024;
 
 fn http1_builder() -> http1::Builder {
     let mut builder = http1::Builder::new();

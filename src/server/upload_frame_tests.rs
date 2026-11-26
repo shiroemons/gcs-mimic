@@ -8,8 +8,8 @@ use tokio::sync::mpsc;
 /// Raising the read buffer raises the memory each upload's channel can retain; review that
 /// tradeoff (and `stream_upload`'s zero-copy forwarding) before changing this value.
 #[test]
-fn connection_read_buffer_stays_16_kib() {
-    assert_eq!(CONNECTION_READ_BUFFER, 16 * 1024);
+fn connection_read_buffer_stays_64_kib() {
+    assert_eq!(CONNECTION_READ_BUFFER, 64 * 1024);
 }
 
 /// Serves one request through the production HTTP/1 builder and `stream_upload`, returning
