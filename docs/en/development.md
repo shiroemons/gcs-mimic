@@ -386,7 +386,8 @@ resolves types and paths, so it cannot be fooled by naming, and its
 `#[expect]` already checks staleness. The text rules cover only what Clippy
 cannot express.
 
-The table also includes workspace checks that Cargo and Clippy enforce directly.
+The table also lists the workspace denies for `clippy::ignore_without_reason`
+and `cargo::unused_dependencies`.
 
 | Rule | Rejects |
 | --- | --- |
@@ -410,8 +411,8 @@ The table also includes workspace checks that Cargo and Clippy enforce directly.
 | `clippy::trivially_copy_pass_by_ref` | `&T` parameters for a small `Copy` type; pass it by value. A signature that a trait or a closure type dictates takes a reasoned `#[expect]`. |
 | `clippy::unnecessary_wraps` | Functions that always return `Ok` or `Some`; return the plain value. A signature fixed by a trait or by sibling functions with one shape takes a reasoned `#[expect]`. |
 | `clippy::significant_drop_in_scrutinee` | Drop-sensitive temporaries, such as lock guards, held through a branch that may need the same resource. Extract the value in a separate statement to release the guard before branching. |
-| `clippy::or_fun_call` | Eager fallback or chained calls that run even when their result is discarded. Evaluate them only when needed. |
-| `clippy::return_and_then` | A final `and_then` closure that hides an early exit expressed directly with `?`. |
+| `clippy::or_fun_call` | A function call passed to `or`, `unwrap_or`, `ok_or`, `and` or similar methods runs even when its result is discarded. It can allocate or build an error needlessly. |
+| `clippy::return_and_then` | A tail `and_then` whose closure can be replaced with a plain `?` in the enclosing function. |
 | `clippy::ignore_without_reason` | Ignored tests with no explanation. Workspace Clippy requires a reason so maintainers can tell when to re-enable a test. |
 | `cargo::unused_dependencies` | Declared dependencies Cargo can prove no selected package target uses. The workspace denies them because they add needless build work. |
 | `text::path_attribute` | `#[path]` module attributes. |
@@ -433,8 +434,8 @@ The table also includes workspace checks that Cargo and Clippy enforce directly.
 Drop guards use `#[must_use = "..."]` to explain what ends when the guard is
 dropped. Bind a guard for the lifetime of the operation it protects.
 
-`unreachable_pub` and `clippy::redundant_clone` pass on every workspace target,
-so `[workspace.lints]` denies them and the plain
+`unreachable_pub`, `clippy::redundant_clone` and `clippy::ignore_without_reason`
+pass on every workspace target, so `[workspace.lints]` denies them and the plain
 `cargo clippy --workspace --all-targets -- -D warnings` run enforces them,
 tests included. The gate does not pass them with `-W`: a command-line `-W`
 would lower that `deny` to a warning. The same holds for the idiom lints
@@ -456,6 +457,9 @@ what it uses (`unused_async`, `unused_self`, `bool_to_int_with_if`,
 `clippy::disallowed_methods` to `allow`, so tests may spawn tasks and run
 ad-hoc SQL, and the gate's `-W` raises it for production code only. A unit
 test in `xtask` fails if a lint is denied there and also passed with `-W`.
+
+`cargo::unused_dependencies` is also a workspace deny. Cargo checks normal
+and build dependencies when the selected targets cover their use.
 
 The text rules ignore comments and string contents. They are heuristics:
 for example, `text::format_sql` does not see SQL assembled through other

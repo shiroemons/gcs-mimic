@@ -67,8 +67,11 @@ pub const CLIPPY_LINTS: [&str; 27] = [
     // "Encode invariants in types": a `Result` or `Option` that is always `Ok` or `Some` hides
     // that the function cannot fail; test fixtures shaped like proto fields keep their `Option`.
     "clippy::unnecessary_wraps",
+    // Release temporary guards before branching; test code still holds them through scrutinees.
     "clippy::significant_drop_in_scrutinee",
+    // Defer unused fallback work; eager calls remain in tests and xtask.
     "clippy::or_fun_call",
+    // Use `?` for early exits; a TLS process test helper still chains `and_then`.
     "clippy::return_and_then",
 ];
 
@@ -1635,6 +1638,11 @@ fn balanced_end(lines: &[&str], mut i: usize) -> usize {
 mod tests {
     use super::*;
 
+    const DOCUMENTED_WORKSPACE_LINTS: [&str; 2] = [
+        "clippy::ignore_without_reason",
+        "cargo::unused_dependencies",
+    ];
+
     #[test]
     fn compiler_pin_rejects_stale_counts_while_current_stable_only_warns() {
         let version = "host: aarch64-apple-darwin\nrelease: 1.99.1\n";
@@ -2378,10 +2386,7 @@ let s = \"// xtask-lint: allow(text::nope)\";
             .into_iter()
             .chain(RATCHETED_CLIPPY_LINTS)
             .chain(TEXT_RULES)
-            .chain([
-                "clippy::ignore_without_reason",
-                "cargo::unused_dependencies",
-            ])
+            .chain(DOCUMENTED_WORKSPACE_LINTS)
             .collect();
         for rule in &rules {
             let named: Vec<_> = rows
@@ -2414,23 +2419,35 @@ let s = \"// xtask-lint: allow(text::nope)\";
     fn workspace_denied_lints_are_not_downgraded_by_the_gate() {
         // `-W` on the command line would override a `deny` from `[workspace.lints]`. An
         // `allow` there is what the gate deliberately raises for production code only.
-        let mut section = "";
-        let mut denied = Vec::new();
-        for line in include_str!("../../Cargo.toml").lines() {
+        let mut tool = None;
+        let mut workspace_levels = BTreeMap::new();
+        for line in include_str!("../../Cargo.toml").lines().map(str::trim) {
             if line.starts_with('[') {
-                section = line;
-            } else if section.starts_with("[workspace.lints")
+                tool = line
+                    .strip_prefix("[workspace.lints.")
+                    .and_then(|section| section.strip_suffix(']'));
+            } else if let Some(tool) = tool
+                && !line.starts_with('#')
                 && let Some((name, level)) = line.split_once(" = ")
-                && level != "\"allow\""
             {
-                denied.push(name);
+                workspace_levels.insert(format!("{tool}::{name}"), level);
             }
         }
-        assert!(denied.contains(&"unreachable_pub"), "{denied:?}");
+        for lint in DOCUMENTED_WORKSPACE_LINTS
+            .into_iter()
+            .chain(["rust::unreachable_pub"])
+        {
+            assert_eq!(
+                workspace_levels.get(lint).copied(),
+                Some("\"deny\""),
+                "{lint} must be denied in [workspace.lints]"
+            );
+        }
         for lint in CLIPPY_LINTS.into_iter().chain(RATCHETED_CLIPPY_LINTS) {
-            let name = lint.trim_start_matches("clippy::");
             assert!(
-                !denied.contains(&name),
+                workspace_levels
+                    .get(lint)
+                    .is_none_or(|level| *level == "\"allow\""),
                 "{lint} is set in [workspace.lints]; remove it from CLIPPY_LINTS"
             );
         }
