@@ -103,7 +103,7 @@ fn check_rpo(record: &BucketRecord, rpo: Option<Rpo>) -> Result<(), CatalogError
 /// Applies `change` as a PATCH or PUT does, journal entry included, inside the caller's
 /// transaction; the caller commits.
 pub(super) fn update_in_transaction(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     change: BucketChange<'_>,
     clock: &dyn Clock,
     principals: Option<&principals::Profile>,
@@ -193,7 +193,7 @@ pub(super) fn update_in_transaction(
 /// Reads the bucket an update changes and checks that `access` may change it as `update` asks
 /// and that `conditions` hold.
 fn authorize_update(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     name: &str,
     update: &BucketMetadataUpdate,
     conditions: BucketConditions,
@@ -220,7 +220,7 @@ fn authorize_update(
 }
 
 fn store_bucket(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     record: &BucketRecord,
     updated: i64,
     lifecycle: LifecycleColumn,

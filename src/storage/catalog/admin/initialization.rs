@@ -22,7 +22,7 @@ use crate::{
     },
 };
 use rusqlite::{
-    OptionalExtension, Transaction, params,
+    OptionalExtension, params,
     types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
 };
 use std::{num::NonZeroU64, sync::Arc};
@@ -169,7 +169,7 @@ pub(crate) struct Reconciliation {
 
 /// What every applied step shares.
 struct Apply<'a> {
-    transaction: &'a Transaction<'a>,
+    transaction: &'a sql::WriteTx<'a>,
     /// The local administrative authority, whose origin every journal entry names.
     access: BucketAccess,
     clock: &'a dyn Clock,
@@ -227,7 +227,7 @@ impl Initialization {
     /// it created.
     pub(in crate::storage::catalog) fn apply(
         self,
-        transaction: &Transaction<'_>,
+        transaction: &sql::WriteTx<'_>,
         catalog: &Catalog,
     ) -> Result<usize, AdminError> {
         let Self {
@@ -281,7 +281,7 @@ impl Admin {
 /// Observes every target, lets `plan` decide from that state, then applies its steps in
 /// `transaction`, which the caller commits. An error from `plan` comes before any write.
 fn initialize_in<T, E: From<AdminError>>(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     context: Context,
     targets: &[InitTarget],
     plan: impl FnOnce(Vec<Observed>) -> Result<(Vec<Planned>, T), E>,
@@ -306,7 +306,7 @@ fn initialize_in<T, E: From<AdminError>>(
 }
 
 fn observe(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     targets: &[InitTarget],
 ) -> Result<Vec<Observed>, CatalogError> {
     let mut existing = super::existing_buckets(
@@ -330,7 +330,7 @@ fn observe(
         .collect()
 }
 
-fn stored(transaction: &Transaction<'_>, record: BucketRecord) -> Result<Stored, CatalogError> {
+fn stored(transaction: &sql::WriteTx<'_>, record: BucketRecord) -> Result<Stored, CatalogError> {
     let entry = sql::row(transaction, SELECT_ENTRY, [&record.name], |row| {
         Ok(RecordedEntry {
             digest: row.get(0)?,

@@ -884,7 +884,7 @@ fn require_unique_names<'a>(mut names: impl Iterator<Item = &'a str>) -> Result<
 
 /// The stored buckets among `names`, read with one statement for the whole batch.
 fn existing_buckets<'a>(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     names: impl Iterator<Item = &'a str>,
 ) -> Result<std::collections::HashMap<String, BucketRecord>, CatalogError> {
     // The names are bound as one JSON array so the statement text stays static.

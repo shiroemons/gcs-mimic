@@ -18,7 +18,7 @@ fn derived_total(segments: &[DerivedSegment], max_bytes: u64) -> Result<u64, Obj
 }
 
 fn insert_inputs(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     id: &BlobId,
     segments: &[DerivedSegment],
 ) -> Result<(), ObjectError> {
@@ -98,7 +98,7 @@ fn begin_transfer<T>(
 
 /// Inserts the transfer and its inputs and binds them; nothing is committed yet.
 fn stage_transfer<T>(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     draft: &BeginTransfer,
     segments: &[DerivedSegment],
     bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<T, ObjectError>,

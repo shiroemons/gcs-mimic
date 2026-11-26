@@ -195,7 +195,7 @@ fn commit(
 /// away and came back is never new again here, and never takes over a bucket an API request
 /// created while seeding's own was deleted.
 fn take_buckets(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     batch: &SeedBatch,
     counts: &mut LiveCounts,
     problems: &mut Problems,
@@ -221,7 +221,7 @@ fn take_buckets(
 /// Whether the pass replays files into `bucket`: only while the bucket seeding took for its
 /// directory is the live one. `current` keeps the answers of earlier files.
 fn replays_into(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     current: &mut HashMap<String, bool>,
     bucket: &str,
 ) -> Result<bool, AdminError> {
@@ -236,7 +236,7 @@ fn replays_into(
 /// Decides each file the pass read again with [`replay::live_read`], and keeps the record that
 /// decision leaves, writing it only where it changed.
 fn replay_live_files(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     batch: &SeedBatch,
     now: SystemTime,
     counts: &mut LiveCounts,
@@ -297,7 +297,7 @@ fn replay_live_files(
 /// seeding owns a version: deletes it once a later proof confirms the first, keeps a tombstone
 /// where an API write took the name, and reports a protected object.
 fn replay_live_absences(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     batch: &SeedBatch,
     pass: u64,
     now: SystemTime,

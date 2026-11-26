@@ -187,7 +187,7 @@ async fn receive_chunk(
 /// Inside the publication transaction: the session is still active and unexpired, and its
 /// bucket was not recreated since the session started.
 fn check_session_publishable(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     session: &super::resumable::ResumableSession,
     now: std::time::SystemTime,
 ) -> Result<(), ResumableError> {

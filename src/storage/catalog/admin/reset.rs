@@ -152,7 +152,7 @@ pub(super) struct Cleared {
 }
 
 pub(super) fn clear_in_transaction(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     mode: Reclamation,
 ) -> Result<Cleared, CatalogError> {
     let importing: bool = sql::scalar(

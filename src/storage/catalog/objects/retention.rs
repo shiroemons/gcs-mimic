@@ -7,7 +7,7 @@ use crate::object::{
 };
 use crate::storage::catalog::resumable::InvalidOptions;
 use crate::storage::catalog::sql;
-use rusqlite::{Row, Transaction, types::Type};
+use rusqlite::{Row, types::Type};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -154,7 +154,7 @@ pub(in crate::storage) fn from_session(
 
 /// Reads the bucket flag inside the caller's mutation transaction.
 pub(super) fn bucket_enabled(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     bucket: &str,
 ) -> Result<bool, ObjectError> {
     sql::optional_scalar(
@@ -167,7 +167,7 @@ pub(super) fn bucket_enabled(
 
 /// Validates a stored configuration on a new generation inside its publication transaction.
 pub(super) fn validate_publication(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     record: &ObjectRecord,
     now: std::time::SystemTime,
 ) -> Result<(), ObjectError> {

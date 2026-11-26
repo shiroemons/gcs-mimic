@@ -143,7 +143,7 @@ async fn commit(
 ) -> Result<(), AdminError> {
     catalog
         .run_admin(move |connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
+            let transaction = sql::immediate(connection).map_err(unavailable)?;
             record_outcomes(&transaction, &binding, cursor, &published(&elements))?;
             for element in &elements {
                 let input =
@@ -554,12 +554,14 @@ async fn import_journal_progress_hook_rolls_back_with_its_owning_transaction() {
     catalog.import_journal().begin(binding(1)).await.unwrap();
     catalog
         .run_admin(|connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
+            let transaction = sql::immediate(connection).map_err(unavailable)?;
             record_outcomes(&transaction, &binding(1), 0, &published(&[element(1)]))?;
             transaction
                 .execute("UPDATE startup_seed SET complete = 1", [])
                 .map_err(unavailable)?;
-            transaction.rollback().map_err(unavailable)
+            sql::exec(&transaction, "ROLLBACK", [])
+                .map(drop)
+                .map_err(unavailable)
         })
         .await
         .unwrap();

@@ -471,7 +471,7 @@ pub(in crate::storage::catalog) struct PublishedVersion<T> {
 
 /// [`publish_in_transaction`] for a publication whose preparation yields only the record.
 pub(in crate::storage::catalog) fn publish_version(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     previous: Option<&StoredObject>,
     bucket: &BucketPublication,
     version: NewVersion<'_>,
@@ -486,7 +486,7 @@ pub(in crate::storage::catalog) fn publish_version(
 /// Preparation may also yield a value derived from the record before publication changes it,
 /// such as a completion response rendered inside the transaction.
 pub(in crate::storage::catalog) fn publish_in_transaction<T>(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     previous: Option<&StoredObject>,
     bucket: &BucketPublication,
     version: NewVersion<'_>,

@@ -7,14 +7,14 @@ use crate::bucket::{
     lifecycle::{LifecycleRules, validate_location},
 };
 use crate::storage::catalog::sql;
-use rusqlite::{Connection, OptionalExtension, Transaction};
+use rusqlite::{Connection, OptionalExtension};
 use std::time::SystemTime;
 
 pub(super) const SCHEMA: &str =
     "ALTER TABLE buckets ADD COLUMN autoclass TEXT; PRAGMA user_version = 31;";
 
 fn store(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     bucket: &str,
     config: Option<&Autoclass>,
 ) -> Result<(), CatalogError> {
@@ -29,7 +29,7 @@ fn store(
 /// Validate and persist the configuration of a bucket inserted in this transaction. The
 /// catalog inserts the column as NULL so this module owns its encoding.
 pub(super) fn insert(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     record: &mut BucketRecord,
     lifecycle: &LifecycleRules,
 ) -> Result<(), CatalogError> {
@@ -44,7 +44,7 @@ pub(super) fn insert(
 /// Apply the requested Autoclass change and enforce the final-state restrictions before the
 /// caller applies the remaining metadata fields in the same transaction.
 pub(super) fn update(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     record: &mut BucketRecord,
     update: &BucketMetadataUpdate,
     now: SystemTime,

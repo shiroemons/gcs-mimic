@@ -108,7 +108,7 @@ pub(super) fn cleanup_failed_shard(shard: &Path, error: io::Error) -> io::Error 
 /// Every object publication commits here, so fault-injection tests can fail the commit or
 /// report an error after it succeeded, the ambiguous outcome cleanup must survive.
 pub(in crate::storage::catalog) fn commit_publication(
-    transaction: Transaction<'_>,
+    transaction: sql::WriteTx<'_>,
 ) -> Result<(), ObjectError> {
     #[cfg(test)]
     let data_dir = fault::database_dir(&transaction);

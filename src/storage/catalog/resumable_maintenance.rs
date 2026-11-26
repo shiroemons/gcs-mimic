@@ -93,7 +93,7 @@ fn cleanup_page(
 
 /// Signal from the writer even if the request is cancelled or the commit result is ambiguous.
 pub(super) fn commit_cancellation(
-    transaction: rusqlite::Transaction<'_>,
+    transaction: sql::WriteTx<'_>,
     changed: usize,
     wake: &tokio::sync::Notify,
 ) -> rusqlite::Result<()> {

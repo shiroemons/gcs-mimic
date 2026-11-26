@@ -1088,7 +1088,7 @@ fn publication_record(
 /// Publishes one element at `now`. Its failure says whether only this element fails or the batch
 /// stops, so it is an administrative failure.
 fn publish_entry(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     entry: &BatchPublication,
     grant: &AdminGrant,
     now: SystemTime,
@@ -1136,7 +1136,7 @@ fn checked_entry_micros(entry: &BatchPublication, now: SystemTime) -> Result<i64
 }
 
 fn publish_checked_entry(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     entry: &BatchPublication,
     grant: &AdminGrant,
     now: SystemTime,
@@ -1213,7 +1213,7 @@ fn publish_checked_entry(
 }
 
 fn record_publication_metadata(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     entry: &BatchPublication,
     access: &BucketAccess,
     record: &mut ObjectRecord,
@@ -1240,7 +1240,7 @@ fn record_publication_metadata(
 }
 
 pub(in crate::storage::catalog) fn apply_acl(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     entries: Option<&[crate::acl::AclEntry]>,
     access: &BucketAccess,
     record: &ObjectRecord,

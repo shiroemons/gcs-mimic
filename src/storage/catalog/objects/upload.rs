@@ -160,7 +160,7 @@ impl UploadCommit {
 
     /// Publishes the upload inside `transaction`, or returns the replayed or unchanged record.
     /// The caller commits; [`group_commit`] shares one transaction between queued uploads.
-    fn apply(&self, transaction: &Transaction<'_>) -> Result<CommitOutcome, ObjectError> {
+    fn apply(&self, transaction: &sql::WriteTx<'_>) -> Result<CommitOutcome, ObjectError> {
         let now = PublicationTime::read(self.clock.as_ref())?;
         let authority = BucketAuthority::load(transaction, &self.bucket, &self.access)?;
         let micros = now.micros;
@@ -257,7 +257,7 @@ impl UploadCommit {
 
     fn finish_metadata(
         &self,
-        transaction: &Transaction<'_>,
+        transaction: &sql::WriteTx<'_>,
         record: &ObjectRecord,
     ) -> Result<Journaled, ObjectError> {
         super::super::admin::apply_acl(

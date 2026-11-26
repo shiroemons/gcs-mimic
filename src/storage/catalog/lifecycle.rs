@@ -532,7 +532,7 @@ fn sweep_page(
 }
 
 fn bucket_rules(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     bucket: &str,
     incarnation: Incarnation,
     cached: BucketRules,
@@ -607,7 +607,7 @@ fn bucket_rules(
 }
 
 fn evaluate_version(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     target: &ObjectTarget<i64>,
     rules: &[LifecycleRule],
     now: SystemTime,
@@ -722,7 +722,7 @@ fn deterministic_read_error(error: &ObjectError) -> bool {
 }
 
 fn plan_version(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     target: &ObjectTarget<i64>,
     rules: &[LifecycleRule],
     now: SystemTime,
@@ -818,7 +818,7 @@ fn plan_version(
 }
 
 fn transition_version(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     mut record: ObjectRecord,
     class: StorageClass,
     now: SystemTime,
@@ -852,7 +852,7 @@ fn transition_version(
 }
 
 fn retire_version(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     record: &ObjectRecord,
     now: SystemTime,
 ) -> Result<LifecycleCounts, ObjectError> {
@@ -951,7 +951,7 @@ impl<'a> QuarantineKey<'a> {
 }
 
 fn quarantine(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     key: QuarantineKey<'_>,
     revision: &str,
     event: crate::diagnostics::Event,
@@ -983,7 +983,7 @@ fn emit_quarantines(events: Vec<QuarantineEvent>) {
 }
 
 fn clear_quarantine(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     key: QuarantineKey<'_>,
 ) -> Result<(), ObjectError> {
     sql::exec(

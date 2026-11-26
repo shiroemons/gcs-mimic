@@ -10,7 +10,7 @@ use crate::storage::{
     },
     failure::BackendFailure,
 };
-use rusqlite::{Connection, Transaction};
+use rusqlite::Connection;
 
 /// Candidates read beyond the excess, so a few held sessions do not cut the trim short.
 const TRIM_SLACK: usize = 16;
@@ -73,7 +73,7 @@ pub(in crate::storage::catalog) fn open(connection: &Connection) -> Result<(), C
 /// to a later creation, because a client should not fail over bookkeeping it cannot influence.
 /// The returned leases keep the trimmed sessions out of reach until the transaction ends.
 pub(super) fn admit_session(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     catalog: &Catalog,
 ) -> Result<Vec<WriterGuard>, CatalogError> {
     let (active, terminal, terminal_bytes): (i64, i64, i64) = sql::row(
@@ -94,7 +94,7 @@ pub(super) fn admit_session(
 }
 
 fn trim_finished(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     catalog: &Catalog,
     wanted: usize,
 ) -> Result<Vec<WriterGuard>, CatalogError> {

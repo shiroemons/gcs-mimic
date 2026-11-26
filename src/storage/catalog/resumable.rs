@@ -398,7 +398,7 @@ fn insert_session(
 
 /// Inserts the session row; nothing is committed yet.
 fn stage_session(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     catalog: &Catalog,
     request: &CreateSession,
 ) -> Result<(), ResumableError> {

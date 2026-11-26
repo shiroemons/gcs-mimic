@@ -499,6 +499,8 @@ The commit that crosses the 256-page auto-checkpoint threshold runs a passive ch
 before it returns. This keeps each checkpoint and the reused WAL file smaller at the cost of
 more frequent checkpoints. A long read can hold the WAL past the threshold.
 The schema version is `CATALOG_SCHEMA_VERSION` in `src/storage/catalog.rs`.
+Operational immediate write transactions reuse prepared `BEGIN IMMEDIATE`, `COMMIT`
+and `ROLLBACK` statements.
 
 Use generated, opaque blob identifiers. Object names such as Unicode strings, repeated slashes, encoded `%2F`, dot segments and trailing delimiters are logical keys, not native filesystem paths.
 

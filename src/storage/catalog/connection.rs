@@ -191,8 +191,8 @@ impl Inner {
         }
     }
 
-    /// rusqlite rolls a `Transaction` back when it drops, including during a
-    /// panic, but a raw `BEGIN` or a failed drop-time rollback can leave one open.
+    /// Transaction guards roll back on drop, including during a panic.
+    /// A raw `BEGIN` or a failed drop-time rollback can leave one open.
     #[cfg_attr(
         not(test),
         expect(

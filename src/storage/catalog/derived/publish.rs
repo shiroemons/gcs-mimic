@@ -141,7 +141,7 @@ where
 }
 
 fn publish_destination<P, C, T>(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     request: TransferPublication<P, C>,
     progress: &DerivedTransfer,
     hashes: Hashes,

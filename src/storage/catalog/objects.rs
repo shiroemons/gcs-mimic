@@ -15,7 +15,7 @@ use crate::{
     },
 };
 use bytes::Bytes;
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use std::{
     fs::{self, File},
     io,
@@ -351,7 +351,7 @@ impl Catalog {
 /// Applies `update` to the selected generation at the clock's time and stores the result in the
 /// caller's transaction.
 fn store_metadata_update(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     record: &mut ObjectRecord,
     update: ObjectMetadataUpdate,
     clock: &dyn Clock,
@@ -564,7 +564,7 @@ pub(super) struct DeleteContext<'a> {
 
 /// The caller owns the transaction, including any extra lifecycle protection checks.
 pub(super) fn delete_in_transaction(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     target: &ObjectTarget,
     context: DeleteContext<'_>,
 ) -> Result<Deleted, ObjectError> {
@@ -573,7 +573,7 @@ pub(super) fn delete_in_transaction(
 }
 
 fn delete_authorized(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     target: &ObjectTarget,
     context: DeleteContext<'_>,
     authority: BucketAuthority<'_>,

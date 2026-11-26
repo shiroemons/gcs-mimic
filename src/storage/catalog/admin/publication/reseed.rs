@@ -470,7 +470,7 @@ async fn prepare_entry(catalog: Catalog, mut entry: SeedEntry) -> Result<SeedEnt
 }
 
 fn check_guards(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     mode: SeedMode,
     now: SystemTime,
 ) -> Result<(), AdminError> {
@@ -586,7 +586,7 @@ pub(super) enum Bucket {
 
 /// Creates the bucket `record` names unless a bucket has the name, in the caller's transaction.
 pub(super) fn create_bucket(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     catalog: &Catalog,
     record: &BucketRecord,
 ) -> Result<Bucket, AdminError> {
@@ -612,7 +612,7 @@ pub(super) fn create_bucket(
 /// Replays each staged file as a startup replay does, recording it with the version seeding then
 /// owns, and returns the bodies it published.
 fn replay_files(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     batch: &SeedBatch,
     now: SystemTime,
     counts: &mut Counts,
@@ -681,7 +681,7 @@ pub(super) fn version_of(object: &ObjectRecord) -> Version {
 /// Applies a startup replay's decision at each recorded name a lookup proved absent: deletes an
 /// object seeding purely owns on that one proof, keeps a protected one, and forgets the rest.
 fn replay_absences(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     batch: &SeedBatch,
     now: SystemTime,
     journaled: &mut objects::Journaled,
@@ -715,7 +715,7 @@ fn replay_absences(
 /// [`replay::unproven`]: keeps a tombstone where seeding no longer purely owns the live object,
 /// and hands every other name, with the reason, to `report`. Returns how many tombstones it kept.
 pub(super) fn replay_unproven(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     batch: &SeedBatch,
     now: SystemTime,
     mut report: impl FnMut(&str, &str, &str),
@@ -777,7 +777,7 @@ fn kept(bucket: &str, name: &str) {
 /// What the catalog holds at `bucket`/`name` for a decision about a name the walk did not find,
 /// which reads only the version, the body and whether deleting it is refused.
 pub(super) fn absent_object(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     bucket: &str,
     name: &str,
     now: SystemTime,
@@ -801,7 +801,7 @@ pub(super) fn absent_object(
 /// in the transaction that deletes it. Returns whether it deleted; a failed condition, a hold or
 /// an unmet retention period deletes nothing.
 pub(super) fn delete_owned(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     (bucket, name): (&str, &str),
     owned: Version,
     now: SystemTime,
@@ -867,10 +867,7 @@ fn refused(error: &ObjectError) -> bool {
 
 /// Marks the bucket of each top-level directory the replay walked, and forgets the marks of
 /// directories the tree no longer holds: a startup replay lists the whole tree or fails.
-fn mark_buckets(
-    transaction: &rusqlite::Transaction<'_>,
-    batch: &SeedBatch,
-) -> Result<(), AdminError> {
+fn mark_buckets(transaction: &sql::WriteTx<'_>, batch: &SeedBatch) -> Result<(), AdminError> {
     let walked: std::collections::HashSet<&str> = batch
         .buckets
         .iter()
@@ -886,7 +883,7 @@ fn mark_buckets(
 /// Forgets the mark of each directory a startup replay or a reseed, which list the whole tree or
 /// fail, did not find there: one whose bucket name `listed` does not accept.
 fn forget_marks(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     listed: impl Fn(&str) -> bool,
 ) -> Result<(), AdminError> {
     for marked in seed_records::marks(transaction)? {
@@ -969,7 +966,7 @@ fn confirmed(
 /// What a replay of `entry` at `now` finds in `live`, the object the catalog holds at its name.
 /// The protection is the refusal publishing the replacement at `now` would meet.
 pub(super) fn live_object(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     live: &ObjectRecord,
     entry: &BatchPublication,
     now: SystemTime,

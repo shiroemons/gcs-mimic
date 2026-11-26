@@ -3,10 +3,7 @@
 #[cfg(test)]
 mod write_tx_tests;
 
-use rusqlite::{
-    Connection, OptionalExtension, Params, Row, Transaction, TransactionBehavior, config::DbConfig,
-    types::FromSql,
-};
+use rusqlite::{Connection, OptionalExtension, Params, Row, config::DbConfig, types::FromSql};
 
 impl rusqlite::ToSql for crate::object::CustomTime {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
@@ -292,8 +289,36 @@ pub(super) fn exec(
     connection.prepare_cached(sql)?.execute(params)
 }
 
-pub(super) fn immediate(connection: &mut Connection) -> rusqlite::Result<Transaction<'_>> {
-    connection.transaction_with_behavior(TransactionBehavior::Immediate)
+/// A write transaction whose control statements use the connection's prepared cache.
+#[must_use = "dropping an uncommitted write rolls it back"]
+pub(super) struct WriteTx<'a>(&'a Connection);
+
+pub(super) fn immediate(connection: &mut Connection) -> rusqlite::Result<WriteTx<'_>> {
+    exec(connection, "BEGIN IMMEDIATE", [])?;
+    Ok(WriteTx(connection))
+}
+
+impl WriteTx<'_> {
+    pub(super) fn commit(self) -> rusqlite::Result<()> {
+        exec(self.0, "COMMIT", []).map(drop)
+    }
+}
+
+impl std::ops::Deref for WriteTx<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        self.0
+    }
+}
+
+impl Drop for WriteTx<'_> {
+    fn drop(&mut self) {
+        // A failed COMMIT may leave the transaction open, while some SQLite errors roll it back.
+        if !self.0.is_autocommit() {
+            let _ = exec(self.0, "ROLLBACK", []);
+        }
+    }
 }
 
 /// Why a transaction's changes are not known to be in place, which decides the cleanup its

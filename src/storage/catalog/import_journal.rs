@@ -5,12 +5,12 @@
     reason = "request-free: only migration, open validation, the startup import check and the offline import command call this module"
 )]
 
-use super::{Catalog, admin::AdminError, unavailable};
+use super::{Catalog, admin::AdminError, sql, unavailable};
 use crate::{
     bucket::CatalogError,
     storage::failure::{Link, TypedSource},
 };
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::{error::Error, fmt};
 
 pub(crate) const MAX_PAGE: usize = 256;
@@ -359,7 +359,7 @@ pub(super) fn check_publication(
 /// observations for every published element, the cursor after the leading published run, and
 /// `element_rejected` when anything was rejected.
 pub(super) fn record_outcomes(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     binding: &ImportBinding,
     cursor: i64,
     results: &[ElementResult<'_>],
@@ -397,7 +397,7 @@ pub(super) fn record_outcomes(
 }
 
 fn insert_observation(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     element: &ImportElement,
 ) -> Result<(), CatalogError> {
     let (inode, ctime_ns) = element.stat_columns();

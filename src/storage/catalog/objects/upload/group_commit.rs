@@ -249,7 +249,7 @@ fn publish_all(
 /// SQLite roll back the whole transaction, or its savepoint could not be ended and the transaction
 /// rolls back when it is dropped.
 fn publish_isolated(
-    transaction: &Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     commit: &UploadCommit,
 ) -> Result<UploadOutcome, ObjectError> {
     sql::exec(transaction, "SAVEPOINT upload", [])?;

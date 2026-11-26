@@ -71,7 +71,7 @@ pub(super) fn purge_expired(
 }
 
 pub(super) fn purge_in_transaction(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     bucket: &str,
     now: UnixMicros,
 ) -> Result<usize, ObjectError> {
@@ -86,7 +86,7 @@ pub(super) fn purge_in_transaction(
     Ok(removed)
 }
 
-pub(super) fn commit_expiry(transaction: rusqlite::Transaction<'_>) -> Result<(), ObjectError> {
+pub(super) fn commit_expiry(transaction: sql::WriteTx<'_>) -> Result<(), ObjectError> {
     #[cfg(test)]
     super::fault::hit_transaction(&transaction, super::fault::Step::ExpiryCommit)
         .map_err(object_unavailable)?;

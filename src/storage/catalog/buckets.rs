@@ -223,7 +223,7 @@ impl BucketCreation<'_> {
 /// Inserts a missing bucket and derives its ACL from a policy other than the default one; the
 /// caller commits.
 pub(super) fn create_bucket_in_transaction(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     record: &mut BucketRecord,
     creation: BucketCreation<'_>,
 ) -> Result<(), CatalogError> {
@@ -249,7 +249,7 @@ pub(super) fn create_bucket_in_transaction(
 
 /// Inserts a bucket with the default policy of its owning project, as an API insert does.
 pub(super) fn insert_bucket_in_transaction(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     record: &mut BucketRecord,
     default_soft_delete_retention: Option<NonZeroU64>,
 ) -> Result<(), CatalogError> {
@@ -259,7 +259,7 @@ pub(super) fn insert_bucket_in_transaction(
 
 /// Inserts a bucket that starts with `policy` instead of the default one.
 fn insert_bucket_with_policy(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     record: &mut BucketRecord,
     default_soft_delete_retention: Option<NonZeroU64>,
     policy: &Policy,
@@ -332,7 +332,7 @@ fn insert_bucket_with_policy(
 /// Inserts the row of a new bucket unless the name exists, returning how many rows it inserted.
 /// Autoclass starts as NULL: `bucket_autoclass::insert` owns that column's encoding.
 fn insert_row(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &sql::WriteTx<'_>,
     record: &BucketRecord,
     created: i64,
     updated: i64,
