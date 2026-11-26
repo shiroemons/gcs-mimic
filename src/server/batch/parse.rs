@@ -1,5 +1,6 @@
 use super::{Part, RequestBody, invalid};
 use crate::api_error::ApiError;
+use crate::multipart::Delimiter;
 use http_body_util::Full;
 use hyper::{
     HeaderMap, Method, Request, Uri,
@@ -315,15 +316,6 @@ fn after_opening_delimiter<'a>(bytes: &'a [u8], boundary: &[u8]) -> Option<&'a [
     .find_map(|unread| unread.strip_prefix(boundary))
 }
 
-/// Splits `bytes` around its first `delimiter`, without the delimiter itself.
-fn split_at_delimiter<'a>(bytes: &'a [u8], delimiter: &[u8]) -> Option<(&'a [u8], &'a [u8])> {
-    let at = bytes
-        .windows(delimiter.len())
-        .position(|window| window == delimiter)?;
-    let (before, from_delimiter) = bytes.split_at_checked(at)?;
-    Some((before, from_delimiter.strip_prefix(delimiter)?))
-}
-
 pub(super) fn parts(
     bytes: &Bytes,
     boundary: &str,
@@ -342,13 +334,14 @@ pub(super) fn parts(
     // CRLF `--boundary`, and honoring LF there would cut a body short and run what follows it as
     // a part of its own. An LF-only envelope, which Cloud Storage also accepts, has no CRLF to
     // look for and delimits on LF, so a CR before that LF stays in the body.
-    let delimiter = [ending.as_bytes(), boundary.as_slice()].concat();
+    let delimiter = Delimiter::new(&[ending.as_bytes(), boundary.as_slice()].concat());
     let mut result = Vec::new();
     loop {
         if result.len() >= 100 {
             return Err(invalid("Batch requests support at most 100 calls"));
         }
-        let (section, after_boundary) = split_at_delimiter(rest, &delimiter)
+        let (section, after_boundary) = delimiter
+            .split(rest)
             .ok_or_else(|| invalid("Missing batch closing boundary"))?;
         result.push(part(&bytes.slice_ref(section), outer, query, api_base_url)?);
         match delimiter_line(after_boundary)? {

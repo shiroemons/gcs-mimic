@@ -4,19 +4,22 @@
 //! body; what a part means (JSON metadata, a form field, a media payload) is the caller's concern.
 
 use crate::api_error::{ApiError, BAD_CONTENT_TYPE_TEXT, MISSING_END_BOUNDARY_TEXT};
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use http_body_util::BodyExt;
 use hyper::{
     HeaderMap,
     body::Body,
     header::{HeaderName, HeaderValue},
 };
+use memchr::{memchr, memmem};
+use std::collections::VecDeque;
 use transfer::PartEncoding;
 
 mod transfer;
 
 const HEADER_CAP: usize = 8192;
 const DISCARD_CAP: usize = 4096;
+const MAX_BOUNDARY: usize = 70;
 
 pub(crate) fn invalid() -> ApiError {
     ApiError::invalid_parameter("Invalid multipart/related framing")
@@ -125,7 +128,7 @@ impl MediaType {
             .map(|Parameter { value, .. }| value)
             .ok_or_else(invalid)?;
         if boundary.is_empty()
-            || boundary.len() > 70
+            || boundary.len() > MAX_BOUNDARY
             || boundary.ends_with(' ')
             || !boundary
                 .bytes()
@@ -287,12 +290,36 @@ enum Framing {
     Detect,
 }
 
+/// A MIME delimiter and its precomputed substring searcher.
+pub(crate) struct Delimiter {
+    finder: memmem::Finder<'static>,
+}
+
+impl Delimiter {
+    pub(crate) fn new(bytes: &[u8]) -> Self {
+        Self {
+            finder: memmem::Finder::new(bytes).into_owned(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.finder.needle().len()
+    }
+
+    pub(crate) fn split<'a>(&self, bytes: &'a [u8]) -> Option<(&'a [u8], &'a [u8])> {
+        let (before, rest) = bytes.split_at_checked(self.finder.find(bytes)?)?;
+        Some((before, rest.strip_prefix(self.finder.needle())?))
+    }
+}
+
 pub(crate) struct Multipart<B> {
     body: B,
     pending: Bytes,
+    /// Only line parsing copies input. Body carry keeps slices of the original frames.
     buffer: BytesMut,
+    carry: VecDeque<Bytes>,
     /// `CRLF--boundary`, or `LF--boundary` once the framing is `Lf`.
-    delimiter: Vec<u8>,
+    delimiter: Delimiter,
     framing: Framing,
     flavor: Flavor,
     /// How the part being read encodes its bytes.
@@ -318,16 +345,14 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         } else {
             Flavor::Form
         };
-        let mut delimiter = format!("\r\n--{boundary}").into_bytes();
-        if framing == Framing::Lf {
-            delimiter.remove(0);
-        }
+        let newline = if framing == Framing::Lf { "\n" } else { "\r\n" };
         Self {
             body,
             pending: Bytes::new(),
             // A synthetic CRLF lets the first boundary use the same search as later boundaries.
             buffer: BytesMut::from(&b"\r\n"[..]),
-            delimiter,
+            carry: VecDeque::new(),
+            delimiter: Delimiter::new(format!("{newline}--{boundary}").as_bytes()),
             framing,
             flavor,
             encoding: PartEncoding::Identity,
@@ -342,12 +367,8 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     /// `None` once the framing is settled. Nothing is consumed, so the delimiter search of
     /// the settled framing runs over the same bytes.
     fn detect(&mut self) -> Option<usize> {
-        let (_, pattern) = self.delimiter.split_first()?;
-        let Some(index) = self
-            .buffer
-            .windows(pattern.len())
-            .position(|v| v == pattern)
-        else {
+        let (_, pattern) = self.delimiter.finder.needle().split_first()?;
+        let Some(index) = memmem::find(&self.buffer, pattern) else {
             if self.eof {
                 self.framing = Framing::Crlf;
                 return None;
@@ -359,7 +380,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         match rest.iter().find(|b| !matches!(b, b' ' | b'\t')) {
             Some(b'\n') => {
                 self.framing = Framing::Lf;
-                self.delimiter.remove(0);
+                self.delimiter = Delimiter::new(pattern);
             }
             // The line ending is not known yet; overlong white space fails as a CRLF line.
             None if !self.eof && rest.len() <= HEADER_CAP => {
@@ -368,12 +389,6 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             _ => self.framing = Framing::Crlf,
         }
         None
-    }
-
-    fn find_delimiter(&self) -> Option<usize> {
-        self.buffer
-            .windows(self.delimiter.len())
-            .position(|v| v == self.delimiter)
     }
 
     /// Bytes kept back while no delimiter is complete, as they may start one.
@@ -386,7 +401,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         if self.framing == Framing::Lf { 1 } else { 2 }
     }
 
-    async fn fill(&mut self) -> Result<(), ApiError> {
+    async fn read_frame(&mut self) -> Result<(), ApiError> {
         while self.pending.is_empty() && !self.eof {
             match self.body.frame().await {
                 Some(Ok(frame)) => self.pending = frame.into_data().map_err(|_| invalid())?,
@@ -394,7 +409,13 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 None => self.eof = true,
             }
         }
-        let length = self.pending.len().min(8192);
+        Ok(())
+    }
+
+    async fn fill_line(&mut self) -> Result<(), ApiError> {
+        self.read_frame().await?;
+        let (prefix, _) = self.pending.split_at(self.pending.len().min(HEADER_CAP));
+        let length = memchr(b'\n', prefix).map_or(prefix.len(), |end| end + 1);
         self.buffer
             .extend_from_slice(&self.pending.split_to(length));
         Ok(())
@@ -428,31 +449,23 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 };
             }
             scanned = self.buffer.len().saturating_sub(1);
-            self.fill().await?;
+            self.fill_line().await?;
         }
     }
 
     /// The end of the first line at or after `from` and its terminator length. Under LF
     /// framing a CR before the LF stays in the line, so a CRLF line fails as a header.
     fn line_end(&self, from: usize) -> Option<(usize, usize)> {
+        let unread = self.buffer.get(from..)?;
         if self.framing == Framing::Lf {
-            self.buffer
-                .get(from..)?
-                .iter()
-                .position(|b| *b == b'\n')
-                .map(|end| (from + end, 1))
+            memchr(b'\n', unread).map(|end| (from + end, 1))
         } else {
-            self.buffer
-                .get(from..)?
-                .windows(2)
-                .position(|v| v == b"\r\n")
-                .map(|end| (from + end, 2))
+            memmem::find(unread, b"\r\n").map(|end| (from + end, 2))
         }
     }
 
-    /// Consumes the delimiter at the start of the buffer and the rest of its line.
-    async fn delimiter(&mut self) -> Result<(), ApiError> {
-        self.buffer.advance(self.delimiter.len());
+    /// Consumes the padding or closing marker after a delimiter.
+    async fn delimiter_tail(&mut self) -> Result<(), ApiError> {
         let line = self.line(HEADER_CAP, LineEnd::CrlfOrEof).await?;
         let tail = if let Some(tail) = line.strip_prefix(b"--") {
             self.closed = true;
@@ -469,6 +482,9 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 
     pub(crate) async fn start(&mut self) -> Result<(), ApiError> {
+        if self.delimiter.len() > MAX_BOUNDARY + 4 {
+            return Err(invalid());
+        }
         let mut discarded = 0;
         loop {
             if self.framing == Framing::Detect
@@ -479,16 +495,16 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                     return Err(invalid());
                 }
                 self.buffer.advance(discard);
-                self.fill().await?;
+                self.fill_line().await?;
                 continue;
             }
-            if let Some(index) = self.find_delimiter() {
+            if let Some(index) = self.delimiter.finder.find(&self.buffer) {
                 discarded += index;
                 if discarded > DISCARD_CAP + 2 {
                     return Err(invalid());
                 }
-                self.buffer.advance(index);
-                self.delimiter().await?;
+                self.buffer.advance(index + self.delimiter.len());
+                self.delimiter_tail().await?;
                 return if self.closed { Err(invalid()) } else { Ok(()) };
             }
             let discard = self.buffer.len().saturating_sub(self.held_back());
@@ -497,7 +513,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 return Err(invalid());
             }
             self.buffer.advance(discard);
-            self.fill().await?;
+            self.fill_line().await?;
         }
     }
 
@@ -569,18 +585,49 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         }
     }
 
+    /// Search at most two partial delimiters at a seam. A match wholly inside the next
+    /// frame is left for its own search, once the preceding slices have been returned.
+    fn body_prefix(&self) -> (Option<usize>, usize) {
+        if self.carry.is_empty() {
+            return (
+                self.delimiter.finder.find(&self.pending),
+                self.pending.len(),
+            );
+        }
+        let mut scratch = [0; 2 * (MAX_BOUNDARY + 3)];
+        let mut out = scratch.as_mut_slice();
+        for fragment in &self.carry {
+            out.put_slice(fragment);
+        }
+        let (prefix, _) = self
+            .pending
+            .split_at(self.pending.len().min(self.held_back()));
+        out.put_slice(prefix);
+        let unused = out.len();
+        let (seam, _) = scratch.split_at(scratch.len() - unused);
+        (self.delimiter.finder.find(seam), seam.len())
+    }
+
     async fn raw_chunk(&mut self) -> Result<Option<Bytes>, ApiError> {
         loop {
-            if let Some(index) = self.find_delimiter() {
-                if index > 0 {
-                    return Ok(Some(self.buffer.split_to(index).freeze()));
-                }
-                self.delimiter().await?;
+            self.read_frame().await?;
+            let (boundary, scanned) = self.body_prefix();
+            if boundary == Some(0) {
+                let carried: usize = self.carry.drain(..).map(|bytes| bytes.len()).sum();
+                self.pending.advance(self.delimiter.len() - carried);
+                self.delimiter_tail().await?;
                 return Ok(None);
             }
-            let length = self.buffer.len().saturating_sub(self.held_back());
-            if length > 0 {
-                return Ok(Some(self.buffer.split_to(length).freeze()));
+            let ready = boundary.unwrap_or_else(|| scanned.saturating_sub(self.held_back()));
+            if ready > 0 {
+                let Some(first) = self.carry.front_mut() else {
+                    return Ok(Some(self.pending.split_to(ready)));
+                };
+                let chunk = first.split_to(ready.min(first.len()));
+                if first.is_empty() {
+                    self.carry.pop_front();
+                }
+                return Ok(Some(chunk));
             }
             if self.eof {
                 return Err(match self.flavor {
@@ -588,7 +635,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                     Flavor::Form => invalid(),
                 });
             }
-            self.fill().await?;
+            self.carry.push_back(std::mem::take(&mut self.pending));
         }
     }
 
@@ -596,19 +643,16 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         if !self.closed {
             return Err(invalid());
         }
-        let mut size = self.buffer.len();
-        self.buffer.clear();
-        loop {
+        let mut size = 0;
+        while !self.eof {
+            self.read_frame().await?;
+            size += self.pending.len();
+            self.pending = Bytes::new();
             if size > DISCARD_CAP {
                 return Err(invalid());
             }
-            if self.eof {
-                return Ok(());
-            }
-            self.fill().await?;
-            size += self.buffer.len();
-            self.buffer.clear();
         }
+        Ok(())
     }
 }
 
@@ -684,6 +728,45 @@ mod tests {
             let (metadata, media) = parse_in_chunks(&body, "boundary", framing).await;
             assert_eq!(metadata, b"{}");
             assert_eq!(media, payload);
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn randomly_split_delimiter_prefixes_match_the_whole_body(
+            prefixes in proptest::collection::vec((1usize..12, proptest::num::u8::ANY), 1..64),
+            widths in proptest::collection::vec(1usize..32, 1..32),
+            boundary_len in 1usize..=MAX_BOUNDARY,
+            lf in proptest::bool::ANY,
+        ) {
+            tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+                let boundary = "b".repeat(boundary_len);
+                let nl = if lf { "\n" } else { "\r\n" };
+                let delimiter = format!("{nl}--{boundary}");
+                let mut media = Vec::new();
+                for (missing, byte) in prefixes {
+                    media.extend_from_slice(&delimiter.as_bytes()[..delimiter.len().saturating_sub(missing)]);
+                    media.extend_from_slice(&[0xff, byte]);
+                }
+                let mut body = format!("--{boundary}{nl}{nl}{{}}{delimiter}{nl}{nl}").into_bytes();
+                body.extend_from_slice(&media);
+                body.extend_from_slice(format!("{delimiter}--{nl}").as_bytes());
+                let body = Bytes::from(body);
+                let whole = parse_bounded(Full::new(body.clone()), &boundary, Framing::Detect).await.unwrap();
+                assert_eq!(whole.1, media);
+                let (sender, receiver) = chunk_body::channel();
+                let producer = tokio::spawn(async move {
+                    let mut body = body;
+                    for width in widths.into_iter().cycle() {
+                        if body.is_empty() {
+                            break;
+                        }
+                        sender.send(Ok(body.split_to(width.min(body.len())))).await.unwrap();
+                    }
+                });
+                assert_eq!(parse_bounded(receiver, &boundary, Framing::Detect).await.unwrap(), whole);
+                producer.await.unwrap();
+            });
         }
     }
 
@@ -849,6 +932,8 @@ mod tests {
 
     async fn stream_large_media(framing: Framing) {
         let (sender, receiver) = chunk_body::channel();
+        let frame = Bytes::from(vec![b'x'; 64 * 1024]);
+        let media = frame.clone();
         let producer = tokio::spawn(async move {
             sender
                 .send(Ok(Bytes::from_static(
@@ -857,10 +942,7 @@ mod tests {
                 .await
                 .unwrap();
             for _ in 0..256 {
-                sender
-                    .send(Ok(Bytes::from(vec![b'x'; 64 * 1024])))
-                    .await
-                    .unwrap();
+                sender.send(Ok(media.clone())).await.unwrap();
             }
             sender
                 .send(Ok(Bytes::from_static(b"\r\n--boundary--")))
@@ -873,13 +955,17 @@ mod tests {
         assert_eq!(read_part(&mut parser).await.unwrap(), b"{}");
         parser.media_part_headers().await.unwrap();
         let mut size = 0;
+        let mut largest = 0;
         while let Some(chunk) = parser.next_chunk().await.unwrap() {
-            assert!(chunk.len() <= HEADER_CAP);
-            assert!(parser.buffer.len() <= HEADER_CAP + parser.delimiter.len());
+            assert!(chunk.len() <= frame.len());
+            assert!(frame.as_ptr_range().contains(&chunk.as_ptr()));
+            assert!(parser.carry.iter().map(Bytes::len).sum::<usize>() < parser.delimiter.len());
+            largest = largest.max(chunk.len());
             assert!(chunk.iter().all(|byte| *byte == b'x'));
             size += chunk.len();
         }
         assert_eq!(size, 16 * 1024 * 1024);
+        assert!(largest >= frame.len() - parser.held_back());
         parser.finish().await.unwrap();
         producer.await.unwrap();
     }

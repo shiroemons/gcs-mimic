@@ -341,6 +341,7 @@ dependencies = [
  "inquire",
  "libc",
  "md-5",
+ "memchr",
  "mimalloc",
  "proptest",
  "prost",

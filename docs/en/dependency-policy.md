@@ -71,6 +71,10 @@ resolved package or version. The
 [dependency evidence](evidence/dependency-refresh.md#tcp-keep-alive-direct-edge)
 records the license, package digest and size.
 
+Multipart and HTTP batch parsing use the substring finder in the already
+locked `memchr` 2.8.3. The [dependency snapshot](../../compatibility/dependency-status.json)
+records the direct edge, package digest, license and compressed size.
+
 Builds for musl link `mimalloc` 0.1.52 and `libmimalloc-sys` 0.1.49 as the global allocator, because
 musl's own allocator takes one global lock and made the container slower as threads were added.
 Other targets keep their C library's allocator and do not resolve these packages. This replaces an
