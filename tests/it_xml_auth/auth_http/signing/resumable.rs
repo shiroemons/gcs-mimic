@@ -284,6 +284,38 @@ fn signed_resumable_sessions_cancel_with_no_content() {
 }
 
 #[test]
+fn final_hash_errors_keep_the_session_xml_document() {
+    let data = TestDir::new();
+    let (server, _) = Server::start(&data, &[]);
+    server
+        .create_bucket("", "project-a", "open-bucket")
+        .success();
+    for (value, message) in [
+        ("md5", "Invalid x-goog-hash"),
+        (
+            "crc32c=AAAAAA==,crc32c=AAAAAQ==",
+            "Conflicting CRC32C declarations",
+        ),
+    ] {
+        let object = "/open-bucket/object";
+        let start = server.request("POST", object, &wire(&[START]), b"");
+        let path = session_path(&start, object);
+        let reply = server.request("PUT", &path, &format!("x-goog-hash: {value}\r\n"), b"x");
+        reply.expect(400);
+        let document = format!(
+            "<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>{message}</Message></Error>"
+        );
+        assert_eq!(reply.body, document.as_bytes());
+        assert_eq!(
+            reply.headers["content-type"],
+            "application/xml; charset=UTF-8"
+        );
+        assert!(!reply.headers.contains_key("cache-control"));
+        assert_eq!(reply.headers["content-length"], document.len().to_string());
+    }
+}
+
+#[test]
 fn permissive_xml_resumable_initiation_needs_no_credentials() {
     let data = TestDir::new();
     let (server, ready) = Server::start(&data, &[]);
