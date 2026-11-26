@@ -449,7 +449,7 @@ A further split waits until after `1.0.0`:
 - **`.message` extraction** goes: `url.rs`, `config.rs`, `storage::catalog::admin`,
   `import/filesystem.rs`, `seed/error.rs`, `auth`'s registry and
   `notification::event` use the typed validators and keep their texts.
-  After the configuration split, `config` uses `validate_project_id` and
+  The configuration draft validates `seed_project` with `validate_project_id` and
   `InvalidProjectId::MESSAGE`. The `ApiError` inside JSON slice also replaces
   the extraction from `json::validate_fixed_metadata` in `import/reader.rs`.
 - **Cause vocabulary.** `BackendCause`, `IoCause`, `BackendFailure`,

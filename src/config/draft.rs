@@ -534,8 +534,8 @@ fn virtual_host_domains(value: &str) -> Result<VirtualHostDomains, SettingFix> {
 }
 
 fn seed_project(value: &str) -> Result<String, SettingFix> {
-    crate::json::validate_project(value)
-        .map_err(|error| format!("seed_project: {}", error.message))?;
+    crate::auth::validate_project_id(value)
+        .map_err(|_| format!("seed_project: {}", crate::auth::InvalidProjectId::MESSAGE))?;
     Ok(value.to_owned())
 }
 

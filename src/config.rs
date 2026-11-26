@@ -746,10 +746,17 @@ mod tests {
     /// the options were given or the settings are declared.
     #[test]
     fn diagnostics_follow_native_setting_names() {
-        let args: Vec<String> = ["--scheme", "bad", "--backend", "bad"]
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
+        let args: Vec<String> = [
+            "--seed-project",
+            "bad project",
+            "--scheme",
+            "bad",
+            "--backend",
+            "bad",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
         let report = Config::preflight(&args, &BTreeMap::new());
         let keys: Vec<&str> = report
             .diagnostics
@@ -757,7 +764,16 @@ mod tests {
             .iter()
             .map(|error| error.key.as_str())
             .collect();
-        assert_eq!(keys, ["--backend", "--scheme"], "{}", report.diagnostics);
+        assert_eq!(
+            keys,
+            ["--backend", "--scheme", "--seed-project"],
+            "{}",
+            report.diagnostics
+        );
+        assert_eq!(
+            report.diagnostics.errors[2].fix,
+            "seed_project: project must be a nonempty identifier of at most 256 bytes"
+        );
     }
 
     #[test]
