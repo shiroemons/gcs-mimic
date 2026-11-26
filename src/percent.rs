@@ -70,7 +70,7 @@ impl fmt::Display for QueryError {
 impl std::error::Error for QueryError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Malformed(error) => Some(error),
+            Self::Malformed(error) => error.source(),
             Self::TooLong | Self::Duplicate(_) => None,
         }
     }

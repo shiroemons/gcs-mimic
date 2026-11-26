@@ -9,6 +9,7 @@ where
 {
     let source = Source::from(make());
     let held = make();
+    crate::error::assert_distinct_causes(&held);
     assert_eq!(source.to_string(), held.to_string());
     assert_eq!(format!("{source:?}"), format!("{held:?}"));
     assert_eq!(

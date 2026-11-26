@@ -44,7 +44,13 @@ pub(crate) struct Case<E> {
     pub(crate) logged: Option<&'static str>,
 }
 
-pub(crate) fn case<E>(label: &'static str, error: E) -> Case<E> {
+pub(crate) fn case<E: std::error::Error + 'static>(label: &'static str, error: E) -> Case<E> {
+    crate::error::assert_distinct_causes(&error);
+    mapping_case(label, error)
+}
+
+/// Also used for mapping inputs that have no standard error chain.
+fn mapping_case<E>(label: &'static str, error: E) -> Case<E> {
     Case {
         label,
         error,
@@ -591,12 +597,12 @@ pub(crate) fn auth_error_cases() -> Vec<Case<AuthError>> {
 pub(crate) fn csek_cases() -> Vec<Case<CsekError>> {
     every_variant(
         vec![
-            case("AlgorithmInvalid", CsekError::AlgorithmInvalid),
-            case("KeyFormatInvalid", CsekError::KeyFormatInvalid),
-            case("KeySha256Invalid", CsekError::KeySha256Invalid),
-            case("KeyIncorrect", CsekError::KeyIncorrect),
-            case("ResourceIsEncrypted", CsekError::ResourceIsEncrypted),
-            case("ResourceNotEncrypted", CsekError::ResourceNotEncrypted),
+            mapping_case("AlgorithmInvalid", CsekError::AlgorithmInvalid),
+            mapping_case("KeyFormatInvalid", CsekError::KeyFormatInvalid),
+            mapping_case("KeySha256Invalid", CsekError::KeySha256Invalid),
+            mapping_case("KeyIncorrect", CsekError::KeyIncorrect),
+            mapping_case("ResourceIsEncrypted", CsekError::ResourceIsEncrypted),
+            mapping_case("ResourceNotEncrypted", CsekError::ResourceNotEncrypted),
         ],
         |error| match error {
             CsekError::AlgorithmInvalid => "AlgorithmInvalid",
@@ -755,10 +761,10 @@ pub(crate) fn conflicting_acl_cases() -> Vec<Case<ConflictingAcl>> {
 pub(crate) fn glob_cases() -> Vec<Case<GlobError>> {
     every_variant(
         vec![
-            case("TooLong", GlobError::TooLong),
-            case("InvalidSyntax", GlobError::InvalidSyntax),
-            case("UnclosedClass", GlobError::UnclosedClass(3)),
-            case("UnclosedBrace", GlobError::UnclosedBrace(5)),
+            mapping_case("TooLong", GlobError::TooLong),
+            mapping_case("InvalidSyntax", GlobError::InvalidSyntax),
+            mapping_case("UnclosedClass", GlobError::UnclosedClass(3)),
+            mapping_case("UnclosedBrace", GlobError::UnclosedBrace(5)),
         ],
         |error| match error {
             GlobError::TooLong => "TooLong",
@@ -844,15 +850,15 @@ pub(crate) fn url_cases() -> Vec<Case<UrlError>> {
 pub(crate) fn list_query_cases() -> Vec<Case<ListQueryError>> {
     every_variant(
         vec![
-            case(
+            mapping_case(
                 "SoftDeletedWithVersions",
                 ListQueryError::SoftDeletedWithVersions,
             ),
-            case(
+            mapping_case(
                 "FoldersAsPrefixesNeedSlash",
                 ListQueryError::FoldersAsPrefixesNeedSlash,
             ),
-            case(
+            mapping_case(
                 "GlobNeedsSlashDelimiter",
                 ListQueryError::GlobNeedsSlashDelimiter,
             ),

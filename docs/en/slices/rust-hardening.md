@@ -409,17 +409,22 @@ A further split waits until after `1.0.0`:
     `source()` returns the cause;
   - **transparent**, whose Display is the cause's (optionally prefixed) and
     whose `source()` returns the cause's source.
-- **Today's exceptions are fixed.** `CliError`, `ImportError::Cleanup`,
-  `ResumeError::Catalog` and the storage chains currently break it. Texts the
-  import journal stores stay byte-identical.
+- Transparent CLI, import, resume and adapter errors forward their cause's
+  source. Texts the import journal stores stay byte-identical. Storage
+  classification still reads typed source links for backend guidance, SQLite
+  result codes, memory budgets and journal refusals. The Cause vocabulary
+  slice removes their remaining repeated text while preserving those decisions.
 - **Enforcement:**
   - a test helper that fails when a link's text equals or ends with the next
     link's, called from every exhaustive error table;
-  - `Report` panics on a repeat in tests;
+  - `Report` panics on a repeat in tests. Separate test-only tables identify
+    known rusqlite source pairs (`src/error.rs`) and the classified links
+    deferred to Cause vocabulary (`src/storage/failure/repeated_source_tests.rs`).
+    Tests pin the repeats so a stale exception fails;
   - the `text::error_displays_source` rule rejects a `#[error]` format that
     interpolates its own source.
-- **`Report`** then becomes a plain join, and `json::notifications::error_chain`
-  uses it.
+- **`Report`** formats notification lookup causes too. It becomes a plain
+  join after the storage classification changes.
 - **thiserror.** Types are converted module by module. `#[from]` never replaces
   a `classified_from!` conversion, and the ten `TypedSource` types keep their
   hand-written `source()`.
@@ -923,14 +928,14 @@ after job counts.
 
 | Slice | Scope |
 | --- | --- |
-| Display and source convention | the test helper, strict `Report` in tests, the four fixes, `error_chain` replaced |
+| Display and source convention | the test helper, strict `Report` in tests, transparent CLI, import, resume and adapter links, notification logging through `Report`; classified storage links tracked by test-only exceptions |
 | thiserror | the dependency records; used for new and changed types |
 | Typed validators | the `.message` sites; `ApiError` out of the source list |
 | `ServiceError` and `InputError` | bucket resource parsing, admin defaults and import through the domain call; the adapter mappings |
 | Typed upload and multipart errors | upload headers, stored headers, multipart, upload failures |
 | `ApiError` inside JSON | the shared helpers return service errors; both `From<ApiError>` impls deleted; private fields; `ErrorKind` pruned; oracle removed |
 | `io::Error::other` | three commits (RAM backend; startup, shutdown, import and fsutil; publisher, probe and TLS), then the `disallowed-methods` entry |
-| Cause vocabulary | the `cause` module, `Layer`, the storage chain convention, plain `Report` |
+| Cause vocabulary | the `cause` module, `Layer`, the classified storage links and removal of their temporary test exceptions, plain `Report` |
 | thiserror conversion | module by module, then `text::error_displays_source` |
 
 ### Layers and structure

@@ -129,7 +129,7 @@ impl std::fmt::Display for HmacKeyError {
 impl std::error::Error for HmacKeyError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Catalog(error) => Some(error),
+            Self::Catalog(error) => error.source(),
             Self::NotFound
             | Self::PreconditionFailed
             | Self::DeleteActive

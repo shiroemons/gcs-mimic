@@ -76,7 +76,7 @@ impl std::fmt::Display for ProfileNameError {
 impl std::error::Error for ProfileNameError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Native(error) => Some(error),
+            Self::Native(error) => error.source(),
             Self::FakeGcsServer => None,
         }
     }

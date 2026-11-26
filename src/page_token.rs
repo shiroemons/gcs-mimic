@@ -74,8 +74,8 @@ impl fmt::Display for PageTokenError {
 impl std::error::Error for PageTokenError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Project(error) => Some(error),
-            Self::BucketName(error) => Some(error),
+            Self::Project(error) => error.source(),
+            Self::BucketName(error) => error.source(),
             Self::BucketCursor | Self::ObjectCursor(_) => None,
         }
     }

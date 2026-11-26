@@ -129,15 +129,14 @@ impl Error for ImportError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Diagnostics(error) => error.source(),
-            Self::Io(error) => error.source(),
-            Self::ObservationCleanup(error) => Some(error),
+            Self::Io(error) | Self::ObservationCleanup(error) => error.source(),
             Self::Admin(error) => error.source(),
             Self::Catalog(error) => error.source(),
             Self::Source(error) => error.source(),
             Self::Json(error) => error.source(),
             Self::Integer(error) => error.source(),
-            // Error chains are linear; the secondary cleanup cause remains in the variant.
-            Self::Cleanup { original, .. } => Some(original.as_ref()),
+            // Display includes the original and the cleanup failure. Follow the original's causes.
+            Self::Cleanup { original, .. } => original.source(),
             Self::Resume(error) => error.source(),
             Self::Codec(error) => error.source(),
             Self::OtherImport
@@ -258,8 +257,7 @@ mod tests {
             error.to_string(),
             "source changed; remove temporary import observations also failed: cleanup denied"
         );
-        assert!(error.source().unwrap().is::<ImportError>());
-        assert!(error.source().unwrap().source().is_none());
+        assert_eq!(crate::error::Report(&error).to_string(), error.to_string());
         let ImportError::Cleanup {
             original, cause, ..
         } = error
@@ -271,6 +269,45 @@ mod tests {
         );
         assert!(
             matches!(*cause, ImportError::Io(error) if error.kind() == io::ErrorKind::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn prefixed_import_errors_report_their_cause_once() {
+        let json = serde_json::from_str::<bool>("invalid").unwrap_err();
+        let json_message = format!("invalid source snapshot JSON: {json}");
+        for (error, message) in [
+            (ImportError::from(ImportFailure::Json(json)), json_message),
+            (
+                ImportError::ObservationCleanup(io::Error::other("cleanup denied")),
+                "remove temporary import observations: cleanup denied".into(),
+            ),
+        ] {
+            assert_eq!(error.to_string(), message);
+            assert_eq!(crate::error::Report(&error).to_string(), message);
+        }
+    }
+
+    #[test]
+    fn cleanup_forwards_the_original_errors_underlying_cause() {
+        let original = CatalogError::from(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "disk detail",
+        ));
+        let error = ImportError::Catalog(original)
+            .with_cleanup(CleanupOperation::Catalog, io::Error::other("close detail"));
+        assert_eq!(
+            crate::error::Report(&error).to_string(),
+            "catalog I/O: permission denied; catalog close also failed: close detail: disk detail"
+        );
+        assert_eq!(
+            error
+                .source()
+                .unwrap()
+                .downcast_ref::<io::Error>()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::PermissionDenied
         );
     }
 }

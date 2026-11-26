@@ -230,7 +230,7 @@ impl fmt::Display for EndpointError {
 impl std::error::Error for EndpointError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Url(error) => Some(error),
+            Self::Url(error) => error.source(),
             Self::PublicHost | Self::DomainLimit | Self::ApiVirtualHost | Self::Poisoned => None,
         }
     }

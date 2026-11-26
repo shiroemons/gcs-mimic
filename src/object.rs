@@ -1114,10 +1114,10 @@ impl TypedSource for ObjectError {
     fn typed_source(&self) -> Option<Link<'_>> {
         match self {
             Self::Io(cause) => cause.typed_source(),
-            Self::Metadata(error) => Some(Link::Leaf(error)),
             Self::BodyAborted(cause) | Self::Corrupt(cause) | Self::Unavailable(cause) => {
                 cause.typed_source()
             }
+            Self::Metadata(error) => Link::Leaf(error).source(),
             Self::BucketNotFound
             | Self::ObjectNotFound
             | Self::PreconditionFailed

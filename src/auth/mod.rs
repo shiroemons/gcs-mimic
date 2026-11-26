@@ -380,7 +380,7 @@ impl fmt::Display for AuthError {
 impl std::error::Error for AuthError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Failure(error) => Some(error),
+            Self::Failure(error) => error.source(),
             Self::Unavailable(error) => Some(error),
         }
     }

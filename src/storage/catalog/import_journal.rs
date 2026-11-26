@@ -245,7 +245,7 @@ impl Error for ResumeError {
 impl TypedSource for ResumeError {
     fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Catalog(error) => Some(Link::Catalog(error)),
+            Self::Catalog(error) => error.typed_source(),
             Self::PermanentlyFailed { .. } => None,
             #[cfg(not(unix))]
             Self::MissingLock => None,

@@ -246,7 +246,7 @@ impl fmt::Display for ResumableError {
 impl std::error::Error for ResumableError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Object(error) => Some(error),
+            Self::Object(error) => error.source(),
             Self::NotFound
             | Self::Gone
             | Self::Cancelled

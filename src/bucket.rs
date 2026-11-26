@@ -1019,7 +1019,7 @@ impl TypedSource for CatalogError {
         match self {
             Self::Io(cause) => cause.typed_source(),
             Self::Corrupt(cause) | Self::Unavailable(cause) => cause.typed_source(),
-            Self::Metadata(error) => Some(Link::Leaf(error)),
+            Self::Metadata(error) => Link::Leaf(error).source(),
             Self::AuthenticationAlreadyConfigured
             | Self::AlreadyExists
             | Self::NotFound

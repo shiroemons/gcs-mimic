@@ -7,6 +7,7 @@ use super::{ApiError, EtagConditions, Fields, Schema, buckets::encode_segment, q
 use crate::percent::{self, Decoding};
 use crate::{
     config::CompatProfile,
+    error::Report,
     notification::{
         self, EventTypes, NotificationConfig, NotificationRecord, PayloadFormat, Topic,
     },
@@ -374,24 +375,11 @@ pub(crate) fn topic_unverifiable(error: &notification::TopicCheckError) -> ApiEr
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
         "notification_topic_check_failed",
-        json!({"cause": error_chain(error)}),
+        json!({"cause": Report(error).to_string()}),
     );
     ApiError::service_unavailable(
         "Could not confirm that the Cloud Pub/Sub topic exists: the configured local Pub/Sub emulator is unreachable or gave an unexpected answer; start or repair the emulator (pubsub_emulator_host), then retry",
     )
-}
-
-/// The error and every `source()` below it, so an operator can tell a timeout from a refused
-/// connection or a rejected endpoint. Only the log carries this; the client text is fixed.
-fn error_chain(error: &dyn std::error::Error) -> String {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        text.push_str(": ");
-        text.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    text
 }
 
 pub(crate) fn notification_not_found() -> ApiError {
@@ -702,7 +690,7 @@ mod topic_check_tests {
     fn the_log_cause_keeps_the_source_chain() {
         let error = TopicCheckError::Unreachable(std::io::Error::other("connection refused"));
         assert_eq!(
-            error_chain(&error),
+            Report(&error).to_string(),
             "Pub/Sub emulator topic lookup failed: connection refused"
         );
     }

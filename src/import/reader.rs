@@ -142,7 +142,7 @@ impl std::error::Error for ImportFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
-            Self::Json(error) => Some(error),
+            Self::Json(error) => error.source(),
             Self::Corrupt { reason, .. } => reason.source(),
             Self::SourceChanged { .. } | Self::ReportClosed => None,
         }

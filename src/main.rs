@@ -156,10 +156,10 @@ impl std::fmt::Display for CliError {
 impl std::error::Error for CliError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Diagnostics(diagnostics) => Some(diagnostics),
-            Self::Authentication(failure) => Some(failure.as_ref()),
-            Self::Io(error) => Some(error),
-            Self::Import(error) => Some(error),
+            Self::Diagnostics(diagnostics) => diagnostics.source(),
+            Self::Authentication(failure) => failure.source(),
+            Self::Io(error) => error.source(),
+            Self::Import(error) => error.source(),
             Self::Unanswered(_, failure) => Some(failure),
         }
     }
