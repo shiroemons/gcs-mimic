@@ -7,7 +7,7 @@
 //! match, so a new variant fails to compile until it is named, and then fails every adapter's
 //! tests until it has a case.
 
-use super::{BackendCause, BackendFailure, IoCause, MemoryBudget, MemoryExhausted};
+use crate::cause::{BackendCause, BackendFailure, IoCause, MemoryBudget, MemoryExhausted};
 use crate::{
     acl::ConflictingAcl,
     auth::{

@@ -13,10 +13,7 @@
 //! wait gives up its place at no cost, and closing the catalog wakes every waiter.
 
 use super::{Catalog, CatalogError, admin::AdminError, unavailable};
-use crate::{
-    object::ObjectError,
-    storage::failure::{BackendFailure, object_unavailable},
-};
+use crate::{cause::BackendFailure, object::ObjectError, storage::failure::object_unavailable};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering, fence},

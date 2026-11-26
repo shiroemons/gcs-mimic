@@ -1,12 +1,13 @@
 use super::{ObjectActivity, await_upload_catalog, begin_catalog_wait};
 use crate::{
     bucket::BucketAccess,
+    cause::BackendFailure,
     config::Config,
     json,
     object::{ObjectError, ObjectRecord},
     storage::{
         Catalog, CopyReplay, DerivedDestination, DerivedSource, DerivedTransfer,
-        failure::{BackendFailure, object_unavailable},
+        failure::object_unavailable,
     },
 };
 use tokio::{sync::watch, time::Instant};

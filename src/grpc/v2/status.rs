@@ -1,6 +1,7 @@
 use crate::{
     bounded_body::BodyError,
     bucket::CatalogError,
+    cause::BackendCause,
     grpc::generated::google::rpc::{BadRequest, ErrorInfo, Status as RpcStatus, bad_request},
     input::InputKind,
     metadata_error::MetadataError,
@@ -9,7 +10,7 @@ use crate::{
         ComponentFailure, ComponentFailureKind, ObjectError, upload_headers::UploadHeaderError,
     },
     service::ServiceError,
-    storage::failure::{BackendCause, wording},
+    storage::failure::wording,
 };
 use prost::Message;
 use tonic::{Code, Status};

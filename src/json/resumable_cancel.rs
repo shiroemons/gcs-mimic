@@ -1,8 +1,8 @@
 use super::ApiError;
 use crate::bounded_body::read_body;
+use crate::cause::BackendFailure;
 use crate::storage::{
-    Catalog, ResumableError, ResumableOptions, SessionState,
-    failure::{BackendFailure, object_unavailable},
+    Catalog, ResumableError, ResumableOptions, SessionState, failure::object_unavailable,
 };
 use hyper::{Request, body::Body};
 use serde_json::Value;

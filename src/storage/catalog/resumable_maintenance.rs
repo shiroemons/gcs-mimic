@@ -4,9 +4,9 @@ use super::{
     resumable::writers::{ClaimError, WriterKey},
     unavailable,
 };
+use crate::cause::BackendCause;
 use crate::clock::{Clock, SystemClock};
 use crate::storage::catalog::sql;
-use crate::storage::failure::BackendCause;
 use crate::storage::{BlobError, BlobId};
 use rusqlite::{Connection, params};
 #[cfg(test)]

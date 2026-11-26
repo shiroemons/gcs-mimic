@@ -1,6 +1,6 @@
 //! Public Display/source pairs whose observable contract is up for review in Public facade.
 
-use super::{BackendCause, BackendFailure, IoCause, Link, TypedSource};
+use crate::cause::{BackendCause, BackendFailure, IoCause, Link, Source, TypedSource};
 use crate::{
     bucket::CatalogError,
     import::ImportError,
@@ -157,7 +157,7 @@ pub(crate) fn public_pair(outer: &Node, inner: &Node) -> bool {
 #[test]
 fn closed_connection_and_executor_keep_their_guidance_without_a_synthetic_source() {
     for source in [
-        super::Source::from(ConnectionUnavailable::Closed),
+        Source::from(ConnectionUnavailable::Closed),
         ExecutorError::Closed.into(),
     ] {
         let error = source.as_error();

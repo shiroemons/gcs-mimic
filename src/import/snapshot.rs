@@ -8,8 +8,8 @@ use super::{
     spec::BucketSpec,
 };
 use crate::{
-    bucket::name::BucketName, fsutil, hashing::encode_lower, object::name::ObjectName,
-    storage::failure::BackendCause,
+    bucket::name::BucketName, cause::BackendCause, fsutil, hashing::encode_lower,
+    object::name::ObjectName,
 };
 use ring::digest::{Context, SHA256};
 use serde::Deserialize;

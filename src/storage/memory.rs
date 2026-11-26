@@ -1,6 +1,6 @@
 //! Process-local immutable blobs. Cloned response chunks retain their budget leases.
 
-use super::failure::{MemoryBudget, MemoryExhausted};
+use crate::cause::{MemoryBudget, MemoryExhausted};
 use bytes::Bytes;
 use std::{
     collections::HashMap,
@@ -507,7 +507,7 @@ mod tests {
             (missing, "missing RAM draft"),
             (closed, "RAM store is closed"),
         ] {
-            let cause = crate::storage::failure::IoCause::from(error);
+            let cause = crate::cause::IoCause::from(error);
             assert_eq!(cause.kind(), io::ErrorKind::Other);
             assert_eq!(cause.source().unwrap().to_string(), message);
             assert_eq!(
@@ -539,8 +539,8 @@ mod tests {
     fn allocation_and_size_failures_keep_their_concrete_sources() {
         let allocation = Vec::<u8>::new().try_reserve(usize::MAX).unwrap_err();
         let size = usize::try_from(-1_i32).unwrap_err();
-        let allocation = crate::storage::failure::IoCause::from(BlobError::from(allocation));
-        let size = crate::storage::failure::IoCause::from(BlobError::from(size));
+        let allocation = crate::cause::IoCause::from(BlobError::from(allocation));
+        let size = crate::cause::IoCause::from(BlobError::from(size));
         assert_eq!(allocation.kind(), io::ErrorKind::Other);
         assert!(
             allocation
@@ -602,11 +602,11 @@ mod tests {
         drop(reader);
         let full = store.stage().unwrap().write(b"new").unwrap_err();
         std::assert_matches!(full, BlobError::Exhausted, "{full:?}");
-        let cause = crate::storage::failure::IoCause::from(full);
+        let cause = crate::cause::IoCause::from(full);
         assert_eq!(cause.kind(), io::ErrorKind::StorageFull);
         assert_eq!(
             cause.memory_budget(),
-            Some(crate::storage::failure::MemoryBudget::Blobs)
+            Some(crate::cause::MemoryBudget::Blobs)
         );
         drop(bytes);
         store.stage().unwrap().write(b"new").unwrap();

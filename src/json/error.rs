@@ -4,6 +4,7 @@ use crate::{
     auth::{AuthFailure, Denied},
     bounded_body::BodyError,
     bucket::CatalogError,
+    cause::{BackendCause, BackendFailure},
     input::{InputError, InputKind},
     multipart::MultipartError,
     object::{
@@ -12,9 +13,8 @@ use crate::{
         upload_headers::UploadHeaderError,
     },
     service::ServiceError,
-    storage::failure::{
-        BackendCause, BackendFailure,
-        wording::{self, BUCKET_NOT_FOUND, BackendNotice, OBJECT_NOT_FOUND, PRECONDITION_NOT_HELD},
+    storage::failure::wording::{
+        self, BUCKET_NOT_FOUND, BackendNotice, OBJECT_NOT_FOUND, PRECONDITION_NOT_HELD,
     },
 };
 use http_body_util::Full;
@@ -895,10 +895,8 @@ mod golden_tests;
 mod tests {
     use super::*;
     use crate::{
-        auth::AuthFailure,
-        bucket::CatalogError,
-        object::ObjectError,
-        storage::failure::{BackendFailure, test_support::denied},
+        auth::AuthFailure, bucket::CatalogError, cause::BackendFailure, object::ObjectError,
+        storage::failure::test_support::denied,
     };
 
     #[test]

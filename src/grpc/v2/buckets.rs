@@ -2922,7 +2922,7 @@ mod tests {
         );
         assert_eq!(
             Status::from(CatalogError::Unavailable(
-                crate::storage::failure::BackendFailure::CatalogClosed.into()
+                crate::cause::BackendFailure::CatalogClosed.into()
             ))
             .code(),
             Code::Unavailable

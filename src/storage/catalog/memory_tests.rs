@@ -350,7 +350,7 @@ fn assert_blob_budget_exhausted(error: &ObjectError) {
     assert_eq!(cause.kind(), std::io::ErrorKind::StorageFull);
     assert_eq!(
         cause.memory_budget(),
-        Some(crate::storage::failure::MemoryBudget::Blobs)
+        Some(crate::cause::MemoryBudget::Blobs)
     );
     assert_eq!(
         crate::error::Report::chain(error).to_string(),
@@ -740,7 +740,7 @@ async fn exhaust_catalog_pages(admin: &admin::Admin) {
                 // The reply must name memory_catalog_max_bytes, not a disk to free.
                 assert_eq!(
                     cause.memory_budget(),
-                    Some(crate::storage::failure::MemoryBudget::Catalog)
+                    Some(crate::cause::MemoryBudget::Catalog)
                 );
                 exhausted = true;
                 break;

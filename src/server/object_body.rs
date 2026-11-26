@@ -7,7 +7,8 @@
 //! A client that stops reading stops the polling, so nothing is read ahead of it.
 
 use super::{ObjectActivity, record_progress};
-use crate::storage::{FrameLimit, ObjectFrames, ObjectReader, failure::IoCause};
+use crate::cause::IoCause;
+use crate::storage::{FrameLimit, ObjectFrames, ObjectReader};
 use bytes::Bytes;
 use hyper::body::{Body, Frame};
 use std::{

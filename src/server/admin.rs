@@ -247,7 +247,8 @@ impl From<EndpointError> for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{admin::AdminError, failure::BackendCause};
+    use crate::cause::BackendCause;
+    use crate::storage::admin::AdminError;
     use std::{io, time::Duration};
 
     #[tokio::test]

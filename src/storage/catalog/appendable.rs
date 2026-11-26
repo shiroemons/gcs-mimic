@@ -417,7 +417,7 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
         .map_err(object_unavailable)
         .and_then(|value| {
             decode_options(&value).map_err(|error| {
-                ObjectError::Corrupt(crate::storage::failure::BackendCause::from_error(error))
+                ObjectError::Corrupt(crate::cause::BackendCause::from_error(error))
             })
         })?;
     Ok(Lookup::Live(Box::new(Row {

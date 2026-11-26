@@ -1,8 +1,7 @@
 use super::{Catalog, CatalogError, Work, unavailable};
+use crate::cause::BackendFailure;
 use crate::storage::catalog::Activity;
-use crate::storage::{
-    blob_id::BlobId, catalog::session_limits::WriterWait, failure::BackendFailure,
-};
+use crate::storage::{blob_id::BlobId, catalog::session_limits::WriterWait};
 use std::{
     collections::{HashMap, HashSet},
     fmt,
@@ -502,12 +501,12 @@ mod tests {
     use super::*;
     use crate::{
         bucket::BucketAccess,
+        cause::BackendFailure,
         clock::SystemClock,
         storage::{
             ResumableOptions,
             admin::LocalAdmin,
             catalog::{ResumableError, resumable::SessionLease},
-            failure::BackendFailure,
             test_fixtures::bucket,
         },
     };

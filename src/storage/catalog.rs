@@ -4,8 +4,9 @@ use crate::bucket::{
     BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError, LabelPart,
     UNIFORM_ACCESS_LOCK_PERIOD, cors_from_value, cors_value, valid_label, validate_cors,
 };
+use crate::cause::{BackendCause, BackendFailure};
 use crate::clock::{Clock, SystemClock, signed_nanos};
-use crate::storage::failure::{BackendCause, BackendFailure, unavailable};
+use crate::storage::failure::unavailable;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, types::Type};
 use std::{
     path::{Path, PathBuf},

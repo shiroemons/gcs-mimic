@@ -47,9 +47,7 @@ fn publication_error(error: Error) -> ObjectError {
         error @ (Error::InvalidPart
         | Error::InvalidPartOrder
         | Error::PartTooSmall
-        | Error::Busy) => {
-            ObjectError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
-        }
+        | Error::Busy) => ObjectError::Unavailable(crate::cause::BackendCause::from_error(error)),
     }
 }
 

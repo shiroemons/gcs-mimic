@@ -11,7 +11,8 @@
 //! that rolled the batch back is logged as `upload_batch_retried` before the retry.
 
 use super::*;
-use crate::storage::failure::{BackendCause, StorageCause, wording::BackendFailureEvent};
+use crate::cause::BackendCause;
+use crate::storage::failure::{StorageCause, wording::BackendFailureEvent};
 use std::{
     collections::VecDeque,
     panic::AssertUnwindSafe,

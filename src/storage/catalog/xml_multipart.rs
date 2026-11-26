@@ -7,9 +7,10 @@ use crate::storage::catalog::{Incarnation, bucket_incarnation, connection::Seria
 use crate::{
     auth::Permission,
     bucket::{BucketAccess, CatalogError},
+    cause::{Link, TypedSource},
     hashing::Hashes,
     object::{ObjectError, ObjectRecord},
-    storage::failure::{Link, TypedSource, object_unavailable},
+    storage::failure::object_unavailable,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{fmt, path::Path, time::SystemTime};
@@ -469,9 +470,7 @@ impl Catalog {
             crate::diagnostics::Event::MultipartCleanupDeferred,
             serde_json::json!({"message":error.to_string()}),
         );
-        self.record_maintenance_error(Some(crate::storage::failure::BackendCause::from_error(
-            error,
-        )));
+        self.record_maintenance_error(Some(crate::cause::BackendCause::from_error(error)));
         self.0.maintenance.wake.notify_one();
     }
 }

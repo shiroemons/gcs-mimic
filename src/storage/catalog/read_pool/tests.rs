@@ -454,7 +454,7 @@ async fn close_ends_the_readers_before_the_writer_removes_the_wal() {
         .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
         .await;
     assert!(matches!(result, Err(ObjectError::Unavailable(cause))
-        if cause.failure() == Some(crate::storage::failure::BackendFailure::CatalogClosed)));
+        if cause.failure() == Some(crate::cause::BackendFailure::CatalogClosed)));
     catalog.close().await.unwrap();
     let reopened = Catalog::open(&dir.0).await.unwrap();
     reopened

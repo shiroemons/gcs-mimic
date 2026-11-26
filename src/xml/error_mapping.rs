@@ -6,6 +6,7 @@ use crate::{
     auth::{AuthError, AuthFailure, Caller, Denied, InvalidProjectId},
     bounded_body::BodyError,
     bucket::{CatalogError, name::ProfileNameError},
+    cause::BackendCause,
     csek::CsekError,
     hashing::InvalidDigest,
     input::InputKind,
@@ -19,10 +20,7 @@ use crate::{
     },
     percent::{MalformedEncoding, QueryError},
     service::ServiceError,
-    storage::{
-        ResumableError,
-        failure::{BackendCause, wording},
-    },
+    storage::{ResumableError, failure::wording},
     time_format::TimeOutOfRange,
 };
 use hyper::StatusCode;

@@ -13,8 +13,8 @@ use super::{
     read_pool::ReadOutcome,
     unavailable, unix_micros,
 };
+use crate::cause::{Link, TypedSource};
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
-use crate::storage::failure::{Link, TypedSource};
 use crate::{
     acl::{AclEntry, AclKind, AclRole, AclTarget, Entity, MAX_ENTRIES, project_private},
     bucket::{BucketAccess, BucketConditions, CatalogError},
@@ -360,8 +360,8 @@ pub(super) fn decode(entries: &str, kind: AclKind) -> Result<Vec<AclEntry>, Cata
 }
 
 /// A stored ACL row that does not decode, or holds a role its kind cannot grant.
-fn invalid_stored(error: impl Into<crate::storage::failure::Source>) -> CatalogError {
-    CatalogError::Corrupt(crate::storage::failure::BackendCause::with_source(
+fn invalid_stored(error: impl Into<crate::cause::Source>) -> CatalogError {
+    CatalogError::Corrupt(crate::cause::BackendCause::with_source(
         "invalid stored ACL",
         error,
     ))

@@ -9,10 +9,7 @@ use crate::object::ObjectError;
 use crate::storage::memory::BlobError;
 use std::{cell::Cell, fmt, io, num::TryFromIntError, sync::PoisonError};
 
-#[cfg(test)]
-pub(crate) use crate::cause::chain;
-pub use crate::cause::{BackendCause, IoCause, MemoryBudget};
-pub(crate) use crate::cause::{BackendFailure, Layer, Link, MemoryExhausted, Source, TypedSource};
+use crate::cause::{BackendCause, BackendFailure, IoCause, MemoryBudget, MemoryExhausted, Source};
 #[cfg(test)]
 use std::error::Error;
 mod source;

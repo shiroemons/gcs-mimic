@@ -27,7 +27,7 @@ const DAY: Duration = Duration::from_secs(86_400);
 /// failing database is retried on a later run.
 #[test]
 fn only_undecodable_stored_columns_make_a_version_unreadable() {
-    use crate::storage::failure::BackendCause;
+    use crate::cause::BackendCause;
     let unavailable =
         |error: rusqlite::Error| ObjectError::Unavailable(BackendCause::from_error(error));
     for undecodable in [

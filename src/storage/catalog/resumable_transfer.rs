@@ -10,10 +10,10 @@ use super::{
     objects::{self, check_publication},
     system_time_micros, unix_micros,
 };
+use crate::cause::BackendFailure;
 use crate::hashing::{Hasher, Hashes};
 use crate::object::{ObjectError, ObjectRecord, ObjectTarget, UploadChunk};
 use crate::storage::catalog::{bucket_incarnation, sql};
-use crate::storage::failure::BackendFailure;
 use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 use std::io;
@@ -416,9 +416,7 @@ impl Catalog {
                     crate::diagnostics::Event::UploadCleanupDeferred,
                     serde_json::json!({"message":format!("invalid upload cleanup failed; maintenance will retry: {error}")}),
                 );
-                self.record_maintenance_error(Some(
-                    crate::storage::failure::BackendCause::from_error(error),
-                ));
+                self.record_maintenance_error(Some(crate::cause::BackendCause::from_error(error)));
             }
         }
         Ok(())

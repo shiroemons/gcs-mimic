@@ -3,7 +3,7 @@
 //! Each adapter matches the storage errors itself and chooses its own status; the text they
 //! report alike lives here, so that one adapter's wording cannot drift from another's.
 
-use super::{BackendCause, BackendFailure, IoCause, MemoryBudget};
+use crate::cause::{BackendCause, BackendFailure, IoCause, MemoryBudget};
 // Catalog refusals and input parsing send the same wording for unsupported settings.
 pub(crate) use crate::input::{unsupported_bucket_setting, unsupported_object_setting};
 use crate::object::{HashMismatch, HeldObject, HoldKind, RetainedObject};

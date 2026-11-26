@@ -6,6 +6,7 @@ use super::{
 use crate::json::JsonErrorResponse;
 use crate::{
     bucket::BucketAccess,
+    cause::BackendFailure,
     input::InputError,
     json::ApiError,
     json::{
@@ -17,8 +18,7 @@ use crate::{
     service::ServiceError,
     storage::{
         ChunkEnd, ChunkWait, Overrun, Progress, ResumableChunk, ResumableError, ResumableOptions,
-        SessionLease, SessionState, Written,
-        failure::{BackendFailure, object_unavailable},
+        SessionLease, SessionState, Written, failure::object_unavailable,
     },
     time_limit::TimeLimit,
 };

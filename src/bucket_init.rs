@@ -6,6 +6,7 @@ use crate::{
     auth::Policy,
     bounded_file::{self, ReadError},
     bucket::BucketRecord,
+    cause::MemoryBudget,
     clock::Clock,
     config::{CompatProfile, DocumentKind, DocumentSource, Form, Setting},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
@@ -16,7 +17,6 @@ use crate::{
             AdminError, Origin,
             initialization::{InitTarget, Initialization},
         },
-        failure::MemoryBudget,
     },
 };
 use serde::{
@@ -3222,7 +3222,7 @@ mod tests {
 
     #[test]
     fn a_full_store_names_only_the_running_backends_remedy() {
-        use crate::storage::failure::{IoCause, MemoryExhausted};
+        use crate::cause::{IoCause, MemoryExhausted};
         let full = |budget: Option<MemoryBudget>| {
             let cause = match budget {
                 None => IoCause::from(std::io::Error::from(std::io::ErrorKind::StorageFull)),

@@ -729,11 +729,8 @@ fn spawn_scan(
             Ok(reporter.summary)
         })
         .unwrap_or_else(|cause| {
-            Err(ImportFailure::Io(crate::storage::failure::IoCause::other(
-                crate::storage::failure::BackendCause::with_source(
-                    "import scanner panicked",
-                    cause,
-                ),
+            Err(ImportFailure::Io(crate::cause::IoCause::other(
+                crate::cause::BackendCause::with_source("import scanner panicked", cause),
             )))
         });
         let _ = completion.send(result);

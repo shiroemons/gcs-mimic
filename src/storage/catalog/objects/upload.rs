@@ -395,7 +395,7 @@ impl Catalog {
         let mut uploads = crate::sync::lock(&self.0.admission.uploads);
         if uploads.closed || !self.is_healthy() {
             return Err(object_unavailable(
-                crate::storage::failure::BackendFailure::CatalogClosed,
+                crate::cause::BackendFailure::CatalogClosed,
             ));
         }
         uploads.active += 1;

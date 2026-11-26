@@ -8,7 +8,7 @@
 use super::{Catalog, admin::AdminError, sql, unavailable};
 use crate::{
     bucket::CatalogError,
-    storage::failure::{Link, TypedSource},
+    cause::{Link, TypedSource},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{error::Error, fmt};
@@ -263,13 +263,13 @@ impl From<ResumeError> for CatalogError {
     fn from(error: ResumeError) -> Self {
         match error {
             ResumeError::Catalog(error) => error,
-            rejection @ ResumeError::PermanentlyFailed { .. } => CatalogError::Unavailable(
-                crate::storage::failure::BackendCause::from_error(rejection),
-            ),
+            rejection @ ResumeError::PermanentlyFailed { .. } => {
+                CatalogError::Unavailable(crate::cause::BackendCause::from_error(rejection))
+            }
             #[cfg(not(unix))]
-            rejection @ ResumeError::MissingLock => CatalogError::Unavailable(
-                crate::storage::failure::BackendCause::from_error(rejection),
-            ),
+            rejection @ ResumeError::MissingLock => {
+                CatalogError::Unavailable(crate::cause::BackendCause::from_error(rejection))
+            }
         }
     }
 }

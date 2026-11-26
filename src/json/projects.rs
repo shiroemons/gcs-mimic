@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn hmac_catalog_errors_keep_capacity_guidance_and_catalog_statuses() {
         use crate::bucket::CatalogError;
-        use crate::storage::failure::BackendFailure;
+        use crate::cause::BackendFailure;
 
         for (cause, status, reason, message) in [
             (

@@ -33,7 +33,8 @@
 //!   protocol is not what these tests check.
 //! - Unix only, because directory fsync is the unix publication protocol.
 
-use crate::storage::failure::{BackendCause, Classified, StorageCause};
+use crate::cause::BackendCause;
+use crate::storage::failure::{Classified, StorageCause};
 use std::{
     cell::Cell,
     fs, io,

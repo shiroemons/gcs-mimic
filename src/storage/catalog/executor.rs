@@ -7,7 +7,7 @@
 //! execution permit, or a read slot on a pooled reader, gives each thread one job at a time, so
 //! the queue holds at most one job in practice.
 
-use crate::storage::failure::{BackendFailure, Layer, Link, TypedSource};
+use crate::cause::{BackendFailure, Layer, Link, TypedSource};
 #[cfg(test)]
 use std::sync::{
     Arc,
@@ -64,8 +64,8 @@ impl Layer for ExecutorError {
 }
 
 impl crate::storage::failure::StorageCause for ExecutorError {
-    fn into_cause(self) -> crate::storage::failure::BackendCause {
-        crate::storage::failure::BackendCause::from_error(self)
+    fn into_cause(self) -> crate::cause::BackendCause {
+        crate::cause::BackendCause::from_error(self)
     }
 }
 

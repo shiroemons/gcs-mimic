@@ -1,5 +1,5 @@
 use crate::bucket::CatalogError;
-use crate::storage::failure::BackendCause;
+use crate::cause::BackendCause;
 use crate::storage::import_journal::ResumeError;
 use std::{
     fs::{self, File, OpenOptions, TryLockError},

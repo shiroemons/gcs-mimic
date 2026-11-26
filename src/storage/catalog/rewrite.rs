@@ -7,9 +7,9 @@ use super::{
     rewrite_token::RewriteToken,
     session_limits::{MAX_TRIMMED_AT_ONCE, finished_excess},
 };
+use crate::cause::BackendFailure;
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
-use crate::storage::failure::BackendFailure;
 use crate::{
     bucket::BucketAccess,
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},

@@ -1005,7 +1005,7 @@ mod tests {
         assert_eq!(
             access_status(
                 crate::object::ObjectError::Unavailable(
-                    crate::storage::failure::BackendFailure::CatalogClosed.into()
+                    crate::cause::BackendFailure::CatalogClosed.into()
                 ),
                 None
             )

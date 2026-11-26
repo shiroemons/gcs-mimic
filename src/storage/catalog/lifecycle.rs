@@ -1,7 +1,7 @@
 //! Bounded lifecycle execution on the catalog writer and injected business clock.
 
 use super::{Catalog, CatalogError, Incarnation, Inner, objects, sql, unavailable};
-use crate::storage::failure::{Link, TypedSource};
+use crate::cause::{Link, TypedSource};
 use crate::{
     bucket::{
         BucketAccess, LocationKind, StorageClass,
@@ -622,7 +622,7 @@ fn bucket_rules(
     // in quarantine like rules that no longer decode.
     let rules = location
         .ok_or_else(|| {
-            CatalogError::Corrupt(crate::storage::failure::BackendCause::new(
+            CatalogError::Corrupt(crate::cause::BackendCause::new(
                 "invalid stored bucket location type",
             ))
         })

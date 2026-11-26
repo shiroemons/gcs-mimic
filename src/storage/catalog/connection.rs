@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::failure::{Layer, Link, TypedSource};
+use crate::cause::{Layer, Link, TypedSource};
 
 /// Why a read needs the writer's queue or its connection-local state.
 #[derive(Debug)]
@@ -71,8 +71,8 @@ impl Layer for ConnectionUnavailable {
 }
 
 impl crate::storage::failure::StorageCause for ConnectionUnavailable {
-    fn into_cause(self) -> crate::storage::failure::BackendCause {
-        crate::storage::failure::BackendCause::from_error(self)
+    fn into_cause(self) -> crate::cause::BackendCause {
+        crate::cause::BackendCause::from_error(self)
     }
 }
 

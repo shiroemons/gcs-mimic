@@ -9,11 +9,11 @@ use super::{
 use crate::{
     acl::AclEntry,
     bucket::{InvalidStorageClass, StorageClass, name::BucketName},
+    cause::{BackendCause, IoCause},
     fsutil::{SOURCE_METADATA_CAP, SourceMetadataBuffer, SourceMetadataError},
     hashing::{Hasher, Hashes},
     object::{generation::Generation, name::ObjectName, retention::ObjectRetention},
     source_tree::{self, WalkEntry, WalkError, Walker},
-    storage::failure::{BackendCause, IoCause},
 };
 use serde::Serialize;
 use std::{

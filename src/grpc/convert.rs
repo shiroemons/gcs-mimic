@@ -1,6 +1,6 @@
 //! Checked integer representations used by the protobuf adapters.
 
-use crate::{object::ObjectError, storage::failure::BackendCause};
+use crate::{cause::BackendCause, object::ObjectError};
 
 pub(super) fn signed(value: u64, field: &str) -> Result<i64, ObjectError> {
     i64::try_from(value).map_err(|error| {

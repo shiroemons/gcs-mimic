@@ -16,8 +16,8 @@
 //! ```
 
 use super::{Catalog, Work, objects, read_bucket, select_bucket, unavailable};
+use crate::cause::{BackendCause, IoCause, Link, TypedSource};
 use crate::storage::catalog::sql;
-use crate::storage::failure::{BackendCause, IoCause, Link, TypedSource};
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError, DefaultBucketError},
     clock::Clock,
@@ -351,7 +351,7 @@ impl AdminError {
     }
 
     /// Wraps a failure outside the catalog's own classification, keeping it as the source.
-    pub(crate) fn backend(error: impl Into<crate::storage::failure::Source>) -> Self {
+    pub(crate) fn backend(error: impl Into<crate::cause::Source>) -> Self {
         Self::Backend(BackendCause::from_error(error))
     }
 

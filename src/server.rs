@@ -2,6 +2,7 @@ use crate::json::JsonErrorResponse;
 use crate::{
     auth::{self, Auth, Caller, ListenerRole},
     bucket::{BucketAccess, CatalogError},
+    cause::{BackendFailure, IoCause},
     clock::Clock,
     config::{Config, ConnectionScheme, GrpcScheme},
     diagnostics::Diagnostics,
@@ -9,10 +10,7 @@ use crate::{
     json,
     json::ApiError,
     object::{ObjectError, UploadChunk},
-    storage::{
-        Catalog,
-        failure::{BackendFailure, IoCause, object_unavailable},
-    },
+    storage::{Catalog, failure::object_unavailable},
     time_limit::TimeLimit,
     tls::ListenerSecurity,
     xml,

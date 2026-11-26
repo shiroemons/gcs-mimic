@@ -610,9 +610,7 @@ mod tests {
         );
         let error = super::super::reader::ImportFailure::corrupt(
             super::super::CorruptField::Snapshot,
-            crate::storage::failure::BackendCause::from_error(
-                parse_timestamp("invalid").unwrap_err(),
-            ),
+            crate::cause::BackendCause::from_error(parse_timestamp("invalid").unwrap_err()),
             "Restore a valid timestamp.",
         );
         assert!(

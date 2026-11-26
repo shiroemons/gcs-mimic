@@ -8,7 +8,7 @@ pub(crate) use catalog::test_fixtures;
 mod catalog_tests;
 pub(crate) mod failure;
 /// The binary's startup diagnostics name the remedy of the budget a seed filled.
-pub use failure::MemoryBudget;
+pub use crate::cause::MemoryBudget;
 mod lock;
 mod memory;
 pub(crate) use memory::BlobError;

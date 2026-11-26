@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 /// each storage that can run out now names only its own remedy.
 #[test]
 fn storage_capacity_names_only_the_remedy_of_the_storage_that_ran_out() {
-    use crate::storage::failure::{IoCause, MemoryBudget, MemoryExhausted};
+    use crate::cause::{IoCause, MemoryBudget, MemoryExhausted};
     let memory = |budget| IoCause::from(MemoryExhausted::new(budget));
     let disk = || IoCause::from(std::io::ErrorKind::StorageFull);
     for (cause, names, omits) in [

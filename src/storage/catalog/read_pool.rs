@@ -50,7 +50,7 @@ const READER_SETUP: &str = "PRAGMA cache_size = -1024;
      CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;";
 
 /// Whether a read's failure may be an artifact of its snapshot rather than the final answer.
-pub(super) trait ReadOutcome: crate::storage::failure::TypedSource {
+pub(super) trait ReadOutcome: crate::cause::TypedSource {
     fn retry_serialized(&self) -> bool;
 }
 
@@ -69,7 +69,7 @@ impl ReadOutcome for CatalogError {
 /// Extended read-only codes can report failures opening or recovering a database for a read.
 #[cfg(test)]
 fn attempted_write(error: &impl ReadOutcome) -> bool {
-    use crate::storage::failure::{Link, chain};
+    use crate::cause::{Link, chain};
     error
         .typed_source()
         .and_then(|first| chain(first).find_map(Link::sqlite_extended_code))

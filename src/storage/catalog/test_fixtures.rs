@@ -28,15 +28,10 @@ pub(crate) fn pause_read(
     (reached, release)
 }
 
-pub(in crate::storage) fn guidance_source_failures() -> Vec<(
-    crate::object::ObjectError,
-    crate::storage::failure::BackendFailure,
-)> {
+pub(in crate::storage) fn guidance_source_failures()
+-> Vec<(crate::object::ObjectError, crate::cause::BackendFailure)> {
     use super::{ConnectionUnavailable, executor, unavailable};
-    use crate::{
-        object::ObjectError,
-        storage::failure::{BackendFailure, object_unavailable},
-    };
+    use crate::{cause::BackendFailure, object::ObjectError, storage::failure::object_unavailable};
 
     vec![
         (

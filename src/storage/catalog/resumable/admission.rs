@@ -2,13 +2,13 @@
 
 use super::writers::{ClaimError, KeyOrigin, WriterGuard, WriterKey};
 use super::{Catalog, CatalogError, unavailable};
+use crate::cause::BackendFailure;
 use crate::storage::{
     blob_id::BlobId,
     catalog::{
         session_limits::{MAX_TRIMMED_AT_ONCE, finished_excess},
         sql,
     },
-    failure::BackendFailure,
 };
 use rusqlite::Connection;
 

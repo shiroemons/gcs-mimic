@@ -1,6 +1,6 @@
 use super::*;
+use crate::cause::MemoryBudget;
 use crate::storage::catalog::{ConnectionUnavailable, ExecutorError};
-use crate::storage::failure::MemoryBudget;
 use std::assert_matches;
 
 /// The variant shows the held error's own text, debug text, source and type, so wrapping an
@@ -100,7 +100,7 @@ fn admin_backend() -> AdminError {
 
 #[test]
 fn typed_chains_visit_every_source_node() {
-    let io_cause = || crate::storage::failure::IoCause::from(io::Error::other("disk failed"));
+    let io_cause = || crate::cause::IoCause::from(io::Error::other("disk failed"));
     let decoding = rusqlite::Error::FromSqlConversionFailure(
         0,
         rusqlite::types::Type::Text,

@@ -118,7 +118,7 @@ fn failure(error: &PurgeError) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::failure::BackendCause;
+    use crate::cause::BackendCause;
     use std::{io, time::Duration};
 
     #[test]

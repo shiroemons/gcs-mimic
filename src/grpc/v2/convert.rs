@@ -403,7 +403,7 @@ impl From<ObjectConversionError> for ObjectError {
     fn from(error: ObjectConversionError) -> Self {
         match error {
             ObjectConversionError::InvalidCustomTime(error) => Self::Corrupt(
-                crate::storage::failure::BackendCause::with_source(INVALID_CUSTOM_TIME, error),
+                crate::cause::BackendCause::with_source(INVALID_CUSTOM_TIME, error),
             ),
             ObjectConversionError::Storage(error) => error,
         }

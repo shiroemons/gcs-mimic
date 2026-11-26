@@ -197,7 +197,7 @@ where
     )?;
     destination.metadata.reject_past_retention(now)?;
     destination.recorded.verify(&hashes).map_err(|mismatch| {
-        ObjectError::Corrupt(crate::storage::failure::BackendCause::with_source(
+        ObjectError::Corrupt(crate::cause::BackendCause::with_source(
             "copied bytes do not reproduce their source's recorded digest",
             mismatch,
         ))

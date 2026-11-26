@@ -11,7 +11,7 @@ use std::assert_matches;
 fn authentication_worker_failures_keep_their_source_and_unavailable_status() {
     use std::error::Error as _;
     let failure = || {
-        crate::auth::AuthError::Unavailable(crate::storage::failure::BackendCause::from_error(
+        crate::auth::AuthError::Unavailable(crate::cause::BackendCause::from_error(
             std::io::Error::other("verifier failure"),
         ))
     };

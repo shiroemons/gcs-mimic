@@ -9,9 +9,10 @@ use crate::storage::{
 
 use crate::{
     bucket::BucketAccess,
+    cause::BackendCause,
     hashing::{Hasher, HasherState, Hashes},
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate},
-    storage::failure::{BackendCause, object_unavailable},
+    storage::failure::object_unavailable,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
@@ -844,13 +845,13 @@ impl InvalidOptions {
     }
 
     /// Options whose embedded value failed to decode; the decoding error stays the source.
-    fn from_error(error: impl Into<crate::storage::failure::Source>) -> Self {
+    fn from_error(error: impl Into<crate::cause::Source>) -> Self {
         Self(BackendCause::from_error(error))
     }
 
     pub(in crate::storage) fn with_source(
         reason: &'static str,
-        error: impl Into<crate::storage::failure::Source>,
+        error: impl Into<crate::cause::Source>,
     ) -> Self {
         Self(BackendCause::with_source(reason, error))
     }
