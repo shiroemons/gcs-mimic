@@ -194,14 +194,24 @@ fn bucket_record(name: &str, created_timestamp: Option<&str>, digest: [u8; 32]) 
     }))
 }
 
-/// `publish_bucket` builds its bucket by rendering a JSON insert body and parsing it back, with
-/// the clock read at that point. This feeds the same body shape with a fixed instant, so the
-/// record the round trip yields is pinned field by field for both the unset and enabled
-/// versioning bodies.
+/// Every field of the bucket an import publishes is pinned, so a change in how the record is
+/// built, such as constructing it without the JSON insert round trip, keeps what it yields.
 #[test]
-fn import_bucket_json_round_trip_keeps_every_field() {
-    let at = UNIX_EPOCH + Duration::from_micros(1_700_000_000_123_456);
-    let expected = |versioning| crate::bucket::BucketRecord {
+fn an_imported_bucket_keeps_every_field() {
+    let now = UNIX_EPOCH + Duration::from_micros(1_700_000_000_123_456);
+    let created = UNIX_EPOCH + Duration::from_micros(1_600_000_000_654_321);
+    let source = |attributes, enable_object_retention, created| BucketRecord {
+        path: "imported-bucket".into(),
+        name: "imported-bucket".parse().unwrap(),
+        attributes,
+        created_timestamp: None,
+        enable_object_retention,
+        generated: &[],
+        observed_stat: "ignored".into(),
+        attributes_digest: [0; 32],
+        spec: BucketSpec { created, acl: None },
+    };
+    let plain = crate::bucket::BucketRecord {
         name: "imported-bucket".into(),
         project: "local-project".into(),
         location: "US".parse().unwrap(),
@@ -213,34 +223,46 @@ fn import_bucket_json_round_trip_keeps_every_field() {
         retention_policy: None,
         soft_delete_policy: None,
         object_retention_enabled: false,
-        versioning,
+        versioning: crate::bucket::Versioning::Unset,
         default_event_based_hold: false,
         public_access_prevention: crate::bucket::PublicAccessPrevention::Inherited,
         uniform_bucket_level_access_locked_time: None,
         metageneration: 1,
         generation: 0,
-        time_created: at,
-        updated: at,
+        time_created: now,
+        updated: now,
     };
-    for (body, versioning) in [
-        (
-            serde_json::json!({"name":"imported-bucket","defaultEventBasedHold":false}),
-            crate::bucket::Versioning::Unset,
-        ),
-        (
-            serde_json::json!({"name":"imported-bucket","defaultEventBasedHold":false,"versioning":{"enabled":true}}),
-            crate::bucket::Versioning::Enabled,
-        ),
+    let attributes = |default_event_based_hold, versioning_enabled| codec::BucketAttrs {
+        default_event_based_hold,
+        versioning_enabled,
+        acl: None,
+    };
+    for (versioning_enabled, versioning) in [
+        (None, crate::bucket::Versioning::Unset),
+        (Some(false), crate::bucket::Versioning::Disabled),
+        (Some(true), crate::bucket::Versioning::Enabled),
     ] {
-        let parsed =
-            crate::json::parse_insert(body.to_string().as_bytes(), "local-project", at).unwrap();
-        assert_eq!(parsed, expected(versioning), "{body}");
+        let imported = imported_bucket(
+            &source(attributes(false, versioning_enabled), false, None),
+            now,
+        )
+        .unwrap();
+        let expected = crate::bucket::BucketRecord {
+            versioning,
+            ..plain.clone()
+        };
+        assert_eq!(imported, expected, "{versioning_enabled:?}");
     }
-    // A held default is carried through the same body.
-    let held = serde_json::json!({"name":"imported-bucket","defaultEventBasedHold":true});
-    let parsed =
-        crate::json::parse_insert(held.to_string().as_bytes(), "local-project", at).unwrap();
-    assert!(parsed.default_event_based_hold);
+    let imported =
+        imported_bucket(&source(attributes(true, None), true, Some(created)), now).unwrap();
+    let expected = crate::bucket::BucketRecord {
+        default_event_based_hold: true,
+        object_retention_enabled: true,
+        time_created: created,
+        updated: created,
+        ..plain
+    };
+    assert_eq!(imported, expected);
 }
 
 /// A resume compares each committed element's journal digest with the one its source has now, so
