@@ -102,7 +102,8 @@ pub(crate) enum StoredCompletion {
     Proto(Vec<u8>),
     /// Earlier readers accepted any syntactically valid JSON here.
     Unrecognized(Value),
-    /// A row violating the schema's completion constraint keeps the missing-resource error.
+    /// The schema's CHECK forbids a NULL payload on complete rows. Keep the original
+    /// missing-resource response if a damaged catalog violates that constraint.
     Missing,
 }
 
@@ -924,6 +925,40 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
 mod tests {
     use super::*;
     use crate::object::{MapPatch, Patch};
+
+    #[test]
+    fn stored_completion_shapes_round_trip_as_the_original_json_value() {
+        for (text, expected) in [
+            ("{}", StoredCompletion::Json(Map::new())),
+            ("[]", StoredCompletion::Proto(vec![])),
+            ("[0,255]", StoredCompletion::Proto(vec![0, 255])),
+        ] {
+            let original: Value = serde_json::from_str(text).unwrap();
+            let completion = StoredCompletion::from(original.clone());
+            assert_eq!(completion, expected, "{text}");
+            assert_eq!(completion.into_value(), Some(original), "{text}");
+        }
+        for text in [
+            "[256]",
+            "[-1]",
+            "[1.0]",
+            "[1,\"a\"]",
+            "[-0]",
+            "null",
+            "true",
+            "1",
+            "\"text\"",
+        ] {
+            let original: Value = serde_json::from_str(text).unwrap();
+            let completion = StoredCompletion::from(original.clone());
+            assert!(
+                matches!(completion, StoredCompletion::Unrecognized(_)),
+                "{text}"
+            );
+            assert_eq!(completion.into_value(), Some(original), "{text}");
+        }
+        assert_eq!(StoredCompletion::Missing.into_value(), None);
+    }
 
     /// Only a memory catalog's probe can show that a failed commit left nothing; a failed probe
     /// reports its own error and keeps the draft.

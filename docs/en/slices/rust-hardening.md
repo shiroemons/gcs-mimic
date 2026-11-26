@@ -300,7 +300,15 @@ Pending the evidence below:
   `Invalid upload completion`. JSON status and cancellation requests for a
   session completed through gRPC return HTTP 200 with the protobuf bytes as a
   JSON array. Tests preserve those replies. The owner can keep this behavior
-  or make JSON reject a gRPC completion through a typed error.
+  or make JSON reject a gRPC completion through a typed error. The same
+  decision can revisit whether a missing payload should fail as catalog
+  corruption before it reaches an adapter.
+  - Check whether the pinned SDKs reuse a session across transports, starting
+    with Go Storage v1.71.0's [`http_client.go`](https://github.com/googleapis/google-cloud-go/blob/storage/v1.71.0/storage/http_client.go)
+    and [`grpc_writer.go`](https://github.com/googleapis/google-cloud-go/blob/storage/v1.71.0/storage/grpc_writer.go).
+  - Use the official [resumable upload documentation](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads)
+    and the `upload_id` comments in the [pinned Storage v2 proto](../../../src/grpc/proto/google/storage/v2/storage.proto),
+    under [No live Cloud Storage contact](../development.md#no-live-cloud-storage-contact).
 
 - **Unknown gRPC upload IDs.** `src/grpc/v2/object_io.rs:99` returns
   `INTERNAL` for unknown and expired sessions. The pinned googleapis
@@ -944,13 +952,16 @@ try_from = "i64")]`.
     parse as `CustomTime`. Preflight also accepts year zero and some longer
     zero-padded fractions that publication rejects.
   - Replay fingerprints keep hashing the text.
-- **Resumable completion.** `SessionState::Complete(StoredCompletion)` with
-  `Json(Map)` and `Proto(Vec<u8>)` replaces the separate `completion` field.
+- **Resumable completion.** `SessionState::Complete(StoredCompletion)`
+  replaces the separate `completion` field.
   - The stored text distinguishes JSON objects from arrays of protobuf bytes.
-    Other valid JSON and missing payloads keep their previous read behavior.
-    Malformed JSON remains a catalog corruption error.
+    These decode to `Json(Map)` and `Proto(Vec<u8>)`, respectively.
+    `Unrecognized(Value)` preserves other valid JSON and `Missing` keeps the
+    previous error for a complete row that violates the schema's non-null
+    payload constraint. Malformed JSON remains a catalog corruption error.
   - Each adapter preserves its cross-adapter reply pending the owner's
-    decision in [Behavior decisions](#behavior-decisions).
+    decision in [Behavior decisions](#behavior-decisions), which can also
+    revisit the compatibility variants.
 
 ### Configuration
 
