@@ -14,7 +14,7 @@
   "counts_by_kind": {
     "api_operation": 310,
     "behavior": 201,
-    "project_requirement": 99
+    "project_requirement": 100
   },
   "api_counts_by_category": {
     "JSON API / anywhereCaches": 7,
@@ -64126,6 +64126,123 @@
       "known_deviations": [],
       "implemented_in": null,
       "last_verified": "2026-11-18"
+    },
+    {
+      "id": "DESIGN-105",
+      "kind": "project_requirement",
+      "category": "Project governance",
+      "title": "Internal Rust hardening before the 1.0.0 release candidate",
+      "interface": "Project source code and validation",
+      "phase": "P0",
+      "priority": "HIGH",
+      "status": "NOT_STARTED",
+      "target_fidelity": "PROJECT",
+      "actual_fidelity": "NONE",
+      "source_urls": [
+        "https://rust-lang.github.io/api-guidelines/",
+        "https://sqlite.org/wal.html"
+      ],
+      "source_checked_at": "2026-11-26",
+      "source_evidence": "PROJECT_POLICY",
+      "notes": "Project requirement, not Cloud Storage behavior. Internal changes made before the first 1.0.0 release candidate so that the soak and final-source verification run on the code that ships: module layers enforced by xtask rules, protocol-neutral errors mapped once per adapter, read-only catalog work on the WAL read pool and no durability I/O on executor threads, fewer catalog round trips per request, coalesced body writes and single blocking jobs for copies, typed record and configuration fields, one implementation per shared rule, new lints and property tests. Documented behavior, persisted bytes and wire responses stay unchanged except for the owner's behavior decisions, which ship with a release note. Design: docs/en/slices/rust-hardening.md.",
+      "dependencies": [
+        "DESIGN-070",
+        "DESIGN-098"
+      ],
+      "dependency_status": "REFINED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-105-GOLDENS",
+          "description": "Error, persisted-format and bucket-default golden tests recorded before the code that produces them moved pass after every slice.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-WRITER-IO",
+          "description": "No catalog executor thread reaches a durability seam outside the reset and reseed allowance, and every test that closes a catalog checks it.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-READ-ROUTING",
+          "description": "Read-only catalog jobs run on the read pool, see completed writes, fall back under exclusive reservations and reader failures, and never answer SQLITE_READONLY.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-ROUND-TRIPS",
+          "description": "Writer and reader job counts per operation match the design's round-trip table.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-BODY-IO",
+          "description": "Staged body writes and copies run as bounded blocking jobs, with failed-write, failed-sync, crash and power-loss coverage for each path.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-PROTOCOL",
+          "description": "Multipart and batch parsing, gRPC ReadObject and the smaller adapter changes keep their wire behavior.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-LAYERS",
+          "description": "The module layer and adapter isolation rules are zero tolerance.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-ERRORS",
+          "description": "Adapters map protocol-neutral errors exhaustively, ApiError is private to the JSON adapter, error chains repeat no text, and io::Error::other remains only under reasoned expectations.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-TYPES",
+          "description": "Object records, resumable sessions and configuration carry typed fields with unchanged persisted bytes and diagnostics.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-RULES",
+          "description": "Each rule in the design's consolidation table has one implementation.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-LINTS",
+          "description": "The new lints are in the gate and the parser property tests pass.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-LIFECYCLE",
+          "description": "The catalog opens with fixed options and shuts down through one cancellation token and task tracker.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-SURFACE",
+          "description": "Only the app and testing modules of the library are public.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-105-BEHAVIOR",
+          "description": "The owner's behavior decisions ship with tests, ledger updates and a release note.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [],
+      "verification": [],
+      "sdk_evidence": [],
+      "known_deviations": [],
+      "implemented_in": null,
+      "last_verified": null
     },
     {
       "id": "UX-001",
