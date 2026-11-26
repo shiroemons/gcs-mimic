@@ -5,7 +5,7 @@
 //! when they cannot.
 
 use super::{CONFLICTS, Folder, MANIFEST, WORKSPACE, manifest_name};
-use crate::diagnostics::{LogLevel, emit};
+use crate::diagnostics::{Event, LogLevel, emit};
 use crate::error::Report;
 use serde::{Deserialize, Serialize, de::IgnoredAny};
 use std::{
@@ -58,7 +58,7 @@ impl Listing {
     /// Warns, once the rows are gone, that the manifest is the only record of the files they
     /// named.
     pub(in crate::storage::catalog::retired_sync) fn warn(&self) {
-        emit(LogLevel::Warn, "sync_retired_files_listed", self.listed());
+        emit(LogLevel::Warn, Event::SyncRetiredFilesListed, self.listed());
     }
 
     /// The fields of the warning [`Self::warn`] gives.
@@ -225,7 +225,7 @@ pub(in crate::storage::catalog) fn warn_retired_files(data_dir: &Path) {
     }
     emit(
         LogLevel::Warn,
-        "sync_retired_files",
+        Event::SyncRetiredFiles,
         Remaining::new(&directory, counted, &found),
     );
 }
@@ -312,7 +312,7 @@ pub(super) fn unreadable(path: &Path, error: &(dyn Error + 'static)) {
     let error = Report(error).to_string();
     emit(
         LogLevel::Warn,
-        "sync_retired_files_unchecked",
+        Event::SyncRetiredFilesUnchecked,
         Unfinished {
             message: format!(
                 "could not check {path} for files the removed directory synchronization left: \
@@ -331,7 +331,7 @@ pub(super) fn staged_kept(path: &Path, error: &(dyn Error + 'static)) {
     let error = Report(error).to_string();
     emit(
         LogLevel::Warn,
-        "sync_retired_staged_kept",
+        Event::SyncRetiredStagedKept,
         Unfinished {
             message: format!(
                 "could not remove {path}, a staged retired synchronization manifest: {error}; \

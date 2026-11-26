@@ -235,9 +235,14 @@ fn every_library_module_has_exactly_one_layer() {
         table_problems(&format!("{declared}#[cfg(test)]\nmod test_support;\n")),
         Vec::<String>::new()
     );
-    let unlayered = table_problems(&format!("{declared}// mod comment;\nmod choice;\n"));
+    let unlayered = table_problems(&format!(
+        "{declared}// mod comment;\nmod unassigned_for_test;\n"
+    ));
     assert_eq!(unlayered.len(), 1, "{unlayered:?}");
-    assert!(unlayered[0].contains("module `choice`"), "{unlayered:?}");
+    assert!(
+        unlayered[0].contains("module `unassigned_for_test`"),
+        "{unlayered:?}"
+    );
     let undeclared = table_problems(&declared.replace("pub(crate) mod hex;\n", ""));
     assert_eq!(
         undeclared,

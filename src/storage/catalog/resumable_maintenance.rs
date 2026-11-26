@@ -43,7 +43,7 @@ impl SweepOutcome {
         if self.failure.is_some() {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "resumable_maintenance_retry",
+                crate::diagnostics::Event::ResumableMaintenanceRetry,
                 serde_json::json!({"message": format!("{sweep} maintenance failed: {error}")}),
             );
         } else {
@@ -271,7 +271,7 @@ impl Catalog {
         if let Err(error) = result {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "upload_cleanup_deferred",
+                crate::diagnostics::Event::UploadCleanupDeferred,
                 serde_json::json!({"message":format!("cancelled upload cleanup failed; maintenance will retry: {error}")}),
             );
             self.record_maintenance_error(Some(BackendCause::from_error(error)));
@@ -600,7 +600,7 @@ async fn maintenance_loop(
                 catalog.0.maintenance_health.pass_failed();
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
-                    "resumable_maintenance_retry",
+                    crate::diagnostics::Event::ResumableMaintenanceRetry,
                     serde_json::json!({"message":format!("resumable maintenance failed; retrying: {error}")}),
                 );
                 // Operational retries continue even while the emulated clock is stopped.

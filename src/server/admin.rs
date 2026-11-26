@@ -191,7 +191,7 @@ fn encode(value: &impl serde::Serialize) -> Result<serde_json::Value, ApiError> 
     serde_json::to_value(value).map_err(|error| {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Error,
-            "admin_result_unencodable",
+            crate::diagnostics::Event::AdminResultUnencodable,
             serde_json::json!({"reason": error.to_string()}),
         );
         ApiError::service_unavailable(

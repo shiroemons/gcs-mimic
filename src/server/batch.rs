@@ -288,7 +288,7 @@ async fn bounded_response(
             .map_err(|error| {
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Error,
-                    "batch_response_stream_failed",
+                    crate::diagnostics::Event::BatchResponseStreamFailed,
                     serde_json::json!({"cause": error.kind().to_string()}),
                 );
                 ApiError::service_unavailable("Batched response stream failed")

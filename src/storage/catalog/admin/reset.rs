@@ -97,7 +97,7 @@ fn reset(connection: &mut Connection, backend: &BlobBackend) -> Result<ResetOutc
         Err(error) => {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "reset_cleanup_deferred",
+                crate::diagnostics::Event::ResetCleanupDeferred,
                 serde_json::json!({"message":error.to_string()}),
             );
             true

@@ -63,33 +63,19 @@ impl From<Family> for ExpiresParameter {
     }
 }
 
-/// What a V4 query parameter carries: the part of its name after the family prefix.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Field {
-    Algorithm,
-    Credential,
-    Date,
-    Expires,
-    SignedHeaders,
-    Signature,
-}
-
-impl FromStr for Field {
-    type Err = NotV4Parameter;
-
-    fn from_str(name: &str) -> Result<Self, Self::Err> {
-        [
-            ("Algorithm", Self::Algorithm),
-            ("Credential", Self::Credential),
-            ("Date", Self::Date),
-            ("Expires", Self::Expires),
-            ("SignedHeaders", Self::SignedHeaders),
-            ("Signature", Self::Signature),
-        ]
-        .into_iter()
-        .find_map(|(spelling, field)| name.eq_ignore_ascii_case(spelling).then_some(field))
-        .ok_or(NotV4Parameter)
-    }
+crate::choice::string_enum! {
+    @enum
+    /// What a V4 query parameter carries: the part of its name after the family prefix.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Field as as_str {
+        Algorithm => "algorithm",
+        Credential => "credential",
+        Date => "date",
+        Expires => "expires",
+        SignedHeaders => "signedheaders",
+        Signature => "signature",
+    };
+    ascii_case(NotV4Parameter, NotV4Parameter)
 }
 
 /// A V4 signing query parameter. Its name parses in any ASCII case, because `gsutil signurl` and
@@ -118,14 +104,7 @@ impl fmt::Display for V4Parameter {
             Family::Google => "x-goog-",
             Family::Aws => "x-amz-",
         };
-        let field = match self.field {
-            Field::Algorithm => "algorithm",
-            Field::Credential => "credential",
-            Field::Date => "date",
-            Field::Expires => "expires",
-            Field::SignedHeaders => "signedheaders",
-            Field::Signature => "signature",
-        };
+        let field = self.field.as_str();
         write!(formatter, "{prefix}{field}")
     }
 }
@@ -160,25 +139,16 @@ impl FromStr for V4Parameter {
     }
 }
 
-/// A V4 signing algorithm.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Algorithm {
-    Rsa,
-    GoogleHmac,
-    AwsHmac,
-}
-
-impl FromStr for Algorithm {
-    type Err = Failure;
-
-    fn from_str(raw: &str) -> Result<Self, Failure> {
-        match raw {
-            ALGORITHM => Ok(Self::Rsa),
-            "GOOG4-HMAC-SHA256" => Ok(Self::GoogleHmac),
-            "AWS4-HMAC-SHA256" => Ok(Self::AwsHmac),
-            _ => Err(Failure::Malformed),
-        }
-    }
+crate::choice::string_enum! {
+    @enum
+    /// A V4 signing algorithm.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) enum Algorithm as name {
+        Rsa => ALGORITHM,
+        GoogleHmac => "GOOG4-HMAC-SHA256",
+        AwsHmac => "AWS4-HMAC-SHA256",
+    };
+    from_str(Failure, _ => Err(Failure::Malformed))
 }
 
 impl Algorithm {
@@ -186,15 +156,6 @@ impl Algorithm {
         match self {
             Self::AwsHmac => Family::Aws,
             Self::Rsa | Self::GoogleHmac => Family::Google,
-        }
-    }
-
-    /// The name a V4 string to sign starts with.
-    pub(super) const fn name(self) -> &'static str {
-        match self {
-            Self::Rsa => ALGORITHM,
-            Self::GoogleHmac => "GOOG4-HMAC-SHA256",
-            Self::AwsHmac => "AWS4-HMAC-SHA256",
         }
     }
 

@@ -154,7 +154,7 @@ fn cleanup(path: PathBuf, identity: NodeId) -> io::Result<()> {
     if let Err(error) = &result {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Error,
-            "unix_socket_cleanup_failed",
+            crate::diagnostics::Event::UnixSocketCleanupFailed,
             serde_json::json!({"message":"Cannot remove the owned Unix socket", "kind":format!("{:?}",error.kind())}),
         );
     }

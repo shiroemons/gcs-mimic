@@ -590,7 +590,7 @@ async fn import(
                 }
                 bytes_hashed += publish(&admin, binding, cursor, observed, record, options.max_object_bytes).await?;
                 cursor = ordinal;
-                serde_json::to_writer(&mut *output, &serde_json::json!({"event":"import_progress","cursor":cursor,"expected":binding.expected_elements}))?;
+                serde_json::to_writer(&mut *output, &serde_json::json!({"event":crate::diagnostics::Event::ImportProgress,"cursor":cursor,"expected":binding.expected_elements}))?;
                 writeln!(output)?;
             }
         }
@@ -612,7 +612,7 @@ async fn import(
     };
     serde_json::to_writer(
         &mut *output,
-        &serde_json::json!({"event":"import_complete","summary":summary,"preservation_scope": match options.source_format {
+        &serde_json::json!({"event":crate::diagnostics::Event::ImportComplete,"summary":summary,"preservation_scope": match options.source_format {
             super::SourceFormat::Filesystem => "recoverable current live disk state; generated native ETags, metageneration and bucket defaults; no history or IAM",
             super::SourceFormat::Snapshot => "quiesced memory snapshot with explicit live/archive membership, source identities and metadata; generated native ETags, metageneration, project and retention enablement; no IAM",
         }}),

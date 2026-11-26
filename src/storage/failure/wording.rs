@@ -196,7 +196,7 @@ fn guidance(backend: &BackendCause) -> Option<(BackendFailure, &'static str)> {
     }
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Error,
-        "object_backend_failure",
+        crate::diagnostics::Event::ObjectBackendFailure,
         BackendFailureEvent::from(backend),
     );
     None

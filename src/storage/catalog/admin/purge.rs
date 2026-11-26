@@ -394,7 +394,7 @@ impl Cleanup {
         if let Err(error) = result {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "bucket_purge_cleanup_deferred",
+                crate::diagnostics::Event::BucketPurgeCleanupDeferred,
                 serde_json::json!({"message": format!("{step}: {error}")}),
             );
             self.pending = true;

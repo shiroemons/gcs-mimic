@@ -361,7 +361,7 @@ impl Catalog {
                 if let Some(error) = error {
                     crate::diagnostics::emit(
                         crate::diagnostics::LogLevel::Warn,
-                        "lifecycle_bucket_failed",
+                        crate::diagnostics::Event::LifecycleBucketFailed,
                         serde_json::json!({"bucket":name,"message":error.to_string()}),
                     );
                     if failure.is_none() {
@@ -596,7 +596,7 @@ fn bucket_rules(
                     incarnation,
                 },
                 &stored,
-                "lifecycle_rules_quarantined",
+                crate::diagnostics::Event::LifecycleRulesQuarantined,
                 &error,
             )? {
                 diagnostics.push(event);
@@ -633,7 +633,7 @@ fn evaluate_version(
                 transaction,
                 key,
                 &revision,
-                "lifecycle_version_quarantined",
+                crate::diagnostics::Event::LifecycleVersionQuarantined,
                 &error,
             )? {
                 diagnostics.push(event);
@@ -954,20 +954,20 @@ fn quarantine(
     transaction: &rusqlite::Transaction<'_>,
     key: QuarantineKey<'_>,
     revision: &str,
-    event: &str,
+    event: crate::diagnostics::Event,
     error: &dyn std::error::Error,
 ) -> Result<Option<QuarantineEvent>, ObjectError> {
     // History uses SQLite's bounded cache (and the memory backend's existing TEMP quota).
     let changed = transaction.prepare_cached("INSERT INTO lifecycle_quarantine (bucket, incarnation, name, generation, revision) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (bucket, incarnation, name, generation) DO UPDATE SET revision = excluded.revision WHERE revision != excluded.revision")?
         .execute(params![key.bucket(), key.incarnation(), key.name(), key.generation(), revision])?;
     Ok((changed > 0).then(|| QuarantineEvent {
-        event: event.to_owned(),
+        event,
         fields: serde_json::json!({"bucket":key.bucket(),"name":key.name(),"generation":key.generation(),"message":format!("Stored lifecycle input cannot be restored; it is skipped until repaired: {error}")}),
     }))
 }
 
 struct QuarantineEvent {
-    event: String,
+    event: crate::diagnostics::Event,
     fields: serde_json::Value,
 }
 
@@ -976,7 +976,7 @@ fn emit_quarantines(events: Vec<QuarantineEvent>) {
     for event in events {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
-            &event.event,
+            event.event,
             event.fields,
         );
     }

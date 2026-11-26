@@ -75,7 +75,7 @@ impl AcceptBackoff {
         if self.failures == 1 {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "accept_failed",
+                crate::diagnostics::Event::AcceptFailed,
                 serde_json::json!({"kind": error.kind().to_string(), "os_error": error.raw_os_error(), "retry_ms": delay.as_millis()}),
             );
         }
@@ -86,7 +86,7 @@ impl AcceptBackoff {
         if self.failures > 0 {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Info,
-                "accept_recovered",
+                crate::diagnostics::Event::AcceptRecovered,
                 serde_json::json!({"failures": self.failures}),
             );
             *self = Self::default();
@@ -120,7 +120,7 @@ fn enable_keepalive(stream: &TcpStream) {
         // detection, so it still serves.
         crate::diagnostics::emit_lazy(
             crate::diagnostics::LogLevel::Debug,
-            "tcp_keepalive_failed",
+            crate::diagnostics::Event::TcpKeepaliveFailed,
             || serde_json::json!({"message":"could not enable TCP keep-alive on an accepted connection; a dead peer stays connected until a configured timeout","cause":error.kind().to_string()}),
         );
     }
@@ -134,7 +134,7 @@ fn disable_nagle(stream: &TcpStream) {
         // A peer that already reset fails here too. Any other connection only risks that delay.
         crate::diagnostics::emit_lazy(
             crate::diagnostics::LogLevel::Debug,
-            "tcp_nodelay_failed",
+            crate::diagnostics::Event::TcpNodelayFailed,
             || serde_json::json!({"message":"could not disable Nagle's algorithm on an accepted connection; the end of a response can be delayed","cause":error.kind().to_string()}),
         );
     }

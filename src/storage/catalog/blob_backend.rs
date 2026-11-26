@@ -59,7 +59,7 @@ impl BlobBackend {
                 Err(error) => {
                     crate::diagnostics::emit(
                         crate::diagnostics::LogLevel::Warn,
-                        "blob_reclaim_deferred",
+                        crate::diagnostics::Event::BlobReclaimDeferred,
                         serde_json::json!({"message":format!("deferred blob reclaim {id}: {error}")}),
                     );
                     failure = Some(object_unavailable(error));
@@ -78,7 +78,7 @@ impl BlobBackend {
                 if let Err(error) = result {
                     crate::diagnostics::emit(
                         crate::diagnostics::LogLevel::Warn,
-                        "blob_reclaim_deferred",
+                        crate::diagnostics::Event::BlobReclaimDeferred,
                         serde_json::json!({"message":format!("deferred blob reclaim directory: {error}")}),
                     );
                     failure = Some(object_unavailable(error));

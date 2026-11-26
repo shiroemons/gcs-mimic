@@ -268,7 +268,7 @@ impl Catalog {
                 Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
                 Err(error) => crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
-                    "compose_cleanup_deferred",
+                    crate::diagnostics::Event::ComposeCleanupDeferred,
                     serde_json::json!({"message":format!("deferred compose cleanup: {error}")}),
                 ),
             }

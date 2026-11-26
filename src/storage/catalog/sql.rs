@@ -15,32 +15,6 @@ pub(super) fn keep_plans_across_bindings(connection: &Connection) -> rusqlite::R
         .map(drop)
 }
 
-macro_rules! text_enum {
-    ($visibility:vis $name:ty, $invalid:literal, { $($variant:ident => $value:literal),+ $(,)? }) => {
-        impl $name {
-            $visibility fn as_str(self) -> &'static str {
-                match self { $(Self::$variant => $value),+ }
-            }
-            $visibility fn parse(value: &str) -> Option<Self> {
-                match value { $($value => Some(Self::$variant)),+, _ => None }
-            }
-        }
-        $crate::storage::catalog::sql::text_enum!($name, $invalid, Self::parse);
-    };
-    ($name:ty, $invalid:literal, $parse:expr) => {
-        impl rusqlite::ToSql for $name {
-            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-                Ok(rusqlite::types::ToSqlOutput::Borrowed(self.as_str().into()))
-            }
-        }
-        impl rusqlite::types::FromSql for $name {
-            fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
-                ($parse)(value.as_str()?).ok_or_else(|| rusqlite::types::FromSqlError::Other($invalid.into()))
-            }
-        }
-    };
-}
-
 macro_rules! integer_enum {
     ($name:ty, { $($variant:ident => $value:literal),+ $(,)? }) => {
         impl rusqlite::ToSql for $name {
@@ -58,7 +32,7 @@ macro_rules! integer_enum {
     };
 }
 
-pub(super) use {integer_enum, text_enum};
+pub(super) use integer_enum;
 
 /// Declares the positions of a `SELECT` list written as a literal macro elsewhere, for a row read
 /// on a hot path where looking columns up by name would cost a scan of the column names per
@@ -115,17 +89,17 @@ fn sized_blob<const N: usize>(
         .map_err(|_| conversion_error(index, rusqlite::types::Type::Blob, invalid))
 }
 
-text_enum!(
+crate::choice::string_enum!(@sql
     crate::bucket::StorageClass,
     "invalid stored storage class",
     |value: &str| value.parse().ok()
 );
-text_enum!(
+crate::choice::string_enum!(@sql
     crate::bucket::LocationKind,
     "invalid stored location type",
     crate::bucket::LocationKind::from_stored
 );
-text_enum!(
+crate::choice::string_enum!(@sql
     crate::bucket::Location,
     "invalid stored bucket location",
     crate::bucket::Location::from_canonical
@@ -410,11 +384,7 @@ mod tests {
             "invalid stored location type",
         );
         let us = Location::from_canonical("US").unwrap();
-        check(
-            &[(us, "US")],
-            "us",
-            "invalid stored bucket location",
-        );
+        check(&[(us, "US")], "us", "invalid stored bucket location");
         assert_eq!("us".parse::<Location>().unwrap(), us);
         check(
             &[

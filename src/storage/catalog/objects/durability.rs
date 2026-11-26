@@ -96,7 +96,7 @@ pub(super) fn cleanup_failed_shard(shard: &Path, error: io::Error) -> io::Error 
     if let Err(cleanup) = fs::remove_dir(shard) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
-            "blob_shard_cleanup_deferred",
+            crate::diagnostics::Event::BlobShardCleanupDeferred,
             serde_json::json!({"message": cleanup.to_string()}),
         );
     }

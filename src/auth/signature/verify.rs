@@ -373,7 +373,7 @@ fn warn_portless_host() {
     if !WARNED_PORTLESS_HOST.swap(true, Ordering::Relaxed) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
-            "signature_host_port_omitted",
+            crate::diagnostics::Event::SignatureHostPortOmitted,
             serde_json::json!({
                 "message": "a V4 signature matched only without the port of the request Host because signed_host_port=lenient; its signer omitted the port, as Go storage does. Sign the final host and port, for example with gcs-mimic url sign, to verify it exactly; this warning is logged once per process",
             }),

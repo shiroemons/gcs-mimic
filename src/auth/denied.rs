@@ -157,7 +157,11 @@ impl Denied {
     /// Writes the `authorization_denied` debug event. The level check comes first, so a run
     /// at info or above pays one atomic load per refused response.
     pub(crate) fn log(&self) {
-        diagnostics::emit_lazy(LogLevel::Debug, "authorization_denied", || self.event());
+        diagnostics::emit_lazy(
+            LogLevel::Debug,
+            crate::diagnostics::Event::AuthorizationDenied,
+            || self.event(),
+        );
     }
 
     fn event(&self) -> DenialEvent<'_> {

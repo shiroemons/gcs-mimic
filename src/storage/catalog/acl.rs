@@ -367,17 +367,16 @@ fn invalid_stored(error: impl Into<crate::storage::failure::Source>) -> CatalogE
     ))
 }
 
-/// `acl_bucket_entries.scope`: which of a bucket's two ACLs a row holds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum BucketScope {
-    Bucket,
-    DefaultObject,
+crate::choice::string_enum! {
+    @enum
+    /// `acl_bucket_entries.scope`: which of a bucket's two ACLs a row holds.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) enum BucketScope as as_str {
+        Bucket => "bucket",
+        DefaultObject => "defaultObject",
+    };
+    sql(, "invalid stored ACL scope")
 }
-
-sql::text_enum!(BucketScope, "invalid stored ACL scope", {
-    Bucket => "bucket",
-    DefaultObject => "defaultObject",
-});
 
 impl BucketScope {
     fn kind(self) -> AclKind {

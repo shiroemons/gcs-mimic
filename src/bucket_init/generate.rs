@@ -13,7 +13,7 @@ use std::{collections::BTreeMap, str::FromStr};
 
 mod summary;
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default listed
     /// Where the document goes: a `buckets_file` (`json`), a `.env` file or shell line (`env`),
     /// or a Compose service's `environment:` (`compose`).
@@ -25,7 +25,7 @@ crate::config::string_enum! {
     "format must be json, env or compose"
 }
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default listed
     /// The entry's `iamConfiguration.publicAccessPrevention`.
     pub enum PublicAccessPrevention {
@@ -35,9 +35,9 @@ crate::config::string_enum! {
     "public access prevention must be inherited or enforced"
 }
 
-crate::serde_util::serialize_as_str!(PublicAccessPrevention);
+crate::choice::string_enum!(@serde PublicAccessPrevention);
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default
     /// The authentication mode the written settings start the server in, which decides who reads
     /// a bucket without public read: anyone in `permissive`, the server's default, and only the

@@ -1103,7 +1103,7 @@ after job counts.
 
 | Slice | Scope |
 | --- | --- |
-| Foundation moves | `choice`, the RFC 3339 parser, private `fsutil` and `net` |
+| Foundation moves | the RFC 3339 parser, private `fsutil` and `net` |
 | Model value types | `profile`, URL helpers, auth choices, validator callers |
 | JSON-owned rules out of `json` | `Projection`, component counting, fixed metadata, bucket insert parsing, the two JSON round trips, authority helpers |
 | Notification renderer | injected at catalog open |

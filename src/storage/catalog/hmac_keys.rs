@@ -40,16 +40,16 @@ const SECRET_BYTES: usize = 30;
 // HMAC secrets must remain 40 base64 characters without padding.
 const _: () = assert!(SECRET_BYTES.is_multiple_of(3));
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum HmacKeyState {
-    Active,
-    Inactive,
-    Deleted,
+crate::choice::string_enum! {
+    @enum
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum HmacKeyState as as_str {
+        Active => "ACTIVE",
+        Inactive => "INACTIVE",
+        Deleted => "DELETED",
+    };
+    sql(pub(crate), "invalid HMAC key state")
 }
-
-sql::text_enum!(pub(crate) HmacKeyState, "invalid HMAC key state", {
-    Active => "ACTIVE", Inactive => "INACTIVE", Deleted => "DELETED",
-});
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyRecord {

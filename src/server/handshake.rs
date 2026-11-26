@@ -39,7 +39,7 @@ impl ListenerProtocol {
             // The HTTP/2 driver never started, so there is no peer to send GOAWAY to.
             Self::Grpc => crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Info,
-                "grpc_handshake_timeout",
+                crate::diagnostics::Event::GrpcHandshakeTimeout,
                 serde_json::json!({"message":"gRPC client sent nothing before header_read_timeout_ms; closing the connection; connect an h2c or TLS gRPC client to grpc_listen or raise header_read_timeout_ms, for example 60000"}),
             ),
         }
@@ -54,7 +54,7 @@ impl ListenerProtocol {
         };
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
-            "tls_handshake_failed",
+            crate::diagnostics::Event::TlsHandshakeFailed,
             serde_json::json!({"message":message,"cause":cause.to_string()}),
         );
     }
@@ -110,7 +110,7 @@ pub(super) async fn establish<S: AsyncRead + AsyncWrite + Unpin>(
                 return None;
             }
             Err(_elapsed) => {
-                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"}));
+                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, crate::diagnostics::Event::TlsHandshakeTimeout, serde_json::json!({"message":"TLS handshake deadline exceeded"}));
                 return None;
             }
         }

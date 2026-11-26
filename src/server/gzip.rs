@@ -211,7 +211,7 @@ fn body(
         if let Err(error) = result {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "object_transcoding_failed",
+                crate::diagnostics::Event::ObjectTranscodingFailed,
                 serde_json::json!({"cause": error.kind().to_string()}),
             );
             let _ = sender.send(Err(error)).await;

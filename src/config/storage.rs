@@ -1,6 +1,6 @@
 use super::{Diagnostic, Setting, Settings, Validation};
 
-super::string_enum! {
+crate::choice::string_enum! {
     pub enum Backend {
         #[default]
         Disk => "disk",

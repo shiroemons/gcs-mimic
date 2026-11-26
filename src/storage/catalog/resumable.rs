@@ -112,19 +112,17 @@ impl fmt::Display for Overrun {
     }
 }
 
-/// The stored `state` column.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum StoredState {
-    Active,
-    Complete,
-    Cancelled,
+crate::choice::string_enum! {
+    @enum
+    /// The stored `state` column.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) enum StoredState as as_str {
+        Active => "ACTIVE",
+        Complete => "COMPLETE",
+        Cancelled => "CANCELLED",
+    };
+    sql(, "invalid upload state")
 }
-
-sql::text_enum!(StoredState, "invalid upload state", {
-    Active => "ACTIVE",
-    Complete => "COMPLETE",
-    Cancelled => "CANCELLED",
-});
 
 /// Why the emulator cancelled a session. Kept in the options document's `terminal_error`, so
 /// catalogs written before these reasons need no migration: the reasons without data are the
@@ -554,7 +552,7 @@ impl Catalog {
                     let cleanup = crate::task::run_blocking("session-reject-cleanup", move || remove_session_stage(&files, &blob_id)).await;
                     let cleanup = cleanup.map_err(unavailable).and_then(|result| result);
                     if let Err(error) = cleanup {
-                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "upload_cleanup_deferred", json!({"message":format!("rejected session draft cleanup failed: {error}")}));
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, crate::diagnostics::Event::UploadCleanupDeferred, json!({"message":format!("rejected session draft cleanup failed: {error}")}));
                     }
                     Err(error)
                 }

@@ -59,7 +59,7 @@ pub async fn import(
     };
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Info,
-        "seeding",
+        crate::diagnostics::Event::Seeding,
         serde_json::json!({}),
     );
     let result = match stage_directory(&admin, config, clock, root, None).await {
@@ -244,7 +244,7 @@ fn split_label(label: &str) -> Option<(&str, &str)> {
 fn skipped(label: &str, reason: &str) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
-        "seed_skipped",
+        crate::diagnostics::Event::SeedSkipped,
         serde_json::json!({
             "path": label,
             "reason": reason,
@@ -357,7 +357,11 @@ async fn stage_directory(
         walked += 1;
         // A chosen limit already says how large a tree may be.
         if walked == LARGE_TREE_ENTRIES + 1 && config.max_seed_entries().is_none() {
-            warn_large_tree("seed_tree_large", "seed_dir", "max_seed_entries");
+            warn_large_tree(
+                crate::diagnostics::Event::SeedTreeLarge,
+                "seed_dir",
+                "max_seed_entries",
+            );
         }
         seed.entry(label, fixture).await?;
     }

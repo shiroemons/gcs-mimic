@@ -43,7 +43,7 @@ pub(crate) fn warn_unconfigured_cors(
     if first {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
-            "cors_unconfigured",
+            crate::diagnostics::Event::CorsUnconfigured,
             serde_json::json!({
                 "bucket": bucket,
                 "message": "XML/public browser request reached a bucket without CORS rules and got no CORS headers, as on Cloud Storage; configure the bucket cors field. GCS_MIMIC_CORS_FALLBACK=allow-all allows every origin as fake-gcs-server does, but hides what Cloud Storage would refuse",
@@ -59,7 +59,7 @@ pub(crate) fn note_default_cors_fallback(state: &crate::server::State, bucket: &
     if state.xml_cors_warned_buckets.claim(bucket) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Info,
-            "cors_fallback_default",
+            crate::diagnostics::Event::CorsFallbackDefault,
             serde_json::json!({
                 "bucket": bucket,
                 "message": "the permissive default cors_fallback=allow-all allowed an XML/public browser request to a bucket without CORS rules, which Cloud Storage refuses; configure the bucket cors field, or set cors_fallback explicitly",

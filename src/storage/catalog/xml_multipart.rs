@@ -447,7 +447,7 @@ impl Catalog {
     fn multipart_cleanup_failed(&self, error: ObjectError) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
-            "multipart_cleanup_deferred",
+            crate::diagnostics::Event::MultipartCleanupDeferred,
             serde_json::json!({"message":error.to_string()}),
         );
         self.record_maintenance_error(Some(crate::storage::failure::BackendCause::from_error(

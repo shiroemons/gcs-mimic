@@ -40,7 +40,7 @@ impl ObjectBody {
 fn report_read_failure(error: &io::Error) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
-        "object_body_read_failed",
+        crate::diagnostics::Event::ObjectBodyReadFailed,
         serde_json::json!({
             "message": "object data read failed after the response started; the client receives a truncated body",
             "cause": error.kind().to_string(),

@@ -66,7 +66,7 @@ No server configuration is read.
 These limits identify an import: a resume must repeat the values of its first run.
 An import that an earlier release started without them also resumes without them.";
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default
     #[derive(Serialize)]
     #[serde(rename_all = "snake_case")]
@@ -76,7 +76,7 @@ crate::config::string_enum! {
     }
     "Use xattr or sidecar, matching the entire source root."
 }
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default
     #[derive(Serialize)]
     #[serde(rename_all = "snake_case")]
@@ -87,7 +87,7 @@ crate::config::string_enum! {
     "Use unix or windows, matching the source path platform."
 }
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     #[derive(Serialize)]
     #[serde(rename_all = "snake_case")]
     pub enum SourceFormat {
@@ -592,7 +592,7 @@ fn inspect_with_xattr(
     options.validate()?;
     serde_json::to_writer(
         &mut output,
-        &serde_json::json!({"event":"import_report", "format_version":1,
+        &serde_json::json!({"event":crate::diagnostics::Event::ImportReport, "format_version":1,
         "source_format": match options.source_format {
             SourceFormat::Filesystem => "fake-gcs-server-filesystem",
             SourceFormat::Snapshot => "fake-gcs-server-memory-snapshot",
@@ -624,7 +624,7 @@ fn inspect_with_xattr(
     let summary = joined?;
     serde_json::to_writer(
         &mut output,
-        &serde_json::json!({"event":"import_summary", "summary":summary}),
+        &serde_json::json!({"event":crate::diagnostics::Event::ImportSummary, "summary":summary}),
     )?;
     writeln!(output)?;
     Ok(summary)
@@ -640,7 +640,7 @@ fn write_pages(
         let batch = Diagnostics::from(&page);
         serde_json::to_writer(
             &mut *output,
-            &serde_json::json!({"event":"import_page", "page": page}),
+            &serde_json::json!({"event":crate::diagnostics::Event::ImportPage, "page": page}),
         )?;
         writeln!(output)?;
         batch.write(&mut *diagnostics)?;

@@ -182,7 +182,7 @@ impl Drop for Checkpoint {
             self.store.failed.store(true, Ordering::Release);
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Error,
-                "ram_draft_cleanup_failed",
+                crate::diagnostics::Event::RamDraftCleanupFailed,
                 serde_json::json!({"message": error.to_string()}),
             );
         }
@@ -209,7 +209,7 @@ impl Drop for Checkpoint {
                 self.store.failed.store(true, Ordering::Release);
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Error,
-                    "ram_checkpoint_cleanup_failed",
+                    crate::diagnostics::Event::RamCheckpointCleanupFailed,
                     serde_json::json!({"message": error.to_string()}),
                 );
             }
@@ -274,7 +274,7 @@ impl Drop for Draft {
             self.store.failed.store(true, Ordering::Release);
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Error,
-                "ram_draft_cleanup_failed",
+                crate::diagnostics::Event::RamDraftCleanupFailed,
                 serde_json::json!({"message": error.to_string()}),
             );
         }

@@ -40,6 +40,7 @@ const LAYERS: [Layer; 7] = [
             "hex",
             "percent",
             "decimal",
+            "choice",
             "clock",
             "hashing",
             "serde_util",

@@ -841,7 +841,7 @@ pub(super) fn retire_bucket(
 fn deferred_cleanup(error: &dyn fmt::Display) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
-        "appendable_cleanup_deferred",
+        crate::diagnostics::Event::AppendableCleanupDeferred,
         serde_json::json!({
             "message": format!("unreferenced appendable data is reclaimed later: {error}"),
         }),

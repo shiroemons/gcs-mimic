@@ -313,7 +313,7 @@ impl ReadPool {
 fn report_unavailable(error: &impl std::fmt::Display) {
     crate::diagnostics::emit_lazy(
         crate::diagnostics::LogLevel::Debug,
-        "catalog_reader_unavailable",
+        crate::diagnostics::Event::CatalogReaderUnavailable,
         || serde_json::json!({"message": format!("catalog read served on the serialized path: {error}")}),
     );
 }

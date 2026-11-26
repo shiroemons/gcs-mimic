@@ -81,7 +81,7 @@ pub(in crate::storage::catalog) fn recover(
             } else if let Err(error) = validate_retained(connection, data_dir, &id, now) {
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
-                    "derived_transfer_discarded",
+                    crate::diagnostics::Event::DerivedTransferDiscarded,
                     serde_json::json!({"message":format!("discarding invalid derived transfer {id}: {error}")}),
                 );
                 discard_record(connection, &id)?;

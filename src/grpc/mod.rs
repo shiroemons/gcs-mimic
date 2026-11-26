@@ -1,4 +1,6 @@
 //! Storage transports share domain state, never JSON wire representations.
+use crate::diagnostics::Event;
+
 mod conditions;
 mod convert;
 #[cfg(test)]
@@ -389,9 +391,9 @@ async fn serve_with_service<S, F>(
             result = &mut connection => {
                 if let Err(error) = result {
                     let (event, message) = if error.is_timeout() {
-                        ("grpc_keepalive_timeout", "gRPC peer did not acknowledge an HTTP/2 keepalive ping; check the client connection or raise header_read_timeout_ms, for example 60000".to_owned())
+                        (Event::GrpcKeepaliveTimeout, "gRPC peer did not acknowledge an HTTP/2 keepalive ping; check the client connection or raise header_read_timeout_ms, for example 60000".to_owned())
                     } else {
-                        ("grpc_connection_failed", format!("gRPC connection failed; {}", client_advice(scheme)))
+                        (Event::GrpcConnectionFailed, format!("gRPC connection failed; {}", client_advice(scheme)))
                     };
                     crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, event, serde_json::json!({"message":message,"cause":error.to_string()}));
                 }
@@ -434,7 +436,7 @@ async fn serve_with_service<S, F>(
             }
             () = phase.idle_turn() => {
                 if slots.take_request() {
-                    crate::diagnostics::emit_lazy(crate::diagnostics::LogLevel::Debug, "grpc_idle_reclaimed", || serde_json::json!({"message":"gRPC connection was the longest idle while a client waited for a slot; sending GOAWAY; the client reconnects for its next call, or raise max_connections, for example 4096"}));
+                    crate::diagnostics::emit_lazy(crate::diagnostics::LogLevel::Debug, Event::GrpcIdleReclaimed, || serde_json::json!({"message":"gRPC connection was the longest idle while a client waited for a slot; sending GOAWAY; the client reconnects for its next call, or raise max_connections, for example 4096"}));
                     connection.as_mut().graceful_shutdown();
                     phase = ConnectionPhase::ClosingIdle;
                     idle.as_mut().reset(Instant::now() + idle_grace);
@@ -452,19 +454,19 @@ async fn serve_with_service<S, F>(
                         continue;
                     }
                     (ConnectionPhase::Draining | ConnectionPhase::Stopping, _) | (ConnectionPhase::ClosingIdle, 0) => {
-                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "grpc_drain_timeout", serde_json::json!({"message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise header_read_timeout_ms, for example 60000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":matches!(phase, ConnectionPhase::Stopping)}));
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, Event::GrpcDrainTimeout, serde_json::json!({"message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise header_read_timeout_ms, for example 60000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":matches!(phase, ConnectionPhase::Stopping)}));
                         break;
                     }
                     (ConnectionPhase::Handshake, _) => {
-                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_handshake_timeout", serde_json::json!({"message":format!("gRPC client sent no HTTP/2 preface before header_read_timeout_ms; sending GOAWAY; {}, or raise header_read_timeout_ms, for example 60000", client_advice(scheme))}));
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, Event::GrpcHandshakeTimeout, serde_json::json!({"message":format!("gRPC client sent no HTTP/2 preface before header_read_timeout_ms; sending GOAWAY; {}, or raise header_read_timeout_ms, for example 60000", client_advice(scheme))}));
                         (ConnectionPhase::Draining, peer_wait)
                     }
                     (ConnectionPhase::Idle { .. } | ConnectionPhase::Streaming, 0) => {
-                        crate::diagnostics::emit_lazy(crate::diagnostics::LogLevel::Debug, "grpc_idle_timeout", || serde_json::json!({"message":"gRPC connection idle deadline exceeded; sending GOAWAY; reconnect or raise keep_alive_timeout_ms, for example 300000"}));
+                        crate::diagnostics::emit_lazy(crate::diagnostics::LogLevel::Debug, Event::GrpcIdleTimeout, || serde_json::json!({"message":"gRPC connection idle deadline exceeded; sending GOAWAY; reconnect or raise keep_alive_timeout_ms, for example 300000"}));
                         (ConnectionPhase::ClosingIdle, idle_grace)
                     }
                     (ConnectionPhase::Idle { .. } | ConnectionPhase::Streaming | ConnectionPhase::ClosingIdle, _) => {
-                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_stream_inactivity_timeout", serde_json::json!({"message":"gRPC stream remained open without request or response frames for body_inactivity_timeout_ms; sending GOAWAY; send periodically, close and reopen the stream, or raise the setting (0 disables it)"}));
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, Event::GrpcStreamInactivityTimeout, serde_json::json!({"message":"gRPC stream remained open without request or response frames for body_inactivity_timeout_ms; sending GOAWAY; send periodically, close and reopen the stream, or raise the setting (0 disables it)"}));
                         (ConnectionPhase::Draining, peer_wait)
                     }
                 };

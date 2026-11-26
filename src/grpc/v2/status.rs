@@ -80,7 +80,7 @@ const BUCKET_NOT_EMPTY: &str = "The bucket you tried to delete is not empty.";
 pub(super) fn read_failure(error: std::io::Error) -> Status {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Error,
-        "grpc_object_read_failure",
+        crate::diagnostics::Event::GrpcObjectReadFailure,
         serde_json::json!({"cause": error.to_string()}),
     );
     super::object_io::object_status(crate::storage::failure::object_unavailable(error))

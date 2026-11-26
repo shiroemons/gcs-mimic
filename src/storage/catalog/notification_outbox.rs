@@ -193,7 +193,7 @@ fn warn_evicted(evicted: u64, now: i64) {
     if let Some(evicted) = due {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
-            "notification_outbox_evicted",
+            crate::diagnostics::Event::NotificationOutboxEvicted,
             json!({
                 "message": "The notification outbox is full, so the oldest undelivered messages were dropped; start or repair the configured local Pub/Sub emulator, or set pubsub_emulator_host to resume delivery",
                 "evicted": evicted,

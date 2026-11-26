@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, sync::LazyLock};
 const MAX_LENGTH: usize = MAX_QUERY_BYTES;
 const MAX_DEPTH: usize = 32;
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default listed
     /// A Discovery schema a field selection is checked against. Every variant names a schema in
     /// `compatibility/upstream/json-schemas.json`; loading `SCHEMAS` checks that.

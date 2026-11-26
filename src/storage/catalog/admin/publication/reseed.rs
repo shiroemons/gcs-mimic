@@ -355,7 +355,7 @@ impl SeedBatch {
                 let (_exclusive, _committing) = (exclusive, committing);
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Debug,
-                    "seed_commit_started",
+                    crate::diagnostics::Event::SeedCommitStarted,
                     serde_json::json!({}),
                 );
                 let outcome = inner
@@ -401,7 +401,7 @@ impl SeedBatch {
         if let Err(error) = cleanup.await.map_err(AdminError::backend)? {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "seed_cleanup_deferred",
+                crate::diagnostics::Event::SeedCleanupDeferred,
                 serde_json::json!({"message":error.to_string()}),
             );
         }
@@ -424,7 +424,7 @@ impl Drop for SeedBatch {
             if let Err(error) = cleanup_entries(entries).await {
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
-                    "seed_cleanup_deferred",
+                    crate::diagnostics::Event::SeedCleanupDeferred,
                     serde_json::json!({"message":error.to_string()}),
                 );
             }
@@ -746,7 +746,7 @@ pub(super) fn replay_unproven(
 fn unproven_kept(bucket: &str, name: &str, reason: &str) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
-        "seed_skipped",
+        crate::diagnostics::Event::SeedSkipped,
         serde_json::json!({"path": format!("{bucket}/{name}"), "reason": reason}),
     );
 }
@@ -755,7 +755,7 @@ fn unproven_kept(bucket: &str, name: &str, reason: &str) {
 pub(super) fn deleted(bucket: &str, name: &str) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Info,
-        "seed_object_deleted",
+        crate::diagnostics::Event::SeedObjectDeleted,
         serde_json::json!({"bucket": bucket, "object": name}),
     );
 }
@@ -765,7 +765,7 @@ pub(super) fn deleted(bucket: &str, name: &str) {
 fn kept(bucket: &str, name: &str) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
-        "seed_object_kept",
+        crate::diagnostics::Event::SeedObjectKept,
         serde_json::json!({
             "bucket": bucket,
             "object": name,
@@ -920,7 +920,7 @@ fn clear_replaced(connection: &mut Connection, batch: &SeedBatch) -> bool {
             };
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Error,
-                "seed_cleanup_deferred",
+                crate::diagnostics::Event::SeedCleanupDeferred,
                 serde_json::json!({"message":error.to_string()}),
             );
             false
@@ -931,7 +931,7 @@ fn clear_replaced(connection: &mut Connection, batch: &SeedBatch) -> bool {
             };
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "seed_cleanup_deferred",
+                crate::diagnostics::Event::SeedCleanupDeferred,
                 serde_json::json!({"message":error.to_string()}),
             );
             false

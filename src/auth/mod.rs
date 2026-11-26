@@ -214,7 +214,7 @@ const CREDENTIAL_QUERY_PARAMETERS: &[&str] = &[
     "X-Amz-Signature",
 ];
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     pub enum AuthMode {
         #[default]
         Permissive => "permissive",
@@ -223,7 +223,7 @@ crate::config::string_enum! {
     "auth_mode must be permissive or strict"
 }
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default
     /// Whether the built-in [`test_signer`] identity exists. Its private key is published, so
     /// the default depends on the profile; see [`TestSignerChoice::select`].
@@ -274,7 +274,7 @@ impl TestSignerChoice {
     }
 }
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default
     /// How signed XML requests are treated. Strict mode always verifies them, because their
     /// signer is the caller; permissive mode ignores their credentials unless asked to verify.
@@ -1419,7 +1419,7 @@ fn warn_self_signed_jwt(rejection: jwt::Rejection) {
     if !warned.swap(true, Ordering::Relaxed) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
-            "auth_self_signed_jwt_rejected",
+            crate::diagnostics::Event::AuthSelfSignedJwtRejected,
             serde_json::json!({ "message": message }),
         );
     }

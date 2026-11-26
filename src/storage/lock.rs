@@ -34,7 +34,7 @@ impl Drop for DirectoryLock {
             if let Err(error) = file.unlock() {
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Error,
-                    "data_lock_release_failed",
+                    crate::diagnostics::Event::DataLockReleaseFailed,
                     serde_json::json!({"message":format!("release data directory lock: {error}")}),
                 );
             }

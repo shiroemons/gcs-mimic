@@ -4,7 +4,9 @@ use gcs_mimic::{
     bucket_init::InitOutcome,
     clock::{Clock, SystemClock},
     config::{Config, GrpcScheme},
-    diagnostics::{DiagnosticSource, Diagnostics, combine_shutdown_results as merge_close_result},
+    diagnostics::{
+        DiagnosticSource, Diagnostics, Event, combine_shutdown_results as merge_close_result,
+    },
     seed::{SeedError, SeedOutcome},
     server::{self, State},
     storage::{Catalog, DataDirState, MemoryBudget, admin::AdminError},
@@ -56,7 +58,7 @@ struct ReadyDataDirectory {
 
 #[derive(Serialize)]
 pub(crate) struct ReadyEvent {
-    event: &'static str,
+    event: Event,
     executable: &'static str,
     version: &'static str,
     healthcheck_path: &'static str,
@@ -182,7 +184,7 @@ impl ReadyEvent {
             ),
         };
         Self {
-            event: "ready",
+            event: Event::Ready,
             executable: "gcs-mimic",
             version: gcs_mimic::VERSION,
             healthcheck_path: Config::HEALTHCHECK_PATH,
@@ -388,7 +390,7 @@ async fn open_catalog(
             if let Some((path, DataDirState::Created)) = catalog.data_directory() {
                 gcs_mimic::diagnostics::emit(
                     gcs_mimic::diagnostics::LogLevel::Info,
-                    "data_dir_created",
+                    Event::DataDirCreated,
                     serde_json::json!({"data_dir":path.to_string_lossy(),"message":format!("created a new empty catalog at {}", path.display())}),
                 );
             }
@@ -545,7 +547,7 @@ async fn finish_startup(
 }
 
 fn report_stopped() {
-    println!("{{\"event\":\"stopped\"}}");
+    println!("{{\"event\":\"{}\"}}", Event::Stopped.as_str());
 }
 
 fn shutdown_result(signal: io::Result<()>) -> Result<(), Diagnostics> {
@@ -558,7 +560,7 @@ fn shutdown_result(signal: io::Result<()>) -> Result<(), Diagnostics> {
     })?;
     gcs_mimic::diagnostics::emit(
         gcs_mimic::diagnostics::LogLevel::Info,
-        "stopping",
+        Event::Stopping,
         serde_json::json!({}),
     );
     Ok(())
@@ -916,7 +918,7 @@ async fn bind_after_time_wait(
         if !logged {
             gcs_mimic::diagnostics::emit(
                 gcs_mimic::diagnostics::LogLevel::Warn,
-                "bind_wait",
+                Event::BindWait,
                 serde_json::json!({"listen":address.to_string(),"timeout_ms":65000,"reason":"address_in_use"}),
             );
             logged = true;

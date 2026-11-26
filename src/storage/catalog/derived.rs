@@ -75,7 +75,7 @@ fn random_id() -> Result<BlobId, ObjectError> {
 fn deferred_cleanup(error: &dyn std::fmt::Display) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
-        "derived_cleanup_deferred",
+        crate::diagnostics::Event::DerivedCleanupDeferred,
         serde_json::json!({"message":format!("unreferenced derived data is reclaimed later: {error}")}),
     );
 }

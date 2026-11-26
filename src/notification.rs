@@ -76,36 +76,17 @@ pub(crate) const MAX_PER_BUCKET: usize = 100;
 pub(crate) const MAX_PER_EVENT_TYPE: usize = 10;
 pub(crate) const MAX_CUSTOM_ATTRIBUTES: usize = 10;
 
-/// What a notification message carries besides its attributes.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum PayloadFormat {
-    /// The object's JSON API resource, which the API defaults to.
-    #[default]
-    JsonApiV1,
-    None,
-}
-
-impl PayloadFormat {
-    const ALL: [Self; 2] = [Self::JsonApiV1, Self::None];
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::JsonApiV1 => "JSON_API_V1",
-            Self::None => "NONE",
-        }
-    }
-}
-
-/// Not a `string_enum!`, whose error names no input: a rejected format names the one given.
-impl std::str::FromStr for PayloadFormat {
-    type Err = NotificationError;
-
-    fn from_str(format: &str) -> Result<Self, NotificationError> {
-        Self::ALL
-            .into_iter()
-            .find(|candidate| candidate.as_str() == format)
-            .ok_or_else(|| NotificationError::InvalidPayloadFormat(format.to_owned()))
-    }
+crate::choice::string_enum! {
+    @enum
+    /// What a notification message carries besides its attributes.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(crate) enum PayloadFormat as as_str {
+        /// The object's JSON API resource, which the API defaults to.
+        #[default]
+        JsonApiV1 => "JSON_API_V1",
+        None => "NONE",
+    };
+    from_str(NotificationError, value => Err(NotificationError::InvalidPayloadFormat(value.to_owned())))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

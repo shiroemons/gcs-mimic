@@ -174,25 +174,18 @@ pub(crate) fn parse_entries(
     Ok(entries)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-#[serde(try_from = "String")]
-pub(crate) enum AclRole {
-    Reader,
-    Writer,
-    Owner,
+crate::choice::string_enum! {
+    @enum
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+    #[serde(try_from = "String")]
+    pub(crate) enum AclRole as as_str {
+        Reader => "READER",
+        Writer => "WRITER",
+        Owner => "OWNER",
+    };
+    from_str(InvalidAclRole, _ => Err(InvalidAclRole));
+    serde(try_from_string)
 }
-
-impl AclRole {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Reader => "READER",
-            Self::Writer => "WRITER",
-            Self::Owner => "OWNER",
-        }
-    }
-}
-
-crate::serde_util::serialize_as_str!(AclRole);
 
 // Debug shows the wire spelling, as the String it replaced did.
 impl fmt::Debug for AclRole {
@@ -211,27 +204,6 @@ impl fmt::Display for InvalidAclRole {
 }
 
 impl std::error::Error for InvalidAclRole {}
-
-impl FromStr for AclRole {
-    type Err = InvalidAclRole;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "READER" => Ok(Self::Reader),
-            "WRITER" => Ok(Self::Writer),
-            "OWNER" => Ok(Self::Owner),
-            _ => Err(InvalidAclRole),
-        }
-    }
-}
-
-impl TryFrom<String> for AclRole {
-    type Error = InvalidAclRole;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
-    }
-}
 
 impl AclRole {
     /// The legacy bucket IAM role that holds the same authority as this bucket ACL role.
@@ -416,7 +388,7 @@ pub(crate) struct Entity {
     scope: Scope,
 }
 
-crate::serde_util::serialize_as_str!(Entity);
+crate::choice::string_enum!(@serde Entity);
 
 /// The longest entity: `project-viewers-` and a project ID of up to 256 bytes. Emails take at most
 /// 254 bytes and domains 253, so each kind of entity fits, and ACLs and the policies derived from
@@ -739,7 +711,7 @@ pub(crate) fn refuse_anonymous_canned_acl(
     }
 }
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default listed
     /// A JSON API object `predefinedAcl` value. `publicReadWrite` is bucket-only and is not one.
     pub(crate) enum PredefinedObjectAcl {
@@ -886,7 +858,7 @@ impl PredefinedObjectAcl {
     }
 }
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default listed
     /// A JSON API bucket `predefinedAcl` value.
     ///

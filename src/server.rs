@@ -177,12 +177,12 @@ fn injected_handler_panic() {}
 fn report_connection_task_failure(error: &tokio::task::JoinError) {
     let (event, message) = if error.is_panic() {
         (
-            "connection_task_panicked",
+            crate::diagnostics::Event::ConnectionTaskPanicked,
             "a request handler panicked; its connection was closed and the server keeps serving",
         )
     } else {
         (
-            "connection_task_cancelled",
+            crate::diagnostics::Event::ConnectionTaskCancelled,
             "a connection task was cancelled",
         )
     };
@@ -1186,7 +1186,7 @@ async fn serve_entries(
     drop(held);
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Info,
-        "stopping",
+        crate::diagnostics::Event::Stopping,
         serde_json::json!({}),
     );
     let Shared { state, config, .. } = &shared;
@@ -1563,7 +1563,7 @@ async fn serve_connection(
     }
     crate::diagnostics::emit_lazy(
         crate::diagnostics::LogLevel::Debug,
-        "connection_closed",
+        crate::diagnostics::Event::ConnectionClosed,
         || serde_json::json!({}),
     );
 }
@@ -1762,7 +1762,7 @@ enum UnreadInput {
 fn warn_connection_timeout(message: &str) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
-        "connection_timeout",
+        crate::diagnostics::Event::ConnectionTimeout,
         serde_json::json!({"message": message}),
     );
 }
@@ -1838,7 +1838,7 @@ impl ConnectionWatch {
                 _ = &mut object_deadline, if matches!(phase, ConnectionPhase::Request) && current.deadline.is_some() && current.stage != RequestStage::AwaitingCatalog => {
                     match claim_expiry(&activity, Expiry::ObjectRequest) {
                         ExpiryClaim::Granted => {
-                            crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
+                            crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, crate::diagnostics::Event::ObjectRequestTimeout, serde_json::json!({"message":"object request deadline exceeded"}));
                             deadline.as_mut().reset(tokio::time::Instant::now() + CLOSE_BUDGET);
                             phase = ConnectionPhase::ClosingReply;
                         }
@@ -1849,7 +1849,7 @@ impl ConnectionWatch {
                 },
                 result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
                     // hyper's Display names only the failure kind (body stream, write, parse), never the wrapped I/O detail.
-                    if let Err(error) = result { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})); }
+                    if let Err(error) = result { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, crate::diagnostics::Event::ConnectionFailed, serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})); }
                     break UnreadInput::MayRemain;
                 }
                 _ = &mut deadline, if current.stage != RequestStage::AwaitingCatalog && current.response_work == ResponseWork::Idle => {

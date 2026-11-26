@@ -142,7 +142,7 @@ impl FailedPasses {
 fn warn_failed(number: u64, error: &SeedError) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
-        "seed_pass_failed",
+        crate::diagnostics::Event::SeedPassFailed,
         serde_json::json!({"pass": number, "cause": crate::error::Report(error).to_string()}),
     );
 }
@@ -151,7 +151,7 @@ fn warn_failed(number: u64, error: &SeedError) {
 fn tell_recovered(number: u64, failed: u64) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Info,
-        "seed_pass_recovered",
+        crate::diagnostics::Event::SeedPassRecovered,
         serde_json::json!({"pass": number, "failed_passes": failed}),
     );
 }

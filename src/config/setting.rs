@@ -10,7 +10,7 @@ pub(crate) const MAX_TREE_DEPTH: usize = 1024;
 /// One day, the longest wait between two passes over `seed_dir`.
 const MAX_SEED_WATCH_INTERVAL_MS: u64 = 86_400_000;
 
-super::string_enum! {
+crate::choice::string_enum! {
     no_default listed pub(crate) enum Setting {
         Config => "config",
         Scheme => "scheme",

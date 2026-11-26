@@ -6,25 +6,17 @@ use tonic::{Extensions, Status, metadata::MetadataMap};
 /// value percent-encoded like a form field.
 const ROUTING_METADATA: &str = "x-goog-request-params";
 
-/// A routing key some Storage v2 RPC compares with its request.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum RoutingKey {
-    Bucket,
-    SourceBucket,
-    Project,
-    Appendable,
-}
-
-impl RoutingKey {
-    /// The key as clients write it.
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Bucket => "bucket",
-            Self::SourceBucket => "source_bucket",
-            Self::Project => "project",
-            Self::Appendable => "appendable",
-        }
-    }
+crate::choice::string_enum! {
+    @enum
+    /// A routing key some Storage v2 RPC compares with its request.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) enum RoutingKey as as_str {
+        Bucket => "bucket",
+        SourceBucket => "source_bucket",
+        Project => "project",
+        Appendable => "appendable",
+    };
+    from_str(UnknownRoutingKey, _ => Err(UnknownRoutingKey))
 }
 
 /// A routing key no Storage v2 RPC compares with its request.
@@ -38,20 +30,6 @@ impl std::fmt::Display for UnknownRoutingKey {
 }
 
 impl std::error::Error for UnknownRoutingKey {}
-
-impl std::str::FromStr for RoutingKey {
-    type Err = UnknownRoutingKey;
-
-    fn from_str(key: &str) -> Result<Self, Self::Err> {
-        match key {
-            "bucket" => Ok(Self::Bucket),
-            "source_bucket" => Ok(Self::SourceBucket),
-            "project" => Ok(Self::Project),
-            "appendable" => Ok(Self::Appendable),
-            _ => Err(UnknownRoutingKey),
-        }
-    }
-}
 
 /// The bucket ID of a routed bucket resource name `projects/_/buckets/<id>`. Routing checks
 /// only the resource name's form; the handler validates the request's own bucket name.

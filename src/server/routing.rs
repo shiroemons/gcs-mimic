@@ -522,7 +522,7 @@ fn note_bucket_without_rules(
 fn report_cors_lookup_failed(bucket: &str, error: &CatalogError) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
-        "cors_lookup_failed",
+        crate::diagnostics::Event::CorsLookupFailed,
         cors_lookup_failure(bucket, error),
     );
 }

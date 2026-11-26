@@ -6,6 +6,7 @@ mod bounded_body;
 pub mod bounded_file;
 pub mod bucket;
 pub mod bucket_init;
+mod choice;
 pub mod clock;
 pub mod config;
 pub mod config_input;

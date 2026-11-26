@@ -94,7 +94,7 @@ pub(crate) struct Member {
     kind: MemberKind,
 }
 
-crate::serde_util::serialize_as_str!(Member);
+crate::choice::string_enum!(@serde Member);
 
 /// A member's parts, borrowed from its text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -710,7 +710,7 @@ impl Catalog {
             {
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
-                    "rewrite_cleanup_deferred",
+                    crate::diagnostics::Event::RewriteCleanupDeferred,
                     serde_json::json!({"message":format!("terminal rewrite cleanup failed: {cleanup}")}),
                 );
             }

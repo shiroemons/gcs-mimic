@@ -3,7 +3,7 @@
 use crate::{
     bucket::Location,
     config::{Scheme, Setting, Spelled},
-    diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
+    diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
 };
 use std::{
     collections::BTreeMap,
@@ -64,7 +64,7 @@ where
     })
 }
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default listed
     /// Native CLI options, including the independently configurable parts of a listener.
     #[derive(PartialOrd, Ord)]
@@ -78,7 +78,7 @@ crate::config::string_enum! {
     "unknown native flag"
 }
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default
     /// Source flags whose translations preserve requests that worked with the source.
     #[derive(PartialOrd, Ord)]
@@ -97,7 +97,7 @@ crate::config::string_enum! {
     "unknown flag"
 }
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default
     /// These source settings cannot be given their original semantics.
     #[derive(PartialOrd, Ord)]
@@ -798,8 +798,13 @@ fn native_advice(flag: NativeFlag, values: &BTreeMap<ServerFlag, &str>) -> Strin
                 .map_or_else(|_| "<PORT_0_TO_65535>".into(), |p| p.to_string());
             format!("use GCS_MIMIC_SCHEME=both with GCS_MIMIC_LISTEN_HTTP={host}:{port}; the primary GCS_MIMIC_LISTEN serves HTTPS")
         }
-        NativeFlag::LogLevel if matches!(value, "debug" | "info" | "warn" | "warning" | "error") => format!("use GCS_MIMIC_LOG_LEVEL={} or --log-level {}; this controls runtime stderr events and informational diagnostics, not validation warnings/errors or stdout lifecycle events", if value == "warning" { "warn" } else { value }, if value == "warning" { "warn" } else { value }),
-        NativeFlag::LogLevel => "use GCS_MIMIC_LOG_LEVEL=info or --log-level info; supported levels are debug, info, warn or error".into(),
+        NativeFlag::LogLevel => match value.parse::<LogLevel>() {
+            Ok(level) => {
+                let level = level.as_str();
+                format!("use GCS_MIMIC_LOG_LEVEL={level} or --log-level {level}; this controls runtime stderr events and informational diagnostics, not validation warnings/errors or stdout lifecycle events")
+            }
+            Err(_) => "use GCS_MIMIC_LOG_LEVEL=info or --log-level info; supported levels are debug, info, warn or error".into(),
+        },
     }
 }
 

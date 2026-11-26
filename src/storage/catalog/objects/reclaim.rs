@@ -155,7 +155,7 @@ impl Catalog {
         if let Err(error) = self.try_discard_staged(blob).await {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "upload_cleanup_deferred",
+                crate::diagnostics::Event::UploadCleanupDeferred,
                 serde_json::json!({"message": format!("deferred upload cleanup: {error}")}),
             );
         }
@@ -193,7 +193,7 @@ impl Catalog {
             Ok(_) => return,
             Err(error) => crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "blob_reclaim_deferred",
+                crate::diagnostics::Event::BlobReclaimDeferred,
                 serde_json::json!({"message":format!("deferred blob reclamation: {error}")}),
             ),
         }

@@ -58,7 +58,7 @@ pub struct TreeLimits {
 pub(crate) const LARGE_TREE_ENTRIES: usize = 10_000;
 
 /// Warns that a tree passed [`LARGE_TREE_ENTRIES`]; the caller makes sure it warns only once.
-pub(crate) fn warn_large_tree(event: &'static str, directory: &str, limit: &str) {
+pub(crate) fn warn_large_tree(event: crate::diagnostics::Event, directory: &str, limit: &str) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
         event,

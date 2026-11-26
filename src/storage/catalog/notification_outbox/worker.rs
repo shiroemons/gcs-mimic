@@ -83,7 +83,7 @@ async fn run(
                 health.pass_failed();
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
-                    "notification_catalog_retry",
+                    crate::diagnostics::Event::NotificationCatalogRetry,
                     serde_json::json!({"message": error.to_string()}),
                 );
                 Some(Duration::from_secs(1))
@@ -144,7 +144,7 @@ async fn attempt(
             health.pass_failed();
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "notification_publish_retry",
+                crate::diagnostics::Event::NotificationPublishRetry,
                 serde_json::json!({"message":error.to_string(),"outboxId":pending.id,"retryAfterMs":delay.as_millis()}),
             );
         }

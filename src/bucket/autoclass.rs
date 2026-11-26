@@ -10,10 +10,7 @@ use super::{
 };
 use crate::metadata_error::MetadataError;
 use serde_json::Value;
-use std::{
-    str::FromStr,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The bucket default class and newly written objects are always STANDARD while enabled.
 pub(crate) const AUTOCLASS_STORAGE_CLASS: StorageClass = StorageClass::Standard;
@@ -21,44 +18,18 @@ const DEFAULT_TERMINAL_STORAGE_CLASS: TerminalStorageClass = TerminalStorageClas
 /// The official Autoclass page forbids re-enabling until one day after it was disabled.
 const REENABLE_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// The coldest class Autoclass moves objects to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
-#[serde(try_from = "String")]
-pub(crate) enum TerminalStorageClass {
-    Nearline,
-    Archive,
+crate::choice::string_enum! {
+    @enum
+    /// The coldest class Autoclass moves objects to.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+    #[serde(try_from = "String")]
+    pub(crate) enum TerminalStorageClass as as_str {
+        Nearline => "NEARLINE",
+        Archive => "ARCHIVE",
+    };
+    from_str(CatalogError, _ => Err(CatalogError::Metadata(MetadataError::AutoclassTerminal)));
+    serde(try_from_string)
 }
-
-impl TerminalStorageClass {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Nearline => "NEARLINE",
-            Self::Archive => "ARCHIVE",
-        }
-    }
-}
-
-impl FromStr for TerminalStorageClass {
-    type Err = CatalogError;
-
-    fn from_str(value: &str) -> Result<Self, CatalogError> {
-        match value {
-            "NEARLINE" => Ok(Self::Nearline),
-            "ARCHIVE" => Ok(Self::Archive),
-            _ => Err(CatalogError::Metadata(MetadataError::AutoclassTerminal)),
-        }
-    }
-}
-
-impl TryFrom<String> for TerminalStorageClass {
-    type Error = CatalogError;
-
-    fn try_from(value: String) -> Result<Self, CatalogError> {
-        value.parse()
-    }
-}
-
-crate::serde_util::serialize_as_str!(TerminalStorageClass);
 
 /// Stored configuration. A disabled configuration is kept so `toggleTime` records when
 /// Autoclass was turned off; buckets that never enabled Autoclass have none.

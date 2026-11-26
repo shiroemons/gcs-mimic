@@ -72,81 +72,8 @@ fn default_worker_threads() -> usize {
 const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct InvalidChoice(pub(crate) &'static str);
-
-impl std::fmt::Display for InvalidChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-
-impl std::error::Error for InvalidChoice {}
-
-/// An enum spelled by fixed strings, with `as_str` and an exact-match `FromStr`.
-///
-/// An optional `; withdrawn { "old" => "fix" }` after the error lists values a release removed or
-/// renamed: parsing one fails with its own fix, which names the replacement, instead of the
-/// generic error. The clause follows the error because an expression may start with any
-/// identifier, so a leading keyword could not be told apart from it.
-macro_rules! string_enum {
-    // `listed` also lists every variant, for an enum whose every value a text such as the help
-    // must name.
-    (no_default listed $(#[$meta:meta])* $vis:vis enum $name:ident {
-        $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:expr $(; withdrawn { $($old:literal => $fix:literal),+ $(,)? })?) => {
-        $crate::config::string_enum! { @impl [] $(#[$meta])* $vis enum $name {
-            $($(#[$variant_meta])* $variant => $value),+
-        } $error; [$($($old => $fix),+)?] }
-
-        impl $name {
-            /// Every variant, in declaration order.
-            $vis const ALL: &'static [Self] = &[$(Self::$variant),+];
-        }
-    };
-    ($(#[$meta:meta])* $vis:vis enum $name:ident {
-        $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:expr $(; withdrawn { $($old:literal => $fix:literal),+ $(,)? })?) => {
-        $crate::config::string_enum! { @impl [Default] $(#[$meta])* $vis enum $name {
-            $($(#[$variant_meta])* $variant => $value),+
-        } $error; [$($($old => $fix),+)?] }
-    };
-    (no_default $(#[$meta:meta])* $vis:vis enum $name:ident {
-        $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:expr $(; withdrawn { $($old:literal => $fix:literal),+ $(,)? })?) => {
-        $crate::config::string_enum! { @impl [] $(#[$meta])* $vis enum $name {
-            $($(#[$variant_meta])* $variant => $value),+
-        } $error; [$($($old => $fix),+)?] }
-    };
-    (@impl [$($derive:ident),*] $(#[$meta:meta])* $vis:vis enum $name:ident {
-        $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:expr; [$($old:literal => $fix:literal),*]) => {
-        $(#[$meta])*
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, $($derive),*)]
-        $vis enum $name {
-            $($(#[$variant_meta])* $variant),+
-        }
-
-        impl $name {
-            $vis fn as_str(self) -> &'static str {
-                match self { $(Self::$variant => $value),+ }
-            }
-        }
-
-        impl std::str::FromStr for $name {
-            type Err = $crate::config::InvalidChoice;
-
-            fn from_str(value: &str) -> Result<Self, Self::Err> {
-                match value {
-                    $($value => Ok(Self::$variant),)+
-                    $($old => Err($crate::config::InvalidChoice($fix)),)*
-                    _ => Err($crate::config::InvalidChoice($error)),
-                }
-            }
-        }
-    };
-}
-pub(crate) use string_enum;
+pub use crate::choice::InvalidChoice;
+use crate::choice::string_enum;
 
 string_enum! {
     pub enum CompatProfile {

@@ -1,6 +1,6 @@
 //! Acquires standard-library locks with an explicit poison policy.
 
-use crate::diagnostics::{LogLevel, emit};
+use crate::diagnostics::{Event, LogLevel, emit};
 use std::{
     panic::Location,
     sync::{LockResult, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard},
@@ -84,7 +84,7 @@ pub(crate) fn report_recovery() {
     let location = Location::caller();
     emit(
         LogLevel::Warn,
-        "lock_poison_recovered",
+        Event::LockPoisonRecovered,
         Recovered {
             file: location.file(),
             line: location.line(),

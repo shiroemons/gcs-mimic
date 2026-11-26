@@ -18,43 +18,27 @@ pub(crate) mod resource;
 
 pub(crate) use location::{Location, LocationKind};
 
-// Keep exhaustive transition tests tied to the enum's declaration rather than a second variant list.
-macro_rules! storage_classes {
-    ($($class:ident),+ $(,)?) => {
-        #[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
-        #[serde(try_from = "String")]
-        pub enum StorageClass { $($class),+ }
-
-        impl StorageClass {
-            #[cfg(test)]
-            pub(crate) const ALL: &'static [Self] = &[$(Self::$class),+];
-        }
+crate::choice::string_enum! {
+    @enum
+    #[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+    #[serde(try_from = "String")]
+    pub enum StorageClass as as_str {
+        Standard => "STANDARD",
+        Nearline => "NEARLINE",
+        Coldline => "COLDLINE",
+        Archive => "ARCHIVE",
+        MultiRegional => "MULTI_REGIONAL",
+        Regional => "REGIONAL",
+        DurableReducedAvailability => "DURABLE_REDUCED_AVAILABILITY",
     };
-}
-
-storage_classes! {
-    Standard,
-    Nearline,
-    Coldline,
-    Archive,
-    MultiRegional,
-    Regional,
-    DurableReducedAvailability,
+    listed(#[cfg(test)] pub(crate));
+    parse(pub(crate) from_name, InvalidStorageClass,
+        "RAPID" => Err(InvalidStorageClass::RequiresZone),
+        _ => Err(InvalidStorageClass::Unknown));
+    serde(try_from_string)
 }
 
 impl StorageClass {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Standard => "STANDARD",
-            Self::Nearline => "NEARLINE",
-            Self::Coldline => "COLDLINE",
-            Self::Archive => "ARCHIVE",
-            Self::MultiRegional => "MULTI_REGIONAL",
-            Self::Regional => "REGIONAL",
-            Self::DurableReducedAvailability => "DURABLE_REDUCED_AVAILABILITY",
-        }
-    }
-
     /// Whether a bucket of `kind` can hold the class. Cloud Storage keeps the legacy REGIONAL
     /// class to regions and MULTI_REGIONAL to multi-regions (recorded 2026-11-17); a dual-region
     /// refused REGIONAL and is assumed to accept MULTI_REGIONAL, as the documentation says.
@@ -121,8 +105,6 @@ impl From<ClassLocationConflict> for CatalogError {
     }
 }
 
-crate::serde_util::serialize_as_str!(StorageClass);
-
 // Upload fingerprints include the former String's quoted Debug representation.
 impl fmt::Debug for StorageClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -151,37 +133,11 @@ impl From<InvalidStorageClass> for CatalogError {
     }
 }
 
-impl StorageClass {
-    /// Parses a wire name, keeping why it was refused. [`FromStr`] reports the same refusal as
-    /// the [`CatalogError`] that bucket requests return.
-    pub(crate) fn from_name(value: &str) -> Result<Self, InvalidStorageClass> {
-        match value {
-            "STANDARD" => Ok(Self::Standard),
-            "NEARLINE" => Ok(Self::Nearline),
-            "COLDLINE" => Ok(Self::Coldline),
-            "ARCHIVE" => Ok(Self::Archive),
-            "MULTI_REGIONAL" => Ok(Self::MultiRegional),
-            "DURABLE_REDUCED_AVAILABILITY" => Ok(Self::DurableReducedAvailability),
-            "REGIONAL" => Ok(Self::Regional),
-            "RAPID" => Err(InvalidStorageClass::RequiresZone),
-            _ => Err(InvalidStorageClass::Unknown),
-        }
-    }
-}
-
 impl FromStr for StorageClass {
     type Err = CatalogError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         Ok(Self::from_name(value)?)
-    }
-}
-
-impl TryFrom<String> for StorageClass {
-    type Error = CatalogError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
     }
 }
 
@@ -411,37 +367,20 @@ impl VersioningUpdate {
     }
 }
 
-/// A recovery point objective a bucket update names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Rpo {
-    Default,
-    AsyncTurbo,
+crate::choice::string_enum! {
+    @enum
+    /// A recovery point objective a bucket update names.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum Rpo as as_str {
+        Default => "DEFAULT",
+        AsyncTurbo => "ASYNC_TURBO",
+    };
+    from_str(UnknownRpo, _ => Err(UnknownRpo))
 }
 
 /// A recovery point objective Cloud Storage does not define.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct UnknownRpo;
-
-impl Rpo {
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Default => "DEFAULT",
-            Self::AsyncTurbo => "ASYNC_TURBO",
-        }
-    }
-}
-
-impl std::str::FromStr for Rpo {
-    type Err = UnknownRpo;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "DEFAULT" => Ok(Self::Default),
-            "ASYNC_TURBO" => Ok(Self::AsyncTurbo),
-            _ => Err(UnknownRpo),
-        }
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BucketMetadataUpdate {
@@ -743,36 +682,19 @@ impl TryFrom<i64> for RetentionPeriod {
     }
 }
 
-/// A bucket's own public access prevention setting. The parent project can still prevent public
-/// access when this is `Inherited`; `crate::auth::PublicAccess` is the effective result.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum PublicAccessPrevention {
-    #[default]
-    Inherited,
-    Enforced,
-}
-
-impl PublicAccessPrevention {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Inherited => "inherited",
-            Self::Enforced => "enforced",
-        }
-    }
-}
-
-impl FromStr for PublicAccessPrevention {
-    type Err = CatalogError;
-
-    fn from_str(value: &str) -> Result<Self, CatalogError> {
-        match value {
-            "enforced" => Ok(Self::Enforced),
-            "inherited" => Ok(Self::Inherited),
-            _ => Err(CatalogError::InvalidMetadata(format!(
-                "Invalid value for: {value} is not a valid value"
-            ))),
-        }
-    }
+crate::choice::string_enum! {
+    @enum
+    /// A bucket's own public access prevention setting. The parent project can still prevent public
+    /// access when this is `Inherited`; `crate::auth::PublicAccess` is the effective result.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(crate) enum PublicAccessPrevention as as_str {
+        #[default]
+        Inherited => "inherited",
+        Enforced => "enforced",
+    };
+    from_str(CatalogError, value => Err(CatalogError::InvalidMetadata(format!(
+        "Invalid value for: {value} is not a valid value"
+    ))))
 }
 
 #[derive(Debug, PartialEq, Eq)]

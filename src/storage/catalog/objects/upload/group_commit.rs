@@ -199,7 +199,7 @@ fn publish_batch(
             // published again, and then no reply reports it, so it is logged here.
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "upload_batch_retried",
+                crate::diagnostics::Event::UploadBatchRetried,
                 BatchRetried {
                     uploads: commits.len(),
                     failure: BackendFailureEvent::from(&BackendCause::from_error(failure)),

@@ -282,7 +282,7 @@ fn upgrade_catalog(
     if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Info,
-            "catalog_schema_migrated",
+            crate::diagnostics::Event::CatalogSchemaMigrated,
             serde_json::json!({"message":format!("migrated catalog schema from version {stored_version} to {CATALOG_SCHEMA_VERSION}; releases that support only schema {stored_version} can no longer open this data directory"),"from":stored_version,"to":CATALOG_SCHEMA_VERSION}),
         );
     }

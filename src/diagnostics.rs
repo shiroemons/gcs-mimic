@@ -10,31 +10,21 @@ use std::{
     sync::atomic::{AtomicU8, Ordering},
 };
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "lowercase")]
-#[repr(u8)]
-pub enum LogLevel {
-    Debug,
-    #[default]
-    Info,
-    Warn,
-    Error,
-}
-
-impl std::str::FromStr for LogLevel {
-    type Err = crate::config::InvalidChoice;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "debug" => Ok(Self::Debug),
-            "info" => Ok(Self::Info),
-            "warn" | "warning" => Ok(Self::Warn),
-            "error" => Ok(Self::Error),
-            _ => Err(crate::config::InvalidChoice(
-                "log_level must be debug, info, warn or error (warning aliases warn)",
-            )),
-        }
-    }
+crate::choice::string_enum! {
+    @enum
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+    #[repr(u8)]
+    pub enum LogLevel as as_str {
+        Debug => "debug",
+        #[default]
+        Info => "info",
+        Warn => "warn" | "warning",
+        Error => "error",
+    };
+    from_str(crate::choice::InvalidChoice, _ => Err(crate::choice::InvalidChoice(
+        "log_level must be debug, info, warn or error (warning aliases warn)",
+    )));
+    serde()
 }
 
 static LOG_LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Info as u8);
@@ -63,9 +53,111 @@ pub fn enabled(level: LogLevel) -> bool {
     level >= configured_level()
 }
 
+crate::choice::string_enum! {
+    @enum
+    /// An event written as a JSON line by the server or a command.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Event as as_str {
+        /// Published event name.
+        Ready => "ready",
+        /// Published event name.
+        Stopped => "stopped",
+        /// Published event name.
+        Diagnostics => "diagnostics",
+        /// Published event name.
+        DataDirCreated => "data_dir_created",
+        /// Published event name.
+        ImportPage => "import_page",
+        /// Published event name.
+        ImportSummary => "import_summary",
+        /// Published event name.
+        ImportComplete => "import_complete",
+        AcceptFailed => "accept_failed",
+        AcceptRecovered => "accept_recovered",
+        AdminResultUnencodable => "admin_result_unencodable",
+        AppendableCleanupDeferred => "appendable_cleanup_deferred",
+        AuthSelfSignedJwtRejected => "auth_self_signed_jwt_rejected",
+        AuthorizationDenied => "authorization_denied",
+        BackgroundTaskCancelled => "background_task_cancelled",
+        BackgroundTaskPanicked => "background_task_panicked",
+        BackgroundTaskRestarting => "background_task_restarting",
+        BatchResponseStreamFailed => "batch_response_stream_failed",
+        BindWait => "bind_wait",
+        BlobReclaimDeferred => "blob_reclaim_deferred",
+        BlobShardCleanupDeferred => "blob_shard_cleanup_deferred",
+        BucketPurgeCleanupDeferred => "bucket_purge_cleanup_deferred",
+        CatalogReaderUnavailable => "catalog_reader_unavailable",
+        CatalogSchemaMigrated => "catalog_schema_migrated",
+        ComposeCleanupDeferred => "compose_cleanup_deferred",
+        ConnectionClosed => "connection_closed",
+        ConnectionFailed => "connection_failed",
+        ConnectionTaskCancelled => "connection_task_cancelled",
+        ConnectionTaskPanicked => "connection_task_panicked",
+        ConnectionTimeout => "connection_timeout",
+        CorsFallbackDefault => "cors_fallback_default",
+        CorsLookupFailed => "cors_lookup_failed",
+        CorsUnconfigured => "cors_unconfigured",
+        DataLockReleaseFailed => "data_lock_release_failed",
+        DerivedCleanupDeferred => "derived_cleanup_deferred",
+        DerivedTransferDiscarded => "derived_transfer_discarded",
+        GrpcConnectionFailed => "grpc_connection_failed",
+        GrpcDrainTimeout => "grpc_drain_timeout",
+        GrpcHandshakeTimeout => "grpc_handshake_timeout",
+        GrpcIdleReclaimed => "grpc_idle_reclaimed",
+        GrpcIdleTimeout => "grpc_idle_timeout",
+        GrpcKeepaliveTimeout => "grpc_keepalive_timeout",
+        GrpcObjectReadFailure => "grpc_object_read_failure",
+        GrpcStreamInactivityTimeout => "grpc_stream_inactivity_timeout",
+        ImportProgress => "import_progress",
+        ImportReport => "import_report",
+        LifecycleBucketFailed => "lifecycle_bucket_failed",
+        LifecycleRulesQuarantined => "lifecycle_rules_quarantined",
+        LifecycleVersionQuarantined => "lifecycle_version_quarantined",
+        LockPoisonRecovered => "lock_poison_recovered",
+        MultipartCleanupDeferred => "multipart_cleanup_deferred",
+        NotificationCatalogRetry => "notification_catalog_retry",
+        NotificationOutboxEvicted => "notification_outbox_evicted",
+        NotificationPublishRetry => "notification_publish_retry",
+        NotificationTopicCheckFailed => "notification_topic_check_failed",
+        ObjectBackendFailure => "object_backend_failure",
+        ObjectBodyReadFailed => "object_body_read_failed",
+        ObjectRequestTimeout => "object_request_timeout",
+        ObjectTranscodingFailed => "object_transcoding_failed",
+        PublicationCleanupFailed => "publication_cleanup_failed",
+        RamCheckpointCleanupFailed => "ram_checkpoint_cleanup_failed",
+        RamDraftCleanupFailed => "ram_draft_cleanup_failed",
+        ResetCleanupDeferred => "reset_cleanup_deferred",
+        ResumableMaintenanceRetry => "resumable_maintenance_retry",
+        RewriteCleanupDeferred => "rewrite_cleanup_deferred",
+        SeedCleanupDeferred => "seed_cleanup_deferred",
+        SeedCommitStarted => "seed_commit_started",
+        SeedObjectDeleted => "seed_object_deleted",
+        SeedObjectKept => "seed_object_kept",
+        SeedPassFailed => "seed_pass_failed",
+        SeedPassRecovered => "seed_pass_recovered",
+        SeedSkipped => "seed_skipped",
+        SeedTreeLarge => "seed_tree_large",
+        Seeding => "seeding",
+        SignatureHostPortOmitted => "signature_host_port_omitted",
+        Stopping => "stopping",
+        SyncRetiredFiles => "sync_retired_files",
+        SyncRetiredFilesListed => "sync_retired_files_listed",
+        SyncRetiredFilesUnchecked => "sync_retired_files_unchecked",
+        SyncRetiredStagedKept => "sync_retired_staged_kept",
+        TcpKeepaliveFailed => "tcp_keepalive_failed",
+        TcpNodelayFailed => "tcp_nodelay_failed",
+        TlsHandshakeFailed => "tls_handshake_failed",
+        TlsHandshakeTimeout => "tls_handshake_timeout",
+        UnixSocketCleanupFailed => "unix_socket_cleanup_failed",
+        UploadBatchRetried => "upload_batch_retried",
+        UploadCleanupDeferred => "upload_cleanup_deferred",
+    };
+    serde()
+}
+
 #[derive(Serialize)]
-struct Event<'a, T> {
-    event: &'a str,
+struct EventLine<T> {
+    event: Event,
     level: LogLevel,
     #[serde(flatten)]
     fields: T,
@@ -75,7 +167,7 @@ fn write_event<T: Serialize, W: Write>(
     writer: impl FnOnce() -> W,
     threshold: LogLevel,
     level: LogLevel,
-    event: &str,
+    event: Event,
     fields: impl FnOnce() -> T,
 ) -> io::Result<()> {
     if level < threshold {
@@ -85,7 +177,7 @@ fn write_event<T: Serialize, W: Write>(
     let mut writer = writer();
     serde_json::to_writer(
         &mut writer,
-        &Event {
+        &EventLine {
             event,
             level,
             fields,
@@ -95,13 +187,13 @@ fn write_event<T: Serialize, W: Write>(
 }
 
 /// Ordinary events must not turn a closed stderr pipe into a storage failure.
-pub fn emit(level: LogLevel, event: &str, fields: impl Serialize) {
+pub fn emit(level: LogLevel, event: Event, fields: impl Serialize) {
     emit_lazy(level, event, || fields);
 }
 
 /// Builds fields only when the level is enabled. Use this when preparing fields allocates,
 /// as in debug events on connection or request paths. Like [`emit`], it discards write errors.
-pub(crate) fn emit_lazy<T: Serialize>(level: LogLevel, event: &str, fields: impl FnOnce() -> T) {
+pub(crate) fn emit_lazy<T: Serialize>(level: LogLevel, event: Event, fields: impl FnOnce() -> T) {
     let _ = write_event(
         || io::stderr().lock(),
         configured_level(),
@@ -203,7 +295,7 @@ impl Diagnostics {
                 || &mut writer,
                 LogLevel::Debug,
                 level,
-                "diagnostics",
+                Event::Diagnostics,
                 || serde_json::json!({"diagnostics": records}),
             )?;
         }
@@ -278,6 +370,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn published_event_names_are_stable() {
+        for (event, expected) in [
+            (Event::Ready, "ready"),
+            (Event::Stopped, "stopped"),
+            (Event::Diagnostics, "diagnostics"),
+            (Event::DataDirCreated, "data_dir_created"),
+            (Event::ImportPage, "import_page"),
+            (Event::ImportSummary, "import_summary"),
+            (Event::ImportComplete, "import_complete"),
+        ] {
+            assert_eq!(
+                serde_json::to_string(&event).unwrap(),
+                format!("{expected:?}")
+            );
+        }
+    }
+
+    #[test]
     fn log_level_spellings_and_json_are_stable() {
         for (level, spelling) in [
             (LogLevel::Debug, "debug"),
@@ -335,7 +445,7 @@ mod tests {
                     },
                     threshold,
                     level,
-                    "operation",
+                    Event::ConnectionClosed,
                     || {
                         built_fields = true;
                         serde_json::json!({"message":"line\n\"quoted\""})
@@ -349,7 +459,7 @@ mod tests {
                 } else {
                     assert_eq!(bytes.iter().filter(|byte| **byte == b'\n').count(), 1);
                     let event: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-                    assert_eq!(event["event"], "operation");
+                    assert_eq!(event["event"], "connection_closed");
                     assert_eq!(event["level"], serde_json::to_value(level).unwrap());
                     assert_eq!(event["message"], "line\n\"quoted\"");
                 }

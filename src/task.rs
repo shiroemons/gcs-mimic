@@ -328,7 +328,7 @@ where
             }
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
-                "background_task_restarting",
+                crate::diagnostics::Event::BackgroundTaskRestarting,
                 serde_json::json!({
                     "message": format!("background task {name} panicked; restarting in {} ms", delay.as_millis()),
                     "task": name,
@@ -417,7 +417,7 @@ impl<F> Drop for Supervised<F> {
         if !self.finished {
             crate::diagnostics::emit_lazy(
                 crate::diagnostics::LogLevel::Debug,
-                "background_task_cancelled",
+                crate::diagnostics::Event::BackgroundTaskCancelled,
                 || {
                     serde_json::json!({
                         "message": format!("background task {} was cancelled", self.name),
@@ -435,7 +435,7 @@ fn report_panic(name: &'static str, payload: &(dyn Any + Send)) {
     tests::record_panic(name, message);
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Error,
-        "background_task_panicked",
+        crate::diagnostics::Event::BackgroundTaskPanicked,
         serde_json::json!({
             "message": format!("background task {name} panicked: {message}"),
             "task": name,

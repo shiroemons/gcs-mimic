@@ -129,7 +129,7 @@ pub enum KeyLookup {
     Ignored,
 }
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     /// Whether V4 verification also accepts a signature whose canonical `host` omits the
     /// request Host's explicit port. Go storage builds the canonical host from the URL's
     /// host name, so its URLs for a non-default port fail exact verification.

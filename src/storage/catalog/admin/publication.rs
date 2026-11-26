@@ -246,7 +246,7 @@ impl Drop for StagedObject {
             if let Err(error) = cleanup(&catalog, id).await {
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Error,
-                    "publication_cleanup_failed",
+                    crate::diagnostics::Event::PublicationCleanupFailed,
                     serde_json::json!({"message": error.to_string()}),
                 );
             }

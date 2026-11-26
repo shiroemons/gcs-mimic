@@ -2,7 +2,7 @@
 
 use std::{fmt, num::ParseIntError};
 
-crate::config::string_enum! {
+crate::choice::string_enum! {
     no_default pub enum UrlStyle {
         Path => "path",
         VirtualHosted => "virtual-hosted",

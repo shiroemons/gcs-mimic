@@ -5,43 +5,20 @@ use crate::{bucket::CatalogError, object::ObjectRecord};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Event {
-    Finalize,
-    MetadataUpdate,
-    Delete,
-    Archive,
-}
-
-impl Event {
-    /// In the order the Cloud Storage documentation lists them, which the per-event-type limit
-    /// checks and reports in.
-    pub(crate) const ALL: [Self; 4] = [
-        Self::Finalize,
-        Self::MetadataUpdate,
-        Self::Delete,
-        Self::Archive,
-    ];
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Finalize => "OBJECT_FINALIZE",
-            Self::MetadataUpdate => "OBJECT_METADATA_UPDATE",
-            Self::Delete => "OBJECT_DELETE",
-            Self::Archive => "OBJECT_ARCHIVE",
-        }
-    }
-}
-
-impl std::str::FromStr for Event {
-    type Err = NotificationError;
-
-    fn from_str(name: &str) -> Result<Self, NotificationError> {
-        Self::ALL
-            .into_iter()
-            .find(|event| event.as_str() == name)
-            .ok_or_else(|| NotificationError::InvalidEventType(name.to_owned()))
-    }
+crate::choice::string_enum! {
+    @enum
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum Event as as_str {
+        Finalize => "OBJECT_FINALIZE",
+        MetadataUpdate => "OBJECT_METADATA_UPDATE",
+        Delete => "OBJECT_DELETE",
+        Archive => "OBJECT_ARCHIVE",
+    };
+    listed(
+        /// The order used to check and report the per-event-type limit.
+        pub(crate)
+    );
+    from_str(NotificationError, value => Err(NotificationError::InvalidEventType(value.to_owned())))
 }
 
 impl fmt::Display for Event {

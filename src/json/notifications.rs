@@ -374,7 +374,7 @@ pub(crate) fn topic_not_found(topic: &str, bucket_project: &str) -> ApiError {
 pub(crate) fn topic_unverifiable(error: &notification::TopicCheckError) -> ApiError {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
-        "notification_topic_check_failed",
+        crate::diagnostics::Event::NotificationTopicCheckFailed,
         json!({"cause": Report(error).to_string()}),
     );
     ApiError::service_unavailable(

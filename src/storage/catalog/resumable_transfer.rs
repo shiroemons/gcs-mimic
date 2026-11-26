@@ -411,7 +411,7 @@ impl Catalog {
             if let Err(error) = cleanup {
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
-                    "upload_cleanup_deferred",
+                    crate::diagnostics::Event::UploadCleanupDeferred,
                     serde_json::json!({"message":format!("invalid upload cleanup failed; maintenance will retry: {error}")}),
                 );
                 self.record_maintenance_error(Some(
