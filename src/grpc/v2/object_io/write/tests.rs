@@ -238,6 +238,39 @@ async fn grpc_write_key_after_a_keyless_start_or_malformed_publishes_nothing() {
 }
 
 #[tokio::test]
+async fn resuming_after_a_split_granule_replaces_only_the_unpersisted_tail() {
+    let (_dir, storage) = setup(false).await;
+    let id = start(&storage, "split", None).await.unwrap();
+    let payload = granule();
+    let error = write(
+        &storage,
+        vec![
+            resume(&id, 0, &payload[..payload.len() - 1], false, None),
+            later(GRANULE - 1, b"xy", false, None),
+        ],
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        query(&storage, &id, None).await,
+        QueriedStatus::PersistedSize(GRANULE)
+    );
+    let object = resource(
+        write(&storage, vec![resume(&id, GRANULE, b"z", true, None)])
+            .await
+            .unwrap(),
+    );
+    let expected = [&payload[..payload.len() - 1], b"xz"].concat();
+    assert_eq!(object.size, GRANULE + 1);
+    assert_eq!(
+        object.checksums.unwrap().crc32c,
+        Some(crc32c::crc32c(&expected))
+    );
+    storage.state.catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn grpc_resumable_key_binds_at_start_and_status_ignores_keys() {
     let (_dir, storage) = setup(false).await;
     let catalog = &storage.state.catalog;
