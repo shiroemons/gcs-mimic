@@ -7,7 +7,7 @@ use super::{
     transfer_io::Output,
 };
 use super::{
-    objects::{self, authorized_bucket, check_publication, lookup},
+    objects::{self, check_publication},
     system_time_micros, unix_micros,
 };
 use crate::hashing::{Hasher, Hashes};
@@ -454,15 +454,14 @@ impl Catalog {
             move |connection: &mut rusqlite::Connection| -> Result<(Value, objects::Retired), ResumableError> {
                 let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                 check_session_publishable(&transaction, &session, clock.now())?;
-                let (_, delete_permission) =
-                    authorized_bucket(&transaction, &session.bucket, &options.access)?;
-                let bucket = objects::BucketPublication::load(&transaction, &session.bucket)?;
+                let authority = objects::BucketAuthority::load(&transaction, &session.bucket, &options.access)?;
+                let bucket = authority.publication?;
                 let storage_class = bucket.storage_class(options.metadata.storage_class)?;
-                let previous = lookup(&transaction, &session.bucket, &session.name)?;
+                let previous = bucket.lookup(&transaction, &session.bucket, &session.name)?;
                 check_publication(
                     previous.as_ref(),
                     options.conditions,
-                    delete_permission,
+                    authority.overwrite,
                     clock.now(),
                 )?;
                 let now = clock.now();
@@ -474,12 +473,7 @@ impl Catalog {
                     storage_class,
                     time,
                     event_based_hold: bucket.default_event_hold,
-                    owner: Some(super::object_owner::for_publication(
-                        &transaction,
-                        &session.bucket,
-                        &options.access,
-                        principals.as_ref(),
-                    )?),
+                    owner: Some(bucket.owner(&options.access, principals.as_ref())?),
                 };
                 let objects::PublishedVersion {
                     retired,

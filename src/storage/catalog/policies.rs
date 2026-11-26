@@ -200,6 +200,18 @@ pub(super) fn check_access<'a>(
     project: &str,
     access: &'a BucketAccess,
 ) -> Result<DeletePermission<'a>, CatalogError> {
+    check_access_with_public(connection, bucket, project, access, || {
+        policy_public_access(connection, bucket)
+    })
+}
+
+pub(super) fn check_access_with_public<'a>(
+    connection: &Connection,
+    bucket: &'a str,
+    project: &str,
+    access: &'a BucketAccess,
+    public: impl FnOnce() -> Result<crate::auth::PublicAccess, CatalogError>,
+) -> Result<DeletePermission<'a>, CatalogError> {
     if let BucketAccess::Policy {
         identity,
         permission,
@@ -212,16 +224,27 @@ pub(super) fn check_access<'a>(
             return Err(denied(identity, *permission, bucket));
         }
         let policy = read_policy(connection, bucket)?;
-        let pap = policy_public_access(connection, bucket)?;
-        if !identity.is_some_and(|identity| identity.allows(*permission, project))
-            && !policy.allows(identity, *permission, pap)
-            && !super::acl::bucket_granted(connection, bucket, project, identity, *permission)?
-        {
+        let pap = public()?;
+        let mut entries = None;
+        let mut allows = |permission| -> Result<bool, CatalogError> {
+            if identity.is_some_and(|identity| identity.allows(permission, project))
+                || policy.allows(identity, permission, pap)
+            {
+                return Ok(true);
+            }
+            let entries = match &entries {
+                Some(entries) => entries,
+                None => entries.insert(super::acl::bucket_entries(connection, bucket, project)?),
+            };
+            Ok(entries.iter().any(|entry| {
+                entry.role.bucket_iam_role().grants(permission)
+                    && entry.entity.matches(identity, pap)
+            }))
+        };
+        if !allows(*permission)? {
             return Err(denied(identity, *permission, bucket));
         }
-        let delete = identity.is_some_and(|identity| identity.allows(OBJECTS_DELETE, project))
-            || policy.allows(identity, OBJECTS_DELETE, pap)
-            || super::acl::bucket_granted(connection, bucket, project, identity, OBJECTS_DELETE)?;
+        let delete = *permission == OBJECTS_DELETE || allows(OBJECTS_DELETE)?;
         return Ok(if delete {
             DeletePermission::Granted
         } else {

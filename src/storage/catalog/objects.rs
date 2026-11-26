@@ -57,6 +57,9 @@ pub(super) use retention_start;
 // the connection's prepared statement cache reuses without formatting.
 macro_rules! object_columns {
     () => {
+        object_columns!("(SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket)")
+    };
+    ($retention_micros:literal) => {
         concat!(
             "bucket, name, generation, metageneration, content_type, size,
     md5, crc32c, storage_class, time_created, updated, blob_id,
@@ -64,7 +67,7 @@ macro_rules! object_columns {
     time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
     CASE WHEN event_based_hold = 0 THEN ",
             retention_start!(""),
-            " + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket) END AS retention_expiration_time, soft_delete_time, hard_delete_time,
+            " + ", $retention_micros, " END AS retention_expiration_time, soft_delete_time, hard_delete_time,
     retention_mode, retain_until_time, customer_key_sha256, md5_available, owner,
     retain_until_sub_micro_nanos, temporary_hold_released, event_based_hold_released,
     time_storage_class_updated, event_based_hold_release_time"
@@ -150,9 +153,9 @@ pub(crate) use list::{ObjectListPage, ObjectListQuery};
 pub(super) use list::{SeekStart, list_page, prefix_end};
 pub(crate) use publication::Versioning;
 pub(super) use publication::{
-    BucketPublication, DeletePermission, GenerationAssignment, NewVersion, PublicationDefaults,
-    PublicationTime, PublishedVersion, RequestKind, Retired, Retirement, acl_update_error,
-    last_generation, next_generation, publish_in_transaction, publish_version,
+    BucketAuthority, BucketPublication, DeletePermission, GenerationAssignment, NewVersion,
+    PublicationDefaults, PublicationTime, PublishedVersion, RequestKind, Retired, Retirement,
+    acl_update_error, last_generation, next_generation, publish_in_transaction, publish_version,
     retention_expiration,
 };
 use publication::{RetirementContext, retire_previous, validate_timestamps};
@@ -513,22 +516,31 @@ pub(super) fn delete_selected(
     conditions: ObjectConditions,
     access: &BucketAccess,
 ) -> Result<(Journaled, Result<Retired, ObjectError>), ObjectError> {
-    let bucket = &target.bucket;
-    authorized_bucket(connection, bucket, access)?;
-    super::soft_delete::after_purge(connection, bucket, clock.now().try_into()?, |connection| {
-        let transaction = sql::immediate(connection)?;
-        let deleted = delete_in_transaction(
-            &transaction,
-            target,
-            DeleteContext {
-                now: clock.now(),
-                conditions,
-                access,
-            },
-        )?;
-        transaction.commit()?;
-        Ok(deleted.retired)
-    })
+    let transaction = sql::immediate(connection)?;
+    let authority = BucketAuthority::load(&transaction, &target.bucket, access)?;
+    let removed = super::soft_delete::purge_in_transaction(
+        &transaction,
+        &target.bucket,
+        clock.now().try_into()?,
+    )?;
+    // A refused or partially executed delete must still leave the preceding purge committed.
+    sql::exec(&transaction, "SAVEPOINT object_delete", [])?;
+    let context = DeleteContext {
+        now: clock.now(),
+        conditions,
+        access,
+    };
+    let result = match delete_authorized(&transaction, target, context, authority) {
+        Ok(deleted) => Ok(deleted.retired),
+        // SQLITE_FULL and some I/O errors can roll back the whole transaction.
+        Err(error) if transaction.is_autocommit() => return Err(error),
+        Err(error) => {
+            sql::exec(&transaction, "ROLLBACK TO object_delete", [])?;
+            Err(error)
+        }
+    };
+    super::soft_delete::commit_expiry(transaction)?;
+    Ok((Journaled::for_rows(removed), result))
 }
 
 pub(super) struct Deleted {
@@ -549,6 +561,16 @@ pub(super) fn delete_in_transaction(
     target: &ObjectTarget,
     context: DeleteContext<'_>,
 ) -> Result<Deleted, ObjectError> {
+    let authority = BucketAuthority::load(transaction, &target.bucket, context.access)?;
+    delete_authorized(transaction, target, context, authority)
+}
+
+fn delete_authorized(
+    transaction: &Transaction<'_>,
+    target: &ObjectTarget,
+    context: DeleteContext<'_>,
+    authority: BucketAuthority<'_>,
+) -> Result<Deleted, ObjectError> {
     let ObjectTarget {
         bucket,
         name,
@@ -559,16 +581,14 @@ pub(super) fn delete_in_transaction(
         conditions,
         access,
     } = context;
-    let StoredObject { record, blob: id } = selected(
-        transaction,
-        bucket,
-        name,
-        *generation,
-        conditions,
-        RequestKind::Mutation,
-        access,
-    )?;
-    let publication = BucketPublication::load(transaction, bucket)?;
+    let stored = match &authority.publication {
+        Ok(publication) => publication.lookup_generation(transaction, bucket, name, *generation)?,
+        Err(_) => lookup_generation(transaction, bucket, name, *generation)?,
+    }
+    .ok_or(ObjectError::ObjectNotFound)?;
+    check_conditions(Some(&stored.record), conditions, RequestKind::Mutation)?;
+    let publication = authority.publication?;
+    let record = &stored.record;
     // Deleting a live version in a versioned bucket only makes it noncurrent.
     let retirement = if publication.versioning == Versioning::Enabled && generation.is_none() {
         Retirement::Noncurrent
@@ -582,7 +602,7 @@ pub(super) fn delete_in_transaction(
     }
     let retired = retire_previous(
         transaction,
-        Some(&StoredObject { record, blob: id }),
+        Some(&stored),
         retirement,
         &publication,
         RetirementContext {
@@ -648,17 +668,7 @@ pub(super) fn selected(
     access: &BucketAccess,
 ) -> Result<StoredObject, ObjectError> {
     let object_acl = object_acl_authority(connection, bucket, access)?;
-    let record = if let Some(generation) = generation {
-        sql::row(
-            connection,
-            SELECT_OBJECT_GENERATION,
-            params![bucket, name, generation],
-            read_object,
-        )
-        .optional()?
-    } else {
-        lookup(connection, bucket, name)?
-    };
+    let record = lookup_generation(connection, bucket, name, generation)?;
     if let Some(check) = object_acl {
         let granted = record
             .as_ref()
@@ -680,6 +690,24 @@ pub(super) fn selected(
     let stored = record.ok_or(ObjectError::ObjectNotFound)?;
     check_conditions(Some(&stored.record), conditions, request)?;
     Ok(stored)
+}
+
+fn lookup_generation(
+    connection: &Connection,
+    bucket: &str,
+    name: &str,
+    generation: Option<i64>,
+) -> Result<Option<StoredObject>, ObjectError> {
+    match generation {
+        Some(generation) => Ok(sql::row(
+            connection,
+            SELECT_OBJECT_GENERATION,
+            params![bucket, name, generation],
+            read_object,
+        )
+        .optional()?),
+        None => lookup(connection, bucket, name),
+    }
 }
 
 /// A caller the bucket refused an object permission, whose object ACL may still grant it.

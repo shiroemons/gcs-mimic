@@ -614,8 +614,8 @@ jobs, accounting for the two extra jobs over the N+6 W estimate.
 | XML completion: reuse the rows from `xml_completion_parts` under the upload lease | disk, after acquiring the lease, publishing a new object and reclaiming one page of parts: N+8 W → 8 W |
 | Maintenance: a busy sweep marks its key deferred and a release wakes only for a deferred key; a pass starts with one snapshot probe of every kind of due work and runs only the sweeps with work | about 12 W and 3 tasks per idle wake → 1 R, and no self-wake |
 | Reclamation: each retiring transaction reports whether it journaled; all sites use `reclaim_if` | 1 W, a task and a permit per commit → none when nothing was journaled |
-| Delete: one `BucketAuthority` (bucket row, policy, public access prevention and ACL decoded once); purge inside the delete transaction | 2 transactions, the row read 3 times, the ACL decoded up to 4 times → 1 transaction, everything once |
-| Upload publish: the authorized publication carries the bucket's project | 2 bucket reads → 1 |
+| Object delete: authorize once, then purge and retire under one immediate transaction | strict delete via a public bucket ACL, on a versioned bucket: 1 W both ways; 2 transactions → 1; 9 bucket queries (3 settings/project, 6 for public access prevention) → 1; 2 policy reads → 1; 4 bucket ACL decodes → 1 |
+| Upload publish: carry the authorized bucket's settings and project into ownership and ACL publication | permissive new object, after admission and advisory authorization: 1 W both ways; 4 bucket queries (authorization, settings, owner, ACL) → 1 |
 | `buckets.list` with `projection=full` on N visible buckets, counting the page read | N W + (N+1) R → 2 R (permissive)<br>N W + (2N+1) R → 2 R (strict admin) |
 | `buckets.get` with `projection=full`, counting the metadata read | 1 W + 2 R → 2 R (permissive)<br>1 W + 4 R → 3 R (strict admin) |
 | JSON `objects.list` (live and versions) and gRPC `open_readable` and `get_readable` on the read pool, before ACL projection | JSON: 1 W → 1 R (permissive), 1 W + 1 R → 2 R (strict admin)<br>gRPC catalog open or get: 1 W → 1 R |

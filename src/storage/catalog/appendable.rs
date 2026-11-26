@@ -468,8 +468,13 @@ fn record(
         event_based_hold: false,
         time: row.time_created,
         owner: Some(super::object_owner::for_publication(
-            connection,
-            bucket,
+            || {
+                Ok(sql::scalar(
+                    connection,
+                    "SELECT project FROM buckets WHERE name=?1",
+                    [bucket],
+                )?)
+            },
             &row.options.access,
             profile,
         )?),

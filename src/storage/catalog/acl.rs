@@ -125,9 +125,9 @@ pub(super) fn publish_object_acl(
     connection: &Connection,
     record: &crate::object::ObjectRecord,
     mode: PublicationAcl<'_>,
+    row: &super::objects::BucketPublication,
 ) -> Result<(), ObjectError> {
     let bucket = &record.bucket;
-    let row = bucket_row(connection, bucket)?.ok_or(ObjectError::BucketNotFound)?;
     let mut entries = match mode {
         PublicationAcl::InheritDefault => {
             let stored = stored_bucket_entries(connection, bucket, BucketScope::DefaultObject)?;
@@ -143,7 +143,7 @@ pub(super) fn publish_object_acl(
             }
             let entries = predefined.entries(&row.project);
             if entries.iter().any(|entry| entry.entity.is_public())
-                && policy_public_access(connection, bucket)? == crate::auth::PublicAccess::Prevented
+                && row.public_access(connection)? == crate::auth::PublicAccess::Prevented
             {
                 return Err(ObjectError::PublicAccessPrevention);
             }
@@ -429,21 +429,15 @@ fn bucket_projection(
     })
 }
 
-pub(super) fn bucket_granted(
+/// Bucket ACL roles grant the corresponding legacy IAM permissions even under UBLA.
+pub(super) fn bucket_entries(
     connection: &Connection,
     bucket: &str,
     project: &str,
-    identity: Option<&crate::auth::Identity>,
-    permission: crate::auth::Permission,
-) -> Result<bool, CatalogError> {
-    let entries = stored_bucket_entries(connection, bucket, BucketScope::Bucket)?
-        .unwrap_or_else(|| project_private(project));
-    // Bucket ACL roles are the same authority as legacy bucket IAM, including under UBLA.
-    entries_grant(
-        &entries,
-        identity,
-        |role| role.bucket_iam_role().grants(permission),
-        || super::policies::policy_public_access(connection, bucket),
+) -> Result<Vec<AclEntry>, CatalogError> {
+    Ok(
+        stored_bucket_entries(connection, bucket, BucketScope::Bucket)?
+            .unwrap_or_else(|| project_private(project)),
     )
 }
 

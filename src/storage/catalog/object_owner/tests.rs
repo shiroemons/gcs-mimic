@@ -279,20 +279,17 @@ fn local_creator(entity: &str) -> ObjectOwner {
 
 #[test]
 fn permissive_creator_owns_unauthenticated_publications_without_widening_other_paths() {
-    let connection = Connection::open_in_memory().unwrap();
-    connection
-        .execute_batch("CREATE TABLE buckets(name TEXT, project TEXT); INSERT INTO buckets VALUES('b','project');")
-        .unwrap();
+    let project = || Ok("project".to_owned());
     let with_creator = permissive(Some("who@example.test"));
     assert_eq!(
-        for_publication(&connection, "b", PERMISSIVE, Some(&with_creator)).unwrap(),
+        for_publication(project, PERMISSIVE, Some(&with_creator)).unwrap(),
         local_creator("user-who@example.test")
     );
     // No creator configured, no profile yet, or the legacy-style trusted profile keep the
     // project owners, which is also what existing data holds.
     for profile in [Some(permissive(None)), Some(Profile::TrustedLocal), None] {
         assert_eq!(
-            for_publication(&connection, "b", PERMISSIVE, profile.as_ref()).unwrap(),
+            for_publication(project, PERMISSIVE, profile.as_ref()).unwrap(),
             ObjectOwner::ProjectOwners {
                 project: "project".into()
             }

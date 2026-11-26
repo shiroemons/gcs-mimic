@@ -33,7 +33,61 @@ pub(in crate::storage::catalog) struct BucketPublication {
     soft_delete_seconds: Option<NonZeroI64>,
     /// With the project, what a requested class must fit.
     location: Location,
-    project: String,
+    pub(in crate::storage::catalog) project: String,
+    pub(in crate::storage::catalog) uniform_access: bool,
+    local_public_access: crate::auth::PublicAccess,
+}
+
+const PUBLICATION: &str = "SELECT storage_class, autoclass, versioning_enabled, default_event_based_hold,
+    json_extract(retention_policy, '$.retention_period'), COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0),
+    location, project, uniform_bucket_level_access_locked_time IS NOT NULL,
+    public_access_prevention_enforced FROM buckets WHERE name = ?1";
+
+/// Authority for this transaction. Settings errors are reported only when the operation needs
+/// publication settings, after checking access, replay and selection in their usual order.
+pub(in crate::storage::catalog) struct BucketAuthority<'a> {
+    pub(in crate::storage::catalog) publication: Result<BucketPublication, ObjectError>,
+    pub(in crate::storage::catalog) overwrite: DeletePermission<'a>,
+}
+
+impl<'a> BucketAuthority<'a> {
+    pub(in crate::storage::catalog) fn load(
+        connection: &Connection,
+        bucket: &'a str,
+        access: &'a BucketAccess,
+    ) -> Result<Self, ObjectError> {
+        let authority = sql::row(connection, PUBLICATION, [bucket], |row| {
+            let class = row.get(0)?;
+            let project: String = row.get(7)?;
+            let local = row.get(9)?;
+            let grant = super::super::policies::check_access_with_public(
+                connection,
+                bucket,
+                &project,
+                access,
+                || effective_public_access(connection, local, &project),
+            );
+            Ok(grant.map(|overwrite| Self {
+                publication: BucketPublication::read(row, class, project, local)
+                    .map_err(ObjectError::from),
+                overwrite,
+            }))
+        })
+        .optional();
+        match authority {
+            Ok(Some(grant)) => grant.map_err(Into::into),
+            Ok(None) => Err(ObjectError::BucketNotFound),
+            Err(error) => {
+                // SQLite can reject malformed policy JSON before yielding the bucket row.
+                // Authorization, then replay or object selection, still precede that failure.
+                let (_, overwrite) = authorized_bucket(connection, bucket, access)?;
+                Ok(Self {
+                    publication: Err(error.into()),
+                    overwrite,
+                })
+            }
+        }
+    }
 }
 
 impl BucketPublication {
@@ -41,32 +95,96 @@ impl BucketPublication {
         connection: &Connection,
         bucket: &str,
     ) -> Result<Self, ObjectError> {
-        sql::row(
-            connection,
-            "SELECT storage_class, autoclass, versioning_enabled, default_event_based_hold, json_extract(retention_policy, '$.retention_period'), COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0), location, project FROM buckets WHERE name = ?1",
-            [bucket],
-            |row| {
-                Ok(Self {
-                    default_class: row.get(0)?,
-                    autoclass: row
-                        .get::<_, Option<sql::Json<_>>>(1)?
-                        .map(|json| json.0),
-                    versioning: if row.get(2)? {
-                        Versioning::Enabled
-                    } else {
-                        Versioning::Disabled
-                    },
-                    default_event_hold: row.get(3)?,
-                    retention_period: row.get(4)?,
-                    soft_delete_seconds: NonZeroI64::new(row.get(5)?)
-                        .filter(|seconds| seconds.is_positive()),
-                    location: row.get(6)?,
-                    project: row.get(7)?,
-                })
-            },
-        )
+        sql::row(connection, PUBLICATION, [bucket], |row| {
+            Self::read(row, row.get(0)?, row.get(7)?, row.get(9)?)
+        })
         .optional()?
         .ok_or(ObjectError::BucketNotFound)
+    }
+
+    fn read(
+        row: &Row<'_>,
+        default_class: StorageClass,
+        project: String,
+        local_public_access: crate::auth::PublicAccess,
+    ) -> rusqlite::Result<Self> {
+        Ok(Self {
+            default_class,
+            autoclass: row.get::<_, Option<sql::Json<_>>>(1)?.map(|json| json.0),
+            versioning: if row.get(2)? {
+                Versioning::Enabled
+            } else {
+                Versioning::Disabled
+            },
+            default_event_hold: row.get(3)?,
+            retention_period: row.get(4)?,
+            soft_delete_seconds: NonZeroI64::new(row.get(5)?)
+                .filter(|seconds| seconds.is_positive()),
+            location: row.get(6)?,
+            project,
+            uniform_access: row.get(8)?,
+            local_public_access,
+        })
+    }
+
+    pub(in crate::storage::catalog) fn public_access(
+        &self,
+        connection: &Connection,
+    ) -> Result<crate::auth::PublicAccess, CatalogError> {
+        effective_public_access(connection, self.local_public_access, &self.project)
+    }
+
+    pub(in crate::storage::catalog) fn owner(
+        &self,
+        access: &BucketAccess,
+        profile: Option<&super::super::principals::Profile>,
+    ) -> Result<crate::object::owner::ObjectOwner, ObjectError> {
+        super::super::object_owner::for_publication(|| Ok(self.project.clone()), access, profile)
+    }
+
+    /// The object projection uses the bucket retention period already read in this transaction.
+    pub(in crate::storage::catalog) fn lookup(
+        &self,
+        connection: &Connection,
+        bucket: &str,
+        name: &str,
+    ) -> Result<Option<StoredObject>, ObjectError> {
+        const LIVE: &str = concat!(
+            "SELECT ",
+            object_columns!("?3 * 1000000"),
+            " FROM objects WHERE bucket = ?1 AND name = ?2 AND time_deleted IS NULL"
+        );
+        Ok(sql::row(
+            connection,
+            LIVE,
+            params![bucket, name, self.retention_period],
+            read_object,
+        )
+        .optional()?)
+    }
+
+    pub(super) fn lookup_generation(
+        &self,
+        connection: &Connection,
+        bucket: &str,
+        name: &str,
+        generation: Option<i64>,
+    ) -> Result<Option<StoredObject>, ObjectError> {
+        const VERSION: &str = concat!(
+            "SELECT ",
+            object_columns!("?4 * 1000000"),
+            " FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3 AND soft_delete_time IS NULL"
+        );
+        match generation {
+            Some(generation) => Ok(sql::row(
+                connection,
+                VERSION,
+                params![bucket, name, generation, self.retention_period],
+                read_object,
+            )
+            .optional()?),
+            None => self.lookup(connection, bucket, name),
+        }
     }
 
     /// Refuses a requested class the bucket's location cannot hold.
@@ -117,6 +235,21 @@ impl BucketPublication {
             })
             .transpose()
     }
+}
+
+fn effective_public_access(
+    connection: &Connection,
+    local: crate::auth::PublicAccess,
+    project: &str,
+) -> Result<crate::auth::PublicAccess, CatalogError> {
+    if local == crate::auth::PublicAccess::Prevented {
+        return Ok(local);
+    }
+    Ok(sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = ?1)",
+        [project],
+    )?)
 }
 
 /// The clock reading shared by every check and timestamp in one publication transaction.
@@ -464,7 +597,7 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
             record.customer_key_sha256.as_ref().map(|sha256| &sha256[..]),
             record.md5_availability == crate::object::Md5Availability::Available, owner,
             retention.sub_micro, temporary.released, event.released, class_updated]))?;
-    super::super::acl::publish_object_acl(transaction, &record, acl)?;
+    super::super::acl::publish_object_acl(transaction, &record, acl, bucket)?;
     if notification_mode == NotificationMode::Emit {
         super::super::notification_outbox::published(transaction, &record, previous, now)?;
     }

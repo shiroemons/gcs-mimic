@@ -522,7 +522,9 @@ File publication and SQL commit are separate operations.
 An ambiguous commit error is followed by a reference check before cleanup; committed
 live data must not be removed as though the write had failed.
 
-Delete atomically removes the live record and journals its blob. After successful commit,
+Object delete authorizes against the bucket in its immediate transaction, purges expired
+soft-deleted rows and retires the selected generation under a savepoint. A refused delete can
+still commit the preceding purge. A rollback of the whole transaction restores both. After successful commit,
 overwrite/delete return success even if reclamation fails; the diagnostic is logged and the
 journal retains deferred work for startup. Reclamation checks
 for live references in a catalog job, unlinks/syncs on the blocking pool, then removes

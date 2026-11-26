@@ -1120,17 +1120,17 @@ fn publish_checked_entry(
     let access = grant.access();
     let bucket = entry.bucket.as_str();
     let name = entry.name.as_str();
-    let (_, delete_permission) = objects::authorized_bucket(transaction, bucket, &access)?;
-    let publication = objects::BucketPublication::load(transaction, bucket)?;
+    let authority = objects::BucketAuthority::load(transaction, bucket, &access)?;
+    let publication = authority.publication?;
     let storage_class = publication.storage_class(entry.request.metadata.storage_class)?;
-    let previous = objects::lookup(transaction, bucket, name)?;
+    let previous = publication.lookup(transaction, bucket, name)?;
     objects::check_publication(
         previous.as_ref(),
         entry
             .request
             .condition
             .map_or_default(GenerationCondition::conditions),
-        delete_permission,
+        authority.overwrite,
         now,
     )?;
     let staged = &entry.staged;
@@ -1153,12 +1153,7 @@ fn publish_checked_entry(
         owner: if staged.import_identity().is_some() {
             None
         } else {
-            Some(super::super::object_owner::for_publication(
-                transaction,
-                bucket,
-                &access,
-                None,
-            )?)
+            Some(publication.owner(&access, None)?)
         },
     };
     let objects::PublishedVersion {

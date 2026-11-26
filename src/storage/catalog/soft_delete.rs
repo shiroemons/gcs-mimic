@@ -65,22 +65,32 @@ pub(super) fn purge_expired(
     now: UnixMicros,
 ) -> Result<usize, ObjectError> {
     let transaction = sql::immediate(connection)?;
+    let removed = purge_in_transaction(&transaction, bucket, now)?;
+    commit_expiry(transaction)?;
+    Ok(removed)
+}
+
+pub(super) fn purge_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    bucket: &str,
+    now: UnixMicros,
+) -> Result<usize, ObjectError> {
     let ids = transaction.prepare_cached(
         "DELETE FROM objects WHERE blob_id IN (SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time, name, generation LIMIT 100) RETURNING blob_id",
     )?.query_map(params![bucket, now], |row| row.get::<_, crate::storage::BlobId>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let removed = ids.len();
     for id in &ids {
-        objects::journal_deletion(&transaction, id)?;
+        objects::journal_deletion(transaction, id)?;
     }
-    #[cfg(test)]
-    super::fault::hit(
-        &super::fault::database_dir(&transaction),
-        super::fault::Step::ExpiryCommit,
-    )
-    .map_err(object_unavailable)?;
-    transaction.commit().map_err(object_unavailable)?;
     Ok(removed)
+}
+
+pub(super) fn commit_expiry(transaction: rusqlite::Transaction<'_>) -> Result<(), ObjectError> {
+    #[cfg(test)]
+    super::fault::hit_transaction(&transaction, super::fault::Step::ExpiryCommit)
+        .map_err(object_unavailable)?;
+    transaction.commit().map_err(object_unavailable)
 }
 
 /// The purge commits independently, even when the operation that follows fails.

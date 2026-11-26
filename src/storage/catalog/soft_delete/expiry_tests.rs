@@ -160,7 +160,7 @@ async fn only_journaled_generations_add_reclamation_jobs() {
 }
 
 #[tokio::test]
-async fn a_failed_delete_reclaims_the_separately_committed_purge() {
+async fn a_failed_delete_reclaims_the_committed_purge() {
     let data = TestDir::new();
     let (catalog, clock) = open_disk(&data.0).await;
     retaining_bucket(&catalog, "bucket", 5).await;
@@ -176,6 +176,88 @@ async fn a_failed_delete_reclaims_the_separately_committed_purge() {
     assert_eq!(catalog.job_counts(), (writes + 3, reads));
     assert_eq!(blob_files(&data.0), 0);
     catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn restart_before_delete_commit_recovers_both_the_purged_row_and_live_target() {
+    for crash in Crash::ALL {
+        let data = TestDir::new();
+        let snapshot = TestDir::new();
+        let (catalog, clock) = open_disk(&data.0).await;
+        retaining_bucket(&catalog, "bucket", 5).await;
+        soft_delete(&catalog, "bucket", "expired").await;
+        let generation = put(&catalog, "bucket", "target").await;
+        clock.advance(Duration::from_secs(5));
+        fault::arm(
+            &data.0,
+            Step::ExpiryCommit,
+            0,
+            crash.fault(snapshot.0.clone()),
+        );
+        catalog
+            .delete_object(live("bucket", "target"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap();
+        assert_eq!(fault::pending(&data.0), 0);
+        assert_eq!(blob_files(&data.0), 1);
+        catalog.close().await.unwrap();
+
+        let recovered = Catalog::open_with_clock(&snapshot.0, clock).await.unwrap();
+        let live = recovered
+            .get_object(live("bucket", "target"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap();
+        assert_eq!(live.generation, generation);
+        assert_eq!(soft_deleted_rows(&recovered).await, 1);
+        assert_eq!(blob_files(&snapshot.0), 2);
+        recovered.maintain_resumable_sessions().await.unwrap();
+        assert_eq!(soft_deleted_rows(&recovered).await, 0);
+        assert_eq!(journal_rows(&recovered).await, 0);
+        assert_eq!(blob_files(&snapshot.0), 1);
+        recovered.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn a_partial_delete_rolls_back_to_the_purge_or_with_the_whole_transaction() {
+    for (trigger, purge_commits) in [
+        (
+            "CREATE TEMP TRIGGER fail_delete AFTER UPDATE OF soft_delete_time ON objects WHEN OLD.name='target' BEGIN SELECT RAISE(FAIL, 'injected delete failure'); END",
+            true,
+        ),
+        (
+            "CREATE TEMP TRIGGER fail_delete AFTER UPDATE OF soft_delete_time ON objects WHEN OLD.name='target' BEGIN SELECT RAISE(ROLLBACK, 'injected transaction failure'); END",
+            false,
+        ),
+    ] {
+        let data = TestDir::new();
+        let (catalog, clock) = open_disk(&data.0).await;
+        retaining_bucket(&catalog, "bucket", 5).await;
+        soft_delete(&catalog, "bucket", "expired").await;
+        let generation = put(&catalog, "bucket", "target").await;
+        clock.advance(Duration::from_secs(5));
+        catalog
+            .run::<_, CatalogError>(move |connection| {
+                connection.execute_batch(trigger)?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        catalog
+            .delete_object(live("bucket", "target"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap_err();
+        let live = catalog
+            .get_object(live("bucket", "target"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap();
+        assert_eq!(live.generation, generation);
+        assert_eq!(soft_deleted_rows(&catalog).await, i64::from(!purge_commits));
+        assert_eq!(journal_rows(&catalog).await, 0);
+        assert_eq!(blob_files(&data.0), if purge_commits { 1 } else { 2 });
+        catalog.close().await.unwrap();
+    }
 }
 
 #[tokio::test]

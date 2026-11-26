@@ -152,8 +152,7 @@ fn reconcile_grant(
 }
 
 pub(super) fn for_publication(
-    connection: &Connection,
-    bucket: &str,
+    project: impl FnOnce() -> Result<String, ObjectError>,
     access: &BucketAccess,
     profile: Option<&Profile>,
 ) -> Result<ObjectOwner, ObjectError> {
@@ -180,12 +179,9 @@ pub(super) fn for_publication(
             entity: Some(creator.clone()),
         });
     }
-    let project = sql::scalar(
-        connection,
-        "SELECT project FROM buckets WHERE name=?1",
-        [bucket],
-    )?;
-    Ok(ObjectOwner::ProjectOwners { project })
+    Ok(ObjectOwner::ProjectOwners {
+        project: project()?,
+    })
 }
 
 pub(super) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<ObjectOwner>> {

@@ -161,18 +161,18 @@ where
         complete,
         ..
     } = request;
-    let (_, delete_permission) =
-        objects::authorized_bucket(transaction, &destination.bucket, &destination.access)?;
+    let authority =
+        objects::BucketAuthority::load(transaction, &destination.bucket, &destination.access)?;
     if replay.is_some() {
         super::super::upload_replay::make_room(transaction, micros)?;
     }
-    let bucket = objects::BucketPublication::load(transaction, &destination.bucket)?;
+    let bucket = authority.publication?;
     let storage_class = bucket.storage_class(destination.storage_class)?;
-    let previous = objects::lookup(transaction, &destination.bucket, &destination.name)?;
+    let previous = bucket.lookup(transaction, &destination.bucket, &destination.name)?;
     objects::check_publication(
         previous.as_ref(),
         destination.conditions,
-        delete_permission,
+        authority.overwrite,
         now,
     )?;
     destination.metadata.reject_past_retention(now)?;
@@ -202,12 +202,7 @@ where
         version,
         |generation| {
             let defaults = objects::PublicationDefaults {
-                owner: Some(super::super::object_owner::for_publication(
-                    transaction,
-                    &destination.bucket,
-                    &destination.access,
-                    principals.as_ref(),
-                )?),
+                owner: Some(bucket.owner(&destination.access, principals.as_ref())?),
                 storage_class,
                 time,
                 event_based_hold: bucket.default_event_hold,

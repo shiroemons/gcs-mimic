@@ -162,7 +162,7 @@ impl UploadCommit {
     /// The caller commits; [`group_commit`] shares one transaction between queued uploads.
     fn apply(&self, transaction: &Transaction<'_>) -> Result<CommitOutcome, ObjectError> {
         let now = PublicationTime::read(self.clock.as_ref())?;
-        let (_, delete_permission) = authorized_bucket(transaction, &self.bucket, &self.access)?;
+        let authority = BucketAuthority::load(transaction, &self.bucket, &self.access)?;
         let micros = now.micros;
         let replay = self
             .replay
@@ -179,14 +179,14 @@ impl UploadCommit {
             }
             super::super::upload_replay::make_room(transaction, micros)?;
         }
-        let bucket = BucketPublication::load(transaction, &self.bucket)?;
+        let bucket = authority.publication?;
         let storage_class = bucket.storage_class(self.metadata.storage_class)?;
-        let previous = lookup(transaction, &self.bucket, &self.name)?;
+        let previous = bucket.lookup(transaction, &self.bucket, &self.name)?;
         // Rechecked under the write lock so a concurrent create cannot be overwritten.
         check_publication(
             previous.as_ref(),
             self.conditions,
-            delete_permission,
+            authority.overwrite,
             now.time,
         )?;
         let body = &self.body;
@@ -206,12 +206,9 @@ impl UploadCommit {
             event_based_hold: bucket.default_event_hold,
             time: now.time,
             owner: match &self.owner {
-                OwnerAssignment::Request => Some(super::super::object_owner::for_publication(
-                    transaction,
-                    &self.bucket,
-                    &self.access,
-                    self.principals.as_ref(),
-                )?),
+                OwnerAssignment::Request => {
+                    Some(bucket.owner(&self.access, self.principals.as_ref())?)
+                }
                 OwnerAssignment::Preserve(owner) => owner.clone(),
                 OwnerAssignment::Unknown => None,
             },
