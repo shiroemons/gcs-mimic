@@ -248,7 +248,10 @@ impl ReadPool {
     }
 
     fn checkout(&self, slot: OwnedSemaphorePermit) -> std::io::Result<(Arc<Executor>, Checkout)> {
-        let reader = match self.shared.idle().pop() {
+        // The pop gets its own statement: a guard in the `match` scrutinee would keep the idle
+        // list locked while a new reader thread starts, stalling every other checkout.
+        let idle = self.shared.idle().pop();
+        let reader = match idle {
             Some(reader) => reader,
             None => Reader {
                 executor: Arc::new(Executor::start("gcs-mimic-catalog-read")?),
