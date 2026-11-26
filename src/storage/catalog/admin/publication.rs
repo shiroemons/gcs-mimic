@@ -548,14 +548,19 @@ async fn cleanup(catalog: &Catalog, ids: Vec<BlobId>) -> Result<(), AdminError> 
         // the next failure so a later shard error cannot leave earlier removals unsynced.
         let mut failure = None;
         for id in ids {
-            if let Err(error) = remove_staged_blob(&backend, &id, &referenced) {
-                if let Some(previous) = failure.replace(error) {
-                    crate::diagnostics::emit_lazy(
-                        crate::diagnostics::LogLevel::Error,
-                        crate::diagnostics::Event::PublicationCleanupFailed,
-                        || serde_json::json!({"message": previous.to_string()}),
-                    );
-                }
+            if let Err(error) = remove_staged_blob(&backend, &id, &referenced)
+                && let Some(previous) = failure.replace(error)
+            {
+                crate::diagnostics::emit_lazy(
+                    crate::diagnostics::LogLevel::Error,
+                    crate::diagnostics::Event::PublicationCleanupFailed,
+                    || {
+                        serde_json::Value::from_iter([(
+                            "message",
+                            crate::error::Report(&previous).to_string(),
+                        )])
+                    },
+                );
             }
         }
         failure.map_or(Ok(()), Err)
