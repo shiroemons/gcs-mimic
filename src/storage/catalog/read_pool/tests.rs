@@ -377,7 +377,20 @@ async fn reads_that_do_not_overlap_keep_to_one_reader() {
             .unwrap();
     }
     assert_eq!(pool(&catalog).reader_count(), 1);
-    catalog.close().await.unwrap();
+    let upload = catalog.admit_object_upload().unwrap();
+    let closing = catalog.close();
+    tokio::pin!(closing);
+    tokio::select! {
+        biased;
+        result = &mut closing => panic!("closed with an upload outstanding: {result:?}"),
+        () = std::future::ready(()) => {}
+    }
+    assert!(catalog.is_closing());
+    assert!(catalog.admit_object_upload().is_err());
+    assert_eq!(pool(&catalog).reader_count(), 1);
+    assert!(!pool(&catalog).slots.is_closed());
+    drop(upload);
+    timeout(LONG, closing).await.unwrap().unwrap();
 }
 
 #[tokio::test]
