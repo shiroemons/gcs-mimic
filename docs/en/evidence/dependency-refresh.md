@@ -1561,3 +1561,20 @@ The full check on 2026-11-25 reported only development-only inputs behind their 
 | `GCSM_DOCKER_NETWORK=container:<emulator> bash examples/cpp/run.sh` against the `ghcr.io/shiroemons/gcs-mimic:0.28.0` image, after the refresh was merged | The example image built google-cloud-cpp 3.13.0 for linux/arm64 on the adopted gcc index in 110 s, and the example created a bucket, uploaded, listed, downloaded and deleted an object and deleted the bucket |
 
 All freshness checks ran with `GITHUB_TOKEN` set.
+
+## memchr direct edge (2026-11-26)
+
+Multipart and batch parsing reuse `memmem::Finder` from the already locked
+`memchr` 2.8.3. The application selects `std` explicitly with default features
+disabled. The resolved package, version and checksum are unchanged.
+
+The [Cargo index](https://index.crates.io/me/mc/memchr) listed 2.8.3, published
+2026-07-08, as the latest non-yanked stable release. Its minimum Rust version
+is 1.61 and its license is Unlicense OR MIT. The [crate archive](https://static.crates.io/crates/memchr/memchr-2.8.3.crate)
+is 99,165 bytes, SHA-256 `cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98`.
+The [upstream repository](https://github.com/BurntSushi/memchr) showed activity on 2026-08-10.
+
+At `2026-11-26T10:41:50Z`, `cargo xtask dependencies check` reported
+`memchr: CURRENT current=2.8.3 latest=2.8.3` and 142 `CURRENT` lines in all.
+It exited 1 because three Go module checks reported `cloud.google.com/go/storage`
+v1.71.1 available for their v1.71.0 pins. The run used unauthenticated registry requests.

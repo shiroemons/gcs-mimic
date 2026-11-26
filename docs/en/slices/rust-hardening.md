@@ -686,7 +686,8 @@ dependency policy.
 - **Body mode** emits zero-copy slices of the received frame.
   - It keeps a carry of fewer bytes than the delimiter.
   - It searches the seam between the carry and the next frame in a scratch
-    buffer of at most about 140 bytes.
+    buffer of at most 146 bytes. Each side holds at most 73 bytes, one fewer
+    than the longest delimiter (CRLF, two hyphens and a 70-byte boundary).
 - **Header mode** copies only what lines need, as today.
 - **Tests.** The existing tests that parse at every split width cover seams
   and carries. A property test compares random splits of bodies full of

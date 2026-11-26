@@ -2,7 +2,9 @@
 //! JSON checksum part, read through the protocol-neutral [`crate::multipart`] parser.
 
 use super::{ApiError, ObjectMetadataRequest, checksum, object_metadata_from_map};
-use crate::multipart::{MediaType, Multipart, ParamQuotes, Parameter, invalid, part_content_type};
+use crate::multipart::{
+    Boundary, MediaType, Multipart, ParamQuotes, Parameter, invalid, part_content_type,
+};
 use crate::object::{ChecksumConflict, ExpectedHashes, ObjectMetadataUpdate, Patch};
 use bytes::Bytes;
 use hyper::{StatusCode, body::Body};
@@ -85,7 +87,7 @@ pub(crate) struct RelatedUpload<B> {
 }
 
 impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
-    pub(crate) fn new(body: B, boundary: &str) -> Self {
+    pub(crate) fn new(body: B, boundary: &Boundary) -> Self {
         Self::over(Multipart::related(body, boundary))
     }
 
@@ -332,8 +334,8 @@ mod tests {
 
     #[tokio::test]
     async fn related_uploads_accept_the_gcloud_lf_framing() {
-        let mut upload =
-            RelatedUpload::new(Full::new(Bytes::from_static(GCLOUD_BODY)), GCLOUD_BOUNDARY);
+        let boundary = GCLOUD_BOUNDARY.parse().unwrap();
+        let mut upload = RelatedUpload::new(Full::new(Bytes::from_static(GCLOUD_BODY)), &boundary);
         upload.metadata().await.unwrap();
         assert_eq!(
             upload.headers(PartKind::Media).await.unwrap().as_deref(),
@@ -342,15 +344,17 @@ mod tests {
         // The strict framing of XML POST Object forms still rejects bare LFs.
         let mut strict = RelatedUpload::over(Multipart::new(
             Full::new(Bytes::from_static(GCLOUD_BODY)),
-            GCLOUD_BOUNDARY,
+            &boundary,
         ));
         assert!(strict.metadata().await.is_err());
     }
 
     #[tokio::test]
     async fn related_uploads_read_metadata_media_and_checksums() {
-        let mut upload =
-            RelatedUpload::new(Full::new(Bytes::from(wire(b"{}", b"media"))), "boundary");
+        let mut upload = RelatedUpload::new(
+            Full::new(Bytes::from(wire(b"{}", b"media"))),
+            &"boundary".parse().unwrap(),
+        );
         assert_eq!(upload.metadata().await.unwrap(), b"{}");
         upload.headers(PartKind::Media).await.unwrap();
         assert_eq!(upload.next_chunk().await.unwrap().unwrap(), "media");
@@ -362,13 +366,14 @@ mod tests {
 
     #[tokio::test]
     async fn related_uploads_refuse_a_metadata_part_that_is_not_json_or_is_alone() {
+        let boundary = "boundary".parse().unwrap();
         for body in [
             b"--boundary\r\nContent-Type: text/plain\r\n\r\n{}\r\n--boundary--".as_slice(),
             b"--boundary\r\nContent-Type: application/json; charset=latin1\r\n\r\n{}\r\n--boundary--",
             b"--boundary\r\n\r\n{}\r\n--boundary--",
             b"--boundary\r\nContent-Type: application/json\r\nContent-Transfer-Encoding: base64\r\n\r\ne30=\r\n--boundary--",
         ] {
-            let mut upload = RelatedUpload::new(Full::new(Bytes::copy_from_slice(body)), "boundary");
+            let mut upload = RelatedUpload::new(Full::new(Bytes::copy_from_slice(body)), &boundary);
             let error = upload.metadata().await.unwrap_err();
             assert_eq!(error.reason, "invalidParameter", "{}", String::from_utf8_lossy(body));
         }
@@ -376,7 +381,7 @@ mod tests {
             Full::new(Bytes::from_static(
                 b"--boundary\r\nContent-Type: application/json\r\n\r\n{}\r\n--boundary--",
             )),
-            "boundary",
+            &boundary,
         );
         let error = alone.metadata().await.unwrap_err();
         assert_eq!(
@@ -387,15 +392,16 @@ mod tests {
 
     #[tokio::test]
     async fn related_uploads_bound_the_metadata_part() {
+        let boundary = "boundary".parse().unwrap();
         for length in [JSON_CAP, JSON_CAP + 1] {
             for parser in [
                 Multipart::new(
                     Full::new(Bytes::from(wire(&vec![b' '; length], b""))),
-                    "boundary",
+                    &boundary,
                 ),
                 Multipart::related(
                     Full::new(Bytes::from(wire(&vec![b' '; length], b""))),
-                    "boundary",
+                    &boundary,
                 ),
             ] {
                 let result = RelatedUpload::over(parser).metadata().await;

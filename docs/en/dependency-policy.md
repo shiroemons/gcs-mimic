@@ -74,6 +74,8 @@ records the license, package digest and size.
 Multipart and HTTP batch parsing use the substring finder in the already
 locked `memchr` 2.8.3. The [dependency snapshot](../../compatibility/dependency-status.json)
 records the direct edge, package digest, license and compressed size.
+The [freshness check](evidence/dependency-refresh.md#memchr-direct-edge-2026-11-26)
+records the version comparison for the explicit `std` feature selection.
 
 Builds for musl link `mimalloc` 0.1.52 and `libmimalloc-sys` 0.1.49 as the global allocator, because
 musl's own allocator takes one global lock and made the container slower as threads were added.

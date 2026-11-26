@@ -20,6 +20,7 @@ mod transfer;
 const HEADER_CAP: usize = 8192;
 const DISCARD_CAP: usize = 4096;
 const MAX_BOUNDARY: usize = 70;
+const MAX_DELIMITER: usize = b"\r\n--".len() + MAX_BOUNDARY;
 
 pub(crate) fn invalid() -> ApiError {
     ApiError::invalid_parameter("Invalid multipart/related framing")
@@ -120,13 +121,23 @@ impl MediaType {
     }
 
     /// The `boundary` parameter, checked against the RFC 2046 grammar.
-    fn boundary(&self) -> Result<String, ApiError> {
-        let boundary = self
-            .parameters
+    fn boundary(&self) -> Result<Boundary, ApiError> {
+        self.parameters
             .iter()
             .find(|Parameter { name, .. }| name == "boundary")
-            .map(|Parameter { value, .. }| value)
-            .ok_or_else(invalid)?;
+            .ok_or_else(invalid)?
+            .value
+            .parse()
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct Boundary(String);
+
+impl std::str::FromStr for Boundary {
+    type Err = ApiError;
+
+    fn from_str(boundary: &str) -> Result<Self, Self::Err> {
         if boundary.is_empty()
             || boundary.len() > MAX_BOUNDARY
             || boundary.ends_with(' ')
@@ -136,7 +147,7 @@ impl MediaType {
         {
             return Err(invalid());
         }
-        Ok(boundary.clone())
+        Ok(Self(boundary.to_owned()))
     }
 }
 
@@ -193,7 +204,7 @@ impl Parameter {
     }
 }
 
-pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, ApiError> {
+pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<Boundary, ApiError> {
     let value = headers
         .get("content-type")
         .ok_or_else(invalid)?
@@ -245,11 +256,11 @@ pub(crate) fn batch_boundary(headers: &HeaderMap) -> Result<String, ApiError> {
     {
         return Err(invalid());
     }
-    media.boundary()
+    media.boundary().map(|boundary| boundary.0)
 }
 
 /// XML POST Object forms use the same RFC 2046 boundary grammar as multipart/related.
-pub(crate) fn form_data_boundary(headers: &HeaderMap) -> Result<String, ApiError> {
+pub(crate) fn form_data_boundary(headers: &HeaderMap) -> Result<Boundary, ApiError> {
     let value = headers
         .get("content-type")
         .ok_or_else(invalid)?
@@ -303,13 +314,27 @@ impl Delimiter {
     }
 
     fn len(&self) -> usize {
-        self.finder.needle().len()
+        self.as_bytes().len()
     }
 
-    pub(crate) fn split<'a>(&self, bytes: &'a [u8]) -> Option<(&'a [u8], &'a [u8])> {
-        let (before, rest) = bytes.split_at_checked(self.finder.find(bytes)?)?;
-        Some((before, rest.strip_prefix(self.finder.needle())?))
+    fn as_bytes(&self) -> &[u8] {
+        self.finder.needle()
     }
+
+    fn find(&self, bytes: &[u8]) -> Option<usize> {
+        self.finder.find(bytes)
+    }
+
+    /// Splits the bytes around their first delimiter, excluding the delimiter itself.
+    pub(crate) fn split<'a>(&self, bytes: &'a [u8]) -> Option<(&'a [u8], &'a [u8])> {
+        let (before, rest) = bytes.split_at_checked(self.find(bytes)?)?;
+        Some((before, rest.strip_prefix(self.as_bytes())?))
+    }
+}
+
+struct BodyPrefix {
+    boundary: Option<usize>,
+    scanned: usize,
 }
 
 pub(crate) struct Multipart<B> {
@@ -330,16 +355,16 @@ pub(crate) struct Multipart<B> {
 
 impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     /// A strictly CRLF-framed body, such as an XML POST Object form.
-    pub(crate) fn new(body: B, boundary: &str) -> Self {
+    pub(crate) fn new(body: B, boundary: &Boundary) -> Self {
         Self::with_framing(body, boundary, Framing::Crlf)
     }
 
     /// A JSON multipart/related upload, framed by CRLF or, throughout, by bare LF.
-    pub(crate) fn related(body: B, boundary: &str) -> Self {
+    pub(crate) fn related(body: B, boundary: &Boundary) -> Self {
         Self::with_framing(body, boundary, Framing::Detect)
     }
 
-    fn with_framing(body: B, boundary: &str, framing: Framing) -> Self {
+    fn with_framing(body: B, Boundary(boundary): &Boundary, framing: Framing) -> Self {
         let flavor = if framing == Framing::Detect {
             Flavor::Related
         } else {
@@ -367,7 +392,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     /// `None` once the framing is settled. Nothing is consumed, so the delimiter search of
     /// the settled framing runs over the same bytes.
     fn detect(&mut self) -> Option<usize> {
-        let (_, pattern) = self.delimiter.finder.needle().split_first()?;
+        let (_, pattern) = self.delimiter.as_bytes().split_first()?;
         let Some(index) = memmem::find(&self.buffer, pattern) else {
             if self.eof {
                 self.framing = Framing::Crlf;
@@ -482,9 +507,6 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 
     pub(crate) async fn start(&mut self) -> Result<(), ApiError> {
-        if self.delimiter.len() > MAX_BOUNDARY + 4 {
-            return Err(invalid());
-        }
         let mut discarded = 0;
         loop {
             if self.framing == Framing::Detect
@@ -498,7 +520,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 self.fill_line().await?;
                 continue;
             }
-            if let Some(index) = self.delimiter.finder.find(&self.buffer) {
+            if let Some(index) = self.delimiter.find(&self.buffer) {
                 discarded += index;
                 if discarded > DISCARD_CAP + 2 {
                     return Err(invalid());
@@ -587,14 +609,14 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
 
     /// Search at most two partial delimiters at a seam. A match wholly inside the next
     /// frame is left for its own search, once the preceding slices have been returned.
-    fn body_prefix(&self) -> (Option<usize>, usize) {
+    fn body_prefix(&self) -> BodyPrefix {
         if self.carry.is_empty() {
-            return (
-                self.delimiter.finder.find(&self.pending),
-                self.pending.len(),
-            );
+            return BodyPrefix {
+                boundary: self.delimiter.find(&self.pending),
+                scanned: self.pending.len(),
+            };
         }
-        let mut scratch = [0; 2 * (MAX_BOUNDARY + 3)];
+        let mut scratch = [0; 2 * (MAX_DELIMITER - 1)];
         let mut out = scratch.as_mut_slice();
         for fragment in &self.carry {
             out.put_slice(fragment);
@@ -605,13 +627,16 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         out.put_slice(prefix);
         let unused = out.len();
         let (seam, _) = scratch.split_at(scratch.len() - unused);
-        (self.delimiter.finder.find(seam), seam.len())
+        BodyPrefix {
+            boundary: self.delimiter.find(seam),
+            scanned: seam.len(),
+        }
     }
 
     async fn raw_chunk(&mut self) -> Result<Option<Bytes>, ApiError> {
         loop {
             self.read_frame().await?;
-            let (boundary, scanned) = self.body_prefix();
+            let BodyPrefix { boundary, scanned } = self.body_prefix();
             if boundary == Some(0) {
                 let carried: usize = self.carry.drain(..).map(|bytes| bytes.len()).sum();
                 self.pending.advance(self.delimiter.len() - carried);
@@ -696,7 +721,7 @@ mod tests {
         boundary: &str,
         framing: Framing,
     ) -> Result<(Vec<u8>, Vec<u8>), ApiError> {
-        let mut parser = Multipart::with_framing(body, boundary, framing);
+        let mut parser = Multipart::with_framing(body, &boundary.parse()?, framing);
         parser.start().await?;
         parser.part_headers().await?;
         let first = read_part(&mut parser).await?;
@@ -731,10 +756,26 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn a_maximum_length_boundary_matches_across_a_full_seam() {
+        let boundary = "b".repeat(MAX_BOUNDARY);
+        let delimiter = format!("\r\n--{boundary}");
+        let prefix = &delimiter[..MAX_DELIMITER - 1];
+        let first = format!("--{boundary}\r\n\r\n{{}}{delimiter}\r\n\r\nmedia{prefix}");
+        let next = format!("b--\r\n{}", " ".repeat(MAX_DELIMITER));
+        let frames = [first, next].map(|bytes| {
+            Ok::<_, std::convert::Infallible>(hyper::body::Frame::data(Bytes::from(bytes)))
+        });
+        let body = http_body_util::StreamBody::new(tonic::codegen::tokio_stream::iter(frames));
+        let (metadata, media) = parse_bounded(body, &boundary, Framing::Crlf).await.unwrap();
+        assert_eq!(metadata, b"{}");
+        assert_eq!(media, b"media");
+    }
+
     proptest::proptest! {
         #[test]
         fn randomly_split_delimiter_prefixes_match_the_whole_body(
-            prefixes in proptest::collection::vec((1usize..12, proptest::num::u8::ANY), 1..64),
+            prefixes in proptest::collection::vec((1usize..12, proptest::option::of(proptest::num::u8::ANY)), 1..64),
             widths in proptest::collection::vec(1usize..32, 1..32),
             boundary_len in 1usize..=MAX_BOUNDARY,
             lf in proptest::bool::ANY,
@@ -746,8 +787,11 @@ mod tests {
                 let mut media = Vec::new();
                 for (missing, byte) in prefixes {
                     media.extend_from_slice(&delimiter.as_bytes()[..delimiter.len().saturating_sub(missing)]);
-                    media.extend_from_slice(&[0xff, byte]);
+                    if let Some(byte) = byte {
+                        media.extend_from_slice(&[0xff, byte]);
+                    }
                 }
+                media.extend_from_slice(&delimiter.as_bytes()[..delimiter.len() - 1]);
                 let mut body = format!("--{boundary}{nl}{nl}{{}}{delimiter}{nl}{nl}").into_bytes();
                 body.extend_from_slice(&media);
                 body.extend_from_slice(format!("{delimiter}--{nl}").as_bytes());
@@ -807,15 +851,15 @@ mod tests {
                 .parse()
                 .unwrap(),
         );
-        assert_eq!(multipart_boundary(&headers).unwrap(), GCLOUD_BOUNDARY);
+        let boundary = multipart_boundary(&headers).unwrap();
+        assert_eq!(boundary.0, GCLOUD_BOUNDARY);
         let (metadata, media) =
             parse_in_chunks(GCLOUD_BODY, GCLOUD_BOUNDARY, Framing::Detect).await;
         assert!(metadata.starts_with(b"{\"bucket\"") && metadata.ends_with(b"}"));
         // The LF before the delimiter belongs to the delimiter; the one before it is data.
         assert_eq!(media, b"Hello from gcloud!\n");
         // The strict framing of XML POST Object forms still rejects bare LFs.
-        let mut strict =
-            Multipart::new(Full::new(Bytes::from_static(GCLOUD_BODY)), GCLOUD_BOUNDARY);
+        let mut strict = Multipart::new(Full::new(Bytes::from_static(GCLOUD_BODY)), &boundary);
         assert!(strict.start().await.is_err());
     }
 
@@ -949,7 +993,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let mut parser = Multipart::with_framing(receiver, "boundary", framing);
+        let mut parser = Multipart::with_framing(receiver, &"boundary".parse().unwrap(), framing);
         parser.start().await.unwrap();
         parser.part_headers().await.unwrap();
         assert_eq!(read_part(&mut parser).await.unwrap(), b"{}");
@@ -996,7 +1040,7 @@ mod tests {
         ] {
             let mut headers = HeaderMap::new();
             headers.insert("content-type", value.parse().unwrap());
-            assert_eq!(multipart_boundary(&headers).unwrap(), expected, "{value}");
+            assert_eq!(multipart_boundary(&headers).unwrap().0, expected, "{value}");
         }
         for value in [
             "multipart/related; boundary='===unterminated",

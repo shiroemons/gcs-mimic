@@ -1383,7 +1383,10 @@ mod tests {
     }
 
     async fn parse_form(body: &'static str) -> Result<(Form, Vec<u8>), Error> {
-        let mut parser = Multipart::new(Full::new(Bytes::from_static(body.as_bytes())), "b");
+        let mut parser = Multipart::new(
+            Full::new(Bytes::from_static(body.as_bytes())),
+            &"b".parse()?,
+        );
         let form = read_form(&mut parser).await?;
         let mut file = Vec::new();
         while let Some(chunk) = parser.next_chunk().await? {
@@ -1425,13 +1428,14 @@ mod tests {
         let charged = "key".len() + FIELD_ENTRY_CHARGE;
         // One field may take the whole budget, far above the former 64 KiB per field.
         let exact = format!("{head}{}{file}", "x".repeat(FORM_CAP - charged));
-        let mut parser = Multipart::new(Full::new(Bytes::from(exact)), "b");
+        let boundary = "b".parse().unwrap();
+        let mut parser = Multipart::new(Full::new(Bytes::from(exact)), &boundary);
         assert_eq!(
             read_form(&mut parser).await.unwrap().fields["key"].len(),
             FORM_CAP - charged
         );
         let long = format!("{head}{}{file}", "x".repeat(FORM_CAP - charged + 1));
-        let mut parser = Multipart::new(Full::new(Bytes::from(long)), "b");
+        let mut parser = Multipart::new(Full::new(Bytes::from(long)), &boundary);
         assert!(
             read_form(&mut parser)
                 .await
@@ -1453,7 +1457,7 @@ mod tests {
             body.push_str(
                 "--b\r\nContent-Disposition: form-data; name=\"file\"\r\n\r\nx\r\n--b--\r\n",
             );
-            Multipart::new(Full::new(Bytes::from(body)), "b")
+            Multipart::new(Full::new(Bytes::from(body)), &"b".parse().unwrap())
         };
         // Each entry costs its name and map entry although its value is empty.
         let charge = "x-goog-meta-000000".len() + FIELD_ENTRY_CHARGE;
