@@ -20,9 +20,8 @@ const EMPTY_PUT_CONTENT_TYPE: &str = "text/html; charset=UTF-8";
 
 /// `Expires` is the response time: the response is private and must be revalidated at once.
 pub(crate) fn expires(now: SystemTime) -> Option<HeaderValue> {
-    http_date(now)
-        .ok()
-        .and_then(|date| HeaderValue::from_str(&date).ok())
+    let date = http_date(now).ok()?;
+    HeaderValue::from_str(&date).ok()
 }
 
 pub(crate) fn apply<B>(method: &Method, now: SystemTime, response: &mut Response<B>) {

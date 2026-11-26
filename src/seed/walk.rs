@@ -511,7 +511,7 @@ impl Tree {
         let mut parent = None;
         let mut names = relative.iter().enumerate().peekable();
         while let Some((depth, name)) = names.next() {
-            let directory = parent.as_ref().unwrap_or(self.pinned.as_ref());
+            let directory = parent.as_ref().unwrap_or_else(|| self.pinned.as_ref());
             if names.peek().is_none() {
                 return opened(self.lookup.regular_unconfirmed(directory, name));
             }

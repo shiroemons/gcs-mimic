@@ -197,7 +197,7 @@ impl DirectoryNames {
                 max_inspected,
             )?;
             self.exhausted = page.len() < Self::PAGE;
-            self.after = page.last().cloned().or(self.after.take());
+            self.after = page.last().cloned().or_else(|| self.after.take());
             self.buffered = page.into();
         }
         Ok(self.buffered.pop_front())

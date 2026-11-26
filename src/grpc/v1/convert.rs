@@ -162,7 +162,7 @@ pub(super) fn bucket_update(
             .versioning
             .as_ref()
             .map(|config| VersioningUpdate::Set(Versioning::from(Some(config.enabled))))
-            .or(omitted.reset(|| VersioningUpdate::Set(Versioning::Unset))),
+            .or_else(|| omitted.reset(|| VersioningUpdate::Set(Versioning::Unset))),
         cors: omitted.reset(Vec::new),
         lifecycle: omitted.reset(crate::bucket::lifecycle::LifecycleRules::default),
         retention_policy: match omitted {

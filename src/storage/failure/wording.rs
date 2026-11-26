@@ -229,10 +229,10 @@ pub(crate) struct BackendFailureEvent {
 
 impl From<&BackendCause> for BackendFailureEvent {
     fn from(backend: &BackendCause) -> Self {
-        let cause = backend
-            .message()
+        let message = backend.message();
+        let cause = message
             .strip_prefix("catalog unavailable: ")
-            .unwrap_or(backend.message());
+            .unwrap_or(message);
         Self {
             cause: safe_backend_cause(cause),
             sqlite_extended_code: backend.sqlite_extended_code(),

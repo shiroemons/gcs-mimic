@@ -256,6 +256,7 @@ fn slots() -> &'static Mutex<HashMap<SlotKey, SlotEntry>> {
 /// Every in-process user of one appendable object's slot, writers included, holds a handle.
 /// The last handle to drop removes the entry, so the map holds only objects in use, and
 /// every concurrent holder of a key shares one slot.
+#[must_use = "dropping the handle releases its claim on the appendable object's slot"]
 struct SlotHandle {
     key: SlotKey,
     slot: Arc<tokio::sync::Mutex<Slot>>,

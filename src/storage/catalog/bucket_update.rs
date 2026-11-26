@@ -172,9 +172,7 @@ pub(super) fn update_in_transaction(
     record.updated = system_time_micros(updated)?;
     record.uniform_bucket_level_access_locked_time = record
         .uniform_bucket_level_access_locked_time
-        .map(|time| {
-            unix_micros(time).and_then(|time| system_time_micros(time).map_err(unavailable))
-        })
+        .map(|time| system_time_micros(unix_micros(time)?).map_err(unavailable))
         .transpose()?;
     store_bucket(transaction, &record, updated, lifecycle)?;
     for (scope, entries) in [

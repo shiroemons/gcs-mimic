@@ -240,10 +240,8 @@ fn marker_cursor(
     }
     let prefix = (!query.delimiter.is_empty())
         .then(|| {
-            marker
-                .strip_prefix(&query.prefix)
-                .and_then(|tail| tail.find(&query.delimiter))
-                .and_then(|index| marker.get(..query.prefix.len() + index + query.delimiter.len()))
+            let index = marker.strip_prefix(&query.prefix)?.find(&query.delimiter)?;
+            marker.get(..query.prefix.len() + index + query.delimiter.len())
         })
         .flatten();
     Some(ObjectListCursor {

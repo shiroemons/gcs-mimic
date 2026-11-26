@@ -209,6 +209,7 @@ impl SessionWriters {
 
 /// A whole-upload request's place in line, given up when the request gets the upload, runs out of
 /// budget or is cancelled. Parts it held back then try again, so it wakes them when it drops.
+#[must_use = "dropping the guard gives up the whole-upload request's place in line"]
 struct WholeUploadTurn<'a> {
     catalog: &'a Catalog,
     id: &'a str,
@@ -223,6 +224,7 @@ impl Drop for WholeUploadTurn<'_> {
     }
 }
 
+#[must_use = "dropping the guard releases the session writer"]
 pub(in crate::storage::catalog) struct WriterGuard {
     pub(super) catalog: Catalog,
     key: WriterKey,

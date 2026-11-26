@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[must_use = "dropping the guard releases the data directory lock"]
 pub(super) struct DirectoryLock {
     directory: Option<File>,
     file: File,

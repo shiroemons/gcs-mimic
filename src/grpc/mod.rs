@@ -132,6 +132,7 @@ struct Activity {
     last_frame: Instant,
 }
 
+#[must_use = "dropping the guard marks the stream inactive"]
 struct StreamGuard(watch::Sender<Activity>);
 
 impl Drop for StreamGuard {

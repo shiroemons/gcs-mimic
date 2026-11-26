@@ -467,7 +467,7 @@ impl<'a> Reading<'a> {
         let name = key.trim_start_matches('-');
         let normalized = name.replace('-', "_");
         let native_name = command == CliCommand::Serve && normalized.parse::<Setting>().is_ok();
-        let supplied = inline.or(next.map(String::as_str));
+        let supplied = inline.or_else(|| next.map(String::as_str));
         // One and two hyphens mean the same, so the count never selects a meaning.
         let spelled = (1..=2).contains(&hyphens);
         let flag = name.parse::<ServerFlag>().ok().filter(|_| spelled);

@@ -28,7 +28,7 @@ type Result<T> = std::result::Result<T, String>;
 /// Extra Clippy lints for production code; thresholds live in `clippy.toml`. A lint that passes
 /// on every workspace target belongs in `[workspace.lints]` instead: a `-W` here would lower
 /// that `deny` to a warning for this run.
-pub const CLIPPY_LINTS: [&str; 24] = [
+pub const CLIPPY_LINTS: [&str; 27] = [
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::panic",
@@ -67,6 +67,9 @@ pub const CLIPPY_LINTS: [&str; 24] = [
     // "Encode invariants in types": a `Result` or `Option` that is always `Ok` or `Some` hides
     // that the function cannot fail; test fixtures shaped like proto fields keep their `Option`.
     "clippy::unnecessary_wraps",
+    "clippy::significant_drop_in_scrutinee",
+    "clippy::or_fun_call",
+    "clippy::return_and_then",
 ];
 
 /// Lints whose existing findings are counted per file; see "Graduating a ratcheted rule" in
@@ -2357,7 +2360,7 @@ let s = \"// xtask-lint: allow(text::nope)\";
         );
     }
 
-    /// The Rules table is the one list of what the gate runs and which rules are ratcheted.
+    /// The Rules table lists the gate rules, their ratchets and documented workspace checks.
     #[test]
     fn every_gate_rule_has_one_row_in_the_development_guide() {
         // A Windows checkout may end lines with CRLF.
@@ -2375,6 +2378,10 @@ let s = \"// xtask-lint: allow(text::nope)\";
             .into_iter()
             .chain(RATCHETED_CLIPPY_LINTS)
             .chain(TEXT_RULES)
+            .chain([
+                "clippy::ignore_without_reason",
+                "cargo::unused_dependencies",
+            ])
             .collect();
         for rule in &rules {
             let named: Vec<_> = rows
@@ -2397,7 +2404,7 @@ let s = \"// xtask-lint: allow(text::nope)\";
             for name in first.split('`').skip(1).step_by(2) {
                 assert!(
                     rules.contains(&name),
-                    "the Rules table names {name}, which the gate does not run"
+                    "the Rules table names {name}, which is not a documented lint check"
                 );
             }
         }

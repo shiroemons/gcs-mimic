@@ -378,6 +378,7 @@ impl DeadlineReply {
 
 /// Ends a request when hyper drops its response body, after the last byte is written
 /// or the connection fails, so keep-alive idle time is never charged to the request.
+#[must_use = "dropping the guard marks the request finished"]
 struct RequestFinished {
     activity: watch::Sender<ObjectActivity>,
     reads: Arc<ReadActivity>,
@@ -1291,6 +1292,7 @@ struct HeldClient<'a> {
 }
 
 /// Asks idle connections for a slot until it drops, when the client got one by any route.
+#[must_use = "dropping the guard withdraws the connection slot request"]
 pub(crate) struct SlotRequest<'a>(&'a SlotReclaim);
 
 impl Drop for SlotRequest<'_> {
@@ -1328,6 +1330,7 @@ impl SlotReclaim {
 }
 
 /// A place in the idle line, which a connection holds for as long as it stays idle.
+#[must_use = "dropping the guard gives up the connection's place in the idle line"]
 pub(crate) struct IdleTurn {
     slots: Arc<SlotReclaim>,
     turn: std::pin::Pin<Box<OwnedNotified>>,

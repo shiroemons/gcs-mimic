@@ -22,9 +22,7 @@ pub(crate) fn string_map(map: &std::collections::BTreeMap<String, String>) -> se
 
 /// Discovery int64 fields accept either a JSON integer or a decimal string.
 pub(crate) fn int64(value: &serde_json::Value) -> Option<i64> {
-    value
-        .as_i64()
-        .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+    value.as_i64().or_else(|| value.as_str()?.parse().ok())
 }
 
 #[cfg(test)]

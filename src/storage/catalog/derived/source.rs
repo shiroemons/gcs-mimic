@@ -2,6 +2,7 @@ use super::*;
 
 /// A metadata snapshot and independent link to immutable bytes, including after source deletion.
 /// Unconsumed handles clean their staging link; `begin_derived` transfers ownership to SQLite.
+#[must_use = "dropping an unconsumed source removes its staging link"]
 pub(crate) struct DerivedSource {
     pub object: ObjectRecord,
     pub(super) backend: Option<super::super::BlobBackend>,

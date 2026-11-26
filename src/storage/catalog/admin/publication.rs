@@ -38,6 +38,7 @@ impl std::fmt::Display for NestedFileJob {
     }
 }
 impl std::error::Error for NestedFileJob {}
+#[must_use = "dropping the guard clears the file worker's nested-job check"]
 struct InFileJob;
 impl Drop for InFileJob {
     fn drop(&mut self) {
@@ -119,6 +120,7 @@ impl FileWorkers {
 }
 
 /// Verified private bytes; dropping schedules owned cleanup, never synchronous I/O.
+#[must_use = "dropping the guard schedules cleanup of the staged object"]
 pub(crate) struct StagedObject {
     catalog: Catalog,
     runtime: tokio::runtime::Handle,

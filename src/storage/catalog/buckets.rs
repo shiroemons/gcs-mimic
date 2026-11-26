@@ -292,9 +292,7 @@ fn insert_bucket_with_policy(
     record.updated = system_time_micros(updated)?;
     record.uniform_bucket_level_access_locked_time = record
         .uniform_bucket_level_access_locked_time
-        .map(|time| {
-            unix_micros(time).and_then(|time| system_time_micros(time).map_err(unavailable))
-        })
+        .map(|time| system_time_micros(unix_micros(time)?).map_err(unavailable))
         .transpose()?;
     // Cloud Storage bucket generations are 19-digit nanosecond values. A dedicated allocator
     // keeps them unique and increasing even under a frozen injected clock, and across a
