@@ -236,7 +236,7 @@ impl StagedObject {
     async fn cleanup(mut self) -> Result<(), AdminError> {
         // The lease outlives the removal, so admission counts the bytes until they are gone.
         if let Some(OwnedBlob { id, _lease }) = self.owned.take() {
-            cleanup(&self.catalog, id).await?;
+            cleanup(&self.catalog, vec![id]).await?;
         }
         Ok(())
     }
@@ -250,7 +250,7 @@ impl Drop for StagedObject {
         let catalog = self.catalog.clone();
         crate::task::spawn_supervised_on(&self.runtime, "staged-object-cleanup", async move {
             let OwnedBlob { id, _lease } = owned;
-            if let Err(error) = cleanup(&catalog, id).await {
+            if let Err(error) = cleanup(&catalog, vec![id]).await {
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Error,
                     crate::diagnostics::Event::PublicationCleanupFailed,
@@ -533,33 +533,48 @@ impl super::super::BlobBackend {
     }
 }
 
-async fn cleanup(catalog: &Catalog, id: BlobId) -> Result<(), AdminError> {
-    let probe = id;
-    let referenced = catalog
-        .run_upload(move |connection| {
-            objects::blob_referenced(connection, &probe).map_err(objects_error)
-        })
-        .await?;
-    if catalog.0.backend.is_memory() {
-        if !referenced {
-            catalog.0.backend.remove(&id)?;
-        }
-        return Ok(());
-    }
+async fn cleanup(catalog: &Catalog, ids: Vec<BlobId>) -> Result<(), AdminError> {
+    // The handles own these private IDs until cleanup finishes. Only their settled commit
+    // could have made them reachable, including when its result was ambiguous.
+    let (ids, referenced) = catalog.run_upload(move |connection| {
+        let mut statement = connection.prepare_cached(
+            "SELECT DISTINCT blob_id FROM objects WHERE blob_id IN (SELECT value FROM json_each(?1))"
+        )?;
+        let referenced = statement.query_map([sql::Json(&ids)], |row| row.get(0))?
+            .collect::<rusqlite::Result<std::collections::HashSet<BlobId>>>()?;
+        Ok::<_, ObjectError>((ids, referenced))
+    }).await?;
     let backend = catalog.0.backend.clone();
-    catalog
-        .0
-        .file_workers
-        .run(move || {
-            backend.remove_draft(&id)?;
-            if !referenced {
-                backend.remove(&id)?;
-                #[cfg(unix)]
-                backend.sync_blob_dir(&id)?;
+    let remove = move || {
+        let mut failure = None;
+        for id in ids {
+            if let Err(error) = remove_staged_blob(&backend, &id, &referenced) {
+                failure = Some(error);
             }
-            Ok(())
-        })
-        .await
+        }
+        failure.map_or(Ok(()), Err)
+    };
+    if catalog.0.backend.is_memory() {
+        remove()
+    } else {
+        catalog.0.file_workers.run(remove).await
+    }
+}
+
+fn remove_staged_blob(
+    backend: &super::super::BlobBackend,
+    id: &BlobId,
+    referenced: &std::collections::HashSet<BlobId>,
+) -> Result<(), AdminError> {
+    if !backend.is_memory() {
+        backend.remove_draft(id)?;
+    }
+    if !referenced.contains(id) {
+        backend.remove(id)?;
+        #[cfg(unix)]
+        backend.sync_blob_dir(id)?;
+    }
+    Ok(())
 }
 
 impl Admin {
@@ -606,7 +621,7 @@ impl Admin {
                 }
                 Err(StageFailure::NotCreated(error)) => Err(error),
                 Err(StageFailure::Created(error)) => {
-                    cleanup(&catalog, id).await?;
+                    cleanup(&catalog, vec![id]).await?;
                     Err(error)
                 }
             }
@@ -825,13 +840,16 @@ fn stage_memory(
 }
 
 async fn cleanup_entries(entries: Vec<BatchPublication>) -> Result<(), AdminError> {
-    let mut failure = None;
-    for entry in entries {
-        if let Err(error) = entry.staged.cleanup().await {
-            failure = Some(error);
-        }
-    }
-    failure.map_or(Ok(()), Err)
+    let Some(first) = entries.first() else {
+        return Ok(());
+    };
+    let catalog = first.staged.catalog.clone();
+    // Retain every admission until the file job has released the corresponding bytes.
+    let owned: Vec<_> = entries
+        .into_iter()
+        .filter_map(|mut entry| entry.staged.owned.take())
+        .collect();
+    cleanup(&catalog, owned.iter().map(|blob| blob.id).collect()).await
 }
 
 async fn run_batch(

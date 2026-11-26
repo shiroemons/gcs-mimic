@@ -179,7 +179,7 @@ async fn cleanup_snapshot(crash: crate::storage::catalog::fault::Crash, sync: Di
     let snapshot = crate::test_support::TestDir::new();
     catalog.inject(Step::AfterCommit, 0, crash.fault(snapshot.0.clone()));
     if sync == DirectorySync::Complete {
-        cleanup(&catalog, id).await.unwrap();
+        cleanup(&catalog, vec![id]).await.unwrap();
     } else {
         catalog.0.backend.remove(&id).unwrap();
     }
@@ -589,14 +589,75 @@ async fn publication_batch_isolates_failed_elements_and_cleans_unused_blobs() {
     assert!(result.results[2].is_ok());
     assert!(result.unattempted.is_empty());
     // One commit and three draft publications precede cleanup of the three attempted entries.
-    assert_eq!(catalog.job_counts(), (writes + 1 + 3, reads));
+    assert_eq!(catalog.job_counts(), (writes + 1 + 1, reads));
     assert_eq!(
         files.load(std::sync::atomic::Ordering::Relaxed),
-        submitted + 3 + 3
+        submitted + 3 + 1
     );
     assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
     assert_eq!(blob_count(&dir.0), 3);
     assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    catalog.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn restarting_during_batch_cleanup_keeps_only_the_committed_blob() {
+    use crate::storage::catalog::fault::{Crash, Step};
+    for &crash in Crash::ALL {
+        let snapshot = crate::test_support::TestDir::new();
+        let (dir, catalog, admin, bucket, name) = setup().await;
+        let keep = entry(&admin, &dir.0, "object", b"published").await;
+        let mut first = entry(&admin, &dir.0, "object", b"first").await;
+        let mut last = entry(&admin, &dir.0, "object", b"last").await;
+        first.request.condition = Some(GenerationCondition::Absent);
+        last.request.condition = Some(GenerationCondition::Absent);
+        catalog.inject(Step::AdminCleanupSync, 0, crash.fault(snapshot.0.clone()));
+        let result = admin
+            .publish_objects_with_budget(vec![keep, first, last], Duration::from_secs(30))
+            .await
+            .unwrap();
+        assert!(result.results[0].is_ok());
+        assert_eq!(
+            result.results[1..],
+            [Err(AdminError::Precondition), Err(AdminError::Precondition)]
+        );
+        assert_eq!(catalog.pending_faults(), 0);
+        catalog.close().await.unwrap();
+        let recovered = Catalog::open(&snapshot.0).await.unwrap();
+        assert_eq!(blob_count(&snapshot.0), 1);
+        assert_eq!(fs::read_dir(snapshot.0.join("staging")).unwrap().count(), 0);
+        let (_, mut reader) = recovered
+            .admin(Origin::Seed)
+            .open_object(&bucket, &name, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            reader.next_chunk().await.unwrap().unwrap(),
+            b"published"[..]
+        );
+        recovered.close().await.unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_batch_cleanup_sync_error_still_cleans_the_remaining_files() {
+    use crate::storage::catalog::fault::{Fault, Step};
+    let (dir, catalog, admin, _, _) = setup().await;
+    let keep = entry(&admin, &dir.0, "object", b"published").await;
+    let id = keep.staged.blob_id();
+    let mut first = entry(&admin, &dir.0, "object", b"first").await;
+    let mut last = entry(&admin, &dir.0, "object", b"last").await;
+    first.request.condition = Some(GenerationCondition::Absent);
+    last.request.condition = Some(GenerationCondition::Absent);
+    catalog.inject(Step::AdminCleanupSync, 0, Fault::Io(io::ErrorKind::Other));
+    assert!(
+        matches!(admin.publish_objects_with_budget(vec![keep, first, last], Duration::from_secs(30)).await, Err(AdminError::Io(cause)) if cause.kind() == io::ErrorKind::Other)
+    );
+    assert_eq!(catalog.pending_faults(), 0);
+    assert_eq!(blob_count(&dir.0), 1);
+    assert_eq!(fs::read(id.blob_path(&dir.0)).unwrap(), b"published");
     catalog.close().await.unwrap();
 }
 
@@ -820,11 +881,17 @@ async fn publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks() {
     for cancel_request in [false, true] {
         let (dir, catalog, admin, bucket, name) = setup().await;
         let input = entry(&admin, &dir.0, "object", b"cancelled").await;
+        let mut refused = entry(&admin, &dir.0, "object", b"refused").await;
+        refused.request.condition = Some(GenerationCondition::Absent);
         let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
         let worker = admin.clone();
-        let publishing = tokio::spawn(async move { worker.publish_objects(vec![input]).await });
-        eventually_async("the batch to rename its blob", || async {
-            blob_count(&dir.0) != 0
+        let publishing = tokio::spawn(async move {
+            worker
+                .publish_objects_with_budget(vec![input, refused], Duration::from_secs(30))
+                .await
+        });
+        eventually_async("the batch to rename both blobs", || async {
+            blob_count(&dir.0) == 2
         })
         .await;
         if cancel_request {
