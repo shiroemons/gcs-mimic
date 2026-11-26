@@ -234,13 +234,17 @@ fn rewrite_progress_retry_restart_and_completion_replay_publish_once() {
     server.get("destination").json_reason(404, "notFound");
     let first_token = first["rewriteToken"].as_str().unwrap();
     let path = continue_path(first_token);
-    let second = server.request("POST", &path, ADMIN, b"").json_ok();
+    let original = server.request("POST", &path, ADMIN, b"");
+    let second = original.json_ok();
     assert_eq!(second["totalBytesRewritten"], "2097152");
-    assert_eq!(server.request("POST", &path, ADMIN, b"").json_ok(), second);
+    let replay = server.request("POST", &path, ADMIN, b"");
+    assert_eq!(replay.json_ok(), second);
+    assert_eq!(replay.body, original.body);
     server.stop();
     let server = Server::start(&dir, false);
     let last_path = continue_path(second["rewriteToken"].as_str().unwrap());
-    let completed = server.request("POST", &last_path, ADMIN, b"").json_ok();
+    let original = server.request("POST", &last_path, ADMIN, b"");
+    let completed = original.json_ok();
     assert_eq!(completed["done"], true);
     assert_eq!(completed["totalBytesRewritten"], payload.len().to_string());
     assert!(completed.get("rewriteToken").is_none());
@@ -250,10 +254,9 @@ fn rewrite_progress_retry_restart_and_completion_replay_publish_once() {
         common::without_acl(completed["resource"].clone())
     );
     server.put("destination", b"later").json_ok();
-    assert_eq!(
-        server.request("POST", &last_path, ADMIN, b"").json_ok(),
-        completed
-    );
+    let replay = server.request("POST", &last_path, ADMIN, b"");
+    assert_eq!(replay.json_ok(), completed);
+    assert_eq!(replay.body, original.body);
     assert_eq!(server.get("destination?alt=media").body, b"later");
     assert_eq!(
         server.list("versions=true")["items"]

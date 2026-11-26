@@ -631,7 +631,7 @@ jobs, accounting for the two extra jobs over the N+6 W estimate.
 | `buckets.get` with `projection=full`, counting the metadata read | 1 W + 2 R → 2 R (permissive)<br>1 W + 4 R → 3 R (strict admin) |
 | JSON `objects.list` (live and versions) and gRPC `open_readable` and `get_readable` on the read pool, before ACL projection | JSON: 1 W → 1 R (permissive), 1 W + 1 R → 2 R (strict admin)<br>gRPC catalog open or get: 1 W → 1 R |
 | `projection=full` on object get and list, counting only the additional projection | +1 W → +1 R (permissive)<br>+1 W + 1 R → +1 R (strict admin) |
-| Rewrite, first call: permission and both buckets read on the pool; continuation lookup on the pool | 2 W + 3 R → 1 W + 2 R; continuation 2 W → 1 R + 1 W |
+| Rewrite, first call: source permission and pin, destination check and both buckets. Continuation: reuse the pooled token lookup for the lease, then reread under the lease | first pre-checks: 2 W + 3 R → 1 W + 2 R; completed replay after point reads moved to the pool: 1 W + 2 R → 1 W + 1 R |
 | Admin batch cleanup: one reference query and one file job for the batch | 2N → 2 |
 | Pub/Sub outbox poll on the pool | 1 W per write → 1 R |
 | Writer settings: `keep_plans_across_bindings` (QPSG) as on readers; prepared `BEGIN IMMEDIATE` and `COMMIT`; a written reason for `wal_autocheckpoint = 256` | CPU only |

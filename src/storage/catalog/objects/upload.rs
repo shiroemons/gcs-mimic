@@ -330,14 +330,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         self.run_serialized_read(SerializedRead::AdvisoryUpload, move |connection| {
             let snapshot = sql::read_snapshot(connection)?;
-            let (_, delete_permission) = authorized_bucket(&snapshot, &bucket, &access)?;
-            let previous = lookup(&snapshot, &bucket, &name)?;
-            check_publication(
-                previous.as_ref(),
-                conditions,
-                delete_permission,
-                clock.now(),
-            )
+            check_upload_destination(&snapshot, &bucket, &name, conditions, &access, clock.now())
         })
         .await
     }

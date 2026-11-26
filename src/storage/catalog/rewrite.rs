@@ -128,6 +128,36 @@ pub(crate) const UNLIMITED_REWRITE_BUDGET: NonZeroU64 = NonZeroU64::MAX;
 /// Bytes one call of a rewrite that needs several calls copies when the request sets no limit.
 pub(crate) const DEFAULT_REWRITE_BUDGET: NonZeroU64 = NonZeroU64::new(8 * 1024 * 1024).unwrap();
 
+/// The bucket identities and placement observed together when choosing a rewrite budget.
+pub(crate) struct RewriteBuckets {
+    source: Incarnation,
+    destination: Incarnation,
+    same_location: bool,
+    destination_class: crate::bucket::StorageClass,
+}
+
+impl RewriteBuckets {
+    pub(crate) fn budget(
+        &self,
+        source: crate::bucket::StorageClass,
+        requested: Option<crate::bucket::StorageClass>,
+        limit: Option<NonZeroU64>,
+    ) -> NonZeroU64 {
+        if self.same_location && requested.unwrap_or(self.destination_class) == source {
+            UNLIMITED_REWRITE_BUDGET
+        } else {
+            limit.unwrap_or(DEFAULT_REWRITE_BUDGET)
+        }
+    }
+}
+
+/// The lookup supplies the lease key. The guarded read authorizes the step.
+#[derive(Clone, Copy)]
+pub(crate) struct RewriteStep {
+    id: BlobId,
+    token: RewriteToken,
+}
+
 pub(crate) struct RewriteStart {
     pub binding: RewriteBinding,
     pub destination: DerivedDestination,
@@ -584,16 +614,75 @@ fn progress(session: &RewriteSession, response: &StoredResponse) -> RewriteProgr
 }
 
 impl Catalog {
+    /// A missing source has a protocol-specific diagnostic. Destination authorization precedes it.
+    pub(crate) async fn rewrite_buckets(
+        &self,
+        source: &str,
+        destination: &ObjectTarget<()>,
+        conditions: ObjectConditions,
+        access: &BucketAccess,
+    ) -> Result<Option<RewriteBuckets>, ObjectError> {
+        let source = source.to_owned();
+        let destination = destination.clone();
+        let access = access.clone();
+        let clock = self.0.clock.clone();
+        self.run_read(move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
+            super::objects::check_upload_destination(
+                &snapshot,
+                &destination.bucket,
+                &destination.name,
+                conditions,
+                &access,
+                clock.now(),
+            )?;
+            let Some(from) = super::buckets::select_bucket(&snapshot, &source)? else {
+                return Ok(None);
+            };
+            let to = super::buckets::select_bucket(&snapshot, &destination.bucket)?
+                .ok_or(ObjectError::BucketNotFound)?;
+            Ok(Some(RewriteBuckets {
+                source: incarnation(&snapshot, &source)?,
+                destination: incarnation(&snapshot, &destination.bucket)?,
+                same_location: from.location == to.location,
+                destination_class: to.storage_class,
+            }))
+        })
+        .await
+    }
+
+    #[cfg(test)]
     pub(crate) async fn begin_rewrite_session(
         &self,
         segments: Vec<DerivedSegment>,
         max_bytes: u64,
         start: RewriteStart,
     ) -> Result<(RewriteToken, super::derived::DerivedRequestGuard), RewriteError> {
+        let buckets = self
+            .rewrite_buckets(
+                &start.binding.source.bucket,
+                &start.binding.destination,
+                start.destination.conditions,
+                &start.destination.access,
+            )
+            .await?
+            .ok_or(ObjectError::BucketNotFound)?;
+        self.begin_checked_rewrite(segments, max_bytes, start, buckets)
+            .await
+            .map(|(step, guard)| (step.token, guard))
+    }
+
+    pub(crate) async fn begin_checked_rewrite(
+        &self,
+        segments: Vec<DerivedSegment>,
+        max_bytes: u64,
+        start: RewriteStart,
+        buckets: RewriteBuckets,
+    ) -> Result<(RewriteStep, super::derived::DerivedRequestGuard), RewriteError> {
         let token = RewriteToken::generate().map_err(object_unavailable)?;
         // shortcut: crash before delivery leaves durable state until expiry; add a delivered marker for eager recovery.
         let catalog = self.clone();
-        let (_, owner) = self
+        let (transfer, owner) = self
             .begin_derived_with_binding(
                 segments,
                 max_bytes,
@@ -613,11 +702,15 @@ impl Catalog {
                     // call, before any byte was copied (recorded 2026-11-17).
                     super::objects::BucketPublication::load(connection, &start.destination.bucket)?
                         .check_class(start.destination.storage_class)?;
-                    let request = encode(
-                        &start,
-                        incarnation(connection, &start.binding.source.bucket)?,
-                        incarnation(connection, &start.binding.destination.bucket)?,
+                    super::objects::check_upload_destination(
+                        connection,
+                        &start.destination.bucket,
+                        &start.destination.name,
+                        start.destination.conditions,
+                        &start.destination.access,
+                        catalog.0.clock.now(),
                     )?;
+                    let request = encode(&start, buckets.source, buckets.destination)?;
                     let deadline = UnixMillis::try_from(transfer.deadline)?;
                     sql::exec(
                         connection,
@@ -640,16 +733,37 @@ impl Catalog {
             )
             .await?;
         self.0.maintenance_wake.notify_one();
-        Ok((token, owner))
+        Ok((
+            RewriteStep {
+                id: transfer.id,
+                token,
+            },
+            owner,
+        ))
     }
 
     /// The session a client names by its `rewriteToken`; text that is not a token is invalid.
+    #[cfg(test)]
     pub(crate) async fn rewrite_session(
         &self,
         token: &str,
     ) -> Result<RewriteSession, RewriteError> {
+        self.rewrite_step(token).await.map(|(_, session)| session)
+    }
+
+    pub(crate) async fn rewrite_step(
+        &self,
+        token: &str,
+    ) -> Result<(RewriteStep, RewriteSession), RewriteError> {
         let token = token.parse().map_err(|_| RewriteError::Invalid)?;
-        self.session_by_token(token).await
+        let session = self.session_by_token(token).await?;
+        Ok((
+            RewriteStep {
+                id: session.id,
+                token,
+            },
+            session,
+        ))
     }
 
     async fn session_by_token(&self, token: RewriteToken) -> Result<RewriteSession, RewriteError> {
@@ -659,6 +773,7 @@ impl Catalog {
             .ok_or(RewriteError::Gone)
     }
 
+    #[cfg(test)]
     pub(crate) async fn continue_rewrite(
         &self,
         token: &str,
@@ -666,17 +781,28 @@ impl Catalog {
         destination_access: BucketAccess,
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
     ) -> Result<RewriteProgress, RewriteError> {
-        let token: RewriteToken = token.parse().map_err(|_| RewriteError::Invalid)?;
-        let session = self.session_by_token(token).await?;
+        let (step, _) = self.rewrite_step(token).await?;
+        self.advance_rewrite(step, source_access, destination_access, render)
+            .await
+    }
+
+    pub(crate) async fn advance_rewrite(
+        &self,
+        step: RewriteStep,
+        source_access: BucketAccess,
+        destination_access: BucketAccess,
+        render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
+    ) -> Result<RewriteProgress, RewriteError> {
+        let RewriteStep { id, token } = step;
         let _guard = self
-            .wait_for_writer(WriterKey::Rewrite(session.id), KeyOrigin::Holder)
+            .wait_for_writer(WriterKey::Rewrite(id), KeyOrigin::Holder)
             .await
             .map_err(CatalogError::from)?;
         // A request cancelled mid-step leaves that step running detached, holding the transfer. It
         // may yet finish the rewrite, so wait it out before reading the state this call acts on.
         // This writer keeps any later step out, so the claim need not outlive the wait.
         drop(
-            self.wait_for_writer_under_way(WriterKey::Derived(session.id), KeyOrigin::Holder)
+            self.wait_for_writer_under_way(WriterKey::Derived(id), KeyOrigin::Holder)
                 .await
                 .map_err(CatalogError::from)?,
         );
@@ -686,7 +812,9 @@ impl Catalog {
         let (mut session, source_result) = self
             .run(move |connection| {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
-                let checked = read_session(&transaction, &token, now)?.ok_or(RewriteError::Gone)?;
+                let checked = read_session(&transaction, &token, now)?
+                    .filter(|session| session.id == id)
+                    .ok_or(RewriteError::Gone)?;
                 let result = check_continuation(
                     &transaction,
                     &checked,
@@ -753,7 +881,8 @@ impl Catalog {
             },move |connection,record| {
                 let response=StoredResponse::Complete { offset: record.size, resource: render(record)? };
                 let saved=serde_json::to_string(&response).map_err(object_unavailable)?;
-                sql::exec(connection, "UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1", params![session.id,saved])?;
+                let changed = sql::exec(connection, "UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1 AND token = ?3 AND transfer_id = id", params![session.id,saved,token])?;
+                if changed != 1 { return Err(ObjectError::DerivedTransferNotFound); }
                 trim_finished(connection, &session.id, finished_budget)?;
                 // The stored response stays authoritative if the caller has gone by now.
                 Ok(response)
@@ -766,16 +895,22 @@ impl Catalog {
             token: next,
         };
         let saved = serde_json::to_string(&response).map_err(object_unavailable)?;
-        let id = session.id;
-        let now = UnixMillis::try_from(self.0.clock.now())?;
-        let changed = self.run(move |connection| {
-            let changed=sql::exec(connection, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5", params![id,next,current.offset,saved,now])?;
-            Ok::<_, ObjectError>(changed)
+        let progress = progress(&session, &response);
+        let clock = self.0.clock.clone();
+        self.run(move |connection| {
+            let transaction = sql::immediate(connection)?;
+            let now = clock.now();
+            let changed = sql::exec(&transaction, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5 AND token=?6 AND transfer_id=id", params![id,next,current.offset,saved,UnixMillis::try_from(now)?,token])?;
+            if changed != 1 {
+                return Err(ObjectError::DerivedTransferNotFound);
+            }
+            check_source(&transaction, &session, &source_access)?;
+            super::objects::check_upload_destination(&transaction, &session.destination.bucket,
+                &session.destination.name, session.destination.conditions, &destination_access, now)?;
+            transaction.commit()?;
+            Ok(())
         }).await?;
-        if changed != 1 {
-            return Err(RewriteError::Gone);
-        }
-        Ok(progress(&session, &response))
+        Ok(progress)
     }
 
     pub(super) async fn maintain_rewrite_sessions(
@@ -958,9 +1093,7 @@ mod tests {
         (catalog, directory, clock)
     }
 
-    async fn new_session(
-        catalog: &Catalog,
-    ) -> Result<(String, super::super::derived::DerivedRequestGuard), RewriteError> {
+    async fn start_request(catalog: &Catalog) -> (DerivedSegment, RewriteStart) {
         let source = catalog
             .resolve_derived_source(live("bucket", "source"), Default::default(), PERMISSIVE)
             .await
@@ -988,10 +1121,218 @@ mod tests {
             source_key_sha256: None,
             budget: std::num::NonZeroU64::new(1_048_576).unwrap(),
         };
+        (source.whole(), start)
+    }
+
+    async fn new_session(
+        catalog: &Catalog,
+    ) -> Result<(String, super::super::derived::DerivedRequestGuard), RewriteError> {
+        let (segment, start) = start_request(catalog).await;
         catalog
-            .begin_rewrite_session(vec![source.whole()], 8, start)
+            .begin_rewrite_session(vec![segment], 8, start)
             .await
             .map(|(token, guard)| (token.to_string(), guard))
+    }
+
+    async fn grant_create(catalog: &Catalog, name: &str) -> BucketAccess {
+        let mut policy = catalog.get_policy(name, PERMISSIVE).await.unwrap();
+        policy.bindings.push(crate::auth::Binding {
+            role: "roles/storage.objectCreator".parse().unwrap(),
+            members: vec!["allUsers".parse().unwrap()],
+        });
+        catalog.set_policy(name, policy, PERMISSIVE).await.unwrap();
+        BucketAccess::Policy {
+            identity: None,
+            permission: crate::auth::OBJECTS_CREATE,
+            project: Some("project".into()),
+        }
+    }
+
+    #[tokio::test]
+    async fn rewrite_bucket_snapshot_sees_placement_and_checks_destination_access_on_every_route() {
+        let (catalog, directory, _) = fixture().await;
+        let mut to = bucket("other", "project");
+        to.storage_class = crate::bucket::StorageClass::Nearline;
+        catalog.insert_bucket(to).await.unwrap();
+        let destination = ObjectTarget::new("other", "destination", ());
+        let access = grant_create(&catalog, "other").await;
+        super::super::read_pool::tests::assert_point_read(&catalog, async || {
+            let buckets = catalog
+                .rewrite_buckets("bucket", &destination, Default::default(), &access)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_ne!(buckets.source, buckets.destination);
+            assert_eq!(
+                buckets.budget(crate::bucket::StorageClass::Standard, None, None),
+                DEFAULT_REWRITE_BUDGET
+            );
+        })
+        .await;
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn registration_rechecks_a_revoked_grant_and_a_recreated_destination() {
+        let (catalog, directory, _) = fixture().await;
+        for recreate in [false, true] {
+            let name = if recreate { "recreated" } else { "revoked" };
+            catalog
+                .insert_bucket(bucket(name, "project"))
+                .await
+                .unwrap();
+            let (segment, mut start) = start_request(&catalog).await;
+            start.binding.destination.bucket = name.into();
+            start.destination.bucket = name.into();
+            if !recreate {
+                start.destination.access = grant_create(&catalog, name).await;
+            }
+            let buckets = catalog
+                .rewrite_buckets(
+                    "bucket",
+                    &start.binding.destination,
+                    Default::default(),
+                    &start.destination.access,
+                )
+                .await
+                .unwrap()
+                .unwrap();
+            if recreate {
+                catalog
+                    .delete_bucket(name, Default::default(), PERMISSIVE)
+                    .await
+                    .unwrap();
+                catalog
+                    .insert_bucket(bucket(name, "project"))
+                    .await
+                    .unwrap();
+            } else {
+                let mut revoked = catalog.get_policy(name, PERMISSIVE).await.unwrap();
+                revoked.bindings.clear();
+                catalog.set_policy(name, revoked, PERMISSIVE).await.unwrap();
+            }
+            let result = catalog
+                .begin_checked_rewrite(vec![segment], 8, start, buckets)
+                .await;
+            if recreate {
+                assert!(matches!(
+                    result,
+                    Err(RewriteError::Object(ObjectError::PreconditionFailed))
+                ));
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(RewriteError::Object(ObjectError::Denied(_)))
+                ));
+            }
+            let sessions = catalog
+                .run::<_, CatalogError>(|db| {
+                    Ok(sql::scalar::<i64>(
+                        db,
+                        "SELECT count(*) FROM rewrite_sessions",
+                        [],
+                    )?)
+                })
+                .await
+                .unwrap();
+            assert_eq!(sessions, 0);
+        }
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_source_changed_during_copy_cannot_checkpoint_or_publish() {
+        for budget in [NonZeroU64::MIN, UNLIMITED_REWRITE_BUDGET] {
+            let (catalog, directory, _) = fixture().await;
+            catalog
+                .put_object(
+                    permissive_upload("bucket", "source", 8),
+                    body(vec![bytes::Bytes::from_static(b"abc")]),
+                )
+                .await
+                .unwrap();
+            let (segment, mut start) = start_request(&catalog).await;
+            start.budget = budget;
+            let (token, mut owner) = catalog
+                .begin_rewrite_session(vec![segment], 8, start)
+                .await
+                .unwrap();
+            owner.disarm();
+            catalog.run::<_, CatalogError>(|db| {
+                sql::exec(db, "CREATE TEMP TRIGGER change_source AFTER UPDATE OF offset ON derived_transfers WHEN NEW.offset > OLD.offset BEGIN UPDATE objects SET metageneration=metageneration+1 WHERE name='source'; END", [])?;
+                Ok(())
+            }).await.unwrap();
+            let token = token.to_string();
+            assert!(matches!(
+                continue_to_end(&catalog, &token).await,
+                Err(RewriteError::Object(ObjectError::PreconditionFailed))
+            ));
+            if budget == NonZeroU64::MIN {
+                assert_eq!(catalog.rewrite_session(&token).await.unwrap().offset, 0);
+            }
+            assert!(matches!(
+                catalog
+                    .get_object(
+                        live("bucket", "destination"),
+                        Default::default(),
+                        PERMISSIVE
+                    )
+                    .await,
+                Err(ObjectError::ObjectNotFound)
+            ));
+            catalog.close().await.unwrap();
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn an_invalidated_lookup_cannot_advance_another_step() {
+        let (catalog, directory, _) = fixture().await;
+        catalog
+            .put_object(
+                permissive_upload("bucket", "source", 8),
+                body(vec![bytes::Bytes::from_static(b"three")]),
+            )
+            .await
+            .unwrap();
+        let (segment, mut start) = start_request(&catalog).await;
+        start.budget = NonZeroU64::MIN;
+        let (token, mut owner) = catalog
+            .begin_rewrite_session(vec![segment], 8, start)
+            .await
+            .unwrap();
+        owner.disarm();
+        let token = token.to_string();
+        let (stale, _) = catalog.rewrite_step(&token).await.unwrap();
+        let next = continue_to_end(&catalog, &token)
+            .await
+            .unwrap()
+            .token
+            .unwrap();
+        let latest = continue_to_end(&catalog, &next).await.unwrap();
+        assert!(matches!(
+            catalog
+                .advance_rewrite(
+                    stale,
+                    BucketAccess::Permissive,
+                    BucketAccess::Permissive,
+                    |_| panic!("stale token published")
+                )
+                .await,
+            Err(RewriteError::Gone)
+        ));
+        assert_eq!(
+            catalog
+                .rewrite_session(&latest.token.unwrap())
+                .await
+                .unwrap()
+                .offset,
+            2
+        );
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     /// The token a new session returns is the stored text, and only that spelling selects it.
@@ -1244,31 +1585,36 @@ mod tests {
             .await
             .unwrap();
         catalog
-            .check_upload("bucket", "destination", Default::default(), PERMISSIVE)
+            .rewrite_buckets(
+                "bucket",
+                &ObjectTarget::new("bucket", "destination", ()),
+                Default::default(),
+                PERMISSIVE,
+            )
             .await
+            .unwrap()
             .unwrap();
-        for _ in 0..2 {
-            catalog
-                .get_bucket("bucket", PERMISSIVE)
-                .await
-                .unwrap()
-                .unwrap();
-        }
-        assert_eq!(catalog.job_counts(), (writes + 2, reads + 3));
+        assert_eq!(catalog.job_counts(), (writes + 1, reads + 2));
         drop(source);
 
         let token = finish_rewrite(&catalog).await;
         let (writes, reads) = catalog.job_counts();
-        let session = catalog.rewrite_session(&token).await.unwrap();
+        let (step, session) = catalog.rewrite_step(&token).await.unwrap();
         assert_eq!(session.binding.destination.name, "destination");
         assert!(
-            continue_to_end(&catalog, &token)
+            catalog
+                .advance_rewrite(
+                    step,
+                    BucketAccess::Permissive,
+                    BucketAccess::Permissive,
+                    |_| panic!("a replay uses its stored response")
+                )
                 .await
                 .unwrap()
                 .resource
                 .is_some()
         );
-        assert_eq!(catalog.job_counts(), (writes + 1, reads + 2));
+        assert_eq!(catalog.job_counts(), (writes + 1, reads + 1));
         catalog.close().await.unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }

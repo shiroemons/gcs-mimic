@@ -7,8 +7,8 @@ use crate::{
     storage::{
         DerivedDestination,
         rewrite::{
-            DEFAULT_REWRITE_BUDGET, RewriteBinding, RewriteError, RewriteProgress, RewriteStart,
-            UNLIMITED_REWRITE_BUDGET,
+            RewriteBinding, RewriteError, RewriteProgress, RewriteSession, RewriteStart,
+            RewriteStep,
         },
     },
 };
@@ -49,29 +49,31 @@ async fn authorize_source(
     catalog: &Catalog,
     operation: &RewriteRequest,
     access: &BucketAccess,
-) -> Result<(), ApiError> {
+) -> Result<Option<(RewriteStep, RewriteSession)>, ApiError> {
     let source = &operation.names.source;
     if catalog
         .has_bucket_permission(&source.bucket, access)
         .await?
     {
-        return Ok(());
+        return Ok(None);
     }
-    let requested = operation.source_generation;
-    let generation = if let Some(token) = &operation.token {
-        match catalog.rewrite_session(token).await {
-            Ok(session)
-                if session.binding.source.bucket == source.bucket
-                    && session.binding.source.name == source.name =>
-            {
-                Some(session.binding.source.generation)
-            }
-            Ok(_) | Err(RewriteError::Invalid | RewriteError::Gone) => requested,
+    let session = if let Some(token) = &operation.token {
+        match catalog.rewrite_step(token).await {
+            Ok(found) => Some(found),
+            Err(RewriteError::Invalid | RewriteError::Gone) => None,
             Err(failure) => return Err(error(failure)),
         }
     } else {
-        requested
+        None
     };
+    let generation = session
+        .as_ref()
+        .filter(|(_, session)| {
+            session.binding.source.bucket == source.bucket
+                && session.binding.source.name == source.name
+        })
+        .map(|(_, session)| session.binding.source.generation)
+        .or(operation.source_generation);
     catalog
         .get_object(
             operation.names.source_at(generation),
@@ -79,7 +81,7 @@ async fn authorize_source(
             access,
         )
         .await?;
-    Ok(())
+    Ok(session)
 }
 
 pub(super) async fn respond(
@@ -96,7 +98,7 @@ pub(super) async fn respond(
     let source_access = ctx
         .authorize(auth::OBJECTS_GET, &operation.names.source.bucket)
         .await?;
-    authorize_source(&state.catalog, &operation, &source_access).await?;
+    let session = authorize_source(&state.catalog, &operation, &source_access).await?;
     let destination_access = ctx
         .authorize(auth::OBJECTS_CREATE, &operation.names.destination.bucket)
         .await?;
@@ -138,6 +140,7 @@ pub(super) async fn respond(
     let wait = begin_catalog_wait(activity).await;
     // Once mutation starts, await its durable result instead of timing out a detached commit.
     let job = RewriteJob {
+        session,
         operation,
         body,
         keys,
@@ -185,6 +188,7 @@ pub(super) async fn respond(
 /// What one detached rewrite step owns: the request, its metadata body, keys and access. A
 /// rewrite to a new destination key on the same object rotates its key.
 struct RewriteJob {
+    session: Option<(RewriteStep, RewriteSession)>,
     operation: RewriteRequest,
     body: Option<Value>,
     keys: CopyKeys,
@@ -217,6 +221,7 @@ async fn execute(
     base: String,
 ) -> Result<(RewriteProgress, Option<crate::storage::DerivedRequestGuard>), ApiError> {
     let RewriteJob {
+        session,
         operation,
         body,
         keys,
@@ -225,8 +230,11 @@ async fn execute(
     } = job;
     let names = &operation.names;
     let mut owner = None;
-    let token = if let Some(token) = &operation.token {
-        let session = catalog.rewrite_session(token).await.map_err(error)?;
+    let step = if let Some(token) = &operation.token {
+        let (step, session) = match session {
+            Some(checked) => checked,
+            None => catalog.rewrite_step(token).await.map_err(error)?,
+        };
         if !session
             .binding
             .accepts(&operation.names, &operation.parameters, body.as_ref())
@@ -234,7 +242,7 @@ async fn execute(
             return Err(error(RewriteError::Invalid));
         }
         session.check_customer_keys(keys)?;
-        token.clone()
+        step
     } else {
         let source = resolve_source(&catalog, &operation, &source_access, keys).await?;
         let mut destination = destination(&source.object, &operation, body.as_ref())?;
@@ -248,34 +256,20 @@ async fn execute(
         destination.metadata.customer_key_sha256 =
             keys.destination.map(crate::csek::CustomerKey::sha256);
         destination.metadata.acl = operation.predefined_acl.into();
-        catalog
-            .check_upload(
-                &names.destination.bucket,
-                &names.destination.name,
+        let buckets = catalog
+            .rewrite_buckets(
+                &names.source.bucket,
+                &names.destination,
                 operation.conditions,
                 &destination_access,
             )
-            .await?;
-        let source_bucket = catalog
-            .get_bucket(&names.source.bucket, &BucketAccess::Permissive)
             .await?
             .ok_or(ObjectError::BucketNotFound)?;
-        let destination_bucket = catalog
-            .get_bucket(&names.destination.bucket, &BucketAccess::Permissive)
-            .await?
-            .ok_or(ObjectError::BucketNotFound)?;
-        let multiple = source_bucket.location != destination_bucket.location
-            || destination
-                .storage_class
-                .unwrap_or(destination_bucket.storage_class)
-                != source.object.storage_class;
-        let budget = if multiple {
-            operation
-                .max_bytes_per_call
-                .unwrap_or(DEFAULT_REWRITE_BUDGET)
-        } else {
-            UNLIMITED_REWRITE_BUDGET
-        };
+        let budget = buckets.budget(
+            source.object.storage_class,
+            destination.storage_class,
+            operation.max_bytes_per_call,
+        );
         let binding = RewriteBinding {
             source: crate::object::ObjectTarget::new(
                 names.source.bucket.clone(),
@@ -299,15 +293,15 @@ async fn execute(
             source_key_sha256: keys.source.map(crate::csek::CustomerKey::sha256),
             budget,
         };
-        let (token, guard) = catalog
-            .begin_rewrite_session(vec![source.whole()], max_bytes, start)
+        let (step, guard) = catalog
+            .begin_checked_rewrite(vec![source.whole()], max_bytes, start, buckets)
             .await
             .map_err(error)?;
         owner = Some(guard);
-        token.to_string()
+        step
     };
     let progress = catalog
-        .continue_rewrite(&token, source_access, destination_access, move |record| {
+        .advance_rewrite(step, source_access, destination_access, move |record| {
             let mut value = json::object_resource_keyed(
                 record,
                 &base,

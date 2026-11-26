@@ -18,10 +18,7 @@ use crate::{
     },
     storage::{
         DerivedDestination, DerivedRequestGuard,
-        rewrite::{
-            DEFAULT_REWRITE_BUDGET, RewriteBinding, RewriteError, RewriteStart,
-            UNLIMITED_REWRITE_BUDGET,
-        },
+        rewrite::{RewriteBinding, RewriteError, RewriteStart, RewriteStep},
     },
 };
 use serde_json::{Map, Value};
@@ -402,12 +399,12 @@ impl Storage {
             Some(
                 self.state
                     .catalog
-                    .rewrite_session(&r.rewrite_token)
+                    .rewrite_step(&r.rewrite_token)
                     .await
                     .map_err(rewrite_error)?,
             )
         };
-        let binding = session.as_ref().map(|s| &s.binding);
+        let binding = session.as_ref().map(|(_, s)| &s.binding);
         let target = RewriteTarget::resolve(&r, binding, self.compat_profile)?;
         Admitted::of(&extensions)?.compare(&[
             Route::SourceBucket(Some(target.source_bucket)),
@@ -422,7 +419,7 @@ impl Storage {
             .await?;
         // A new session's guard stays armed until its first response is stored and read back;
         // returning early drops it, which cancels the session.
-        let (token, mut owner) = if let Some(session) = &session {
+        let (step, mut owner) = if let Some((step, session)) = &session {
             let binding = &session.binding;
             if !target.matches(binding)
                 || parameters
@@ -439,7 +436,7 @@ impl Storage {
             // Neither the proto nor Cloud Storage's recorded answers say whether a
             // continuation may omit the keys; this follows the JSON API, which requires both.
             session.check_customer_keys(options.keys)?;
-            (r.rewrite_token.clone(), None)
+            (*step, None)
         } else {
             let new = NewRewrite {
                 target,
@@ -451,13 +448,13 @@ impl Storage {
                 resource: r.destination.as_ref(),
                 acl: destination_acl(&r.destination_predefined_acl, &create)?,
             };
-            let (token, guard) = self.begin_rewrite(new, &read, &create).await?;
-            (token, Some(guard))
+            let (step, guard) = self.begin_rewrite(new, &read, &create).await?;
+            (step, Some(guard))
         };
         let progress = self
             .state
             .catalog
-            .continue_rewrite(&token, read, create, super::stored::rewrite_resource)
+            .advance_rewrite(step, read, create, super::stored::rewrite_resource)
             .await
             .map_err(rewrite_error)?;
         let mut resource = progress
@@ -487,7 +484,7 @@ impl Storage {
         new: NewRewrite<'_>,
         read: &BucketAccess,
         create: &BucketAccess,
-    ) -> Result<(String, DerivedRequestGuard), Status> {
+    ) -> Result<(RewriteStep, DerivedRequestGuard), Status> {
         let NewRewrite {
             target:
                 RewriteTarget {
@@ -544,27 +541,18 @@ impl Storage {
             ),
             None => metadata.storage_class.take(),
         };
-        self.state.catalog.check_upload(db, dn, dc, create).await?;
-        let source_bucket = self
+        let destination_target = ObjectTarget::new(db, dn, ());
+        let buckets = self
             .state
             .catalog
-            .get_bucket(sb, &BucketAccess::Permissive)
+            .rewrite_buckets(sb, &destination_target, dc, create)
             .await?
             .ok_or_else(|| Status::not_found("Source bucket not found"))?;
-        let destination_bucket = self
-            .state
-            .catalog
-            .get_bucket(db, &BucketAccess::Permissive)
-            .await?
-            .ok_or_else(|| Status::not_found("Destination bucket not found"))?;
-        let multiple = source_bucket.location != destination_bucket.location
-            || class.unwrap_or(destination_bucket.storage_class) != source.object.storage_class;
-        // An absent limit asks for the default.
-        let budget = if multiple {
-            options.max_bytes_per_call.unwrap_or(DEFAULT_REWRITE_BUDGET)
-        } else {
-            UNLIMITED_REWRITE_BUDGET
-        };
+        let budget = buckets.budget(
+            source.object.storage_class,
+            class,
+            options.max_bytes_per_call,
+        );
         let content_type = metadata
             .content_type
             .value()
@@ -585,7 +573,7 @@ impl Storage {
         let start = RewriteStart {
             binding: RewriteBinding {
                 source: crate::object::ObjectTarget::new(sb, sn, source.object.generation),
-                destination: crate::object::ObjectTarget::new(db, dn, ()),
+                destination: destination_target,
                 parameters,
                 metadata: body,
             },
@@ -598,9 +586,8 @@ impl Storage {
         };
         self.state
             .catalog
-            .begin_rewrite_session(vec![source.whole()], self.max_object_bytes, start)
+            .begin_checked_rewrite(vec![source.whole()], self.max_object_bytes, start, buckets)
             .await
-            .map(|(token, guard)| (token.to_string(), guard))
             .map_err(rewrite_error)
     }
     pub(super) async fn compose_object(
