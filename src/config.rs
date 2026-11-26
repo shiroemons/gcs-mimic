@@ -856,6 +856,7 @@ mod tests {
 
     #[test]
     fn advertised_ipv6_origin_drops_listener_scope_and_flow_information() {
+        let config = Config::load(&[], &BTreeMap::new()).unwrap();
         let bound = SocketAddr::V6(std::net::SocketAddrV6::new(
             "fe80::1".parse().unwrap(),
             4443,
@@ -863,11 +864,11 @@ mod tests {
             3,
         ));
         assert_eq!(
-            ConfigDraft::default().api_base_for_test(bound),
+            config.effective_api_base_url(bound),
             "http://[fe80::1]:4443"
         );
         assert_eq!(
-            ConfigDraft::default().api_base_for_test(SocketAddr::V6(std::net::SocketAddrV6::new(
+            config.effective_api_base_url(SocketAddr::V6(std::net::SocketAddrV6::new(
                 std::net::Ipv6Addr::UNSPECIFIED,
                 4443,
                 7,
@@ -875,6 +876,43 @@ mod tests {
             ))),
             "http://[::1]:4443"
         );
+    }
+
+    #[test]
+    fn tcp_listener_settings_assemble_the_selected_tls_identity() {
+        let load = |flags: &[&str]| {
+            let flags: Vec<_> = flags.iter().map(|flag| (*flag).to_owned()).collect();
+            Config::load(&flags, &BTreeMap::new()).unwrap()
+        };
+        let default = load(&[]);
+        assert!(matches!(
+            default.tls().map(Tls::identity),
+            Some(TlsIdentity::Development)
+        ));
+        let plain = load(&["--scheme=http"]);
+        assert!(plain.tls().is_none());
+        assert_eq!(plain.grpc_scheme(), None);
+
+        for (flags, grpc_scheme) in [
+            (&["--scheme=https"][..], None),
+            (
+                &[
+                    "--scheme=http",
+                    "--grpc-listen=127.0.0.1:0",
+                    "--grpc-scheme=tls",
+                ][..],
+                Some(GrpcScheme::Tls),
+            ),
+        ] {
+            let config = load(&[flags, &["--tls-cert=a", "--tls-key=b"]].concat());
+            assert_eq!(config.grpc_scheme(), grpc_scheme);
+            let Some(TlsIdentity::Provided { certificate, key }) = config.tls().map(Tls::identity)
+            else {
+                panic!("expected configured identity for {flags:?}");
+            };
+            assert_eq!(certificate, Path::new("a"));
+            assert_eq!(key, Path::new("b"));
+        }
     }
 
     #[test]
@@ -2037,14 +2075,13 @@ mod tests {
                 ],
                 &BTreeMap::new(),
             );
-            assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-            assert_eq!(report.diagnostics.warnings.len(), 1);
+            let (config, diagnostics) = report.into_config().unwrap();
+            assert_eq!(diagnostics.warnings.len(), 1);
             assert!(
-                report.diagnostics.warnings[0]
+                diagnostics.warnings[0]
                     .fix
                     .contains("virtual-host routing is disabled")
             );
-            let config = Config::try_from(report).unwrap();
             assert!(!config.public_virtual_host_enabled());
             assert_eq!(**config.xml_virtual_host_domains(), ["storage.invalid"]);
         }
@@ -2780,6 +2817,8 @@ mod tests {
 
     #[test]
     fn api_origin_defaults_use_bound_addresses_and_preflight_hosts() {
+        let env = BTreeMap::new();
+        let default = Config::load(&[], &env).unwrap();
         for (bound, expected) in [
             ("0.0.0.0:54321", "http://127.0.0.1:54321"),
             ("[::]:54321", "http://[::1]:54321"),
@@ -2787,7 +2826,7 @@ mod tests {
             ("[::1]:54321", "http://[::1]:54321"),
         ] {
             assert_eq!(
-                ConfigDraft::default().api_base_for_test(bound.parse().unwrap()),
+                default.effective_api_base_url(bound.parse().unwrap()),
                 expected
             );
         }
@@ -2798,25 +2837,23 @@ mod tests {
             (Scheme::Https, "https://127.0.0.1:54321"),
             (Scheme::Both, "https://127.0.0.1:54321"),
         ] {
-            let config = ConfigDraft {
-                scheme,
-                ..ConfigDraft::default()
-            };
+            let config = Config::load(&["--scheme".into(), scheme.as_str().into()], &env).unwrap();
             assert_eq!(
-                config.api_base_for_test("127.0.0.1:54321".parse().unwrap()),
+                config.effective_api_base_url("127.0.0.1:54321".parse().unwrap()),
                 expected,
                 "{scheme:?}"
             );
         }
         for listen in ["127.0.0.1:0", "0.0.0.0:0"] {
             let args = [
+                "--scheme=http".into(),
                 "--listen".into(),
                 listen.into(),
                 "--xml-virtual-host-domains".into(),
                 "0.1".into(),
             ];
             assert!(
-                load_http(&args, &BTreeMap::new())
+                Config::load(&args, &env)
                     .unwrap_err()
                     .to_string()
                     .contains("api_base_url host selects")
@@ -2829,9 +2866,9 @@ mod tests {
                 ],
             ]
             .concat();
-            let config = load_http(&explicit, &BTreeMap::new()).unwrap();
+            let config = Config::load(&explicit, &env).unwrap();
             assert_eq!(
-                config.api_base_for_test("127.0.0.1:12345".parse().unwrap()),
+                config.effective_api_base_url("127.0.0.1:12345".parse().unwrap()),
                 "https://proxy.invalid/prefix"
             );
         }

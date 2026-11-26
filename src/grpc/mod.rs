@@ -261,15 +261,15 @@ fn shutdown_grace(peer_wait: Duration, shutdown: TimeLimit) -> Duration {
 
 /// How a client should connect, for the diagnostics of a connection that failed or never sent
 /// its preface: the listener's configured scheme decides what it accepts.
-fn client_advice(scheme: GrpcScheme) -> &'static str {
+fn client_advice(scheme: Option<GrpcScheme>) -> &'static str {
     match scheme {
-        GrpcScheme::Auto => {
+        None | Some(GrpcScheme::Auto) => {
             "connect an h2c gRPC client, or a TLS gRPC client that trusts the server's CA and offers ALPN h2, to grpc_listen, for example 127.0.0.1:4444"
         }
-        GrpcScheme::H2c => {
+        Some(GrpcScheme::H2c) => {
             "connect a plaintext h2c gRPC client to grpc_listen, for example 127.0.0.1:4444, or set grpc_scheme=auto or tls for TLS clients"
         }
-        GrpcScheme::Tls => {
+        Some(GrpcScheme::Tls) => {
             "connect a TLS gRPC client that trusts the server's CA and offers ALPN h2 to grpc_listen, or set grpc_scheme=auto or h2c for plaintext clients"
         }
     }

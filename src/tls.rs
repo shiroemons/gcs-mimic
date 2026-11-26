@@ -272,7 +272,7 @@ impl ServerSecurity {
         Self::load_settings(
             config.scheme(),
             config.unix_socket(),
-            config.grpc_security_scheme(),
+            config.grpc_scheme(),
             config.tls(),
         )
     }
@@ -283,13 +283,21 @@ impl ServerSecurity {
         grpc: Option<GrpcScheme>,
         tls: Option<&Tls>,
     ) -> Result<Self, ServerIdentityError> {
+        let primary = ListenerSecurity::primary(scheme, unix_socket);
+        let grpc = ListenerSecurity::grpc(grpc, unix_socket);
         let Some(tls) = tls else {
+            if primary.uses_tls() || grpc.uses_tls() {
+                return Err(ServerIdentityError::Identity(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "TLS listeners require a server identity",
+                )));
+            }
             return Ok(Self::plain());
         };
         let identity = ServerIdentity::load(tls.identity())?;
         Ok(Self {
-            primary: ListenerSecurity::primary(scheme, unix_socket).secure(&identity)?,
-            grpc: ListenerSecurity::grpc(grpc, unix_socket).secure(&identity)?,
+            primary: primary.secure(&identity)?,
+            grpc: grpc.secure(&identity)?,
         })
     }
 }

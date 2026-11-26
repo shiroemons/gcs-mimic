@@ -381,11 +381,7 @@ impl Config {
         self.listeners.grpc().map(|listener| listener.address)
     }
 
-    pub fn grpc_scheme(&self) -> GrpcScheme {
-        self.grpc_security_scheme().unwrap_or(GrpcScheme::Auto)
-    }
-
-    pub(crate) fn grpc_security_scheme(&self) -> Option<GrpcScheme> {
+    pub fn grpc_scheme(&self) -> Option<GrpcScheme> {
         self.listeners.grpc().map(|listener| listener.scheme)
     }
 
@@ -477,8 +473,7 @@ impl Config {
     }
 
     pub fn effective_api_base_url(&self, bound: SocketAddr) -> String {
-        self.api_base_url()
-            .map_or_else(|| bound_api_base(self.scheme(), bound), str::to_owned)
+        api_base(self.api_base_url(), self.scheme(), bound)
     }
 
     pub fn public_virtual_host_enabled(&self) -> bool {
@@ -520,10 +515,15 @@ pub(super) fn local_origin(listen: SocketAddr, http: Option<SocketAddr>, scheme:
     format!("{scheme}://{listen}")
 }
 
-pub(super) fn bound_api_base(scheme: Scheme, bound: SocketAddr) -> String {
-    format!(
-        "{}://{}",
-        scheme.primary(),
-        loopback_if_unspecified(SocketAddr::new(bound.ip(), bound.port()))
+pub(super) fn api_base(explicit: Option<&str>, scheme: Scheme, bound: SocketAddr) -> String {
+    explicit.map_or_else(
+        || {
+            format!(
+                "{}://{}",
+                scheme.primary(),
+                loopback_if_unspecified(SocketAddr::new(bound.ip(), bound.port()))
+            )
+        },
+        str::to_owned,
     )
 }

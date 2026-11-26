@@ -103,7 +103,9 @@ fn a_unix_socket_serves_plain_http_under_the_default_scheme() {
         assert!(result.is_err());
         return;
     }
-    assert_eq!(result.unwrap().scheme(), Scheme::Auto);
+    let config = result.unwrap();
+    assert_eq!(config.scheme(), Scheme::Auto);
+    assert!(config.tls().is_none());
     for (key, value, fix) in [
         ("--scheme", "https", "scheme=auto or http"),
         ("--scheme", "both", "scheme=auto or http"),

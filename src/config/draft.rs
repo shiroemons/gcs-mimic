@@ -1,6 +1,6 @@
 use super::*;
 
-use super::assemble::{Listeners, Tls};
+use super::assemble::{Listeners, Tls, api_base};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ConfigDraft {
@@ -212,12 +212,6 @@ impl ConfigDraft {
 
     pub(super) fn grpc_security_scheme(&self) -> Option<GrpcScheme> {
         self.grpc_listen.map(|_| self.grpc_scheme)
-    }
-
-    fn api_base(&self, bound: SocketAddr) -> String {
-        self.api_base_url
-            .clone()
-            .unwrap_or_else(|| super::assemble::bound_api_base(self.scheme, bound))
     }
 
     pub(super) fn from_inputs(mut inputs: Inputs) -> ConfigurationReport {
@@ -673,9 +667,7 @@ impl ConfigurationReport {
     }
 
     pub(crate) fn valid(&self, settings: &[Setting]) -> bool {
-        settings
-            .iter()
-            .all(|setting| !self.invalid.contains(setting))
+        settings_valid(&self.invalid, settings)
     }
 
     #[cfg(test)]
@@ -750,15 +742,17 @@ pub(super) struct Validation {
     pub(super) auth_profile: Option<AuthProfile>,
 }
 
+fn settings_valid(invalid: &BTreeSet<Setting>, settings: &[Setting]) -> bool {
+    settings.iter().all(|setting| !invalid.contains(setting))
+}
+
 impl Validation {
     pub(super) fn valid(&self, settings: &[Setting]) -> bool {
-        !self.any_invalid(settings)
+        settings_valid(&self.invalid, settings)
     }
 
     pub(super) fn any_invalid(&self, settings: &[Setting]) -> bool {
-        settings
-            .iter()
-            .any(|setting| self.invalid.contains(setting))
+        !self.valid(settings)
     }
 
     fn apply_settings(&mut self, settings: &Settings) {
@@ -1056,8 +1050,7 @@ impl Validation {
             Setting::ApiBaseUrl,
             Setting::XmlVirtualHostDomains,
             Setting::Listen,
-        ]) && config
-            .api_base(config.listen)
+        ]) && api_base(config.api_base_url.as_deref(), config.scheme, config.listen)
             .parse::<hyper::Uri>()
             .ok()
             .and_then(|api| api.authority().cloned())
@@ -1210,9 +1203,5 @@ impl ConfigDraft {
             return Err(report.diagnostics);
         }
         Ok(report.draft)
-    }
-
-    pub(super) fn api_base_for_test(&self, bound: SocketAddr) -> String {
-        self.api_base(bound)
     }
 }

@@ -7,6 +7,22 @@ use super::*;
 use crate::config::ConfigDraft;
 
 #[test]
+fn a_tls_listener_without_an_identity_is_rejected() {
+    for (scheme, grpc) in [
+        (Scheme::Auto, None),
+        (Scheme::Https, None),
+        (Scheme::Both, None),
+        (Scheme::Http, Some(GrpcScheme::Auto)),
+        (Scheme::Http, Some(GrpcScheme::Tls)),
+    ] {
+        assert!(matches!(
+            ServerSecurity::load_settings(scheme, None, grpc, None),
+            Err(ServerIdentityError::Identity(error)) if error.kind() == io::ErrorKind::InvalidInput
+        ));
+    }
+}
+
+#[test]
 fn server_identity_errors_retain_the_io_cause_and_distinguish_input_settings() {
     use std::error::Error as _;
     for (error, setting) in [

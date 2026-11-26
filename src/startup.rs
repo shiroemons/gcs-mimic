@@ -3,7 +3,7 @@ use gcs_mimic::{
     bucket::CatalogError,
     bucket_init::InitOutcome,
     clock::{Clock, SystemClock},
-    config::Config,
+    config::{Config, GrpcScheme},
     diagnostics::{DiagnosticSource, Diagnostics, combine_shutdown_results as merge_close_result},
     seed::{SeedError, SeedOutcome},
     server::{self, State},
@@ -219,7 +219,7 @@ impl ReadyEvent {
             seed,
             buckets,
             scheme: config.scheme().as_str(),
-            grpc_scheme: config.grpc_listen().map(|_| config.grpc_scheme().as_str()),
+            grpc_scheme: config.grpc_scheme().map(GrpcScheme::as_str),
             tls_handshake_timeout_ms: config.tls_handshake_timeout(),
             public_base_url: config
                 .public_base_url()
@@ -338,10 +338,7 @@ async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
         if matches!(
             config.scheme(),
             gcs_mimic::config::Scheme::Https | gcs_mimic::config::Scheme::Both
-        ) || config.listen_http().is_some()
-            || config.grpc_listen().is_some()
-            || config.trusted_listen().is_some()
-        {
+        ) {
             return Err(Diagnostics::error(
                 DiagnosticSource::Listener,
                 "unix_socket",
@@ -674,10 +671,10 @@ fn ready_transport(
                     scheme: "http",
                 });
             }
-            if let Some(grpc) = &listeners.grpc {
+            if let (Some(grpc), Some(scheme)) = (&listeners.grpc, config.grpc_scheme()) {
                 entries.push(ReadyListener {
                     listen: ListenerSetting::GrpcListen.local_addr(grpc)?,
-                    scheme: config.grpc_scheme().listener_scheme(),
+                    scheme: scheme.listener_scheme(),
                 });
             }
             Ok(ReadyTransport::Tcp {
@@ -1102,6 +1099,8 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let directory = TestDir::new();
         fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o700)).unwrap();
+        // Unix settings reject an explicit TCP address. Occupy the implicit address to prove
+        // that Unix startup succeeds even when the ordinary TCP bind would fail.
         let _occupied = match std::net::TcpListener::bind(Config::default().listen()) {
             Ok(listener) => Some(listener),
             Err(error) if error.kind() == io::ErrorKind::AddrInUse => None,
