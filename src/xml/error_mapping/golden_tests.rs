@@ -270,7 +270,5 @@ async fn every_error_keeps_its_xml_response() {
         let error = crate::xml::put::content_type_and_hashes(&headers).unwrap_err();
         golden.transcript.render("response", document(error).await);
     }
-    golden
-        .transcript
-        .assert_live_golden(GOLDEN, include_str!("golden_tests/oracle.tsv"));
+    golden.transcript.assert_golden(GOLDEN);
 }

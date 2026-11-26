@@ -441,50 +441,6 @@ impl Transcript {
         self.renderings.push((name, rendering));
     }
 
-    /// Checks the live routes against the original fixture while the retired oracle is audited.
-    pub(crate) fn assert_live_golden(&self, path: &str, manifest: &str) {
-        let golden =
-            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(path)).unwrap();
-        let mut obsolete = BTreeSet::new();
-        for line in manifest.lines() {
-            let mut fields = line.splitn(3, '\t');
-            let entry = (fields.next().unwrap(), fields.next().unwrap());
-            assert!(
-                fields.next().is_some_and(|reason| !reason.is_empty()),
-                "{entry:?}"
-            );
-            assert!(obsolete.insert(entry), "duplicate oracle entry {entry:?}");
-        }
-        let mut cases = golden.split("\n== ");
-        let mut retained = cases.next().unwrap().to_owned();
-        for case in cases {
-            let (label, routes) = case.split_once('\n').unwrap();
-            if obsolete.remove(&(label, "*")) {
-                continue;
-            }
-            let _ = write!(retained, "\n== {label}\n");
-            let mut keep = true;
-            for line in routes.split_inclusive('\n') {
-                if let Some(route) = line.strip_prefix("-- ") {
-                    let route = route.trim_end();
-                    let name = route
-                        .split_once(": same as ")
-                        .map_or(route, |(name, _)| name);
-                    keep = !obsolete.remove(&(label, name));
-                }
-                if keep {
-                    retained.push_str(line);
-                }
-            }
-        }
-        assert!(obsolete.is_empty(), "unknown oracle entries: {obsolete:?}");
-        assert!(
-            retained == self.text,
-            "{}",
-            first_difference(path, &retained, &self.text)
-        );
-    }
-
     /// Compares the transcript with the golden file at `path`, relative to the crate root.
     pub(crate) fn assert_golden(&self, path: &str) {
         let file = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);

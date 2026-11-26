@@ -296,7 +296,5 @@ async fn every_error_keeps_its_storage_v2_status() {
             .transcript
             .render("response", rendering(&Status::from(error)));
     }
-    golden
-        .transcript
-        .assert_live_golden(GOLDEN, include_str!("golden_tests/oracle.tsv"));
+    golden.transcript.assert_golden(GOLDEN);
 }
