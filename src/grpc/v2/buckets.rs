@@ -2651,6 +2651,15 @@ mod tests {
             .update_bucket(Request::new(request), caller(&storage, "admin").await)
             .await
             .unwrap();
+        let public = storage
+            .get_bucket(Request::new(get("strict-acl")), Some(Caller::Anonymous))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(public.bucket_id, "strict-acl");
+        assert!(public.acl.is_empty());
+        assert!(public.default_object_acl.is_empty());
+        assert!(public.owner.is_none());
         storage.state.catalog.close().await.unwrap();
     }
 
