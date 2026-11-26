@@ -16,10 +16,10 @@ use std::{
     sync::{Arc, PoisonError},
 };
 
-pub(crate) use crate::cause::BackendFailure;
 pub use crate::cause::MemoryBudget;
+pub(crate) use crate::cause::{BackendFailure, MemoryExhausted};
 mod source;
-pub(crate) use source::{Link, Source, TypedSource, chain};
+pub(crate) use source::{Layer, Link, Source, TypedSource, chain};
 pub(crate) mod wording;
 
 /// The message and optional underlying error of an unavailable or corrupt backend.
@@ -145,7 +145,7 @@ impl From<BackendFailure> for BackendCause {
 /// An I/O failure: the kind callers classify by, and the error that produced it.
 ///
 /// The source is the error that produced the failure, or, when [`object_context`] added a
-/// message naming the entry the failure hit, a [`Source::Context`] whose own source is that
+/// message naming the entry the failure hit, a [`BackendCause`] whose own source is that
 /// error.
 #[derive(Clone)]
 pub struct IoCause {
@@ -182,7 +182,7 @@ impl From<MemoryExhausted> for IoCause {
     fn from(exhausted: MemoryExhausted) -> Self {
         Self {
             kind: io::ErrorKind::StorageFull,
-            source: Some(Arc::new(Source::Exhausted(exhausted))),
+            source: Some(Arc::new(Source::from(exhausted))),
         }
     }
 }
@@ -199,43 +199,6 @@ impl From<BlobError> for IoCause {
 impl TypedSource for IoCause {
     fn typed_source(&self) -> Option<Link<'_>> {
         self.source.as_deref().map(Source::link)
-    }
-}
-
-/// A `backend=memory` budget that ran out. It travels inside the `StorageFull` failure, so a reply
-/// can name the setting to raise from the failure's type instead of its text.
-#[derive(Debug)]
-pub(crate) struct MemoryExhausted {
-    budget: MemoryBudget,
-    /// SQLite's full database, when the catalog page budget ran out.
-    source: Option<rusqlite::Error>,
-}
-
-impl MemoryExhausted {
-    pub(crate) fn new(budget: MemoryBudget) -> Self {
-        Self {
-            budget,
-            source: None,
-        }
-    }
-}
-
-impl fmt::Display for MemoryExhausted {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self.budget {
-            MemoryBudget::Blobs => {
-                "RAM blob byte budget exhausted; delete objects or increase memory_max_bytes"
-            }
-            MemoryBudget::Catalog => {
-                "RAM catalog page budget exhausted; increase memory_catalog_max_bytes"
-            }
-        })
-    }
-}
-
-impl Error for MemoryExhausted {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.typed_source().map(Link::as_error)
     }
 }
 
@@ -282,8 +245,8 @@ impl Drop for MemoryCatalogJob {
 /// A full SQLite database: the disk, or on a memory catalog its page budget.
 fn full_database(error: rusqlite::Error) -> IoCause {
     let source = match CATALOG_PAGES.get() {
-        CatalogPages::Disk => Source::Sqlite(error),
-        CatalogPages::Memory => Source::Exhausted(MemoryExhausted {
+        CatalogPages::Disk => Source::from(error),
+        CatalogPages::Memory => Source::from(MemoryExhausted {
             budget: MemoryBudget::Catalog,
             source: Some(error),
         }),
@@ -297,7 +260,7 @@ fn full_database(error: rusqlite::Error) -> IoCause {
 /// Plain failures retain the kind-only message; contextual failures also identify their entry.
 impl fmt::Display for IoCause {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(Source::Context(context)) = self.source.as_deref() {
+        if let Some(Link::Context(context)) = self.typed_source() {
             return context.fmt(formatter);
         }
         fmt::Display::fmt(&self.kind, formatter)
@@ -336,7 +299,7 @@ impl From<io::Error> for IoCause {
     fn from(error: io::Error) -> Self {
         Self {
             kind: error.kind(),
-            source: Some(Arc::new(Source::Io(error))),
+            source: Some(Arc::new(Source::from(error))),
         }
     }
 }
@@ -611,7 +574,7 @@ fn with_context(context: impl fmt::Display, cause: impl StorageCause) -> Classif
             );
             Classified::Io(IoCause {
                 kind: cause.kind(),
-                source: Some(Arc::new(Source::Context(BackendCause {
+                source: Some(Arc::new(Source::from(BackendCause {
                     message: message.into(),
                     source: cause.source,
                 }))),

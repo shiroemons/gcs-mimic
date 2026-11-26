@@ -129,6 +129,7 @@ use buckets::{
     remove_live_bucket, remove_objects,
 };
 pub(in crate::storage) use connection::{ConnectionUnavailable, RollbackError};
+#[cfg(test)]
 pub(in crate::storage) use executor::ExecutorError;
 use keyset::After;
 pub(crate) use keyset::{Page, PageLimit};

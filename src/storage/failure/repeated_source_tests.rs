@@ -81,22 +81,6 @@ const CLASSIFIED: &[Exception] = &[
             ))
         },
     },
-    // A closed connection retains the backend failure used for retry advice.
-    Exception {
-        matches: |outer, inner| {
-            matches!(outer.downcast_ref(), Some(ConnectionUnavailable::Closed))
-                && inner.is::<BackendFailure>()
-        },
-        example: || Box::new(ConnectionUnavailable::Closed),
-    },
-    // The executor's closed queue returns the same classified retry advice.
-    Exception {
-        matches: |outer, inner| {
-            matches!(outer.downcast_ref(), Some(ExecutorError::Closed))
-                && inner.is::<BackendFailure>()
-        },
-        example: || Box::new(ExecutorError::Closed),
-    },
     // An unrecovered connection's rollback cause leads sqlite_extended_code to the database error.
     Exception {
         matches: |outer, inner| {
@@ -134,12 +118,7 @@ fn classified(link: Option<Link<'_>>, inner: &Node) -> bool {
         | Link::Context(_)
         | Link::Io(_)
         | Link::Sqlite(_)
-        | Link::Catalog(_)
-        | Link::Object(_)
-        | Link::Admin(_)
-        | Link::Connection(_)
-        | Link::Executor(_)
-        | Link::Rollback(_)
+        | Link::Typed(_)
         | Link::Resume(_)
         | Link::Unopenable(_) => std::ptr::addr_eq(link.as_error(), inner),
         Link::Leaf(_) => false,
@@ -184,6 +163,19 @@ pub(crate) fn deferred(outer: &Node, inner: &Node) -> bool {
         return inherits_exception(outer, payload, inner);
     }
     CLASSIFIED.iter().any(|row| (row.matches)(outer, inner))
+}
+
+#[test]
+fn closed_connection_and_executor_keep_their_guidance_without_a_synthetic_source() {
+    for source in [
+        super::Source::from(ConnectionUnavailable::Closed),
+        ExecutorError::Closed.into(),
+    ] {
+        let error = source.as_error();
+        assert!(error.source().is_none());
+        assert_eq!(crate::error::Report(error).to_string(), "catalog is closed");
+        assert_eq!(source.link().failure(), Some(BackendFailure::CatalogClosed));
+    }
 }
 
 fn disk_full() -> CatalogError {

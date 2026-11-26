@@ -88,6 +88,7 @@ mod tests {
         let source = error.source().unwrap();
         assert!(source.is::<rusqlite::ffi::Error>());
         assert_eq!(error.to_string(), source.to_string());
+        assert_eq!(Report(&error).to_string(), source.to_string());
         assert_distinct_causes(&error);
     }
 

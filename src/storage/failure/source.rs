@@ -10,59 +10,37 @@ use crate::{
     fsutil::Unopenable,
     object::ObjectError,
     storage::{
-        admin::AdminError,
-        catalog::{ConnectionUnavailable, ExecutorError, RollbackError},
-        import_journal::ResumeError,
-        memory::BlobError,
+        admin::AdminError, catalog::RollbackError, import_journal::ResumeError, memory::BlobError,
     },
 };
 use std::{error::Error, fmt, io};
 
-/// The error a backend cause keeps as its `source()`, by type.
-pub(crate) enum Source {
-    Failure(BackendFailure),
-    Exhausted(MemoryExhausted),
-    Context(BackendCause),
-    Io(io::Error),
-    Sqlite(rusqlite::Error),
-    Catalog(CatalogError),
-    Object(ObjectError),
-    Admin(AdminError),
-    Connection(ConnectionUnavailable),
-    Executor(ExecutorError),
-    /// A journal refusal that an import resume names to the operator.
-    Resume(ResumeError),
-    /// An entry that kept failing to open while its name still held one, which the retry
-    /// decisions take for a failure that passes.
-    Unopenable(Unopenable),
-    /// A failure no storage or adapter decision reads.
-    Leaf(Leaf),
-}
+/// Owning a layer preserves the concrete error returned by `source()`.
+pub(crate) struct Source(Box<dyn Layer>);
 
-/// A failure no decision reads, kept so reports and logs still show it.
-pub(crate) struct Leaf(Box<dyn Error + Send + Sync>);
+pub(crate) trait Layer: Error + Send + Sync + 'static {
+    fn link(&self) -> Link<'_>;
 
-impl Source {
-    /// The held error as the first link of its chain.
-    pub(crate) fn link(&self) -> Link<'_> {
-        match self {
-            Self::Failure(error) => Link::Failure(error),
-            Self::Exhausted(error) => Link::Exhausted(error),
-            Self::Context(error) => Link::Context(error),
-            Self::Io(error) => Link::Io(error),
-            Self::Sqlite(error) => Link::Sqlite(error),
-            Self::Catalog(error) => Link::Catalog(error),
-            Self::Object(error) => Link::Object(error),
-            Self::Admin(error) => Link::Admin(error),
-            Self::Connection(error) => Link::Connection(error),
-            Self::Executor(error) => Link::Executor(error),
-            Self::Resume(error) => Link::Resume(error),
-            Self::Unopenable(error) => Link::Unopenable(error),
-            Self::Leaf(Leaf(error)) => Link::Leaf(&**error),
-        }
+    fn failure(&self) -> Option<BackendFailure> {
+        None
     }
 
-    /// The held error itself, so a `source()` chain sees its own type and text.
+    fn next(&self) -> Option<Link<'_>> {
+        self.source().map(Link::Leaf)
+    }
+}
+
+impl<T: Layer> From<T> for Source {
+    fn from(error: T) -> Self {
+        Self(Box::new(error))
+    }
+}
+
+impl Source {
+    pub(crate) fn link(&self) -> Link<'_> {
+        self.0.link()
+    }
+
     pub(crate) fn as_error(&self) -> &(dyn Error + 'static) {
         self.link().as_error()
     }
@@ -76,12 +54,7 @@ pub(crate) enum Link<'a> {
     Context(&'a BackendCause),
     Io(&'a io::Error),
     Sqlite(&'a rusqlite::Error),
-    Catalog(&'a CatalogError),
-    Object(&'a ObjectError),
-    Admin(&'a AdminError),
-    Connection(&'a ConnectionUnavailable),
-    Executor(&'a ExecutorError),
-    Rollback(&'a RollbackError),
+    Typed(&'a dyn Layer),
     Resume(&'a ResumeError),
     Unopenable(&'a Unopenable),
     /// A failure no decision reads, or any error below one, an I/O error or an SQLite error.
@@ -96,12 +69,7 @@ impl<'a> Link<'a> {
             Self::Context(error) => error,
             Self::Io(error) => error,
             Self::Sqlite(error) => error,
-            Self::Catalog(error) => error,
-            Self::Object(error) => error,
-            Self::Admin(error) => error,
-            Self::Connection(error) => error,
-            Self::Executor(error) => error,
-            Self::Rollback(error) => error,
+            Self::Typed(error) => error,
             Self::Resume(error) => error,
             Self::Unopenable(error) => error,
             Self::Leaf(error) => error,
@@ -114,12 +82,7 @@ impl<'a> Link<'a> {
             Self::Failure(_) | Self::Unopenable(_) => None,
             Self::Exhausted(error) => error.typed_source(),
             Self::Context(error) => error.typed_source(),
-            Self::Catalog(error) => error.typed_source(),
-            Self::Object(error) => error.typed_source(),
-            Self::Admin(error) => error.typed_source(),
-            Self::Connection(error) => error.typed_source(),
-            Self::Executor(error) => error.typed_source(),
-            Self::Rollback(error) => error.typed_source(),
+            Self::Typed(error) => error.next(),
             Self::Resume(error) => error.typed_source(),
             // Neither standard error nor a leaf holds a typed failure.
             Self::Io(error) => Error::source(error).map(Self::Leaf),
@@ -130,10 +93,16 @@ impl<'a> Link<'a> {
 
     /// The fixed backend failure this link is, if it is one.
     pub(crate) fn failure(self) -> Option<BackendFailure> {
-        if let Self::Failure(failure) = self {
-            Some(*failure)
-        } else {
-            None
+        match self {
+            Self::Failure(failure) => Some(*failure),
+            Self::Typed(layer) => layer.failure(),
+            Self::Exhausted(_)
+            | Self::Context(_)
+            | Self::Io(_)
+            | Self::Sqlite(_)
+            | Self::Resume(_)
+            | Self::Unopenable(_)
+            | Self::Leaf(_) => None,
         }
     }
 
@@ -190,9 +159,9 @@ impl fmt::Debug for Source {
 
 macro_rules! typed_sources {
     ($($variant:ident($error:ty)),* $(,)?) => {
-        $(impl From<$error> for Source {
-            fn from(error: $error) -> Self {
-                Self::$variant(error)
+        $(impl Layer for $error {
+            fn link(&self) -> Link<'_> {
+                Link::$variant(self)
             }
         })*
     };
@@ -204,58 +173,59 @@ typed_sources!(
     Context(BackendCause),
     Io(io::Error),
     Sqlite(rusqlite::Error),
-    Catalog(CatalogError),
-    Object(ObjectError),
-    Admin(AdminError),
-    Connection(ConnectionUnavailable),
-    Executor(ExecutorError),
     Resume(ResumeError),
     Unopenable(Unopenable),
 );
 
-/// Keep the exhausted budget classifiable, expose standard errors directly, and retain each
-/// storage invariant failure as the concrete blob error.
-impl From<BlobError> for Source {
-    fn from(error: BlobError) -> Self {
-        match error {
-            BlobError::Exhausted => Self::Exhausted(MemoryExhausted::new(MemoryBudget::Blobs)),
-            BlobError::Io(error) => Self::Io(error),
-            BlobError::Size(error) => error.into(),
-            BlobError::Allocation(error) => error.into(),
-            BlobError::ReadWorker(error) => error.into(),
-            #[cfg(unix)]
-            BlobError::ShardParentMissing => Self::Leaf(Leaf(Box::new(error))),
-            other @ (BlobError::Missing(_)
-            | BlobError::Poisoned(_)
-            | BlobError::Closed
-            | BlobError::SharedFile
-            | BlobError::ShardNotDirectory) => Self::Leaf(Leaf(Box::new(other))),
-        }
-    }
+macro_rules! classified_layers {
+    ($($error:ty),* $(,)?) => {
+        $(impl Layer for $error {
+            fn link(&self) -> Link<'_> {
+                Link::Typed(self)
+            }
+
+            fn next(&self) -> Option<Link<'_>> {
+                self.typed_source()
+            }
+        })*
+    };
 }
 
-/// Backend diagnostics for a stored resource retain the original status prefix.
-#[derive(Debug, thiserror::Error)]
-#[error("503 Service Unavailable: {0}")]
-struct StoredTimestampError(crate::time_format::TimeOutOfRange);
+classified_layers!(CatalogError, ObjectError, AdminError, RollbackError);
 
-impl From<crate::time_format::TimeOutOfRange> for Source {
-    fn from(error: crate::time_format::TimeOutOfRange) -> Self {
-        Self::Leaf(Leaf(Box::new(StoredTimestampError(error))))
+/// A full RAM store exposes the budget; its other failures expose the original error.
+impl Layer for BlobError {
+    fn link(&self) -> Link<'_> {
+        static BLOBS: MemoryExhausted = MemoryExhausted::new(MemoryBudget::Blobs);
+        match self {
+            Self::Exhausted => Link::Exhausted(&BLOBS),
+            Self::Io(error) => Link::Io(error),
+            Self::Size(error) => Link::Leaf(error),
+            Self::Allocation(error) => Link::Leaf(error),
+            Self::ReadWorker(error) => Link::Leaf(error),
+            #[cfg(unix)]
+            Self::ShardParentMissing => Link::Leaf(self),
+            Self::Missing(_)
+            | Self::Poisoned(_)
+            | Self::Closed
+            | Self::SharedFile
+            | Self::ShardNotDirectory => Link::Leaf(self),
+        }
     }
 }
 
 macro_rules! leaf_sources {
     ($($error:ty),* $(,)?) => {
-        $(impl From<$error> for Source {
-            fn from(error: $error) -> Self {
-                Self::Leaf(Leaf(Box::new(error)))
+        $(impl Layer for $error {
+            fn link(&self) -> Link<'_> {
+                Link::Leaf(self)
             }
         })*
     };
 }
 
 leaf_sources!(
+    crate::time_format::TimeOutOfRange,
     std::collections::TryReserveError,
     std::num::TryFromIntError,
     std::array::TryFromSliceError,

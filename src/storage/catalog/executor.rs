@@ -7,7 +7,7 @@
 //! execution permit, or a read slot on a pooled reader, gives each thread one job at a time, so
 //! the queue holds at most one job in practice.
 
-use crate::storage::failure::{Link, TypedSource};
+use crate::storage::failure::{BackendFailure, Layer, Link, TypedSource};
 #[cfg(test)]
 use std::sync::{
     Arc,
@@ -35,7 +35,7 @@ pub(crate) enum ExecutorError {
 impl std::fmt::Display for ExecutorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::Closed => crate::storage::failure::BackendFailure::CatalogClosed.message(),
+            Self::Closed => BackendFailure::CatalogClosed.message(),
             Self::Panicked => "catalog operation panicked",
         })
     }
@@ -49,12 +49,17 @@ impl std::error::Error for ExecutorError {
 
 impl TypedSource for ExecutorError {
     fn typed_source(&self) -> Option<Link<'_>> {
-        match self {
-            Self::Closed => Some(Link::Failure(
-                &crate::storage::failure::BackendFailure::CatalogClosed,
-            )),
-            Self::Panicked => None,
-        }
+        None
+    }
+}
+
+impl Layer for ExecutorError {
+    fn link(&self) -> Link<'_> {
+        Link::Typed(self)
+    }
+
+    fn failure(&self) -> Option<BackendFailure> {
+        matches!(self, Self::Closed).then_some(BackendFailure::CatalogClosed)
     }
 }
 

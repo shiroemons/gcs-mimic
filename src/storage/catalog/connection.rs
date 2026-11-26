@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::failure::{Link, TypedSource};
+use crate::storage::failure::{Layer, Link, TypedSource};
 
 /// Why a read needs the writer's queue or its connection-local state.
 #[derive(Debug)]
@@ -46,10 +46,23 @@ impl std::error::Error for ConnectionUnavailable {
 impl TypedSource for ConnectionUnavailable {
     fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Unrecovered(error) => Some(Link::Rollback(error)),
-            Self::Closed => Some(Link::Failure(&BackendFailure::CatalogClosed)),
-            Self::Panicked => None,
+            Self::Unrecovered(error) => Some(Link::Typed(error)),
+            Self::Closed | Self::Panicked => None,
         }
+    }
+}
+
+impl Layer for ConnectionUnavailable {
+    fn link(&self) -> Link<'_> {
+        Link::Typed(self)
+    }
+
+    fn next(&self) -> Option<Link<'_>> {
+        self.typed_source()
+    }
+
+    fn failure(&self) -> Option<BackendFailure> {
+        matches!(self, Self::Closed).then_some(BackendFailure::CatalogClosed)
     }
 }
 

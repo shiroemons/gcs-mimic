@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::{ConnectionUnavailable, ExecutorError};
 use crate::storage::failure::MemoryBudget;
 use std::assert_matches;
 
@@ -50,11 +51,12 @@ fn every_source_shows_the_held_error() {
 }
 
 #[test]
-fn stored_timestamps_keep_the_status_in_backend_reports() {
+fn stored_timestamps_keep_the_range_error_as_the_source() {
     let source = Source::from(crate::time_format::TimeOutOfRange);
+    assert!(source.as_error().is::<crate::time_format::TimeOutOfRange>());
     assert_eq!(
         crate::error::Report(source.as_error()).to_string(),
-        "503 Service Unavailable: Bucket timestamp is outside the supported RFC 3339 range"
+        crate::time_format::TimeOutOfRange::MESSAGE
     );
 }
 
@@ -70,12 +72,12 @@ fn permanently_failed() -> ResumeError {
 fn resume_refusals_are_found_in_the_catalog_failures_that_carry_them() {
     let refused = CatalogError::from(permanently_failed());
     assert_matches!(
-        chain(Link::Catalog(&refused)).find_map(Link::resume_refusal),
+        chain(Link::Typed(&refused)).find_map(Link::resume_refusal),
         Some(ResumeError::PermanentlyFailed { .. })
     );
     let failed = CatalogError::from(ResumeError::Catalog(CatalogError::Unavailable(closed())));
     assert!(
-        chain(Link::Catalog(&failed))
+        chain(Link::Typed(&failed))
             .find_map(Link::resume_refusal)
             .is_none()
     );

@@ -519,9 +519,8 @@ A further split waits until after `1.0.0`:
   - `storage::failure` keeps the one `fn unavailable`, `Classified` and the
     context helpers.
   - `Link::Resume` goes: `resume_import` returns its `ResumeError` directly.
-  - Remove the temporary `503 Service Unavailable: ` prefix from
-    `StoredTimestampError` in this slice. It preserves the existing log text
-    until the cause vocabulary moves.
+  - The notification timestamp diagnostic owns its historical HTTP status
+    text. Its underlying cause is the model's concrete timestamp range error.
 
 ### Display and `source()`
 
@@ -551,8 +550,11 @@ A further split waits until after `1.0.0`:
     Tests pin the repeats so a stale exception fails;
   - the `text::error_displays_source` rule rejects a `#[error]` format that
     interpolates its own source.
-- **`Report`** formats notification lookup causes too. It becomes a plain
-  join after the storage classification changes.
+- **`Report`** joins the display text of successive causes, including for
+  notification lookups. Adjacent equal messages are emitted once. For example,
+  SQLite can return a `rusqlite::Error::SqliteFailure(_, None)` whose display
+  is its FFI source's display. Both concrete errors remain in `source()`, and
+  the diagnostic keeps the single copy it has always printed.
 - **thiserror.** Types are converted module by module. `#[from]` never replaces
   a `classified_from!` conversion, and the ten `TypedSource` types keep their
   hand-written `source()`. `SeedError` also implements `source()` by hand so
@@ -1227,7 +1229,7 @@ after job counts.
 | Typed upload and multipart errors | upload headers, stored headers, multipart, upload failures |
 | `ApiError` inside JSON | the shared helpers return service errors; both `From<ApiError>` impls deleted; private fields; `ErrorKind` pruned; oracle removed |
 | `io::Error::other` | three commits (RAM backend; startup, shutdown, import and fsutil; publisher, probe and TLS), then the `text::io_error_other` gate |
-| Cause vocabulary | the `cause` module, `Layer`, the classified storage links and removal of their temporary test exceptions, plain `Report` |
+| Cause vocabulary | the `cause` module, `Layer`, the classified storage links and removal of their temporary test exceptions, `Report` joining adjacent equal display texts once |
 | thiserror conversion | module by module, then `text::error_displays_source` |
 
 ### Types, configuration and rules

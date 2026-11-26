@@ -1,7 +1,7 @@
 //! Pub/Sub payload encoding reuses the JSON object's supported metadata representation.
 
 use super::{NotificationConfig, NotificationError, PayloadFormat};
-use crate::{bucket::CatalogError, object::ObjectRecord};
+use crate::{bucket::CatalogError, object::ObjectRecord, storage::failure::BackendCause};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 
@@ -110,6 +110,15 @@ pub(crate) struct Message<'a> {
     pub(crate) replacement: Option<i64>,
 }
 
+fn invalid_time(error: crate::time_format::TimeOutOfRange) -> CatalogError {
+    // Notification diagnostics historically include the status of the metadata conversion.
+    let status = BackendCause::with_source("503 Service Unavailable", error);
+    CatalogError::Corrupt(BackendCause::with_source(
+        "invalid notification timestamp",
+        status,
+    ))
+}
+
 impl Message<'_> {
     pub(crate) fn matches(&self, config: &NotificationConfig) -> bool {
         self.object.name.starts_with(&config.object_name_prefix)
@@ -121,12 +130,6 @@ impl Message<'_> {
         config: &NotificationConfig,
         config_id: Option<i64>,
     ) -> Result<String, CatalogError> {
-        let invalid_time = |error| {
-            CatalogError::Corrupt(crate::storage::failure::BackendCause::with_source(
-                "invalid notification timestamp",
-                error,
-            ))
-        };
         let mut attributes: BTreeMap<String, String> = config.custom_attributes.clone();
         for (key, value) in [
             ("eventType", self.event.as_str().to_owned()),
@@ -189,5 +192,21 @@ impl Message<'_> {
             PayloadFormat::None => {}
         }
         Ok(json!({"messages": [message]}).to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_notification_timestamp_keeps_its_diagnostic() {
+        let error = super::invalid_time(crate::time_format::TimeOutOfRange);
+        assert_eq!(
+            error.to_string(),
+            "catalog corrupt: invalid notification timestamp"
+        );
+        assert_eq!(
+            crate::error::Report(&error).to_string(),
+            "catalog corrupt: invalid notification timestamp: 503 Service Unavailable: Bucket timestamp is outside the supported RFC 3339 range"
+        );
     }
 }

@@ -110,7 +110,7 @@ impl From<CatalogError> for Error {
 impl TypedSource for Error {
     fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Object(error) => Some(Link::Object(error)),
+            Self::Object(error) => Some(Link::Typed(error)),
             Self::NoSuchUpload
             | Self::InvalidPart
             | Self::InvalidPartOrder

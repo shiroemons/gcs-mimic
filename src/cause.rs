@@ -75,3 +75,40 @@ pub enum MemoryBudget {
     /// Catalog database pages, bounded by `memory_catalog_max_bytes`.
     Catalog,
 }
+
+/// A `backend=memory` budget that ran out. It travels inside the `StorageFull` failure, so a reply
+/// can name the setting to raise from the failure's type instead of its text.
+#[derive(Debug)]
+pub(crate) struct MemoryExhausted {
+    pub(crate) budget: MemoryBudget,
+    /// SQLite's full database, when the catalog page budget ran out.
+    pub(crate) source: Option<rusqlite::Error>,
+}
+
+impl MemoryExhausted {
+    pub(crate) const fn new(budget: MemoryBudget) -> Self {
+        Self {
+            budget,
+            source: None,
+        }
+    }
+}
+
+impl fmt::Display for MemoryExhausted {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self.budget {
+            MemoryBudget::Blobs => {
+                "RAM blob byte budget exhausted; delete objects or increase memory_max_bytes"
+            }
+            MemoryBudget::Catalog => {
+                "RAM catalog page budget exhausted; increase memory_catalog_max_bytes"
+            }
+        })
+    }
+}
+
+impl Error for MemoryExhausted {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.source.as_ref().map(|error| error as &dyn Error)
+    }
+}

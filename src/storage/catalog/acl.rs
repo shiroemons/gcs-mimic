@@ -227,8 +227,8 @@ impl From<ObjectError> for AclError {
 impl TypedSource for AclError {
     fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Bucket(error) => Some(Link::Catalog(error)),
-            Self::Object(error) => Some(Link::Object(error)),
+            Self::Bucket(error) => Some(Link::Typed(error)),
+            Self::Object(error) => Some(Link::Typed(error)),
             Self::UniformAccess
             | Self::EntityNotFound { .. }
             | Self::RoleRequired
