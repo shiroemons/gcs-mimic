@@ -23,6 +23,7 @@ async fn get(state: &Arc<State>, uri: &str, token: &str) -> Value {
     let endpoints = RequestEndpoints::explicit("http://localhost");
     let (activity, _) = watch::channel(ObjectActivity::default());
     let ctx = RequestCtx {
+        uri: &crate::percent::EMPTY_REQUEST_URI,
         state,
         config: &config,
         endpoints: &endpoints,

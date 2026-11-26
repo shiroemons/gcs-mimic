@@ -2,7 +2,7 @@ use super::{
     ApiError, Projection, object_resource,
     query::{boolean, projection, standard_parameters},
 };
-use crate::percent::parse_query;
+use crate::percent::RequestUri;
 use crate::storage::{FoldersAsPrefixes, ListQueryError, ObjectListPage, ObjectListQuery};
 use serde_json::{Map, Value};
 
@@ -16,8 +16,8 @@ pub(crate) struct ObjectListParams {
     pub empty_page: bool,
 }
 
-pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, ApiError> {
-    let mut params = parse_query(raw)?;
+pub(super) fn parse_list(bucket: String, uri: &RequestUri) -> Result<ObjectListParams, ApiError> {
+    let mut params = uri.parameters()?.clone();
     super::Fields::take(&mut params, super::Schema::Objects)?;
     standard_parameters(&mut params, &[], ApiError::unsupported_object)?;
     if params
@@ -142,7 +142,11 @@ mod tests {
 
     #[test]
     fn empty_glob_page_retains_its_continuation_token() {
-        let params = parse_list("example-bucket".into(), "matchGlob=z*&softDeleted=true").unwrap();
+        let params = parse_list(
+            "example-bucket".into(),
+            &"/?matchGlob=z*&softDeleted=true".parse().unwrap(),
+        )
+        .unwrap();
         let cursor = crate::storage::ObjectListCursor {
             name: "a".into(),
             is_prefix: false,

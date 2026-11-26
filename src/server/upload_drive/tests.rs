@@ -38,6 +38,7 @@ impl Fixture {
     }
     fn ctx(&self) -> ObjectCtx<'_> {
         ObjectCtx {
+            uri: &crate::percent::EMPTY_REQUEST_URI,
             state: &self.state,
             config: &self.config,
             endpoints: &self.endpoints,

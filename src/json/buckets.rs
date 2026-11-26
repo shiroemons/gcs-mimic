@@ -434,12 +434,11 @@ const UBLA_UPDATE_ACL: &str = "Cannot use ACL API to update bucket policy when u
 /// unknown. A PATCH or PUT applies them; an insert does not keep ACL entries yet, so it refuses
 /// them rather than accept and ignore.
 pub(crate) fn bucket_predefined_acls(
-    query: Option<&str>,
+    query: &BTreeMap<String, String>,
     uniform_access: UniformAccess,
     write: BucketAclWrite,
     profile: CompatProfile,
 ) -> Result<BucketPredefinedAcls, ApiError> {
-    let query = crate::percent::parse_query(query.unwrap_or_default())?;
     // The fake-gcs-server profile never applied canned ACLs; it refuses them as before.
     if profile != CompatProfile::Native {
         for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
@@ -502,12 +501,11 @@ pub(crate) fn bucket_predefined_acls(
 /// Refuses the predefined ACL query parameters an object write cannot apply for this caller and
 /// bucket, before any body is read; publication rechecks the bucket in its transaction.
 pub(crate) fn reject_predefined_acl(
-    query: Option<&str>,
+    query: &BTreeMap<String, String>,
     uniform_access: UniformAccess,
     target: PredefinedAclTarget,
     access: &crate::bucket::BucketAccess,
 ) -> Result<(), ApiError> {
-    let query = crate::percent::parse_query(query.unwrap_or_default())?;
     // Documented for uploads: an anonymous caller cannot name a canned ACL. Its object belongs
     // to the project owners team, so the caller would choose the ACL of an object it does not
     // own. A copy, rewrite or compose publishes the same kind of object, as an XML copy with

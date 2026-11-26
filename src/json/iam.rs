@@ -40,6 +40,7 @@ fn parse_test_permissions(
     Ok(BucketRequest::TestIam {
         bucket,
         permissions: parsed.permissions,
+        fields: parsed.fields,
     })
 }
 

@@ -1,6 +1,6 @@
 use super::ApiError;
 use crate::input::InputError;
-use crate::percent::{MAX_QUERY_BYTES, parse_query};
+use crate::percent::{MAX_QUERY_BYTES, RequestUri};
 use serde_json::{Map, Value};
 use std::{collections::BTreeMap, sync::LazyLock};
 
@@ -67,16 +67,16 @@ fn definition(name: &str) -> &'static Value {
 
 /// Where a method's response takes its `fields` selection from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FieldSelection {
+pub(crate) enum FieldSelection<'a> {
     /// The method answers without a resource body and does not read `fields`.
     Ignored,
     /// The `fields` query parameter selects from this Discovery schema.
     Query(Schema),
     /// `testIamPermissions` reads `fields` together with its repeated `permissions`.
-    TestPermissions,
+    Parsed(&'a Fields),
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Fields {
     whole: bool,
     children: BTreeMap<String, Fields>,
@@ -91,9 +91,10 @@ impl Fields {
         }
     }
 
-    pub(crate) fn from_query(raw: Option<&str>, schema: Schema) -> Result<Self, ApiError> {
-        let mut query = parse_query(raw.unwrap_or_default())?;
-        Self::take(&mut query, schema)
+    pub(crate) fn from_query(uri: &RequestUri, schema: Schema) -> Result<Self, ApiError> {
+        uri.parameters()?
+            .get("fields")
+            .map_or_else(|| Ok(Self::whole()), |value| Self::parse(value, schema))
     }
 
     pub(crate) fn take(
@@ -565,7 +566,9 @@ mod tests {
         object.metadata.insert("team".into(), "example".into());
         object.event_based_hold = crate::object::Hold::Held;
         object.time_deleted = Some(object.updated);
-        let params = json::object_list::parse_list(bucket.name.clone(), "delimiter=/").unwrap();
+        let params =
+            json::object_list::parse_list(bucket.name.clone(), &"/?delimiter=/".parse().unwrap())
+                .unwrap();
         let page = ObjectListPage {
             next: Some(ObjectListCursor {
                 name: object.name.clone(),

@@ -35,8 +35,7 @@ pub(super) async fn initiate(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, ApiError> {
     let ObjectCtx { config, .. } = ctx;
-    let response_fields =
-        crate::percent::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
+    let response_fields = ctx.uri.parameters()?.get("fields").cloned();
     let resumable::UploadHeaders { mime, total } =
         resumable::headers(request.headers(), config.max_object_bytes())?;
     let key = json::request_key(request.headers())?;

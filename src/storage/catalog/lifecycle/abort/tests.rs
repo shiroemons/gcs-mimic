@@ -662,6 +662,7 @@ async fn assert_missing_xml_operations(
     let endpoints = RequestEndpoints::explicit("http://localhost");
     let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
     let ctx = ObjectCtx {
+        uri: &crate::percent::EMPTY_REQUEST_URI,
         state: &state,
         config: &config,
         endpoints: &endpoints,

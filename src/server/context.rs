@@ -33,6 +33,7 @@ pub(crate) fn rebase_stored_links(endpoints: &RequestEndpoints, resource: &mut V
 /// What every handler needs from the connection that dispatched its request.
 #[derive(Clone, Copy)]
 pub(crate) struct RequestCtx<'a> {
+    pub(crate) uri: &'a crate::percent::RequestUri,
     /// Shared rather than borrowed, for work that outlives the handler that started it: a batch
     /// runs its parts behind a response head that has already left.
     pub(crate) state: &'a Arc<State>,
@@ -117,6 +118,7 @@ impl<'a> RequestCtx<'a> {
     /// The context of an authenticated object request with a running deadline.
     pub(crate) fn object(self, caller: Option<Caller<'a>>, deadline: Instant) -> ObjectCtx<'a> {
         ObjectCtx {
+            uri: self.uri,
             state: self.state,
             config: self.config,
             endpoints: self.endpoints,
@@ -130,6 +132,7 @@ impl<'a> RequestCtx<'a> {
 /// The context of an object request after routing and authentication.
 #[derive(Clone, Copy)]
 pub(crate) struct ObjectCtx<'a> {
+    pub(crate) uri: &'a crate::percent::RequestUri,
     pub(crate) state: &'a State,
     pub(crate) config: &'a Config,
     pub(crate) endpoints: &'a RequestEndpoints,

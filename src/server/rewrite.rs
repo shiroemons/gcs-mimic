@@ -112,7 +112,7 @@ pub(super) async fn respond(
             .await?
             .ok_or(CatalogError::NotFound)?;
         json::reject_predefined_acl(
-            request.uri().query(),
+            ctx.uri.parameters()?,
             record.uniform_access(None),
             json::PredefinedAclTarget::DerivedObject,
             &destination_access,

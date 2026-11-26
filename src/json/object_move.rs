@@ -6,13 +6,13 @@ use super::{
         projection, standard_parameters,
     },
 };
-use crate::percent::{Decoding, decode, parse_query};
+use crate::percent::{Decoding, RequestUri, decode};
 use crate::{
     config::CompatProfile,
     object::ObjectConditions,
     storage::{MoveConditions, MoveNames},
 };
-use hyper::{Method, Uri};
+use hyper::Method;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,7 +24,7 @@ pub(crate) struct ObjectMoveParams {
 
 pub(super) fn route(
     method: &Method,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, ApiError>> {
     let path = uri.path().strip_prefix(BUCKET_PATH)?;
@@ -38,7 +38,7 @@ fn parse(
     method: &Method,
     source: &str,
     destination: &str,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<ObjectRequest, ApiError> {
     if method != Method::POST {
@@ -70,7 +70,7 @@ fn parse(
             "Source and destination object names must be different.",
         ));
     }
-    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     super::Fields::take(&mut query, super::Schema::Object)?;
     // Cloud Storage moved an object with projection=full (recorded 2026-11-13, case
     // obj-unsupported-derived); the response adds the ACL the destination keeps.

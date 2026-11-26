@@ -4,9 +4,9 @@ use crate::{
     bucket::{BucketConditions, name::MAX_BUCKET_NAME_BYTES},
     config::CompatProfile,
     decimal::Grammar,
-    percent::{Decoding, decode, parse_query},
+    percent::{Decoding, RequestUri, decode},
 };
-use hyper::{Method, StatusCode, Uri};
+use hyper::{Method, StatusCode};
 use std::collections::BTreeMap;
 
 /// The path prefix of every bucket-scoped JSON API resource.
@@ -58,7 +58,10 @@ pub(crate) fn decode_bucket_segment(segment: &str) -> Result<String, ApiError> {
 }
 
 /// Reads an advisory parameter with the same decoding as the validating route parser.
-pub(crate) fn query_param<'a>(query: &'a str, name: &str) -> Option<std::borrow::Cow<'a, str>> {
+pub(crate) fn query_param<'a>(
+    uri: &'a RequestUri,
+    name: &str,
+) -> Option<std::borrow::Cow<'a, str>> {
     fn component(raw: &str) -> Option<std::borrow::Cow<'_, str>> {
         if raw.contains(['%', '+']) {
             decode(raw, Decoding::Form)
@@ -68,6 +71,13 @@ pub(crate) fn query_param<'a>(query: &'a str, name: &str) -> Option<std::borrow:
             Some(std::borrow::Cow::Borrowed(raw))
         }
     }
+    let query = uri.query()?;
+    if let Ok(parameters) = uri.parameters() {
+        return parameters
+            .get(name)
+            .map(|value| std::borrow::Cow::Borrowed(value.as_str()));
+    }
+    // Advisory fields still select the error envelope when some other parameter is invalid.
     query.split('&').find_map(|pair| {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         (component(key)? == name)
@@ -161,6 +171,7 @@ pub(crate) enum BucketRequest {
     TestIam {
         bucket: String,
         permissions: Vec<crate::auth::Permission>,
+        fields: super::Fields,
     },
     /// `buckets.getStorageLayout`; `prefix` only scopes the permission check (see the parser).
     GetStorageLayout {
@@ -297,9 +308,9 @@ impl BucketRequest {
     }
 
     /// Where the response takes its `fields` selection from; a delete answers without a body.
-    pub(crate) fn fields(&self) -> FieldSelection {
+    pub(crate) fn fields(&self) -> FieldSelection<'_> {
         match self {
-            Self::TestIam { .. } => FieldSelection::TestPermissions,
+            Self::TestIam { fields, .. } => FieldSelection::Parsed(fields),
             Self::Delete { .. } => FieldSelection::Ignored,
             Self::List(_) | Self::ListSoftDeleted(_) => FieldSelection::Query(Schema::Buckets),
             Self::GetIam { .. } | Self::SetIam { .. } => FieldSelection::Query(Schema::Policy),
@@ -317,7 +328,7 @@ impl BucketRequest {
 
 /// Match the raw URI before decoding any bucket path segment.
 #[cfg(test)]
-pub(crate) fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, ApiError>> {
+pub(crate) fn route(method: &Method, uri: &RequestUri) -> Option<Result<BucketRequest, ApiError>> {
     route_with_profile(method, uri, CompatProfile::Native, "local-project")
 }
 
@@ -325,7 +336,7 @@ pub(crate) fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, 
 fn parse_lock_retention_policy(
     method: &Method,
     segment: &str,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<BucketRequest, ApiError> {
     if *method != Method::POST {
@@ -336,7 +347,7 @@ fn parse_lock_retention_policy(
     }
     let bucket = decode(segment, Decoding::Path)?;
     crate::bucket::name::validate_for_profile(&bucket, profile)?;
-    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
     let [requested, _] = BUCKET_CONDITION_PARAMETERS;
@@ -360,7 +371,7 @@ fn parse_lock_retention_policy(
 fn parse_restore(
     method: &Method,
     segment: &str,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<BucketRequest, ApiError> {
     if *method != Method::POST {
@@ -371,7 +382,7 @@ fn parse_restore(
     }
     let bucket = decode(segment, Decoding::Path)?;
     crate::bucket::name::validate_for_profile(&bucket, profile)?;
-    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
     let generation = bucket_generation(&mut query)?.ok_or_else(generation_required)?;
@@ -460,7 +471,7 @@ fn soft_deleted_get(
 fn parse_storage_layout(
     method: &Method,
     segment: &str,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<BucketRequest, ApiError> {
     if *method != Method::GET {
@@ -471,7 +482,7 @@ fn parse_storage_layout(
     }
     let bucket = decode(segment, Decoding::Path)?;
     crate::bucket::name::validate_for_profile(&bucket, profile)?;
-    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     super::Fields::take(&mut query, super::Schema::BucketStorageLayout)?;
     common(&mut query)?;
     query.remove("prefix");
@@ -483,7 +494,7 @@ fn parse_storage_layout(
 fn parse_iam(
     method: &Method,
     segment: &str,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<BucketRequest, ApiError> {
     // Unlike the other bucket paths, IAM decodes the segment before it checks the length.
@@ -500,7 +511,7 @@ fn parse_iam(
             Some("GET, PUT"),
         ));
     }
-    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     super::Fields::take(&mut query, super::Schema::Policy)?;
     common(&mut query)?;
     if *method == Method::GET {
@@ -527,7 +538,7 @@ fn parse_iam(
 
 pub(crate) fn route_with_profile(
     method: &Method,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
     seed_project: &str,
 ) -> Option<Result<BucketRequest, ApiError>> {
@@ -571,7 +582,7 @@ pub(crate) fn route_with_profile(
 fn parse_bucket_route(
     method: &Method,
     segment: Option<&str>,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
     seed_project: &str,
 ) -> Result<BucketRequest, ApiError> {
@@ -579,7 +590,7 @@ fn parse_bucket_route(
         .map(|segment| path_bucket(segment, profile, BucketCheck::NativeOnly))
         .transpose()?;
     let call = BucketMethod::select(method, bucket)?;
-    parse(call, uri.query().unwrap_or_default(), profile, seed_project)
+    parse(call, uri, profile, seed_project)
 }
 
 /// A `/storage/v1/b` or `/storage/v1/b/{bucket}` method, chosen once from the HTTP method.
@@ -627,11 +638,11 @@ impl BucketMethod {
 
 fn parse(
     call: BucketMethod,
-    raw: &str,
+    uri: &RequestUri,
     profile: CompatProfile,
     seed_project: &str,
 ) -> Result<BucketRequest, ApiError> {
-    let mut query = parse_query(raw)?;
+    let mut query = uri.parameters()?.clone();
     match &call {
         BucketMethod::Delete { .. } => {
             query.remove("fields");

@@ -63,7 +63,9 @@ pub use error::ApiError;
 pub(crate) use error::{JsonErrorResponse, MEDIA_ERROR_CACHE_CONTROL, parse_error};
 pub(crate) use fields::{FieldSelection, Fields, Schema};
 pub(crate) use format::{ResponseFormat, render_body, with_format};
-pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};
+#[cfg(test)]
+pub(crate) use iam::test_permissions_query;
+pub(crate) use iam::{parse_policy, policy_resource};
 pub(crate) use multipart::{
     FRAMING_LIMIT as MULTIPART_FRAMING_LIMIT, MultipartMetadata, PartKind, RelatedUpload,
     check_declared_content_type, multipart_metadata, multipart_metadata_of,

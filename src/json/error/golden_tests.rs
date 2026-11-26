@@ -93,7 +93,7 @@ impl Golden {
         if matches!(routes, Routes::Bucket | Routes::All) {
             let profile = CompatProfile::FakeGcsServer;
             let response = with_format(
-                ResponseFormat::for_request(None, profile),
+                ResponseFormat::for_request(&crate::percent::EMPTY_REQUEST_URI, profile),
                 bucket_answer(Err(error), profile),
             )
             .await;

@@ -2,6 +2,7 @@ use super::{
     ApiError, ObjectInsertParams, multipart::MultipartMetadata, multipart_metadata_of,
     upload_content_type,
 };
+use crate::percent::RequestUri;
 use crate::{
     bucket::BucketAccess,
     config::CompatProfile,
@@ -15,7 +16,7 @@ use crate::{
     service::ServiceError,
     storage::ResumableOptions,
 };
-use hyper::{HeaderMap, Method, Uri};
+use hyper::{HeaderMap, Method};
 
 /// The resumable session a request continues.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,12 +27,17 @@ pub(crate) struct UploadSession {
 
 pub(crate) fn session_route(
     method: &Method,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<UploadSession, ApiError>> {
     let path = uri.path().strip_prefix("/upload/storage/v1/b/")?;
     let (bucket, rest) = path.split_once('/')?;
-    if rest != "o" || !uri.query().is_some_and(names_upload_id) {
+    if rest != "o"
+        || !uri.parameters().map_or_else(
+            |_| uri.query().is_some_and(names_upload_id),
+            |query| query.contains_key("upload_id"),
+        )
+    {
         return None;
     }
     Some(parse_session(method, bucket, uri, profile))
@@ -52,7 +58,7 @@ fn names_upload_id(query: &str) -> bool {
 fn parse_session(
     method: &Method,
     bucket: &str,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<UploadSession, ApiError> {
     if !matches!(*method, Method::PUT | Method::POST | Method::DELETE) {
@@ -63,7 +69,7 @@ fn parse_session(
     }
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
     crate::bucket::name::validate_for_profile(&bucket, profile)?;
-    let mut query = crate::percent::parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     let upload_id = query
         .remove("upload_id")
         .ok_or_else(|| ApiError::invalid_parameter("Missing upload_id"))?;
@@ -244,7 +250,7 @@ pub(crate) fn options(
 #[test]
 fn an_escaped_upload_id_key_names_the_session() {
     let route = |query: &str| {
-        let uri: Uri = format!("/upload/storage/v1/b/bucket/o?{query}")
+        let uri: RequestUri = format!("/upload/storage/v1/b/bucket/o?{query}")
             .parse()
             .unwrap();
         session_route(&Method::PUT, &uri, CompatProfile::Native)

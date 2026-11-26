@@ -24,7 +24,7 @@ use crate::{
     },
     storage::{MoveAccess, RestoreAccess, UploadAclSnapshot},
 };
-use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
+use hyper::{HeaderMap, Request, Response, StatusCode};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -87,24 +87,24 @@ pub(super) async fn respond(
     operation: ObjectRequest,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, ApiError> {
-    let fields = response_fields(request.uri().query(), operation.fields())?;
+    let fields = response_fields(ctx.uri, operation.fields())?;
     let (permission, bucket) = operation.required_permission();
     // Authorization precedes header/body validation, conditions and existence checks.
     // Replacing a live object additionally needs storage.objects.delete. The access carries
     // that decision, and publication enforces it inside the catalog transaction if the name is
     // live, so a concurrent create cannot be overwritten.
     let access = ctx.authorize(permission, bucket).await?;
-    let query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
+    let query = ctx.uri.parameters()?;
     let acl_full = operation.projection() == json::Projection::Full;
     if query.contains_key("predefinedAcl") || query.contains_key("destinationPredefinedAcl") {
-        check_predefined_acl(request.uri(), ctx, bucket, &operation, &access).await?;
+        check_predefined_acl(ctx, bucket, &operation, &access).await?;
     }
     validate_request(request.headers(), &operation)?;
     let cache = operation.response_cache();
     let validator_header = operation.sends_etag_header();
     let written = match operation {
         ObjectRequest::Restore { target, conditions } => {
-            restore(request, ctx, &access, &query, target, conditions).await?
+            restore(request, ctx, &access, query, target, conditions).await?
         }
         ObjectRequest::Move(params) => move_object(request, ctx, &access, params).await?,
         ObjectRequest::Copy(params) => derived::copy(request, ctx, access, params).await?,
@@ -166,7 +166,6 @@ pub(super) async fn respond(
 /// under uniform access or from an anonymous caller, keeps its explicit 400. Publication
 /// rechecks uniform access and public access prevention atomically.
 async fn check_predefined_acl(
-    uri: &Uri,
     ctx: ObjectCtx<'_>,
     bucket: &str,
     operation: &ObjectRequest,
@@ -179,7 +178,7 @@ async fn check_predefined_acl(
         .await?
         .ok_or(CatalogError::NotFound)?;
     json::reject_predefined_acl(
-        uri.query(),
+        ctx.uri.parameters()?,
         record.uniform_access(None),
         operation.predefined_acl_target(),
         access,

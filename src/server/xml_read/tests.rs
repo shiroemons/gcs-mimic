@@ -28,6 +28,7 @@ async fn xml_read_validators_wrap_routed_public_and_virtual_host_responses() {
         .without_request();
     let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
     let ctx = RequestCtx {
+        uri: &crate::percent::EMPTY_REQUEST_URI,
         state: &state,
         config: &config,
         endpoints: &endpoints,
@@ -138,6 +139,7 @@ async fn encrypted_head_validators_do_not_bypass_data_key_checks() {
         .without_request();
     let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
     let ctx = RequestCtx {
+        uri: &crate::percent::EMPTY_REQUEST_URI,
         state: &state,
         config: &config,
         endpoints: &endpoints,

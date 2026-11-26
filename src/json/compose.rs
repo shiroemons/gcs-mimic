@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 
 pub(crate) fn route(
     method: &hyper::Method,
-    uri: &hyper::Uri,
+    uri: &crate::percent::RequestUri,
     profile: crate::config::CompatProfile,
 ) -> Option<Result<crate::json::ObjectRequest, ApiError>> {
     let path = uri.path().strip_prefix(crate::json::query::BUCKET_PATH)?;
@@ -25,7 +25,7 @@ fn parse(
     method: &hyper::Method,
     bucket: &str,
     name: &str,
-    uri: &hyper::Uri,
+    uri: &crate::percent::RequestUri,
     profile: crate::config::CompatProfile,
 ) -> Result<crate::json::ObjectRequest, ApiError> {
     if method != hyper::Method::POST {
@@ -38,7 +38,7 @@ fn parse(
     crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
     validate_object_name(&name)?;
-    let mut query = crate::percent::parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     super::Fields::take(&mut query, super::Schema::Object)?;
     let predefined_acl =
         super::objects::take_predefined_acl(&mut query, "destinationPredefinedAcl")?;

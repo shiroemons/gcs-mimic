@@ -64,6 +64,17 @@ impl Target {
         request: &mut Request<B>,
         config: &Config,
         endpoints: &EndpointSnapshot,
+    ) -> (Self, crate::percent::RequestUri) {
+        let mut uri = crate::percent::RequestUri::from(request.uri().clone());
+        let target = Self::classify_uri(request, config, endpoints, &mut uri);
+        (target, uri)
+    }
+
+    pub(super) fn classify_uri<B>(
+        request: &mut Request<B>,
+        config: &Config,
+        endpoints: &EndpointSnapshot,
+        target_uri: &mut crate::percent::RequestUri,
     ) -> Self {
         let selected = match xml::select_object_with_endpoints(
             request.uri(),
@@ -74,8 +85,9 @@ impl Target {
             Ok(selected) => selected,
             Err(error) => return Self::Unaddressable(error),
         };
-        let selected = match protocol_upload(request, selected.as_ref()) {
+        let selected = match protocol_upload(request, selected.as_ref(), target_uri) {
             Some((uri, kind)) => {
+                target_uri.rewrite_path(uri.clone());
                 *request.uri_mut() = uri;
                 request.extensions_mut().insert(kind);
                 // The rewritten path is reserved for the JSON API, so this selects nothing.
@@ -129,12 +141,13 @@ impl Target {
 
 /// Classifies and answers one request, as a batch part is. The connection classifies the
 /// request itself before its timeout reply is chosen, and then calls `respond_classified`.
+#[cfg(test)]
 pub(super) async fn respond(
     mut request: Request<Incoming>,
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
-    let target = Target::classify(&mut request, ctx.config, ctx.endpoints.snapshot());
-    respond_classified(request, target, ctx).await
+    let (target, uri) = Target::classify(&mut request, ctx.config, ctx.endpoints.snapshot());
+    respond_classified(request, target, RequestCtx { uri: &uri, ..ctx }).await
 }
 
 /// The JSON API fields apply only to requests the JSON router claimed: a virtual-host or
@@ -146,7 +159,7 @@ pub(super) async fn respond_classified(
 ) -> Response<ResponseBody> {
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
-    let call = json::EnvelopeCall::of_request(&request);
+    let call = json::EnvelopeCall::of_request(&request, ctx.uri);
     let family = target.envelope();
     let mut response = route(request, target, ctx).await;
     match family {
@@ -195,6 +208,7 @@ enum ProtocolUpload {
 fn protocol_upload<B>(
     request: &Request<B>,
     selected: Option<&xml::ObjectPath>,
+    target_uri: &crate::percent::RequestUri,
 ) -> Option<(hyper::Uri, ProtocolUpload)> {
     let uri = request.uri();
     let bucket = uri
@@ -211,7 +225,7 @@ fn protocol_upload<B>(
     }) {
         return None;
     }
-    let query = crate::percent::parse_query(uri.query().unwrap_or_default()).ok()?;
+    let query = target_uri.parameters().ok()?;
     let upload_type = query.get("uploadType")?;
     let kind = if query.contains_key("upload_id") {
         ProtocolUpload::Session
@@ -300,7 +314,7 @@ async fn route_json(mut request: Request<Incoming>, ctx: RequestCtx<'_>) -> Resp
         return boxed(error.into_response());
     }
     // Parsed after the method override, which changes the route.
-    let route = JsonRoute::parse(request.method(), request.uri(), ctx.config);
+    let route = JsonRoute::parse(request.method(), ctx.uri, ctx.config);
     if json::cors::is_route(request.uri()) {
         return respond_json_cors(request, |request| respond_expanded(request, ctx, route)).await;
     }
@@ -560,7 +574,7 @@ async fn respond_routed(
     selected: Option<xml::ObjectPath>,
 ) -> Response<ResponseBody> {
     let Some(object) = selected else {
-        let route = JsonRoute::parse(request.method(), request.uri(), ctx.config);
+        let route = JsonRoute::parse(request.method(), ctx.uri, ctx.config);
         return Box::pin(respond_unselected(request, ctx, route)).await;
     };
     Box::pin(respond_selected(request, ctx, object)).await
@@ -906,9 +920,8 @@ async fn respond_bucket(
     profile: CompatProfile,
     parsed: Result<json::BucketRequest, ApiError>,
 ) -> Response<ResponseBody> {
-    let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
     let result = dispatch(request, ctx, parsed, |request, operation, caller| {
-        buckets::respond(request, operation, caller, state, profile, base)
+        buckets::respond(request, operation, caller, ctx)
     })
     .await;
     boxed(bucket_answer(result, profile).await)
@@ -973,7 +986,7 @@ mod tests {
             .header("host", host)
             .body(())
             .unwrap();
-        let target = Target::classify(&mut request, config, &endpoints);
+        let (target, _) = Target::classify(&mut request, config, &endpoints);
         (target, request)
     }
 

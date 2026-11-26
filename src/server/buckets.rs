@@ -28,6 +28,7 @@ use serde_json::Value;
 /// What every bucket operation needs besides its request.
 #[derive(Clone, Copy)]
 struct BucketCtx<'a> {
+    uri: &'a crate::percent::RequestUri,
     state: &'a State,
     base_url: &'a str,
     caller: Option<Caller<'a>>,
@@ -38,11 +39,13 @@ pub(super) async fn respond<'a>(
     request: Request<Incoming>,
     mut operation: BucketRequest,
     caller: Option<Caller<'a>>,
-    state: &'a State,
-    profile: CompatProfile,
-    base_url: &'a str,
+    request_ctx: super::RequestCtx<'a>,
 ) -> Result<Response<Full<Bytes>>, ApiError> {
+    let state = request_ctx.state;
+    let profile = request_ctx.config.compat_profile();
+    let base_url = request_ctx.endpoints.api_base_url();
     let ctx = BucketCtx {
+        uri: request_ctx.uri,
         state,
         base_url,
         caller,
@@ -53,7 +56,7 @@ pub(super) async fn respond<'a>(
     }
     let access = authorize(ctx, &operation).await?;
     validate_request(&request, &operation)?;
-    let fields = response_fields(request.uri().query(), operation.fields())?;
+    let fields = response_fields(ctx.uri, operation.fields())?;
     let acl_full = operation.projection() == json::Projection::Full && operation.renders_acl();
     // A write that turns uniform bucket-level access off answers without ACL fields, as one that
     // turns it on does (recorded 2026-10-31), so the state before the write matters too.
@@ -69,6 +72,7 @@ pub(super) async fn respond<'a>(
         BucketRequest::TestIam {
             bucket,
             permissions,
+            ..
         } => without_acl(test_iam_permissions(ctx, &bucket, permissions).await?),
         BucketRequest::Patch { bucket, params } => {
             write(request, ctx, &access, &bucket, params, WriteMode::Patch).await?
@@ -290,8 +294,7 @@ async fn restore(
     generation: i64,
     projection: json::Projection,
 ) -> Result<Rendered, ApiError> {
-    let query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
-    validate_bodyless_post(request, &query, EmptyJsonBody::Refused).await?;
+    validate_bodyless_post(request, ctx.uri.parameters()?, EmptyJsonBody::Refused).await?;
     let record = ctx
         .state
         .catalog
@@ -339,7 +342,6 @@ async fn write(
     mode: WriteMode,
 ) -> Result<Rendered, ApiError> {
     let BucketCtx { state, profile, .. } = ctx;
-    let acl_query = request.uri().query().map(str::to_owned);
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     // Only the native profile checks the body name against the path (recorded 2026-10-31).
     if profile == CompatProfile::Native {
@@ -355,7 +357,7 @@ async fn write(
         .await?
         .ok_or(CatalogError::NotFound)?;
     let predefined = json::bucket_predefined_acls(
-        acl_query.as_deref(),
+        ctx.uri.parameters()?,
         record.uniform_access(update.uniform_bucket_level_access_enabled),
         json::BucketAclWrite::Update,
         profile,
@@ -491,7 +493,6 @@ async fn insert(
     params: json::InsertParams,
 ) -> Result<Rendered, ApiError> {
     let BucketCtx { state, profile, .. } = ctx;
-    let acl_query = request.uri().query().map(str::to_owned);
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut record = json::parse_insert_with_profile(
         &bytes,
@@ -508,7 +509,7 @@ async fn insert(
     record.object_retention_enabled = params.enable_object_retention;
     let name = record.name.clone();
     json::bucket_predefined_acls(
-        acl_query.as_deref(),
+        ctx.uri.parameters()?,
         record.uniform_access(None),
         json::BucketAclWrite::Insert,
         profile,

@@ -25,14 +25,14 @@ tokio::task_local! {
 impl ResponseFormat {
     /// The format a request selects. Each method validates the `prettyPrint` value itself, so an
     /// invalid value fails with 400 and its error body uses the default format.
-    pub(crate) fn for_request(query: Option<&str>, profile: CompatProfile) -> Self {
+    pub(crate) fn for_request(uri: &crate::percent::RequestUri, profile: CompatProfile) -> Self {
         // fake-gcs-server writes compact JSON, which the fake-gcs-server profile reproduces.
         if profile == CompatProfile::FakeGcsServer {
             return Self::Compact;
         }
         // The spellings match the shared boolean query parser.
         let compact = matches!(
-            super::query::query_param(query.unwrap_or_default(), "prettyPrint").as_deref(),
+            super::query::query_param(uri, "prettyPrint").as_deref(),
             Some("false" | "False")
         );
         if compact { Self::Compact } else { Self::Pretty }
@@ -70,15 +70,26 @@ mod tests {
             (Some("%70rettyPrint=%66alse"), ResponseFormat::Compact),
             (Some("prettyPrint=%46alse"), ResponseFormat::Compact),
             (Some("xprettyPrint=false"), ResponseFormat::Pretty),
+            (Some("bad=%zz&prettyPrint=false"), ResponseFormat::Compact),
+            (
+                Some("prettyPrint=true&prettyPrint=false"),
+                ResponseFormat::Pretty,
+            ),
         ] {
             assert_eq!(
-                ResponseFormat::for_request(query, native),
+                ResponseFormat::for_request(
+                    &format!("/?{}", query.unwrap_or_default()).parse().unwrap(),
+                    native
+                ),
                 expected,
                 "{query:?}"
             );
         }
         assert_eq!(
-            ResponseFormat::for_request(None, CompatProfile::FakeGcsServer),
+            ResponseFormat::for_request(
+                &crate::percent::EMPTY_REQUEST_URI,
+                CompatProfile::FakeGcsServer
+            ),
             ResponseFormat::Compact
         );
     }

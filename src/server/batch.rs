@@ -71,6 +71,7 @@ static PARSERS: Semaphore = Semaphore::const_new(1);
 struct Part {
     id: Option<String>,
     request: Request<RequestBody>,
+    uri: crate::percent::RequestUri,
 }
 
 fn invalid(message: &'static str) -> ApiError {
@@ -125,13 +126,14 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
     }
     let permit = PARSERS.acquire().await.map_err(|_| parser_unavailable())?;
     let api_base_url = ctx.endpoints.api_base_url().to_owned();
+    let uri = ctx.uri.clone();
     let parts = crate::task::run_blocking("batch-parser", move || {
         let _permit = permit;
         parse::parts(
             &Bytes::from(bytes),
             &boundary,
             &outer.headers,
-            outer.uri.query(),
+            &uri,
             &api_base_url,
         )
     })
@@ -190,18 +192,30 @@ impl PartRunner {
             completion,
         } = self;
         let activity = super::new_batch_part_activity();
-        let ctx = RequestCtx {
-            state: &state,
-            config: &config,
-            endpoints: &endpoints,
-            activity: &activity,
-            listener,
-        };
-        for part in parts {
+        for Part {
+            id,
+            mut request,
+            mut uri,
+        } in parts
+        {
+            let target = super::routing::Target::classify_uri(
+                &mut request,
+                &config,
+                endpoints.snapshot(),
+                &mut uri,
+            );
+            let ctx = RequestCtx {
+                uri: &uri,
+                state: &state,
+                config: &config,
+                endpoints: &endpoints,
+                activity: &activity,
+                listener,
+            };
             let rendered = tokio::select! {
                 biased;
                 () = sender.closed() => return,
-                rendered = render_part(part, ctx, &connection) => rendered,
+                rendered = render_part(id, request, target, ctx, &connection) => rendered,
             };
             if sender.send(Ok(Bytes::from(rendered))).await.is_err() {
                 return;
@@ -216,7 +230,9 @@ impl PartRunner {
 
 /// Runs one part and renders it with its MIME framing.
 async fn render_part(
-    part: Part,
+    id: Option<String>,
+    request: Request<RequestBody>,
+    target: super::routing::Target,
     ctx: RequestCtx<'_>,
     connection: &watch::Sender<ObjectActivity>,
 ) -> Vec<u8> {
@@ -225,13 +241,11 @@ async fn render_part(
     ctx.activity.send_replace(ObjectActivity::default());
     // Each part renders in the layout its own (inherited-or-overridden) prettyPrint selects, not
     // the layout of the envelope request.
-    let format =
-        json::ResponseFormat::for_request(part.request.uri().query(), ctx.config.compat_profile());
-    let Part { id, request } = part;
+    let format = json::ResponseFormat::for_request(ctx.uri, ctx.config.compat_profile());
     json::with_format(format, async move {
         let response = tokio::select! {
             biased;
-            response = dispatch(request, ctx) => response,
+            response = dispatch(request, target, ctx) => response,
             expiry = super::batch_part_expired(ctx.activity, ctx.config.request_timeout()) => {
                 super::batch_part_timeout(expiry)
             }
@@ -247,9 +261,10 @@ async fn render_part(
 /// itself. The named boxed type ends that cycle, and lets the spawned runner prove it is `Send`.
 fn dispatch<'a>(
     request: Request<RequestBody>,
+    target: super::routing::Target,
     ctx: RequestCtx<'a>,
 ) -> Pin<Box<dyn Future<Output = Response<ResponseBody>> + Send + 'a>> {
-    Box::pin(super::routing::respond(request, ctx))
+    Box::pin(super::routing::respond_classified(request, target, ctx))
 }
 
 fn parser_failed() -> ApiError {
@@ -385,6 +400,26 @@ mod tests {
     }
 
     impl Harness {
+        async fn render(&self, mut part: Part) -> Vec<u8> {
+            let target = super::super::routing::Target::classify_uri(
+                &mut part.request,
+                &self.config,
+                self.endpoints.snapshot(),
+                &mut part.uri,
+            );
+            render_part(
+                part.id,
+                part.request,
+                target,
+                RequestCtx {
+                    uri: &part.uri,
+                    ..self.ctx()
+                },
+                &self.activity,
+            )
+            .await
+        }
+
         async fn start(config: Config) -> Self {
             let dir = TestDir::new();
             let state = Arc::new(State::for_test(
@@ -408,6 +443,7 @@ mod tests {
 
         fn ctx(&self) -> RequestCtx<'_> {
             RequestCtx {
+                uri: &crate::percent::EMPTY_REQUEST_URI,
                 state: &self.state,
                 config: &self.config,
                 endpoints: &self.endpoints,
@@ -589,6 +625,7 @@ mod tests {
 
     fn delete_part(uri: &str) -> Part {
         Part {
+            uri: uri.parse().unwrap(),
             id: None,
             request: Request::builder()
                 .method("DELETE")
@@ -621,7 +658,7 @@ mod tests {
                 release: Arc::new(Mutex::new(held)),
             },
         );
-        let rendered = render_part(delete_part(uri), harness.ctx(), &harness.activity);
+        let rendered = harness.render(delete_part(uri));
         tokio::pin!(rendered);
         tokio::select! {
             result = &mut rendered => panic!("answered before reclamation: {}", String::from_utf8_lossy(&result)),
@@ -671,7 +708,7 @@ mod tests {
             // No filesystem work can start while admission is held, so only the controlled
             // catalog budget can end this wait, without a detached commit behind its reply.
             tokio::time::pause();
-            let rendered = render_part(delete_part(uri), harness.ctx(), &harness.activity).await;
+            let rendered = harness.render(delete_part(uri)).await;
             tokio::time::resume();
             drop(admission);
             harness.config = original;
@@ -833,6 +870,7 @@ mod tests {
             .without_request();
         let (activity, _) = watch::channel(ObjectActivity::default());
         let ctx = RequestCtx {
+            uri: &crate::percent::EMPTY_REQUEST_URI,
             state: &state,
             config: &config,
             endpoints: &endpoints,

@@ -5,12 +5,13 @@
 //! operation.
 
 use super::unsupported;
+use crate::percent::RequestUri;
 use crate::{
     config::Config,
     json::ApiError,
     json::{self, BucketRequest, Fields, ObjectRequest, ProjectRequest},
 };
-use hyper::{Method, Uri};
+use hyper::Method;
 
 /// A JSON API route and its parsed operation. A parse failure stays in the route, so that
 /// dispatch reports it after authenticating the caller, as it does for every request.
@@ -31,7 +32,7 @@ impl JsonRoute {
     /// The route that claims `method` and `uri`. Routes overlap (an ACL or notification path is
     /// also below a bucket path), so the first match in this order wins, and this order is part
     /// of the wire contract.
-    pub(super) fn parse(method: &Method, uri: &Uri, config: &Config) -> Option<Self> {
+    pub(super) fn parse(method: &Method, uri: &RequestUri, config: &Config) -> Option<Self> {
         let profile = config.compat_profile();
         json::acl::route_acl(method, uri, profile)
             .map(Self::Acl)

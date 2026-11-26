@@ -4,7 +4,7 @@
 //! catalog. Configurations are stored and read back, but no Pub/Sub message is ever published.
 
 use super::{ApiError, EtagConditions, Fields, Schema, buckets::encode_segment, query};
-use crate::percent::{self, Decoding};
+use crate::percent::{self, Decoding, RequestUri};
 use crate::{
     config::CompatProfile,
     error::Report,
@@ -12,7 +12,7 @@ use crate::{
         self, EventTypes, NotificationConfig, NotificationRecord, PayloadFormat, Topic,
     },
 };
-use hyper::{Method, StatusCode, Uri};
+use hyper::{Method, StatusCode};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
@@ -76,7 +76,7 @@ impl NotificationRequest {
 /// Match `b/{bucket}/notificationConfigs[/{notification}]` before any other bucket route.
 pub(crate) fn route(
     method: &Method,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<(NotificationRequest, Fields), ApiError>> {
     let rest = uri.path().strip_prefix(query::BUCKET_PATH)?;
@@ -97,7 +97,7 @@ fn parse(
     method: &Method,
     segment: &str,
     notification: Option<&str>,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<(NotificationRequest, Fields), ApiError> {
     let bucket = query::path_bucket(segment, profile, query::BucketCheck::NativeOnly)?;
@@ -126,7 +126,7 @@ fn parse(
             ));
         }
     };
-    let mut query = percent::parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     let schema = if matches!(request, NotificationRequest::List { .. }) {
         Schema::Notifications
     } else {
@@ -394,7 +394,7 @@ pub(crate) fn notification_not_found() -> ApiError {
 mod tests {
     use super::*;
 
-    fn uri(path: &str) -> Uri {
+    fn uri(path: &str) -> RequestUri {
         path.parse().unwrap()
     }
 

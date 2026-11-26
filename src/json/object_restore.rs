@@ -10,13 +10,13 @@ use super::{
 use crate::{
     config::CompatProfile,
     object::ObjectTarget,
-    percent::{Decoding, decode, parse_query},
+    percent::{Decoding, RequestUri, decode},
 };
-use hyper::{Method, Uri};
+use hyper::Method;
 
 pub(super) fn route(
     method: &Method,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, ApiError>> {
     let path = uri
@@ -32,7 +32,7 @@ fn parse(
     method: &Method,
     bucket: &str,
     name: &str,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<ObjectRequest, ApiError> {
     if method != Method::POST {
@@ -52,7 +52,7 @@ fn parse(
     let name = decode(name, Decoding::Path)?;
     crate::bucket::name::validate_for_profile(&bucket, profile)?;
     super::validate_object_name(&name)?;
-    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     super::Fields::take(&mut query, super::Schema::Object)?;
     standard_parameters(&mut query, &["restoreToken"], ApiError::unsupported_object)?;
     if super::query::boolean(&mut query, "copySourceAcl")? {

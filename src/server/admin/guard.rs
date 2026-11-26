@@ -162,6 +162,7 @@ mod tests {
                 .for_request(ConnectionScheme::Http, request.uri(), request.headers());
             assert_eq!(endpoints.api_base_url(), format!("http://{host}"));
             let ctx = RequestCtx {
+                uri: &crate::percent::EMPTY_REQUEST_URI,
                 state: &state,
                 config: &config,
                 endpoints: &endpoints,
@@ -202,6 +203,7 @@ mod tests {
         let endpoints = RequestEndpoints::explicit("http://api.example.com");
         let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
         let ctx = RequestCtx {
+            uri: &crate::percent::EMPTY_REQUEST_URI,
             state: &state,
             config: &config,
             endpoints: &endpoints,

@@ -8,7 +8,7 @@ use super::{
     query::{bucket_conditions, common, finish_for_profile},
     validate_object_name,
 };
-use crate::percent::{Decoding, decode, parse_query};
+use crate::percent::{Decoding, RequestUri, decode};
 use crate::{
     acl::{
         AclEntry, AclKind, AclOwner, AclRole, AclTarget, Entity, ProjectTeam, parse_entity,
@@ -18,7 +18,7 @@ use crate::{
     config::CompatProfile,
     storage::AclProjection,
 };
-use hyper::{Method, Uri};
+use hyper::Method;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -149,7 +149,7 @@ pub(crate) struct AclRequest {
 /// Parse an ACL route. Other paths and methods return `None` so they keep their existing routing.
 pub(crate) fn route_acl(
     method: &Method,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<AclRequest, ApiError>> {
     let path = uri.path().strip_prefix(super::query::BUCKET_PATH)?;
@@ -181,7 +181,7 @@ pub(crate) fn route_acl(
 }
 
 fn parse_route(
-    uri: &Uri,
+    uri: &RequestUri,
     bucket: &str,
     target: PathTarget<'_>,
     selection: Selection<'_>,
@@ -195,7 +195,7 @@ fn parse_route(
         Selection::Insert => AclOperation::Write(AclWrite::Insert),
         Selection::Entry(method, entity) => method.operation(decode(entity, Decoding::Path)?),
     };
-    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     let kind = target.kind();
     let listing = operation == AclOperation::List;
     let schema = match (kind, listing) {

@@ -11,9 +11,9 @@ use crate::{
     acl::PredefinedObjectAcl,
     config::CompatProfile,
     object::ObjectConditions,
-    percent::{Decoding, decode, parse_query},
+    percent::{Decoding, RequestUri, decode},
 };
-use hyper::{Method, Uri};
+use hyper::Method;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectCopyParams {
@@ -31,7 +31,7 @@ pub(crate) struct ObjectCopyParams {
 
 pub(super) fn route(
     method: &Method,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, ApiError>> {
     let path = uri.path().strip_prefix(BUCKET_PATH)?;
@@ -44,7 +44,7 @@ fn parse(
     method: &Method,
     source: &str,
     destination: &str,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<ObjectRequest, ApiError> {
     if method != Method::POST {
@@ -55,7 +55,7 @@ fn parse(
     }
     let (source_bucket, source_name) = names(source, profile)?;
     let (bucket, name) = names(destination, profile)?;
-    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    let mut query = uri.parameters()?.clone();
     super::Fields::take(&mut query, super::Schema::Object)?;
     let predefined_acl = take_predefined_acl(&mut query, "destinationPredefinedAcl")?;
     standard_parameters(

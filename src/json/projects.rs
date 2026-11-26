@@ -9,11 +9,11 @@ use super::{ApiError, Fields, Schema};
 use crate::auth::ProjectId;
 use crate::config::CompatProfile;
 use crate::page_token::{self, CursorTag};
-use crate::percent::{Decoding, decode, parse_query};
+use crate::percent::{Decoding, RequestUri, decode};
 use crate::storage::Page;
 use crate::storage::hmac_keys::{HmacKeyError, HmacKeyRecord, HmacKeyState};
 use crate::time_format::timestamp;
-use hyper::{Method, StatusCode, Uri};
+use hyper::{Method, StatusCode};
 use serde_json::{Map, Value, json};
 
 /// The documented list has no default page size; this bound keeps one page small and matches
@@ -90,7 +90,7 @@ pub(crate) struct HmacKeyUpdate {
 /// Match `/storage/v1/projects/{projectId}/...` before decoding the path segments.
 pub(crate) fn route_project(
     method: &Method,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<(ProjectRequest, Fields), ApiError>> {
     let rest = uri.path().strip_prefix("/storage/v1/projects/")?;
@@ -102,7 +102,7 @@ pub(crate) fn route_project(
         return None;
     }
     let call = ProjectCall::select(collection, item, method)?;
-    Some(call.and_then(|call| parse(call, project, uri.query().unwrap_or_default(), profile)))
+    Some(call.and_then(|call| parse(call, project, uri, profile)))
 }
 
 /// A project method, chosen once from the path and the HTTP method. `A` is an HMAC key's
@@ -187,12 +187,12 @@ impl<A> ProjectCall<A> {
 fn parse(
     call: ProjectCall<&str>,
     project: &str,
-    raw: &str,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<(ProjectRequest, Fields), ApiError> {
     let project = ProjectId::try_from(decode(project, Decoding::Path)?)?;
     let call = call.decode_access_id()?;
-    let mut query = parse_query(raw)?;
+    let mut query = uri.parameters()?.clone();
     let fields = if matches!(
         call,
         ProjectCall::HmacKey {

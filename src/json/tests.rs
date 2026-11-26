@@ -7,7 +7,7 @@ use crate::page_token::{decode_page_token, encode_page_token};
 use crate::time_format::{http_date, timestamp, timestamp_micros};
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
-    Method, StatusCode, Uri,
+    Method, StatusCode,
     body::{Body, Buf, Bytes, Frame},
     header,
 };
@@ -21,7 +21,11 @@ use std::{
 
 #[track_caller]
 fn request(method: Method, path: &str) -> Result<BucketRequest, ApiError> {
-    route(&method, &path.parse::<Uri>().unwrap()).expect("bucket route")
+    route(
+        &method,
+        &path.parse::<crate::percent::RequestUri>().unwrap(),
+    )
+    .expect("bucket route")
 }
 
 #[test]
@@ -125,9 +129,10 @@ fn parsed_bucket_projection_keeps_profile_defaults_and_explicit_overrides() {
             ("projection=full", Projection::Full),
             ("projection=noAcl", Projection::NoAcl),
         ] {
-            let uri: Uri = format!("/storage/v1/b/bucket?{query}&{override_value}")
-                .parse()
-                .unwrap();
+            let uri: crate::percent::RequestUri =
+                format!("/storage/v1/b/bucket?{query}&{override_value}")
+                    .parse()
+                    .unwrap();
             let operation = route_with_profile(&method, &uri, profile, "project")
                 .unwrap()
                 .unwrap();
@@ -140,7 +145,7 @@ fn parsed_bucket_projection_keeps_profile_defaults_and_explicit_overrides() {
     }
     for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
         for method in [Method::POST, Method::GET] {
-            let uri: Uri = "/storage/v1/b?project=project".parse().unwrap();
+            let uri: crate::percent::RequestUri = "/storage/v1/b?project=project".parse().unwrap();
             let operation = route_with_profile(&method, &uri, profile, "project")
                 .unwrap()
                 .unwrap();
@@ -612,7 +617,10 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
         ] {
             assert_eq!(
                 bucket_predefined_acls(
-                    Some(&format!("{parameter}=private")),
+                    &std::collections::BTreeMap::from([(
+                        parameter.to_owned(),
+                        "private".to_owned()
+                    )]),
                     UniformAccess::Disabled,
                     write,
                     profile,
@@ -623,7 +631,7 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             );
         }
         let applied = bucket_predefined_acls(
-            Some(&format!("{parameter}=private")),
+            &std::collections::BTreeMap::from([(parameter.to_owned(), "private".to_owned())]),
             UniformAccess::Disabled,
             BucketAclWrite::Update,
             CompatProfile::Native,
@@ -632,7 +640,7 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
         assert_ne!(applied, BucketPredefinedAcls::default());
         assert_eq!(
             bucket_predefined_acls(
-                Some(&format!("{parameter}=private")),
+                &std::collections::BTreeMap::from([(parameter.to_owned(), "private".to_owned())]),
                 UniformAccess::Enabled,
                 BucketAclWrite::Update,
                 CompatProfile::Native,

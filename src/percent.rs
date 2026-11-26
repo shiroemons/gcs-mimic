@@ -2,7 +2,68 @@
 //! adapters decode paths, queries and routing parameters alike; each answers a refusal in its
 //! own protocol.
 
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::{BTreeMap, btree_map::Entry},
+    fmt,
+    sync::OnceLock,
+};
+
+/// A request target whose form-decoded parameters are shared from their first use.
+#[derive(Clone, Default)]
+pub(crate) struct RequestUri {
+    uri: hyper::Uri,
+    parameters: OnceLock<Result<BTreeMap<String, String>, QueryError>>,
+}
+
+impl From<hyper::Uri> for RequestUri {
+    fn from(uri: hyper::Uri) -> Self {
+        Self {
+            uri,
+            parameters: OnceLock::new(),
+        }
+    }
+}
+
+impl std::ops::Deref for RequestUri {
+    type Target = hyper::Uri;
+    fn deref(&self) -> &Self::Target {
+        &self.uri
+    }
+}
+
+impl RequestUri {
+    pub(crate) fn parameters(&self) -> Result<&BTreeMap<String, String>, QueryError> {
+        self.parameters
+            .get_or_init(|| parse_query(self.query().unwrap_or_default()))
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    /// The Discovery upload alias changes the path and keeps the query byte-for-byte.
+    pub(crate) fn rewrite_path(&mut self, uri: hyper::Uri) {
+        debug_assert_eq!(self.uri.query(), uri.query());
+        self.uri = uri;
+    }
+}
+
+#[cfg(test)]
+pub(crate) static EMPTY_REQUEST_URI: std::sync::LazyLock<RequestUri> =
+    std::sync::LazyLock::new(RequestUri::default);
+
+#[cfg(test)]
+impl fmt::Display for RequestUri {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.uri.fmt(formatter)
+    }
+}
+
+#[cfg(test)]
+impl std::str::FromStr for RequestUri {
+    type Err = hyper::http::uri::InvalidUri;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        value.parse::<hyper::Uri>().map(Self::from)
+    }
+}
 
 /// The longest raw query string a request may carry. Cloud Storage documents no limit; this
 /// bounds the work and memory one query can cause. The gRPC v1 listing adapter also applies it
@@ -106,8 +167,11 @@ pub(crate) fn parse_query_with(
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         let key = decode(key, decoding)?;
         let value = decode(value, decoding)?;
-        if query.insert(key.clone(), value).is_some() {
-            return Err(QueryError::Duplicate(key));
+        match query.entry(key) {
+            Entry::Vacant(entry) => {
+                entry.insert(value);
+            }
+            Entry::Occupied(entry) => return Err(QueryError::Duplicate(entry.key().clone())),
         }
     }
     Ok(query)
@@ -123,6 +187,17 @@ mod tests {
     use super::*;
     use crate::url::{encode_listing_name, encode_object_name, encode_unreserved};
     use proptest::prelude::*;
+
+    #[test]
+    fn rewriting_an_upload_alias_preserves_the_decoded_query() {
+        let mut uri: RequestUri = "/storage/v1/b/bucket/o?name=a%2Fb".parse().unwrap();
+        assert!(uri.parameters.get().is_none());
+        let address = std::ptr::from_ref(&uri.parameters().unwrap()["name"]);
+        uri.rewrite_path("/upload/storage/v1/b/bucket/o?name=a%2Fb".parse().unwrap());
+        let name = &uri.parameters().unwrap()["name"];
+        assert_eq!(name, "a/b");
+        assert_eq!(address, std::ptr::from_ref(name));
+    }
 
     proptest! {
         #[test]

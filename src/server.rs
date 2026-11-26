@@ -1631,11 +1631,11 @@ impl ConnectionService {
             return Ok(finished.attach(response));
         };
         let mut request = request;
-        let target = routing::Target::classify(&mut request, &config, endpoints.snapshot());
+        let (target, uri) = routing::Target::classify(&mut request, &config, endpoints.snapshot());
         let timeout_reply = DeadlineReply::new(&request, &target);
-        let format =
-            json::ResponseFormat::for_request(request.uri().query(), config.compat_profile());
+        let format = json::ResponseFormat::for_request(&uri, config.compat_profile());
         let ctx = RequestCtx {
+            uri: &uri,
             state: &state,
             config: &config,
             endpoints: &endpoints,
@@ -2319,13 +2319,13 @@ fn read_metadata_response(
 /// The `fields` selection a response applies, read from the request query as the operation
 /// says.
 fn response_fields(
-    query: Option<&str>,
-    selection: json::FieldSelection,
+    uri: &crate::percent::RequestUri,
+    selection: json::FieldSelection<'_>,
 ) -> Result<json::Fields, ApiError> {
     match selection {
         json::FieldSelection::Ignored => Ok(json::Fields::whole()),
-        json::FieldSelection::Query(schema) => json::Fields::from_query(query, schema),
-        json::FieldSelection::TestPermissions => Ok(json::test_permissions_query(query)?.fields),
+        json::FieldSelection::Query(schema) => json::Fields::from_query(uri, schema),
+        json::FieldSelection::Parsed(fields) => Ok(fields.clone()),
     }
 }
 

@@ -2,6 +2,7 @@ use super::{Part, RequestBody, invalid};
 use crate::http_header::{TextError, TextOrder, sole};
 use crate::json::ApiError;
 use crate::multipart::Delimiter;
+use crate::percent::{Decoding, RequestUri, decode};
 use http_body_util::Full;
 use hyper::{
     HeaderMap, Method, Request, Uri,
@@ -149,7 +150,7 @@ fn single<'a>(headers: &'a HeaderMap, key: &str) -> Result<Option<&'a str>, ApiE
         })
 }
 
-fn uri(raw: &str, outer_query: Option<&str>, api_base_url: &str) -> Result<Uri, ApiError> {
+fn uri(raw: &str, outer_uri: &RequestUri, api_base_url: &str) -> Result<RequestUri, ApiError> {
     // Google answers absolute request lines on its own endpoint like relative paths, and SDKs
     // such as the Java client send them. Only the advertised API origin is accepted; any other
     // origin fails the whole envelope so no part is executed or forwarded elsewhere.
@@ -171,21 +172,27 @@ fn uri(raw: &str, outer_query: Option<&str>, api_base_url: &str) -> Result<Uri, 
     if uri.scheme().is_some() || uri.authority().is_some() {
         return Err(invalid("Batch parts cannot specify an authority"));
     }
-    let inner = crate::percent::parse_query(uri.query().unwrap_or(""))?;
-    let mut target = raw.to_owned();
-    let outer = outer_query.unwrap_or("");
-    crate::percent::parse_query(outer)?;
-    for pair in outer.split('&').filter(|pair| !pair.is_empty()) {
-        let parsed = crate::percent::parse_query(pair)?;
-        if parsed.keys().any(|key| !inner.contains_key(key)) {
-            target.push(if target.contains('?') { '&' } else { '?' });
-            target.push_str(pair);
+    let mut uri = RequestUri::from(uri);
+    if let Some(outer) = outer_uri.query().filter(|outer| !outer.is_empty()) {
+        let inner = uri.parameters()?;
+        outer_uri.parameters()?;
+        let mut target = raw.to_owned();
+        for pair in outer.split('&').filter(|pair| !pair.is_empty()) {
+            let key = pair.split_once('=').map_or(pair, |(key, _)| key);
+            if !inner.contains_key(&decode(key, Decoding::Form)?) {
+                target.push(if target.contains('?') { '&' } else { '?' });
+                target.push_str(pair);
+            }
+        }
+        if target != raw {
+            let inherited: Uri = target
+                .parse()
+                .map_err(|_| invalid("Invalid inherited batch query"))?;
+            uri = RequestUri::from(inherited);
         }
     }
-    let uri: Uri = target
-        .parse()
-        .map_err(|_| invalid("Invalid inherited batch query"))?;
-    if crate::percent::parse_query(uri.query().unwrap_or(""))?
+    if uri
+        .parameters()?
         .get("alt")
         .is_some_and(|alt| alt == "media")
     {
@@ -199,7 +206,7 @@ fn uri(raw: &str, outer_query: Option<&str>, api_base_url: &str) -> Result<Uri, 
 fn part(
     bytes: &Bytes,
     outer: &HeaderMap,
-    query: Option<&str>,
+    query: &RequestUri,
     api_base_url: &str,
 ) -> Result<Part, ApiError> {
     let (mime, Some(http)) = header_block(bytes)? else {
@@ -275,10 +282,10 @@ fn part(
     inherited.insert("content-length", HeaderValue::from(body.len()));
     let mut request = Request::new(RequestBody::Buffered(Full::new(bytes.slice_ref(body))));
     *request.method_mut() = method;
-    *request.uri_mut() = uri;
+    *request.uri_mut() = Uri::clone(&uri);
     *request.headers_mut() = inherited;
     super::super::ingress::override_method(&mut request)?;
-    Ok(Part { id, request })
+    Ok(Part { id, request, uri })
 }
 
 /// Reads the rest of a delimiter line, starting right after its `--boundary`.
@@ -316,7 +323,7 @@ pub(super) fn parts(
     bytes: &Bytes,
     boundary: &str,
     outer: &HeaderMap,
-    query: Option<&str>,
+    query: &RequestUri,
     api_base_url: &str,
 ) -> Result<Vec<Part>, ApiError> {
     let boundary = format!("--{boundary}").into_bytes();
@@ -374,7 +381,7 @@ mod tests {
             &Bytes::from(envelope),
             "B",
             &HeaderMap::new(),
-            None,
+            &RequestUri::default(),
             "http://localhost",
         )
         .unwrap_or_else(|error| panic!("{}", error.message()));

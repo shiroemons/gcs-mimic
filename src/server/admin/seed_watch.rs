@@ -58,7 +58,7 @@ async fn wait(
             Some("POST"),
         ));
     }
-    let timeout = wait_timeout(request.uri().query())?;
+    let timeout = wait_timeout(ctx.uri)?;
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     if !bytes.is_empty() {
         return Err(ApiError::invalid_argument(
@@ -82,9 +82,9 @@ async fn wait(
 }
 
 /// The wait the query names in `timeoutMs`, its only parameter.
-fn wait_timeout(query: Option<&str>) -> Result<Duration, ApiError> {
-    let mut query = crate::percent::parse_query(query.unwrap_or_default())?;
-    let timeout = match query.remove("timeoutMs") {
+fn wait_timeout(uri: &crate::percent::RequestUri) -> Result<Duration, ApiError> {
+    let query = uri.parameters()?;
+    let timeout = match query.get("timeoutMs") {
         None => DEFAULT_WAIT,
         Some(value) => value
             .parse::<u64>()
@@ -98,7 +98,7 @@ fn wait_timeout(query: Option<&str>) -> Result<Duration, ApiError> {
                 ))
             })?,
     };
-    if let Some(name) = query.keys().next() {
+    if let Some(name) = query.keys().find(|name| name.as_str() != "timeoutMs") {
         return Err(ApiError::invalid_argument(format!(
             "The seed wait accepts only the timeoutMs query parameter, not {name}"
         )));
@@ -112,7 +112,10 @@ mod tests {
 
     #[test]
     fn a_wait_takes_only_a_bounded_timeout() {
-        let millis = |query| wait_timeout(query).map(|timeout| timeout.as_millis());
+        let millis = |query: Option<&str>| {
+            wait_timeout(&format!("/?{}", query.unwrap_or_default()).parse().unwrap())
+                .map(|timeout| timeout.as_millis())
+        };
         assert_eq!(millis(None).unwrap(), 60_000);
         assert_eq!(millis(Some("timeoutMs=1")).unwrap(), 1);
         assert_eq!(millis(Some("timeoutMs=600000")).unwrap(), 600_000);

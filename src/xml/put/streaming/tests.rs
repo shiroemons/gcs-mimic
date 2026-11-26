@@ -71,6 +71,7 @@ impl Fixture {
         let request = self.request(bytes);
         let (activity, _) = tokio::sync::watch::channel(Default::default());
         let ctx = RequestCtx {
+            uri: &crate::percent::EMPTY_REQUEST_URI,
             state: &self.state,
             config: &self.config,
             endpoints: &self.endpoints,

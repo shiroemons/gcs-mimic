@@ -183,7 +183,10 @@ enum Coded {
 impl Coded {
     /// `None` for a request without a coding and for one whose handler reads the coding itself,
     /// such as a resumable session request, which refuses it.
-    fn of(request: &Request<RequestBody>) -> Result<Option<Self>, ApiError> {
+    fn of(
+        request: &Request<RequestBody>,
+        uri: &crate::percent::RequestUri,
+    ) -> Result<Option<Self>, ApiError> {
         if !request.headers().contains_key(CONTENT_ENCODING) {
             return Ok(None);
         }
@@ -194,7 +197,7 @@ impl Coded {
         if request.method() != Method::POST || !path.starts_with("/upload/storage/v1/") {
             return Ok(None);
         }
-        let query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
+        let query = uri.parameters()?;
         let initiation = !query.contains_key("upload_id")
             && path
                 .strip_prefix("/upload/storage/v1/b/")
@@ -221,7 +224,7 @@ pub(super) async fn expand(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
 ) -> Result<(Request<RequestBody>, UploadDecoder), ApiError> {
-    match Coded::of(&request)? {
+    match Coded::of(&request, ctx.uri)? {
         None => Ok((request, UploadDecoder(None))),
         Some(Coded::Upload) => upload_gzip::request(request, ctx).await,
         Some(Coded::Metadata) => Ok((expand_metadata(request, ctx).await?, UploadDecoder(None))),
@@ -609,6 +612,7 @@ mod tests {
 
         fn ctx(&self) -> RequestCtx<'_> {
             RequestCtx {
+                uri: &crate::percent::EMPTY_REQUEST_URI,
                 state: &self.state,
                 config: &self.config,
                 endpoints: &self.endpoints,

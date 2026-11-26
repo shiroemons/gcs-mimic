@@ -281,6 +281,7 @@ mod tests {
             .without_request();
         let (activity, _) = tokio::sync::watch::channel(super::super::ObjectActivity::default());
         let public = RequestCtx {
+            uri: &crate::percent::EMPTY_REQUEST_URI,
             state: &state,
             config: &config,
             endpoints: &endpoints,

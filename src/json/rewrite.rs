@@ -4,14 +4,14 @@ use super::{
     objects::{ConditionKeys, take_conditions, take_predefined_acl},
     query, validate_object_name,
 };
-use crate::percent::{Decoding, decode, parse_query};
+use crate::percent::{Decoding, RequestUri, decode};
 use crate::{
     acl::PredefinedObjectAcl,
     config::CompatProfile,
     object::{ObjectConditions, ObjectTarget},
     storage::rewrite::{RewriteNames, RewriteProgress},
 };
-use hyper::{Method, Uri};
+use hyper::Method;
 use serde_json::{Map, Value};
 use std::num::NonZeroU64;
 
@@ -39,7 +39,7 @@ pub(crate) struct RewriteRequest {
 
 pub(crate) fn route(
     method: &Method,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<RewriteRequest, ApiError>> {
     let path = uri.path().strip_prefix(query::BUCKET_PATH)?;
@@ -78,7 +78,7 @@ struct RewritePath<'a> {
 fn parse(
     method: &Method,
     path: RewritePath<'_>,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<RewriteRequest, ApiError> {
     if *method != Method::POST {
@@ -105,7 +105,7 @@ fn parse(
     for object in [&names.source.name, &names.destination.name] {
         validate_object_name(object)?;
     }
-    let mut parameters = parse_query(uri.query().unwrap_or_default())?;
+    let mut parameters = uri.parameters()?.clone();
     let token = parameters.remove("rewriteToken");
     // A rewrite token binds these parameters; an ignored API key or billing project must not
     // be one of them.

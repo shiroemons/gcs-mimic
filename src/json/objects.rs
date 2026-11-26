@@ -6,7 +6,7 @@ use super::{
 };
 use crate::decimal::Grammar;
 use crate::etag::object_etag;
-use crate::percent::{Decoding, decode, parse_query};
+use crate::percent::{Decoding, RequestUri, decode};
 use crate::time_format::{TimeOutOfRange, timestamp};
 use crate::{
     auth,
@@ -20,7 +20,7 @@ use crate::{
     },
     service::ServiceError,
 };
-use hyper::{HeaderMap, Method, StatusCode, Uri};
+use hyper::{HeaderMap, Method, StatusCode};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
@@ -118,7 +118,7 @@ impl ObjectRequest {
     }
 
     /// Where the response takes its `fields` selection from; a delete answers without a body.
-    pub(crate) fn fields(&self) -> FieldSelection {
+    pub(crate) fn fields(&self) -> FieldSelection<'_> {
         match self {
             Self::Delete { .. } => FieldSelection::Ignored,
             Self::List(_) => FieldSelection::Query(Schema::Objects),
@@ -280,13 +280,16 @@ impl ObjectRequest {
 
 /// Match raw path segments before decoding object names exactly once.
 #[cfg(test)]
-pub(crate) fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, ApiError>> {
+pub(crate) fn route_object(
+    method: &Method,
+    uri: &RequestUri,
+) -> Option<Result<ObjectRequest, ApiError>> {
     route_object_with_profile(method, uri, CompatProfile::Native)
 }
 
 pub(crate) fn route_object_with_profile(
     method: &Method,
-    uri: &Uri,
+    uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, ApiError>> {
     super::object_restore::route(method, uri, profile)
@@ -370,7 +373,7 @@ impl<'a> ObjectPath<'a> {
     fn parse(
         self,
         method: &Method,
-        uri: &Uri,
+        uri: &RequestUri,
         profile: CompatProfile,
     ) -> Result<ObjectRequest, ApiError> {
         if !self.allows(method) {
@@ -387,19 +390,18 @@ impl<'a> ObjectPath<'a> {
             ));
         }
         let bucket = path_bucket(self.bucket(), profile, BucketCheck::ForProfile)?;
-        let raw = uri.query().unwrap_or_default();
         match self {
             Self::Collection { .. } => {
-                super::object_list::parse_list(bucket, raw).map(ObjectRequest::List)
+                super::object_list::parse_list(bucket, uri).map(ObjectRequest::List)
             }
-            Self::Upload { .. } => parse_object_query(method, bucket, QueryObject::Upload, raw),
+            Self::Upload { .. } => parse_object_query(method, bucket, QueryObject::Upload, uri),
             Self::Object { object, .. } => {
                 let name = path_object(object)?;
-                parse_object_query(method, bucket, QueryObject::Named(name), raw)
+                parse_object_query(method, bucket, QueryObject::Named(name), uri)
             }
             Self::Download { object, .. } => {
                 let name = path_object(object)?;
-                let request = parse_object_query(method, bucket, QueryObject::Named(name), raw)?;
+                let request = parse_object_query(method, bucket, QueryObject::Named(name), uri)?;
                 if matches!(&request, ObjectRequest::Get { params, .. } if !params.media) {
                     return Err(ApiError::new(
                         StatusCode::BAD_REQUEST,
@@ -456,9 +458,9 @@ fn parse_object_query(
     method: &Method,
     bucket: String,
     object: QueryObject,
-    raw: &str,
+    uri: &RequestUri,
 ) -> Result<ObjectRequest, ApiError> {
-    let mut query = parse_query(raw)?;
+    let mut query = uri.parameters()?.clone();
     // Uploads apply predefinedAcl; other methods keep the server's explicit rejection.
     let predefined_acl = match object {
         QueryObject::Upload => query.remove("predefinedAcl"),

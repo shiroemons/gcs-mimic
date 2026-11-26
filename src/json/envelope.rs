@@ -65,11 +65,13 @@ pub(crate) enum Call {
 }
 
 impl Call {
-    pub(crate) fn of_request<B>(request: &hyper::Request<B>) -> Self {
-        let query = request.uri().query().unwrap_or_default();
+    pub(crate) fn of_request<B>(
+        request: &hyper::Request<B>,
+        uri: &crate::percent::RequestUri,
+    ) -> Self {
         // Names and values are compared decoded, because `alt=%6Dedia` is `alt=media` to the
         // handlers; a malformed escape never matches and the handler reports it.
-        let param = |name: &str| super::query::query_param(query, name);
+        let param = |name: &str| super::query::query_param(uri, name);
         if request.uri().path().starts_with("/upload/") {
             let boundary_missing = param("uploadType").as_deref() == Some("multipart")
                 && !request
@@ -464,7 +466,12 @@ mod tests {
 
     #[test]
     fn the_call_is_read_from_the_decoded_query() {
-        let call = |uri: &str| Call::of_request(&hyper::Request::get(uri).body(()).unwrap());
+        let call = |uri: &str| {
+            Call::of_request(
+                &hyper::Request::get(uri).body(()).unwrap(),
+                &uri.parse().unwrap(),
+            )
+        };
         assert!(call("/storage/v1/b/x/o/y?alt=%6Dedia") == Call::MediaRead);
         assert!(call("/storage/v1/b/x/o/y?%61lt=media") == Call::MediaRead);
         assert!(call("/storage/v1/b/x/o/y?alt=json") == Call::Metadata);
