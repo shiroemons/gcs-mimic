@@ -1,28 +1,19 @@
 //! Flat-namespace object-name rules shared by every transport and import path.
 
 /// Which flat-namespace rule a name breaks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidObjectName {
+    #[error("object name is empty")]
     Empty,
+    #[error("object name exceeds 1024 bytes")]
     TooLong,
+    #[error("object name contains a carriage return or line feed")]
     LineBreak,
+    #[error("object name is . or ..")]
     DotSegment,
+    #[error("object name starts with .well-known/acme-challenge/")]
     AcmeChallenge,
 }
-
-impl std::fmt::Display for InvalidObjectName {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(match self {
-            Self::Empty => "object name is empty",
-            Self::TooLong => "object name exceeds 1024 bytes",
-            Self::LineBreak => "object name contains a carriage return or line feed",
-            Self::DotSegment => "object name is . or ..",
-            Self::AcmeChallenge => "object name starts with .well-known/acme-challenge/",
-        })
-    }
-}
-
-impl std::error::Error for InvalidObjectName {}
 
 /// An object name that satisfies the flat-namespace rules of [`validate`]. Catalog records keep
 /// `String`: older catalogs may hold names a transport accepted before these rules were shared.

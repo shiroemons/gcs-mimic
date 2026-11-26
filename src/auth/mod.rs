@@ -19,7 +19,8 @@ mod jwt;
 mod policy;
 pub(crate) mod policy_input;
 mod project;
-pub(crate) use project::{InvalidProjectId, ProjectId, valid_project_id, validate_project_id};
+pub use project::InvalidProjectId;
+pub(crate) use project::{ProjectId, valid_project_id, validate_project_id};
 pub(crate) mod roles;
 pub mod signature;
 mod signing_keys;
@@ -567,67 +568,34 @@ impl std::error::Error for InvalidUploadSnapshot {}
 
 /// Why an identity document is invalid. `Display` names, for an invalid entry, its index; token
 /// values are never included. [`IdentityError`] adds the setting that supplied the document.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RegistryError {
+    #[error("exceeds {MAX_REGISTRY_MIB} MiB")]
     TooLarge,
+    #[error(transparent)]
     Io(std::io::Error),
     /// The file is not valid JSON.
+    #[error(transparent)]
     Syntax(serde_json::Error),
     /// The identity document as a whole is invalid.
+    #[error("{0}")]
     Invalid(String),
     /// One `identities` entry is invalid.
-    InvalidEntry {
-        entry: usize,
-        reason: String,
-    },
+    #[error("identities[{entry}]: {reason}")]
+    InvalidEntry { entry: usize, reason: String },
     /// An identity's `public_keys` entry is not a supported RSA public key.
+    #[error("identities[{entry}]: {defect}")]
     PublicKey {
         entry: usize,
-        source: signature::InvalidPublicKey,
+        defect: signature::InvalidPublicKey,
     },
-    /// An identity's `project_roles` names a project the JSON API rejects.
+    /// An identity's `project_roles` names an invalid project.
+    #[error("identities[{entry}]: project {project:?}: {defect}")]
     Project {
         entry: usize,
         project: String,
-        /// Boxed, so the shared error does not enlarge every result that carries an identity failure.
-        source: Box<crate::api_error::ApiError>,
+        defect: InvalidProjectId,
     },
-}
-
-impl fmt::Display for RegistryError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooLarge => write!(f, "exceeds {MAX_REGISTRY_MIB} MiB"),
-            Self::Io(error) => write!(f, "{error}"),
-            Self::Syntax(error) => write!(f, "{error}"),
-            Self::Invalid(reason) => f.write_str(reason),
-            Self::InvalidEntry { entry, reason } => write!(f, "identities[{entry}]: {reason}"),
-            Self::PublicKey { entry, source } => {
-                write!(f, "identities[{entry}]: {source}")
-            }
-            Self::Project {
-                entry,
-                project,
-                source,
-            } => write!(
-                f,
-                "identities[{entry}]: project {project:?}: {}",
-                source.message
-            ),
-        }
-    }
-}
-
-impl std::error::Error for RegistryError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(error) => Some(error),
-            Self::Syntax(error) => Some(error),
-            Self::PublicKey { source, .. } => Some(source),
-            Self::Project { source, .. } => Some(source.as_ref()),
-            Self::TooLarge | Self::Invalid(_) | Self::InvalidEntry { .. } => None,
-        }
-    }
 }
 
 impl RegistryError {
@@ -1009,7 +977,7 @@ fn parse_pap_projects(value: Option<&Value>) -> Result<Vec<String>, RegistryErro
         let project = project.as_str().ok_or_else(|| {
             RegistryError::document("public_access_prevention_projects entries must be strings")
         })?;
-        crate::json::validate_project(project).map_err(|_| {
+        validate_project_id(project).map_err(|_| {
             RegistryError::document("invalid public_access_prevention_projects entry")
         })?;
         if !seen.insert(project) {
@@ -1040,9 +1008,9 @@ fn parse_public_keys(
             signature::PublicKey::parse(key.as_str().ok_or_else(|| {
                 RegistryError::entry(index, "public_keys entries must be strings")
             })?)
-            .map_err(|source| RegistryError::PublicKey {
+            .map_err(|defect| RegistryError::PublicKey {
                 entry: index,
-                source,
+                defect,
             })
         })
         .collect()
@@ -1058,10 +1026,10 @@ fn parse_project_roles(
         .as_object()
         .ok_or_else(|| RegistryError::entry(index, "project_roles must be a JSON object"))?;
     for (project, role_values) in projects {
-        crate::json::validate_project(project).map_err(|source| RegistryError::Project {
+        validate_project_id(project).map_err(|defect| RegistryError::Project {
             entry: index,
             project: project.clone(),
-            source: Box::new(source),
+            defect,
         })?;
         let role_values = role_values
             .as_array()

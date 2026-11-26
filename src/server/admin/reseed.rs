@@ -295,7 +295,9 @@ mod tests {
                 "bucket name",
             ),
             (
-                wrapped(SeedError::ObjectName(ApiError::invalid("bad"))),
+                wrapped(SeedError::ObjectName(
+                    crate::object::name::InvalidObjectName::Empty,
+                )),
                 "object name",
             ),
             (wrapped(SeedError::NonUtf8Name), "UTF-8"),

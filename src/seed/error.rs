@@ -1,7 +1,6 @@
 use crate::{
-    api_error::ApiError,
     fsutil::{IdentityField, Unopenable},
-    storage::admin::AdminError,
+    storage::admin::{AdminError, InvalidObjectName},
 };
 use std::{error::Error, fmt, io, path::StripPrefixError};
 
@@ -11,7 +10,7 @@ pub enum SeedError {
     Unopenable,
     Admin(AdminError),
     BucketName(AdminError),
-    ObjectName(ApiError),
+    ObjectName(InvalidObjectName),
     RelativePath(StripPrefixError),
     EntryLimit { limit: usize },
     DepthLimit { limit: usize },
@@ -34,7 +33,7 @@ impl fmt::Display for SeedError {
             Self::Io(error) => error.fmt(f),
             Self::Unopenable => f.write_str("fixture could not be opened"),
             Self::Admin(error) | Self::BucketName(error) => error.fmt(f),
-            Self::ObjectName(error) => f.write_str(&error.message),
+            Self::ObjectName(_) => f.write_str("Invalid object name"),
             Self::RelativePath(error) => error.fmt(f),
             Self::EntryLimit { limit } => write!(
                 f,
@@ -146,6 +145,8 @@ fn admin_reason(error: &AdminError, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     }
 }
 
+// Entry and Import expose the SeedError inside Box<Self>, and Unopenable exposes a static cause.
+// Deriving Error would expose the box itself and omit the unit variant's cause.
 impl Error for SeedError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -189,10 +190,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn object_name_messages_keep_the_json_failure_in_the_cause_chain() {
-        let error = SeedError::ObjectName(crate::json::validate_object_name("").unwrap_err());
-        let cause = error.source().unwrap().downcast_ref::<ApiError>().unwrap();
-        assert_eq!(error.to_string(), cause.message);
+    fn object_name_messages_keep_the_rejected_rule_in_the_cause_chain() {
+        let error = SeedError::ObjectName(crate::object::name::validate("").unwrap_err());
+        crate::error::assert_distinct_causes(&error);
+        assert_eq!(error.to_string(), "Invalid object name");
+        assert_eq!(
+            error.source().unwrap().downcast_ref::<InvalidObjectName>(),
+            Some(&InvalidObjectName::Empty)
+        );
     }
 
     /// A pass report states a failure of the catalog in words, while the error's own text keeps

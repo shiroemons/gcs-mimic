@@ -683,19 +683,10 @@ fn imported_bucket(
     record: &BucketRecord,
     now: SystemTime,
 ) -> Result<crate::bucket::BucketRecord, ImportError> {
-    let mut input = serde_json::Map::from_iter([
-        ("name".into(), serde_json::Value::from(record.name.as_str())),
-        (
-            "defaultEventBasedHold".into(),
-            serde_json::Value::from(record.attributes.default_event_based_hold),
-        ),
-    ]);
-    if let Some(enabled) = record.attributes.versioning_enabled {
-        input.insert("versioning".into(), serde_json::json!({"enabled":enabled}));
-    }
-    let input = serde_json::Value::Object(input).to_string();
-    let mut bucket = crate::json::parse_insert(input.as_bytes(), "local-project", now)
-        .map_err(|error| invalid(error.message))?;
+    let mut bucket = crate::bucket::BucketRecord::default_for(&record.name, "local-project", now)
+        .map_err(|error| invalid(error.as_str()))?;
+    bucket.versioning = record.attributes.versioning_enabled.into();
+    bucket.default_event_based_hold = record.attributes.default_event_based_hold;
     if let Some(created) = record.spec.created {
         bucket.time_created = created;
         bucket.updated = created;

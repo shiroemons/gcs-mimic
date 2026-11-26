@@ -6,16 +6,13 @@
 pub(crate) struct ProjectId(String);
 
 /// Text that is not a project ID or number.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct InvalidProjectId;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{}", Self::MESSAGE)]
+pub struct InvalidProjectId;
 
-impl std::fmt::Display for InvalidProjectId {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("project must be a nonempty identifier of at most 256 bytes")
-    }
+impl InvalidProjectId {
+    pub(crate) const MESSAGE: &str = "project must be a nonempty identifier of at most 256 bytes";
 }
-
-impl std::error::Error for InvalidProjectId {}
 
 /// Shared identifier rules; adapters that only check a value supply their own field names and
 /// error messages.

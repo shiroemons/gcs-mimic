@@ -77,6 +77,11 @@ records the direct edge, package digest, license and compressed size.
 The [freshness check](evidence/dependency-refresh.md#memchr-direct-edge-2026-11-26)
 records the version comparison for the explicit `std` feature selection.
 
+Typed validation errors use `thiserror` 2.0.21 to derive their diagnostic
+text and cause chains. Storage errors whose causes drive classification keep
+their explicit conversions. The [dependency check and package review](evidence/dependency-refresh.md#typed-errors-on-2026-11-26)
+cover the library and its matching procedural macro.
+
 Builds for musl link `mimalloc` 0.1.52 and `libmimalloc-sys` 0.1.49 as the global allocator, because
 musl's own allocator takes one global lock and made the container slower as threads were added.
 Other targets keep their C library's allocator and do not resolve these packages. This replaces an

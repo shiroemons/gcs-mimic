@@ -156,8 +156,7 @@ impl BucketDefinition {
     }
     pub fn new(record: BucketRecord) -> Result<Self, AdminError> {
         BucketName::new(record.name.clone())?;
-        crate::json::validate_project(&record.project)
-            .map_err(|error| AdminError::Invalid(error.message))?;
+        crate::auth::validate_project_id(&record.project)?;
         crate::bucket::validate_cors(&record.cors)?;
         if record.metageneration <= 0
             || record.labels.len() > crate::bucket::MAX_LABELS
@@ -177,9 +176,8 @@ impl BucketDefinition {
         project: &str,
         clock: &dyn Clock,
     ) -> Result<Self, AdminError> {
-        let input = serde_json::json!({"name": name.as_str()}).to_string();
-        let record = crate::json::parse_insert(input.as_bytes(), project, clock.now())
-            .map_err(|error| AdminError::Invalid(error.message))?;
+        let record = BucketRecord::default_for(name, project, clock.now())
+            .map_err(|error| AdminError::Invalid(error.as_str().into()))?;
         Self::new(record)
     }
 }
@@ -353,6 +351,11 @@ impl AdminError {
 impl From<InvalidBucketName> for AdminError {
     fn from(_: InvalidBucketName) -> Self {
         Self::Invalid("Invalid bucket name".into())
+    }
+}
+impl From<crate::auth::InvalidProjectId> for AdminError {
+    fn from(_: crate::auth::InvalidProjectId) -> Self {
+        Self::Invalid(crate::auth::InvalidProjectId::MESSAGE.into())
     }
 }
 impl From<InvalidObjectName> for AdminError {
@@ -650,8 +653,7 @@ impl Admin {
         after: Option<&BucketName>,
         limit: usize,
     ) -> Result<super::Page<BucketRecord>, AdminError> {
-        crate::json::validate_project(project)
-            .map_err(|error| AdminError::Invalid(error.message))?;
+        crate::auth::validate_project_id(project)?;
         let limit = management_page_limit(limit)?;
         let project = project.to_owned();
         let after = after.map(|name| name.as_str().to_owned());

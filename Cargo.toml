@@ -108,6 +108,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+thiserror = "2.0.21"
 serde = { version = "1.0.229", features = ["derive"] }
 rusqlite = { version = "0.43.0", default-features = false, features = ["bundled", "cache", "fallible_uint"] }
 serde_json = { workspace = true, features = ["raw_value", "preserve_order"] }

@@ -252,9 +252,6 @@ pub(crate) fn parse_insert(
         // The adapter reconciles an echoed value with enableObjectRetention.
         object_retention_enabled: parse_object_retention(body.get("objectRetention"))?
             .unwrap_or(false),
-        name,
-        project: project.to_owned(),
-        location,
         storage_class,
         autoclass,
         labels,
@@ -277,10 +274,7 @@ pub(crate) fn parse_insert(
         } else {
             None
         },
-        metageneration: 1,
-        generation: 0,
-        time_created: now,
-        updated: now,
+        ..BucketRecord::new(name, project, location, now)
     })
 }
 
@@ -453,6 +447,24 @@ pub(crate) fn parse_cors(value: Option<&Value>) -> Result<Option<Vec<CorsRule>>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_bucket_defaults_match_a_native_insert() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let name = super::super::name::BucketName::try_from("bucket").unwrap();
+        let body = Map::from_iter([("name".into(), Value::from(name.as_str()))]);
+        let insert = |project, now| parse_insert(&body, project, now, CompatProfile::Native, "US");
+        assert_eq!(
+            BucketRecord::default_for(&name, "project", UNIX_EPOCH).unwrap(),
+            insert("project", UNIX_EPOCH).unwrap()
+        );
+        let outside = UNIX_EPOCH + Duration::from_secs(253_402_300_800);
+        for (project, now) in [("bad project", outside), ("project", outside)] {
+            let error = BucketRecord::default_for(&name, project, now).unwrap_err();
+            crate::error::assert_distinct_causes(&error);
+            assert_eq!(error.to_string(), insert(project, now).unwrap_err().message);
+        }
+    }
 
     #[test]
     fn bucket_object_retention_echo_values() {

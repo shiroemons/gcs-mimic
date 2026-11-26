@@ -48,6 +48,15 @@ fn every_source_shows_the_held_error() {
     assert_delegates(|| serde_json::from_str::<u8>("not json").unwrap_err());
 }
 
+#[test]
+fn stored_timestamps_keep_the_status_in_backend_reports() {
+    let source = Source::from(crate::time_format::TimeOutOfRange);
+    assert_eq!(
+        crate::error::Report(source.as_error()).to_string(),
+        "503 Service Unavailable: Bucket timestamp is outside the supported RFC 3339 range"
+    );
+}
+
 fn permanently_failed() -> ResumeError {
     ResumeError::PermanentlyFailed {
         reason: crate::storage::import_journal::JournalFailure::ElementRejected,

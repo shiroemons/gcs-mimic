@@ -217,6 +217,65 @@ pub struct BucketRecord {
     pub updated: SystemTime,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DefaultBucketError {
+    #[error(transparent)]
+    Project(#[from] crate::auth::InvalidProjectId),
+    #[error(transparent)]
+    Timestamp(#[from] crate::time_format::TimeOutOfRange),
+}
+
+impl DefaultBucketError {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Project(_) => crate::auth::InvalidProjectId::MESSAGE,
+            Self::Timestamp(_) => crate::time_format::TimeOutOfRange::MESSAGE,
+        }
+    }
+}
+
+impl BucketRecord {
+    /// Native insert defaults for local callers that already validated the bucket name.
+    pub(crate) fn default_for(
+        name: &name::BucketName,
+        project: &str,
+        now: SystemTime,
+    ) -> Result<Self, DefaultBucketError> {
+        crate::auth::validate_project_id(project)?;
+        crate::time_format::timestamp(now)?;
+        Ok(Self::new(
+            name.as_str().to_owned(),
+            project,
+            Location::US,
+            now,
+        ))
+    }
+
+    fn new(name: String, project: &str, location: Location, now: SystemTime) -> Self {
+        Self {
+            name,
+            project: project.to_owned(),
+            location,
+            storage_class: StorageClass::Standard,
+            autoclass: None,
+            labels: BTreeMap::new(),
+            cors: Vec::new(),
+            lifecycle: Default::default(),
+            retention_policy: None,
+            soft_delete_policy: None,
+            object_retention_enabled: false,
+            versioning: Versioning::Unset,
+            default_event_based_hold: false,
+            public_access_prevention: Default::default(),
+            uniform_bucket_level_access_locked_time: None,
+            metageneration: 1,
+            generation: 0,
+            time_created: now,
+            updated: now,
+        }
+    }
+}
+
 /// A soft-deleted bucket version: the metadata it had when deleted plus its deletion times.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SoftDeletedBucket {

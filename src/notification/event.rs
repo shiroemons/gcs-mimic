@@ -155,9 +155,7 @@ impl Message<'_> {
             ("payloadFormat", config.payload_format.as_str().to_owned()),
             (
                 "eventTime",
-                crate::time_format::timestamp(self.time)
-                    .map_err(crate::api_error::ApiError::from)
-                    .map_err(invalid_time)?,
+                crate::time_format::timestamp(self.time).map_err(invalid_time)?,
             ),
         ] {
             attributes.insert(key.into(), value);
@@ -197,9 +195,7 @@ impl Message<'_> {
                         fields.insert(
                             "timeDeleted".into(),
                             Value::String(
-                                crate::time_format::timestamp(self.time)
-                                    .map_err(crate::api_error::ApiError::from)
-                                    .map_err(invalid_time)?,
+                                crate::time_format::timestamp(self.time).map_err(invalid_time)?,
                             ),
                         );
                     }

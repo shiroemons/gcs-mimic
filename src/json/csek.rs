@@ -51,12 +51,9 @@ pub(crate) fn object_resource_keyed(
     base_url: &str,
     projection: super::Projection,
     key: Option<CustomerKey>,
-) -> Result<Value, ApiError> {
-    let mut value = super::object_resource(object, base_url, projection)?;
+) -> Result<Value, crate::time_format::TimeOutOfRange> {
+    let mut value = super::objects::object_resource_fields(object, base_url, projection)?;
     if key.is_some_and(|key| object.customer_key_sha256 == Some(key.sha256())) {
-        let value = value
-            .as_object_mut()
-            .ok_or_else(|| ApiError::service_unavailable("Object resource must be an object"))?;
         value.insert(
             "crc32c".into(),
             super::base64(&object.crc32c.to_be_bytes()).into(),
@@ -65,5 +62,5 @@ pub(crate) fn object_resource_keyed(
             value.insert("md5Hash".into(), super::base64(&object.md5).into());
         }
     }
-    Ok(value)
+    Ok(Value::Object(value))
 }

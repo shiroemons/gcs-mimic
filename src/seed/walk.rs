@@ -9,10 +9,9 @@
 
 use super::SeedError;
 use crate::{
-    api_error::ApiError,
     fsutil::Vacant,
     source_tree::{TreeLimits, WalkEntry, WalkError, Walker, is_os_metadata},
-    storage::admin::{AdminError, BucketName, ObjectName, replay::Fingerprint},
+    storage::admin::{AdminError, BucketName, InvalidObjectName, ObjectName, replay::Fingerprint},
 };
 #[cfg(unix)]
 use std::collections::HashMap;
@@ -127,7 +126,7 @@ pub(super) enum Rejected {
     /// A name that is not UTF-8.
     NonUtf8Name,
     /// A path below a bucket that is no valid object name.
-    ObjectName,
+    ObjectName(InvalidObjectName),
     /// A bucket directory whose name is no valid bucket name.
     BucketName(AdminError),
 }
@@ -138,10 +137,7 @@ impl From<Rejected> for SeedError {
         match rejected {
             Rejected::Symlink | Rejected::Special => Self::UnsupportedFile,
             Rejected::NonUtf8Name => Self::NonUtf8Name,
-            // Startup and the reseed route report a fixed message, so the rule it broke is dropped.
-            Rejected::ObjectName => {
-                Self::ObjectName(ApiError::invalid_parameter("Invalid object name"))
-            }
+            Rejected::ObjectName(error) => Self::ObjectName(error),
             Rejected::BucketName(error) => Self::BucketName(error),
         }
     }
@@ -461,7 +457,7 @@ impl Tree {
             .map(|part| part.to_str().ok_or(Rejected::NonUtf8Name))
             .collect::<Result<Vec<_>, _>>()?
             .join("/");
-        let name = ObjectName::try_from(name).map_err(|_| Rejected::ObjectName)?;
+        let name = ObjectName::try_from(name).map_err(Rejected::ObjectName)?;
         if kind.is_dir() {
             return Ok(Fixture::Directory);
         }

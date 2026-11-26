@@ -7,7 +7,7 @@ use super::{
 use crate::decimal::Grammar;
 use crate::etag::object_etag;
 use crate::percent::{Decoding, decode, parse_query};
-use crate::time_format::timestamp;
+use crate::time_format::{TimeOutOfRange, timestamp};
 use crate::{
     auth,
     config::CompatProfile,
@@ -1078,7 +1078,15 @@ pub(crate) fn object_resource(
     object: &ObjectRecord,
     base_url: &str,
     projection: Projection,
-) -> Result<Value, ApiError> {
+) -> Result<Value, TimeOutOfRange> {
+    object_resource_fields(object, base_url, projection).map(Value::Object)
+}
+
+pub(super) fn object_resource_fields(
+    object: &ObjectRecord,
+    base_url: &str,
+    projection: Projection,
+) -> Result<Map<String, Value>, TimeOutOfRange> {
     // ACL and owner projection requires current catalog authorization in the server adapter.
     let (Projection::NoAcl | Projection::Full) = projection;
     let base = base_url.trim_end_matches('/');
@@ -1181,7 +1189,7 @@ pub(crate) fn object_resource(
         value.insert("hardDeleteTime".into(), timestamp(time)?.into());
     }
     super::csek::render(object, &mut value);
-    Ok(Value::Object(value))
+    Ok(value)
 }
 
 /// Whether the served representation of the object depends on `Accept-Encoding`: stored gzip

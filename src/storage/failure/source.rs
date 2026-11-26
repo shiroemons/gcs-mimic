@@ -224,6 +224,17 @@ impl From<BlobError> for Source {
     }
 }
 
+/// Backend diagnostics for a stored resource retain the original status prefix.
+#[derive(Debug, thiserror::Error)]
+#[error("503 Service Unavailable: {0}")]
+struct StoredTimestampError(crate::time_format::TimeOutOfRange);
+
+impl From<crate::time_format::TimeOutOfRange> for Source {
+    fn from(error: crate::time_format::TimeOutOfRange) -> Self {
+        Self::Leaf(Leaf(Box::new(StoredTimestampError(error))))
+    }
+}
+
 macro_rules! leaf_sources {
     ($($error:ty),* $(,)?) => {
         $(impl From<$error> for Source {
@@ -256,7 +267,6 @@ leaf_sources!(
     crate::auth::signature::VerificationError,
     crate::import::codec::CodecError,
     crate::import::codec::TimestampError,
-    crate::api_error::ApiError,
     crate::notification::NotificationDecodeError,
     crate::object::HashMismatch,
     crate::storage::opaque_id::InvalidOpaqueId,

@@ -795,7 +795,7 @@ pub(crate) fn url_cases() -> Vec<Case<UrlError>> {
             ),
             case(
                 "InvalidBucket",
-                UrlError::InvalidBucket("Invalid bucket name".into()),
+                UrlError::InvalidBucket(crate::bucket::name::InvalidBucketName),
             ),
             case(
                 "InvalidObject",

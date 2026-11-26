@@ -3,19 +3,16 @@
 //! answers a time it cannot render in its own protocol.
 
 use crate::object::unix_nanos::UnixNanos;
-use std::{fmt, time::SystemTime};
+use std::time::SystemTime;
 
 /// A stored time outside the RFC 3339 range that every rendering shares.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{}", Self::MESSAGE)]
 pub(crate) struct TimeOutOfRange;
 
-impl fmt::Display for TimeOutOfRange {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("Bucket timestamp is outside the supported RFC 3339 range")
-    }
+impl TimeOutOfRange {
+    pub(crate) const MESSAGE: &str = "Bucket timestamp is outside the supported RFC 3339 range";
 }
-
-impl std::error::Error for TimeOutOfRange {}
 
 /// Weekday names from 1970-01-01, a Thursday.
 const WEEKDAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];

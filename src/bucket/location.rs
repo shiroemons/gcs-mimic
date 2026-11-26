@@ -96,6 +96,11 @@ pub(crate) struct Location {
 }
 
 impl Location {
+    pub(super) const US: Self = Self {
+        name: "US",
+        kind: LocationKind::MultiRegion,
+    };
+
     pub(crate) fn as_str(self) -> &'static str {
         self.name
     }

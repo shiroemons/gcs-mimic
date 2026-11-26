@@ -2,81 +2,53 @@
 //! the URL is servable depends entirely on IAM/ACL state at request time.
 
 use crate::{
-    config::InvalidDnsName, json::validate_bucket_name,
+    bucket::name::{InvalidBucketName, validate as validate_bucket_name},
+    config::InvalidDnsName,
     object::name::validate as validate_object_name,
 };
-use std::fmt;
 
 /// Why a base URL, public origin or object URL was rejected. `Display` is the operator-facing
 /// diagnostic that CLI output and configuration reports show verbatim.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum UrlError {
+    #[error("invalid base URL")]
     InvalidBaseUrl,
+    #[error("base URL must be an absolute HTTP(S) URL without credentials, query or fragment")]
     UnsupportedBaseUrl,
+    #[error("missing base URL authority")]
     MissingAuthority,
+    #[error("missing base URL scheme")]
     MissingScheme,
+    #[error("invalid base URL port; use an integer in 0..=65535")]
     InvalidBasePort,
+    #[error("public_base_url must be an HTTP(S) origin with a root path only")]
     OriginHasPath,
+    #[error(
+        "public_base_url port must be in 1..=65535; use a reachable port such as http://storage.invalid:4443"
+    )]
     OriginPortZero,
+    #[error("invalid public_base_url IPv6 address")]
     InvalidOriginIpv6,
+    #[error(
+        "ambiguous numeric public hostname; use canonical IPv4 such as http://127.0.0.1 or a DNS name ending in a nonnumeric label"
+    )]
     AmbiguousNumericHost,
+    #[error("invalid public origin authority")]
     InvalidOriginAuthority,
-    InvalidDnsName(InvalidDnsName),
-    InvalidBucket(String),
+    #[error(transparent)]
+    InvalidDnsName(#[from] InvalidDnsName),
+    #[error("bucket: {0}")]
+    InvalidBucket(InvalidBucketName),
+    #[error("object: {0}")]
     InvalidObject(String),
+    #[error("object URL collides with a reserved API namespace")]
     ReservedNamespace,
+    #[error("virtual-host base URL must not have a path prefix")]
     VirtualHostPathPrefix,
+    #[error("bucket name must be a DNS label sequence for virtual-host URLs")]
     VirtualHostBucketNotDns,
+    #[error("invalid virtual-host base URL port")]
     InvalidVirtualHostPort,
-}
-
-impl fmt::Display for UrlError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidBaseUrl => f.write_str("invalid base URL"),
-            Self::UnsupportedBaseUrl => f.write_str(
-                "base URL must be an absolute HTTP(S) URL without credentials, query or fragment",
-            ),
-            Self::MissingAuthority => f.write_str("missing base URL authority"),
-            Self::MissingScheme => f.write_str("missing base URL scheme"),
-            Self::InvalidBasePort => {
-                f.write_str("invalid base URL port; use an integer in 0..=65535")
-            }
-            Self::OriginHasPath => {
-                f.write_str("public_base_url must be an HTTP(S) origin with a root path only")
-            }
-            Self::OriginPortZero => f.write_str(
-                "public_base_url port must be in 1..=65535; use a reachable port such as http://storage.invalid:4443",
-            ),
-            Self::InvalidOriginIpv6 => f.write_str("invalid public_base_url IPv6 address"),
-            Self::AmbiguousNumericHost => f.write_str(
-                "ambiguous numeric public hostname; use canonical IPv4 such as http://127.0.0.1 or a DNS name ending in a nonnumeric label",
-            ),
-            Self::InvalidOriginAuthority => f.write_str("invalid public origin authority"),
-            Self::InvalidDnsName(error) => error.fmt(f),
-            Self::InvalidBucket(message) => write!(f, "bucket: {message}"),
-            Self::InvalidObject(message) => write!(f, "object: {message}"),
-            Self::ReservedNamespace => {
-                f.write_str("object URL collides with a reserved API namespace")
-            }
-            Self::VirtualHostPathPrefix => {
-                f.write_str("virtual-host base URL must not have a path prefix")
-            }
-            Self::VirtualHostBucketNotDns => {
-                f.write_str("bucket name must be a DNS label sequence for virtual-host URLs")
-            }
-            Self::InvalidVirtualHostPort => f.write_str("invalid virtual-host base URL port"),
-        }
-    }
-}
-
-// `InvalidDnsName` is displayed transparently, so it is not repeated as a `source`.
-impl std::error::Error for UrlError {}
-
-impl From<InvalidDnsName> for UrlError {
-    fn from(error: InvalidDnsName) -> Self {
-        Self::InvalidDnsName(error)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -257,7 +229,7 @@ pub(crate) fn normalize_public_base_url(value: &str) -> Result<String, UrlError>
 /// Build `<base>/<bucket>/<encoded object>` for the XML-style path endpoint.
 pub fn public_object_url(base_url: &str, bucket: &str, object: &str) -> Result<String, UrlError> {
     let base = normalize_base_url(base_url)?;
-    validate_bucket_name(bucket).map_err(|e| UrlError::InvalidBucket(e.message))?;
+    validate_bucket_name(bucket).map_err(UrlError::InvalidBucket)?;
     validate_object_name(object)
         .map_err(|_| UrlError::InvalidObject("Invalid object name".into()))?;
     let path = format!("/{bucket}/{}", encode_object_name(object));
@@ -274,7 +246,7 @@ pub fn virtual_host_object_url(
     object: &str,
 ) -> Result<String, UrlError> {
     let base = normalize_base_url(base_url)?;
-    validate_bucket_name(bucket).map_err(|e| UrlError::InvalidBucket(e.message))?;
+    validate_bucket_name(bucket).map_err(UrlError::InvalidBucket)?;
     validate_object_name(object)
         .map_err(|_| UrlError::InvalidObject("Invalid object name".into()))?;
     let uri: hyper::Uri = base.parse().map_err(|_| UrlError::InvalidBaseUrl)?;

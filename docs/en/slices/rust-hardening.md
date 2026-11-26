@@ -427,7 +427,9 @@ A further split waits until after `1.0.0`:
   join after the storage classification changes.
 - **thiserror.** Types are converted module by module. `#[from]` never replaces
   a `classified_from!` conversion, and the ten `TypedSource` types keep their
-  hand-written `source()`.
+  hand-written `source()`. `SeedError` also implements `source()` by hand so
+  `Entry` and `Import` expose the error inside their box and `Unopenable`
+  can expose its static cause.
 
 ### `io::Error::other`
 

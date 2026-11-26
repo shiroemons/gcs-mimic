@@ -1578,3 +1578,22 @@ At `2026-11-26T10:41:50Z`, `cargo xtask dependencies check` reported
 `memchr: CURRENT current=2.8.3 latest=2.8.3` and 142 `CURRENT` lines in all.
 It exited 1 because three Go module checks reported `cloud.google.com/go/storage`
 v1.71.1 available for their v1.71.0 pins. The run used unauthenticated registry requests.
+
+## Typed errors on 2026-11-26
+
+The [Cargo index](https://index.crates.io/th/is/thiserror) lists 2.0.21 as
+the newest stable, non-yanked thiserror release. It was published on
+2026-09-23. Both packages specify Rust 1.77 and the MIT or Apache-2.0
+license. The [publisher's source](https://github.com/dtolnay/thiserror/tree/b1827ee06f81a7d7f954e676771e19a97f9f8e3b)
+implements the derive with a matching procedural macro. That macro uses the
+workspace's existing proc-macro2, quote and syn versions.
+
+| Package | Compressed bytes | Archive SHA-256 |
+| --- | ---: | --- |
+| thiserror 2.0.21 | 29,021 | `09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e` |
+| thiserror-impl 2.0.21 | 21,637 | `fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524` |
+
+At 10:29:38 UTC, `cargo xtask dependencies check` reported thiserror 2.0.21
+as `CURRENT`. It exited 1 because the Go facade, SDK suite and scorecard
+each pin cloud.google.com/go/storage v1.71.0 and v1.71.1 is available.
+At 10:35:45 UTC, `cargo xtask dependencies check --scope release` exited 0.
