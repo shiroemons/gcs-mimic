@@ -9,6 +9,8 @@ use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload}
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::UNIX_EPOCH;
 
+mod authority;
+
 /// Object rows are read by position, so each declared position must name the column the
 /// statement selects there: reordering, adding or removing a column fails here.
 #[tokio::test]
