@@ -297,7 +297,7 @@ pub(crate) fn route_object_with_profile(
         .or_else(|| super::object_copy::route(method, uri, profile))
         .or_else(|| super::compose::route(method, uri, profile))
         .or_else(|| {
-            let path = ObjectPath::of(method, uri.path())?;
+            let path = ObjectPath::of(method, uri.as_uri().path())?;
             Some(path.parse(method, uri, profile))
         })
 }

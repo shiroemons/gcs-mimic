@@ -36,7 +36,7 @@ impl JsonRoute {
         let profile = config.compat_profile();
         json::acl::route_acl(method, uri, profile)
             .map(Self::Acl)
-            .or_else(|| unsupported::route(method, uri).map(Self::Unsupported))
+            .or_else(|| unsupported::route(method, uri.as_uri()).map(Self::Unsupported))
             .or_else(|| json::notifications::route(method, uri, profile).map(Self::Notifications))
             .or_else(|| json::resumable::session_route(method, uri, profile).map(Self::Session))
             .or_else(|| json::rewrite::route(method, uri, profile).map(Self::Rewrite))

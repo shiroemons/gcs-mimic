@@ -152,7 +152,10 @@ pub(crate) fn route_acl(
     uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<AclRequest, ApiError>> {
-    let path = uri.path().strip_prefix(super::query::BUCKET_PATH)?;
+    let path = uri
+        .as_uri()
+        .path()
+        .strip_prefix(super::query::BUCKET_PATH)?;
     let segments: Vec<&str> = path.split('/').collect();
     if segments.iter().any(|segment| segment.is_empty()) {
         return None;

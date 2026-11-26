@@ -24,25 +24,30 @@ impl From<hyper::Uri> for RequestUri {
     }
 }
 
-impl std::ops::Deref for RequestUri {
-    type Target = hyper::Uri;
-    fn deref(&self) -> &Self::Target {
+impl RequestUri {
+    pub(crate) fn as_uri(&self) -> &hyper::Uri {
         &self.uri
     }
-}
-
-impl RequestUri {
     pub(crate) fn parameters(&self) -> Result<&BTreeMap<String, String>, QueryError> {
         self.parameters
-            .get_or_init(|| parse_query(self.query().unwrap_or_default()))
+            .get_or_init(|| parse_query(self.uri.query().unwrap_or_default()))
             .as_ref()
             .map_err(Clone::clone)
     }
 
     /// The Discovery upload alias changes the path and keeps the query byte-for-byte.
-    pub(crate) fn rewrite_path(&mut self, uri: hyper::Uri) {
-        debug_assert_eq!(self.uri.query(), uri.query());
-        self.uri = uri;
+    pub(crate) fn rewrite_path(&mut self, mut path: String) -> Option<()> {
+        if path.contains(['?', '#']) {
+            return None;
+        }
+        if let Some(query) = self.uri.query() {
+            path.push('?');
+            path.push_str(query);
+        }
+        let mut parts = self.uri.clone().into_parts();
+        parts.path_and_query = Some(path.parse().ok()?);
+        self.uri = hyper::Uri::from_parts(parts).ok()?;
+        Some(())
     }
 }
 
@@ -193,7 +198,10 @@ mod tests {
         let mut uri: RequestUri = "/storage/v1/b/bucket/o?name=a%2Fb".parse().unwrap();
         assert!(uri.parameters.get().is_none());
         let address = std::ptr::from_ref(&uri.parameters().unwrap()["name"]);
-        uri.rewrite_path("/upload/storage/v1/b/bucket/o?name=a%2Fb".parse().unwrap());
+        assert!(uri.rewrite_path("/other?name=different".into()).is_none());
+        uri.rewrite_path("/upload/storage/v1/b/bucket/o".into())
+            .unwrap();
+        assert_eq!(uri.as_uri().query(), Some("name=a%2Fb"));
         let name = &uri.parameters().unwrap()["name"];
         assert_eq!(name, "a/b");
         assert_eq!(address, std::ptr::from_ref(name));

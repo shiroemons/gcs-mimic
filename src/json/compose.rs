@@ -11,7 +11,10 @@ pub(crate) fn route(
     uri: &crate::percent::RequestUri,
     profile: crate::config::CompatProfile,
 ) -> Option<Result<crate::json::ObjectRequest, ApiError>> {
-    let path = uri.path().strip_prefix(crate::json::query::BUCKET_PATH)?;
+    let path = uri
+        .as_uri()
+        .path()
+        .strip_prefix(crate::json::query::BUCKET_PATH)?;
     let (bucket, rest) = path.split_once("/o/")?;
     let name = rest.strip_suffix("/compose")?;
     if bucket.contains('/') || name.contains('/') {

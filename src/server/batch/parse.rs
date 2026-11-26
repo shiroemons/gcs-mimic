@@ -173,7 +173,7 @@ fn uri(raw: &str, outer_uri: &RequestUri, api_base_url: &str) -> Result<RequestU
         return Err(invalid("Batch parts cannot specify an authority"));
     }
     let mut uri = RequestUri::from(uri);
-    if let Some(outer) = outer_uri.query().filter(|outer| !outer.is_empty()) {
+    if let Some(outer) = outer_uri.as_uri().query().filter(|outer| !outer.is_empty()) {
         let inner = uri.parameters()?;
         outer_uri.parameters()?;
         let mut target = raw.to_owned();
@@ -282,7 +282,7 @@ fn part(
     inherited.insert("content-length", HeaderValue::from(body.len()));
     let mut request = Request::new(RequestBody::Buffered(Full::new(bytes.slice_ref(body))));
     *request.method_mut() = method;
-    *request.uri_mut() = Uri::clone(&uri);
+    *request.uri_mut() = uri.as_uri().clone();
     *request.headers_mut() = inherited;
     super::super::ingress::override_method(&mut request)?;
     Ok(Part { id, request, uri })

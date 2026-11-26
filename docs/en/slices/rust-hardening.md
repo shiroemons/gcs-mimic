@@ -922,7 +922,7 @@ parser. The run did not record whether other builds were active.
 | --- | --- |
 | gRPC resumable tail | the first partial granule reserves a `BytesMut`; the stream reclaims its allocation after the catalog write. Aligned streams need no tail allocation |
 | Deadline renewal per frame | a per-connection progress clock; the watch notifies only on state changes, and an expiring deadline re-arms from the last frame instead of expiring. Same expiry instant. Lands last among performance slices, and only if its measured run shows a gain |
-| Query parsed three to five times per request | parsed once into `RequestCtx` on first use, so the first error appears where it does today; `percent` clones a key only for a duplicate error |
+| Query parsed three to five times per request | `percent::RequestUri` caches the form parameters on first use. Request and object contexts borrow it, and each batch part owns its target. Signed URLs keep their raw query and IAM reads repeated `permissions` from the raw query. Validation order stays the same, and `percent` clones a key only for a duplicate error |
 | ACL subjects built for every listed object | built only for `projection=full` |
 | `diagnostics::emit` | checks the level before locking stderr; per-connection debug events are built only when enabled |
 | XML writer | escapes through a `fmt::Write` adapter and copies runs between special bytes found with `memchr3` |
@@ -936,6 +936,14 @@ curl to a local release server used 3.47 CPU seconds at 16 KiB and 2.79
 at 64 KiB. The lower server CPU time supported selecting 64 KiB. Elapsed
 time was 6.456 and 2.259 seconds respectively, with other builds running
 during both uploads.
+
+On the same host, curl fetched metadata for 1,000 one-byte objects with
+eight concurrent requests, then sent eight simultaneous listings of all
+1,000 objects. Each listing returned 1,000 entries. The individual GETs
+took 0.107 seconds before the small changes and 0.118 seconds after, with
+0.10 and 0.11 seconds of server CPU time. The listings took 0.065 and
+0.105 seconds, with 0.06 seconds of server CPU time in each run. Other
+Cargo and rustc processes were active during all four measurements.
 
 ## Types, configuration and duplicated rules
 

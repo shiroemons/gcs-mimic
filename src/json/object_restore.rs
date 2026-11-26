@@ -20,6 +20,7 @@ pub(super) fn route(
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, ApiError>> {
     let path = uri
+        .as_uri()
         .path()
         .strip_prefix(BUCKET_PATH)?
         .strip_suffix("/restore")?;

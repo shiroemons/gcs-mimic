@@ -42,7 +42,7 @@ pub(crate) fn route(
     uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<RewriteRequest, ApiError>> {
-    let path = uri.path().strip_prefix(query::BUCKET_PATH)?;
+    let path = uri.as_uri().path().strip_prefix(query::BUCKET_PATH)?;
     let segments: Vec<_> = path.split('/').take(9).collect();
     let [
         source_bucket,

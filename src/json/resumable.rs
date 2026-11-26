@@ -30,11 +30,11 @@ pub(crate) fn session_route(
     uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<UploadSession, ApiError>> {
-    let path = uri.path().strip_prefix("/upload/storage/v1/b/")?;
+    let path = uri.as_uri().path().strip_prefix("/upload/storage/v1/b/")?;
     let (bucket, rest) = path.split_once('/')?;
     if rest != "o"
         || !uri.parameters().map_or_else(
-            |_| uri.query().is_some_and(names_upload_id),
+            |_| uri.as_uri().query().is_some_and(names_upload_id),
             |query| query.contains_key("upload_id"),
         )
     {

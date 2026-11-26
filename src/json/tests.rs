@@ -34,24 +34,82 @@ fn route_validation_keeps_method_and_path_errors_ahead_of_query_errors() {
         .parse()
         .unwrap();
     for (method, expected) in [
-        (Method::POST, "Not Found"),
-        (Method::GET, "Malformed URI encoding"),
+        (
+            Method::POST,
+            (StatusCode::NOT_FOUND, "notFound", "Not Found"),
+        ),
+        (
+            Method::GET,
+            (
+                StatusCode::BAD_REQUEST,
+                "invalidParameter",
+                "Malformed URI encoding",
+            ),
+        ),
     ] {
-        assert_eq!(
-            route_object(&method, &uri).unwrap().unwrap_err().message(),
-            expected
-        );
+        let error = route_object(&method, &uri).unwrap().unwrap_err();
+        assert_eq!((error.status(), error.reason(), error.message()), expected);
     }
     let uri = "/storage/v1/b/valid-bucket/o/valid?fields=x&fields=y"
         .parse()
         .unwrap();
+    let error = route_object(&Method::GET, &uri).unwrap().unwrap_err();
     assert_eq!(
-        route_object(&Method::GET, &uri)
-            .unwrap()
-            .unwrap_err()
-            .message(),
-        "Duplicate query parameter: fields"
+        (error.status(), error.reason(), error.message()),
+        (
+            StatusCode::BAD_REQUEST,
+            "invalidParameter",
+            "Duplicate query parameter: fields"
+        )
     );
+}
+
+#[test]
+fn bucket_and_iam_paths_keep_their_validation_order() {
+    for (method, path, code, reason, message) in [
+        (
+            Method::POST,
+            "/storage/v1/b/%FF?fields=x&fields=y",
+            StatusCode::BAD_REQUEST,
+            "invalidParameter",
+            "Malformed URI encoding",
+        ),
+        (
+            Method::POST,
+            "/storage/v1/b/valid-bucket?fields=x&fields=y",
+            StatusCode::METHOD_NOT_ALLOWED,
+            "methodNotAllowed",
+            "HTTP method is not supported for this bucket endpoint",
+        ),
+        (
+            Method::POST,
+            "/storage/v1/b/%FF/iam/testPermissions?permissions=%FF",
+            StatusCode::BAD_REQUEST,
+            "invalidParameter",
+            "Malformed URI encoding",
+        ),
+        (
+            Method::POST,
+            "/storage/v1/b/valid-bucket/iam/testPermissions?permissions=%FF",
+            StatusCode::METHOD_NOT_ALLOWED,
+            "methodNotAllowed",
+            "Use GET for bucket testIamPermissions",
+        ),
+        (
+            Method::GET,
+            "/storage/v1/b/valid-bucket/iam/testPermissions?permissions=%FF",
+            StatusCode::BAD_REQUEST,
+            "invalidParameter",
+            "Malformed URI encoding",
+        ),
+    ] {
+        let error = request(method, path).unwrap_err();
+        assert_eq!(
+            (error.status(), error.reason(), error.message()),
+            (code, reason, message),
+            "{path}"
+        );
+    }
 }
 
 #[track_caller]

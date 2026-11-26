@@ -65,7 +65,7 @@ impl Target {
         config: &Config,
         endpoints: &EndpointSnapshot,
     ) -> (Self, crate::percent::RequestUri) {
-        let mut uri = crate::percent::RequestUri::from(request.uri().clone());
+        let mut uri = crate::percent::RequestUri::from(std::mem::take(request.uri_mut()));
         let target = Self::classify_uri(request, config, endpoints, &mut uri);
         (target, uri)
     }
@@ -76,6 +76,7 @@ impl Target {
         endpoints: &EndpointSnapshot,
         target_uri: &mut crate::percent::RequestUri,
     ) -> Self {
+        *request.uri_mut() = target_uri.as_uri().clone();
         let selected = match xml::select_object_with_endpoints(
             request.uri(),
             request.headers(),
@@ -85,10 +86,9 @@ impl Target {
             Ok(selected) => selected,
             Err(error) => return Self::Unaddressable(error),
         };
-        let selected = match protocol_upload(request, selected.as_ref(), target_uri) {
-            Some((uri, kind)) => {
-                target_uri.rewrite_path(uri.clone());
-                *request.uri_mut() = uri;
+        let selected = match protocol_upload(request.method(), selected.as_ref(), target_uri) {
+            Some(kind) => {
+                *request.uri_mut() = target_uri.as_uri().clone();
                 request.extensions_mut().insert(kind);
                 // The rewritten path is reserved for the JSON API, so this selects nothing.
                 match xml::select_object_with_endpoints(
@@ -139,8 +139,7 @@ impl Target {
     }
 }
 
-/// Classifies and answers one request, as a batch part is. The connection classifies the
-/// request itself before its timeout reply is chosen, and then calls `respond_classified`.
+/// Runs the connection's classification and routing together for handler tests.
 #[cfg(test)]
 pub(super) async fn respond(
     mut request: Request<Incoming>,
@@ -205,12 +204,12 @@ enum ProtocolUpload {
 /// carries `upload_id` alone and refuses any other parameter, so neither reading loses an XML
 /// request. A taken request is rewritten to `/upload/storage/v1/b/{bucket}/o` with the same
 /// query. `selected` is what the XML API would select at the original target.
-fn protocol_upload<B>(
-    request: &Request<B>,
+fn protocol_upload(
+    method: &Method,
     selected: Option<&xml::ObjectPath>,
-    target_uri: &crate::percent::RequestUri,
-) -> Option<(hyper::Uri, ProtocolUpload)> {
-    let uri = request.uri();
+    target_uri: &mut crate::percent::RequestUri,
+) -> Option<ProtocolUpload> {
+    let uri = target_uri.as_uri();
     let bucket = uri
         .path()
         .strip_prefix(PROTOCOL_PREFIX)?
@@ -229,20 +228,15 @@ fn protocol_upload<B>(
     let upload_type = query.get("uploadType")?;
     let kind = if query.contains_key("upload_id") {
         ProtocolUpload::Session
-    } else if request.method() != Method::POST {
+    } else if *method != Method::POST {
         return None;
     } else if upload_type == "resumable" {
         ProtocolUpload::Resumable
     } else {
         ProtocolUpload::Other
     };
-    let mut parts = uri.clone().into_parts();
-    let path_and_query = match uri.query() {
-        Some(query) => format!("{UPLOAD_PREFIX}{bucket}/o?{query}"),
-        None => format!("{UPLOAD_PREFIX}{bucket}/o"),
-    };
-    parts.path_and_query = Some(path_and_query.parse().ok()?);
-    Some((hyper::Uri::from_parts(parts).ok()?, kind))
+    target_uri.rewrite_path(format!("{UPLOAD_PREFIX}{bucket}/o"))?;
+    Some(kind)
 }
 
 fn is_unsupported_protocol_upload(request: &Request<Incoming>) -> bool {

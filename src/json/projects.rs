@@ -93,7 +93,7 @@ pub(crate) fn route_project(
     uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<(ProjectRequest, Fields), ApiError>> {
-    let rest = uri.path().strip_prefix("/storage/v1/projects/")?;
+    let rest = uri.as_uri().path().strip_prefix("/storage/v1/projects/")?;
     let mut segments = rest.split('/');
     let project = segments.next().filter(|segment| !segment.is_empty())?;
     let collection = segments.next()?;

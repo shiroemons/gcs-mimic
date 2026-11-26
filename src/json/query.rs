@@ -71,7 +71,7 @@ pub(crate) fn query_param<'a>(
             Some(std::borrow::Cow::Borrowed(raw))
         }
     }
-    let query = uri.query()?;
+    let query = uri.as_uri().query()?;
     if let Ok(parameters) = uri.parameters() {
         return parameters
             .get(name)
@@ -543,7 +543,7 @@ pub(crate) fn route_with_profile(
     seed_project: &str,
 ) -> Option<Result<BucketRequest, ApiError>> {
     const COLLECTION: &str = "/storage/v1/b";
-    let path = uri.path();
+    let path = uri.as_uri().path();
     if let Some(segment) = bucket_subresource(path, "/lockRetentionPolicy") {
         return Some(parse_lock_retention_policy(method, segment, uri, profile));
     }
@@ -553,7 +553,7 @@ pub(crate) fn route_with_profile(
     if let Some(segment) = bucket_subresource(path, "/storageLayout") {
         return Some(parse_storage_layout(method, segment, uri, profile));
     }
-    if let Some(result) = super::iam::route_test_permissions(method, uri, profile) {
+    if let Some(result) = super::iam::route_test_permissions(method, uri.as_uri(), profile) {
         return Some(result);
     }
     if let Some(segment) = bucket_subresource(path, "/iam") {

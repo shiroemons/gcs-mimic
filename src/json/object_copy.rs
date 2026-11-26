@@ -34,7 +34,7 @@ pub(super) fn route(
     uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, ApiError>> {
-    let path = uri.path().strip_prefix(BUCKET_PATH)?;
+    let path = uri.as_uri().path().strip_prefix(BUCKET_PATH)?;
     let (source, destination) = path.split_once("/copyTo/b/")?;
     Some(parse(method, source, destination, uri, profile))
 }

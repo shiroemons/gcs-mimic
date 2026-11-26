@@ -55,7 +55,8 @@ Storage v2 bucket/object updates construct shared `BucketMetadataUpdate` and
 their own wire inputs and delegate domain validation to the same shared layer;
 lifecycle uses one typed rule representation for gRPC conversion and validation.
 Logic that more than one adapter needs lives outside the JSON adapter: percent-decoding
-(`percent`), listing page tokens (`page_token`), stored-time rendering (`time_format`),
+and per-target form-query caching (`percent::RequestUri`), listing page tokens
+(`page_token`), stored-time rendering (`time_format`),
 Gregorian calendar arithmetic (`time_format::civil`),
 entity tags (`etag`), bounded request bodies (`bounded_body`), bucket names and CORS
 (`bucket::name`, `bucket::cors`), testable IAM permissions (`auth::testable`) and digest

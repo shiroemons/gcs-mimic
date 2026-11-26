@@ -79,7 +79,7 @@ pub(crate) fn route(
     uri: &RequestUri,
     profile: CompatProfile,
 ) -> Option<Result<(NotificationRequest, Fields), ApiError>> {
-    let rest = uri.path().strip_prefix(query::BUCKET_PATH)?;
+    let rest = uri.as_uri().path().strip_prefix(query::BUCKET_PATH)?;
     let (segment, rest) = rest.split_once('/')?;
     let notification = match rest.strip_prefix("notificationConfigs")? {
         "" => None,
