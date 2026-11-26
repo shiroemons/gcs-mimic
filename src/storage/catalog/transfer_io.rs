@@ -80,9 +80,16 @@ impl Output {
 
     pub(super) async fn write(&mut self, bytes: &[u8]) -> Result<(), ObjectError> {
         match self {
-            Self::Disk(staged) => staged.write(bytes).await.map_err(object_unavailable),
+            Self::Disk(staged) => staged.write(bytes).await,
             Self::Memory(draft) => draft.write(bytes).map_err(object_unavailable),
         }
+    }
+
+    pub(super) async fn settle(&mut self) -> Result<(), ObjectError> {
+        if let Self::Disk(staged) = self {
+            staged.settle().await?;
+        }
+        Ok(())
     }
 
     pub(super) async fn finish(&mut self) -> Result<(), ObjectError> {
@@ -99,17 +106,18 @@ impl Output {
     }
 
     pub(super) async fn rollback(&mut self, offset: u64) -> Result<(), ObjectError> {
+        let written = self.settle().await;
         if let Self::Disk(staged) = self {
             staged.truncate(offset).await?;
         }
-        // Tokio retains a failed background write across set_len; flush must observe it before sync.
-        self.finish().await
+        self.finish().await?;
+        written
     }
 
-    pub(super) async fn hashes(&mut self) -> Result<(Hashes, u64), ObjectError> {
-        let file = match self {
+    pub(super) async fn into_hashes(self) -> Result<(Hashes, u64), ObjectError> {
+        let mut file = match self {
             Self::Memory(draft) => return draft.hashes().map_err(object_unavailable),
-            Self::Disk(staged) => staged.file_mut(),
+            Self::Disk(staged) => tokio::fs::File::from_std(staged.into_file()?),
         };
         file.seek(io::SeekFrom::Start(0)).await?;
         let mut hasher = Hasher::default();

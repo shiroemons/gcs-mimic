@@ -10,7 +10,7 @@
 use super::*;
 #[cfg(unix)]
 use crate::storage::catalog::fault::Crash;
-use crate::storage::catalog::fault::{Fault, Step};
+use crate::storage::catalog::fault::{Fault, MID_WRITE_BODY_BYTES, Step};
 use crate::storage::test_fixtures::{PERMISSIVE, live, read_all as read_body};
 use crate::test_support::{StoredObjects, UploadCleanup, eventually_async};
 use std::{io::ErrorKind, path::Path};
@@ -271,7 +271,7 @@ async fn single_request_upload_failures_never_publish_and_keep_the_previous_obje
     let original = h.media("target", b"old").await;
     assert_eq!(original.status, 200);
     let original = original.json();
-    let body = vec![b'n'; 256 * 1024];
+    let body = vec![b'n'; MID_WRITE_BODY_BYTES];
     for multipart in [false, true] {
         for (case, step, skip, fault) in upload_failures() {
             let case = format!("{case} (multipart: {multipart})");
@@ -321,6 +321,39 @@ async fn a_failed_write_behind_sync_never_publishes_and_keeps_the_previous_objec
     assert_eq!(replaced.status, 200);
     assert_eq!(h.media_bytes("target").await.body, body);
     assert_no_leaks(&h.dir.0, "after the fault is gone");
+    h.stop().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_crash_before_final_sync_keeps_only_synced_windows_after_power_loss() {
+    let h = Harness::start(16 * 1024 * 1024, Permissive, None).await;
+    let body = vec![b'x'; 9 * 1024 * 1024 + 1];
+    for crash in Crash::ALL {
+        let snapshot = TestDir::new();
+        h.inject(Step::BodySync, 0, crash.fault(snapshot.0.clone()));
+        assert_eq!(h.media("target", &body).await.status, 200);
+        h.assert_fired("before final sync");
+        let files = staged(&snapshot.0);
+        let [name] = files.as_slice() else {
+            panic!("expected one staged body: {files:?}")
+        };
+        let length = std::fs::metadata(snapshot.0.join("staging").join(name))
+            .unwrap()
+            .len();
+        let expected = match crash {
+            Crash::Abort => body.len() as u64,
+            Crash::PowerLoss => 8 * 1024 * 1024,
+        };
+        assert_eq!(length, expected, "{crash:?}");
+        assert_recovers(&snapshot.0, "target", None, "before final sync").await;
+        assert_eq!(
+            h.request("DELETE", "/storage/v1/b/bucket/o/target", "", b"")
+                .await
+                .status,
+            204
+        );
+    }
     h.stop().await;
 }
 
@@ -544,7 +577,11 @@ async fn resumable_chunk_and_finalization_failures_keep_the_acknowledged_prefix(
         .await
         .unwrap();
     let stage = session.blob_id.staging_path(&h.dir.0);
-    let next = "Content-Range: bytes 262144-524287/*\r\n";
+    let next_body = vec![b'x'; MID_WRITE_BODY_BYTES.next_multiple_of(256 * 1024)];
+    let next = format!(
+        "Content-Range: bytes 262144-{}/*\r\n",
+        chunk.len() + next_body.len() - 1
+    );
     for (case, step, skip, fault) in [
         (
             "first chunk write, disk full",
@@ -573,7 +610,7 @@ async fn resumable_chunk_and_finalization_failures_keep_the_acknowledged_prefix(
     ] {
         let expect = expect_for(&fault);
         h.inject(step, skip, fault);
-        let reply = h.request("PUT", &path, next, &vec![b'x'; 256 * 1024]).await;
+        let reply = h.request("PUT", &path, &next, &next_body).await;
         assert_backend_failure(&reply, &expect, case);
         h.assert_fired(case);
         assert_prefix(&h, &path, chunk.len(), case).await;
@@ -961,7 +998,9 @@ fn derived_failures() -> Vec<(&'static str, Step, usize, Fault)> {
 #[tokio::test]
 async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
     let h = Harness::start(1024 * 1024, Permissive, None).await;
-    seed_sources(&h).await;
+    let a = vec![b'a'; MID_WRITE_BODY_BYTES];
+    assert_eq!(h.media("a", &a).await.status, 200);
+    assert_eq!(h.media("b", b"b").await.status, 200);
     for operation in ["compose", "copy", "rewrite"] {
         for (case, step, skip, fault) in derived_failures() {
             let case = format!("{operation}: {case}");
@@ -971,11 +1010,7 @@ async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
             assert_backend_failure(&reply, &expect, &case);
             h.assert_fired(&case);
             assert_eq!(h.resource("derived").await.status, 404, "{case}");
-            assert_eq!(
-                h.media_bytes("a").await.body,
-                vec![b'a'; 100 * 1024],
-                "{case}"
-            );
+            assert_eq!(h.media_bytes("a").await.body, a, "{case}");
             let before_cleanup = StoredObjects::read(&h.dir.0);
             eventually_async(&format!("{case}: derived cleanup to finish"), || async {
                 // Observe SQL before the final writer check so newly started cleanup cannot look idle.

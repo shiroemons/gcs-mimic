@@ -162,8 +162,10 @@ Uploads have no separate admission cap: `max_connections` bounds API connections
 and excess connections wait. Header validation and the known Content-Length cap
 check precede upload tracking. Shutdown closes tracking admission and waits for
 the active count to reach zero through notification after publication or cleanup.
-Each upload uses two channel slots with chunks of at most 64 KiB, incremental
-MD5/CRC32C and asynchronous short file jobs. HTTP downloads and gRPC `ReadObject`
+Each upload uses two channel slots with chunks of at most 64 KiB. The receiver
+updates MD5/CRC32C before filling a disk buffer of up to 64 KiB. A second buffer
+of the same size lets one blocking write overlap the next batch.
+One blocking job drains the last batch and syncs the file. HTTP downloads and gRPC `ReadObject`
 pull frames from the open generation when the connection can send them.
 Neither a database transaction nor a blocking worker is held waiting for body input.
 Catalog admission keeps 32 slots with one executing SQLite job, and a call past them waits its

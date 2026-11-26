@@ -220,7 +220,7 @@ async fn policy_variants_keep_old_objects_after_write_flush_and_sync_failures() 
         ] {
             fault::arm(&fixture.dir.0, step, skip, Fault::Io(io::ErrorKind::Other));
             let error = fixture
-                .post(variant, &vec![b'n'; 256 * 1024])
+                .post(variant, &vec![b'n'; fault::MID_WRITE_BODY_BYTES])
                 .await
                 .err()
                 .unwrap();

@@ -1762,14 +1762,8 @@ async fn interrupted_chunk_releases_writer_and_preserves_only_acknowledged_bytes
     h.stop().await;
 }
 
-#[tokio::test]
-async fn busy_session_rejects_competing_writer_while_other_sessions_progress() {
-    let h = Harness::start(1024 * 1024, Permissive, None).await;
-    let init = h.initiate("name=busy", "", b"").await;
-    let path = h.path(&init);
-    let mut stream = TcpStream::connect(&h.address).await.unwrap();
-    stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
-    stream.write_all(b"a").await.unwrap();
+/// Keep the request open after a complete batch reaches disk.
+async fn stalled_chunk(h: &Harness, path: &str) -> TcpStream {
     let id = path.split("upload_id=").nth(1).unwrap();
     let session = h
         .state
@@ -1778,10 +1772,23 @@ async fn busy_session_rejects_competing_writer_while_other_sessions_progress() {
         .await
         .unwrap();
     let stage = session.blob_id.staging_path(&h.dir.0);
-    eventually_async("the busy writer to stage its first byte", || async {
+    let mut stream = TcpStream::connect(&h.address).await.unwrap();
+    stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nContent-Range: bytes 0-262143/*\r\n\r\n40000\r\n").as_bytes()).await.unwrap();
+    stream.write_all(&vec![b'a'; 256 * 1024]).await.unwrap();
+    stream.write_all(b"\r\n").await.unwrap();
+    eventually_async("the stalled writer to write a batch", || async {
         tokio::fs::metadata(&stage).await.unwrap().len() > 0
     })
     .await;
+    stream
+}
+
+#[tokio::test]
+async fn busy_session_rejects_competing_writer_while_other_sessions_progress() {
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
+    let init = h.initiate("name=busy", "", b"").await;
+    let path = h.path(&init);
+    let mut stream = stalled_chunk(&h, &path).await;
     assert_eq!(
         h.request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
             .await
@@ -1877,21 +1884,7 @@ async fn chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots(
     for i in 0..8 {
         let init = h.initiate(&format!("name=stalled{i}"), "", b"").await;
         let path = h.path(&init);
-        let mut stream = TcpStream::connect(&h.address).await.unwrap();
-        stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
-        stream.write_all(&[b'x'; 64 * 1024]).await.unwrap();
-        let id = path.split("upload_id=").nth(1).unwrap();
-        let session = h
-            .state
-            .catalog
-            .resumable_session(id, "bucket")
-            .await
-            .unwrap();
-        let stage = session.blob_id.staging_path(&h.dir.0);
-        eventually_async("the stalled writer to stage its first bytes", || async {
-            tokio::fs::metadata(&stage).await.unwrap().len() > 0
-        })
-        .await;
+        let stream = stalled_chunk(&h, &path).await;
         stalled.push((stream, path));
     }
     let init = h.initiate("name=admission", "", b"").await;
@@ -1982,18 +1975,9 @@ async fn session_deadline_during_transfer_returns_not_found_without_acknowledgin
         .resumable_session(id, "bucket")
         .await
         .unwrap();
-    let mut stream = TcpStream::connect(&h.address).await.unwrap();
-    stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
-    stream.write_all(&[b'x'; 64 * 1024]).await.unwrap();
-    let stage = session.blob_id.staging_path(&h.dir.0);
-    eventually_async("the writer to stage its first bytes", || async {
-        tokio::fs::metadata(&stage).await.unwrap().len() > 0
-    })
-    .await;
+    let mut stream = stalled_chunk(&h, &path).await;
     h.clock.set(session.deadline);
-    for _ in 0..3 {
-        stream.write_all(&[b'x'; 64 * 1024]).await.unwrap();
-    }
+    stream.write_all(b"0\r\n\r\n").await.unwrap();
     assert_eq!(Harness::read_response(stream).await.status, 404);
     assert_eq!(
         h.request("GET", "/storage/v1/b/bucket/o/expired", "", b"")
@@ -2074,17 +2058,9 @@ async fn cancellation_racing_append_respects_writer_and_prevents_later_publicati
         .await
         .unwrap();
     let stage = session.blob_id.staging_path(&h.dir.0);
-    let mut stream = TcpStream::connect(&h.address).await.unwrap();
-    stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
-    stream.write_all(&[b'a'; 64 * 1024]).await.unwrap();
-    eventually_async("the appending writer to stage its first bytes", || async {
-        tokio::fs::metadata(&stage).await.unwrap().len() > 0
-    })
-    .await;
+    let mut stream = stalled_chunk(&h, &path).await;
     assert_eq!(h.request("DELETE", &path, "", b"").await.status, 503);
-    for _ in 0..3 {
-        stream.write_all(&[b'a'; 64 * 1024]).await.unwrap();
-    }
+    stream.write_all(b"0\r\n\r\n").await.unwrap();
     assert_eq!(Harness::read_response(stream).await.status, 308);
     assert_eq!(h.request("DELETE", &path, "", b"").await.status, 499);
     assert_eq!(

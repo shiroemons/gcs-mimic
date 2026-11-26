@@ -281,7 +281,7 @@ impl BlobBackend {
             Self::Disk(root) => {
                 let file = objects::create_upload_stage(id.staging_path(root)).await?;
                 Ok(UploadSink::Disk(objects::StagedFile::new(
-                    tokio::fs::File::from_std(file),
+                    file,
                     #[cfg(test)]
                     root,
                 )))
@@ -298,7 +298,7 @@ impl BlobBackend {
             Self::Disk(root) => {
                 let file = objects::create_upload_stage(id.staging_path(root)).await?;
                 Ok(Output::Disk(objects::StagedFile::new(
-                    tokio::fs::File::from_std(file),
+                    file,
                     #[cfg(test)]
                     root,
                 )))
@@ -416,20 +416,24 @@ impl BlobBackend {
         match self {
             Self::Memory(store) => Ok(Output::Memory(store.draft(&id.to_hex(), offset)?)),
             Self::Disk(root) => {
-                let mut file = tokio::fs::OpenOptions::new()
-                    .read(matches!(read, ReadAccess::ReadWrite))
-                    .write(true)
-                    .open(id.staging_path(root))
-                    .await?;
-                if file.metadata().await?.len() < offset {
-                    return Err(crate::storage::failure::object_unavailable(
-                        "acknowledged upload prefix is missing",
-                    ));
-                }
-                file.set_len(offset).await?;
                 #[cfg(test)]
-                super::fault::truncated(root, &file.metadata().await?);
-                file.seek(io::SeekFrom::Start(offset)).await?;
+                let data_dir = root.clone();
+                let path = id.staging_path(root);
+                let file = crate::task::run_blocking("open-staged-output", move || {
+                    let mut file = fs::OpenOptions::new()
+                        .read(matches!(read, ReadAccess::ReadWrite))
+                        .write(true)
+                        .open(path)?;
+                    if file.metadata()?.len() < offset {
+                        return Err(object_unavailable("acknowledged upload prefix is missing"));
+                    }
+                    file.set_len(offset)?;
+                    #[cfg(test)]
+                    super::fault::truncated(&data_dir, &file.metadata()?);
+                    file.seek(io::SeekFrom::Start(offset))?;
+                    Ok(file)
+                })
+                .await??;
                 Ok(Output::Disk(objects::StagedFile::new(
                     file,
                     #[cfg(test)]

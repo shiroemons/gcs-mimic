@@ -464,6 +464,8 @@ and build dependencies when the selected targets cover their use.
 The text rules ignore comments and string contents. They are heuristics:
 for example, `text::format_sql` does not see SQL assembled through other
 helpers, and a `Result<_, String>` hidden behind another alias is not counted.
+The last write must finish successfully before syncing a file. For Tokio files,
+flushing waits for the pending write and reports its error.
 `text::sync_without_flush` follows source order without tracking which value
 was written, so it misses a write and a sync in different functions and
 reports a socket write followed by a file sync. `text::string_error_variant`

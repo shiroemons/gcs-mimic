@@ -557,54 +557,57 @@ pub(in crate::storage::catalog) async fn write_stream(
     let closing = catalog.0.admin_shutdown.notified();
     tokio::pin!(closing);
     closing.as_mut().enable();
-    #[cfg(test)]
-    let data_dir = &catalog.0.data_dir;
-    loop {
-        if catalog.0.admission.is_closed() {
-            return Err(object_unavailable("catalog is closing"));
-        }
-        let chunk = tokio::select! {
-            biased;
-            _ = &mut closing => return Err(object_unavailable("catalog is closing")),
-            _ = &mut cancellation => return Err(ObjectError::BodyAborted("upload cancelled".into())),
-            chunk = body.recv() => chunk,
-        };
-        let chunk = chunk
-            .ok_or_else(|| ObjectError::BodyAborted("missing body EOF".into()))?
-            .map_err(|error| {
-                if error.kind() == io::ErrorKind::StorageFull {
-                    ObjectError::Io(error.into())
-                } else {
-                    ObjectError::body_aborted(error)
+    let received = async {
+        loop {
+            if catalog.0.admission.is_closed() {
+                return Err(object_unavailable("catalog is closing"));
+            }
+            let chunk = tokio::select! {
+                biased;
+                _ = &mut closing => return Err(object_unavailable("catalog is closing")),
+                _ = &mut cancellation => return Err(ObjectError::BodyAborted("upload cancelled".into())),
+                chunk = body.recv() => chunk,
+            };
+            let chunk = chunk
+                .ok_or_else(|| ObjectError::BodyAborted("missing body EOF".into()))?
+                .map_err(|error| {
+                    if error.kind() == io::ErrorKind::StorageFull {
+                        ObjectError::Io(error.into())
+                    } else {
+                        ObjectError::body_aborted(error)
+                    }
+                })?;
+            let chunk = match chunk {
+                UploadChunk::End => break,
+                UploadChunk::EndWithHashes(hashes) => {
+                    expected = expected
+                        .merge(hashes)
+                        .map_err(|ChecksumConflict(_)| ObjectError::ChecksumMismatch)?;
+                    break;
                 }
-            })?;
-        let chunk = match chunk {
-            UploadChunk::End => break,
-            UploadChunk::EndWithHashes(hashes) => {
-                expected = expected
-                    .merge(hashes)
-                    .map_err(|ChecksumConflict(_)| ObjectError::ChecksumMismatch)?;
-                break;
-            }
-            UploadChunk::Data(chunk) => chunk,
-        };
-        size = size
-            .checked_add(chunk.len() as u64)
-            .filter(|size| *size <= max_bytes)
-            .ok_or(ObjectError::TooLarge)?;
-        for part in chunk.chunks(CHUNK_SIZE) {
-            hasher.update(part);
-            if let Some(sha256) = sha256.as_deref_mut() {
-                sha256.update(part);
-            }
-            #[cfg(test)]
-            fault::hit(data_dir, Step::BodyWrite).map_err(object_unavailable)?;
-            match file {
-                UploadSink::Disk(staged) => staged.write(part).await?,
-                UploadSink::Memory(stage) => stage.write(part)?,
+                UploadChunk::Data(chunk) => chunk,
+            };
+            size = size
+                .checked_add(chunk.len() as u64)
+                .filter(|size| *size <= max_bytes)
+                .ok_or(ObjectError::TooLarge)?;
+            for part in chunk.chunks(CHUNK_SIZE) {
+                hasher.update(part);
+                if let Some(sha256) = sha256.as_deref_mut() {
+                    sha256.update(part);
+                }
+                match file {
+                    UploadSink::Disk(staged) => staged.write(part).await?,
+                    UploadSink::Memory(stage) => stage.write(part)?,
+                }
             }
         }
+        Ok::<_, ObjectError>(expected)
+    }.await;
+    if let UploadSink::Disk(staged) = &mut *file {
+        staged.settle().await?;
     }
+    let expected = received?;
     let hashes = hasher.finish();
     expected.verify(&hashes)?;
     let Hashes { md5, crc32c } = hashes;

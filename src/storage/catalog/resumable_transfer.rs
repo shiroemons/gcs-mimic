@@ -107,8 +107,6 @@ async fn receive_chunk(
     body: &mut mpsc::Receiver<Result<UploadChunk, io::Error>>,
     cancellation: &mut oneshot::Receiver<()>,
 ) -> Result<Received, ObjectError> {
-    #[cfg(test)]
-    let data_dir = &catalog.0.data_dir;
     let durable = lease.session.offset;
     let mut running_hash = lease.running_hasher()?;
     let mut file = Output::open_readable(catalog, &lease.session.blob_id, durable).await?;
@@ -143,13 +141,11 @@ async fn receive_chunk(
                         .saturating_sub(chunk.start + received)
                         .min(bytes.len() as u64)).map_err(object_unavailable)?;
                     if discard < bytes.len() {
-                        #[cfg(test)]
-                        fault::hit(data_dir, Step::BodyWrite).map_err(object_unavailable)?;
                         let appended = bytes.get(discard..).ok_or_else(|| object_unavailable("invalid resumable discard offset"))?;
-                        file.write(appended).await?;
                         if let Some(hasher) = &mut running_hash {
                             hasher.update(appended);
                         }
+                        file.write(appended).await?;
                     }
                     received = next;
                 }
@@ -423,11 +419,11 @@ impl Catalog {
         &self,
         lease: &SessionLease,
         options: ResumableOptions,
-        mut file: Output,
+        file: Output,
         catalog_wait: watch::Sender<ChunkWait>,
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
     ) -> Result<Value, ResumableError> {
-        let (hashes, length) = file.hashes().await?;
+        let (hashes, length) = file.into_hashes().await?;
         options
             .expected
             .verify(&hashes)
@@ -439,7 +435,6 @@ impl Catalog {
         }
         // Every chunk, the final one included, was made durable by `receive_chunk` before its
         // checkpoint, and hashing only reads the file, so there is nothing left to sync.
-        drop(file);
         self.0
             .backend
             .publish_resumable(self, lease.session.blob_id)

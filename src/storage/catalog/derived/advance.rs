@@ -35,26 +35,29 @@ impl Catalog {
             let target = progress.offset.saturating_add(budget).min(progress.total);
             let mut skip = progress.offset;
             let mut buffer = [0_u8; BUFFER_SIZE];
-            for source in sources {
-                if skip >= source.length { skip -= source.length; continue; }
-                if progress.offset == target { break; }
-                let mut input = transfer_io::InputReader::open(&catalog, &source.id, source.start + skip).await?;
-                let mut remaining = (source.length - skip).min(target - progress.offset);
-                skip = 0;
-                while remaining > 0 {
-                    if catalog.0.admission.is_closed() { return Err(object_unavailable("catalog is closing")); }
-                    let length = usize::try_from(remaining.min(BUFFER_SIZE as u64)).map_err(object_unavailable)?;
-                    let bytes = buffer.get_mut(..length).ok_or_else(|| object_unavailable("invalid derived buffer length"))?;
-                    input.read_exact(bytes).await?;
-                    #[cfg(test)]
-                    fault::hit(&catalog.0.data_dir, Step::BodyWrite).map_err(object_unavailable)?;
-                    output.write(bytes).await?;
-                    hasher.update(bytes);
-                    progress.offset += length as u64;
-                    remaining -= length as u64;
-                    if catalog.0.backend.is_memory() { tokio::task::yield_now().await; }
+            let copied = async {
+                for source in sources {
+                    if skip >= source.length { skip -= source.length; continue; }
+                    if progress.offset == target { break; }
+                    let mut input = transfer_io::InputReader::open(&catalog, &source.id, source.start + skip).await?;
+                    let mut remaining = (source.length - skip).min(target - progress.offset);
+                    skip = 0;
+                    while remaining > 0 {
+                        if catalog.0.admission.is_closed() { return Err(object_unavailable("catalog is closing")); }
+                        let length = usize::try_from(remaining.min(BUFFER_SIZE as u64)).map_err(object_unavailable)?;
+                        let bytes = buffer.get_mut(..length).ok_or_else(|| object_unavailable("invalid derived buffer length"))?;
+                        input.read_exact(bytes).await?;
+                        hasher.update(bytes);
+                        output.write(bytes).await?;
+                        progress.offset += length as u64;
+                        remaining -= length as u64;
+                        if catalog.0.backend.is_memory() { tokio::task::yield_now().await; }
+                    }
                 }
-            }
+                Ok::<_, ObjectError>(())
+            }.await;
+            output.settle().await?;
+            copied?;
             output.finish().await?;
             // An ephemeral lifetime only reclaims an abandoned transfer, so progress renews it: a
             // request may copy for longer, and has a deadline of its own if configured. The time

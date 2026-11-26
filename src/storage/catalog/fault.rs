@@ -45,6 +45,9 @@ use std::{collections::HashMap, os::unix::fs::PermissionsExt};
 #[cfg(unix)]
 mod tests;
 
+/// Three complete disk writes and a buffered tail so a skipped write can still fail mid-body.
+pub(crate) const MID_WRITE_BODY_BYTES: usize = 3 * super::objects::WRITE_BATCH_BYTES + 1;
+
 /// A catalog boundary at which a test can inject a fault or hold a job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
@@ -106,9 +109,9 @@ pub(crate) enum Step {
     BodyWrite,
     /// Before a staged file sends the bytes written since its last sync to storage.
     BodyWriteBehind,
-    /// Before the flush that reports tokio's background tail write.
+    /// Before draining the final staged bytes for publication or checkpointing.
     BodyFlush,
-    /// Before the staged file's `sync_all`.
+    /// Before the staged file's final ordered sync.
     BodySync,
     /// After a resumable chunk is durable, before the transaction that records its offset.
     Checkpoint,

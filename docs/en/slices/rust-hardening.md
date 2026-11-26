@@ -533,10 +533,9 @@ expectation where a trait requires `io::Error`.
   assert that its change count did not move.
 - `fault::record_catalog_thread_io` records caller locations at every
   synchronous durability seam: `sync_dir`, `unlink`, `publish_blob`,
-  `BlobBackend::create_draft` and the file syncs of appendable data, derived
-  recovery, admin publication and the retired manifest. Asynchronous seams
-  such as `StagedFile` cannot run inside an executor job, which is a
-  synchronous closure. In test builds, `Catalog::close()` panics when its data
+  `BlobBackend::create_draft` and the file syncs of staged writes, appendable
+  data, derived recovery, admin publication and the retired manifest.
+  In test builds, `Catalog::close()` panics when its data
   directory recorded executor-thread I/O outside an allowance. Every test that
   closes a catalog then checks the rule; its first full run found the partial
   pins a failed source batch unlinked inside the writer job.
@@ -635,17 +634,19 @@ depends on that order, which the slice checks first.
 
 `StagedFile` in `objects/durability.rs` keeps its name and gets new internals.
 
-- **Buffering.** It holds a std `File` and a batch buffer that grows
-  lazily up to `WRITE_BATCH_BYTES`.
+- **Buffering.** It holds a std `File` and two batch buffers that grow
+  lazily up to `WRITE_BATCH_BYTES` each.
 - **`write`.** It copies the frame into the batch, the same copy tokio
-  makes today. A full batch goes to one `run_blocking` job, which calls
+  makes today. A full batch goes to one supervised blocking job, which calls
   `write_batch` and returns the buffer for reuse. Inside the job, in order:
   1. hit `BodyWrite`, then `write_all`;
   2. on bounded platforms, once the write-behind window fills, hit
      `BodyWriteBehind`, run `sync_data` and record the sync.
 
-  No write is in flight between calls, which removes an orphan-write hazard
-  on resumable truncation.
+  The receiver fills the second buffer while the job writes the first.
+  Truncation, final sync and release of the upload lease wait for the write.
+  If a task unwinds, dropping the stage revokes a queued job or waits for a
+  running write before a new writer can truncate the file.
 - **`make_durable`.** One job drains the batch and syncs, in order:
   `BodyFlush`, the final write, `BodySync`, then `sync_all` or
   `sync_ordered`. A std write returns its error before the sync starts, so a
@@ -657,6 +658,21 @@ depends on that order, which the slice checks first.
   DESIGN-070, and moves to 256 KiB only under the measured-limit rule. The
   measured run is one 1 GiB HTTP/1 upload and 1,000 uploads of 100 KiB at
   concurrency 8, comparing server CPU seconds and wall time.
+
+  Two alternating local macOS arm64 runs used 64 KiB batches. Each cell
+  gives elapsed seconds / server CPU seconds for the two runs.
+
+  | HTTP/1 workload | Tokio file | One write in flight |
+  | --- | --- | --- |
+  | 1 GiB | 68.87 / 5.29, 7.30 / 4.41 | 9.90 / 3.61, 7.32 / 3.63 |
+  | 1,000 × 100 KiB, concurrency 8 | 4.73 / 1.51, 1.72 / 1.40 | 4.87 / 1.51, 1.29 / 1.09 |
+
+  Awaiting each full batch before receiving another took 22.67 / 3.99 and
+  1.60 / 1.20 seconds in a separate run. That wait serializes hashing and
+  disk writes. Other builds were active during three of the four alternating
+  runs, so the 68.87-second result does not isolate the cost of buffering.
+  With one write in flight, neither paired workload exceeded its previous
+  elapsed time by 10%, and average server CPU seconds fell on both.
 - **Hashing** stays per frame on the receiving task, before the copy. Moving
   it into the batch job would hold the eight shared blocking threads longer
   under concurrent uploads. Size checks and checksum verification keep their

@@ -361,8 +361,9 @@ that later calls wait for, and one executing SQLite job. Upload ownership lasts
 through cleanup. One session has at most one active writer; other requests for
 it wait up to `catalog_wait_timeout_ms`.
 
-Keep at most two copied 64 KiB channel chunks per admitted body, plus bounded
-hash/parser state; never allocate a chunk-sized or object-sized byte vector.
+Keep at most two copied 64 KiB channel chunks per admitted body, two disk write
+buffers of at most 64 KiB each, and bounded hash/parser state. Memory use is independent
+of the declared upload chunk size and object size.
 Object cap is existing `max_object_bytes` (default and maximum 5 TiB).
 Apply it to declared total, incoming offsets and actual streamed bytes,
 including unknown-length uploads, using checked arithmetic. Rejected admission,

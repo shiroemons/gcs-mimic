@@ -953,12 +953,8 @@ async fn upload_reports_a_failed_final_write_instead_of_a_short_blob() {
     let context = crate::test_support::TestDir::new();
     let catalog = Catalog::open(&context.0).await.unwrap();
     fs::write(&blob.0, b"").unwrap();
-    // tokio completes a write in the background after write_all returns, so a
-    // read-only handle makes exactly that final, unreported write fail.
-    let mut file = UploadSink::Disk(StagedFile::new(
-        tokio::fs::File::open(&blob.0).await.unwrap(),
-        &context.0,
-    ));
+    // A read-only handle fails the actual tail write, after the receiver has accepted it.
+    let mut file = UploadSink::Disk(StagedFile::new(File::open(&blob.0).unwrap(), &context.0));
     let body = crate::storage::test_fixtures::body(vec![Bytes::from_static(b"tail")]);
     let (_cancel, cancellation) = oneshot::channel();
     let result = write_stream(

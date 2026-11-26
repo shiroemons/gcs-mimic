@@ -22,10 +22,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
-use tokio::{
-    io::AsyncWriteExt,
-    sync::{OwnedSemaphorePermit, mpsc, oneshot},
-};
+use tokio::sync::{OwnedSemaphorePermit, mpsc, oneshot};
 
 #[cfg(test)]
 use super::fault::{self, Step};
@@ -140,6 +137,8 @@ mod schema;
 mod tests;
 mod upload;
 
+#[cfg(test)]
+pub(super) use durability::WRITE_BATCH_BYTES;
 #[cfg(unix)]
 pub(super) use durability::sync_dir;
 pub(super) use durability::{

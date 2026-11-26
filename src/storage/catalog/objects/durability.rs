@@ -183,93 +183,185 @@ const WRITE_BEHIND_BYTES: u64 = 8 * 1024 * 1024;
 /// final sync therefore filled a 128 MiB container with dirty pages whenever the disk fell
 /// behind, and the kernel killed a process that itself held about 16 MiB.
 pub(in crate::storage::catalog) struct StagedFile {
-    file: tokio::fs::File,
+    writer: Option<BatchWriter>,
+    filling: Vec<u8>,
+    pending: Option<WriteJob>,
+    closed: Arc<Mutex<bool>>,
+}
+
+pub(in crate::storage::catalog) const WRITE_BATCH_BYTES: usize = 64 * 1024;
+
+type WriteJob = tokio::task::JoinHandle<
+    Result<(BatchWriter, Result<(), ObjectError>), crate::task::JobPanicked>,
+>;
+
+struct BatchWriter {
+    file: File,
+    bytes: Vec<u8>,
     unsynced: u64,
     #[cfg(test)]
     data_dir: PathBuf,
 }
 
-impl StagedFile {
-    // Only Linux charges page cache to a memory limit this way, and a data sync on macOS is a
-    // full device flush, which would make every large upload there pay for nothing.
-    const BOUNDED: bool = cfg!(any(target_os = "linux", test));
+impl BatchWriter {
+    fn write_batch(&mut self) -> Result<(), ObjectError> {
+        use std::io::Write;
 
-    pub(in crate::storage::catalog) fn new(
-        file: tokio::fs::File,
-        #[cfg(test)] data_dir: &Path,
-    ) -> Self {
-        Self {
-            file,
-            unsynced: 0,
-            #[cfg(test)]
-            data_dir: data_dir.to_owned(),
+        if self.bytes.is_empty() {
+            return Ok(());
         }
-    }
-
-    pub(in crate::storage::catalog) async fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.file.write_all(bytes).await?;
-        self.unsynced += bytes.len() as u64;
-        if Self::BOUNDED && self.unsynced >= WRITE_BEHIND_BYTES {
+        #[cfg(test)]
+        fault::hit(&self.data_dir, Step::BodyWrite).map_err(object_unavailable)?;
+        self.file.write_all(&self.bytes)?;
+        self.unsynced += self.bytes.len() as u64;
+        self.bytes.clear();
+        // Only Linux charges page cache against the container limit this way.
+        if cfg!(any(target_os = "linux", test)) && self.unsynced >= WRITE_BEHIND_BYTES {
+            #[cfg(test)]
+            fault::record_catalog_thread_io(&self.data_dir);
             #[cfg(test)]
             fault::hit_io(&self.data_dir, Step::BodyWriteBehind)?;
-            // tokio finishes the last write in the background and a sync drops its error.
-            self.file.flush().await?;
-            self.file.sync_data().await?;
+            self.file.sync_data()?;
             #[cfg(test)]
-            fault::file_synced(&self.data_dir, &self.file.metadata().await?);
+            fault::file_synced(&self.data_dir, &self.file.metadata()?);
             self.unsynced = 0;
         }
         Ok(())
     }
 
-    /// Makes every byte written durable before the body can be published.
-    ///
-    /// Tests record the synced length for power-loss snapshots from the `sync_all` result
-    /// itself, so a write path that skips this call, or a sync dropped from it together with
-    /// the result it yields, leaves its bytes volatile and fails the power-loss crash tests.
-    pub(in crate::storage::catalog) async fn make_durable(&mut self) -> Result<(), ObjectError> {
+    fn make_durable(&mut self) -> Result<(), ObjectError> {
         #[cfg(test)]
         fault::hit(&self.data_dir, Step::BodyFlush).map_err(object_unavailable)?;
-        // tokio finishes the last write in the background, and sync_all drops its error;
-        // flush reports it, so a failed tail cannot publish a short blob at the full size.
-        self.file.flush().await?;
+        self.write_batch()?;
+        #[cfg(test)]
+        fault::record_catalog_thread_io(&self.data_dir);
         #[cfg(test)]
         fault::hit(&self.data_dir, Step::BodySync).map_err(object_unavailable)?;
-        self.sync_ordered().await?;
+        #[cfg(unix)]
+        crate::fsutil::sync_ordered(&self.file)?;
+        #[cfg(not(unix))]
+        self.file.sync_all()?;
         #[cfg(test)]
-        fault::file_synced(&self.data_dir, &self.file.metadata().await?);
+        fault::file_synced(&self.data_dir, &self.file.metadata()?);
         self.unsynced = 0;
         Ok(())
     }
+}
 
-    /// Orders the body before the publication that references it, as
-    /// [`crate::fsutil::sync_ordered`] explains. The clone keeps the descriptor open on the
-    /// blocking thread even if this future is dropped while the sync runs.
-    #[cfg(target_vendor = "apple")]
-    async fn sync_ordered(&self) -> Result<(), ObjectError> {
-        let file = self.file.try_clone().await?.into_std().await;
-        crate::task::run_blocking("blob-sync", move || crate::fsutil::sync_ordered(&file))
-            .await?
-            .map_err(object_unavailable)
+impl StagedFile {
+    pub(in crate::storage::catalog) fn new(file: File, #[cfg(test)] data_dir: &Path) -> Self {
+        Self {
+            writer: Some(BatchWriter {
+                file,
+                bytes: Vec::new(),
+                unsynced: 0,
+                #[cfg(test)]
+                data_dir: data_dir.to_owned(),
+            }),
+            filling: Vec::new(),
+            pending: None,
+            closed: Arc::new(Mutex::new(false)),
+        }
     }
 
-    /// Elsewhere a file sync already makes the body durable.
-    #[cfg(not(target_vendor = "apple"))]
-    async fn sync_ordered(&self) -> Result<(), ObjectError> {
-        self.file.sync_all().await.map_err(object_unavailable)
+    /// A lease stays with its supervised upload until the last submitted write has returned.
+    pub(in crate::storage::catalog) async fn settle(&mut self) -> Result<(), ObjectError> {
+        let Some(job) = &mut self.pending else {
+            return Ok(());
+        };
+        let joined = job.await;
+        self.pending = None;
+        let (mut writer, result) = joined
+            .map_err(crate::task::BlockingFailed::Cancelled)?
+            .map_err(crate::task::BlockingFailed::Panicked)?;
+        writer.bytes.clear();
+        self.writer = Some(writer);
+        result
     }
 
-    /// Cuts the body back to its first `len` bytes; they are durable only after
-    /// [`Self::make_durable`].
-    pub(in crate::storage::catalog) async fn truncate(&mut self, len: u64) -> io::Result<()> {
-        self.file.set_len(len).await?;
-        #[cfg(test)]
-        fault::truncated(&self.data_dir, &self.file.metadata().await?);
+    fn submit(
+        &mut self,
+        name: &'static str,
+        action: impl FnOnce(&mut BatchWriter) -> Result<(), ObjectError> + Send + 'static,
+    ) -> Result<(), ObjectError> {
+        let mut writer = self.writer.take().ok_or_else(staged_writer_unavailable)?;
+        std::mem::swap(&mut self.filling, &mut writer.bytes);
+        let closed = self.closed.clone();
+        self.pending = Some(crate::task::spawn_blocking_on(
+            &tokio::runtime::Handle::current(),
+            name,
+            move || {
+                let closed = closed.lock().unwrap_or_else(PoisonError::into_inner);
+                let result = if *closed { Ok(()) } else { action(&mut writer) };
+                (writer, result)
+            },
+        ));
         Ok(())
     }
 
-    /// The file itself, for reading the staged bytes back.
-    pub(in crate::storage::catalog) fn file_mut(&mut self) -> &mut tokio::fs::File {
-        &mut self.file
+    pub(in crate::storage::catalog) async fn write(
+        &mut self,
+        mut bytes: &[u8],
+    ) -> Result<(), ObjectError> {
+        while !bytes.is_empty() {
+            let count = bytes.len().min(WRITE_BATCH_BYTES - self.filling.len());
+            let (part, rest) = bytes.split_at(count);
+            let needed = self.filling.len() + count;
+            if needed > self.filling.capacity() {
+                let capacity = (2 * self.filling.capacity()).clamp(needed, WRITE_BATCH_BYTES);
+                self.filling.reserve_exact(capacity - self.filling.len());
+            }
+            self.filling.extend_from_slice(part);
+            bytes = rest;
+            if self.filling.len() == WRITE_BATCH_BYTES {
+                self.settle().await?;
+                self.submit("staged-write", BatchWriter::write_batch)?;
+            }
+        }
+        Ok(())
     }
+
+    pub(in crate::storage::catalog) async fn make_durable(&mut self) -> Result<(), ObjectError> {
+        self.settle().await?;
+        self.submit("staged-sync", BatchWriter::make_durable)?;
+        self.settle().await
+    }
+
+    pub(in crate::storage::catalog) async fn truncate(
+        &mut self,
+        len: u64,
+    ) -> Result<(), ObjectError> {
+        self.settle().await?;
+        self.filling.clear();
+        self.submit("staged-truncate", move |writer| {
+            writer.file.set_len(len)?;
+            #[cfg(test)]
+            fault::truncated(&writer.data_dir, &writer.file.metadata()?);
+            std::io::Seek::seek(&mut writer.file, io::SeekFrom::Start(len))?;
+            Ok(())
+        })?;
+        self.settle().await
+    }
+
+    pub(in crate::storage::catalog) fn into_file(mut self) -> Result<File, ObjectError> {
+        self.writer
+            .take()
+            .map(|writer| writer.file)
+            .ok_or_else(staged_writer_unavailable)
+    }
+}
+
+impl Drop for StagedFile {
+    fn drop(&mut self) {
+        // Normal completion and error paths join asynchronously. If a task unwinds or the
+        // runtime stops, revoke a queued job and fence any write already inside the OS.
+        if let Some(job) = &self.pending {
+            job.abort();
+            *self.closed.lock().unwrap_or_else(PoisonError::into_inner) = true;
+        }
+    }
+}
+
+fn staged_writer_unavailable() -> ObjectError {
+    object_unavailable("staged file worker did not return")
 }

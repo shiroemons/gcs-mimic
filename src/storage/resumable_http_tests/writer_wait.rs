@@ -1,26 +1,5 @@
 use super::*;
 
-/// Starts a chunk on its own connection and sends only part of it, so the handler keeps the
-/// session's writer until the connection ends.
-async fn stalled_chunk(h: &Harness, path: &str) -> TcpStream {
-    let id = path.split("upload_id=").nth(1).unwrap();
-    let session = h
-        .state
-        .catalog
-        .resumable_session(id, "bucket")
-        .await
-        .unwrap();
-    let stage = session.blob_id.staging_path(&h.dir.0);
-    let mut stream = TcpStream::connect(&h.address).await.unwrap();
-    stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
-    stream.write_all(b"a").await.unwrap();
-    eventually_async("the stalled writer to stage its first byte", || async {
-        tokio::fs::metadata(&stage).await.unwrap().len() > 0
-    })
-    .await;
-    stream
-}
-
 /// Serves with the writer wait the server configures at startup.
 async fn with_writer_wait(catalog_wait_timeout_ms: u64) -> Arc<Harness> {
     let config = crate::config::ConfigDraft {

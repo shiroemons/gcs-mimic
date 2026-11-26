@@ -296,46 +296,49 @@ impl Catalog {
         let mut file = self.0.backend.stage_output(id).await?;
         let mut hasher = Hasher::default();
         let mut buffer = [0; 64 * 1024];
-        for wanted in parts {
-            let upload_id = lease.upload.target.id.clone();
-            let number = wanted.number;
-            let stored = self
-                .run(move |connection| part(connection, &upload_id, number))
-                .await?;
-            let mut input = InputReader::open(self, &stored.blob_id, 0).await?;
-            let mut remaining = stored.size;
-            let mut part_hash = Hasher::default();
-            while remaining > 0 {
-                if self.0.admission.is_closed() {
-                    return Err(object_unavailable("catalog is closing").into());
+        let assembled = async {
+            for wanted in parts {
+                let upload_id = lease.upload.target.id.clone();
+                let number = wanted.number;
+                let stored = self
+                    .run(move |connection| part(connection, &upload_id, number))
+                    .await?;
+                let mut input = InputReader::open(self, &stored.blob_id, 0).await?;
+                let mut remaining = stored.size;
+                let mut part_hash = Hasher::default();
+                while remaining > 0 {
+                    if self.0.admission.is_closed() {
+                        return Err(object_unavailable("catalog is closing").into());
+                    }
+                    let length = usize::try_from(remaining.min(buffer.len() as u64))
+                        .map_err(object_unavailable)?;
+                    let bytes = buffer
+                        .get_mut(..length)
+                        .ok_or_else(|| object_unavailable("invalid multipart buffer length"))?;
+                    let n = input.read(bytes).await?;
+                    if n == 0 {
+                        return Err(object_unavailable("multipart part is truncated").into());
+                    }
+                    let bytes = bytes
+                        .get(..n)
+                        .ok_or_else(|| object_unavailable("invalid multipart read length"))?;
+                    part_hash.update(bytes);
+                    hasher.update(bytes);
+                    file.write(bytes).await?;
+                    remaining -= n as u64;
+                    if self.0.backend.is_memory() {
+                        tokio::task::yield_now().await;
+                    }
                 }
-                let length = usize::try_from(remaining.min(buffer.len() as u64))
-                    .map_err(object_unavailable)?;
-                let bytes = buffer
-                    .get_mut(..length)
-                    .ok_or_else(|| object_unavailable("invalid multipart buffer length"))?;
-                let n = input.read(bytes).await?;
-                if n == 0 {
-                    return Err(object_unavailable("multipart part is truncated").into());
-                }
-                let bytes = bytes
-                    .get(..n)
-                    .ok_or_else(|| object_unavailable("invalid multipart read length"))?;
-                part_hash.update(bytes);
-                hasher.update(bytes);
-                #[cfg(test)]
-                super::super::fault::hit(&self.0.data_dir, super::super::fault::Step::BodyWrite)
-                    .map_err(object_unavailable)?;
-                file.write(bytes).await?;
-                remaining -= n as u64;
-                if self.0.backend.is_memory() {
-                    tokio::task::yield_now().await;
+                if part_hash.finish() != stored.hashes {
+                    return Err(object_unavailable("multipart part data is corrupt").into());
                 }
             }
-            if part_hash.finish() != stored.hashes {
-                return Err(object_unavailable("multipart part data is corrupt").into());
-            }
+            Ok::<_, Error>(())
         }
+        .await;
+        file.settle().await?;
+        assembled?;
         file.finish().await?;
         #[cfg(unix)]
         sync_staging_entry(self, StagedEntry::Assembled).await?;

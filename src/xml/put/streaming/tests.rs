@@ -131,7 +131,11 @@ async fn signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resourc
         (Step::BodySync, 0),
     ] {
         fault::arm(&fixture.dir.0, step, skip, Fault::Io(io::ErrorKind::Other));
-        let failure = fixture.upload(&vec![b'n'; 256 * 1024]).await.err().unwrap();
+        let failure = fixture
+            .upload(&vec![b'n'; fault::MID_WRITE_BODY_BYTES])
+            .await
+            .err()
+            .unwrap();
         assert_eq!(
             failure.status(),
             StatusCode::SERVICE_UNAVAILABLE,
