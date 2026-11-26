@@ -155,6 +155,7 @@ async fn dropping_an_advance_and_closing_stops_the_copy_at_the_next_buffer() {
     );
     release.send(()).unwrap();
     closing.await.unwrap();
+    assert!(catalog.session_writers_idle());
     assert_eq!(
         fs::metadata(id.staging_path(&path)).unwrap().len(),
         1024 * 1024
@@ -162,6 +163,9 @@ async fn dropping_an_advance_and_closing_stops_the_copy_at_the_next_buffer() {
     let reopened = Catalog::open(&path).await.unwrap();
     assert_eq!(reopened.get_derived(&id).await.unwrap().offset, 0);
     assert_eq!(fs::metadata(id.staging_path(&path)).unwrap().len(), 0);
+    // The continuable transfer owns its source pin across restart until cancellation.
+    reopened.cancel_derived(&id).await.unwrap();
+    assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
     reopened.close().await.unwrap();
     fs::remove_dir_all(path).unwrap();
 }

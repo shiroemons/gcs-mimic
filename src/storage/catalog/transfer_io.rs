@@ -159,11 +159,11 @@ impl Output {
         }
     }
 
-    pub(super) async fn rollback(&mut self, offset: u64) -> Result<(), ObjectError> {
-        if let Self::Disk(staged) = self {
-            staged.rollback(offset).await?;
+    pub(super) async fn rollback(&mut self, offset: u64) -> Result<objects::Rollback, ObjectError> {
+        match self {
+            Self::Disk(staged) => staged.rollback(offset).await,
+            Self::Memory(_) => Ok(objects::Rollback::Deferred),
         }
-        Ok(())
     }
 
     pub(super) async fn into_hashes(self) -> Result<(Hashes, u64), ObjectError> {

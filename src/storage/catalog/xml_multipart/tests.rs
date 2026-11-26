@@ -603,6 +603,57 @@ async fn abort_commit_and_reclaim_crash_snapshots_never_resurrect_retired_parts(
 }
 
 #[tokio::test]
+async fn completion_rejects_corrupt_and_truncated_parts_without_replacing_the_object() {
+    use http_body_util::BodyExt;
+
+    for (damaged, reason) in [
+        (&b"parX"[..], "multipart part data is corrupt"),
+        (&b"par"[..], "multipart part is truncated"),
+    ] {
+        let (dir, catalog) = setup(Arc::new(SystemClock)).await;
+        old_object(&catalog).await;
+        let previous = catalog
+            .get_object(live("bucket", "value"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap();
+        let target = begin(&catalog).await;
+        let part = put(&catalog, &target, 1, b"part").await.unwrap();
+        std::fs::write(part.blob_id.staging_path(&dir.0), damaged).unwrap();
+
+        let Error::Object(error) = complete(&catalog, &target, &part.etag).await.unwrap_err()
+        else {
+            panic!("expected an object storage failure");
+        };
+        assert_eq!(error.to_string(), format!("catalog unavailable: {reason}"));
+        let response = crate::xml::Error::from(error).response(crate::xml::ErrorBody::Include);
+        assert_eq!(response.status(), hyper::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            concat!(
+                "<?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code>",
+                "<Message>Object storage is unavailable: internal storage failure (private backend details withheld)</Message></Error>"
+            )
+        );
+        assert_eq!(
+            catalog
+                .get_object(live("bucket", "value"), Default::default(), PERMISSIVE)
+                .await
+                .unwrap(),
+            previous
+        );
+        assert_eq!(bytes(&catalog).await, b"previous");
+        let page = catalog
+            .list_xml_parts(target, BucketAccess::Permissive, 0, 1000)
+            .await
+            .unwrap();
+        assert_eq!(page.parts.len(), 1);
+        assert_eq!(page.parts[0].blob_id, part.blob_id);
+        assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 1);
+        catalog.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn completion_durable_step_failures_preserve_old_or_confirm_committed_generation() {
     const BODY: &[u8] = &[7; super::super::fault::MID_WRITE_BODY_BYTES];
     for step in [

@@ -197,6 +197,13 @@ pub(in crate::storage::catalog) struct StagedFile {
     failed: bool,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(in crate::storage::catalog) enum Rollback {
+    Truncated,
+    /// A disk worker lost its file (truncate on reopen), or a RAM draft will truncate on drop.
+    Deferred,
+}
+
 /// The caller's upload admission or exclusive writer lease. The worker owns it with
 /// the descriptor, so cancellation cannot let another writer reuse the stage mid-write.
 pub(in crate::storage::catalog) type StageLease = Arc<dyn StageOwner>;
@@ -417,11 +424,10 @@ impl StagedFile {
     pub(in crate::storage::catalog) async fn rollback(
         &mut self,
         len: u64,
-    ) -> Result<(), ObjectError> {
+    ) -> Result<Rollback, ObjectError> {
         let written = self.settle().await;
-        // A panicking worker dropped the descriptor. Reopening truncates to the checkpoint.
         if self.writer.is_none() {
-            return written;
+            return written.map(|()| Rollback::Deferred);
         }
         self.filling.clear();
         self.submit("staged-truncate", move |writer| {
@@ -434,7 +440,7 @@ impl StagedFile {
         self.settle().await?;
         self.submit("staged-sync", BatchWriter::make_durable)?;
         self.settle().await?;
-        written
+        written.map(|()| Rollback::Truncated)
     }
 
     fn ensure_writable(&self) -> Result<(), ObjectError> {

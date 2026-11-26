@@ -173,10 +173,9 @@ async fn receive_chunk(
     .await;
     let length = match file.settle_result(transfer).await {
         Ok(length) => length,
-        Err(error) => {
-            file.rollback(durable).await?;
-            return Err(error);
-        }
+        Err(error) => match file.rollback(durable).await? {
+            objects::Rollback::Truncated | objects::Rollback::Deferred => return Err(error),
+        },
     };
     Ok(Received {
         file,

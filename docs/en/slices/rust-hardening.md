@@ -707,7 +707,9 @@ journal sweep in the maintenance diagnostic.
   when the blocking pool is full. The job takes the writer from the stage
   before starting I/O and owns the file and lease until the write returns.
   A new writer therefore cannot truncate the stage during the old write.
-  After a worker failure, only rollback may truncate and sync the old prefix.
+  After a failed write, rollback truncates and syncs the acknowledged prefix.
+  If the worker panics it drops its descriptor, and the next open truncates
+  the file to the checkpoint before another append.
 - **`make_durable`.** One job drains the batch and syncs, in order:
   `BodyFlush`, the final write, `BodySync`, then `sync_all` or
   `sync_ordered`. A std write returns its error before the sync starts, so a
@@ -753,6 +755,9 @@ journal sweep in the maintenance diagnostic.
   - Each executing copy job holds one buffer. The default eight blocking
     threads bound active copy scratch space to 8 MiB. The shared read pool
     retains at most 16 additional 1 MiB buffers.
+    Copies share the blocking pool with reads, writes and syncs. With the
+    default eight threads, eight simultaneous long copies can make those
+    operations wait until a copy finishes. There is no reserved I/O thread.
   - The re-hash itself is kept, as
     [resumable upload](resumable-upload.md) requires.
 - **Derived advance.** One job restores the draft, opens the output, copies

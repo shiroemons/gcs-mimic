@@ -145,8 +145,8 @@ pub(super) use durability::WRITE_BATCH_BYTES;
 #[cfg(unix)]
 pub(super) use durability::sync_dir;
 pub(super) use durability::{
-    BatchWriter, StageLease, StagedFile, blob_shard, commit_publication, create_upload_stage,
-    publish_blob, unlink,
+    BatchWriter, Rollback, StageLease, StagedFile, blob_shard, commit_publication,
+    create_upload_stage, publish_blob, unlink,
 };
 pub(crate) use list::ObjectListCursor;
 pub(crate) use list::{ObjectListPage, ObjectListQuery};

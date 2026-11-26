@@ -14,7 +14,8 @@ pub(crate) struct PartUpload {
 
 /// Validated in manifest order while the completion holds the whole upload.
 struct CompletionParts {
-    parts: Vec<Part>,
+    first: Part,
+    remaining: Vec<Part>,
     total: u64,
 }
 
@@ -29,9 +30,6 @@ fn sync_staging_entry(
     catalog: &Catalog,
     #[cfg(test)] step: super::super::fault::Step,
 ) -> Result<(), ObjectError> {
-    if catalog.0.backend.is_memory() {
-        return Ok(());
-    }
     #[cfg(test)]
     super::super::fault::hit(&catalog.0.data_dir, step).map_err(object_unavailable)?;
     catalog
@@ -150,7 +148,7 @@ impl Catalog {
         parts: Vec<CompletedPart>,
         max_bytes: u64,
     ) -> Result<ObjectRecord, Error> {
-        if parts.is_empty() || parts.len() > MAX_PARTS {
+        if parts.len() > MAX_PARTS {
             return Err(Error::InvalidPart);
         }
         let mut previous = 0;
@@ -163,6 +161,8 @@ impl Catalog {
             }
             previous = part.number;
         }
+        let mut parts = parts.into_iter();
+        let first = parts.next().ok_or(Error::InvalidPart)?;
         let catalog = self.clone();
         let permit = self.admit_object_upload()?;
         crate::task::spawn_supervised("xml-multipart-complete", async move {
@@ -170,7 +170,7 @@ impl Catalog {
             let id = BlobId::generate().map_err(object_unavailable)?;
             let owner = catalog.guard_derived_request(&id);
             let parts = catalog
-                .xml_completion_parts(&lease, parts, max_bytes)
+                .xml_completion_parts(&lease, first, parts, max_bytes)
                 .await?;
             if let Err(error) = catalog.assemble_xml_parts(&lease, parts, &id).await {
                 let orphan = id;
@@ -249,7 +249,8 @@ impl Catalog {
     async fn xml_completion_parts(
         &self,
         lease: &UploadLease,
-        requested: Vec<CompletedPart>,
+        first: CompletedPart,
+        requested: std::vec::IntoIter<CompletedPart>,
         max_bytes: u64,
     ) -> Result<CompletionParts, Error> {
         let target = lease.upload.target.clone();
@@ -263,24 +264,32 @@ impl Catalog {
                 &target.bucket,
                 &access.with_permission(Permission::ObjectsCreate),
             )?;
-            let count = requested.len();
-            let mut parts = Vec::with_capacity(count);
             let mut total = 0u64;
-            for (index, wanted) in requested.into_iter().enumerate() {
+            let mut load = |wanted: CompletedPart, successors: usize| {
                 let stored = part(&transaction, &target.id, wanted.number)?;
                 if stored.etag != wanted.etag {
                     return Err(Error::InvalidPart);
                 }
-                if index + 1 < count && stored.size < MIN_PART_BYTES {
+                if successors > 0 && stored.size < MIN_PART_BYTES {
                     return Err(Error::PartTooSmall);
                 }
                 total = total
                     .checked_add(stored.size)
                     .filter(|n| *n <= max_bytes)
                     .ok_or(ObjectError::TooLarge)?;
-                parts.push(stored);
+                Ok(stored)
+            };
+            let first = load(first, requested.len())?;
+            let mut remaining = Vec::with_capacity(requested.len());
+            let mut requested = requested;
+            while let Some(wanted) = requested.next() {
+                remaining.push(load(wanted, requested.len())?);
             }
-            Ok(CompletionParts { parts, total })
+            Ok(CompletionParts {
+                first,
+                remaining,
+                total,
+            })
         })
         .await
     }
@@ -294,28 +303,28 @@ impl Catalog {
         use md5::digest::common::hazmat::SerializableState;
 
         let id = *id;
-        let mut assembled = None;
-        for part in completion.parts {
+        let catalog = self.clone();
+        let guard = lease.guard.clone();
+        let mut assembly = crate::task::run_blocking("xml-assemble-part", move || {
+            let mut assembly = Assembly {
+                file: catalog.0.backend.stage_copy_output(&id, guard)?,
+                md5: md5::Md5::default(),
+                crc32c: 0,
+            };
+            assembly.append(&catalog, &completion.first)?;
+            Ok::<_, ObjectError>(assembly)
+        })
+        .await
+        .map_err(object_unavailable)??;
+        for part in completion.remaining {
             let catalog = self.clone();
-            let guard = lease.guard.clone();
-            assembled = Some(
-                crate::task::run_blocking("xml-assemble-part", move || {
-                    let mut assembly = match assembled {
-                        Some(assembly) => assembly,
-                        None => Assembly {
-                            file: catalog.0.backend.stage_copy_output(&id, guard)?,
-                            md5: md5::Md5::default(),
-                            crc32c: 0,
-                        },
-                    };
-                    assembly.append(&catalog, &part)?;
-                    Ok::<_, ObjectError>(assembly)
-                })
-                .await
-                .map_err(object_unavailable)??,
-            );
+            assembly = crate::task::run_blocking("xml-assemble-part", move || {
+                assembly.append(&catalog, &part)?;
+                Ok::<_, ObjectError>(assembly)
+            })
+            .await
+            .map_err(object_unavailable)??;
         }
-        let mut assembly = assembled.ok_or(Error::InvalidPart)?;
         #[cfg(unix)]
         let catalog = self.clone();
         let Assembly {
@@ -325,11 +334,13 @@ impl Catalog {
         } = crate::task::run_blocking("xml-multipart-assemble-sync", move || {
             assembly.file.make_durable()?;
             #[cfg(unix)]
-            sync_staging_entry(
-                &catalog,
-                #[cfg(test)]
-                super::super::fault::Step::MultipartAssembleSync,
-            )?;
+            if !catalog.0.backend.is_memory() {
+                sync_staging_entry(
+                    &catalog,
+                    #[cfg(test)]
+                    super::super::fault::Step::MultipartAssembleSync,
+                )?;
+            }
             Ok::<_, ObjectError>(assembly)
         })
         .await

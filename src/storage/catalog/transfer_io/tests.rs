@@ -20,7 +20,10 @@ async fn a_rolled_back_writer_replaces_both_written_and_buffered_bytes() {
         .write(&vec![b'x'; super::super::fault::MID_WRITE_BODY_BYTES])
         .await
         .unwrap();
-    output.rollback(4).await.unwrap();
+    assert_eq!(
+        output.rollback(4).await.unwrap(),
+        objects::Rollback::Truncated
+    );
     output.write(b"new").await.unwrap();
     output.finish().await.unwrap();
     assert_eq!(std::fs::read(path).unwrap(), b"keptnew");

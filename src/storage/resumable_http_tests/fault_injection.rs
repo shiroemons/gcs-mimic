@@ -1092,6 +1092,42 @@ async fn ambiguous_derived_commit_error_keeps_the_committed_destination() {
 }
 
 #[tokio::test]
+async fn compose_write_behind_failure_and_crashes_leave_the_destination_unpublished() {
+    let a = vec![b'a'; 9 * 1024 * 1024 + 1];
+    let h = Harness::start(10 * 1024 * 1024, Permissive, None).await;
+    assert_eq!(h.media("a", &a).await.status, 200);
+    assert_eq!(h.media("b", b"b").await.status, 200);
+    h.inject(Step::BodyWriteBehind, 0, Fault::Io(ErrorKind::Other));
+    let reply = derive(&h, "compose").await;
+    assert_backend_failure(
+        &reply,
+        &Expect::Message(io_message(ErrorKind::Other)),
+        "write-behind",
+    );
+    h.assert_fired("write-behind");
+    assert_eq!(h.resource("derived").await.status, 404);
+    for crash in Crash::ALL {
+        let snapshot = TestDir::new();
+        h.inject(Step::BodyWriteBehind, 0, crash.fault(snapshot.0.clone()));
+        assert_eq!(derive(&h, "compose").await.status, 200);
+        h.assert_fired("write-behind");
+        assert_recovers_objects(
+            &snapshot.0,
+            &[("derived", None), ("a", Some(&a)), ("b", Some(b"b"))],
+            "write-behind",
+        )
+        .await;
+        assert_eq!(
+            h.request("DELETE", "/storage/v1/b/bucket/o/derived", "", b"")
+                .await
+                .status,
+            204
+        );
+    }
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn derived_crash_at_each_durable_step_recovers_without_a_partial_destination() {
     let crashes = TestDir::new();
     let h = Harness::start(1024 * 1024, Permissive, None).await;
