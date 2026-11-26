@@ -276,8 +276,11 @@ so committed frames remain visible. Immutable preflight does not consider a hot 
 `-journal`: gcs-mimic never creates one in WAL mode, but a foreign DELETE-mode catalog could.
 The preflight closes before a single operational
 connection owns `catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
-file-backed temporary storage and a 256-page auto-checkpoint. The current catalog
-schema is version 50; later migrations are described in their slice contracts.
+in-memory temporary storage, query plans kept across bound values, as on the readers, and a
+256-page auto-checkpoint. The auto-checkpoint runs inside the commit that crosses it, so the
+threshold bounds the pause one request pays and the reused WAL file; `open_writable` gives the
+tradeoff. The current catalog schema version is `CATALOG_SCHEMA_VERSION` in
+`src/storage/catalog.rs`; migrations are described in their slice contracts.
 Schema version 7 stored buckets, live objects, unique opaque blob references, pending blob deletions,
 seed initialization, bucket IAM policies and persistent object/policy revision
 high-water marks. It retains the bucket `(project, name)`
