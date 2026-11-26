@@ -90,3 +90,71 @@ Limits:
   a synchronous closure and cannot await them.
 - Integration tests link the library built without `cfg(test)`, so only the
   library's unit tests check the assertion.
+
+## Writer settings
+
+What changed
+
+- The disk catalog writer keeps prepared statement plans across changes in bound values.
+- The writer documents why `wal_autocheckpoint = 256` triggers a passive checkpoint sooner,
+  reducing the work a committing request can inherit. A long read can still hold the WAL open.
+- The persistence design records the writer's in-memory temporary store and names
+  `CATALOG_SCHEMA_VERSION` as the schema version source.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Workspace suite on the first-phase source, 2026-11-26 | `cargo test --locked --workspace --no-fail-fast` | 3,860 passed, 0 failed, 1 ignored, and no compiler warnings across 14 test binaries and two doctest crates. The library passed 2,444 and `xtask` passed 193 unit tests. The error and persisted-format goldens passed. |
+
+Limits
+
+- The ignored test requires an explicitly started local Pub/Sub emulator. A sandboxed
+  loopback probe returned `Operation not permitted` before the workspace suite and
+  `just check` ran with loopback access.
+- Prepared write transactions and the reader statement cache increase belong to later
+  slices. The suite verifies behavior. Query-planning performance was unmeasured.
+
+## Lint quick wins
+
+What changed
+
+- The production gate checks `clippy::significant_drop_in_scrutinee`,
+  `clippy::or_fun_call` and `clippy::return_and_then`.
+- Workspace lints deny `clippy::ignore_without_reason` and `cargo::unused_dependencies`.
+- Drop guards that callers must keep alive are marked `#[must_use]`.
+- Gate tests keep the Rules table in sync with the production rules and workspace lint levels.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Shared checks on the first-phase source, 2026-11-26 | `just check` | Passed, including all 14 test binaries and doctests (3,860 passed, 0 failed, 1 ignored). |
+| Host and release-target Clippy within the shared checks | `just check` | No warnings on `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` or `x86_64-unknown-linux-musl`. The host production gate found 0 new violations and 108 ratcheted findings. Each cross-target gate found 0 new Clippy violations and 0 ratcheted findings. |
+| Rules table and workspace lint levels | `cargo test --locked --workspace --no-fail-fast` | Both `xtask` tests passed within the workspace suite. |
+
+Limits
+
+- `large_futures`, the additional `disallowed-methods` rules and parser property tests
+  belong to later slices. The layer gate still has a per-file ratchet.
+
+## Small fixes
+
+What changed
+
+- HTTP/1 returns 431 for a request head still incomplete at its read buffer threshold.
+  The 40 KiB test pins the rejection and the design explains the possible overshoot.
+  The `MAX_QUERY_BYTES` comment records its use by Storage v1 gRPC.
+- The shared diagnostic helper defers building disabled debug events for connections,
+  task cancellations, authorization denials and catalog reader fallback.
+- The public contract review links to the catalog upgrade guide for schema history.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Formatting | `cargo fmt --check` | Passed. |
+| Header rejection and diagnostic threshold | `cargo test --locked --workspace --no-fail-fast` | Both tests passed within the workspace suite. |
+| Ledger and generated matrices | `cargo xtask compatibility check` | Passed for 611 feature rows, 401 parameter locations and 357 schema fields. |
+| Changed prose | `npx --yes markdownlint-cli2 AGENTS.md docs/en/design.md docs/en/development.md docs/en/evidence/rust-hardening.md docs/en/native-binary.md docs/en/public-contract-review.md docs/en/slices/rust-hardening.md docs/en/slices/xml-put-object.md docs/ja/development.md` | Nine files, zero issues. |
+| Generated views | `npx --yes markdownlint-cli2 --config docs/generated-views.markdownlint-cli2.jsonc docs/en/feature-matrix.md docs/ja/feature-matrix.md` | Two files, zero issues. |
+| Documentation checks | `bash scripts/check-docs.sh` | Passed, including four CLI help tests, the environment namespace, generated matrices and release documentation checks. |
+
+Limits
+
+- The HTTP/1 test covers rejection at 40 KiB. Hyper checks the 16 KiB threshold while
+  the request head is incomplete, so a read that completes it can exceed the threshold.
