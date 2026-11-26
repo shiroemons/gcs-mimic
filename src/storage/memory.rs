@@ -19,16 +19,61 @@ static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 pub(super) struct StoreId(u64);
 
 /// Why a RAM blob operation that allocates failed.
-#[derive(Debug)]
-pub(super) enum BlobError {
-    /// The `memory_max_bytes` budget ran out.
+#[derive(Debug, thiserror::Error)]
+pub(in crate::storage) enum BlobError {
+    #[error("RAM blob budget exhausted")]
     Exhausted,
-    Io(io::Error),
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error("{0}")]
+    Missing(Missing),
+    #[error("{0}")]
+    Poisoned(Table),
+    #[error("RAM store is closed")]
+    Closed,
+    #[error(transparent)]
+    Allocation(#[from] std::collections::TryReserveError),
+    #[error(transparent)]
+    Size(#[from] std::num::TryFromIntError),
 }
 
-impl From<io::Error> for BlobError {
-    fn from(error: io::Error) -> Self {
-        Self::Io(error)
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+pub(in crate::storage) enum Missing {
+    #[error("missing RAM source")]
+    Source,
+    #[error("missing RAM staging block")]
+    StagingBlock,
+    #[error("missing RAM draft")]
+    Draft,
+    #[error("missing RAM upload hash checkpoint")]
+    HashCheckpoint,
+    #[error("RAM draft is shorter than its acknowledged offset")]
+    AcknowledgedOffset,
+    #[error("missing acknowledged RAM draft bytes")]
+    AcknowledgedBytes,
+}
+
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+pub(in crate::storage) enum Table {
+    #[error("RAM blob store lock poisoned")]
+    Blobs,
+    #[error("RAM draft store lock poisoned")]
+    Drafts,
+    #[error("RAM transfer store lock poisoned or state unavailable")]
+    Transfer,
+}
+
+impl BlobError {
+    pub(in crate::storage) fn kind(&self) -> io::ErrorKind {
+        match self {
+            Self::Exhausted => io::ErrorKind::StorageFull,
+            Self::Io(error) => error.kind(),
+            Self::Missing(_)
+            | Self::Poisoned(_)
+            | Self::Closed
+            | Self::Allocation(_)
+            | Self::Size(_) => io::ErrorKind::Other,
+        }
     }
 }
 
@@ -162,16 +207,14 @@ impl Store {
     }
 
     /// The published blobs. A poisoned table fails the caller, and `is_healthy` reports it.
-    fn blobs(&self) -> io::Result<MutexGuard<'_, HashMap<String, Arc<Blob>>>> {
-        crate::sync::lock_checked(&self.blobs)
-            .map_err(|_| io::Error::other("RAM blob store lock poisoned"))
+    fn blobs(&self) -> Result<MutexGuard<'_, HashMap<String, Arc<Blob>>>, BlobError> {
+        crate::sync::lock_checked(&self.blobs).map_err(|_| BlobError::Poisoned(Table::Blobs))
     }
 
     /// The drafts not yet published. A poisoned table fails the caller, and `is_healthy` reports
     /// it.
-    fn drafts(&self) -> io::Result<MutexGuard<'_, HashMap<String, Box<Stage>>>> {
-        crate::sync::lock_checked(&self.drafts)
-            .map_err(|_| io::Error::other("RAM draft store lock poisoned"))
+    fn drafts(&self) -> Result<MutexGuard<'_, HashMap<String, Box<Stage>>>, BlobError> {
+        crate::sync::lock_checked(&self.drafts).map_err(|_| BlobError::Poisoned(Table::Drafts))
     }
 
     pub(super) fn stage(self: &Arc<Self>) -> Result<Stage, BlobError> {
@@ -192,7 +235,7 @@ impl Store {
     }
 
     pub(super) fn open(&self, id: &str) -> io::Result<Reader> {
-        let blobs = self.blobs()?;
+        let blobs = self.blobs().map_err(io::Error::other)?;
         let blob = blobs
             .get(id)
             .cloned()
@@ -206,7 +249,7 @@ impl Store {
     }
 
     pub(super) fn remove(&self, id: &str) -> io::Result<()> {
-        self.blobs()?.remove(id);
+        self.blobs().map_err(io::Error::other)?.remove(id);
         Ok(())
     }
 
@@ -216,14 +259,16 @@ impl Store {
     }
 
     pub(super) fn clear(&self) -> io::Result<()> {
-        self.drafts()?.clear();
-        self.blobs()?.clear();
+        self.drafts().map_err(io::Error::other)?.clear();
+        self.blobs().map_err(io::Error::other)?.clear();
         Ok(())
     }
 
     pub(super) fn retain_ids(&self, selected: &std::collections::HashSet<&str>) -> io::Result<()> {
-        self.drafts()?.clear();
-        self.blobs()?.retain(|id, _| selected.contains(id.as_str()));
+        self.drafts().map_err(io::Error::other)?.clear();
+        self.blobs()
+            .map_err(io::Error::other)?
+            .retain(|id, _| selected.contains(id.as_str()));
         Ok(())
     }
 }
@@ -235,7 +280,7 @@ impl Stage {
                 self.pending = Some(self.allocate((bytes.len() as u64).min(BLOCK_SIZE))?);
             }
             let Some(chunk) = &mut self.pending else {
-                return Err(io::Error::other("missing RAM staging block").into());
+                return Err(BlobError::Missing(Missing::StagingBlock));
             };
             let length = bytes.len().min(chunk.bytes.capacity() - chunk.bytes.len());
             let (written, rest) = bytes
@@ -276,10 +321,7 @@ impl Stage {
                 charge: capacity + CHUNK_OVERHEAD,
             },
         };
-        chunk
-            .bytes
-            .try_reserve_exact(usize::try_from(capacity).map_err(io::Error::other)?)
-            .map_err(io::Error::other)?;
+        chunk.bytes.try_reserve_exact(usize::try_from(capacity)?)?;
         chunk
             .reservation
             .resize(chunk.bytes.capacity() as u64 + CHUNK_OVERHEAD)?;
@@ -320,9 +362,7 @@ impl Stage {
         };
         replacement.resize(bytes(capacity)?.saturating_sub(unused))?;
         let mut chunks = Vec::new();
-        chunks
-            .try_reserve_exact(capacity)
-            .map_err(io::Error::other)?;
+        chunks.try_reserve_exact(capacity)?;
         replacement.resize(bytes(chunks.capacity())?.saturating_sub(unused))?;
         let retained = self.fixed_charge + bytes(chunks.capacity())?.saturating_sub(CHUNK_OVERHEAD);
         let released = replacement
@@ -340,15 +380,12 @@ impl Stage {
 
     pub(super) fn publish(mut self, id: String) -> Result<(), BlobError> {
         self.flush_pending()?;
-        let store = self
-            .store
-            .upgrade()
-            .ok_or_else(|| io::Error::other("RAM store is closed"))?;
+        let store = self.store.upgrade().ok_or(BlobError::Closed)?;
         let mut blobs = store.blobs()?;
         if blobs.contains_key(&id) {
             return Err(io::Error::from(io::ErrorKind::AlreadyExists).into());
         }
-        blobs.try_reserve(1).map_err(io::Error::other)?;
+        blobs.try_reserve(1)?;
         blobs.insert(
             id,
             Arc::new(Blob {
@@ -417,8 +454,10 @@ impl Seek for Reader {
         self.position = position;
         let mut remaining = position;
         while let Some(chunk) = self.blob.chunks.get(self.index) {
-            if remaining < chunk.len() as u64 {
-                self.within = usize::try_from(remaining).map_err(io::Error::other)?;
+            if let Ok(offset) = usize::try_from(remaining)
+                && offset < chunk.len()
+            {
+                self.within = offset;
                 break;
             }
             remaining -= chunk.len() as u64;
@@ -431,6 +470,44 @@ impl Seek for Reader {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_draft_and_closed_store_keep_their_io_response() {
+        let store = Store::new(2048);
+        let stage = store.stage().unwrap();
+        let missing = store.checkpoint_draft("missing").err().unwrap();
+        drop(store);
+        let closed = stage.publish("blob".into()).unwrap_err();
+        for (error, message) in [
+            (missing, "missing RAM draft"),
+            (closed, "RAM store is closed"),
+        ] {
+            let cause = crate::storage::failure::IoCause::from(error);
+            assert_eq!(cause.kind(), io::ErrorKind::Other);
+            assert_eq!(cause.source().unwrap().to_string(), message);
+            assert_eq!(
+                crate::storage::failure::wording::object_io(&cause),
+                "Object storage is unavailable: storage I/O error (other error); check data directory permissions and available disk space"
+            );
+        }
+    }
+
+    #[test]
+    fn allocation_and_size_failures_keep_their_concrete_sources() {
+        let allocation = Vec::<u8>::new().try_reserve(usize::MAX).unwrap_err();
+        let size = usize::try_from(-1_i32).unwrap_err();
+        let allocation = crate::storage::failure::IoCause::from(BlobError::from(allocation));
+        let size = crate::storage::failure::IoCause::from(BlobError::from(size));
+        assert_eq!(allocation.kind(), io::ErrorKind::Other);
+        assert!(
+            allocation
+                .source()
+                .unwrap()
+                .is::<std::collections::TryReserveError>()
+        );
+        assert_eq!(size.kind(), io::ErrorKind::Other);
+        assert!(size.source().unwrap().is::<std::num::TryFromIntError>());
+    }
 
     #[test]
     fn missing_blob_has_not_found_io_kind() {

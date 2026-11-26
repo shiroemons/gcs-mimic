@@ -175,7 +175,7 @@ impl BlobBackend {
     pub(super) fn remove_draft(&self, id: &BlobId) -> io::Result<()> {
         match self {
             Self::Disk(root) => objects::unlink(&id.staging_path(root)),
-            Self::Memory(store) => store.remove_draft(&id.to_hex()),
+            Self::Memory(store) => store.remove_draft(&id.to_hex()).map_err(io::Error::other),
         }
     }
 
@@ -363,7 +363,7 @@ impl BlobBackend {
     pub(super) fn remove_new_draft(&self, id: &BlobId) -> io::Result<()> {
         match self {
             Self::Disk(root) => fs::remove_file(id.staging_path(root)),
-            Self::Memory(store) => store.remove_draft(&id.to_hex()),
+            Self::Memory(store) => store.remove_draft(&id.to_hex()).map_err(io::Error::other),
         }
     }
 

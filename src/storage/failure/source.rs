@@ -220,6 +220,11 @@ impl From<BlobError> for Source {
         match error {
             BlobError::Exhausted => Self::Exhausted(MemoryExhausted::new(MemoryBudget::Blobs)),
             BlobError::Io(error) => Self::Io(error),
+            BlobError::Size(error) => error.into(),
+            BlobError::Allocation(error) => Self::Leaf(Leaf(Box::new(error))),
+            other @ (BlobError::Missing(_) | BlobError::Poisoned(_) | BlobError::Closed) => {
+                Self::Leaf(Leaf(Box::new(other)))
+            }
         }
     }
 }

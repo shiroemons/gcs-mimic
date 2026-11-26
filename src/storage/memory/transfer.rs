@@ -5,12 +5,12 @@ impl Store {
         let mut blobs = crate::sync::lock_checked(&self.blobs).map_err(|_| poisoned())?;
         let original = blobs
             .get(original)
-            .ok_or_else(|| io::Error::other("missing RAM source"))?;
+            .ok_or(BlobError::Missing(Missing::Source))?;
         let blob = self.snapshot(&original.chunks, original.size)?;
         if blobs.contains_key(&id) {
             return Err(io::Error::from(io::ErrorKind::AlreadyExists).into());
         }
-        blobs.try_reserve(1).map_err(io::Error::other)?;
+        blobs.try_reserve(1)?;
         blobs.insert(id, blob);
         Ok(())
     }
@@ -28,8 +28,7 @@ impl Store {
         };
         reservation.resize(charge(chunks.len())?)?;
         let mut copy = Vec::new();
-        copy.try_reserve_exact(chunks.len())
-            .map_err(io::Error::other)?;
+        copy.try_reserve_exact(chunks.len())?;
         reservation.resize(charge(copy.capacity())?)?;
         copy.extend_from_slice(chunks);
         Ok(Arc::new(Blob {
@@ -65,7 +64,7 @@ impl Store {
         if drafts.contains_key(&id) {
             return Err(io::Error::from(io::ErrorKind::AlreadyExists).into());
         }
-        drafts.try_reserve(1).map_err(io::Error::other)?;
+        drafts.try_reserve(1)?;
         drafts.insert(id, Box::new(stage));
         Ok(())
     }
@@ -78,7 +77,7 @@ impl Store {
         let stage = crate::sync::lock_checked(&self.drafts)
             .map_err(|_| poisoned())?
             .remove(id)
-            .ok_or_else(|| io::Error::other("missing RAM draft"))?;
+            .ok_or(BlobError::Missing(Missing::Draft))?;
         let mut draft = Draft {
             store: self.clone(),
             id: id.into(),
@@ -94,7 +93,7 @@ impl Store {
         Ok(draft)
     }
 
-    pub(in crate::storage) fn remove_draft(&self, id: &str) -> io::Result<()> {
+    pub(in crate::storage) fn remove_draft(&self, id: &str) -> Result<(), BlobError> {
         crate::sync::lock_checked(&self.drafts)
             .map_err(|_| poisoned())?
             .remove(id);
@@ -105,13 +104,13 @@ impl Store {
         let mut drafts = crate::sync::lock_checked(&self.drafts).map_err(|_| poisoned())?;
         let stage = drafts
             .get_mut(id)
-            .ok_or_else(|| io::Error::other("missing RAM draft"))?;
+            .ok_or(BlobError::Missing(Missing::Draft))?;
         stage.flush_pending()?;
         let mut blobs = crate::sync::lock_checked(&self.blobs).map_err(|_| poisoned())?;
         // A publication retry reuses the immutable candidate after a rolled-back SQL transaction.
         if !blobs.contains_key(id) {
             let blob = self.snapshot(&stage.chunks, stage.size)?;
-            blobs.try_reserve(1).map_err(io::Error::other)?;
+            blobs.try_reserve(1)?;
             blobs.insert(id.into(), blob);
         }
         Ok(())
@@ -124,11 +123,11 @@ impl Store {
         let mut drafts = crate::sync::lock_checked(&self.drafts).map_err(|_| poisoned())?;
         let stage = drafts
             .get_mut(id)
-            .ok_or_else(|| io::Error::other("missing RAM draft"))?;
+            .ok_or(BlobError::Missing(Missing::Draft))?;
         stage.flush_pending()?;
         let blob = self.snapshot(&stage.chunks, stage.size)?;
         let mut blobs = crate::sync::lock_checked(&self.blobs).map_err(|_| poisoned())?;
-        blobs.try_reserve(1).map_err(io::Error::other)?;
+        blobs.try_reserve(1)?;
         // Existing readers retain the previous snapshot and its leases until their last clone.
         let previous = blobs.insert(id.into(), blob.clone());
         Ok(Checkpoint {
@@ -233,7 +232,7 @@ impl Draft {
         let result = stage.write(bytes);
         if let Some(hasher) = &mut stage.hasher {
             // A full budget can reject a later block after earlier bytes were accepted.
-            let written = usize::try_from(stage.size - before).map_err(io::Error::other)?;
+            let written = usize::try_from(stage.size - before)?;
             hasher.update(
                 bytes
                     .get(..written)
@@ -248,12 +247,12 @@ impl Draft {
         self.acknowledged_hash = self.stage.as_ref().and_then(|stage| stage.hasher.clone());
     }
 
-    pub(in crate::storage) fn hashes(&self) -> io::Result<(crate::hashing::Hashes, u64)> {
+    pub(in crate::storage) fn hashes(&self) -> Result<(crate::hashing::Hashes, u64), BlobError> {
         let stage = self.stage.as_ref().ok_or_else(poisoned)?;
         let hasher = stage
             .hasher
             .clone()
-            .ok_or_else(|| io::Error::other("missing RAM upload hash checkpoint"))?;
+            .ok_or(BlobError::Missing(Missing::HashCheckpoint))?;
         Ok((hasher.finish(), stage.size))
     }
 }
@@ -282,11 +281,9 @@ impl Drop for Draft {
 }
 
 impl Stage {
-    fn truncate(&mut self, offset: u64) -> io::Result<()> {
+    fn truncate(&mut self, offset: u64) -> Result<(), BlobError> {
         if offset > self.size {
-            return Err(io::Error::other(
-                "RAM draft is shorter than its acknowledged offset",
-            ));
+            return Err(BlobError::Missing(Missing::AcknowledgedOffset));
         }
         let mut remaining = offset;
         let mut keep = 0;
@@ -294,8 +291,7 @@ impl Stage {
             if remaining == 0 {
                 break;
             }
-            let length =
-                usize::try_from(remaining.min(chunk.len() as u64)).map_err(io::Error::other)?;
+            let length = usize::try_from(remaining.min(chunk.len() as u64))?;
             if length < chunk.len() {
                 *chunk = chunk.slice(..length);
             }
@@ -306,19 +302,17 @@ impl Stage {
         if remaining == 0 {
             self.pending = None;
         } else if let Some(pending) = &mut self.pending {
-            pending
-                .bytes
-                .truncate(usize::try_from(remaining).map_err(io::Error::other)?);
+            pending.bytes.truncate(usize::try_from(remaining)?);
         } else {
-            return Err(io::Error::other("missing acknowledged RAM draft bytes"));
+            return Err(BlobError::Missing(Missing::AcknowledgedBytes));
         }
         self.size = offset;
         Ok(())
     }
 }
 
-fn poisoned() -> io::Error {
-    io::Error::other("RAM transfer store lock poisoned or state unavailable")
+fn poisoned() -> BlobError {
+    BlobError::Poisoned(Table::Transfer)
 }
 
 #[cfg(test)]

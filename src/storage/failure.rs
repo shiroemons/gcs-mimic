@@ -190,9 +190,9 @@ impl From<MemoryExhausted> for IoCause {
 
 impl From<BlobError> for IoCause {
     fn from(error: BlobError) -> Self {
-        match error {
-            BlobError::Exhausted => MemoryExhausted::new(MemoryBudget::Blobs).into(),
-            BlobError::Io(error) => error.into(),
+        Self {
+            kind: error.kind(),
+            source: Some(Arc::new(error.into())),
         }
     }
 }
