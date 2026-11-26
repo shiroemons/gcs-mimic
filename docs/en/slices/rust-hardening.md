@@ -633,8 +633,9 @@ expectation where a trait requires `io::Error`.
 - A test-build counter of `SQLITE_READONLY` answers on the read pool is
   asserted zero at close, which catches a moved job that secretly writes.
   Production still falls back to the writer silently.
-- **End state.** `sql::exec`, the journal helpers and savepoints take a
-  prepared `&WriteTx`, so a pooled read cannot call them at all.
+- **Typed write execution.** After the transaction control statements move
+  to `WriteTx`, restrict `sql::exec`, the journal helpers and savepoints to
+  `&WriteTx`, so a pooled read cannot call them.
 
 ### Jobs that move to the read pool
 
@@ -1130,7 +1131,8 @@ Checked on rustc 1.100.0 on 2026-11-26.
 | Rewrite pre-checks | permission, buckets and continuation lookup on the pool |
 | Admin batch cleanup | one reference query and one file job per batch |
 | Stale read-cache files | closed off the writer |
-| Prepared write transactions | `WriteTx` with prepared `BEGIN IMMEDIATE`, `COMMIT` and `ROLLBACK`, then `sql::exec(&WriteTx)` |
+| Prepared write transactions | `WriteTx` with prepared `BEGIN IMMEDIATE`, `COMMIT` and `ROLLBACK` |
+| Typed write execution | `sql::exec(&WriteTx)`, with separate execution paths for transaction control and legitimate writes outside a transaction |
 | Remaining reads and lifecycle | the second batch of moved reads; lifecycle statements per page; BLOB `get_ref` |
 
 Each slice adds tests for each moved read:

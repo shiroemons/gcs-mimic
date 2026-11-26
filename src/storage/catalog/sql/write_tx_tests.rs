@@ -1,13 +1,34 @@
 use super::{exec, immediate, scalar};
 use crate::storage::{Catalog, test_fixtures::bucket};
 use crate::test_support::TestDir;
+use rusqlite::trace::{TraceEvent, TraceEventCodes};
 use rusqlite::{Connection, Error, ErrorCode};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::Duration;
 
 fn table() -> Connection {
     let connection = Connection::open_in_memory().unwrap();
     exec(&connection, "CREATE TABLE entries (id INTEGER)", []).unwrap();
     connection
+}
+
+fn trace_rollbacks(connection: &mut Connection) -> Arc<AtomicUsize> {
+    let rollbacks = Arc::new(AtomicUsize::new(0));
+    let count = rollbacks.clone();
+    connection
+        .trace_v2(
+            TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(move |event: TraceEvent<'_>| {
+                if let TraceEvent::Stmt(_, "ROLLBACK") = event {
+                    count.fetch_add(1, Ordering::Relaxed);
+                }
+            }),
+        )
+        .unwrap();
+    rollbacks
 }
 
 #[test]
@@ -20,6 +41,7 @@ fn a_failed_commit_rolls_back_the_transaction() {
              CREATE TABLE children (parent INTEGER REFERENCES parents(id) DEFERRABLE INITIALLY DEFERRED);",
         )
         .unwrap();
+    let rollbacks = trace_rollbacks(&mut connection);
     let transaction = immediate(&mut connection).unwrap();
     exec(&transaction, "INSERT INTO children VALUES (1)", []).unwrap();
     assert!(matches!(
@@ -27,9 +49,37 @@ fn a_failed_commit_rolls_back_the_transaction() {
         Err(Error::SqliteFailure(error, _))
             if error.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY
     ));
+    assert_eq!(rollbacks.load(Ordering::Relaxed), 1);
     assert!(connection.is_autocommit());
     assert_eq!(
         scalar::<u32>(&connection, "SELECT count(*) FROM children", []).unwrap(),
+        0
+    );
+    immediate(&mut connection).unwrap().commit().unwrap();
+}
+
+#[test]
+fn an_automatic_sqlite_rollback_needs_no_drop_rollback() {
+    let mut connection = table();
+    exec(
+        &connection,
+        "CREATE UNIQUE INDEX entry_id ON entries (id)",
+        [],
+    )
+    .unwrap();
+    let rollbacks = trace_rollbacks(&mut connection);
+    let transaction = immediate(&mut connection).unwrap();
+    exec(&transaction, "INSERT INTO entries VALUES (1)", []).unwrap();
+    assert!(matches!(
+        exec(&transaction, "INSERT OR ROLLBACK INTO entries VALUES (1)", []),
+        Err(Error::SqliteFailure(error, _))
+            if error.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
+    ));
+    assert!(transaction.is_autocommit());
+    assert!(transaction.commit().is_err());
+    assert_eq!(rollbacks.load(Ordering::Relaxed), 0);
+    assert_eq!(
+        scalar::<u32>(&connection, "SELECT count(*) FROM entries", []).unwrap(),
         0
     );
     immediate(&mut connection).unwrap().commit().unwrap();

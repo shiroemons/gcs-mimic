@@ -316,6 +316,8 @@ impl Drop for WriteTx<'_> {
     fn drop(&mut self) {
         // A failed COMMIT may leave the transaction open, while some SQLite errors roll it back.
         if !self.0.is_autocommit() {
+            // Like rusqlite's Transaction, Drop cannot return a rollback error. The writer's
+            // panic recovery can retry it, and the next BEGIN reports a still-open transaction.
             let _ = exec(self.0, "ROLLBACK", []);
         }
     }
