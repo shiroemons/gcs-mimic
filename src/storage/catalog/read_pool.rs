@@ -63,6 +63,16 @@ impl ReadOutcome for CatalogError {
     }
 }
 
+/// Extended read-only codes can report failures opening or recovering a database for a read.
+#[cfg(test)]
+fn attempted_write(error: &impl ReadOutcome) -> bool {
+    use crate::storage::failure::{Link, chain};
+    error
+        .typed_source()
+        .and_then(|first| chain(first).find_map(Link::sqlite_extended_code))
+        == Some(rusqlite::ffi::SQLITE_READONLY)
+}
+
 /// Which connection is running a read, and so whether it may also block on object data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ReadPath {
@@ -379,11 +389,7 @@ impl Catalog {
                 let result = checkout.run(|connection| operation(connection, ReadPath::Pooled));
                 #[cfg(test)]
                 if let Some(Err(error)) = &result
-                    && let Some(first) = error.typed_source()
-                    && crate::storage::failure::chain(first).any(|link| {
-                        matches!(link, crate::storage::failure::Link::Sqlite(error)
-                            if error.sqlite_error_code() == Some(rusqlite::ErrorCode::ReadOnly))
-                    })
+                    && attempted_write(error)
                 {
                     checkout
                         .shared

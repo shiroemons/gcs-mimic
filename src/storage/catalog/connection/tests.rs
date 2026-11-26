@@ -45,7 +45,20 @@ async fn serialized_reads_detect_even_rolled_back_temp_changes() {
         .await;
     assert!(matches!(result, Err(CatalogError::Unavailable(cause))
         if cause.message() == ConnectionUnavailable::Panicked.to_string()));
-    assert_eq!(notification_runtime_count(&catalog).await.unwrap(), 0);
+    let remaining = catalog
+        .run_serialized_read::<i64, CatalogError>(
+            SerializedRead::LifecycleQuarantine,
+            |connection| {
+                Ok(sql::scalar(
+                    connection,
+                    "SELECT count(*) FROM lifecycle_quarantine",
+                    [],
+                )?)
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(remaining, 0);
     catalog.close().await.unwrap();
 }
 

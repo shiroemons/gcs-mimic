@@ -322,13 +322,13 @@ and rewrite session lookups, notification outbox polls and ACL reads use up to e
 connections. A full JSON projection checks ACL visibility and reads the grants for the whole page
 or single resource in one additional snapshot. A bucket deleted after listing keeps its place in
 the response and loses its ACL fields.
+
 Each reader has its own thread, takes an admission slot and holds an activity lease while it runs.
-A snapshot is at least as new as every commit
-that finished before the read began, so clients still read their own writes. Once an exclusive job
-has reserved the gate, reads take the serialized path behind it. A reader's snapshot can select a
-blob that reclamation unlinks before the open, and any failure on a reader, including an attempted
-write, retries on the serialized path, whose answer stands. A RAM catalog exists only inside the
-writer's connection and always reads there.
+A snapshot is at least as new as every commit that finished before the read began, so clients
+still read their own writes. Once an exclusive job has reserved the gate, reads take the serialized
+path behind it. A reader's snapshot can select a blob that reclamation unlinks before the open, and
+any failure on a reader, including an attempted write, retries on the serialized path, whose answer
+stands. A RAM catalog exists only inside the writer's connection and always reads there.
 
 Repeated reads of live objects with permissive access answer from memory on the async worker,
 without a thread hop or SQL. Every write runs through one function, which clears this cache after

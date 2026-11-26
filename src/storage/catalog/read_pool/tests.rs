@@ -234,7 +234,6 @@ async fn a_definite_answer_from_a_reader_is_not_retried() {
 /// The connection is what enforces the rule that a pooled read changes nothing: a write fails
 /// there, and the serialized path answers as it always did.
 #[tokio::test]
-#[should_panic(expected = "pooled reads returned SQLITE_READONLY")]
 async fn a_write_cannot_happen_on_a_reader() {
     let dir = TestDir::new();
     let catalog = open_with_object(&dir).await;
@@ -256,7 +255,44 @@ async fn a_write_cannot_happen_on_a_reader() {
         *paths.lock().unwrap(),
         [ReadPath::Pooled, ReadPath::Serialized]
     );
-    assert_eq!(catalog.readonly_answers(), 1);
+    // Consume the one intentional violation so close still checks for any unexpected ones.
+    assert_eq!(
+        pool(&catalog)
+            .shared
+            .readonly_answers
+            .swap(0, Ordering::Relaxed),
+        1
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn extended_readonly_failures_retry_without_counting_a_write() {
+    use rusqlite::ffi::{
+        SQLITE_READONLY_CANTINIT, SQLITE_READONLY_DBMOVED, SQLITE_READONLY_RECOVERY,
+    };
+    let dir = TestDir::new();
+    let catalog = open_with_object(&dir).await;
+    for code in [
+        SQLITE_READONLY_CANTINIT,
+        SQLITE_READONLY_DBMOVED,
+        SQLITE_READONLY_RECOVERY,
+    ] {
+        let (writes, reads) = catalog.job_counts();
+        let path = catalog
+            .run_read_on(move |_, path| match path {
+                ReadPath::Pooled => Err(CatalogError::from(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(code),
+                    None,
+                ))),
+                ReadPath::Serialized | ReadPath::Memory => Ok(path),
+            })
+            .await
+            .unwrap();
+        assert_eq!(path, ReadPath::Serialized);
+        assert_eq!(catalog.job_counts(), (writes + 1, reads + 1));
+        assert_eq!(catalog.readonly_answers(), 0);
+    }
     catalog.close().await.unwrap();
 }
 
