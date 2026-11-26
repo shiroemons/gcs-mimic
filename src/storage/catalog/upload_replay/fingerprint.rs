@@ -341,6 +341,37 @@ mod tests {
         );
     }
 
+    /// Stored replay fingerprints are compared across restarts, so a metadata update that sets,
+    /// clears or leaves the custom time alone, and a copy request, keep their digests.
+    #[test]
+    fn custom_time_and_copy_fingerprints_keep_their_digests() {
+        let digest = |metadata: &ObjectMetadataUpdate| {
+            crate::hashing::encode_lower(&request(metadata).digest().unwrap())
+        };
+        let with_time = |custom_time| ObjectMetadataUpdate {
+            custom_time,
+            ..Default::default()
+        };
+        assert_eq!(
+            [
+                digest(&with_time(Patch::Set(
+                    "2026-01-02T03:04:05.123456789Z".into()
+                ))),
+                digest(&with_time(Patch::Clear)),
+                digest(&with_time(Patch::Keep)),
+            ],
+            [
+                "20b433df8a0ec59f9da40f758144190fa10fb72695d58a823114464eeb8a5fe7",
+                "a8c16960cd5b10afc9e7e055fbf973c29723a1b26f2e3499a9b8fc2238f98a4f",
+                "1f25907dcdb2984f3155d24f274f0323f7f42a592c28ff757f8d86b650334398",
+            ]
+        );
+        assert_eq!(
+            crate::hashing::encode_lower(&copy_fingerprint("copy-request").unwrap()),
+            "410c9a45ce400987473ed0c2fac33cd00c16d76c113065a3844bcc9dc0017209"
+        );
+    }
+
     #[test]
     fn every_request_condition_contributes_to_identity() {
         let metadata = ObjectMetadataUpdate::default();

@@ -275,3 +275,92 @@ pub(crate) async fn lifecycle_transitioned_object() -> (ObjectRecord, ObjectReco
     catalog.close().await.unwrap();
     (original, stored)
 }
+
+/// An object with no optional field set, at fixed instants. Persisted-format tests pin the
+/// bytes it serializes to, so change none of its values.
+pub(crate) fn bare_object_record() -> ObjectRecord {
+    let at = UNIX_EPOCH + std::time::Duration::from_micros(1_700_000_000_123_456);
+    ObjectRecord {
+        bucket: "bucket".into(),
+        name: "bare.txt".into(),
+        generation: 1_700_000_000_123_456,
+        metageneration: 1,
+        owner: None,
+        content_type: "application/octet-stream".into(),
+        content_encoding: None,
+        content_disposition: None,
+        content_language: None,
+        cache_control: None,
+        metadata: Default::default(),
+        size: 3,
+        md5: [1; 16],
+        md5_availability: Default::default(),
+        crc32c: 7,
+        component_count: None,
+        storage_class: crate::bucket::StorageClass::Standard,
+        time_created: at,
+        time_storage_class_updated: None,
+        updated: at,
+        time_deleted: None,
+        soft_delete_time: None,
+        hard_delete_time: None,
+        event_based_hold: Default::default(),
+        temporary_hold: Default::default(),
+        event_based_hold_release_time: None,
+        custom_time: None,
+        retention_expiration_time: None,
+        retention: None,
+        customer_key_sha256: None,
+    }
+}
+
+/// An object with every optional field set, at fixed instants. Persisted-format tests pin the
+/// bytes it serializes to, so change none of its values.
+pub(crate) fn populated_object_record() -> ObjectRecord {
+    use crate::object::{Hold, Md5Availability, owner::ObjectOwner};
+    use std::time::Duration;
+    let at = |micros| UNIX_EPOCH + Duration::from_micros(micros);
+    ObjectRecord {
+        bucket: "bucket".into(),
+        name: "folder/full object.txt".into(),
+        generation: 1_700_000_000_123_456,
+        metageneration: 3,
+        owner: Some(ObjectOwner::Principal {
+            id: "uploader".into(),
+            entity: Some("user-uploader@example.test".parse().unwrap()),
+        }),
+        content_type: "text/plain".into(),
+        content_encoding: Some("gzip".into()),
+        content_disposition: Some("inline".into()),
+        content_language: Some("en".into()),
+        cache_control: Some("private".into()),
+        metadata: [
+            ("alpha".to_owned(), "one".to_owned()),
+            ("beta".into(), "two".into()),
+        ]
+        .into(),
+        size: 11,
+        md5: [3; 16],
+        md5_availability: Md5Availability::Unavailable,
+        crc32c: 123,
+        component_count: Some(2),
+        storage_class: crate::bucket::StorageClass::Nearline,
+        time_created: at(1_700_000_000_123_456),
+        time_storage_class_updated: Some(at(1_700_000_100_000_001)),
+        updated: at(1_700_000_200_000_002),
+        time_deleted: Some(at(1_700_000_300_000_003)),
+        soft_delete_time: Some(at(1_700_000_300_000_003)),
+        hard_delete_time: Some(at(1_700_900_300_000_003)),
+        event_based_hold: Hold::Held,
+        temporary_hold: Hold::Released,
+        event_based_hold_release_time: Some(at(1_700_000_250_000_004)),
+        custom_time: Some("2026-01-02T03:04:05.123456789Z".into()),
+        retention_expiration_time: Some(at(1_800_000_000_000_005)),
+        retention: Some(crate::object::retention::ObjectRetention {
+            mode: crate::object::retention::RetentionMode::Locked,
+            retain_until: crate::object::unix_nanos::UnixNanos::new(1_900_000_000, 123_456_789)
+                .unwrap(),
+        }),
+        customer_key_sha256: Some([2; 32]),
+    }
+}
