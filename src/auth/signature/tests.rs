@@ -1,5 +1,6 @@
 use super::*;
 use crate::auth::Registry;
+use crate::clock::ManualClock;
 use serde_json::json;
 
 const PRIVATE: &[u8] = include_bytes!("../../../fixtures/signing/test-only-private.pem");
@@ -22,13 +23,6 @@ const AWS_PARAMETERS: &[&str] = &[
     "X-Amz-SignedHeaders",
     "X-Amz-Signature",
 ];
-
-struct Fixed(SystemTime);
-impl Clock for Fixed {
-    fn now(&self) -> SystemTime {
-        self.0
-    }
-}
 
 fn auth() -> Auth {
     Auth::strict(
@@ -88,7 +82,7 @@ async fn verify_with_auth(
         resource: &Resource::PathStyle,
     };
     let result = match auth
-        .authenticate_xml_resource(&catalog, request, &Fixed(now))
+        .authenticate_xml_resource(&catalog, request, &ManualClock::new(now))
         .await
     {
         Ok(caller) => Ok(caller.map(|caller| caller.principal().unwrap().id().to_owned())),
@@ -548,7 +542,7 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
         method: &Method::GET,
         uri: &expired.parse().unwrap(),
         headers: &HeaderMap::new(),
-        clock: &Fixed(now),
+        clock: &ManualClock::new(now),
         resource: &Resource::PathStyle,
         listener: crate::auth::ListenerRole::Public,
     })

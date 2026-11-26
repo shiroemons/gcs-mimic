@@ -9,7 +9,7 @@ use gcs_mimic::{
 };
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -409,32 +409,19 @@ async fn expiry_waits_for_writer_and_retries_after_lease_release() {
 
 #[tokio::test]
 async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
-    struct CountingClock {
-        now: Mutex<SystemTime>,
-        calls: AtomicUsize,
-    }
-    impl Clock for CountingClock {
-        fn now(&self) -> SystemTime {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            *self.now.lock().unwrap()
-        }
-    }
     let dir = TestDir::new();
-    let clock = Arc::new(CountingClock {
-        now: Mutex::new(UNIX_EPOCH),
-        calls: AtomicUsize::new(0),
-    });
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
         .await
         .unwrap();
     catalog.start_resumable_maintenance();
     eventually_async("the scheduler to read the clock twice", || async {
-        clock.calls.load(Ordering::SeqCst) >= 2
+        clock.reads() >= 2
     })
     .await;
-    let calls = clock.calls.load(Ordering::SeqCst);
+    let calls = clock.reads();
     tokio::time::sleep(Duration::from_millis(30)).await;
-    assert_eq!(clock.calls.load(Ordering::SeqCst), calls);
+    assert_eq!(clock.reads(), calls);
     seed_bucket(&catalog).await;
     let first = catalog
         .create_resumable_session(
@@ -445,7 +432,7 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
         )
         .await
         .unwrap();
-    *clock.now.lock().unwrap() = first.deadline;
+    clock.set_without_waking(first.deadline);
     catalog
         .create_resumable_session(
             "bucket",

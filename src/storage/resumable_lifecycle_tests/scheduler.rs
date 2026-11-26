@@ -3,35 +3,14 @@ use crate::storage::catalog::fault;
 #[cfg(unix)]
 use crate::storage::catalog::fault::{Fault, Step};
 
-struct CountingClock {
-    now: Mutex<SystemTime>,
-    calls: AtomicUsize,
-}
-
-impl CountingClock {
-    fn new() -> Self {
-        Self {
-            now: Mutex::new(UNIX_EPOCH),
-            calls: AtomicUsize::new(0),
-        }
-    }
-
-    async fn start_and_wait_for_busy_pass(&self, catalog: &Catalog) {
-        self.calls.store(0, Ordering::SeqCst);
-        catalog.start_resumable_maintenance();
-        // Creation leaves a notification: both initial passes must reach their future timer.
-        eventually_async("both initial passes to reach their timer", || async {
-            self.calls.load(Ordering::SeqCst) >= 4
-        })
-        .await;
-    }
-}
-
-impl Clock for CountingClock {
-    fn now(&self) -> SystemTime {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        *self.now.lock().unwrap()
-    }
+async fn start_and_wait_for_busy_pass(clock: &ManualClock, catalog: &Catalog) {
+    let before = clock.reads();
+    catalog.start_resumable_maintenance();
+    // Creation leaves a notification: both initial passes must reach their future timer.
+    eventually_async("both initial passes to reach their timer", || async {
+        clock.reads() - before >= 4
+    })
+    .await;
 }
 
 fn count(catalog: &rusqlite::Connection, table: &str) -> i64 {
@@ -46,7 +25,7 @@ fn count(catalog: &rusqlite::Connection, table: &str) -> i64 {
 #[tokio::test]
 async fn expired_busy_session_wakes_scheduler_when_its_writer_is_released() {
     let dir = TestDir::new();
-    let clock = Arc::new(CountingClock::new());
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
@@ -61,7 +40,7 @@ async fn expired_busy_session_wakes_scheduler_when_its_writer_is_released() {
         .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
-    *clock.now.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     catalog
         .create_resumable_session(
             "bucket",
@@ -72,7 +51,7 @@ async fn expired_busy_session_wakes_scheduler_when_its_writer_is_released() {
         .await
         .unwrap();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    clock.start_and_wait_for_busy_pass(&catalog).await;
+    start_and_wait_for_busy_pass(&clock, &catalog).await;
     assert_eq!(count(&connection, "sessions"), 2);
     assert!(lease.staging_path().exists());
     assert!(catalog.resumable_maintenance_error().is_none());
@@ -91,7 +70,7 @@ async fn expired_busy_session_wakes_scheduler_when_its_writer_is_released() {
 #[cfg(unix)]
 async fn failed_cleanup_retries_after_writer_release_without_another_request() {
     let dir = TestDir::new();
-    let clock = Arc::new(CountingClock::new());
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
@@ -116,7 +95,7 @@ async fn failed_cleanup_retries_after_writer_release_without_another_request() {
     assert_eq!(fault::pending(&dir.0), 0);
     assert!(catalog.resumable_maintenance_error().is_some());
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    clock.start_and_wait_for_busy_pass(&catalog).await;
+    start_and_wait_for_busy_pass(&clock, &catalog).await;
     assert_eq!(count(&connection, "journal"), 1);
     assert_eq!(count(&connection, "sessions"), 1);
     drop(lease);

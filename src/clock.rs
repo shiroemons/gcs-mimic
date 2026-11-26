@@ -52,27 +52,47 @@ pub(crate) fn system_time_from_unix_seconds(seconds: i64) -> Option<SystemTime> 
 /// A clock that moves only when a test moves it. A watch channel holds the time so that a wait
 /// on the clock ([`Clock::sleep`]) ends when a move passes its end.
 #[cfg(test)]
-pub(crate) struct ManualClock(tokio::sync::watch::Sender<SystemTime>);
+pub(crate) struct ManualClock {
+    time: tokio::sync::watch::Sender<SystemTime>,
+    reads: std::sync::atomic::AtomicUsize,
+}
 
 #[cfg(test)]
 impl ManualClock {
     pub(crate) fn new(now: SystemTime) -> Self {
-        Self(tokio::sync::watch::Sender::new(now))
+        Self {
+            time: tokio::sync::watch::Sender::new(now),
+            reads: std::sync::atomic::AtomicUsize::new(0),
+        }
     }
 
     pub(crate) fn set(&self, now: SystemTime) {
-        self.0.send_replace(now);
+        self.time.send_replace(now);
+    }
+
+    /// Leaves the scheduled waiter asleep so the test can attribute its wake to a request.
+    pub(crate) fn set_without_waking(&self, now: SystemTime) {
+        self.time.send_if_modified(|previous| {
+            *previous = now;
+            false
+        });
+    }
+
+    /// Explicit time reads and observations made when arming waits.
+    pub(crate) fn reads(&self) -> usize {
+        self.reads.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub(crate) fn advance(&self, duration: std::time::Duration) {
-        self.0.send_modify(|now| *now += duration);
+        self.time.send_modify(|now| *now += duration);
     }
 }
 
 #[cfg(test)]
 impl Clock for ManualClock {
     fn now(&self) -> SystemTime {
-        *self.0.borrow()
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        *self.time.borrow()
     }
 
     fn pause(&self, duration: std::time::Duration) {
@@ -87,7 +107,8 @@ impl Clock for ManualClock {
     }
 
     fn sleep_until(&self, end: SystemTime) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        let mut time = self.0.subscribe();
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut time = self.time.subscribe();
         Box::pin(async move {
             // The sender lives as long as the clock this wait borrows, so the wait ends only when
             // the time reaches its end.

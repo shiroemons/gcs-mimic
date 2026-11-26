@@ -1,9 +1,10 @@
 use super::*;
 use crate::auth::{Auth, AuthFailure, Caller, ListenerRole};
+use crate::clock::ManualClock;
 use hyper::HeaderMap;
 use ring::{rand::SystemRandom, signature};
 use serde_json::{Value, json};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use tokio_rustls::rustls::pki_types::{PrivateKeyDer, pem::PemObject};
 
 const PRIVATE: &[u8] = include_bytes!("../../../fixtures/signing/test-only-private.pem");
@@ -18,7 +19,7 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
     let mut headers = HeaderMap::new();
     headers.insert("authorization", format!("Bearer {signed}").parse().unwrap());
     let caller = auth
-        .authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public)
+        .authenticate_request(&headers, None, &fixed_clock(NOW), ListenerRole::Public)
         .await
         .unwrap()
         .unwrap();
@@ -34,7 +35,7 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
             .unwrap(),
     );
     assert!(matches!(
-        auth.authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public)
+        auth.authenticate_request(&headers, None, &fixed_clock(NOW), ListenerRole::Public)
             .await,
         Err(AuthError::Failure(AuthFailure::InvalidCredentials))
     ));
@@ -49,7 +50,7 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
         assert!(
             tokio::time::timeout(
                 Duration::from_secs(1),
-                authenticate(&auth, &signed, &Fixed(NOW))
+                authenticate(&auth, &signed, &fixed_clock(NOW))
             )
             .await
             .unwrap()
@@ -58,7 +59,7 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
         headers.insert("authorization", "Bearer opaque-token".parse().unwrap());
         let caller = tokio::time::timeout(
             Duration::from_secs(1),
-            auth.authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public),
+            auth.authenticate_request(&headers, None, &fixed_clock(NOW), ListenerRole::Public),
         )
         .await
         .unwrap()
@@ -66,8 +67,13 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
         .unwrap();
         assert_eq!(caller.principal().unwrap().id(), ISSUER);
         assert!(matches!(
-            auth.authenticate_request(&HeaderMap::new(), None, &Fixed(NOW), ListenerRole::Public)
-                .await,
+            auth.authenticate_request(
+                &HeaderMap::new(),
+                None,
+                &fixed_clock(NOW),
+                ListenerRole::Public
+            )
+            .await,
             Ok(Some(Caller::Anonymous))
         ));
         release.send(()).unwrap();
@@ -76,11 +82,8 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
     result.unwrap();
 }
 
-struct Fixed(u64);
-impl Clock for Fixed {
-    fn now(&self) -> SystemTime {
-        UNIX_EPOCH + Duration::from_secs(self.0)
-    }
+fn fixed_clock(seconds: u64) -> ManualClock {
+    ManualClock::new(UNIX_EPOCH + Duration::from_secs(seconds))
 }
 
 fn registry(keys: &[&str], tokens: &[&str]) -> Registry {
@@ -148,7 +151,7 @@ async fn jwt_resolves_registered_keys_and_keeps_opaque_tokens_and_project_permis
         let mut headers = HeaderMap::new();
         headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
         let caller = auth
-            .authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public)
+            .authenticate_request(&headers, None, &fixed_clock(NOW), ListenerRole::Public)
             .await
             .unwrap()
             .unwrap();
@@ -164,7 +167,7 @@ async fn jwt_resolves_registered_keys_and_keeps_opaque_tokens_and_project_permis
     );
     assert!(matches!(
         Auth::permissive()
-            .authenticate_request(&headers, None, &Fixed(0), ListenerRole::Public)
+            .authenticate_request(&headers, None, &fixed_clock(0), ListenerRole::Public)
             .await,
         Ok(None)
     ));
@@ -178,14 +181,18 @@ async fn failed_signatures_do_not_change_the_result_for_the_same_claims() {
     let other_signature = format!("{message}.AA");
     for _ in 0..2 {
         assert!(
-            authenticate(&auth, &other_signature, &Fixed(NOW))
+            authenticate(&auth, &other_signature, &fixed_clock(NOW))
                 .await
                 .is_none()
         );
-        assert!(authenticate(&auth, &signed, &Fixed(NOW)).await.is_some());
+        assert!(
+            authenticate(&auth, &signed, &fixed_clock(NOW))
+                .await
+                .is_some()
+        );
     }
     assert!(
-        authenticate(&auth, &signed, &Fixed(NOW + 60))
+        authenticate(&auth, &signed, &fixed_clock(NOW + 60))
             .await
             .is_none()
     );
@@ -195,7 +202,11 @@ async fn failed_signatures_do_not_change_the_result_for_the_same_claims() {
 async fn a_verified_signature_does_not_authorize_other_claims_or_a_future_issue_time() {
     let auth = Auth::strict(registry(&[PUBLIC], &[]));
     let signed = token(&claims());
-    assert!(authenticate(&auth, &signed, &Fixed(NOW)).await.is_some());
+    assert!(
+        authenticate(&auth, &signed, &fixed_clock(NOW))
+            .await
+            .is_some()
+    );
     let (header, _) = signed.split_once('.').unwrap();
     let (_, signature) = signed.rsplit_once('.').unwrap();
     let mut changed = claims();
@@ -205,9 +216,13 @@ async fn a_verified_signature_does_not_authorize_other_claims_or_a_future_issue_
         encoded(changed.to_string().as_bytes())
     );
     for _ in 0..2 {
-        assert!(authenticate(&auth, &forged, &Fixed(NOW)).await.is_none());
         assert!(
-            authenticate(&auth, &signed, &Fixed(NOW - 61))
+            authenticate(&auth, &forged, &fixed_clock(NOW))
+                .await
+                .is_none()
+        );
+        assert!(
+            authenticate(&auth, &signed, &fixed_clock(NOW - 61))
                 .await
                 .is_none()
         );
@@ -243,7 +258,11 @@ async fn a_verified_signature_cannot_be_reused_for_another_registered_issuer() {
     .unwrap();
     let auth = Auth::strict(Registry::parse(&bytes).unwrap());
     let signed = token(&claims());
-    assert!(authenticate(&auth, &signed, &Fixed(NOW)).await.is_some());
+    assert!(
+        authenticate(&auth, &signed, &fixed_clock(NOW))
+            .await
+            .is_some()
+    );
     let (_, signature) = signed.rsplit_once('.').unwrap();
     let mut changed = claims();
     changed["iss"] = other.into();
@@ -251,12 +270,15 @@ async fn a_verified_signature_cannot_be_reused_for_another_registered_issuer() {
     let peer = token(&changed);
     let (message, _) = peer.rsplit_once('.').unwrap();
     assert!(
-        authenticate(&auth, &format!("{message}.{signature}"), &Fixed(NOW))
+        authenticate(&auth, &format!("{message}.{signature}"), &fixed_clock(NOW))
             .await
             .is_none()
     );
     assert_eq!(
-        authenticate(&auth, &peer, &Fixed(NOW)).await.unwrap().id(),
+        authenticate(&auth, &peer, &fixed_clock(NOW))
+            .await
+            .unwrap()
+            .id(),
         other
     );
 }
@@ -266,7 +288,7 @@ async fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
     let registry = Auth::strict(registry(&[PUBLIC], &[]));
     let valid = token(&claims());
     assert_eq!(
-        authenticate(&registry, &valid, &Fixed(NOW))
+        authenticate(&registry, &valid, &fixed_clock(NOW))
             .await
             .unwrap()
             .id(),
@@ -299,7 +321,7 @@ async fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
         let mut claims = claims();
         claims[field] = value;
         assert!(
-            authenticate(&registry, &token(&claims), &Fixed(NOW))
+            authenticate(&registry, &token(&claims), &fixed_clock(NOW))
                 .await
                 .is_none(),
             "{field}: {claims}"
@@ -318,7 +340,7 @@ async fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
             authenticate(
                 &registry,
                 &sign_raw(header, &claims().to_string()),
-                &Fixed(NOW)
+                &fixed_clock(NOW)
             )
             .await
             .is_none()
@@ -328,7 +350,7 @@ async fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
         let mut claims = claims();
         claims.as_object_mut().unwrap().remove(field);
         assert!(
-            authenticate(&registry, &token(&claims), &Fixed(NOW))
+            authenticate(&registry, &token(&claims), &fixed_clock(NOW))
                 .await
                 .is_none()
         );
@@ -342,7 +364,7 @@ async fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
         authenticate(
             &registry,
             &sign_raw(r#"{"alg":"RS256"}"#, &duplicate),
-            &Fixed(NOW)
+            &fixed_clock(NOW)
         )
         .await
         .is_none()
@@ -356,7 +378,11 @@ async fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
         format!("{valid}="),
         "a".repeat(MAX_TOKEN_BYTES + 1),
     ] {
-        assert!(authenticate(&registry, &token, &Fixed(NOW)).await.is_none());
+        assert!(
+            authenticate(&registry, &token, &fixed_clock(NOW))
+                .await
+                .is_none()
+        );
     }
 }
 
@@ -365,17 +391,17 @@ async fn jwt_time_boundaries_and_registry_key_rotation_are_explicit() {
     let original = Auth::strict(registry(&[PUBLIC], &[]));
     let valid = token(&claims());
     assert!(
-        authenticate(&original, &valid, &Fixed(NOW - 60))
+        authenticate(&original, &valid, &fixed_clock(NOW - 60))
             .await
             .is_some()
     );
     assert!(
-        authenticate(&original, &valid, &Fixed(NOW + 59))
+        authenticate(&original, &valid, &fixed_clock(NOW + 59))
             .await
             .is_some()
     );
     assert!(
-        authenticate(&original, &valid, &Fixed(NOW + 60))
+        authenticate(&original, &valid, &fixed_clock(NOW + 60))
             .await
             .is_none()
     );
@@ -384,7 +410,7 @@ async fn jwt_time_boundaries_and_registry_key_rotation_are_explicit() {
     boundary["exp"] = json!(NOW + 3600);
     boundary["nbf"] = json!(NOW);
     assert!(
-        authenticate(&original, &token(&boundary), &Fixed(NOW))
+        authenticate(&original, &token(&boundary), &fixed_clock(NOW))
             .await
             .is_some()
     );
@@ -393,9 +419,21 @@ async fn jwt_time_boundaries_and_registry_key_rotation_are_explicit() {
     assert_ne!(other, PUBLIC);
     let overlap = Auth::strict(registry(&[&other, PUBLIC], &[]));
     let rotated = Auth::strict(registry(&[&other], &[]));
-    assert!(authenticate(&overlap, &valid, &Fixed(NOW)).await.is_some());
-    assert!(authenticate(&rotated, &valid, &Fixed(NOW)).await.is_none());
-    assert!(authenticate(&original, &valid, &Fixed(NOW)).await.is_some());
+    assert!(
+        authenticate(&overlap, &valid, &fixed_clock(NOW))
+            .await
+            .is_some()
+    );
+    assert!(
+        authenticate(&rotated, &valid, &fixed_clock(NOW))
+            .await
+            .is_none()
+    );
+    assert!(
+        authenticate(&original, &valid, &fixed_clock(NOW))
+            .await
+            .is_some()
+    );
 }
 
 #[tokio::test]
@@ -418,14 +456,19 @@ async fn registered_jwt_shaped_tokens_never_bypass_signature_or_scope_checks() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
         assert!(matches!(
-            auth.authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public)
+            auth.authenticate_request(&headers, None, &fixed_clock(NOW), ListenerRole::Public)
                 .await,
             Err(AuthError::Failure(AuthFailure::InvalidCredentials))
         ));
     }
     assert!(matches!(
-        auth.authenticate_request(&HeaderMap::new(), None, &Fixed(NOW), ListenerRole::Public)
-            .await,
+        auth.authenticate_request(
+            &HeaderMap::new(),
+            None,
+            &fixed_clock(NOW),
+            ListenerRole::Public
+        )
+        .await,
         Ok(Some(Caller::Anonymous))
     ));
 }
@@ -442,7 +485,7 @@ fn a_disabled_test_signer_is_named_as_the_cause_of_its_rejected_jwt() {
     };
     let disabled = registry(&[PUBLIC], &[]);
     let rejection = |registry: &Registry, issuer: &str| {
-        Candidate::parse(registry, &signed_by(issuer), &Fixed(NOW)).err()
+        Candidate::parse(registry, &signed_by(issuer), &fixed_clock(NOW)).err()
     };
     assert_eq!(
         rejection(&disabled, test_signer::ID),
@@ -458,7 +501,7 @@ fn a_disabled_test_signer_is_named_as_the_cause_of_its_rejected_jwt() {
     lifetime["sub"] = test_signer::ID.into();
     lifetime["exp"] = (NOW + 7200).into();
     assert!(matches!(
-        Candidate::parse(&disabled, &token(&lifetime), &Fixed(NOW)),
+        Candidate::parse(&disabled, &token(&lifetime), &fixed_clock(NOW)),
         Err(Rejection::Unsupported)
     ));
     let mut enabled = registry(&[PUBLIC], &[]);

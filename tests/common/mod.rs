@@ -6,7 +6,7 @@
 use std::{
     io::BufRead,
     process::{Child, Command},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 pub(crate) mod catalog;
@@ -25,6 +25,14 @@ pub(crate) type TestDir = input_fixtures::TestDir;
 // Only `eventually` is used by every binary (through `process::no_leaks`); an unused
 // re-export warns per binary, so the other waits are reached through `input_fixtures`.
 pub(crate) use input_fixtures::eventually;
+
+pub(crate) struct FixedClock(pub(crate) SystemTime);
+
+impl gcs_mimic::clock::Clock for FixedClock {
+    fn now(&self) -> SystemTime {
+        self.0
+    }
+}
 
 enum Base64 {
     Standard,

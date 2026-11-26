@@ -1,9 +1,8 @@
 use crate::common;
 use common::http::Body;
-use common::{CleanEnv, TestDir};
+use common::{CleanEnv, FixedClock, TestDir};
 use gcs_mimic::storage::admin::{BucketName, Origin};
 use gcs_mimic::{
-    clock::Clock,
     config::Config,
     config_input::RenamedEnvironmentVariable,
     server::{self, State},
@@ -19,16 +18,9 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 use tokio::sync::oneshot;
-
-struct FixedClock;
-impl Clock for FixedClock {
-    fn now(&self) -> SystemTime {
-        UNIX_EPOCH + Duration::from_secs(42)
-    }
-}
 
 fn process_ready(child: &mut Child) -> (BufReader<ChildStdout>, serde_json::Value) {
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
@@ -695,7 +687,7 @@ async fn start(
         xml_cors_warned_buckets: Default::default(),
         grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
-        clock: Arc::new(FixedClock),
+        clock: Arc::new(FixedClock(UNIX_EPOCH + Duration::from_secs(42))),
         catalog: Catalog::open(&dir.0).await.unwrap(),
         api_base_url: config.effective_api_base_url(address),
         default_location: config.default_location().to_owned(),
@@ -1377,7 +1369,7 @@ async fn shutdown_stops_accepting_on_original_listener() {
         xml_cors_warned_buckets: Default::default(),
         grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
-        clock: Arc::new(FixedClock),
+        clock: Arc::new(FixedClock(UNIX_EPOCH + Duration::from_secs(42))),
         catalog: Catalog::open(&dir.0).await.unwrap(),
         api_base_url: config.effective_api_base_url(address),
         default_location: config.default_location().to_owned(),
@@ -1444,7 +1436,7 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
         xml_cors_warned_buckets: Default::default(),
         grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
-        clock: Arc::new(FixedClock),
+        clock: Arc::new(FixedClock(UNIX_EPOCH + Duration::from_secs(42))),
         catalog,
         api_base_url: config.effective_api_base_url(listener.local_addr().unwrap()),
         default_location: config.default_location().to_owned(),

@@ -1798,6 +1798,7 @@ fn records(
 mod tests {
 
     use super::*;
+    use crate::clock::ManualClock;
     use crate::diagnostics::test_support::has;
     use proptest::prelude::*;
     use std::{
@@ -1824,11 +1825,12 @@ mod tests {
     /// once encoded: each takes 18 bytes as written and 27 with the number expanded.
     const EXPANDING_LABELS: usize = 800_000;
 
-    struct FixedClock;
-    impl Clock for FixedClock {
-        fn now(&self) -> SystemTime {
-            UNIX_EPOCH + Duration::from_micros(1_700_000_000_123_456)
-        }
+    fn fixture_time() -> SystemTime {
+        UNIX_EPOCH + Duration::from_micros(1_700_000_000_123_456)
+    }
+
+    fn fixed_clock() -> ManualClock {
+        ManualClock::new(fixture_time())
     }
 
     /// Most cases here check a limit an operator named, so they name one.
@@ -1884,7 +1886,7 @@ mod tests {
             document.as_bytes(),
             Form::File,
             "seed-project",
-            &FixedClock,
+            &fixed_clock(),
             "US",
             named(LIMIT),
         )
@@ -1898,7 +1900,7 @@ mod tests {
             document.as_bytes(),
             Form::File,
             "seed-project",
-            &FixedClock,
+            &fixed_clock(),
             "US",
             limit,
         ))
@@ -2032,7 +2034,7 @@ mod tests {
     proptest! {
         #[test]
         fn arbitrary_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
-            let result = parse(&bytes, "seed-project", &FixedClock, "US");
+            let result = parse(&bytes, "seed-project", &fixed_clock(), "US");
             if let Err(errors) = result {
                 prop_assert!(errors.is_err());
                 let mut output = Vec::new();
@@ -2046,7 +2048,7 @@ mod tests {
             bytes in prop::collection::vec(any::<u8>(), 0..4096),
             limit in prop_oneof![Just(0usize), Just(1), 1usize..=1_000_000, Just(1_000_000)],
         ) {
-            if let Err(errors) = super::parse(&bytes, Form::Inline, "seed-project", &FixedClock, "US", named(limit)) {
+            if let Err(errors) = super::parse(&bytes, Form::Inline, "seed-project", &fixed_clock(), "US", named(limit)) {
                 prop_assert!(errors.is_err());
                 prop_assert!(rendered_bytes(&errors) <= DIAGNOSTIC_BYTES_LIMIT);
             }
@@ -2438,7 +2440,7 @@ mod tests {
                 super::load(
                     &file(&path),
                     "seed-project",
-                    &FixedClock,
+                    &fixed_clock(),
                     "US",
                     named(limit),
                 )
@@ -2446,7 +2448,7 @@ mod tests {
             },
             {
                 fs::write(&path, fill(0)).unwrap();
-                load(&path, "seed-project", &FixedClock, "US").unwrap_err()
+                load(&path, "seed-project", &fixed_clock(), "US").unwrap_err()
             },
         ] {
             assert_eq!(failure.errors[0].key, "buckets_file");
@@ -2460,7 +2462,7 @@ mod tests {
             super::load(
                 &file(&path),
                 "seed-project",
-                &FixedClock,
+                &fixed_clock(),
                 "US",
                 named(limit)
             )
@@ -2471,7 +2473,7 @@ mod tests {
             super::load(
                 &DocumentSource::Inline(fill(extra).into()),
                 "seed-project",
-                &FixedClock,
+                &fixed_clock(),
                 "US",
                 named(limit),
             )
@@ -2548,8 +2550,8 @@ mod tests {
         let records = parsed(document).unwrap();
         assert_eq!(records[0].project, "entry-project");
         assert_eq!(records[1].project, "file-project");
-        assert_eq!(records[0].time_created, FixedClock.now());
-        assert_eq!(records[0].updated, FixedClock.now());
+        assert_eq!(records[0].time_created, fixture_time());
+        assert_eq!(records[0].updated, fixture_time());
         assert_eq!(records[0].metageneration, 1);
         assert_eq!(records[0].location.as_str(), "EU");
         assert_eq!(records[0].storage_class.as_str(), "NEARLINE");
@@ -2576,7 +2578,7 @@ mod tests {
 
     #[test]
     fn initializer_location_normalizes_names_and_defaults() {
-        let records = parse(br#"{"version":1,"buckets":[{"name":"default-bucket"},{"name":"explicit-bucket","location":"EU"}]}"#, "seed-project", &FixedClock, "ASIA").unwrap();
+        let records = parse(br#"{"version":1,"buckets":[{"name":"default-bucket"},{"name":"explicit-bucket","location":"EU"}]}"#, "seed-project", &fixed_clock(), "ASIA").unwrap();
         assert_eq!(records[0].location.as_str(), "ASIA");
         assert_eq!(records[1].location.as_str(), "EU");
         for value in [json!(""), Value::Null] {
@@ -2584,7 +2586,7 @@ mod tests {
                 json!({"version":1,"buckets":[{"name":"example-bucket","location":value}]})
                     .to_string();
             assert_eq!(
-                parse(document.as_bytes(), "seed-project", &FixedClock, "NAM4").unwrap()[0]
+                parse(document.as_bytes(), "seed-project", &fixed_clock(), "NAM4").unwrap()[0]
                     .location
                     .as_str(),
                 "NAM4"
@@ -2594,7 +2596,7 @@ mod tests {
             let document =
                 json!({"version":1,"buckets":[{"name":"example-bucket","location":value}]})
                     .to_string();
-            let records = parse(document.as_bytes(), "seed-project", &FixedClock, "US").unwrap();
+            let records = parse(document.as_bytes(), "seed-project", &fixed_clock(), "US").unwrap();
             assert_eq!(records[0].location.as_str(), value.to_ascii_uppercase());
             assert_eq!(records[0].location.kind().as_str(), kind);
         }
@@ -2602,7 +2604,7 @@ mod tests {
             let document =
                 json!({"version":1,"buckets":[{"name":"example-bucket","location":value}]})
                     .to_string();
-            assert!(parse(document.as_bytes(), "seed-project", &FixedClock, "ASIA").is_err());
+            assert!(parse(document.as_bytes(), "seed-project", &fixed_clock(), "ASIA").is_err());
         }
     }
 
@@ -2616,15 +2618,16 @@ mod tests {
             b"{/* secret */}",
             b"{\"secret-token\":",
         ] {
-            let errors = parse(bytes, "seed-project", &FixedClock, "US").unwrap_err();
+            let errors = parse(bytes, "seed-project", &fixed_clock(), "US").unwrap_err();
             assert_eq!(errors.errors.len(), 1);
             assert_eq!(errors.errors[0].key, "buckets_file");
             assert!(!errors.to_string().contains("secret"));
             // The inline form names its own setting and never echoes the text either.
             if let Ok(text) = std::str::from_utf8(bytes) {
                 let inline = DocumentSource::Inline(text.into());
-                let errors = super::load(&inline, "seed-project", &FixedClock, "US", named(LIMIT))
-                    .unwrap_err();
+                let errors =
+                    super::load(&inline, "seed-project", &fixed_clock(), "US", named(LIMIT))
+                        .unwrap_err();
                 assert_eq!(errors.errors.len(), 1);
                 assert_eq!(errors.errors[0].key, "buckets");
                 assert!(!errors.to_string().contains("secret"));
@@ -2716,7 +2719,7 @@ mod tests {
                 parse_insert_with_profile(
                     entry.as_bytes(),
                     "local-project",
-                    FixedClock.now(),
+                    fixture_time(),
                     CompatProfile::Native,
                     "US"
                 )
@@ -2816,7 +2819,7 @@ mod tests {
             parse(
                 br#"{"version":1,"buckets":[{"name":"example-bucket","location":"bad"}]}"#,
                 "bad project",
-                &FixedClock,
+                &fixed_clock(),
                 "US"
             )
             .unwrap_err()
@@ -3298,7 +3301,7 @@ mod tests {
             parse_insert_with_profile(
                 permissive_api,
                 "local-project",
-                FixedClock.now(),
+                fixture_time(),
                 CompatProfile::Native,
                 "US"
             )
@@ -3314,7 +3317,7 @@ mod tests {
             parse_insert_with_profile(
                 legacy,
                 "local-project",
-                FixedClock.now(),
+                fixture_time(),
                 CompatProfile::FakeGcsServer,
                 "US"
             )
@@ -3365,7 +3368,7 @@ mod tests {
                     records(super::load(
                         &source,
                         "seed-project",
-                        &FixedClock,
+                        &fixed_clock(),
                         "US",
                         named(LIMIT),
                     ))
@@ -3414,7 +3417,7 @@ mod tests {
                 let created: BTreeSet<_> = records(super::load(
                     &DocumentSource::Parsed(parsed.clone()),
                     "seed-project",
-                    &FixedClock,
+                    &fixed_clock(),
                     "US",
                     named(LIMIT),
                 ))
@@ -3458,7 +3461,7 @@ mod tests {
             records(super::load(
                 source,
                 "seed-project",
-                &FixedClock,
+                &fixed_clock(),
                 "US",
                 named(LIMIT),
             ))
@@ -3492,7 +3495,7 @@ mod tests {
             let Err(load) = records(super::load(
                 &source,
                 "seed-project",
-                &FixedClock,
+                &fixed_clock(),
                 "US",
                 named(LIMIT),
             )) else {
@@ -3510,15 +3513,15 @@ mod tests {
         let file = root.join("buckets.json");
         fs::write(&file, r#"{"version":1,"buckets":[]}"#).unwrap();
         assert!(
-            load(&file, "seed-project", &FixedClock, "US")
+            load(&file, "seed-project", &fixed_clock(), "US")
                 .unwrap()
                 .is_empty()
         );
-        assert!(load(root, "seed-project", &FixedClock, "US").is_err());
-        assert!(load(&root.join("missing"), "seed-project", &FixedClock, "US").is_err());
+        assert!(load(root, "seed-project", &fixed_clock(), "US").is_err());
+        assert!(load(&root.join("missing"), "seed-project", &fixed_clock(), "US").is_err());
         let relative = Path::new("Cargo.toml");
         assert_eq!(
-            load(relative, "seed-project", &FixedClock, "US")
+            load(relative, "seed-project", &fixed_clock(), "US")
                 .unwrap_err()
                 .errors[0]
                 .key,
@@ -3527,11 +3530,11 @@ mod tests {
         let relative_directory = crate::test_support::TestDir::new_in(Path::new("."));
         let relative = relative_directory.0.join("buckets.json");
         fs::write(&relative, r#"{"version":1,"buckets":[]}"#).unwrap();
-        assert!(load(&relative, "seed-project", &FixedClock, "US").is_ok());
+        assert!(load(&relative, "seed-project", &fixed_clock(), "US").is_ok());
         fs::remove_file(relative).unwrap();
         fs::write(&file, vec![b' '; FILE_LIMIT + 1]).unwrap();
         assert!(
-            load(&file, "seed-project", &FixedClock, "US")
+            load(&file, "seed-project", &fixed_clock(), "US")
                 .unwrap_err()
                 .errors[0]
                 .fix
@@ -3543,10 +3546,10 @@ mod tests {
             let link = root.join("link.json");
             fs::write(&file, r#"{"version":1,"buckets":[]}"#).unwrap();
             symlink(&file, &link).unwrap();
-            assert!(load(&link, "seed-project", &FixedClock, "US").is_ok());
+            assert!(load(&link, "seed-project", &fixed_clock(), "US").is_ok());
             fs::set_permissions(&file, fs::Permissions::from_mode(0o0)).unwrap();
             if std::fs::File::open(&file).is_err() {
-                assert!(load(&file, "seed-project", &FixedClock, "US").is_err());
+                assert!(load(&file, "seed-project", &fixed_clock(), "US").is_err());
             } else {
                 eprintln!(
                     "Unreadable-file assertion not applicable: this principal can open mode 000 files."
@@ -3555,7 +3558,7 @@ mod tests {
             fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
             let fifo = root.join("fifo");
             crate::test_support::fifo(&fifo);
-            assert!(load(&fifo, "seed-project", &FixedClock, "US").is_err());
+            assert!(load(&fifo, "seed-project", &fixed_clock(), "US").is_err());
         }
     }
 }

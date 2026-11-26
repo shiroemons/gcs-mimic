@@ -714,16 +714,11 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
 
 #[tokio::test]
 async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
-    struct FixedClock;
-    impl gcs_mimic::clock::Clock for FixedClock {
-        fn now(&self) -> std::time::SystemTime {
-            UNIX_EPOCH + Duration::from_micros(123_456_789)
-        }
-    }
     let dir = TestDir::new();
-    let catalog = Catalog::open_with_clock(&dir.0, Arc::new(FixedClock))
-        .await
-        .unwrap();
+    let clock = Arc::new(ManualClock::new(
+        UNIX_EPOCH + Duration::from_micros(123_456_789),
+    ));
+    let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     let mut original = bucket("put-clock", "project");
     original.storage_class = crate::bucket::StorageClass::Archive;
     original.versioning = crate::bucket::Versioning::Enabled;
@@ -859,16 +854,11 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
 
 #[tokio::test]
 async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
-    struct FixedClock;
-    impl gcs_mimic::clock::Clock for FixedClock {
-        fn now(&self) -> std::time::SystemTime {
-            UNIX_EPOCH + Duration::from_micros(123_456_789)
-        }
-    }
     let dir = TestDir::new();
-    let catalog = Catalog::open_with_clock(&dir.0, Arc::new(FixedClock))
-        .await
-        .unwrap();
+    let clock = Arc::new(ManualClock::new(
+        UNIX_EPOCH + Duration::from_micros(123_456_789),
+    ));
+    let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     let original = catalog
         .insert_bucket(bucket("patch-clock", "project"))
         .await

@@ -1091,8 +1091,11 @@ These start DESIGN-098 for parsers:
 
 ### Test helpers
 
-- **Clocks.** One `ManualClock`, with a read counter, replaces the in-crate
-  test clocks.
+- **Clocks.** `ManualClock` supplies fixed and controlled time to library tests
+  and counts reads for scheduler tests. The latter can set time without waking
+  a timer, so a test can check that a request supplies the wake. Specialized
+  clocks still exercise real microsecond timestamps and inject state changes
+  during reads.
 - **Shared helpers.** `tests/common` gets one clock and one base64 helper
   instead of nine copies.
 - **Fixtures.** Record builders under `cfg(test)` replace full `ObjectRecord`
