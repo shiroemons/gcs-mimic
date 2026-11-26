@@ -481,4 +481,4 @@ gcs-mimicはこれらのファイルを削除しません。
 - [SDK・認証・ブラウザー](../en/getting-started.md)
 - [ソースからのビルドと検証](development.md)
 - [イメージ配布と対応環境](../en/container-distribution.md)
-- [今後の導入機能](roadmap.md)
+- [ロードマップ](roadmap.md)

@@ -391,12 +391,12 @@ the built-in test signer for this, and its README shows the entry that uses it.
 
 ## Goal and current state
 
-The migration goal is to preserve existing application workflows while adding
-stricter Google-contract validation, broader capabilities and resource controls.
-CLI spelling, configuration structure and internal storage need not be identical
-to fake-gcs-server. Document equivalent uses and explicit differences; the broader
-full-superset gate below tracks remaining functional coverage.
-This is a target, not a current compatibility claim. Filesystem import and
+The migration goal is to keep existing application workflows working when a
+fake-gcs-server service is replaced, while adding stricter Google-contract
+validation and resource controls. CLI spelling, configuration structure and
+internal storage need not be identical to fake-gcs-server. Document equivalent
+uses and explicit differences. Becoming a complete superset of fake-gcs-server
+is not a goal; see [migration scope](#migration-scope). Filesystem import and
 quiesced memory capture now have separate contracts. Go integration uses a
 Rust subprocess facade with a supported exported subset; literal in-process
 embedding and the complete source Go API remain unsupported.
@@ -413,12 +413,9 @@ provider error parity and complete endpoint/configuration equivalence remain
 gaps; see the [acceptance map](evidence/migration-integration.md).
 
 The first reference is the fake-gcs-server release in the
-[detailed comparison](feature-comparison.md).
-Record its complete surface before implementation and add later releases as
-explicit baselines. Do not present one release's passing tests as proof about
-all versions. No baseline
-capability is excluded from the full-superset target merely because it is absent
-from the current GCS inventory or the early-release queue.
+[detailed comparison](feature-comparison.md). Add later releases as explicit
+baselines, and do not present one release's passing tests as proof about all
+versions.
 
 Existing feature statuses and evidence in the ledger remain authoritative; this
 guide adds no passing full-migration result.
@@ -521,9 +518,9 @@ ACL/owner and advanced cases. Versioning/default-hold behavior rows also remain
 PARTIAL for unresolved provider interactions. Supported setting updates are now
 delivered through [PATCH](evidence/bucket-metadata-patch.md) and
 [PUT](evidence/bucket-metadata-put.md); this does not complete the broad methods.
-All other source surfaces, configuration flags, helpers/events, Go embedding,
-legacy gRPC and lossless import/export remain required by the full-superset
-gate below; this delivery does not remove them.
+Other source surfaces, such as configuration flags, helpers/events, Go
+embedding, legacy gRPC and lossless import/export, are tracked separately;
+this delivery does not cover them.
 
 ## Compatibility surfaces
 
@@ -787,35 +784,21 @@ snapshot after new writes would lose those writes; rollback must export/replay
 the changes or remain inside an explicitly write-frozen verification window.
 Do not automatically delete the source or claim bidirectional live migration.
 
-## Delivery and full-superset gate
+## Migration scope
 
-The migration track complements the capability queue; it does not mark an entire
-phase complete or bundle every missing feature into one implementation turn.
+gcs-mimic replaces a fake-gcs-server service for the workflows this guide
+documents, with the limits stated beside each one. It does not aim to
+reproduce every fake-gcs-server surface, and no release claims to be a full
+replacement or a superset of fake-gcs-server. A source surface outside these
+workflows returns as a new slice when an official SDK workflow needs it
+([roadmap scope](roadmap.md#scope)). Product **1.0.0** is defined by the
+official SDK matrix and the frozen public contract in the
+[release policy](release-policy.md#the-100-gate), not by migration coverage.
 
-| Milestone | Completion evidence |
-| --- | --- |
-| Pinned compatibility baseline | Versioned route/flag/Go/backend inventories and reproducible positive/negative corpus with every known gap visible |
-| Seed compatibility | Same fixtures produce the required keys/bytes/defaults and selected lifecycle in both profiles |
-| Persistent import | xattr and sidecar fixtures, identity/metadata preservation, dry-run, restart/resume and nondestructive rollback cases |
-| Go and live-state migration | Export before shutdown, archived-version preservation and unchanged representative Go tests through the adapter |
-| Full replacement validation | Every baseline surface passes, including TLS, legacy gRPC, helpers/events and memory behavior; remaining exclusions prevent the full claim |
-
-Normalize only documented nondeterministic fields, such as a chosen ephemeral
-port or an unconstrained newly generated request identifier. Do not normalize
-away missing fields, errors, permissions, imported generations or wrong bytes.
-Run both source backends, relevant official SDKs and representative existing
-application tests. Review applicable upstream tests with their licenses intact.
-
-A partial developer release remains possible and must identify its supported
-migration scope. The phrase "fully backward-compatible superset" becomes a
-release claim only after the complete pinned baseline and preserved-data checks
-pass. Additional APIs, strict authorization and resource/performance results are
-reported separately with their own evidence. New upstream releases expand the
-baseline explicitly rather than silently changing the denominator.
-
-This gate, together with the fixed named additions, is a goal rather than a product version condition.
-Product **1.0.0** is defined by the official SDK matrix and the frozen public contract in the [release policy](release-policy.md#the-100-gate).
-No release, before or after it, claims a full superset until this gate passes.
+When comparing a migrated setup with fake-gcs-server, normalize only documented
+nondeterministic fields, such as a chosen ephemeral port or an unconstrained
+newly generated request identifier. Do not normalize away missing fields,
+errors, permissions, imported generations or wrong bytes.
 
 ## Sources consulted
 

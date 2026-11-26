@@ -11,7 +11,7 @@ UX-012とUX-001はPARTIAL、DESIGN-061は既存のホスト・コンテナ接続
 IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置き換えは含みません。
 
 公開イメージの例は0.28.1です。0.8.0以降は、RAM保存、ローカルPub/Sub、HTTP batch、XML一覧・コピー・multipart、管理・reset・reseed、strict JWT、追加SDKアダプターも使えます。[機能と検証の対応表（英語）](../en/evidence/migration-integration.md)に、各機能の対応範囲と検証結果をまとめています。
-機能の実装状態は共通の台帳を原本とし、全面置換は未達のままです。
+機能の実装状態は共通の台帳を原本とします。fake-gcs-serverの全面的な置き換えは目標にしていません（[移行範囲（英語）](../en/fake-gcs-server-migration.md#migration-scope)）。
 
 ## GitHubで確認した利用例と移行時の違い
 

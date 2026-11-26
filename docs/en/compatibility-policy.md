@@ -101,6 +101,11 @@ as `SOURCE_QUESTION` entries and in the row as scoped differences. A row still
 stays `PARTIAL` while its local behavior is untested, unimplemented or known to
 differ from documented Google behavior.
 
+Older gap entries whose `required_resolution` asks for differential, recorded
+or real-service evidence are read the same way: only Google documentation, the
+googleapis sources or the pinned official SDKs can resolve them, and no entry
+authorizes contacting Cloud Storage.
+
 Report completed scopes with evidence, separately from method/behavior/project
 counts. Do not treat overlapping feature references as independent
 capabilities. README comparisons must use the same named scope for every product.

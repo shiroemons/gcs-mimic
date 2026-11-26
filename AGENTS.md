@@ -7,7 +7,7 @@ gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It ta
 - Read `README.md`, `docs/en/design.md`, `docs/en/roadmap.md`, `docs/en/compatibility-policy.md`, `docs/en/dependency-policy.md`, `docs/en/getting-started-spec.md`, `compatibility/features.json`, and the requested feature's sources before editing.
 - Implement one small end-to-end feature slice at a time. Follow the requested IDs; if none are supplied, choose the next unblocked slice from the roadmap and announce its concrete scope.
 - Inspect existing code and preserve unrelated changes. Add the smallest required dependency, not an entire milestone by implication.
-- Use current official Google documentation, Discovery schemas and googleapis protobuf definitions as the contract. fake-gcs-server and storage-testbench are comparison implementations, not authoritative specifications.
+- Decide behavior by what the version-pinned official SDKs send and accept, then by current official Google documentation, the Discovery copies in googleapis repositories and googleapis protobuf definitions. fake-gcs-server and storage-testbench are comparison implementations, not authoritative specifications.
 - Pin upstream source revisions, content digests, protocol versions and SDK versions. Reconcile `compatibility/gaps.json` before implementing affected features. Discovery presence alone does not establish GA availability.
 
 ## Latest stable dependencies

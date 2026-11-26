@@ -39,6 +39,8 @@ native と fake-gcs-server の両プロファイルで同じ方針を使う。
 挙動を固定する PASS 済みのテストを持つ必要がある。
 実機の証拠は集めないので、実機での未確認を理由に `EXACT` の行を `PARTIAL` に留めない。
 実機の疑問は gap 台帳の `SOURCE_QUESTION` として扱う。
+gap 台帳の古い項目で、`required_resolution` が差分比較・記録・実機の証拠を求めているものも同じに扱う。
+解決に使えるのは Google のドキュメント、googleapis のソース、固定した公式 SDK だけで、どの項目も Cloud Storage への接続を認めない。
 
 ## 目標忠実度の選び方
 

@@ -299,13 +299,15 @@ xattr/JSON, memory, SQLite BLOB and embedded key/value approaches. Transactional
 metadata plus streamed opaque files is the recommended durable default; this is
 a requirement-based decision, with no comparative benchmark claim.
 
-The product target is a complete behavioral superset of the pinned fake-gcs-server
-baseline, with documented native configuration mappings and explicit data conversion.
+gcs-mimic does not aim to be a complete superset of fake-gcs-server. It
+supports the migration workflows in the
+[migration guide](fake-gcs-server-migration.md#migration-scope), with
+documented native configuration mappings and explicit data conversion.
 Matching flag names or environment-variable suffixes is not required.
 Since 0.7.0, flags with a native equivalent are translated, and since
 0.8.0 the event flags map too. Since 0.15.0, `FAKE_GCS_*` variables are not
 read; new configuration should use native names. The migration contract in
 `fake-gcs-server-migration.md` includes flags, TLS, endpoints, Go
 embedding, Storage v1 gRPC, helper/event behavior and both source backends.
-Lossless import and the remaining configuration roles are still planned. The existing
+Lossless import and the remaining configuration roles are not supported. The existing
 `fake-gcs-server` profile covers a limited bucket contract. Existing comparison marks describe current behavior.

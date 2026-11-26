@@ -8,15 +8,15 @@ Build a resource-efficient Cloud Storage emulator for local development and CI. 
 
 P0 implements the bounded HTTP/1 runtime, configuration, Clock, Docker/Compose and ledger/freshness tooling. P1 adds persistent JSON bucket/object operations with checksums and atomic conditions. P2 implements explicit permissive/strict profiles, registered local principals, additive project/bucket roles, bucket IAM policies and public/signed URL helpers. Path-style and opt-in virtual-host XML GET/HEAD/PUT supports bearer and V4 RSA query authentication, bounded uploads, declared integrity checks and atomic conditions; GET/HEAD supports two response overrides. PAP preserves public bindings while suppressing their authorization, without blocking explicit signer grants. Its parent policy fixture remains LOCAL_SIMULATION. The [combined evidence](evidence/signed-urls.md) records integrated behavior, SDK adaptations and native/container journeys. JSON ACL storage, inheritance and UBLA transitions have scoped contracts; object READER/OWNER ACL entries grant selected-generation reads ([ACL permission effects](slices/acl-permission-effects.md)), and other ACL permission effects remain pending. Signing formats and provider edges remain scoped separately. Provider duplicate-query, override validation, signature error and optional payload parity keep DESIGN-035/037/044 and broad XML/auth rows PARTIAL under their named gaps. The JSON resumable engine retains its [evidence and limits](evidence/resumable-upload.md). No comparative performance result is claimed. `compatibility/features.json` is authoritative. The project, CLI and repository name is **gcs-mimic**: **A lightweight Google Cloud Storage emulator in Rust.**
 
-The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
+The target is the publicly observable protocol behavior that the official SDKs rely on. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
-The product also targets a complete behavioral superset of fake-gcs-server
-after documented configuration mapping and explicit data conversion.
-This is a product goal, not an achieved replacement claim. The migration
-contract is `docs/en/fake-gcs-server-migration.md`; it includes Go embedding,
-legacy Storage v1 gRPC, TLS/defaults, helpers/events and both backend modes.
-Google strict behavior and permissive source behavior need separate profiles
-and evidence. The existing permissive auth mode is not a complete fake-gcs-server profile.
+fake-gcs-server users migrate through documented configuration mapping and
+explicit data conversion; becoming a complete superset of fake-gcs-server is
+not a goal ([roadmap](roadmap.md#goal)). The
+[migration guide](fake-gcs-server-migration.md#migration-scope) names the
+supported workflows and their limits. Google strict behavior and permissive
+source behavior need separate profiles and evidence. The existing permissive
+auth mode is not a complete fake-gcs-server profile.
 
 Directory synchronization was removed: SQLite and opaque blobs are the only
 persistent state, and `seed_dir` is read-only input that is replayed at startup

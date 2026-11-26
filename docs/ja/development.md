@@ -176,5 +176,10 @@ SDKスイートの失敗はCIで初めて出ることがあります。`cargo xt
 
 ホストのClippyは`--target`を付けず、既存のネイティブ成果物を再利用します。ホスト検査ではCargoの既定ターゲットをネイティブにし、クロスビルドには`--target TRIPLE`を指定してください。登録済みのbaselineはmacOS ARM64・Windows MSVC・Linux GNU x86-64・Linux musl x86-64です。別ホストでも全規則を実行しますが、対象ファイルがなければ空のbaselineとして既存の検出も新規扱いで拒否します。検出内容を確認して`cargo xtask lint --baseline --target TRIPLE`で追加し、他ターゲットの件数を流用しないでください。形式と更新手順は英語版の[Per-file ratchet](../en/development.md#per-file-ratchet)を参照してください。
 
-依存の更新確認、Linuxでのテスト手順、lintの規則、直接実行するコマンド、差分比較ハーネスは
+依存の更新確認、Linuxでのテスト手順、lintの規則、直接実行するコマンドは
 [英語の開発手順](../en/development.md)を参照してください。
+
+テスト・ツール・スクリプトからCloud Storageやその他のGoogle APIへリクエストを送らず、その応答を記録・コミット・再利用しません。
+Google Cloud利用規約のサービス固有規約、一般条項の第17条（2026-11-24掲載）が、そこで得た情報の30日を超える保存と、類似製品の開発への利用を禁じているためです。
+Google Cloudの認証情報は、このリポジトリで使いません。
+詳しくは英語の[No live Cloud Storage contact](../en/development.md#no-live-cloud-storage-contact)を参照してください。
