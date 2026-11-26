@@ -601,7 +601,7 @@ mod tests {
         store.remove("blob").unwrap();
         drop(reader);
         let full = store.stage().unwrap().write(b"new").unwrap_err();
-        assert!(matches!(full, BlobError::Exhausted), "{full:?}");
+        std::assert_matches!(full, BlobError::Exhausted, "{full:?}");
         let cause = crate::storage::failure::IoCause::from(full);
         assert_eq!(cause.kind(), io::ErrorKind::StorageFull);
         assert_eq!(
@@ -665,7 +665,7 @@ mod tests {
             stage.write(b"b").unwrap();
         }
         assert_eq!(stage.chunks.len(), 1);
-        assert!(matches!(stage.write(b"c"), Err(BlobError::Exhausted)));
+        std::assert_matches!(stage.write(b"c"), Err(BlobError::Exhausted));
         stage.publish("tiny".into()).unwrap();
         store.remove("tiny").unwrap();
         store.stage().unwrap().write(b"reclaimed").unwrap();

@@ -1,6 +1,7 @@
 //! Each connection phase has its own deadline: a slow client mid-transfer is not a stuck request.
 //! Short explicit limits keep real time low; no test waits for a default.
 use super::*;
+use std::assert_matches;
 
 /// Longer than `LIMIT` by enough to survive scheduler stalls on loaded runners.
 const STALL: Duration = Duration::from_millis(1500);
@@ -12,11 +13,9 @@ fn assert_silent(stream: &TcpStream, wait: Duration) {
     let error = stream
         .peek(&mut [0])
         .expect_err("the server answered or closed during the stall");
-    assert!(
-        matches!(
-            error.kind(),
-            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-        ),
+    assert_matches!(
+        error.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut,
         "{error}"
     );
     stream

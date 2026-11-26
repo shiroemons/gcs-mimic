@@ -59,6 +59,7 @@ impl From<&str> for CustomTime {
 mod tests {
     use super::*;
     use crate::metadata_error::MetadataError;
+    use std::assert_matches;
 
     #[test]
     fn stored_strings_keep_their_spelling_and_defer_invalid_instant_errors() {
@@ -73,10 +74,10 @@ mod tests {
                     UnixNanos::new(-1, 123_456_789).unwrap()
                 );
             } else {
-                assert!(matches!(
+                assert_matches!(
                     time.instant(),
                     Err(ObjectError::Metadata(MetadataError::CustomTime))
-                ));
+                );
             }
         }
     }

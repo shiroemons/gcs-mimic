@@ -1007,7 +1007,7 @@ mod tests {
         ]);
         let report = crate::config::Config::preflight(&[], &env);
         assert_eq!(emitted(&report.diagnostics), "");
-        assert!(matches!(report.draft().scheme, crate::config::Scheme::Auto));
+        std::assert_matches!(report.draft().scheme, crate::config::Scheme::Auto);
         assert_eq!(
             report.draft().listen,
             crate::config::ConfigDraft::default().listen
@@ -1124,7 +1124,7 @@ mod tests {
         let report = crate::config::Config::preflight(&args, &image);
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
         let config = &report.draft();
-        assert!(matches!(config.scheme, crate::config::Scheme::Http));
+        std::assert_matches!(config.scheme, crate::config::Scheme::Http);
         assert_eq!(config.listen.to_string(), "0.0.0.0:4443");
         assert_eq!(
             config
@@ -1138,10 +1138,7 @@ mod tests {
             config.seed_dir.as_deref(),
             Some(std::path::Path::new("/data"))
         );
-        assert!(matches!(
-            config.log_level,
-            crate::diagnostics::LogLevel::Debug
-        ));
+        std::assert_matches!(config.log_level, crate::diagnostics::LogLevel::Debug);
         assert_eq!(config.cors_fallback, None);
         assert!(report.diagnostics.warnings.is_empty());
         assert_eq!(report.diagnostics.info.len(), 1);
@@ -1241,7 +1238,7 @@ mod tests {
         ] {
             let report = crate::config::Config::preflight(&strings(args), &BTreeMap::new());
             assert_eq!(emitted(&report.diagnostics), "", "{args:?}");
-            assert!(matches!(report.draft().scheme, crate::config::Scheme::Http));
+            std::assert_matches!(report.draft().scheme, crate::config::Scheme::Http);
             assert_eq!(report.draft().listen.to_string(), "127.0.0.1:9000");
         }
         // Only the first equals sign separates the name, so a value may contain others.
@@ -1667,7 +1664,7 @@ mod tests {
             &BTreeMap::new(),
         );
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-        assert!(matches!(report.draft().scheme, crate::config::Scheme::Http));
+        std::assert_matches!(report.draft().scheme, crate::config::Scheme::Http);
         assert_eq!(report.draft().listen.to_string(), "[::1]:9000");
     }
 

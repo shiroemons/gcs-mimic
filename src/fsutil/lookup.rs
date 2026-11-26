@@ -587,22 +587,22 @@ mod open_failure_tests {
     fn an_entry_that_briefly_fails_to_open_is_opened_again() {
         let entries = Entries::new();
         let file = FailingOpens::vanishing(&entries.dir.0, "file", 3);
-        assert!(matches!(
+        std::assert_matches!(
             entries
                 .lookup()
                 .regular(&entries.parent, "file".as_ref())
                 .unwrap(),
             RegularChild::File
-        ));
+        );
         assert_eq!(file.left(), 0);
         let directory = FailingOpens::vanishing(&entries.dir.0, "directory", 3);
-        assert!(matches!(
+        std::assert_matches!(
             entries
                 .lookup()
                 .directory(&entries.parent, "directory".as_ref())
                 .unwrap(),
             Child::Directory
-        ));
+        );
         assert_eq!(directory.left(), 0);
     }
 
@@ -614,31 +614,31 @@ mod open_failure_tests {
         let entries = Entries::new();
         let _file = FailingOpens::vanishing(&entries.dir.0, "file", usize::MAX);
         let _directory = FailingOpens::vanishing(&entries.dir.0, "directory", usize::MAX);
-        assert!(matches!(
+        std::assert_matches!(
             entries.lookup().regular(&entries.parent, "file".as_ref()),
             Ok(RegularChild::Unopenable)
-        ));
+        );
         assert!(entries.waited() >= Duration::from_secs(1));
-        assert!(matches!(
+        std::assert_matches!(
             entries
                 .lookup()
                 .directory(&entries.parent, "directory".as_ref()),
             Ok(Child::Unopenable)
-        ));
-        assert!(matches!(
+        );
+        std::assert_matches!(
             entries
                 .lookup()
                 .regular_unconfirmed(&entries.parent, "file".as_ref()),
             Ok(Opened::Unopenable)
-        ));
+        );
         let waited = entries.waited();
-        assert!(matches!(
+        std::assert_matches!(
             entries
                 .lookup()
                 .regular(&entries.parent, "absent".as_ref())
                 .unwrap(),
             RegularChild::Missing(_)
-        ));
+        );
         assert_eq!(entries.waited(), waited);
     }
 
@@ -652,32 +652,32 @@ mod open_failure_tests {
         let _file = FailingOpens::vanishing(&entries.dir.0, "file", usize::MAX);
         let _directory = FailingOpens::vanishing(&entries.dir.0, "directory", usize::MAX);
         let lookup = entries.lookup();
-        assert!(matches!(
+        std::assert_matches!(
             lookup.regular(&entries.parent, "file".as_ref()),
             Ok(RegularChild::Unopenable)
-        ));
+        );
         let spent = entries.waited();
         assert!(spent <= Duration::from_secs(1), "{spent:?}");
-        assert!(matches!(
+        std::assert_matches!(
             lookup.directory(&entries.parent, "directory".as_ref()),
             Ok(Child::Unopenable)
-        ));
-        assert!(matches!(
+        );
+        std::assert_matches!(
             lookup.regular(&entries.parent, "absent".as_ref()).unwrap(),
             RegularChild::Missing(_)
-        ));
+        );
         assert_eq!(entries.waited(), spent);
         let other = lookup.for_job();
-        assert!(matches!(
+        std::assert_matches!(
             other.regular_unconfirmed(&entries.parent, "file".as_ref()),
             Ok(Opened::Unopenable)
-        ));
+        );
         let waited = entries.waited();
         assert!(waited > spent);
-        assert!(matches!(
+        std::assert_matches!(
             lookup.regular_unconfirmed(&entries.parent, "file".as_ref()),
             Ok(Opened::Unopenable)
-        ));
+        );
         assert_eq!(entries.waited(), waited);
     }
 

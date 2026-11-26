@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::config::ConfigDraft;
+use std::assert_matches;
 
 #[test]
 fn a_tls_listener_without_an_identity_is_rejected() {
@@ -15,10 +16,10 @@ fn a_tls_listener_without_an_identity_is_rejected() {
         (Scheme::Http, Some(GrpcScheme::Auto)),
         (Scheme::Http, Some(GrpcScheme::Tls)),
     ] {
-        assert!(matches!(
-            ServerSecurity::load_settings(scheme, None, grpc, None),
+        assert_matches!(
+            ServerSecurity::load_settings(scheme, None, grpc, None).map(drop),
             Err(ServerIdentityError::MissingIdentity)
-        ));
+        );
     }
 }
 
@@ -82,13 +83,13 @@ fn invalid_pem_names_the_certificate_or_private_key_setting() {
         ),
     ] {
         let error = ServerIdentity::from_pem(certificate, key).err().unwrap();
-        assert!(matches!(
+        assert_matches!(
             (&error, setting),
             (
                 ServerIdentityError::CertificateParse(TlsError::Pem(_)),
                 "tls_cert"
             ) | (ServerIdentityError::PrivateKeyParse(_), "tls_key")
-        ));
+        );
         let diagnostic = error.diagnostic();
         assert_eq!(diagnostic.key, setting);
         assert_eq!(
@@ -194,9 +195,7 @@ fn the_grpc_listener_alone_loads_the_identity() {
             ..config
         };
         let error = ServerSecurity::load(&with_files.build()).err().unwrap();
-        assert!(
-            matches!(error, ServerIdentityError::Certificate(cause) if cause.kind() == io::ErrorKind::NotFound)
-        );
+        assert_matches!(error, ServerIdentityError::Certificate(cause) if cause.kind() == io::ErrorKind::NotFound);
     }
 }
 
@@ -233,10 +232,7 @@ fn a_mismatched_key_fails_with_the_tls_cause() {
     }
     .build();
     let error = ServerSecurity::load(&config).err().unwrap();
-    assert!(
-        matches!(error, ServerIdentityError::Rejected(_)),
-        "{error:?}"
-    );
+    assert_matches!(error, ServerIdentityError::Rejected(_), "{error:?}");
     assert_eq!(error.setting(), "tls_cert");
     assert!(error.source().unwrap().is::<rustls::Error>());
     // The files were read and parsed, so the repair is about the pair itself, not about which

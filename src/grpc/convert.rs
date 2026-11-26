@@ -24,6 +24,7 @@ pub(super) fn component_count(value: Option<i64>) -> Result<i32, ObjectError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn signed_wire_integers_reject_out_of_range_stored_values() {
@@ -48,7 +49,7 @@ mod tests {
             component_count(Some(i64::MAX)).unwrap_err(),
             component_count(Some(i64::MIN)).unwrap_err(),
         ] {
-            assert!(matches!(&error, ObjectError::Corrupt(_)));
+            assert_matches!(&error, ObjectError::Corrupt(_));
             assert!(error.source().unwrap().is::<std::num::TryFromIntError>());
             assert!(error.to_string().contains(" value "));
             let status = tonic::Status::from(error);

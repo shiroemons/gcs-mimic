@@ -1,5 +1,6 @@
 use crate::common;
 use crate::common::process::declare_server;
+use std::assert_matches;
 
 use common::process::{http_command, request_head};
 use common::{CleanEnv, TestDir};
@@ -3029,7 +3030,7 @@ fn bucket_core_source_input_shape() {
             let body = format!("{{\"name\":\"source-input-{index}\",{extra}}}");
             let reply = server.request("POST", "/storage/v1/b?project=project", &body);
             if profile == "native" || index == 3 {
-                assert!(matches!(reply.status, 400), "{}", reply.body);
+                assert_matches!(reply.status, 400, "{}", reply.body);
             } else {
                 reply.expect(200);
                 assert_settings(&reply.json(), profile, false, false);
@@ -4119,10 +4120,10 @@ fn bkt_http_deadline_before_response_returns_backend_error() {
     );
     database.execute_batch("ROLLBACK").unwrap();
     // The dropped handler's write may still commit, as after any retryable 503.
-    assert!(matches!(
+    assert_matches!(
         server.insert("blocked-bucket", "deadline").status,
         200 | 409
-    ));
+    );
     server.insert("after-deadline", "deadline").expect(200);
 }
 

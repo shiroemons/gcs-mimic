@@ -6,6 +6,7 @@ use bytes::Bytes;
 use common::TestDir;
 use http_body_util::{BodyExt, Full};
 use hyper_util::rt::{TokioExecutor, TokioIo};
+use std::assert_matches;
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
@@ -448,11 +449,9 @@ async fn grpc_tls_provided_certificate_and_client_trust_failures() {
     let wrong_name = connect_tls(&server.grpc, "wrong.invalid", grpc_client(&ca))
         .await
         .unwrap_err();
-    assert!(
-        matches!(
-            certificate_error(&wrong_name),
-            rustls::CertificateError::NotValidForNameContext { .. }
-        ),
+    assert_matches!(
+        certificate_error(&wrong_name),
+        rustls::CertificateError::NotValidForNameContext { .. },
         "{wrong_name}"
     );
     // The fixture's SANs cover the loopback IP as well as localhost, and each failed client
@@ -474,11 +473,9 @@ async fn grpc_tls_provided_certificate_and_client_trust_failures() {
     let expired = connect_tls(&server.grpc, "localhost", grpc_client(&ca))
         .await
         .unwrap_err();
-    assert!(
-        matches!(
-            certificate_error(&expired),
-            rustls::CertificateError::ExpiredContext { .. }
-        ),
+    assert_matches!(
+        certificate_error(&expired),
+        rustls::CertificateError::ExpiredContext { .. },
         "{expired}"
     );
     let reply = unary(
@@ -496,11 +493,9 @@ async fn grpc_tls_provided_certificate_and_client_trust_failures() {
     let refused = connect_tls(&server.grpc, "localhost", grpc_client(&ca))
         .await
         .unwrap_err();
-    assert!(
-        matches!(
-            certificate_error(&refused),
-            rustls::CertificateError::NotValidForNameContext { .. }
-        ),
+    assert_matches!(
+        certificate_error(&refused),
+        rustls::CertificateError::NotValidForNameContext { .. },
         "{refused}"
     );
     // A client that names the certificate's host is then served.

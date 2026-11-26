@@ -76,9 +76,9 @@ mod tests {
     fn inclusive_limit_reads_only_one_extra_byte() {
         assert_eq!(read_from(&b"abcd"[..], 4).ok(), Some(b"abcd".to_vec()));
         let mut input = &b"abcdef"[..];
-        assert!(matches!(read_from(&mut input, 4), Err(ReadError::Limit)));
+        std::assert_matches!(read_from(&mut input, 4), Err(ReadError::Limit));
         assert_eq!(input, b"f");
         assert!(read_from(&b""[..], 0).is_ok());
-        assert!(matches!(read_from(&b"a"[..], 0), Err(ReadError::Limit)));
+        std::assert_matches!(read_from(&b"a"[..], 0), Err(ReadError::Limit));
     }
 }

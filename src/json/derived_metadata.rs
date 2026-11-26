@@ -162,6 +162,7 @@ pub(crate) fn derived_metadata_of(
 mod tests {
     use super::*;
     use crate::object::Patch;
+    use std::assert_matches;
 
     #[test]
     fn bucket_class_patch_keeps_error_contracts() {
@@ -349,10 +350,10 @@ mod tests {
             },
             &mut record,
         );
-        assert!(matches!(
+        assert_matches!(
             second,
             Err(crate::object::ObjectError::InvalidFixedMetadata(_))
-        ));
+        );
     }
 
     #[test]

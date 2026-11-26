@@ -6,6 +6,7 @@ use crate::{
     storage::Catalog,
     test_support::TestDir,
 };
+use std::assert_matches;
 use std::{
     sync::{
         Arc,
@@ -118,15 +119,9 @@ async fn abort_waits_for_cleanup_and_preserves_the_original_adapter_error() {
         .await;
         assert!(cleaned.load(Ordering::Acquire));
         if disk_full {
-            assert!(matches!(
-                result,
-                Err(DriveError::Upload(ObjectError::Io(_)))
-            ));
+            assert_matches!(result, Err(DriveError::Upload(ObjectError::Io(_))));
         } else {
-            assert!(matches!(
-                result,
-                Err(DriveError::Producer("original adapter error"))
-            ));
+            assert_matches!(result, Err(DriveError::Producer("original adapter error")));
         }
     }
     fixture.state.catalog.close().await.unwrap();
@@ -167,10 +162,7 @@ async fn upload_failure_first_drops_the_producer() {
         producer,
     )
     .await;
-    assert!(matches!(
-        result,
-        Err(DriveError::Upload(ObjectError::TooLarge))
-    ));
+    assert_matches!(result, Err(DriveError::Upload(ObjectError::TooLarge)));
     assert!(dropped.load(Ordering::Acquire));
     fixture.state.catalog.close().await.unwrap();
 }

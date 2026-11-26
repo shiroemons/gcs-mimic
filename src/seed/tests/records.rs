@@ -5,6 +5,7 @@ use crate::{
     object::ObjectRecord,
     storage::admin::{AdminError, ObjectName},
 };
+use std::assert_matches;
 
 fn object_name(name: &str) -> ObjectName {
     ObjectName::new(name).unwrap()
@@ -200,14 +201,14 @@ async fn the_first_start_with_records_claims_no_object_it_did_not_publish() {
     let outcome = import(&catalog, &config.clone().build(), &clock())
         .await
         .unwrap();
-    assert!(matches!(
+    assert_matches!(
         outcome,
         SeedOutcome::Imported {
             objects: 2,
             unchanged: 1,
             ..
         }
-    ));
+    );
     remove(&config, "bucket/a");
     import(&catalog, &config.clone().build(), &clock())
         .await
@@ -248,8 +249,9 @@ async fn a_file_missing_only_after_the_listing_keeps_its_object_at_a_reseed() {
     let outcome = reseed(&admin, &config.clone().build(), &clock(), deadline)
         .await
         .unwrap();
-    assert!(
-        matches!(outcome, SeedOutcome::Imported { unchanged: 3, .. }),
+    assert_matches!(
+        outcome,
+        SeedOutcome::Imported { unchanged: 3, .. },
         "{outcome:?}"
     );
     assert_eq!(live(&catalog, "b").await.unwrap(), before);

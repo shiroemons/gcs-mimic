@@ -5,6 +5,7 @@ use crate::object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget};
 use crate::time_format::timestamp;
 use hyper::{HeaderMap, Method, StatusCode, header::HeaderName};
 use serde_json::{Value, json};
+use std::assert_matches;
 use std::time::{Duration, UNIX_EPOCH};
 
 #[tokio::test]
@@ -222,7 +223,7 @@ fn obj_route_001_media_upload_metadata_download_delete() {
             }
         );
     }
-    assert!(matches!(
+    assert_matches!(
         request(Method::GET, "/storage/v1/b/abc/o/file?alt=json").unwrap(),
         ObjectRequest::Get {
             target: ObjectTarget {
@@ -232,7 +233,7 @@ fn obj_route_001_media_upload_metadata_download_delete() {
             params: ObjectGetParams { media: false, .. },
             ..
         }
-    ));
+    );
     assert_eq!(
         request(
             Method::DELETE,
@@ -283,24 +284,24 @@ fn obj_route_002_namespace_and_method_boundaries() {
         assert_eq!(error.status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(error.into_response().headers()["allow"], allow);
     }
-    assert!(matches!(
+    assert_matches!(
         request(Method::HEAD, "/storage/v1/b/abc/o/file").unwrap(),
         ObjectRequest::Get {
             params: ObjectGetParams { media: false, .. },
             ..
         }
-    ));
+    );
     for path in [
         "/storage/v1/b/abc/o/file?alt=media",
         "/download/storage/v1/b/abc/o/file?alt=media",
     ] {
-        assert!(matches!(
+        assert_matches!(
             request(Method::HEAD, path).unwrap(),
             ObjectRequest::Get {
                 params: ObjectGetParams { media: true, .. },
                 ..
             }
-        ));
+        );
     }
     assert_eq!(
         request(Method::HEAD, "/download/storage/v1/b/abc/o/file")
@@ -308,16 +309,16 @@ fn obj_route_002_namespace_and_method_boundaries() {
             .status(),
         StatusCode::BAD_REQUEST
     );
-    assert!(matches!(
+    assert_matches!(
         request(Method::GET, "/storage/v1/b/abc/o").unwrap(),
         ObjectRequest::List(_)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         super::route(&Method::GET, &"/storage/v1/b/abc".parse().unwrap())
             .unwrap()
             .unwrap(),
         BucketRequest::Get { .. }
-    ));
+    );
 }
 
 /// The object router claims a path from its raw segments alone; an empty segment it claims is
@@ -370,9 +371,7 @@ fn obj_name_001_exactly_once_decoding_and_utf8_boundaries() {
         ("%23%5B%5D%2A%3F", "#[]*?"),
         ("a%2F..%2Fb", "a/../b"),
     ] {
-        assert!(
-            matches!(request(Method::GET, &format!("/storage/v1/b/abc/o/{raw}")).unwrap(), ObjectRequest::Get { target, .. } if target.name == name)
-        );
+        assert_matches!(request(Method::GET, &format!("/storage/v1/b/abc/o/{raw}")).unwrap(), ObjectRequest::Get { target, .. } if target.name == name);
     }
     for name in ["a".repeat(1024), "猫".repeat(341) + "a"] {
         assert!(validate_object_name(&name).is_ok());
@@ -429,10 +428,10 @@ fn obj_name_001_exactly_once_decoding_and_utf8_boundaries() {
 #[test]
 fn obj_query_001_required_upload_and_unsupported_types() {
     // An upload that names no type is a media upload (recorded 200).
-    assert!(matches!(
+    assert_matches!(
         request(Method::POST, "/upload/storage/v1/b/abc/o?name=file"),
         Ok(ObjectRequest::Insert(_))
-    ));
+    );
     for (query, status, reason) in [
         ("uploadType=media", StatusCode::BAD_REQUEST, "required"),
         (

@@ -498,6 +498,7 @@ mod tests {
     };
     use crate::storage::test_fixtures::PERMISSIVE;
     use crate::{auth::Auth, json, storage::Catalog, test_support::TestDir};
+    use std::assert_matches;
     use std::sync::Arc;
     use tonic::Code;
 
@@ -1399,10 +1400,10 @@ mod tests {
             .append(11, bytes::Bytes::from_static(b"more"), 1024)
             .await
             .unwrap();
-        assert!(matches!(
+        assert_matches!(
             appendable.flush().await,
             Err(crate::storage::AppendError::Superseded)
-        ));
+        );
         // Only the bucket with a soft delete policy was kept as a soft-deleted version.
         let retained = catalog
             .list_soft_deleted_buckets("p", "", None, 10)

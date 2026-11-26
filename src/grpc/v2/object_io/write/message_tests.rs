@@ -10,6 +10,7 @@ use crate::grpc::test_support::{bucket_routing, key_params, routed_rpc_status};
 use crate::grpc::v2::test_support::{UNDISPATCHED, undispatched};
 use bytes::Bytes;
 use pb::bidi_write_object_request::{Data, FirstMessage};
+use std::assert_matches;
 use tonic::Code;
 
 /// One write granule: a resumable upload persists whole granules until finish_write (recorded
@@ -2648,7 +2649,7 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
         (Code::Ok, vec![Reply::Resource(GRANULE_SIZE)])
     );
     let finished = query().await;
-    assert!(matches!(finished.write_status, Some(Queried::Resource(_))));
+    assert_matches!(finished.write_status, Some(Queried::Resource(_)));
     assert_eq!(finished.persisted_data_checksums, None);
     storage.state.catalog.close().await.unwrap();
 }

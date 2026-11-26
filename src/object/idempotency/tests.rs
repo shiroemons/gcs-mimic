@@ -1,5 +1,6 @@
 use super::*;
 use hyper::header::HeaderValue;
+use std::assert_matches;
 
 #[test]
 fn opaque_tokens_admit_bytes_that_text_tokens_refuse() {
@@ -15,26 +16,26 @@ fn opaque_tokens_admit_bytes_that_text_tokens_refuse() {
         HeaderValue::from_bytes(&[0xff]).unwrap(),
     );
     assert!(IdempotencyToken::validate_opaque(&headers).is_ok());
-    assert!(matches!(
-        IdempotencyToken::from_text(&headers, TextOrder::ValueFirst),
+    assert_matches!(
+        IdempotencyToken::from_text(&headers, TextOrder::ValueFirst).map(drop),
         Err(TextTokenError::Header(TextError::Invalid(_)))
-    ));
+    );
     headers.append(
         IdempotencyToken::HEADER,
         HeaderValue::from_static("repeated"),
     );
-    assert!(matches!(
+    assert_matches!(
         IdempotencyToken::validate_opaque(&headers),
         Err(OpaqueTokenError::Repeated(_))
-    ));
-    assert!(matches!(
-        IdempotencyToken::from_text(&headers, TextOrder::RepetitionFirst),
+    );
+    assert_matches!(
+        IdempotencyToken::from_text(&headers, TextOrder::RepetitionFirst).map(drop),
         Err(TextTokenError::Header(TextError::Repeated(_)))
-    ));
-    assert!(matches!(
-        IdempotencyToken::from_text(&headers, TextOrder::ValueFirst),
+    );
+    assert_matches!(
+        IdempotencyToken::from_text(&headers, TextOrder::ValueFirst).map(drop),
         Err(TextTokenError::Header(TextError::Invalid(_)))
-    ));
+    );
 }
 
 #[test]
@@ -42,14 +43,14 @@ fn tokens_refuse_empty_values_and_keep_nonempty_spelling() {
     let mut headers = HeaderMap::new();
     for empty in ["", " "] {
         headers.insert(IdempotencyToken::HEADER, HeaderValue::from_static(empty));
-        assert!(matches!(
+        assert_matches!(
             IdempotencyToken::validate_opaque(&headers),
             Err(OpaqueTokenError::Empty)
-        ));
-        assert!(matches!(
-            IdempotencyToken::from_text(&headers, TextOrder::RepetitionFirst),
+        );
+        assert_matches!(
+            IdempotencyToken::from_text(&headers, TextOrder::RepetitionFirst).map(drop),
             Err(TextTokenError::Empty)
-        ));
+        );
     }
     headers.insert(
         IdempotencyToken::HEADER,

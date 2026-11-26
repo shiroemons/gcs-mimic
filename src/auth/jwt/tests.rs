@@ -4,6 +4,7 @@ use crate::clock::ManualClock;
 use hyper::HeaderMap;
 use ring::{rand::SystemRandom, signature};
 use serde_json::{Value, json};
+use std::assert_matches;
 use std::time::Duration;
 use tokio_rustls::rustls::pki_types::{PrivateKeyDer, pem::PemObject};
 
@@ -34,11 +35,11 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
             .parse()
             .unwrap(),
     );
-    assert!(matches!(
+    assert_matches!(
         auth.authenticate_request(&headers, None, &fixed_clock(NOW), ListenerRole::Public)
             .await,
         Err(AuthError::Failure(AuthFailure::InvalidCredentials))
-    ));
+    );
     let (started, ready) = tokio::sync::oneshot::channel();
     let (release, waiting) = std::sync::mpsc::channel();
     let occupied = auth.verifiers.run(move || {
@@ -66,7 +67,7 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
         .unwrap()
         .unwrap();
         assert_eq!(caller.principal().unwrap().id(), ISSUER);
-        assert!(matches!(
+        assert_matches!(
             auth.authenticate_request(
                 &HeaderMap::new(),
                 None,
@@ -75,7 +76,7 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
             )
             .await,
             Ok(Some(Caller::Anonymous))
-        ));
+        );
         release.send(()).unwrap();
     };
     let (result, ()) = tokio::join!(occupied, resolve);
@@ -165,12 +166,12 @@ async fn jwt_resolves_registered_keys_and_keeps_opaque_tokens_and_project_permis
         "authorization",
         format!("Bearer {}", token(&claims())).parse().unwrap(),
     );
-    assert!(matches!(
+    assert_matches!(
         Auth::permissive()
             .authenticate_request(&headers, None, &fixed_clock(0), ListenerRole::Public)
             .await,
         Ok(None)
-    ));
+    );
 }
 
 #[tokio::test]
@@ -455,13 +456,13 @@ async fn registered_jwt_shaped_tokens_never_bypass_signature_or_scope_checks() {
     for token in [token.as_str(), unsigned] {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
-        assert!(matches!(
+        assert_matches!(
             auth.authenticate_request(&headers, None, &fixed_clock(NOW), ListenerRole::Public)
                 .await,
             Err(AuthError::Failure(AuthFailure::InvalidCredentials))
-        ));
+        );
     }
-    assert!(matches!(
+    assert_matches!(
         auth.authenticate_request(
             &HeaderMap::new(),
             None,
@@ -470,7 +471,7 @@ async fn registered_jwt_shaped_tokens_never_bypass_signature_or_scope_checks() {
         )
         .await,
         Ok(Some(Caller::Anonymous))
-    ));
+    );
 }
 
 /// A JWT from the built-in test signer is refused like any other issuer without keys while the
@@ -500,10 +501,10 @@ fn a_disabled_test_signer_is_named_as_the_cause_of_its_rejected_jwt() {
     lifetime["iss"] = test_signer::ID.into();
     lifetime["sub"] = test_signer::ID.into();
     lifetime["exp"] = (NOW + 7200).into();
-    assert!(matches!(
-        Candidate::parse(&disabled, &token(&lifetime), &fixed_clock(NOW)),
+    assert_matches!(
+        Candidate::parse(&disabled, &token(&lifetime), &fixed_clock(NOW)).map(drop),
         Err(Rejection::Unsupported)
-    ));
+    );
     let mut enabled = registry(&[PUBLIC], &[]);
     enabled
         .add_test_signer(&std::collections::BTreeSet::new())

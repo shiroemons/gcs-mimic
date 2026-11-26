@@ -175,7 +175,7 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
         let config = seed_config(&empty_fixture);
         let clock: std::sync::Arc<dyn gcs_mimic::clock::Clock> =
             std::sync::Arc::new(gcs_mimic::clock::SystemClock);
-        assert!(matches!(
+        std::assert_matches!(
             gcs_mimic::seed::import(&catalog, &config, &clock)
                 .await
                 .unwrap(),
@@ -187,7 +187,7 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
                 blocked: 0,
                 skipped_os_metadata: 0,
             }
-        ));
+        );
         let replayed = admin
             .get_object(&bucket, &ObjectName::new("a").unwrap(), None)
             .await
@@ -770,12 +770,12 @@ fn filesystem_import_rejects_preflight_only_custom_times_at_publication() {
             let admin = catalog.admin(Origin::Import);
             let bucket = BucketName::new("bucket-one").unwrap();
             assert!(admin.get_bucket(&bucket).await.unwrap().is_some());
-            assert!(matches!(
+            std::assert_matches!(
                 admin
                     .get_object(&bucket, &ObjectName::new("a").unwrap(), None)
                     .await,
                 Err(AdminError::NotFound)
-            ));
+            );
             catalog.close().await.unwrap();
         });
     }

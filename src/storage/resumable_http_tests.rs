@@ -2113,13 +2113,13 @@ async fn cancellation_racing_finalization_has_one_terminal_winner_and_preserves_
         assert_ne!(finalized.status == 200, cancelled.status == 499);
         if finalized.status == 200 {
             // A DELETE that finds the session complete answers with its object.
-            assert!(matches!(cancelled.status, 200 | 503));
+            std::assert_matches!(cancelled.status, 200 | 503);
             let deleted = h.request("DELETE", &path, "", b"").await;
             assert_eq!(deleted.status, 200);
             assert_eq!(deleted.json(), finalized.json());
         } else {
             assert_eq!(cancelled.status, 499);
-            assert!(matches!(finalized.status, 499 | 503));
+            std::assert_matches!(finalized.status, 499 | 503);
         }
         let id = path.split("upload_id=").nth(1).unwrap();
         // Expiring a completed capability must not delete the published object.

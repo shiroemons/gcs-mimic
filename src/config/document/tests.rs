@@ -5,6 +5,7 @@ use crate::{
     diagnostics::DiagnosticSource,
     test_support::TestDir,
 };
+use std::assert_matches;
 use std::collections::BTreeMap;
 
 const IDENTITIES: &str =
@@ -265,21 +266,21 @@ fn inline_identities_pair_with_the_profile_like_an_identity_file() {
     let profile = |args: &[&str]| Config::preflight(&strings(args), &empty);
     let report = profile(&["--auth-mode", "strict", "--identities", IDENTITIES]);
     assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-    assert!(matches!(
+    assert_matches!(
         report.auth_profile(),
         Some(AuthProfile::Strict {
             identities: Some(DocumentSource::Inline(_)),
             ..
         })
-    ));
+    );
     let report = profile(&["--signed-urls", "verify", "--identities", IDENTITIES]);
-    assert!(matches!(
+    assert_matches!(
         report.auth_profile(),
         Some(AuthProfile::VerifyingPermissive {
             identities: Some(DocumentSource::Inline(_)),
             ..
         })
-    ));
+    );
     for args in [
         &["--identities", IDENTITIES][..],
         &["--identities", IDENTITIES, "--signed-urls", "ignore"],

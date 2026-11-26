@@ -1,4 +1,5 @@
 use super::*;
+use std::assert_matches;
 
 fn headers(kind: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
@@ -96,26 +97,28 @@ fn legacy_header_clock_boundaries_and_alternate_date_precedence_are_explicit() {
             };
             assert!(prepare(&Method::GET, &uri, &headers(kind), at, &Resource::PathStyle).is_ok());
         }
-        assert!(matches!(
+        assert_matches!(
             prepare(
                 &Method::GET,
                 &uri,
                 &headers(kind),
                 now + Duration::from_secs(901),
                 &Resource::PathStyle
-            ),
+            )
+            .map(drop),
             Err(Failure::Expired)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             prepare(
                 &Method::GET,
                 &uri,
                 &headers(kind),
                 now - Duration::from_secs(901),
                 &Resource::PathStyle
-            ),
+            )
+            .map(drop),
             Err(Failure::NotYetValid)
-        ));
+        );
         let mut alternate = headers(kind);
         alternate.insert("date", "ignored date value".parse().unwrap());
         let name = if kind == "GOOG1" {
@@ -136,16 +139,17 @@ fn legacy_header_clock_boundaries_and_alternate_date_precedence_are_explicit() {
 fn legacy_credentials_and_prefixes_never_accept_mixed_duplicates_or_noncanonical_base64() {
     let now = parse_timestamp("20070327T193642Z").unwrap();
     for kind in ["GOOG1", "AWS"] {
-        assert!(matches!(
+        assert_matches!(
             prepare(
                 &Method::GET,
                 &"/bucket/object?generation=123".parse().unwrap(),
                 &headers(kind),
                 now,
                 &Resource::PathStyle
-            ),
+            )
+            .map(drop),
             Err(Failure::Malformed)
-        ));
+        );
         for raw in [
             kind.to_string(),
             format!("{kind} :AA=="),
@@ -155,29 +159,31 @@ fn legacy_credentials_and_prefixes_never_accept_mixed_duplicates_or_noncanonical
         ] {
             let mut bad = headers(kind);
             bad.insert("authorization", raw.parse().unwrap());
-            assert!(matches!(
+            assert_matches!(
                 prepare(
                     &Method::GET,
                     &"/bucket/object".parse().unwrap(),
                     &bad,
                     now,
                     &Resource::PathStyle
-                ),
+                )
+                .map(drop),
                 Err(Failure::Malformed)
-            ));
+            );
         }
         let mut duplicate = headers(kind);
         duplicate.append("authorization", duplicate["authorization"].clone());
-        assert!(matches!(
+        assert_matches!(
             prepare(
                 &Method::GET,
                 &"/bucket/object".parse().unwrap(),
                 &duplicate,
                 now,
                 &Resource::PathStyle
-            ),
+            )
+            .map(drop),
             Err(Failure::Malformed)
-        ));
+        );
         let mut mixed = headers(kind);
         mixed.insert(
             if kind == "GOOG1" {
@@ -187,17 +193,18 @@ fn legacy_credentials_and_prefixes_never_accept_mixed_duplicates_or_noncanonical
             },
             "mixed".parse().unwrap(),
         );
-        assert!(matches!(
+        assert_matches!(
             prepare(
                 &Method::GET,
                 &"/bucket/object".parse().unwrap(),
                 &mixed,
                 now,
                 &Resource::PathStyle
-            ),
+            )
+            .map(drop),
             Err(Failure::Malformed)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             prepare(
                 &Method::GET,
                 &"/bucket/object?GoogleAccessId=other&Expires=1&Signature=AA%3D%3D"
@@ -206,8 +213,9 @@ fn legacy_credentials_and_prefixes_never_accept_mixed_duplicates_or_noncanonical
                 &headers(kind),
                 now,
                 &Resource::PathStyle
-            ),
+            )
+            .map(drop),
             Err(Failure::Malformed)
-        ));
+        );
     }
 }

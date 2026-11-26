@@ -646,13 +646,13 @@ mod tests {
         let args: Vec<String> = alone.iter().map(|option| (*option).to_owned()).collect();
         let report = Config::preflight(&args, &BTreeMap::new());
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-        assert!(matches!(
+        std::assert_matches!(
             report.auth_profile(),
             Some(AuthProfile::Strict {
                 trusted: TrustedCaller::BuiltIn,
                 ..
             })
-        ));
+        );
         let report = Config::preflight(
             &paired
                 .iter()
@@ -660,13 +660,13 @@ mod tests {
                 .collect::<Vec<_>>(),
             &BTreeMap::new(),
         );
-        assert!(matches!(
+        std::assert_matches!(
             report.auth_profile(),
             Some(AuthProfile::Strict {
                 trusted: TrustedCaller::Named(principal),
                 ..
             }) if principal == "app@example.invalid"
-        ));
+        );
     }
 
     /// Diagnostics for several settings come out in native setting name order, not in the order
@@ -828,10 +828,10 @@ mod tests {
             Config::load(&flags, &BTreeMap::new()).unwrap()
         };
         let default = load(&[]);
-        assert!(matches!(
+        std::assert_matches!(
             default.tls().map(Tls::identity),
             Some(TlsIdentity::Development)
-        ));
+        );
         let plain = load(&["--scheme=http"]);
         assert!(plain.tls().is_none());
         assert_eq!(plain.grpc_scheme(), None);
@@ -1650,7 +1650,7 @@ mod tests {
             ),
         ] {
             let loaded = ConfigDraft::load(&args, &env).unwrap();
-            assert!(matches!(loaded.buckets, Some(DocumentSource::File(_))));
+            std::assert_matches!(loaded.buckets, Some(DocumentSource::File(_)));
             let args = if source == DiagnosticSource::Cli {
                 vec!["--buckets-file".into(), "".into()]
             } else {

@@ -641,11 +641,9 @@ fn pinned_sources_report_every_field_that_moved_on_either_side() {
         let source = PinnedSource::open(&path).unwrap();
         append(&path);
         fs::remove_file(&path).unwrap();
-        assert!(
-            matches!(
+        std::assert_matches!(
                 source.verify_unchanged(named),
-                Err(ImportFailure::Io(error)) if error.kind() == io::ErrorKind::NotFound
-            ),
+                Err(ImportFailure::Io(error)) if error.kind() == io::ErrorKind::NotFound,
             "a read needs its name"
         );
     }

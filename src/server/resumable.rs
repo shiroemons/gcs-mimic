@@ -803,6 +803,7 @@ pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
     use std::time::Duration;
     use tokio::{sync::oneshot, task::JoinHandle, time::advance};
 
@@ -870,10 +871,7 @@ mod tests {
         settle().await;
         assert!(!task.is_finished());
         advance(Duration::from_millis(1)).await;
-        assert!(matches!(
-            timed_out(task).await,
-            BackendFailure::FinalizationTimeout
-        ));
+        assert_matches!(timed_out(task).await, BackendFailure::FinalizationTimeout);
     }
 
     #[tokio::test(start_paused = true)]
@@ -883,10 +881,7 @@ mod tests {
         settle().await;
         assert!(!task.is_finished());
         advance(Duration::from_millis(1)).await;
-        assert!(matches!(
-            timed_out(task).await,
-            BackendFailure::UploadWaitTimeout
-        ));
+        assert_matches!(timed_out(task).await, BackendFailure::UploadWaitTimeout);
     }
 
     /// A larger catalog budget would not have helped, so the reply advises the request deadline.
@@ -897,10 +892,7 @@ mod tests {
         settle().await;
         assert!(!task.is_finished());
         advance(Duration::from_millis(1)).await;
-        assert!(matches!(
-            timed_out(task).await,
-            BackendFailure::FinalizationTimeout
-        ));
+        assert_matches!(timed_out(task).await, BackendFailure::FinalizationTimeout);
     }
 
     #[tokio::test(start_paused = true)]
@@ -916,10 +908,7 @@ mod tests {
         settle().await;
         assert!(!task.is_finished());
         advance(Duration::from_millis(1)).await;
-        assert!(matches!(
-            timed_out(task).await,
-            BackendFailure::UploadWaitTimeout
-        ));
+        assert_matches!(timed_out(task).await, BackendFailure::UploadWaitTimeout);
     }
 
     /// `resumable_sessions.completion` holds the rendered resource as JSON text, and a retry

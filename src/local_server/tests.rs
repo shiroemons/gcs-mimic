@@ -1,4 +1,5 @@
 use super::*;
+use std::assert_matches;
 use std::cell::RefCell;
 
 /// Every command that reaches the server reads a URL the same way: an explicit port, no user
@@ -42,16 +43,16 @@ fn a_tls_client_verifies_https_and_plain_http_takes_no_ca() {
     let http = "http://127.0.0.1:1".parse::<Origin>().unwrap();
     let https = "https://127.0.0.1:1".parse::<Origin>().unwrap();
     assert!(http.tls_client(None).unwrap().is_none());
-    assert!(matches!(
+    assert_matches!(
         http.tls_client(Some(Path::new("ca.pem"))),
         Err(Untrusted::CaCertOverHttp)
-    ));
+    );
     assert!(https.tls_client(None).unwrap().is_some());
     let missing = std::env::temp_dir().join("gcs-mimic-no-such-ca.pem");
-    assert!(matches!(
+    assert_matches!(
         https.tls_client(Some(&missing)),
         Err(Untrusted::Load(tls::TlsError::Io(error))) if error.kind() == std::io::ErrorKind::NotFound
-    ));
+    );
 }
 
 #[test]

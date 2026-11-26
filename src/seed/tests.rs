@@ -69,14 +69,14 @@ async fn a_complete_walk_imports_every_fixture_and_marks_the_seed_complete() {
     let outcome = import(&catalog, &config.clone().build(), &clock())
         .await
         .unwrap();
-    assert!(matches!(
+    std::assert_matches!(
         outcome,
         SeedOutcome::Imported {
             buckets: 1,
             objects: 3,
             ..
         }
-    ));
+    );
     assert!(seed_complete(&catalog).await);
     catalog.close().await.unwrap();
 }
@@ -191,19 +191,19 @@ async fn a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_r
     let outcome = import(&catalog, &config.clone().build(), &clock())
         .await
         .unwrap();
-    assert!(matches!(
+    std::assert_matches!(
         outcome,
         SeedOutcome::Imported {
             buckets: BUCKETS,
             ..
         }
-    ));
+    );
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
     let outcome = import(&catalog, &config.clone().build(), &clock())
         .await
         .unwrap();
-    assert!(matches!(outcome, SeedOutcome::Imported { buckets: 0, .. }));
+    std::assert_matches!(outcome, SeedOutcome::Imported { buckets: 0, .. });
     catalog.close().await.unwrap();
 }
 
@@ -230,8 +230,7 @@ async fn an_unreadable_fixture_fails_as_tree_io_with_its_permission_kind() {
     while let SeedError::Import(source) | SeedError::Entry { source, .. } = error {
         error = source.as_ref();
     }
-    assert!(
-        matches!(error, SeedError::Io(cause) if cause.kind() == std::io::ErrorKind::PermissionDenied),
+    std::assert_matches!(error, SeedError::Io(cause) if cause.kind() == std::io::ErrorKind::PermissionDenied,
         "{error:?}"
     );
     assert!(!seed_complete(&catalog).await);
@@ -265,15 +264,13 @@ async fn a_fixture_that_fails_to_open_for_a_moment_is_opened_again_and_seeded() 
     let outcome = import(&catalog, &config.clone().build(), &clock())
         .await
         .unwrap();
-    assert!(
-        matches!(
-            outcome,
-            SeedOutcome::Imported {
-                buckets: 1,
-                objects: 3,
-                ..
-            }
-        ),
+    std::assert_matches!(
+        outcome,
+        SeedOutcome::Imported {
+            buckets: 1,
+            objects: 3,
+            ..
+        },
         "{outcome:?}"
     );
     assert_eq!(settling.left(), 0);
@@ -298,12 +295,10 @@ async fn a_fixture_that_keeps_failing_to_open_fails_startup_and_leaves_the_seed_
     let SeedError::Import(entry) = &failure else {
         panic!("{failure:?}");
     };
-    assert!(
-        matches!(
+    std::assert_matches!(
             entry.as_ref(),
             SeedError::Entry { label, source }
-                if label == "bucket/b" && matches!(source.as_ref(), SeedError::Unopenable)
-        ),
+                if label == "bucket/b" && matches!(source.as_ref(), SeedError::Unopenable),
         "{failure:?}"
     );
     assert!(!seed_complete(&catalog).await);
@@ -330,15 +325,13 @@ async fn a_fixture_removed_after_the_listing_is_left_out_and_the_rest_is_seeded(
     let outcome = import(&catalog, &config.clone().build(), &clock())
         .await
         .unwrap();
-    assert!(
-        matches!(
-            outcome,
-            SeedOutcome::Imported {
-                buckets: 1,
-                objects: 2,
-                ..
-            }
-        ),
+    std::assert_matches!(
+        outcome,
+        SeedOutcome::Imported {
+            buckets: 1,
+            objects: 2,
+            ..
+        },
         "{outcome:?}"
     );
     assert_eq!(seeded(&catalog, "b").await, None);
@@ -384,8 +377,9 @@ async fn a_directory_replaced_after_the_listing_fails_startup_as_a_changed_tree(
         let failure = import(&catalog, &config.clone().build(), &clock())
             .await
             .unwrap_err();
-        assert!(
-            matches!(innermost(&failure), SeedError::TreeChanged),
+        std::assert_matches!(
+            innermost(&failure),
+            SeedError::TreeChanged,
             "root {replaces_root}: {failure:?}"
         );
         assert!(!seed_complete(&catalog).await);
@@ -413,10 +407,7 @@ async fn a_root_replaced_before_it_is_pinned_fails_startup_as_a_changed_tree() {
     let failure = import(&catalog, &config.clone().build(), &clock())
         .await
         .unwrap_err();
-    assert!(
-        matches!(innermost(&failure), SeedError::TreeChanged),
-        "{failure:?}"
-    );
+    std::assert_matches!(innermost(&failure), SeedError::TreeChanged, "{failure:?}");
     assert!(!seed_complete(&catalog).await);
     catalog.close().await.unwrap();
 }

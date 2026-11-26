@@ -1,5 +1,6 @@
 use super::http::Reply;
 use serde_json::{Value, json};
+use std::assert_matches;
 
 impl Reply {
     /// A bare text page: the status, content type and the whole body are compared.
@@ -28,11 +29,9 @@ impl Reply {
         self.expect(status);
         // The upload front end labelled some JSON envelopes text/html (recorded).
         let content_type = self.headers["content-type"].as_str();
-        assert!(
-            matches!(
-                content_type,
-                "application/json; charset=UTF-8" | "text/html; charset=UTF-8"
-            ),
+        assert_matches!(
+            content_type,
+            "application/json; charset=UTF-8" | "text/html; charset=UTF-8",
             "{content_type}"
         );
         let body: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
@@ -65,8 +64,9 @@ impl Reply {
 impl Reply {
     #[track_caller]
     pub(crate) fn success(&self) -> &Self {
-        assert!(
-            matches!(self.status, 200 | 204),
+        assert_matches!(
+            self.status,
+            200 | 204,
             "{}: {}",
             self.status,
             String::from_utf8_lossy(&self.body)

@@ -324,6 +324,7 @@ pub(crate) fn object_storage_class(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::assert_matches;
 
     #[test]
     fn terminal_storage_class_spellings_and_json_are_stable() {
@@ -397,7 +398,7 @@ mod tests {
                     CatalogError::Metadata(MetadataError::AutoclassTerminal)
                 );
             } else {
-                assert!(matches!(error, CatalogError::InvalidMetadata(_)), "{bad}");
+                assert_matches!(error, CatalogError::InvalidMetadata(_), "{bad}");
             }
         }
     }
@@ -459,10 +460,10 @@ mod tests {
         assert_eq!(still, Some(disabled), "repeat disable keeps toggleTime");
 
         let just_before = at(10 + 86_399);
-        assert!(matches!(
+        assert_matches!(
             apply(Some(&disabled), enable(None), just_before),
             Err(CatalogError::InvalidMetadata(_))
-        ));
+        );
         let reenabled = apply(Some(&disabled), enable(None), at(10 + 86_400))
             .unwrap()
             .unwrap();
@@ -472,7 +473,7 @@ mod tests {
             enabled(TerminalStorageClass::Nearline, at(10 + 86_400))
         );
 
-        assert!(matches!(
+        assert_matches!(
             apply(
                 Some(&disabled),
                 AutoclassUpdate {
@@ -482,7 +483,7 @@ mod tests {
                 at(20)
             ),
             Err(CatalogError::Metadata(MetadataError::AutoclassDisabled))
-        ));
+        );
     }
 
     #[test]

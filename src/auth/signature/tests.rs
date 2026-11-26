@@ -2,6 +2,7 @@ use super::*;
 use crate::auth::Registry;
 use crate::clock::ManualClock;
 use serde_json::json;
+use std::assert_matches;
 
 const PRIVATE: &[u8] = include_bytes!("../../../fixtures/signing/test-only-private.pem");
 const PUBLIC: &str = include_str!("../../../fixtures/signing/test-only-public.pem");
@@ -430,18 +431,16 @@ async fn v2_query_names_stay_exact_in_case() {
             let bad = url.replace(&format!("{parameter}="), &format!("{spelling}="));
             assert_ne!(bad, url);
             for auth in [auth(), Auth::default()] {
-                assert!(
-                    matches!(
-                        verify_with_auth(
-                            &auth,
-                            &Method::GET,
-                            &bad.parse().unwrap(),
-                            &HeaderMap::new(),
-                            now
-                        )
-                        .await,
-                        Err(Failure::Malformed)
-                    ),
+                assert_matches!(
+                    verify_with_auth(
+                        &auth,
+                        &Method::GET,
+                        &bad.parse().unwrap(),
+                        &HeaderMap::new(),
+                        now
+                    )
+                    .await,
+                    Err(Failure::Malformed),
                     "{bad}"
                 );
             }
@@ -470,7 +469,7 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
                 format!("{url}&X-Goog-Date=20261023T120000Z"),
             ] {
                 assert!(is_signed(bad.parse::<Uri>().unwrap().query()));
-                assert!(matches!(
+                assert_matches!(
                     verify_with_auth(
                         &auth,
                         &Method::GET,
@@ -480,7 +479,7 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
                     )
                     .await,
                     Err(Failure::Malformed)
-                ));
+                );
             }
         }
     }
@@ -1008,19 +1007,17 @@ fn signer_rejects_every_existing_signature_parameter_including_encoded_v2_names(
         .chain(["%45xpires".into()])
     {
         assert!(is_signed(Some(&format!("{parameter}=x"))));
-        assert!(
-            matches!(
-                sign_url(SignUrlRequest {
-                    url: &format!("http://localhost/bucket/object?{parameter}=x"),
-                    method: &Method::GET,
-                    signer: SIGNER,
-                    private_key: PRIVATE,
-                    expires: 60,
-                    now: parse_timestamp(DATE).unwrap(),
-                    headers: HeaderMap::new(),
-                }),
-                Err(SigningError::ExistingSigningParameters)
-            ),
+        assert_matches!(
+            sign_url(SignUrlRequest {
+                url: &format!("http://localhost/bucket/object?{parameter}=x"),
+                method: &Method::GET,
+                signer: SIGNER,
+                private_key: PRIVATE,
+                expires: 60,
+                now: parse_timestamp(DATE).unwrap(),
+                headers: HeaderMap::new(),
+            }),
+            Err(SigningError::ExistingSigningParameters),
             "{parameter}"
         );
     }

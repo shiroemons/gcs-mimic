@@ -53,6 +53,7 @@ impl Default for Verifiers {
 }
 
 /// How a prepared signature is checked once its signer's key is known.
+#[cfg_attr(test, derive(Debug))]
 pub(super) enum Scheme {
     /// RSASSA-PKCS1-v1_5 SHA-256 against the signer's public keys: V4 `GOOG4-RSA-SHA256`, and V2
     /// query or policy signatures by a signer with a registered key.
@@ -64,6 +65,7 @@ pub(super) enum Scheme {
 }
 
 /// The V4 credential scope an HMAC signing key derives from.
+#[cfg_attr(test, derive(Debug))]
 pub(super) struct V4Scope {
     pub(super) family: v4::Family,
     /// `X-Goog-Date` or `X-Amz-Date`; aws-chunked chunk signatures repeat it.
@@ -384,6 +386,7 @@ fn warn_portless_host() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     /// Verifies the string to sign over the request as sent, which the published vectors cover.
     fn verify(key: Key, prepared: &Prepared) -> bool {
@@ -488,7 +491,7 @@ mod tests {
                 .authenticate_xml_resource(&catalog, request, &clock)
                 .await
                 .unwrap_err();
-            assert!(matches!(failure, VerificationError::Catalog(_)));
+            assert_matches!(failure, VerificationError::Catalog(_));
             assert!(failure.source().is_some());
             let xml = crate::xml::authenticate_target(crate::xml::Authentication {
                 auth: &auth,
@@ -528,7 +531,7 @@ mod tests {
             prepared.message,
             "GET\n\n\nTue, 27 Mar 2007 19:36:42 +0000\n/awsexamplebucket1/photos/puppy.jpg"
         );
-        assert!(matches!(prepared.scheme, Scheme::HmacSha1));
+        assert_matches!(prepared.scheme, Scheme::HmacSha1);
         assert!(verify(
             Key::Hmac(legacy_hmac_key("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")),
             &prepared
@@ -548,15 +551,16 @@ mod tests {
             .is_ok()
         );
         for seconds in [1175139620, 1175139621] {
-            assert!(matches!(
+            assert_matches!(
                 v2::prepare(
                     &Method::GET,
                     &uri,
                     &HeaderMap::new(),
                     UNIX_EPOCH + Duration::from_secs(seconds)
-                ),
+                )
+                .map(drop),
                 Err(Failure::Expired)
-            ));
+            );
         }
         // A signer without a registered RSA key names an HMAC key.
         let mut prepared = v2::prepare(
@@ -566,7 +570,7 @@ mod tests {
             UNIX_EPOCH + Duration::from_secs(1175139600),
         )
         .unwrap();
-        assert!(matches!(prepared.scheme, Scheme::HmacSha1));
+        assert_matches!(prepared.scheme, Scheme::HmacSha1);
         assert_eq!(
             prepared.message,
             "GET\n\n\n1175139620\n/awsexamplebucket1/photos/puppy.jpg"
@@ -734,7 +738,7 @@ mod tests {
             .authenticate_xml_resource(&catalog, request, &clock)
             .await
             .unwrap_err();
-        assert!(matches!(error, VerificationError::Catalog(_)));
+        assert_matches!(error, VerificationError::Catalog(_));
         assert!(error.source().is_some());
         let error = crate::xml::authenticate_target(crate::xml::Authentication {
             auth: &auth,

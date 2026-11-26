@@ -1,5 +1,6 @@
 use crate::common;
 use crate::common::process::declare_server;
+use std::assert_matches;
 
 use common::TestDir;
 use common::process::http_command;
@@ -571,12 +572,12 @@ fn xml_delete_object_enforces_generation_metageneration_versioning_and_signed_bi
         .request("PUT", "/delete-bucket/a%2Fb", ADMIN, "second")
         .expect(200);
     for auth in [VIEWER, NONE, ""] {
-        assert!(matches!(
+        assert_matches!(
             server
                 .request("DELETE", "/delete-bucket/a%2Fb", auth, "")
                 .status,
             401 | 403
-        ));
+        );
     }
     for headers in [
         format!("{ADMIN}x-goog-if-generation-match: {generation}\r\n"),

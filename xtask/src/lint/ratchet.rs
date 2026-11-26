@@ -236,6 +236,7 @@ impl Baseline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     struct TempRoot(std::path::PathBuf);
 
@@ -272,21 +273,19 @@ mod tests {
         assert!(baseline.check(&[finding(10), finding(20)]).is_empty());
         let findings = [finding(1), finding(2), finding(3)];
         let problems = baseline.check(&findings);
-        assert!(
-            matches!(problems.as_slice(), [Problem::Exceeded { allowed: 2, findings, .. }] if findings.len() == 3)
-        );
-        assert!(matches!(
+        assert_matches!(problems.as_slice(), [Problem::Exceeded { allowed: 2, findings, .. }] if findings.len() == 3);
+        assert_matches!(
             baseline.check(&[finding(1)]).as_slice(),
             [Problem::Stale {
                 recorded: 2,
                 found: 1,
                 ..
             }]
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             baseline.check(&[]).as_slice(),
             [Problem::Stale { found: 0, .. }]
-        ));
+        );
         assert!(
             !baseline
                 .check(&[Finding::new(SAMPLE_RULE, "src/new.rs", 1)])
@@ -313,10 +312,7 @@ mod tests {
         }
         let baseline = Baseline::load(root, None).unwrap();
         assert!(baseline.check(&shared).is_empty());
-        assert!(matches!(
-            baseline.check(&[]).as_slice(),
-            [Problem::Stale { .. }]
-        ));
+        assert_matches!(baseline.check(&[]).as_slice(), [Problem::Stale { .. }]);
         assert!(!baseline.check(&[shared[0].clone(), finding(4)]).is_empty());
         for (target, count) in [
             ("x86_64-unknown-linux-gnu", 2),
@@ -326,21 +322,21 @@ mod tests {
             let findings = (0..count).map(finding).collect::<Vec<_>>();
             assert!(baseline.check(&findings).is_empty());
             let stale = baseline.check(&findings[..count - 1]);
-            assert!(matches!(stale.as_slice(), [Problem::Stale { .. }]));
+            assert_matches!(stale.as_slice(), [Problem::Stale { .. }]);
             assert!(stale[0].to_string().contains(&file(Some(target))));
             let mut increased = findings;
             increased.push(finding(count));
-            assert!(matches!(
+            assert_matches!(
                 baseline.check(&increased).as_slice(),
                 [Problem::Exceeded { .. }]
-            ));
+            );
         }
         let missing = Baseline::load(root, Some("aarch64-unknown-linux-gnu")).unwrap();
         assert!(missing.check(&[]).is_empty());
-        assert!(matches!(
+        assert_matches!(
             missing.check(&[finding(1)]).as_slice(),
             [Problem::Exceeded { allowed: 0, .. }]
-        ));
+        );
     }
 
     #[test]

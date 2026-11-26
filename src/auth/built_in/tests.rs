@@ -3,6 +3,7 @@ use crate::auth::{
     BUCKETS_CREATE, BUCKETS_SET_IAM, Caller, ListenerRole, OBJECTS_CREATE, OBJECTS_GET,
 };
 use serde_json::json;
+use std::assert_matches;
 
 fn registry(identities: serde_json::Value) -> Registry {
     Registry::parse(json!({ "identities": identities }).to_string().as_bytes()).unwrap()
@@ -56,10 +57,10 @@ fn the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_list
         panic!("the trusted listener acts as the built-in app");
     };
     assert_eq!(trusted.id(), TRUSTED_APP_ID);
-    assert!(matches!(
+    assert_matches!(
         registry.caller_without_credentials(ListenerRole::Public),
         Caller::Anonymous
-    ));
+    );
 }
 
 /// An explicit entry replaces the implicit grants: its roles, tokens and alias stay its own.
@@ -101,7 +102,7 @@ fn an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity() {
         let error = registry
             .trust(&TrustedCaller::BuiltIn, &projects(&["local-project"]))
             .unwrap_err();
-        assert!(matches!(error, RegistryError::Invalid(_)));
+        assert_matches!(error, RegistryError::Invalid(_));
         assert!(error.to_string().contains("trusted_principal"), "{error}");
     }
 }

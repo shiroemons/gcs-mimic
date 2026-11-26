@@ -32,6 +32,7 @@ impl Serialize for LifecycleSize {
 mod tests {
     use crate::bucket::{CatalogError, lifecycle::LifecycleRules};
     use serde_json::{Value, json};
+    use std::assert_matches;
 
     /// The values a bucket stores for the JSON `lifecycle` member `value`.
     fn parse(value: &Value) -> Result<Vec<Value>, CatalogError> {
@@ -132,11 +133,11 @@ mod tests {
         for field in ["sizeAboveBytes", "sizeBelowBytes"] {
             assert!(parse(&json!({"rule":[{"action":{"type":"AbortIncompleteMultipartUpload"},"condition":{field:1}}]})).is_err());
         }
-        assert!(matches!(
+        assert_matches!(
             parse(
                 &json!({"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]})
             ),
             Err(crate::bucket::CatalogError::UnsupportedMetadata(_))
-        ));
+        );
     }
 }

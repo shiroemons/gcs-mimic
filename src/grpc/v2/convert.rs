@@ -542,6 +542,7 @@ impl From<iam::Binding> for auth::policy_input::BindingInput {
 mod tests {
     use super::*;
     use crate::acl::AclKind;
+    use std::assert_matches;
 
     /// The resource a caller without a key sees.
     fn keyless(record: &ObjectRecord) -> Result<pb::Object, ObjectConversionError> {
@@ -944,7 +945,7 @@ mod tests {
                     .unwrap()
                     .is::<std::num::TryFromIntError>()
             );
-            assert!(matches!(ObjectError::from(error), ObjectError::Corrupt(_)));
+            assert_matches!(ObjectError::from(error), ObjectError::Corrupt(_));
             assert_eq!(
                 keyless(&invalid)
                     .map_err(tonic::Status::from)
@@ -962,14 +963,14 @@ mod tests {
         assert_eq!(status.code(), tonic::Code::Internal);
         assert_eq!(status.message(), INVALID_CUSTOM_TIME);
         let cause = std::error::Error::source(&status).unwrap();
-        assert!(matches!(
+        assert_matches!(
             cause.downcast_ref::<ObjectConversionError>(),
             Some(ObjectConversionError::InvalidCustomTime(_))
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             keyless(&corrupt_time).map_err(ObjectError::from),
             Err(ObjectError::Corrupt(cause)) if cause.message() == INVALID_CUSTOM_TIME
-        ));
+        );
     }
 
     #[tokio::test]

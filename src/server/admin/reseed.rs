@@ -227,6 +227,7 @@ fn retry(operation: Operation) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn typed_reseed_failures_keep_the_existing_http_contract() {
@@ -438,10 +439,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(matches!(
-            error,
-            SeedError::Admin(AdminError::SeedProjectMismatch)
-        ));
+        assert_matches!(error, SeedError::Admin(AdminError::SeedProjectMismatch));
         assert_eq!(failure(&error).status(), StatusCode::BAD_REQUEST);
         drop(admin);
         catalog.close().await.unwrap();

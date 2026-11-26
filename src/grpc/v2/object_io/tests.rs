@@ -17,6 +17,7 @@ use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
 use prost::Message;
 use serde_json::json;
+use std::assert_matches;
 use std::sync::Arc;
 
 pub(in crate::grpc::v2) fn ended_session_replies() -> [(&'static str, Status, Status); 3] {
@@ -1518,7 +1519,7 @@ async fn grpc_io_write_keeps_custom_metadata_past_8_kib_up_to_the_local_bound() 
         refused.message(),
         "Object metadata exceeds 40 KiB once encoded as JSON; shorten its fixed and custom metadata."
     );
-    assert!(matches!(
+    assert_matches!(
         storage
             .state
             .catalog
@@ -1529,7 +1530,7 @@ async fn grpc_io_write_keeps_custom_metadata_past_8_kib_up_to_the_local_bound() 
             )
             .await,
         Err(ObjectError::ObjectNotFound)
-    ));
+    );
 }
 
 #[tokio::test]
@@ -1740,17 +1741,17 @@ async fn grpc_io_resumes_durable_offsets_and_queries_completion() {
     first.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
         upload.clone(),
     ));
-    assert!(matches!(
+    assert_matches!(
         write(&storage, vec![first.clone()]).await.unwrap(),
         pb::bidi_write_object_response::WriteStatus::PersistedSize(GRANULE)
-    ));
+    );
     let query = || {
         undispatched(pb::QueryWriteStatusRequest {
             upload_id: upload.clone(),
             ..Default::default()
         })
     };
-    assert!(matches!(
+    assert_matches!(
         storage
             .query_write_status(query(), None)
             .await
@@ -1760,16 +1761,16 @@ async fn grpc_io_resumes_durable_offsets_and_queries_completion() {
         Some(pb::query_write_status_response::WriteStatus::PersistedSize(
             GRANULE
         ))
-    ));
+    );
     storage.state.catalog.close().await.unwrap();
     let mut storage = storage;
     Arc::get_mut(&mut storage.state).unwrap().catalog = Catalog::open(&dir.0).await.unwrap();
     // Recorded (case grpc-probe-inferred-granules): a stream that resends the persisted granule
     // from offset 0 is accepted and leaves the persisted size as it was.
-    assert!(matches!(
+    assert_matches!(
         write(&storage, vec![first]).await.unwrap(),
         pb::bidi_write_object_response::WriteStatus::PersistedSize(GRANULE)
-    ));
+    );
     let mut final_message = message("ignored", b"def");
     final_message.write_offset = GRANULE;
     final_message.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
@@ -1784,7 +1785,7 @@ async fn grpc_io_resumes_durable_offsets_and_queries_completion() {
         object.checksums.unwrap().crc32c,
         Some(crc32c::crc32c(&[granule().as_slice(), b"def"].concat()))
     );
-    assert!(matches!(
+    assert_matches!(
         storage
             .query_write_status(
                 undispatched(pb::QueryWriteStatusRequest {
@@ -1798,7 +1799,7 @@ async fn grpc_io_resumes_durable_offsets_and_queries_completion() {
             .into_inner()
             .write_status,
         Some(pb::query_write_status_response::WriteStatus::Resource(_))
-    ));
+    );
     storage.state.catalog.close().await.unwrap();
 }
 
@@ -2164,12 +2165,12 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
     assert_eq!(cancel(&storage, &fresh, None).await, Ok(()));
 
     let partial = start(&storage, "partial", None).await;
-    assert!(matches!(
+    assert_matches!(
         write(&storage, vec![resume(&partial, 0, &granule(), false)])
             .await
             .unwrap(),
         pb::bidi_write_object_response::WriteStatus::PersistedSize(GRANULE)
-    ));
+    );
     let partial_id = partial.parse::<UploadId>().unwrap();
     let blob = storage
         .state
@@ -2199,10 +2200,10 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
         cancel(&storage, &done, None).await,
         Err(tonic::Code::FailedPrecondition)
     );
-    assert!(matches!(
+    assert_matches!(
         query(&storage, &done, None).await,
         Ok(pb::query_write_status_response::WriteStatus::Resource(_))
-    ));
+    );
     assert!(!missing(&storage, "done").await);
 
     // Recorded 2026-11-18: text that is no upload ID is INVALID_ARGUMENT, and an ID the service
@@ -2287,12 +2288,12 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
         cancel(&storage, &upload, Some(Caller::Anonymous)).await,
         Err(tonic::Code::Unauthenticated)
     );
-    assert!(matches!(
+    assert_matches!(
         query(&storage, &upload, admin).await,
         Ok(pb::query_write_status_response::WriteStatus::PersistedSize(
             GRANULE
         ))
-    ));
+    );
     assert_eq!(cancel(&storage, &upload, admin).await, Ok(()));
     assert_eq!(
         query(&storage, &upload, admin).await,
@@ -2484,12 +2485,12 @@ async fn grpc_io_upload_id_calls_authorize_before_comparing_the_routing() {
             }
         }
     }
-    assert!(matches!(
+    assert_matches!(
         query(&storage, &upload, admin).await,
         Ok(pb::query_write_status_response::WriteStatus::PersistedSize(
             0
         ))
-    ));
+    );
     storage.state.catalog.close().await.unwrap();
 }
 
@@ -2511,20 +2512,20 @@ async fn grpc_io_resumable_sessions_expire_seven_days_after_start() {
         .unwrap();
     let storage = storage_over(catalog, false).await;
     let upload = start(&storage, "expiring", None).await;
-    assert!(matches!(
+    assert_matches!(
         write(&storage, vec![resume(&upload, 0, &granule(), false)])
             .await
             .unwrap(),
         pb::bidi_write_object_response::WriteStatus::PersistedSize(GRANULE)
-    ));
+    );
     let lifetime = Duration::from_secs(7 * 24 * 60 * 60);
     clock.advance(lifetime - Duration::from_millis(1));
-    assert!(matches!(
+    assert_matches!(
         query(&storage, &upload, None).await,
         Ok(pb::query_write_status_response::WriteStatus::PersistedSize(
             GRANULE
         ))
-    ));
+    );
     clock.advance(Duration::from_millis(1));
     assert_eq!(
         query(&storage, &upload, None).await,
@@ -2667,10 +2668,10 @@ async fn grpc_io_resumable_checksums_survive_reconnect_and_failed_completion() {
             upload.clone(),
         ));
         prefix.object_checksums = Some(checksum);
-        assert!(matches!(
+        assert_matches!(
             write(&storage, vec![prefix]).await.unwrap(),
             pb::bidi_write_object_response::WriteStatus::PersistedSize(GRANULE)
-        ));
+        );
         storage.state.catalog.close().await.unwrap();
         Arc::get_mut(&mut storage.state).unwrap().catalog = Catalog::open(&dir.0).await.unwrap();
         let mut bad = message("ignored", b"xxx");

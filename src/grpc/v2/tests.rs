@@ -5,6 +5,7 @@ use crate::{
     storage::Catalog,
     test_support::TestDir,
 };
+use std::assert_matches;
 
 #[test]
 fn authentication_worker_failures_keep_their_source_and_unavailable_status() {
@@ -46,10 +47,10 @@ async fn grpc_auth_metadata_handoff() {
         tonic::Code::Unauthenticated,
     );
     request.metadata_mut().clear();
-    assert!(matches!(
+    assert_matches!(
         storage.authenticate(&request).await.unwrap(),
         Some(Caller::Anonymous)
-    ));
+    );
     assert_code(
         storage
             .get_bucket(

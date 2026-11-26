@@ -31,6 +31,7 @@ impl BlobId {
 mod tests {
     use super::*;
     use crate::storage::opaque_id::InvalidOpaqueId;
+    use std::assert_matches;
 
     #[test]
     fn canonical_ids_preserve_names_shards_and_leading_zeroes() {
@@ -75,19 +76,16 @@ mod tests {
             let error = connection
                 .query_row("SELECT ?1", [invalid], |row| row.get::<_, BlobId>(0))
                 .unwrap_err();
-            assert!(matches!(
-                error,
-                rusqlite::Error::FromSqlConversionFailure(0, _, _)
-            ));
-            assert!(matches!(
+            assert_matches!(error, rusqlite::Error::FromSqlConversionFailure(0, _, _));
+            assert_matches!(
                 crate::storage::failure::unavailable(error),
                 crate::bucket::CatalogError::Corrupt(_)
-            ));
+            );
         }
-        assert!(matches!(
+        assert_matches!(
             connection.query_row("SELECT 1", [], |row| row.get::<_, BlobId>(0)),
             Err(rusqlite::Error::InvalidColumnType(0, _, _))
-        ));
+        );
     }
 
     /// Fixed-length lowercase hex sorts like its bytes, so a keyset cursor may compare the

@@ -230,15 +230,12 @@ fn the_review_offers_what_the_buckets_allow() {
 /// Esc goes back, but Ctrl-C and other failures still end the questions.
 #[test]
 fn esc_goes_back_and_other_errors_still_end_the_questions() {
-    assert!(matches!(back(Ok(3)), Ok(Some(3))));
-    assert!(matches!(
-        back::<u8>(Err(InquireError::OperationCanceled)),
-        Ok(None)
-    ));
-    assert!(matches!(
+    std::assert_matches!(back(Ok(3)), Ok(Some(3)));
+    std::assert_matches!(back::<u8>(Err(InquireError::OperationCanceled)), Ok(None));
+    std::assert_matches!(
         back::<u8>(Err(InquireError::OperationInterrupted)),
         Err(InquireError::OperationInterrupted)
-    ));
+    );
 }
 
 fn asked(name: &str, origins: &[&str]) -> Asked {
@@ -307,8 +304,9 @@ fn a_new_file_must_not_exist_and_its_directory_must() {
         "Cargo.toml",
         "no-such-directory-for-buckets/buckets.json",
     ] {
-        assert!(
-            matches!(new_file(Path::new(refused)), Validation::Invalid(_)),
+        std::assert_matches!(
+            new_file(Path::new(refused)),
+            Validation::Invalid(_),
             "{refused:?}"
         );
     }
@@ -316,8 +314,9 @@ fn a_new_file_must_not_exist_and_its_directory_must() {
         "buckets-new-unused-name.json",
         "src/buckets-new-unused-name.json",
     ] {
-        assert!(
-            matches!(new_file(Path::new(accepted)), Validation::Valid),
+        std::assert_matches!(
+            new_file(Path::new(accepted)),
+            Validation::Valid,
             "{accepted:?}"
         );
     }
@@ -566,7 +565,7 @@ fn a_bucket_asked_again_starts_from_its_answers_and_esc_keeps_it() {
 #[test]
 fn esc_goes_back_one_step_and_ends_only_on_the_first_question() {
     let (answers, script) = run(Some(Format::Env), FileQuestion::Skip, [Reply::Esc]);
-    assert!(matches!(answers, Err(InquireError::OperationCanceled)));
+    std::assert_matches!(answers.map(drop), Err(InquireError::OperationCanceled));
     assert!(script.is_done());
 
     let (answers, script) = run(
@@ -609,7 +608,7 @@ fn esc_goes_back_one_step_and_ends_only_on_the_first_question() {
             Reply::Esc,
         ],
     );
-    assert!(matches!(answers, Err(InquireError::OperationCanceled)));
+    std::assert_matches!(answers.map(drop), Err(InquireError::OperationCanceled));
     assert!(script.is_done());
     assert!(
         !script.seen.iter().any(|seen| seen.starts_with("# Enter")),
@@ -630,7 +629,7 @@ fn esc_goes_back_one_step_and_ends_only_on_the_first_question() {
             Reply::Yes,
         ],
     );
-    assert!(matches!(answers, Err(InquireError::OperationCanceled)));
+    std::assert_matches!(answers.map(drop), Err(InquireError::OperationCanceled));
     assert!(script.is_done());
     let confirmations = script
         .seen
@@ -643,7 +642,7 @@ fn esc_goes_back_one_step_and_ends_only_on_the_first_question() {
         FileQuestion::Skip,
         [Reply::Type("app-uploads"), Reply::CtrlC],
     );
-    assert!(matches!(answers, Err(InquireError::OperationInterrupted)));
+    std::assert_matches!(answers.map(drop), Err(InquireError::OperationInterrupted));
 }
 
 /// An answer startup would refuse is explained and asked again; a list that needs a choice

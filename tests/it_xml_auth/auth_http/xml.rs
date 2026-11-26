@@ -1,5 +1,6 @@
 use super::*;
 use gcs_mimic::url::{encode_object_name, public_object_url};
+use std::assert_matches;
 
 const OBJECT: &str = "/iam-bucket/object";
 const JSON_OBJECT: &str = "/storage/v1/b/iam-bucket/o/object";
@@ -346,7 +347,7 @@ fn public_revocation_racing_xml_and_json_reads_denies_subsequent_requests() {
                 let read = scope.spawn(|| {
                     barrier.wait();
                     let result = server.get("", path);
-                    assert!(matches!(result.status, 200 | 401));
+                    assert_matches!(result.status, 200 | 401);
                     if result.status == 200 {
                         assert_eq!(result.body, b"hello world");
                     }

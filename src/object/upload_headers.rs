@@ -164,6 +164,7 @@ pub(crate) fn each_declared_hash(
 mod tests {
     use super::*;
     use hyper::header::HeaderName;
+    use std::assert_matches;
 
     fn header_map<'a>(entries: impl IntoIterator<Item = (&'static str, &'a str)>) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -234,10 +235,10 @@ mod tests {
             ("content-type", "text/plain"),
             ("content-type", "text/html"),
         ]);
-        assert!(matches!(
+        assert_matches!(
             content_type(&headers),
             Err(UploadHeaderError::DuplicateContentType)
-        ));
+        );
     }
 
     #[test]

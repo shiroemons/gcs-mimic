@@ -1,5 +1,6 @@
 use super::*;
 use gcs_mimic::storage::{ResumableChunk, ResumableOptions, ResumableSession};
+use std::assert_matches;
 use std::num::NonZeroU32;
 
 async fn create(
@@ -133,10 +134,10 @@ async fn a_configured_cap_applies_only_to_active_sessions() {
     }
     let first = create(&catalog, &clock).await.unwrap();
     create(&catalog, &clock).await.unwrap();
-    assert!(matches!(
+    assert_matches!(
         create(&catalog, &clock).await.unwrap_err(),
         ResumableError::Object(error) if error.to_string().contains("retained upload session limit reached")
-    ));
+    );
     assert_eq!(session_counts(&dir), (2, 3));
     // A cancelled session releases its active slot once its staged bytes are reclaimed.
     assert_eq!(cancel_wire(&catalog, &first.id.to_string(), b"").await, 499);

@@ -1,4 +1,5 @@
 use super::*;
+use std::assert_matches;
 
 const OBJECT: &str = "/storage/v1/b/range-bucket/o/data";
 const BUCKET: &str = "/storage/v1/b/range-bucket";
@@ -219,10 +220,7 @@ fn json_etag_read_buckets_and_metadata_changes_in_both_profiles() {
             .request("GET", BUCKET, &format!("If-Match: {etag}\r\n"), b"")
             .html_or_json_error(412, "conditionNotMet");
         server.request("DELETE", OBJECT, "", b"").expect(204);
-        assert!(matches!(
-            server.request("DELETE", BUCKET, "", b"").status,
-            200 | 204
-        ));
+        assert_matches!(server.request("DELETE", BUCKET, "", b"").status, 200 | 204);
         server
             .request(
                 "POST",

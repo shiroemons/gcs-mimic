@@ -1,4 +1,5 @@
 use super::*;
+use std::assert_matches;
 
 #[test]
 fn endpoints_reject_production_metadata_and_ambiguous_origins() {
@@ -195,7 +196,7 @@ async fn topic_lookup_separates_missing_from_unconfirmed() {
     }
     // Nothing listening: the connection is refused, which is unconfirmed rather than missing.
     drop(listener);
-    assert!(matches!(
+    assert_matches!(
         endpoint
             .topic_exists(
                 &"//pubsub.googleapis.com/projects/p/topics/topic"
@@ -204,7 +205,7 @@ async fn topic_lookup_separates_missing_from_unconfirmed() {
             )
             .await,
         Err(TopicCheckError::Unreachable(_))
-    ));
+    );
 }
 
 #[tokio::test]
@@ -243,10 +244,7 @@ async fn topic_lookup_without_a_usable_answer_is_unreachable() {
         let result = endpoint
             .topic_exists_within(&topic, Duration::from_millis(if hold { 100 } else { 5000 }))
             .await;
-        assert!(
-            matches!(result, Err(TopicCheckError::Unreachable(_))),
-            "{result:?}"
-        );
+        assert_matches!(result, Err(TopicCheckError::Unreachable(_)), "{result:?}");
         listener = server.await.unwrap();
     }
 }

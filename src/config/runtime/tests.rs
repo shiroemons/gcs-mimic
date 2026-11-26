@@ -1,4 +1,5 @@
 use super::*;
+use std::assert_matches;
 use std::collections::BTreeMap;
 
 fn config() -> Config {
@@ -145,12 +146,12 @@ fn endpoint_domain_limit_rejects_without_publishing_and_preserves_explicit_publi
         .runtime_endpoints()
         .snapshot(&config, "http://initial.invalid")
         .unwrap();
-    assert!(matches!(
+    assert_matches!(
         config
             .runtime_endpoints()
             .update(&config, "ignored", None, Some("extra.invalid")),
         Err(EndpointError::DomainLimit)
-    ));
+    );
     assert!(Arc::ptr_eq(
         &initial,
         &config
@@ -537,16 +538,16 @@ fn poisoned_endpoint_state_fails_visibly() {
         .join()
         .is_err()
     );
-    assert!(matches!(
+    assert_matches!(
         config
             .runtime_endpoints()
             .snapshot(&config, "http://initial.invalid"),
         Err(EndpointError::Poisoned)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         config
             .runtime_endpoints()
             .update(&config, "http://initial.invalid", None, None),
         Err(EndpointError::Poisoned)
-    ));
+    );
 }

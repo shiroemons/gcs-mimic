@@ -73,6 +73,7 @@ pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
 /// What a spelling-checked lookup of a directory found. Only tests ask it, and only which answer
 /// it gave, so the opened directory is not handed back.
 #[cfg(all(test, unix))]
+#[derive(Debug)]
 pub(crate) enum Child {
     Directory,
     Alias,
@@ -83,6 +84,7 @@ pub(crate) enum Child {
 
 /// What a spelling-checked lookup of a regular file found, as [`Child`] says for a directory.
 #[cfg(all(test, unix))]
+#[derive(Debug)]
 pub(crate) enum RegularChild {
     File,
     /// A regular file that the name reached under another letter case or normalization of it. A
@@ -107,6 +109,7 @@ pub(crate) enum RegularChild {
         reason = "descriptor-relative lookup is unsupported on this platform"
     )
 )]
+#[cfg_attr(test, derive(Debug))]
 pub(crate) enum Opened<T> {
     /// The entry the name holds.
     Entry(T),
@@ -1305,16 +1308,16 @@ mod tests {
         let source = File::open(directory.0.join("source")).unwrap();
         let root = File::open(&directory.0).unwrap();
         FAIL_CLONE_SYNC.set(true);
-        assert!(matches!(
+        std::assert_matches!(
             clone_into(&source, &root, "clone".as_ref()),
             Err(CloneFailure::Created(_))
-        ));
+        );
         assert!(directory.0.join("clone").exists());
         std::fs::write(directory.0.join("existing"), b"other owner").unwrap();
-        assert!(matches!(
+        std::assert_matches!(
             clone_into(&source, &root, "existing".as_ref()),
             Err(CloneFailure::NotCreated(_))
-        ));
+        );
         assert_eq!(
             std::fs::read(directory.0.join("existing")).unwrap(),
             b"other owner"
@@ -1322,10 +1325,7 @@ mod tests {
         CLONE_UNSUPPORTED.set(true);
         let refused = clone_into(&source, &root, "unsupported".as_ref());
         CLONE_UNSUPPORTED.set(false);
-        assert!(matches!(
-            refused,
-            Err(CloneFailure::NotCreated(FsError::Unsupported))
-        ));
+        std::assert_matches!(refused, Err(CloneFailure::NotCreated(FsError::Unsupported)));
         assert!(!directory.0.join("unsupported").exists());
     }
 
@@ -1368,10 +1368,10 @@ mod tests {
             checked_length(SOURCE_METADATA_CAP).unwrap(),
             Some(SOURCE_METADATA_CAP)
         );
-        assert!(matches!(
+        std::assert_matches!(
             checked_length(SOURCE_METADATA_CAP + 1),
             Err(SourceMetadataError::TooLarge)
-        ));
+        );
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -1388,16 +1388,16 @@ mod tests {
                 classify(io::Error::from_raw_os_error(libc::ENOATTR)).unwrap(),
                 None
             );
-            assert!(matches!(
+            std::assert_matches!(
                 classify(io::Error::from_raw_os_error(libc::ENODATA)),
                 Err(SourceMetadataError::Io(_))
-            ));
+            );
         }
         for errno in [libc::ENOTSUP, libc::EOPNOTSUPP] {
-            assert!(matches!(
+            std::assert_matches!(
                 classify(io::Error::from_raw_os_error(errno)),
                 Err(SourceMetadataError::Unsupported)
-            ));
+            );
         }
         for errno in [libc::EACCES, libc::EPERM, libc::EBADF] {
             let Err(SourceMetadataError::Io(error)) = classify(io::Error::from_raw_os_error(errno))
@@ -1407,10 +1407,10 @@ mod tests {
             assert_eq!(error.raw_os_error(), Some(errno));
         }
         for errno in [libc::ERANGE, libc::E2BIG] {
-            assert!(matches!(
+            std::assert_matches!(
                 classify(io::Error::from_raw_os_error(errno)),
                 Err(SourceMetadataError::TooLarge)
-            ));
+            );
         }
     }
 
@@ -1439,10 +1439,10 @@ mod tests {
                 Ok(false) => panic!("filesystem xattr capability changed"),
                 Err(error) => {
                     assert!(size >= SOURCE_METADATA_CAP);
-                    assert!(matches!(
+                    std::assert_matches!(
                         error.raw_os_error(),
                         Some(libc::E2BIG | libc::ENOSPC | libc::ERANGE)
-                    ));
+                    );
                     eprintln!("xattr write ceiling for {size} bytes: {error}");
                     continue;
                 }
@@ -1454,10 +1454,10 @@ mod tests {
                     Some(value.as_slice())
                 );
             } else {
-                assert!(matches!(
+                std::assert_matches!(
                     read_source_metadata(&file, &mut buffer),
                     Err(SourceMetadataError::TooLarge)
-                ));
+                );
             }
             assert_eq!(
                 before.modified().unwrap(),

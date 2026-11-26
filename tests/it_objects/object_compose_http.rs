@@ -2,6 +2,7 @@ use crate::common;
 use common::TestDir;
 use common::effects::{Reply, Server, request, settings};
 use serde_json::{Value, json};
+use std::assert_matches;
 use std::{
     sync::{Arc, Barrier},
     thread,
@@ -218,7 +219,7 @@ fn compose_source_and_destination_preconditions_preserve_failed_overwrites() {
         json!({"sourceObjects":[{"name":"source","generation": first["generation"],"objectPreconditions":{"ifGenerationMatch":next["generation"]}}]}),
     ] {
         let reply = compose(&server, "destination", body);
-        assert!(matches!(reply.status, 404 | 412));
+        assert_matches!(reply.status, 404 | 412);
         assert_eq!(server.get("destination").json_ok(), old_destination);
     }
     for query in [
@@ -734,8 +735,7 @@ fn compose_source_generation_change_never_deletes_the_replacement() {
         .execute_batch("PRAGMA foreign_keys = ON; SAVEPOINT generation_only;")
         .unwrap();
     let error = connection.execute("UPDATE objects SET generation = generation + 1 WHERE bucket = 'test-bucket' AND name = 'a'", []).unwrap_err();
-    assert!(
-        matches!(&error, rusqlite::Error::SqliteFailure(cause, _) if cause.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY),
+    assert_matches!(&error, rusqlite::Error::SqliteFailure(cause, _) if cause.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY,
         "{error}"
     );
     connection

@@ -5,6 +5,7 @@ use crate::{
     test_support::TestDir,
 };
 use serde_json::json;
+use std::assert_matches;
 use std::collections::BTreeMap;
 
 fn strings(args: &[&str]) -> Vec<String> {
@@ -439,8 +440,9 @@ fn the_implicit_projects_come_from_the_parse_the_initializer_validates() {
         let mut report = report(&args);
         let auth = report.load_auth();
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-        assert!(
-            matches!(report.draft.buckets, Some(DocumentSource::Parsed(_))),
+        assert_matches!(
+            report.draft.buckets,
+            Some(DocumentSource::Parsed(_)),
             "{args:?}"
         );
         let app = auth

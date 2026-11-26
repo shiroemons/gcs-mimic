@@ -7,6 +7,7 @@ use gcs_mimic::{
     object::{MapPatch, Patch},
     storage::{Catalog, ResumableError, ResumableOptions},
 };
+use std::assert_matches;
 use std::{
     sync::Arc,
     time::{Duration, UNIX_EPOCH},
@@ -35,14 +36,14 @@ async fn an_uppercase_session_id_names_no_session() {
         .await
         .unwrap();
     let upper = session.id.to_string().to_ascii_uppercase();
-    assert!(matches!(
+    assert_matches!(
         catalog.resumable_session(&upper, "bucket").await,
         Err(ResumableError::NotFound)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         catalog.cancel_resumable_session(&upper, "bucket").await,
         Err(ResumableError::NotFound)
-    ));
+    );
     assert!(
         catalog
             .resumable_session(&session.id.to_string(), "bucket")
@@ -84,12 +85,13 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
         .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
-    assert!(matches!(
+    assert_matches!(
         catalog
             .lock_resumable_session(&session.id.to_string(), "bucket")
-            .await,
+            .await
+            .map(drop),
         Err(ResumableError::Object(_))
-    ));
+    );
     assert!(
         catalog
             .checkpoint_resumable_session(&mut lease, 10, Some(9))
@@ -168,10 +170,10 @@ async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
         )
     );
     assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
-    assert!(matches!(
+    assert_matches!(
         a.err().or_else(|| b.err()).unwrap(),
         ResumableError::Object(gcs_mimic::object::ObjectError::Unavailable(_))
-    ));
+    );
     assert_eq!(
         std::fs::read_dir(dir.0.join("staging")).unwrap().count(),
         128
@@ -220,12 +222,12 @@ async fn checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired
         .await
         .unwrap();
     for (offset, total) in [(1, Some(4)), (3, Some(5)), (2, None), (5, Some(4))] {
-        assert!(matches!(
+        assert_matches!(
             catalog
                 .checkpoint_resumable_session(&mut lease, offset, total)
                 .await,
             Err(ResumableError::Invalid(_))
-        ));
+        );
     }
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
@@ -276,25 +278,21 @@ async fn a_lease_handed_to_another_catalog_is_unavailable() {
         .await
         .unwrap();
     let status = other.prepare_resumable_status(&lease).await;
-    assert!(
-        matches!(
-            status,
-            Err(ResumableError::Object(
-                gcs_mimic::object::ObjectError::Unavailable(_)
-            ))
-        ),
+    assert_matches!(
+        status,
+        Err(ResumableError::Object(
+            gcs_mimic::object::ObjectError::Unavailable(_)
+        )),
         "{status:?}"
     );
     let checkpoint = other
         .checkpoint_resumable_session(&mut lease, 0, Some(4))
         .await;
-    assert!(
-        matches!(
-            checkpoint,
-            Err(ResumableError::Object(
-                gcs_mimic::object::ObjectError::Unavailable(_)
-            ))
-        ),
+    assert_matches!(
+        checkpoint,
+        Err(ResumableError::Object(
+            gcs_mimic::object::ObjectError::Unavailable(_)
+        )),
         "{checkpoint:?}"
     );
     drop(lease);

@@ -3,6 +3,7 @@ use super::{Harness, Reply};
 use crate::object::{ObjectError, unix_nanos::UnixNanos};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use serde_json::{Value, json};
+use std::assert_matches;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
@@ -505,8 +506,9 @@ async fn releasing_an_event_based_hold_restarts_the_bucket_retention_period() {
     let refused = reopened
         .delete_object(live("bucket", "held"), Default::default(), PERMISSIVE)
         .await;
-    assert!(
-        matches!(refused, Err(ObjectError::ObjectRetentionNotMet(_))),
+    assert_matches!(
+        refused,
+        Err(ObjectError::ObjectRetentionNotMet(_)),
         "{refused:?}"
     );
     clock.set(at(2010));

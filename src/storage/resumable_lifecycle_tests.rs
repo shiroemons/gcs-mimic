@@ -198,12 +198,12 @@ async fn cancel_obeys_writer_lease_and_only_one_cancellation_wins() {
         .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
-    assert!(matches!(
+    std::assert_matches!(
         catalog
             .cancel_resumable_session(&session.id.to_string(), "bucket")
             .await,
         Err(ResumableError::Object(_))
-    ));
+    );
     assert!(lease.staging_path().exists());
     drop(lease);
     let id = session.id.to_string();

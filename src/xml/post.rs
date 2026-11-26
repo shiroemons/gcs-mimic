@@ -497,6 +497,7 @@ fn check_policy(
 
 /// What a successful form upload answers, from `success_action_redirect` or
 /// `success_action_status`.
+#[cfg_attr(test, derive(Debug))]
 pub(super) enum Success {
     NoContent,
     Ok,
@@ -929,6 +930,7 @@ pub(super) fn success_response(
 mod tests {
     use super::*;
     use http_body_util::Full;
+    use std::assert_matches;
 
     use crate::base64::encode as base64;
 
@@ -1285,11 +1287,11 @@ mod tests {
             planned.metadata.metadata,
             MapPatch::Merge(BTreeMap::from([("owner".into(), Some("alice".into()))]))
         );
-        assert!(matches!(planned.success, Success::Created));
+        assert_matches!(planned.success, Success::Created);
         let minimal = form(&[("key", "a")], None);
         let defaults = plan(&minimal, "b").unwrap();
         assert_eq!(defaults.content_type, "application/octet-stream");
-        assert!(matches!(defaults.success, Success::NoContent));
+        assert_matches!(defaults.success, Success::NoContent);
         let redirecting = form(
             &[
                 ("key", "a"),
@@ -1302,9 +1304,7 @@ mod tests {
             None,
         );
         let redirect = plan(&redirecting, "b").unwrap();
-        assert!(
-            matches!(redirect.success, Success::Redirect(url) if url == "https://example.invalid/done?x=1")
-        );
+        assert_matches!(redirect.success, Success::Redirect(url) if url == "https://example.invalid/done?x=1");
         for (pairs, filename) in [
             (vec![("key", "")], None),
             (vec![("key", "${filename}")], None),

@@ -1,6 +1,7 @@
 use super::*;
 use crate::dependencies::exceptions::Report;
 use serde_json::json;
+use std::assert_matches;
 
 const ARM: &str =
     "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-linux-aarch64.tar.gz";
@@ -152,10 +153,7 @@ fn an_add_without_a_checksum_fails() {
         "add probe.tar /src/".to_owned(),
     ] {
         let error = pins(&format!("{}{line}\n", dockerfile())).unwrap_err();
-        assert!(
-            matches!(error, ArchiveError::MissingChecksum(_)),
-            "{line}: {error:?}"
-        );
+        assert_matches!(error, ArchiveError::MissingChecksum(_), "{line}: {error:?}");
         assert!(error.to_string().contains("--checksum"), "{error}");
     }
 }
@@ -176,18 +174,19 @@ fn an_add_in_any_other_form_fails() {
         format!("ADD --checksum=sha256:{} {SDK} {ARM} /dl/", hex('a')),
         format!("ADD --checksum=sha256:{} {SDK}", hex('a')),
     ] {
-        assert!(
-            matches!(unsupported(&line), ArchiveError::UnsupportedAdd(_)),
+        assert_matches!(
+            unsupported(&line),
+            ArchiveError::UnsupportedAdd(_),
             "{line}"
         );
     }
-    assert!(matches!(
+    assert_matches!(
         unsupported(&format!(
             "ADD --checksum=sha256:{} [\"{SDK}\", \"/dl/x\"]",
             hex('a')
         )),
         ArchiveError::UnsupportedUrl(_)
-    ));
+    );
     let twice = format!("ADD --checksum=sha256:{} {SDK} /dl/y\n", hex('c'));
     assert_eq!(
         pins(&format!("{}{twice}", dockerfile())),

@@ -12,6 +12,7 @@ use crate::{
 use http_body_util::Full;
 use hyper::Request;
 use ring::hmac;
+use std::assert_matches;
 use std::io;
 
 fn sign(key: &hmac::Key, message: &str) -> String {
@@ -213,9 +214,9 @@ async fn streaming_key_lookup_failure_keeps_its_backend_cause() {
         .await
         .err()
         .unwrap();
-    assert!(matches!(
+    assert_matches!(
         failure,
         crate::auth::signature::VerificationError::Catalog(_)
-    ));
+    );
     assert!(failure.source().is_some());
 }

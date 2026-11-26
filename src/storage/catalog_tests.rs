@@ -647,7 +647,7 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
             PERMISSIVE,
         )
         .await;
-    assert!(matches!(result, Err(CatalogError::InvalidMetadata(_))));
+    std::assert_matches!(result, Err(CatalogError::InvalidMetadata(_)));
     assert_eq!(
         catalog
             .get_bucket("cors-migration", PERMISSIVE)
@@ -657,10 +657,10 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
     );
     let mut invalid_bucket = bucket("invalid-cors", "project");
     invalid_bucket.cors = vec![invalid];
-    assert!(matches!(
+    std::assert_matches!(
         catalog.insert_bucket(invalid_bucket).await,
         Err(CatalogError::InvalidMetadata(_))
-    ));
+    );
     assert!(
         catalog
             .get_bucket("invalid-cors", PERMISSIVE)
@@ -797,27 +797,27 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
                 .await,
             Err(CatalogError::PreconditionFailed)
         );
-        assert!(matches!(
+        std::assert_matches!(
             catalog
                 .replace_bucket("put-clock", invalid, Default::default(), PERMISSIVE)
                 .await,
             Err(CatalogError::InvalidMetadata(_))
-        ));
+        );
         assert_eq!(
             catalog.get_bucket("put-clock", PERMISSIVE).await.unwrap(),
             Some(full.clone())
         );
     }
-    assert!(matches!(
+    std::assert_matches!(
         "UNKNOWN".parse::<crate::bucket::StorageClass>(),
         Err(CatalogError::InvalidMetadata(_))
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         "RAPID".parse::<crate::bucket::StorageClass>(),
         Err(CatalogError::Metadata(
             crate::metadata_error::MetadataError::StorageClassRequiresZone
         ))
-    ));
+    );
     assert_eq!(
         catalog.get_bucket("put-clock", PERMISSIVE).await.unwrap(),
         Some(full.clone())
@@ -837,12 +837,12 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
     let mut exhausted = bucket("put-exhausted", "project");
     exhausted.metageneration = i64::MAX;
     let exhausted = catalog.insert_bucket(exhausted).await.unwrap();
-    assert!(matches!(
+    std::assert_matches!(
         catalog
             .replace_bucket("put-exhausted", update, Default::default(), PERMISSIVE)
             .await,
         Err(CatalogError::Unavailable(_))
-    ));
+    );
     assert_eq!(
         catalog
             .get_bucket("put-exhausted", PERMISSIVE)
@@ -906,12 +906,12 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
         ..update.clone()
     };
     let unconditioned = Default::default();
-    assert!(matches!(
+    std::assert_matches!(
         catalog
             .patch_bucket("patch-clock", too_many.clone(), unconditioned, PERMISSIVE)
             .await,
         Err(CatalogError::InvalidMetadata(_))
-    ));
+    );
     let conditions = BucketConditions {
         if_metageneration_match: Some(3),
         ..Default::default()
@@ -926,16 +926,16 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
         labels: MapPatch::Merge(BTreeMap::from([("Bad".into(), None)])),
         ..update.clone()
     };
-    assert!(matches!(
+    std::assert_matches!(
         catalog
             .patch_bucket("patch-clock", invalid, Default::default(), PERMISSIVE)
             .await,
         Err(CatalogError::InvalidMetadata(_))
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         "UNKNOWN".parse::<crate::bucket::StorageClass>(),
         Err(CatalogError::InvalidMetadata(_))
-    ));
+    );
     assert_eq!(
         catalog.get_bucket("patch-clock", PERMISSIVE).await.unwrap(),
         Some(next)
@@ -943,12 +943,12 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     let mut exhausted = bucket("exhausted", "project");
     exhausted.metageneration = i64::MAX;
     let exhausted = catalog.insert_bucket(exhausted).await.unwrap();
-    assert!(matches!(
+    std::assert_matches!(
         catalog
             .patch_bucket("exhausted", update, Default::default(), PERMISSIVE)
             .await,
         Err(CatalogError::Unavailable(_))
-    ));
+    );
     assert_eq!(
         catalog.get_bucket("exhausted", PERMISSIVE).await.unwrap(),
         Some(exhausted)
@@ -1122,12 +1122,12 @@ async fn indexed_listing_orders_filters_pages_and_limits() {
             .collect::<Vec<_>>(),
         ["a_other"]
     );
-    assert!(matches!(
+    std::assert_matches!(
         catalog
             .list_buckets("project", None, None, usize::MAX)
             .await,
         Err(CatalogError::Unavailable(_))
-    ));
+    );
 }
 
 #[tokio::test]
@@ -1494,24 +1494,16 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         let mode = (fixture != "corrupt").then(journal_mode);
         let error = Catalog::open(&dir.0).await.err().unwrap();
         if fixture == "corrupt" {
-            assert!(
-                matches!(error, CatalogError::Corrupt(_)),
-                "{fixture}: {error}"
-            );
+            std::assert_matches!(error, CatalogError::Corrupt(_), "{fixture}: {error}");
         } else if fixture == "future" {
-            assert!(
-                matches!(
+            std::assert_matches!(
                     error,
                     CatalogError::NewerSchema { version, supported }
-                        if version == CATALOG_SCHEMA_VERSION + 1 && supported == CATALOG_SCHEMA_VERSION
-                ),
+                        if version == CATALOG_SCHEMA_VERSION + 1 && supported == CATALOG_SCHEMA_VERSION,
                 "{fixture}: {error}"
             );
         } else {
-            assert!(
-                matches!(error, CatalogError::Unavailable(_)),
-                "{fixture}: {error}"
-            );
+            std::assert_matches!(error, CatalogError::Unavailable(_), "{fixture}: {error}");
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -1630,7 +1622,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
             .unwrap();
     }).await;
     let error = Catalog::open(&dir.0).await.err().unwrap();
-    assert!(matches!(error, CatalogError::Unavailable(_)));
+    std::assert_matches!(error, CatalogError::Unavailable(_));
     assert!(
         error.to_string().contains("CHECK constraint failed"),
         "{error}"

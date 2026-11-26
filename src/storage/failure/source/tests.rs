@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::failure::MemoryBudget;
+use std::assert_matches;
 
 /// The variant shows the held error's own text, debug text, source and type, so wrapping an
 /// error in a `Source` changes no report, log line or downcast.
@@ -68,10 +69,10 @@ fn permanently_failed() -> ResumeError {
 #[test]
 fn resume_refusals_are_found_in_the_catalog_failures_that_carry_them() {
     let refused = CatalogError::from(permanently_failed());
-    assert!(matches!(
+    assert_matches!(
         chain(Link::Catalog(&refused)).find_map(Link::resume_refusal),
         Some(ResumeError::PermanentlyFailed { .. })
-    ));
+    );
     let failed = CatalogError::from(ResumeError::Catalog(CatalogError::Unavailable(closed())));
     assert!(
         chain(Link::Catalog(&failed))

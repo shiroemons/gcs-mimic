@@ -1481,6 +1481,7 @@ mod tests {
     use crate::object::MapPatch;
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
     use crate::test_support::TestDir;
+    use std::assert_matches;
 
     #[test]
     fn registry_errors_keep_their_diagnostics_and_sources() {
@@ -2181,12 +2182,12 @@ mod tests {
             );
         }
         let permissive = Auth::permissive();
-        assert!(matches!(
+        assert_matches!(
             permissive
                 .authenticate(&headers(&[b"Basic garbage", b"x"]), Some("access_token=x"))
                 .await,
             Ok(None)
-        ));
+        );
     }
 
     #[tokio::test]
@@ -2204,7 +2205,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(matches!(anonymous, Caller::Anonymous));
+        assert_matches!(anonymous, Caller::Anonymous);
         assert_eq!(anonymous.principal(), Err(AuthFailure::LoginRequired));
         for credential in [
             &b"Bearer"[..],
@@ -2213,16 +2214,16 @@ mod tests {
             b"Bearer unknown",
             b"Bearer eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJobWFjLW9ubHlAZXhhbXBsZS50ZXN0In0.AA",
         ] {
-            assert!(matches!(
+            assert_matches!(
                 auth.authenticate(&headers(&[credential]), None).await,
                 Err(AuthFailure::InvalidCredentials)
-            ));
+            );
         }
-        assert!(matches!(
+        assert_matches!(
             auth.authenticate(&headers(&[]), Some("X-Goog-Credential=unknown"))
                 .await,
             Err(AuthFailure::InvalidCredentials)
-        ));
+        );
     }
 
     #[tokio::test]

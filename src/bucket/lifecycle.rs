@@ -596,6 +596,7 @@ pub(crate) fn validate_location(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::assert_matches;
 
     /// The values a bucket stores for the JSON `lifecycle` member `value`.
     fn parse(value: &Value) -> Result<Vec<Value>, CatalogError> {
@@ -665,10 +666,10 @@ mod tests {
             .to_string()
             .contains("valid YYYY-MM-DD")
         );
-        assert!(matches!(
+        assert_matches!(
             LifecycleRules::from_stored(&[json!({})]),
             Err(CatalogError::Corrupt(_))
-        ));
+        );
     }
 
     #[test]
@@ -691,7 +692,7 @@ mod tests {
         let unreadable = vec![json!({"condition":{"age":-1},"action":{"type":"Delete"}})];
         let read = BucketLifecycle::from_stored(unreadable.clone());
         assert_eq!(serde_json::to_value(&read).unwrap(), json!(unreadable));
-        assert!(matches!(read.rules(), Err(CatalogError::Corrupt(_))));
+        assert_matches!(read.rules(), Err(CatalogError::Corrupt(_)));
         assert!(!read.is_empty());
     }
 
@@ -712,18 +713,18 @@ mod tests {
             );
         }
         let invalid = [json!({"action":{"type":"unknown"},"condition":{"age":1}})];
-        assert!(matches!(
+        assert_matches!(
             LifecycleRules::from_values(&invalid),
             Err(CatalogError::Metadata(_))
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             parse(&json!({"rule":invalid})),
             Err(CatalogError::Metadata(_))
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             LifecycleRules::from_stored(&invalid),
             Err(CatalogError::Corrupt(_))
-        ));
+        );
     }
 
     #[test]
@@ -754,15 +755,15 @@ mod tests {
         );
         // Stored rules are not normalized, so an unknown field there is still corrupt.
         let stored = [json!({"action":{"type":"Delete"},"condition":{"age":1,"unknown":1}})];
-        assert!(matches!(
+        assert_matches!(
             LifecycleRules::from_stored(&stored),
             Err(CatalogError::Corrupt(_))
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             parse(&json!({"rule":[{"action":{"type":"Delete"},
                 "condition":{"matchesPattern":"*.txt"}}]})),
             Err(CatalogError::UnsupportedMetadata(_))
-        ));
+        );
     }
 
     #[test]

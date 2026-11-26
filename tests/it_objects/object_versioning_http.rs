@@ -2,6 +2,7 @@ use crate::common;
 use common::TestDir;
 use common::effects::{Server, blobs, request, settings};
 use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin, Publication, PublishMode};
+use std::assert_matches;
 use std::{
     io::Write,
     net::TcpStream,
@@ -306,10 +307,7 @@ fn versioned_overwrite_delete_race() {
         }).collect();
         barrier.wait();
         let outcomes: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        assert!(
-            matches!(outcomes.as_slice(), [200, 412] | [412, 204]),
-            "{outcomes:?}"
-        );
+        assert_matches!(outcomes.as_slice(), [200, 412] | [412, 204], "{outcomes:?}");
         assert_eq!(
             server
                 .get(&format!("race?generation={generation}&alt=media"))

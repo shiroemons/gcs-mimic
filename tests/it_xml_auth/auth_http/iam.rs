@@ -1,4 +1,5 @@
 use super::*;
+use std::assert_matches;
 use std::sync::{Arc, Barrier};
 
 pub(super) const IAM: &str = "/storage/v1/b/iam-bucket/iam";
@@ -718,7 +719,7 @@ fn iam_revocation_races_object_reads() {
             let read = scope.spawn(|| {
                 barrier.wait();
                 let result = server.get(NO_ROLES, "/storage/v1/b/iam-bucket/o/object?alt=media");
-                assert!(matches!(result.status, 200 | 403));
+                assert_matches!(result.status, 200 | 403);
                 if result.status == 200 {
                     assert_eq!(result.body, b"selected");
                 }

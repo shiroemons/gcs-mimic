@@ -51,6 +51,7 @@ mod tests {
         OBJECTS_GET, OBJECTS_LIST, OBJECTS_SET_IAM, OBJECTS_UPDATE, Registry, RegistryError,
     };
     use serde_json::json;
+    use std::assert_matches;
     use std::collections::BTreeSet;
 
     fn registry(identities: serde_json::Value) -> Registry {
@@ -137,7 +138,7 @@ mod tests {
         ] {
             let mut registry = registry(json!([identity]));
             let error = registry.add_test_signer(&BTreeSet::new()).unwrap_err();
-            assert!(matches!(error, RegistryError::Invalid(_)));
+            assert_matches!(error, RegistryError::Invalid(_));
             assert!(
                 error.to_string().contains("test_signer=disabled"),
                 "{error}"

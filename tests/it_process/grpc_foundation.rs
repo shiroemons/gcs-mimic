@@ -1,4 +1,5 @@
 use crate::common;
+use std::assert_matches;
 
 use common::TestDir;
 use std::{
@@ -111,10 +112,10 @@ async fn grpc_idle_admission_and_sigterm_drain() {
     http.set_read_timeout(Some(Duration::from_millis(50)))
         .unwrap();
     let error = http.read(&mut [0; 1]).unwrap_err();
-    assert!(matches!(
+    assert_matches!(
         error.kind(),
         std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-    ));
+    );
     http.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
     let mut response = String::new();
     http.read_to_string(&mut response).unwrap();

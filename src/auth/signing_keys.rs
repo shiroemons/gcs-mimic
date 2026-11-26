@@ -49,6 +49,7 @@ mod tests {
     };
     use crate::config::{AuthProfile, DocumentSource, TrustedCaller, Verification};
     use serde_json::json;
+    use std::assert_matches;
     use std::collections::BTreeSet;
 
     const PUBLIC: &str = include_str!("../../fixtures/signing/test-only-public.pem");
@@ -111,7 +112,7 @@ mod tests {
         )
         .unwrap();
         let auth = Auth::load(&AuthProfile::Permissive, &BTreeSet::new()).unwrap();
-        assert!(matches!(auth.profile, Profile::Permissive));
+        assert_matches!(auth.profile, Profile::Permissive);
         assert_eq!(auth.signed_urls(), SignedUrls::Ignore);
         // An explicit host-port setting wins for every signer; without one, the settled signer
         // selects it, and an enabled signer makes only its own signatures lenient.

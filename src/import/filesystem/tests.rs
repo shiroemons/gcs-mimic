@@ -43,8 +43,9 @@ fn missing_import_lock_resumes_or_explains_how_to_restore_it() {
         let before = fs::read(options.destination.join("catalog.sqlite3")).unwrap();
         let error = execute(options.clone(), Vec::new(), Vec::new()).unwrap_err();
         assert!(error.to_string().contains("restore catalog.lock"));
-        assert!(
-            matches!(error, ImportError::Resume(ResumeError::MissingLock)),
+        std::assert_matches!(
+            error,
+            ImportError::Resume(ResumeError::MissingLock),
             "{error:?}"
         );
         assert_eq!(
@@ -75,8 +76,7 @@ fn permanently_failed_import_resume_reports_the_journal_refusal() {
         error.to_string(),
         "import permanently failed: checksum mismatch; preserve the source snapshot and restart into a new empty destination"
     );
-    assert!(
-        matches!(&error, ImportError::Resume(ResumeError::PermanentlyFailed { reason }) if reason.as_str() == "checksum mismatch"),
+    std::assert_matches!(&error, ImportError::Resume(ResumeError::PermanentlyFailed { reason }) if reason.as_str() == "checksum mismatch",
         "{error:?}"
     );
     assert_eq!(
@@ -162,10 +162,10 @@ fn buffered_observations_are_anonymous_and_report_the_last_flush_failure() {
     recorder.finish().unwrap();
     let mut verifier = Baseline::open(file.try_clone().unwrap(), BaselineMode::Verify).unwrap();
     verifier.check(&record).unwrap();
-    assert!(matches!(
+    std::assert_matches!(
         verifier.check(&record),
         Err(ImportFailure::SourceChanged { .. })
-    ));
+    );
     let directory = crate::test_support::TestDir::new();
     let path = directory.0.join("readonly");
     fs::write(&path, b"").unwrap();
@@ -412,7 +412,7 @@ fn unknown_stored_values_make_import_failures_terminal() {
         .query_row("SELECT 'unknown'", [], |row| row.get::<_, HmacKeyState>(0))
         .unwrap_err();
     let error: AdminError = unavailable(error).into();
-    assert!(matches!(error, AdminError::Corrupt(_)));
+    std::assert_matches!(error, AdminError::Corrupt(_));
     assert!(terminal(&error.into()));
     let query_error: AdminError = unavailable(rusqlite::Error::InvalidQuery).into();
     assert!(!terminal(&query_error.into()));

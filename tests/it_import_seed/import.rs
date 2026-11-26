@@ -453,10 +453,10 @@ fn body_stream_bounds_chunks_and_detects_same_size_replacement_and_truncation() 
         .set_len(2)
         .unwrap();
     assert_eq!(body.next_chunk(&mut buffer).unwrap().len(), 2);
-    assert!(matches!(
+    std::assert_matches!(
         body.check_unchanged(),
         Err(ImportFailure::SourceChanged { .. })
-    ));
+    );
     assert!(
         ImportFailure::SourceChanged {
             fields: vec![ChangedField::Ctime, ChangedField::Inode]

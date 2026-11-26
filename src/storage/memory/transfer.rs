@@ -318,6 +318,7 @@ fn poisoned() -> BlobError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn partial_draft_write_keeps_hashes_aligned_and_rolls_back_on_drop() {
@@ -325,7 +326,7 @@ mod tests {
         store.create_resumable_draft("draft".into()).unwrap();
         let mut draft = store.draft("draft", 0).unwrap();
         let input = vec![3; 4 * BLOCK_SIZE as usize];
-        assert!(matches!(draft.write(&input), Err(BlobError::Exhausted)));
+        assert_matches!(draft.write(&input), Err(BlobError::Exhausted));
         let (hashes, size) = draft.hashes().unwrap();
         assert!(size > 0 && size < input.len() as u64);
         let mut expected = crate::hashing::Hasher::default();

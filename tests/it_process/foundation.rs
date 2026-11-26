@@ -1127,10 +1127,10 @@ fn dual_listener_connection_cap_counts_tls_handshakes_and_shutdown_closes_both()
     http.set_read_timeout(Some(Duration::from_millis(60)))
         .unwrap();
     let error = http.read(&mut [0]).unwrap_err();
-    assert!(matches!(
+    std::assert_matches!(
         error.kind(),
         std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-    ));
+    );
     http.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
     let response =
         common::read_http_response(&mut BufReader::new(&mut http), Body::Expected).unwrap();
@@ -1794,10 +1794,10 @@ async fn connection_limit_deadline_and_shutdown_release_idle_clients() {
         .unwrap();
     let mut byte = [0];
     let error = second.read(&mut byte).unwrap_err();
-    assert!(matches!(
+    std::assert_matches!(
         error.kind(),
         std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-    ));
+    );
     // The partial first request expires; the queued connection can then be served.
     second
         .set_read_timeout(Some(Duration::from_secs(2)))

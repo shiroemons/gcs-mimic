@@ -106,6 +106,7 @@ impl Base64Part {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     fn base64() -> PartEncoding {
         PartEncoding::Base64(Base64Part::default())
@@ -146,12 +147,12 @@ mod tests {
             headers.insert("content-transfer-encoding", value.parse().unwrap());
             PartEncoding::try_from(&headers)
         };
-        assert!(matches!(
+        assert_matches!(
             PartEncoding::try_from(&HeaderMap::new()),
             Ok(PartEncoding::Identity)
-        ));
+        );
         let encoding = declared("BASE64").unwrap();
-        assert!(matches!(encoding, PartEncoding::Base64(_)));
+        assert_matches!(encoding, PartEncoding::Base64(_));
         assert!(encoding.require_identity().is_err());
         for identity in [" binary ", "7BIT", "8bit", "Quoted-Printable"] {
             assert!(

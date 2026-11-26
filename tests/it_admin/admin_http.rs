@@ -1,4 +1,5 @@
 use crate::common::process::declare_server;
+use std::assert_matches;
 mod admin_contract;
 mod admin_fixture_metadata;
 mod admin_purge;
@@ -1200,11 +1201,9 @@ fn upload_is_held_back(mut upload: BufReader<TcpStream>) -> Option<BufReader<Tcp
             None
         }
         Err(error) => {
-            assert!(
-                matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ),
+            assert_matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut,
                 "{error}"
             );
             upload

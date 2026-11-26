@@ -219,6 +219,7 @@ impl From<TimestampError> for ImportError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     /// The journal stores a terminal failure's text, and a resume shows a refusal's text, so each
     /// named failure keeps the exact text it had as an `InvalidData` I/O error.
@@ -282,12 +283,8 @@ mod tests {
         else {
             panic!("expected cleanup causes")
         };
-        assert!(
-            matches!(*original, ImportError::Io(error) if error.kind() == io::ErrorKind::InvalidData)
-        );
-        assert!(
-            matches!(*cause, ImportError::Io(error) if error.kind() == io::ErrorKind::PermissionDenied)
-        );
+        assert_matches!(*original, ImportError::Io(error) if error.kind() == io::ErrorKind::InvalidData);
+        assert_matches!(*cause, ImportError::Io(error) if error.kind() == io::ErrorKind::PermissionDenied);
     }
 
     #[test]

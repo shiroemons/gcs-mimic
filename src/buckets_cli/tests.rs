@@ -1,5 +1,6 @@
 use super::*;
 use gcs_mimic::bucket_init::generate::PublicAccessPrevention;
+use std::assert_matches;
 
 fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
@@ -453,11 +454,11 @@ fn a_saved_document_never_replaces_a_file() {
     let path = dir.0.join("buckets.json");
     save_new(&path, "{}\n").unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}\n");
-    assert!(matches!(save_new(&path, "other"), Err(SaveError::Exists)));
+    assert_matches!(save_new(&path, "other"), Err(SaveError::Exists));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}\n");
     let missing = dir.0.join("missing").join("buckets.json");
     let error = save_new(&missing, "{}\n").unwrap_err();
-    assert!(matches!(error, SaveError::Create(_)), "{error:?}");
+    assert_matches!(error, SaveError::Create(_), "{error:?}");
     assert!(std::error::Error::source(&error).is_some());
     assert!(
         error.to_string().starts_with("Cannot create that file: "),

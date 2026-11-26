@@ -513,6 +513,7 @@ pub(super) fn write(admitted: &Admitted, first: Option<&FirstMessage>) -> Result
 mod tests {
     use super::super::pb;
     use super::*;
+    use std::assert_matches;
     use tonic::{Code, metadata::AsciiMetadataValue};
 
     #[test]
@@ -728,7 +729,7 @@ mod tests {
         // Only an upload ID call is admitted without the metadata, and whatever it is compared
         // with, it is refused as a call without it.
         let unrouted = admit(&none, Routes::Upload).unwrap();
-        assert!(matches!(unrouted, Admitted::Unrouted));
+        assert_matches!(unrouted, Admitted::Unrouted);
         for routes in [
             [Route::Bucket(Some("projects/_/buckets/b"))],
             [Route::Appendable(false)],
@@ -742,10 +743,7 @@ mod tests {
         assert_eq!(error.code(), Code::Internal);
         let mut extensions = Extensions::new();
         extensions.insert(unrouted);
-        assert!(matches!(
-            Admitted::of(&extensions).unwrap(),
-            Admitted::Unrouted
-        ));
+        assert_matches!(Admitted::of(&extensions).unwrap(), Admitted::Unrouted);
     }
 
     /// Recorded 2026-11-18 (cases grpc-probe-resumable-sessions and

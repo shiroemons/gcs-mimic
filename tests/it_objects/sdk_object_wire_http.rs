@@ -1,5 +1,6 @@
 use crate::common;
 use common::TestDir;
+use std::assert_matches;
 
 use common::effects::Server;
 use flate2::{Compression, write::GzEncoder};
@@ -562,10 +563,10 @@ fn json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof() {
         write!(stream, "GET /storage/v1/b/test-bucket/o/{name}?alt=media HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
         let mut response = Vec::new();
         if let Err(error) = stream.read_to_end(&mut response) {
-            assert!(matches!(
+            assert_matches!(
                 error.kind(),
                 std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::UnexpectedEof
-            ));
+            );
         }
         assert!(
             response.starts_with(b"HTTP/1.1 200"),

@@ -1,5 +1,6 @@
 use super::test_support::guidance_failures;
 use super::*;
+use std::assert_matches;
 
 #[test]
 fn object_error_keeps_authorization_from_catalog() {
@@ -35,14 +36,12 @@ fn contextual_recovery_failures_keep_classification_and_sources() {
         "staging cleanup",
         io::Error::from(io::ErrorKind::StorageFull),
     );
-    assert!(
-        matches!(error, ObjectError::Io(ref cause) if cause.kind() == io::ErrorKind::StorageFull)
-    );
+    assert_matches!(error, ObjectError::Io(ref cause) if cause.kind() == io::ErrorKind::StorageFull);
     assert!(crate::error::causes(&error).any(|error| error.downcast_ref::<io::Error>().is_some()));
     assert!(error.to_string().contains("staging cleanup"));
     let corrupt = object_unavailable(sqlite_failure(rusqlite::ffi::SQLITE_CORRUPT));
     let error = object_context("deletion journal", corrupt);
-    assert!(matches!(error, ObjectError::Corrupt(_)));
+    assert_matches!(error, ObjectError::Corrupt(_));
     assert!(
         crate::error::causes(&error).any(|error| error.downcast_ref::<rusqlite::Error>().is_some())
     );
@@ -54,9 +53,7 @@ fn contextual_catalog_failures_keep_classification_and_sources() {
         "retired synchronization manifest",
         io::Error::from(io::ErrorKind::StorageFull),
     );
-    assert!(
-        matches!(error, CatalogError::Io(ref cause) if cause.kind() == io::ErrorKind::StorageFull)
-    );
+    assert_matches!(error, CatalogError::Io(ref cause) if cause.kind() == io::ErrorKind::StorageFull);
     assert!(crate::error::causes(&error).any(|error| error.downcast_ref::<io::Error>().is_some()));
     assert!(
         error
@@ -65,12 +62,12 @@ fn contextual_catalog_failures_keep_classification_and_sources() {
     );
     let corrupt = unavailable(sqlite_failure(rusqlite::ffi::SQLITE_CORRUPT));
     let error = catalog_context("reset epoch", corrupt);
-    assert!(matches!(error, CatalogError::Corrupt(_)));
+    assert_matches!(error, CatalogError::Corrupt(_));
     assert!(
         crate::error::causes(&error).any(|error| error.downcast_ref::<rusqlite::Error>().is_some())
     );
     let busy = catalog_context("manifest rows", sqlite_failure(rusqlite::ffi::SQLITE_BUSY));
-    assert!(matches!(busy, CatalogError::Unavailable(_)));
+    assert_matches!(busy, CatalogError::Unavailable(_));
     assert!(busy.to_string().contains("manifest rows"));
 }
 
@@ -253,7 +250,7 @@ fn sqlite_corruption_and_decoding_failures_are_corrupt_with_their_text() {
     let corrupt = sqlite_failure(rusqlite::ffi::SQLITE_CORRUPT);
     let text = corrupt.to_string();
     let error = unavailable(corrupt);
-    assert!(matches!(&error, CatalogError::Corrupt(cause) if cause.message() == text));
+    assert_matches!(&error, CatalogError::Corrupt(cause) if cause.message() == text);
     assert_eq!(error.to_string(), format!("catalog corrupt: {text}"));
     assert!(
         error
@@ -262,18 +259,13 @@ fn sqlite_corruption_and_decoding_failures_are_corrupt_with_their_text() {
     );
 
     let decoding = rusqlite::Error::InvalidColumnType(0, "x".into(), rusqlite::types::Type::Null);
-    assert!(matches!(
-        object_unavailable(decoding),
-        ObjectError::Corrupt(_)
-    ));
+    assert_matches!(object_unavailable(decoding), ObjectError::Corrupt(_));
 }
 
 #[test]
 fn full_sqlite_disk_and_filesystem_errors_are_io_with_their_kind() {
     let error = unavailable(sqlite_failure(rusqlite::ffi::SQLITE_FULL));
-    assert!(
-        matches!(&error, CatalogError::Io(cause) if cause.kind() == io::ErrorKind::StorageFull)
-    );
+    assert_matches!(&error, CatalogError::Io(cause) if cause.kind() == io::ErrorKind::StorageFull);
     assert_eq!(error.to_string(), "catalog I/O: no storage space");
     assert!(error.source().is_some());
 
@@ -301,7 +293,7 @@ fn other_failures_are_unavailable_with_the_stringified_message() {
     assert!(error.source().is_some());
 
     let error = object_unavailable("catalog is closed");
-    assert!(matches!(&error, ObjectError::Unavailable(cause) if *cause == "catalog is closed"));
+    assert_matches!(&error, ObjectError::Unavailable(cause) if *cause == "catalog is closed");
     assert!(error.source().is_none());
 }
 

@@ -369,8 +369,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             let error = acl(Some(&entries), crate::acl::AclKind::Object).unwrap_err();
-            assert!(
-                matches!(error.0, Kind::Acl(ref error) if *error == expected),
+            std::assert_matches!(error.0, Kind::Acl(ref error) if *error == expected,
                 "{count} {entity}: {error:?}"
             );
         }
@@ -560,11 +559,9 @@ mod tests {
                 custom_time: Patch::Set(input.into()),
                 ..Default::default()
             };
-            assert!(
-                matches!(
-                    update.validate(),
-                    Err(ObjectError::Metadata(MetadataError::CustomTime))
-                ),
+            std::assert_matches!(
+                update.validate(),
+                Err(ObjectError::Metadata(MetadataError::CustomTime)),
                 "{input}"
             );
         }
@@ -595,7 +592,7 @@ mod tests {
     #[test]
     fn decoding_errors_keep_diagnostics_and_causes() {
         let error = path_unescape("%ff").unwrap_err();
-        assert!(matches!(error.0, Kind::Utf8(_)), "{error:?}");
+        std::assert_matches!(error.0, Kind::Utf8(_), "{error:?}");
         assert_eq!(
             error.to_string(),
             "decoded bucket must be UTF-8; restore the original snapshot"
@@ -606,7 +603,7 @@ mod tests {
                 .is::<std::string::FromUtf8Error>()
         );
         let error = path_unescape("%f").unwrap_err();
-        assert!(matches!(error.0, Kind::Escape), "{error:?}");
+        std::assert_matches!(error.0, Kind::Escape, "{error:?}");
         assert_eq!(
             error.to_string(),
             "malformed bucket percent escape; restore the escaped directory name"
@@ -640,7 +637,7 @@ mod tests {
         #[cfg(not(unix))]
         {
             let error = parse_bucket_timestamp("0000-01-01T00:00:00Z").unwrap_err();
-            assert!(matches!(error.0, Kind::BucketTimeRange(_)), "{error:?}");
+            std::assert_matches!(error.0, Kind::BucketTimeRange(_), "{error:?}");
             assert_eq!(crate::error::Report(&error).to_string(), CHAIN);
         }
     }

@@ -257,6 +257,7 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[tokio::test]
     async fn grpc_v1_outputs_the_stored_lifecycle_storage_class_timestamp() {
@@ -393,10 +394,10 @@ mod tests {
         assert_eq!(same, pb::Object::default());
         let mut changed = current.clone();
         changed.generation = 8;
-        assert!(matches!(
+        assert_matches!(
             object_outputs(&mut changed, Some(&current)),
             Err(ObjectError::UnsupportedMetadata(_))
-        ));
+        );
         let current = pb::Bucket {
             name: "example-bucket".into(),
             id: "example-bucket".into(),

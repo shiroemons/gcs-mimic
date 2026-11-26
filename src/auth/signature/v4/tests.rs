@@ -1,4 +1,5 @@
 use super::*;
+use std::assert_matches;
 
 #[test]
 fn algorithm_names_are_exact_and_fields_accept_ascii_case() {
@@ -9,10 +10,10 @@ fn algorithm_names_are_exact_and_fields_accept_ascii_case() {
     ] {
         assert_eq!(algorithm.name(), spelling);
         assert_eq!(spelling.parse::<Algorithm>().unwrap(), algorithm);
-        assert!(matches!(
+        assert_matches!(
             spelling.to_ascii_lowercase().parse::<Algorithm>(),
             Err(Failure::Malformed)
-        ));
+        );
     }
     for (field, spelling) in [
         (Field::Algorithm, "Algorithm"),
@@ -104,24 +105,26 @@ fn header_fifteen_minute_and_query_early_expiry_boundaries_are_exact() {
         };
         assert!(prepare(&Method::GET, &uri, &headers(), now).is_ok());
     }
-    assert!(matches!(
+    assert_matches!(
         prepare(
             &Method::GET,
             &uri,
             &headers(),
             time - Duration::from_secs(901)
-        ),
+        )
+        .map(drop),
         Err(Failure::NotYetValid)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         prepare(
             &Method::GET,
             &uri,
             &headers(),
             time + Duration::from_secs(901)
-        ),
+        )
+        .map(drop),
         Err(Failure::Expired)
-    ));
+    );
     let mut headers = headers();
     headers.remove("authorization");
     headers.remove("x-goog-date");
@@ -133,24 +136,26 @@ fn header_fifteen_minute_and_query_early_expiry_boundaries_are_exact() {
         };
         assert!(prepare(&Method::GET, &query(), &headers, now).is_ok());
     }
-    assert!(matches!(
+    assert_matches!(
         prepare(
             &Method::GET,
             &query(),
             &headers,
             time - Duration::from_secs(901)
-        ),
+        )
+        .map(drop),
         Err(Failure::NotYetValid)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         prepare(
             &Method::GET,
             &query(),
             &headers,
             time + Duration::from_secs(60)
-        ),
+        )
+        .map(drop),
         Err(Failure::Expired)
-    ));
+    );
 }
 
 #[test]
@@ -160,10 +165,10 @@ fn credential_prefix_scope_header_duplicates_and_streaming_fields_fail_closed() 
     let good = headers();
     let mut missing_hash = good.clone();
     missing_hash.remove("x-goog-content-sha256");
-    assert!(matches!(
-        prepare(&Method::GET, &uri, &missing_hash, now),
+    assert_matches!(
+        prepare(&Method::GET, &uri, &missing_hash, now).map(drop),
         Err(Failure::Malformed)
-    ));
+    );
     for raw in [
         format!(
             "GOOG4-HMAC-SHA256 Credential=key/{SCOPE}, Credential=other/{SCOPE}, SignedHeaders=host;x-goog-date, Signature=00"
@@ -182,10 +187,10 @@ fn credential_prefix_scope_header_duplicates_and_streaming_fields_fail_closed() 
     ] {
         let mut bad = good.clone();
         bad.insert("authorization", raw.parse().unwrap());
-        assert!(matches!(
-            prepare(&Method::GET, &uri, &bad, now),
+        assert_matches!(
+            prepare(&Method::GET, &uri, &bad, now).map(drop),
             Err(Failure::Malformed)
-        ));
+        );
     }
     for (name, value) in [
         ("x-goog-date", DATE),
@@ -204,10 +209,10 @@ fn credential_prefix_scope_header_duplicates_and_streaming_fields_fail_closed() 
             hyper::header::HeaderName::from_bytes(name.as_bytes()).unwrap(),
             value.parse().unwrap(),
         );
-        assert!(matches!(
-            prepare(&Method::GET, &uri, &bad, now),
+        assert_matches!(
+            prepare(&Method::GET, &uri, &bad, now).map(drop),
             Err(Failure::Malformed)
-        ));
+        );
     }
     let mut query_headers = HeaderMap::new();
     query_headers.insert("host", "localhost".parse().unwrap());
@@ -221,10 +226,10 @@ fn credential_prefix_scope_header_duplicates_and_streaming_fields_fail_closed() 
         format!("{raw}&GoogleAccessId=mixed"),
         raw.replace("Expires=60", "Expires="),
     ] {
-        assert!(matches!(
-            prepare(&Method::GET, &bad.parse().unwrap(), &query_headers, now),
+        assert_matches!(
+            prepare(&Method::GET, &bad.parse().unwrap(), &query_headers, now).map(drop),
             Err(Failure::Malformed)
-        ));
+        );
     }
     for (expires, value) in [
         ("604801", InvalidExpires::Other),
@@ -236,14 +241,14 @@ fn credential_prefix_scope_header_duplicates_and_streaming_fields_fail_closed() 
             Some(Failure::ExpiresOutOfRange(ExpiresParameter::Google, value))
         );
     }
-    assert!(matches!(
-        prepare(&Method::GET, &query(), &good, now),
+    assert_matches!(
+        prepare(&Method::GET, &query(), &good, now).map(drop),
         Err(Failure::Malformed)
-    ));
-    assert!(matches!(
-        prepare(&Method::POST, &query(), &query_headers, now),
+    );
+    assert_matches!(
+        prepare(&Method::POST, &query(), &query_headers, now).map(drop),
         Err(Failure::Malformed)
-    ));
+    );
 }
 
 #[test]
@@ -264,10 +269,10 @@ fn an_out_of_range_expiry_names_the_parameter_of_its_algorithm() {
             "{expires}"
         );
     }
-    assert!(matches!(
-        prepare(&Method::GET, &aws_query(""), &headers, now),
+    assert_matches!(
+        prepare(&Method::GET, &aws_query(""), &headers, now).map(drop),
         Err(Failure::Malformed)
-    ));
+    );
 }
 
 #[test]
@@ -290,15 +295,15 @@ fn canonicalization_bounds_resource_use_and_preserves_header_wire_order() {
         prepared.message
     );
     let large: Uri = format!("/{}", "a".repeat(16 * 1024)).parse().unwrap();
-    assert!(matches!(
-        prepare(&Method::GET, &large, &headers(), now),
+    assert_matches!(
+        prepare(&Method::GET, &large, &headers(), now).map(drop),
         Err(Failure::Malformed)
-    ));
+    );
     h.insert("large", "a".repeat(64 * 1024).parse().unwrap());
-    assert!(matches!(
-        prepare(&Method::GET, &uri, &h, now),
+    assert_matches!(
+        prepare(&Method::GET, &uri, &h, now).map(drop),
         Err(Failure::Malformed)
-    ));
+    );
 }
 
 #[test]
@@ -319,30 +324,30 @@ fn signed_url_post_only_starts_a_resumable_upload_with_a_signed_header() {
     // Without the header the signed header is missing, which is a signature mismatch.
     let mut missing = start.clone();
     missing.remove("x-goog-resumable");
-    assert!(matches!(
-        prepare(&Method::POST, &signed, &missing, now),
+    assert_matches!(
+        prepare(&Method::POST, &signed, &missing, now).map(drop),
         Err(Failure::Mismatch)
-    ));
+    );
     // The header must be signed, carry the one documented value and accompany only POST.
-    assert!(matches!(
-        prepare(&Method::POST, &query(), &start, now),
+    assert_matches!(
+        prepare(&Method::POST, &query(), &start, now).map(drop),
         Err(Failure::Malformed)
-    ));
+    );
     let mut stop = start.clone();
     stop.insert("x-goog-resumable", "stop".parse().unwrap());
     let mut repeated = start.clone();
     repeated.append("x-goog-resumable", "start".parse().unwrap());
     for headers in [&stop, &repeated] {
-        assert!(matches!(
-            prepare(&Method::POST, &signed, headers, now),
+        assert_matches!(
+            prepare(&Method::POST, &signed, headers, now).map(drop),
             Err(Failure::Malformed)
-        ));
+        );
     }
     for method in [Method::GET, Method::PUT] {
-        assert!(matches!(
-            prepare(&method, &signed, &start, now),
+        assert_matches!(
+            prepare(&method, &signed, &start, now).map(drop),
             Err(Failure::Malformed)
-        ));
+        );
     }
 }
 
@@ -466,21 +471,17 @@ fn query_names_differing_only_in_case_and_mixed_families_are_malformed() {
     let aws_lower = spelled(&aws_query("60"), str::to_ascii_lowercase).to_string();
     let malformed = |bad: String| {
         let uri = bad.parse().unwrap();
-        assert!(
-            matches!(
-                prepare(&Method::GET, &uri, &host_only(), now),
-                Err(Failure::Malformed)
-            ),
+        assert_matches!(
+            prepare(&Method::GET, &uri, &host_only(), now).map(drop),
+            Err(Failure::Malformed),
             "{bad}"
         );
     };
     let repeated = |bad: String, name: &'static str| {
         let uri = bad.parse().unwrap();
-        assert!(
-            matches!(
-                prepare(&Method::GET, &uri, &host_only(), now),
-                Err(Failure::RepeatedParameter(reported)) if reported.to_string() == name
-            ),
+        assert_matches!(
+                prepare(&Method::GET, &uri, &host_only(), now).map(drop),
+                Err(Failure::RepeatedParameter(reported)) if reported.to_string() == name,
             "{bad}"
         );
     };
@@ -531,13 +532,14 @@ fn query_names_differing_only_in_case_and_mixed_families_are_malformed() {
             InvalidExpires::Zero
         ))
     );
-    assert!(matches!(
+    assert_matches!(
         prepare(
             &Method::GET,
             &lower.parse().unwrap(),
             &host_only(),
             now + Duration::from_secs(60)
-        ),
+        )
+        .map(drop),
         Err(Failure::Expired)
-    ));
+    );
 }

@@ -3,6 +3,7 @@
 
 use crate::common;
 use crate::common::base64;
+use std::assert_matches;
 
 use common::TestDir;
 use common::ingress::{Reply, Server, gzip};
@@ -1029,7 +1030,7 @@ fn xml_range_errors_of_a_public_object_are_private() {
             &format!("Range: {range}\r\n"),
             b"",
         );
-        assert!(matches!(refused.status, 400 | 416), "{range}");
+        assert_matches!(refused.status, 400 | 416, "{range}");
         assert_eq!(header(&refused, "cache-control"), Some(PRIVATE), "{range}");
         assert!(header(&refused, "expires").is_some(), "{range}");
     }

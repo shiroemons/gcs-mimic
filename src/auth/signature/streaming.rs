@@ -143,6 +143,7 @@ impl Auth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     fn published_seed(host: &str) -> verify::Prepared {
         let mut headers = HeaderMap::new();
@@ -231,9 +232,9 @@ mod tests {
                 .verify_chunk(hash.as_ref(), &unhex(signature).unwrap())
                 .unwrap();
         }
-        assert!(matches!(
+        assert_matches!(
             state.verify_chunk(digest::digest(&digest::SHA256, b"").as_ref(), &[0; 32]),
             Err(Failure::Mismatch)
-        ));
+        );
     }
 }

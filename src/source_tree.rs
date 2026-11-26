@@ -288,18 +288,18 @@ mod tests {
             entries: limit(3),
             depth: None,
         });
-        assert!(matches!(
+        std::assert_matches!(
             entries.last(),
             Some(Err(WalkError::EntryLimit { limit })) if limit.get() == 3
-        ));
+        );
         let depth = walked(TreeLimits {
             entries: None,
             depth: limit(1),
         });
-        assert!(matches!(
+        std::assert_matches!(
             depth.last(),
             Some(Err(WalkError::DepthLimit { limit })) if limit.get() == 1
-        ));
+        );
     }
 
     /// A directory that cannot be listed fails as its own entry, with nothing below it walked,
@@ -333,8 +333,6 @@ mod tests {
         assert_eq!(*path, locked);
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         assert_eq!(after.path, directory.0.join("a/z-after"));
-        assert!(
-            matches!(&root, Err(WalkError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied)
-        );
+        std::assert_matches!(root.as_ref().map(|_| ()), Err(WalkError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied);
     }
 }

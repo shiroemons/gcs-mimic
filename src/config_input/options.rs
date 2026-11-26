@@ -105,6 +105,7 @@ impl From<&str> for Fix {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn pairs_preserve_values_and_report_a_trailing_option_in_order() {
@@ -124,14 +125,11 @@ mod tests {
         let units = [("ms", 1), ("s", 1000)];
         assert_eq!(duration("+1s", &units).ok(), Some(1000));
         assert_eq!(duration("0ms", &units).ok(), Some(0));
-        assert!(matches!(duration("1m", &units), Err(DurationError::Unit)));
-        assert!(matches!(
-            duration("s", &units),
-            Err(DurationError::Number(_))
-        ));
-        assert!(matches!(
+        assert_matches!(duration("1m", &units), Err(DurationError::Unit));
+        assert_matches!(duration("s", &units), Err(DurationError::Number(_)));
+        assert_matches!(
             duration("18446744073709551615s", &units),
             Err(DurationError::Overflow)
-        ));
+        );
     }
 }

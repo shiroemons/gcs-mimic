@@ -11,6 +11,7 @@ use crate::{
 };
 use ring::hmac;
 use serde_json::json;
+use std::assert_matches;
 use std::io;
 use std::time::Duration;
 
@@ -285,7 +286,7 @@ async fn hmac_policy_backend_failure_retains_cause_and_never_returns_anonymous()
                 .unwrap_err(),
             _ => unreachable!(),
         };
-        assert!(matches!(failure, signature::VerificationError::Catalog(_)));
+        assert_matches!(failure, signature::VerificationError::Catalog(_));
         assert!(failure.source().is_some());
     }
 }

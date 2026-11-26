@@ -1106,9 +1106,10 @@ These start DESIGN-098 for parsers:
 
 Checked on rustc 1.100.0 on 2026-11-26.
 
-- **`std::assert_matches!`** (with `use std::assert_matches;`) replaces 475
-  `assert!(matches!(..))` sites in one mechanical commit, so failures print
-  the value.
+- **`std::assert_matches!`** replaces equivalent test assertions so failures
+  print their values. Tests can discard the success payload when checking an
+  error. Compound conditions and patterns that inspect an opaque value keep
+  their existing assertions.
 - **`str` and `[u8]` `trim_prefix` and `trim_suffix`** replace
   `strip_*().unwrap_or(..)`.
 - **`cfg_select!`** is used inside function bodies in `fsutil` and

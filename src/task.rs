@@ -456,6 +456,7 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use std::assert_matches;
     use std::sync::{
         Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -468,10 +469,10 @@ pub(crate) mod tests {
         let error = run_blocking("blocking-panic-test", || panic!("blocking job failed"))
             .await
             .unwrap_err();
-        assert!(matches!(
+        assert_matches!(
             error,
             BlockingFailed::Panicked(JobPanicked("blocking-panic-test"))
-        ));
+        );
         assert!(
             std::error::Error::source(&error)
                 .unwrap()

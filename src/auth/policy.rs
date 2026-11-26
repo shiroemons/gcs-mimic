@@ -352,6 +352,7 @@ impl Policy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn corrupt_policy_retains_the_json_cause_through_catalog_conversion() {
@@ -432,11 +433,9 @@ mod tests {
                 "invalid stored member",
             ),
         ] {
-            assert!(
-                matches!(
+            assert_matches!(
                     Policy::from_stored(bindings, "CAE=".into()),
-                    Err(PolicyDecodeError::Shape(message)) if message == expected
-                ),
+                    Err(PolicyDecodeError::Shape(message)) if message == expected,
                 "{bindings}"
             );
         }

@@ -1,4 +1,5 @@
 use super::*;
+use std::assert_matches;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct State {
@@ -204,7 +205,7 @@ fn compare(configured: &[LifecycleRule], totals: &mut Counts) {
                 let differs = selected != original;
                 if differs {
                     assert_eq!(original, Some(PlannedAction::Delete));
-                    assert!(matches!(selected, Some(PlannedAction::SetStorageClass(_))));
+                    assert_matches!(selected, Some(PlannedAction::SetStorageClass(_)));
                     assert_eq!(
                         selected,
                         oracle

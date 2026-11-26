@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
+use std::assert_matches;
 
 #[tokio::test]
 async fn copy_replay_binds_both_encryption_keys_and_keeps_retained_entries_at_capacity() {
@@ -183,10 +184,10 @@ async fn upload_replay_never_crosses_authentication_profiles_after_restart() {
             &mut permit,
         )
         .await;
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(crate::object::ObjectError::InvalidFixedMetadata(_))
-    ));
+    );
     let (record, mut reader) = catalog
         .open_object(live("bucket", "profile"), Default::default(), PERMISSIVE)
         .await
@@ -643,12 +644,12 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
         if hashes.starts_with("md5=rXa") && hashes.ends_with("srP9bA==") {
             assert!(result.unwrap().into_completion().is_some());
         } else {
-            assert!(matches!(
+            assert_matches!(
                 result,
                 Err(crate::storage::ResumableError::Object(
                     crate::object::ObjectError::HashMismatch(_)
                 ))
-            ));
+            );
             let record = catalog
                 .get_object(live("bucket", "php"), Default::default(), PERMISSIVE)
                 .await

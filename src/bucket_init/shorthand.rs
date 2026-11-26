@@ -64,6 +64,7 @@ pub(crate) fn document(value: &str) -> Result<Cow<'_, str>, ShorthandError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn names_expand_to_the_canonical_document_in_order() {
@@ -81,7 +82,7 @@ mod tests {
     #[test]
     fn a_document_passes_through_unchanged() {
         for value in [r#"{"version":1,"buckets":[]}"#, "  {not even json"] {
-            assert!(matches!(document(value), Ok(Cow::Borrowed(text)) if text == value));
+            assert_matches!(document(value), Ok(Cow::Borrowed(text)) if text == value);
         }
     }
 

@@ -471,10 +471,7 @@ async fn limits_bad_hashes_and_body_errors_leave_no_generation_or_blob() {
             body(vec![Bytes::from_static(b"replacement")]),
         )
         .await;
-    assert!(
-        matches!(rejected, Err(ObjectError::HashMismatch(_))),
-        "{rejected:?}"
-    );
+    std::assert_matches!(rejected, Err(ObjectError::HashMismatch(_)), "{rejected:?}");
     assert_eq!(
         catalog
             .get_object(live("bucket", "preserved"), Default::default(), PERMISSIVE)
@@ -1264,7 +1261,7 @@ async fn failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fi
     drop(database);
     for _ in 0..2 {
         let failure = Catalog::open(&dir.0).await.err().unwrap();
-        assert!(matches!(failure, CatalogError::Io(_)), "{failure:?}");
+        std::assert_matches!(failure, CatalogError::Io(_), "{failure:?}");
         assert!(crate::error::causes(&failure).any(<dyn std::error::Error>::is::<io::Error>));
         let error = failure.to_string();
         assert!(
@@ -1879,9 +1876,7 @@ async fn shutdown_rejects_new_uploads_and_waits_for_all_active_guards() {
     })
     .await;
     assert!(!close.is_finished());
-    assert!(
-        matches!(catalog.admit_object_upload(), Err(ObjectError::Unavailable(cause)) if cause == "catalog is closed")
-    );
+    std::assert_matches!(catalog.admit_object_upload().map(drop), Err(ObjectError::Unavailable(cause)) if cause == "catalog is closed");
     drop(guards);
     tokio::time::timeout(Duration::from_secs(5), close)
         .await

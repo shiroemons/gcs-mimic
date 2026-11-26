@@ -462,6 +462,7 @@ fn decode_list_token(token: &str, params: &HmacKeyListParams) -> Result<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn hmac_catalog_errors_keep_capacity_guidance_and_catalog_statuses() {
@@ -541,14 +542,14 @@ mod tests {
                 access_id: "GOOG1EX".into()
             }
         );
-        assert!(matches!(
+        assert_matches!(
             route(Method::PUT, "/storage/v1/projects/p/hmacKeys/A").unwrap(),
             ProjectRequest::UpdateHmacKey { .. }
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             route(Method::DELETE, "/storage/v1/projects/p/hmacKeys/A?fields=x").unwrap(),
             ProjectRequest::DeleteHmacKey { .. }
-        ));
+        );
         assert_eq!(
             route(Method::GET, "/storage/v1/projects/123/serviceAccount").unwrap(),
             ProjectRequest::GetServiceAccount {

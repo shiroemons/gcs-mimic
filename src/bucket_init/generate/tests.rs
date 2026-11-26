@@ -1,5 +1,6 @@
 use super::*;
 use crate::clock::SystemClock;
+use std::assert_matches;
 
 fn bucket(name: &str, settings: impl IntoIterator<Item = Setting>) -> Bucket {
     let mut bucket = Bucket::new(name).unwrap();
@@ -123,8 +124,7 @@ fn single_valued_members_refuse_a_second_value_and_lists_accumulate() {
         if member.is_empty() {
             assert!(result.is_ok());
         } else {
-            assert!(
-                matches!(result, Err(GenerateError::Repeated(repeated)) if repeated == member),
+            assert_matches!(result, Err(GenerateError::Repeated(repeated)) if repeated == member,
                 "{member}"
             );
         }
@@ -162,16 +162,10 @@ fn a_label_is_refused_when_read_exactly_when_startup_refuses_it() {
         let startup = startup_accepts(serde_json::json!({"labels": {key: value}}));
         assert_eq!(label.is_ok(), startup, "{key}={value}");
         if let Err(error) = label {
-            assert!(
-                matches!(error, GenerateError::InvalidLabel),
-                "{key}={value}"
-            );
+            assert_matches!(error, GenerateError::InvalidLabel, "{key}={value}");
         }
     }
-    assert!(matches!(
-        "team".parse::<Label>(),
-        Err(GenerateError::UnpairedLabel)
-    ));
+    assert_matches!("team".parse::<Label>(), Err(GenerateError::UnpairedLabel));
 }
 
 /// Whether the startup parser accepts one entry with `members` besides its name.
@@ -252,14 +246,14 @@ fn cors_values_and_members_are_refused_when_read_exactly_when_startup_refuses_th
         ]}}));
         assert_eq!(read.is_ok(), startup, "{member:?}");
     }
-    assert!(matches!(
+    assert_matches!(
         "group:dev@example.com".parse::<Members>(),
         Err(GenerateError::UnsupportedMember)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         "dev@example.com".parse::<Members>(),
         Err(GenerateError::InvalidMember)
-    ));
+    );
     assert_eq!(
         "allUsers, user:dev@example.com".parse::<Members>().unwrap(),
         "allUsers,user:dev@example.com".parse().unwrap()
@@ -280,24 +274,21 @@ fn a_label_past_the_limit_is_refused_when_given() {
             .render(Format::Json)
             .is_ok()
     );
-    assert!(matches!(
+    assert_matches!(
         entry.apply(Setting::Label("k64=v".parse().unwrap())),
         Err(GenerateError::TooManyLabels)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         entry.apply(Setting::Label("k0=w".parse().unwrap())),
         Err(GenerateError::Repeated("labels"))
-    ));
+    );
     assert_eq!(entry.labels.len(), 64);
 }
 
 #[test]
 fn an_invalid_name_is_refused_before_any_answer() {
     for name in ["Uploads", "ab", "-uploads", "goog-bucket"] {
-        assert!(
-            matches!(Bucket::new(name), Err(GenerateError::InvalidName)),
-            "{name}"
-        );
+        assert_matches!(Bucket::new(name), Err(GenerateError::InvalidName), "{name}");
     }
 }
 
@@ -322,10 +313,10 @@ fn a_public_grant_under_enforced_prevention_is_refused() {
         );
         assert!(entry.prevents_public_access());
         let document = Document::new(vec![bucket("app-exports", []), entry]);
-        assert!(matches!(
+        assert_matches!(
             document.render(Format::Json),
             Err(GenerateError::PublicUnderPrevention { index: 1 })
-        ));
+        );
     }
     let inherited = bucket(
         "app-uploads",
@@ -361,12 +352,10 @@ fn a_cors_rule_without_an_origin_or_a_method_is_refused() {
         ]);
         for format in Format::ALL.iter().copied() {
             let refused = document.render(format);
-            assert!(
-                matches!(
+            assert_matches!(
                     &refused,
                     Err(GenerateError::IncompleteCors { bucket, gap: actual })
-                        if bucket == "app-uploads" && *actual == gap
-                ),
+                        if bucket == "app-uploads" && *actual == gap,
                 "{gap:?} {}: {refused:?}",
                 format.as_str()
             );
@@ -425,8 +414,9 @@ fn assert_startup_limit(limit: u64, setting: impl Fn(u64) -> Setting) {
         Document::new(vec![bucket("app-uploads", settings)]).render(Format::Json)
     };
     assert!(render(limit).is_ok(), "{limit}");
-    assert!(
-        matches!(render(limit + 1), Err(GenerateError::Rejected(_))),
+    assert_matches!(
+        render(limit + 1),
+        Err(GenerateError::Rejected(_)),
         "{limit}"
     );
 }
@@ -448,10 +438,10 @@ fn typed_seconds_limits_are_the_limits_startup_applies() {
 #[test]
 fn a_repeated_bucket_is_refused_by_the_startup_parser() {
     let document = Document::new(vec![bucket("app-uploads", []), bucket("app-uploads", [])]);
-    assert!(matches!(
+    assert_matches!(
         document.render(Format::Env),
         Err(GenerateError::Rejected(_))
-    ));
+    );
 }
 
 /// A CORS rule with an origin and a method, which the format tests need only for its origin.
@@ -485,10 +475,7 @@ fn env_is_one_single_quoted_line_of_the_compact_document() {
     )
     .unwrap();
     let quoted = Document::new(vec![bucket("app-uploads", cors("http://it's.example"))]);
-    assert!(matches!(
-        quoted.render(Format::Env),
-        Err(GenerateError::Unquotable)
-    ));
+    assert_matches!(quoted.render(Format::Env), Err(GenerateError::Unquotable));
 }
 
 /// Compose reads `$$` as `$`, so undoing the escape and the indentation gives back the document,
@@ -649,13 +636,13 @@ fn browser_goal_settings_add_each_value_once() {
     assert_eq!(parsed(&document.render(Format::Json).unwrap()).len(), 1);
     assert_eq!(document.uploads_refusing_content_type().count(), 0);
     let without_origin = Document::new(vec![bucket("app-assets", [Setting::BrowserDownloads])]);
-    assert!(matches!(
+    assert_matches!(
         without_origin.render(Format::Json),
         Err(GenerateError::IncompleteCors {
             gap: CorsGap::Origin,
             ..
         })
-    ));
+    );
 }
 
 /// Several buckets can share one set of answers, each under a name checked as a new one is.
@@ -671,10 +658,7 @@ fn answers_are_shared_under_another_name() {
         },
         first
     );
-    assert!(matches!(
-        first.with_name("Bad-Name"),
-        Err(GenerateError::InvalidName)
-    ));
+    assert_matches!(first.with_name("Bad-Name"), Err(GenerateError::InvalidName));
 }
 
 #[test]

@@ -12,6 +12,7 @@ use hyper::{
     header,
 };
 use serde_json::{Value, json};
+use std::assert_matches;
 use std::{
     collections::VecDeque,
     pin::Pin,
@@ -451,20 +452,16 @@ fn lifecycle_insert_defaults_and_unknown_resource_fields() {
 
 #[test]
 fn bkt_route_001_exact_routes_and_method_variants() {
-    assert!(matches!(
+    assert_matches!(
         request(Method::POST, "/storage/v1/b?project=p").unwrap(),
         BucketRequest::Insert(_)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         request(Method::GET, "/storage/v1/b?project=p").unwrap(),
         BucketRequest::List(_)
-    ));
-    assert!(
-        matches!(request(Method::GET, "/storage/v1/b/abc").unwrap(), BucketRequest::Get { bucket, .. } if bucket == "abc")
     );
-    assert!(
-        matches!(request(Method::DELETE, "/storage/v1/b/abc").unwrap(), BucketRequest::Delete { bucket, .. } if bucket == "abc")
-    );
+    assert_matches!(request(Method::GET, "/storage/v1/b/abc").unwrap(), BucketRequest::Get { bucket, .. } if bucket == "abc");
+    assert_matches!(request(Method::DELETE, "/storage/v1/b/abc").unwrap(), BucketRequest::Delete { bucket, .. } if bucket == "abc");
     for path in [
         "/",
         "/storage/v1",
@@ -485,9 +482,7 @@ fn bkt_route_001_exact_routes_and_method_variants() {
 
 #[test]
 fn bkt_route_002_path_decodes_only_after_splitting() {
-    assert!(
-        matches!(request(Method::GET, "/storage/v1/b/%61%62%63").unwrap(), BucketRequest::Get { bucket, .. } if bucket == "abc")
-    );
+    assert_matches!(request(Method::GET, "/storage/v1/b/%61%62%63").unwrap(), BucketRequest::Get { bucket, .. } if bucket == "abc");
     for path in [
         "abc%",
         "abc%2",
@@ -512,14 +507,11 @@ fn bkt_route_003_wrong_method_has_allow_header() {
     ] {
         for method in [Method::PUT, Method::PATCH, Method::HEAD, Method::OPTIONS] {
             if path.ends_with("/abc") && method == Method::PATCH {
-                assert!(matches!(
-                    request(method, path).unwrap(),
-                    BucketRequest::Patch { .. }
-                ));
+                assert_matches!(request(method, path).unwrap(), BucketRequest::Patch { .. });
                 continue;
             }
             if path.ends_with("/abc") && method == Method::PUT {
-                assert!(matches!(
+                assert_matches!(
                     request(method, path).unwrap(),
                     BucketRequest::Update {
                         params: GetParams {
@@ -528,7 +520,7 @@ fn bkt_route_003_wrong_method_has_allow_header() {
                         },
                         ..
                     }
-                ));
+                );
                 continue;
             }
             let error = request(method, path).unwrap_err();
@@ -740,17 +732,17 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             "{path}"
         );
     }
-    assert!(matches!(
+    assert_matches!(
         request(
             Method::GET,
             "/storage/v1/b/abc?softDeleted=true&generation=7"
         ),
         Ok(BucketRequest::GetSoftDeleted { generation: 7, .. })
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         request(Method::GET, "/storage/v1/b?project=p&softDeleted=true"),
         Ok(BucketRequest::ListSoftDeleted(_))
-    ));
+    );
     for (method, path, reason) in [
         (Method::POST, "/storage/v1/b/abc/restore", "required"),
         (
@@ -957,13 +949,13 @@ fn bucket_and_default_acl_queries_share_conditions_and_failure_order() {
         "/storage/v1/b/abc/lockRetentionPolicy?ifMetagenerationMatch=%2B1",
     )
     .unwrap();
-    assert!(matches!(
+    assert_matches!(
         lock,
         BucketRequest::LockRetentionPolicy {
             metageneration: 1,
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -1933,13 +1925,13 @@ fn bkt_lst_002_token_tampering_and_invalid_shapes() {
             "invalidParameter"
         );
     }
-    assert!(matches!(
+    assert_matches!(
         request(Method::GET, "/storage/v1/b?project=p&pageToken="),
         Ok(BucketRequest::List(ListParams {
             start_after: None,
             ..
         }))
-    ));
+    );
 }
 
 #[tokio::test]

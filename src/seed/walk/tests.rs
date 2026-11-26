@@ -132,7 +132,7 @@ fn a_root_replaced_at_its_path_is_unknown() {
     assert!(tree.check_root().is_ok());
     fs::rename(&tree.root, dir.0.join("pinned")).unwrap();
     fs::create_dir(&tree.root).unwrap();
-    assert!(matches!(tree.check_root(), Err(Unknown::Replaced)));
+    std::assert_matches!(tree.check_root(), Err(Unknown::Replaced));
 }
 
 /// The file the walk opened, with the fingerprint of the handle it reads through.
