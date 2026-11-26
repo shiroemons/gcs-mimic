@@ -402,13 +402,18 @@ A further split waits until after `1.0.0`:
 
 ### Display and `source()`
 
-- **Convention.** A cause's text appears once in a report. Each error is
-  exactly one of:
+- **Convention.** A cause's text appears once in a report. Errors with at
+  most one cause follow one of these conventions:
   - a **leaf** with no source;
   - a **wrapper** whose Display describes only its own layer and whose
     `source()` returns the cause;
   - **transparent**, whose Display is the cause's (optionally prefixed) and
     whose `source()` returns the cause's source.
+- `ImportError::Cleanup` carries two failures. Its journal text gives the
+  original failure first and the cleanup failure second. Its `source()`
+  follows the original failure's underlying cause, so a report can place that
+  detail after the cleanup failure. The Cause vocabulary slice will address
+  report ordering while preserving the journal text.
 - Transparent CLI, import, resume and adapter errors forward their cause's
   source. Texts the import journal stores stay byte-identical. Storage
   classification still reads typed source links for backend guidance, SQLite

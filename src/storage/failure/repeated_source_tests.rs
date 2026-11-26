@@ -3,11 +3,15 @@
 use super::{BackendCause, BackendFailure, IoCause, Link, TypedSource};
 use crate::{
     bucket::CatalogError,
+    import::ImportError,
     object::ObjectError,
     seed::SeedError,
     storage::{
+        ResumableError,
         catalog::{ConnectionUnavailable, ExecutorError, RollbackError},
+        hmac_keys::HmacKeyError,
         import_journal::{JournalFailure, ResumeError},
+        xml_multipart,
     },
 };
 use std::{error::Error, io};
@@ -142,18 +146,79 @@ fn classified(link: Option<Link<'_>>, inner: &Node) -> bool {
     })
 }
 
-pub(crate) fn deferred(outer: &Node, inner: &Node) -> bool {
-    // A transparent resume or I/O error can expose the catalog's existing classified link.
+fn transparent_payload(outer: &Node) -> Option<&Node> {
     if let Some(ResumeError::Catalog(catalog)) = outer.downcast_ref() {
-        return deferred(catalog, inner);
+        return Some(catalog);
     }
-    if let Some(payload) = outer
+    if let Some(HmacKeyError::Catalog(catalog)) = outer.downcast_ref() {
+        return Some(catalog);
+    }
+    if let Some(ResumableError::Object(object)) = outer.downcast_ref() {
+        return Some(object);
+    }
+    if let Some(xml_multipart::Error::Object(object)) = outer.downcast_ref() {
+        return Some(object);
+    }
+    if let Some(ImportError::Catalog(catalog)) = outer.downcast_ref() {
+        return Some(catalog);
+    }
+    if let Some(ImportError::Resume(resume)) = outer.downcast_ref() {
+        return Some(resume);
+    }
+    outer
         .downcast_ref::<io::Error>()
         .and_then(io::Error::get_ref)
+        .map(|payload| payload as &Node)
+}
+
+pub(crate) fn deferred(outer: &Node, inner: &Node) -> bool {
+    // Only the same text and forwarded link inherit the payload's classification exception.
+    if let Some(payload) = transparent_payload(outer)
+        && outer.to_string() == payload.to_string()
+        && payload
+            .source()
+            .is_some_and(|source| std::ptr::addr_eq(source, inner))
     {
         return deferred(payload, inner);
     }
     CLASSIFIED.iter().any(|row| (row.matches)(outer, inner))
+}
+
+fn disk_full() -> CatalogError {
+    io::Error::from(io::ErrorKind::StorageFull).into()
+}
+
+fn assert_reports_payload<E: Error + 'static, W: Error + 'static>(
+    payload: E,
+    wrap: impl FnOnce(E) -> W,
+) {
+    let expected = crate::error::Report(&payload).to_string();
+    assert_eq!(crate::error::Report(&wrap(payload)).to_string(), expected);
+}
+
+#[test]
+fn hmac_reports_a_classified_catalog_cause() {
+    assert_reports_payload(disk_full(), HmacKeyError::Catalog);
+}
+
+#[test]
+fn resumable_reports_a_classified_object_cause() {
+    assert_reports_payload(disk_full().into(), ResumableError::Object);
+}
+
+#[test]
+fn xml_multipart_reports_a_classified_object_cause() {
+    assert_reports_payload(disk_full().into(), xml_multipart::Error::Object);
+}
+
+#[test]
+fn import_reports_a_classified_catalog_cause() {
+    assert_reports_payload(disk_full(), ImportError::Catalog);
+}
+
+#[test]
+fn import_reports_a_classified_resume_cause() {
+    assert_reports_payload(ResumeError::Catalog(disk_full()), ImportError::Resume);
 }
 
 #[test]

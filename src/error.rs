@@ -7,20 +7,24 @@ impl std::fmt::Display for Report<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         #[cfg(test)]
         assert_distinct_causes(self.0);
-        let mut previous = None;
-        for cause in causes(self.0) {
-            let message = cause.to_string();
-            if previous.as_ref() == Some(&message) {
-                continue;
-            }
-            if previous.is_some() {
-                f.write_str(": ")?;
-            }
-            f.write_str(&message)?;
-            previous = Some(message);
-        }
-        Ok(())
+        join(f, self.0)
     }
+}
+
+fn join(output: &mut impl std::fmt::Write, error: &(dyn Error + 'static)) -> std::fmt::Result {
+    let mut previous = None;
+    for cause in causes(error) {
+        let message = cause.to_string();
+        if previous.as_ref() == Some(&message) {
+            continue;
+        }
+        if previous.is_some() {
+            output.write_str(": ")?;
+        }
+        output.write_str(&message)?;
+        previous = Some(message);
+    }
+    Ok(())
 }
 
 /// `error` and every error below it through `source()`, outermost first. An `io::Error` hands
@@ -119,6 +123,14 @@ mod tests {
 
     #[derive(Debug)]
     struct Wrapped(io::Error);
+
+    #[test]
+    fn joining_adjacent_equal_messages_writes_the_text_once() {
+        let error = Wrapped(io::Error::other("disk detail"));
+        let mut message = String::new();
+        join(&mut message, &error).unwrap();
+        assert_eq!(message, "disk detail");
+    }
 
     impl std::fmt::Display for Wrapped {
         fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
