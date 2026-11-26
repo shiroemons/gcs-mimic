@@ -83,6 +83,7 @@ pub const RATCHETED_CLIPPY_LINTS: [&str; 0] = [];
 const STATIC_STR_ERROR: &str = "text::static_str_error";
 const JSON_MACRO_VALUE: &str = "text::json_macro_value";
 const DOWNCAST: &str = "text::downcast";
+const IO_ERROR_OTHER: &str = "text::io_error_other";
 const DIAGNOSTICS_IN_IO_ERROR: &str = "text::diagnostics_in_io_error";
 const IMMEDIATELY_INVOKED_CLOSURE: &str = "text::immediately_invoked_closure";
 const ADAPTER_DEPENDENCY: &str = "text::adapter_dependency";
@@ -107,7 +108,7 @@ const STRINGIFIED_ERROR: &str = "text::stringified_error";
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
-pub const TEXT_RULES: [&str; 15] = [
+pub const TEXT_RULES: [&str; 16] = [
     PATH_ATTRIBUTE,
     STRING_ERROR_RESULT,
     UNAVAILABLE_HELPER,
@@ -119,6 +120,7 @@ pub const TEXT_RULES: [&str; 15] = [
     STATIC_STR_ERROR,
     JSON_MACRO_VALUE,
     DOWNCAST,
+    IO_ERROR_OTHER,
     DIAGNOSTICS_IN_IO_ERROR,
     IMMEDIATELY_INVOKED_CLOSURE,
     ADAPTER_DEPENDENCY,
@@ -617,6 +619,9 @@ fn scan_tree(root: &Path) -> Result<Scan> {
 /// applies its suppression comments.
 pub fn scan_source(file: &str, text: &str) -> Scan {
     let (masked, comments) = mask_with_comments(text);
+    if masked.trim_start().starts_with("#![cfg(test)]") {
+        return Scan::default();
+    }
     let findings = text_findings(file, text, &masked);
     let mut suppressions = Vec::new();
     let mut problems = Vec::new();
@@ -834,6 +839,9 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
     for offset in downcasts(masked) {
         add(DOWNCAST, offset);
     }
+    for offset in io_error_other(masked) {
+        add(IO_ERROR_OTHER, offset);
+    }
     for offset in diagnostics_in_io_errors(masked) {
         add(DIAGNOSTICS_IN_IO_ERROR, offset);
     }
@@ -981,6 +989,56 @@ fn downcasts(masked: &str) -> Vec<usize> {
         }
     }
     offsets
+}
+
+/// The last path segment before a trailing `::`, and the text before that segment.
+fn path_receiver(prefix: &str) -> Option<(&str, &str)> {
+    let path = prefix.trim_end().strip_suffix("::")?.trim_end();
+    let start = path
+        .trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_')
+        .len();
+    (start < path.len()).then(|| path.split_at(start))
+}
+
+/// Calls and function values share the same path. Also recognize direct imports in this file.
+fn io_error_other(masked: &str) -> Vec<usize> {
+    let imported: BTreeSet<_> = words(masked, "use")
+        .filter_map(|at| {
+            let (item, _) = masked[at + 3..].split_once(';')?;
+            let mut segments = item
+                .trim()
+                .trim_start_matches("::")
+                .split("::")
+                .map(str::trim);
+            if segments.next()? != "std" || segments.next()? != "io" {
+                return None;
+            }
+            let mut name = segments.next()?.split_ascii_whitespace();
+            if segments.next().is_some() || name.next()? != "Error" {
+                return None;
+            }
+            match (name.next(), name.next(), name.next()) {
+                (None, None, None) => Some("Error"),
+                (Some("as"), Some(alias), None) => Some(alias),
+                _ => None,
+            }
+        })
+        .collect();
+    words(masked, "other")
+        .filter(|&at| {
+            let Some((prefix, receiver)) = path_receiver(&masked[..at]) else {
+                return false;
+            };
+            match path_receiver(prefix) {
+                Some((prefix, "io")) => {
+                    receiver == "Error"
+                        && path_receiver(prefix).is_none_or(|(_, name)| name == "std")
+                }
+                None => imported.contains(receiver),
+                Some(_) => false,
+            }
+        })
+        .collect()
 }
 
 /// Offsets of `io::Error::other(..)` and `io::Error::new(..)` calls whose arguments name
@@ -1737,6 +1795,19 @@ mod tests {
     }
 
     #[test]
+    fn a_file_level_test_condition_excludes_the_whole_file() {
+        assert!(
+            lines_of(
+                IO_ERROR_OTHER,
+                "//! Fixture.\n#![cfg(test)]\nfn f() { io::Error::other(x); }"
+            )
+            .is_empty()
+        );
+        let mixed = "fn live() { io::Error::other(x); }\n#[cfg(test)]\nfn fixture() { io::Error::other(x); }";
+        assert_eq!(lines_of(IO_ERROR_OTHER, mixed), [1]);
+    }
+
+    #[test]
     fn test_items_are_skipped_without_hiding_later_production_code() {
         let text = "\
 #[cfg(test)]
@@ -2134,6 +2205,31 @@ fn t() { (|| x)(); }
             lines_of(IMMEDIATELY_INVOKED_CLOSURE, text),
             [1, 2, 3, 7, 8, 9]
         );
+    }
+
+    #[test]
+    fn io_error_other_checks_calls_function_values_and_direct_imports() {
+        let text = r#"use std::io::Error;
+use std::io::Error as IoError;
+let a = std::io::Error::other(cause);
+let b = io :: Error :: other(cause);
+let c = result.map_err(io::Error::other);
+let d = Error::other(cause);
+let e = result.map_err(IoError::other);
+let f = domain::Error::other(cause);
+let g = Error::otherwise;
+use std::io::{Error as Grouped};
+let h = Grouped::other(cause);
+type Indirect = std::io::Error;
+let i = Indirect::other(cause);
+// io::Error::other(cause)
+let j = "io::Error::other";
+#[cfg(test)]
+fn fixture() { io::Error::other("fixture"); }
+"#;
+        assert_eq!(lines_of(IO_ERROR_OTHER, text), [3, 4, 5, 6, 7]);
+        assert!(lines_of(IO_ERROR_OTHER, "use domain::Error; Error::other(cause);").is_empty());
+        assert!(lines_of(IO_ERROR_OTHER, "domain::io::Error::other(cause);").is_empty());
     }
 
     #[test]

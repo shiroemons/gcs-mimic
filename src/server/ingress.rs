@@ -80,6 +80,7 @@ where
             }
             Poll::Ready(Some(Err(_)) | None) => this.report(BodyRead::NotPending),
         }
+        // xtask-lint: allow(text::io_error_other) -- The request body exposes io::Error and retains the transport error as its payload.
         polled.map(|frame| frame.map(|result| result.map_err(io::Error::other)))
     }
 

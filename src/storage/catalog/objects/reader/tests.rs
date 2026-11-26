@@ -5,6 +5,32 @@ thread_local! {
 }
 
 #[test]
+fn next_chunk_reports_a_cancelled_blocking_read() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let handle = runtime.handle().clone();
+    drop(runtime);
+
+    let dir = crate::test_support::TestDir::new();
+    // A write-only descriptor forces the cache probe to fall back to the stopped pool.
+    let file = File::create(dir.0.join("blob")).unwrap();
+    let mut reader = ObjectReader::bounded_for_test(file, 1);
+    let error: io::Error = handle.block_on(reader.next_chunk()).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert_eq!(error.to_string(), "blocking job cancelled");
+}
+
+#[test]
+fn public_reader_keeps_the_blob_budget_error_kind() {
+    let failure = BlobError::Exhausted;
+    let message = failure.to_string();
+    let error = public_read_failure(failure);
+    assert_eq!(error.kind(), io::ErrorKind::StorageFull);
+    assert_eq!(error.to_string(), message);
+}
+
+#[test]
 fn cancelling_a_queued_frame_read_releases_the_file_before_a_worker_is_free() {
     use std::task::{Context, Waker};
 

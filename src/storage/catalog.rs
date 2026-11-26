@@ -31,7 +31,6 @@ pub(crate) mod test_fixtures;
 #[cfg(test)]
 pub(super) mod test_support;
 
-#[cfg(test)]
 pub(crate) mod fault;
 
 pub(crate) mod resumable;

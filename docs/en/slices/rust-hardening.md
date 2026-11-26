@@ -561,7 +561,7 @@ A further split waits until after `1.0.0`:
 
 ### `io::Error::other`
 
-About 83 production sites remain once tests and doc comments are excluded:
+Production code keeps these failures typed until their callers require an I/O error.
 
 | Kind of site | Replacement |
 | --- | --- |
@@ -574,8 +574,13 @@ About 83 production sites remain once tests and doc comments are excluded:
 
 Every new storage variant classifies as `Classified::Io` with kind `Other`, so
 the wire text `storage I/O error (other error)` is unchanged.
-`std::io::Error::other` then joins `disallowed-methods`, with a reasoned
-expectation where a trait requires `io::Error`.
+Clippy in Rust 1.100.0 cannot resolve `std::io::Error::other` in `disallowed-methods`.
+The zero-tolerance `text::io_error_other` rule covers it, with two reasoned
+exceptions for HTTP request transport and the gzip chunk body. HTTP and gRPC
+classify blob read failures directly. The HTTP `server::ResponseBody` carries
+`IoCause`, and gRPC maps the storage error to its status. The public
+`ObjectReader::{next_chunk, into_file}` boundary preserves each failure's
+kind when constructing its `io::Error`.
 
 ## Catalog execution
 
@@ -1044,10 +1049,11 @@ try_from = "i64")]`.
 | `clippy::ignore_without_reason` | workspace deny; no site |
 | `clippy::return_and_then` | gate; 8 sites at slice start |
 | `clippy::large_futures` | gate, after the body I/O slices |
-| `disallowed-methods`: `serde_json::Map::remove`, `std::io::Error::other`, plain lock methods | each with its slice |
+| `disallowed-methods`: `serde_json::Map::remove`, plain lock methods | each with its slice |
+| `text::io_error_other` | production uses of `std::io::Error::other` |
 | `cargo::unused_dependencies` | workspace deny; available in Cargo 1.100.0 |
 
-All of these exist in the pinned Clippy and Cargo 1.100.0 (checked
+The compiler and Cargo lints exist in the pinned toolchain (checked
 2026-11-26). Each rule gets its row in the Rules table.
 
 ### Property tests
@@ -1175,7 +1181,7 @@ after job counts.
 | `ServiceError` and `InputError` | bucket resource parsing, admin defaults and import through the domain call; the adapter mappings |
 | Typed upload and multipart errors | upload headers, stored headers, multipart, upload failures |
 | `ApiError` inside JSON | the shared helpers return service errors; both `From<ApiError>` impls deleted; private fields; `ErrorKind` pruned; oracle removed |
-| `io::Error::other` | three commits (RAM backend; startup, shutdown, import and fsutil; publisher, probe and TLS), then the `disallowed-methods` entry |
+| `io::Error::other` | three commits (RAM backend; startup, shutdown, import and fsutil; publisher, probe and TLS), then the `text::io_error_other` gate |
 | Cause vocabulary | the `cause` module, `Layer`, the classified storage links and removal of their temporary test exceptions, plain `Report` |
 | thiserror conversion | module by module, then `text::error_displays_source` |
 
@@ -1243,7 +1249,7 @@ The ledger records these as DESIGN-105 cases:
 | `DESIGN-105-BODY-IO` | Multipart parsing returns slices of the received frames and retains less than one delimiter between frames. Staged writes and copies run as bounded blocking jobs, with failed-write, failed-sync, crash and power-loss coverage for each path. |
 | `DESIGN-105-PROTOCOL` | Multipart and batch parsing, gRPC `ReadObject` and the smaller adapter items keep their wire behavior. |
 | `DESIGN-105-LAYERS` | The layer and adapter rules are zero tolerance. |
-| `DESIGN-105-ERRORS` | Adapters map protocol-neutral errors exhaustively; `ApiError` is private to JSON; chains repeat no text; `io::Error::other` remains only under reasoned expectations. |
+| `DESIGN-105-ERRORS` | Adapters map protocol-neutral errors exhaustively; `ApiError` is private to JSON; chains repeat no text; `io::Error::other` remains only under reasoned text-rule exceptions. |
 | `DESIGN-105-TYPES` | Records, sessions and configuration carry the typed fields above with unchanged persisted bytes and diagnostics. |
 | `DESIGN-105-RULES` | Each rule in the consolidation table has one implementation. |
 | `DESIGN-105-LINTS` | The new lints are in the gate and the property tests pass. |

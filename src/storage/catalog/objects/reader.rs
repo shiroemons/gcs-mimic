@@ -8,7 +8,8 @@ fn public_read_failure(error: BlobError) -> io::Error {
     if let BlobError::Io(error) = error {
         return error;
     }
-    io::Error::other(error)
+    // The public reader returns io::Result; no caller downcasts the payload.
+    io::Error::new(error.kind(), error)
 }
 
 const GRPC_FRAME_BYTES: usize = 256 * 1024;

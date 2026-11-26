@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 //! Test-only storage fault injection for the durable write paths.
 //!
 //! Write paths call [`hit`] at their durable step boundaries. A test arms a fault for one

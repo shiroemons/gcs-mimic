@@ -371,7 +371,8 @@ The gate covers only server production code: files under `src/` except
 module directory. Clippy runs on the `gcs-mimic` library and binary only
 (`--lib --bins`), so `cfg(test)` code is not compiled; the text rules skip
 each item marked `#[cfg(test)]` or `#[cfg(all(test, ...))]`, including
-attributes stacked before that `cfg`. Tests may unwrap and expect.
+attributes stacked before that `cfg`, and files whose first attribute is
+`#![cfg(test)]`. Tests may unwrap and expect.
 
 `cargo xtask lint --target <triple>` runs only the Clippy pass for another
 target, so code behind that target's `cfg` (for example Windows-only file
@@ -426,6 +427,7 @@ and `cargo::unused_dependencies`.
 | `text::format_sql` | `format!` whose literal starts with an SQL statement. |
 | `text::json_macro_value` | `json!(expr)` whose whole argument is not a JSON literal: it expands to `to_value(&expr).unwrap()`. Build the value with `Value::from`, or with `serde_json::to_value` and a typed error. |
 | `text::downcast` | `.downcast_ref`, `.downcast_mut` and `.downcast` calls that recover a type from a type-erased value. A panic payload takes a reasoned suppression. |
+| `text::io_error_other` | Wrapping a failure can hide its concrete cause. Checks calls and function values spelled `io::Error::other` and unqualified names from simple `use std::io::Error` imports, including `as` aliases. This file-local check does not resolve grouped imports, type aliases, re-exports or shadowing. The request transport and gzip chunk body document why their error boundary requires `io::Error`. |
 | `text::diagnostics_in_io_error` | `io::Error::other` or `io::Error::new` whose arguments name `Diagnostics`; startup diagnostics keep their own error type. |
 | `text::immediately_invoked_closure` | `(\|\| ..)()` and `(move \|\| ..)()`, a closure called where it is written. |
 | `text::adapter_dependency` | One adapter (`src/json`, `src/xml`, `src/grpc`) naming another: `crate::` or `$crate::` paths, top-level members of `use crate::{..}` groups, and `super::` or `self::` paths resolved from the file's module path. Adapters that depend on each other cannot be reasoned about or replaced separately; move the shared piece to a lower module in the same change. |
@@ -476,8 +478,8 @@ input, such as `InvalidTopic(String)`, may keep its message.
 an object or array literal. `text::downcast` sees method calls, not
 `<dyn Any>::downcast_ref(..)`, and cannot tell a panic payload from an error.
 `text::diagnostics_in_io_error` sees only a `Diagnostics` named inside the
-call's arguments, not `map_err(io::Error::other)` on a
-`Result<_, Diagnostics>`. `text::layer_dependency` and
+call's arguments. The separate `text::io_error_other` rule also catches function
+values passed to `map_err`. `text::layer_dependency` and
 `text::adapter_dependency` see only module names: a name that `src/lib.rs`
 re-exports at the crate root, a path inside a string such
 as `#[serde(with = "..")]`, `use crate::*` and `use crate as alias` are not

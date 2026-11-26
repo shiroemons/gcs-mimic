@@ -40,7 +40,10 @@ impl From<GzipError> for io::Error {
             | GzipError::ObjectLimit
             | GzipError::WireLimit
             | GzipError::UploadLimit
-            | GzipError::Trailers) => io::Error::other(other),
+            | GzipError::Trailers) => {
+                // xtask-lint: allow(text::io_error_other) -- The chunk body carries io::Error and retains the gzip failure as its payload.
+                io::Error::other(other)
+            }
         }
     }
 }
