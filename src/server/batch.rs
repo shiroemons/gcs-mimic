@@ -825,6 +825,27 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn progress_at_the_deadline_wins_until_a_full_silent_interval() {
+        let activity = super::super::new_batch_part_activity();
+        let limit = TimeLimit::from_millis(100);
+        let expired = super::super::batch_part_expired(&activity, limit);
+        tokio::pin!(expired);
+        let mut poll = || {
+            expired
+                .as_mut()
+                .poll(&mut Context::from_waker(std::task::Waker::noop()))
+        };
+        assert!(poll().is_pending());
+        tokio::time::advance(Duration::from_millis(100)).await;
+        super::super::record_progress(&activity);
+        assert!(poll().is_pending());
+        tokio::time::advance(Duration::from_millis(99)).await;
+        assert!(poll().is_pending());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert_eq!(poll(), Poll::Ready(super::super::Expiry::Request));
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn an_enforced_object_deadline_expires_a_part_despite_progress() {
         let activity = super::super::new_batch_part_activity();
         let deadline = TimeLimit::from_millis(1500).deadline();
