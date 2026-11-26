@@ -17,7 +17,7 @@ use crate::{
     auth::Caller,
     config::CompatProfile,
     json::{ResponseFormat, with_format},
-    server::{anonymous_error, bucket_route_error},
+    server::{anonymous_error, bucket_answer},
     storage::failure::test_support::{self as domain, Case, case, every_variant},
 };
 
@@ -96,7 +96,7 @@ impl Golden {
             let profile = CompatProfile::FakeGcsServer;
             let response = with_format(
                 ResponseFormat::for_request(None, profile),
-                bucket_route_error(error, profile),
+                bucket_answer(Err(error), profile),
             )
             .await;
             transcript.render(

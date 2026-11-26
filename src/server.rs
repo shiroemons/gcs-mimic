@@ -135,7 +135,7 @@ mod xml_read;
 pub(crate) use context::{DeadlineWatch, ObjectCtx, RequestCtx};
 pub(crate) use ingress::RequestBody;
 #[cfg(test)]
-pub(crate) use routing::bucket_route_error;
+pub(crate) use routing::bucket_answer;
 
 #[cfg(test)]
 tokio::task_local! { static ACCEPT_FAULTS: Arc<std::sync::Mutex<std::collections::VecDeque<i32>>>; }

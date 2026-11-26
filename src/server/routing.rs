@@ -912,23 +912,19 @@ async fn respond_bucket(
         buckets::respond(request, operation, caller, state, profile, base)
     })
     .await;
+    boxed(bucket_answer(result, profile).await)
+}
+
+/// What a bucket route answers for `result`, in fake-gcs-server's reasons and body layout under
+/// its profile. The error goldens call it directly, since the route itself needs a request and a
+/// catalog.
+pub(crate) async fn bucket_answer(
+    result: Result<Response<Full<Bytes>>, ApiError>,
+    profile: CompatProfile,
+) -> Response<Full<Bytes>> {
     let response = result
         .map_err(|error| legacy_bucket_error(error, profile))
         .unwrap_or_else(ApiError::into_response);
-    if profile == CompatProfile::FakeGcsServer && response.status() != StatusCode::NOT_MODIFIED {
-        return boxed(legacy_bucket_body(response).await);
-    }
-    boxed(response)
-}
-
-/// The answer [`respond_bucket`] sends for `error`, for the error goldens. It repeats that
-/// function's error path because the route itself needs a request and a catalog.
-#[cfg(test)]
-pub(crate) async fn bucket_route_error(
-    error: ApiError,
-    profile: CompatProfile,
-) -> Response<Full<Bytes>> {
-    let response = legacy_bucket_error(error, profile).into_response();
     if profile == CompatProfile::FakeGcsServer && response.status() != StatusCode::NOT_MODIFIED {
         return legacy_bucket_body(response).await;
     }
