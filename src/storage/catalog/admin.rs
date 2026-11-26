@@ -399,8 +399,7 @@ impl From<CatalogError> for AdminError {
             CatalogError::InvalidMetadata(reason) | CatalogError::UnsupportedMetadata(reason) => {
                 Self::Invalid(reason)
             }
-            error @ (CatalogError::AuthenticationAlreadyConfigured
-            | CatalogError::AlreadyExists
+            error @ (CatalogError::AlreadyExists
             | CatalogError::NotEmpty
             | CatalogError::RestoreConflict
             | CatalogError::NewerSchema { .. }

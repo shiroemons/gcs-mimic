@@ -583,13 +583,6 @@ details: none
 -- named object status: same as direct
 -- anonymous caller: same as direct
 
-== CatalogError::AuthenticationAlreadyConfigured
--- direct
-code: Unavailable (14)
-message: "Bucket catalog is unavailable"
-details: none
--- anonymous caller: same as direct
-
 == CatalogError::AlreadyExists
 -- direct
 code: AlreadyExists (6)

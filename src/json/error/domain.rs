@@ -170,9 +170,7 @@ impl From<CatalogError> for ApiError {
             CatalogError::Unavailable(cause) | CatalogError::Corrupt(cause) => {
                 Self::catalog_backend(&cause)
             }
-            error @ (CatalogError::AuthenticationAlreadyConfigured
-            | CatalogError::Io(_)
-            | CatalogError::NewerSchema { .. }) => {
+            error @ (CatalogError::Io(_) | CatalogError::NewerSchema { .. }) => {
                 Self::catalog_backend(&BackendCause::from_error(error))
             }
         }

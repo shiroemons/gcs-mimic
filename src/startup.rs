@@ -421,7 +421,6 @@ fn catalog_open_failure(error: &CatalogError) -> Diagnostics {
         | CatalogError::Corrupt(_)
         | CatalogError::Unavailable(_)
         // Request outcomes that opening never produces share the same advice.
-        | CatalogError::AuthenticationAlreadyConfigured
         | CatalogError::AlreadyExists
         | CatalogError::NotFound
         | CatalogError::NotEmpty
@@ -1440,7 +1439,7 @@ mod tests {
         use std::error::Error;
 
         let failure = CatalogAuthenticationFailure::new(
-            CatalogError::AuthenticationAlreadyConfigured,
+            CatalogError::Corrupt("bad stored ACL".into()),
             Some(CatalogError::from(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "injected close failure",
@@ -1448,12 +1447,12 @@ mod tests {
         );
         assert!(matches!(
             failure.source().unwrap().downcast_ref::<CatalogError>(),
-            Some(CatalogError::AuthenticationAlreadyConfigured)
+            Some(CatalogError::Corrupt(_))
         ));
-        assert_eq!(failure.diagnostics().errors[0].key, "authentication");
+        assert_eq!(failure.diagnostics().errors[0].key, "data_dir");
         assert_eq!(
             failure.diagnostics().errors[0].source,
-            DiagnosticSource::Runtime
+            DiagnosticSource::Catalog
         );
         assert_eq!(failure.diagnostics().errors[1].key, "data_dir");
         assert_eq!(

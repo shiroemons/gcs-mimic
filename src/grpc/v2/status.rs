@@ -228,11 +228,11 @@ impl From<CatalogError> for Status {
             }
             // These hold no backend cause; wrapped in one, a fixed failure in their chain still
             // names its remedy and any other cause is logged, as the JSON API does.
-            error @ (CatalogError::AuthenticationAlreadyConfigured
-            | CatalogError::Io(_)
-            | CatalogError::NewerSchema { .. }) => Status::unavailable(
-                wording::catalog_backend(&BackendCause::from_error(error)).message,
-            ),
+            error @ (CatalogError::Io(_) | CatalogError::NewerSchema { .. }) => {
+                Status::unavailable(
+                    wording::catalog_backend(&BackendCause::from_error(error)).message,
+                )
+            }
         }
     }
 }

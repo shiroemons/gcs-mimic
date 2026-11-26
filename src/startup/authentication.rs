@@ -15,19 +15,11 @@ pub(crate) struct Failure {
 
 impl Failure {
     pub(super) fn new(cause: CatalogError, cleanup: Option<CatalogError>) -> Self {
-        let mut diagnostics = if matches!(cause, CatalogError::AuthenticationAlreadyConfigured) {
-            Diagnostics::error(
-                DiagnosticSource::Runtime,
-                "authentication",
-                "Catalog authentication was initialized more than once; restart with one startup owner.",
-            )
-        } else {
-            Diagnostics::error(
-                DiagnosticSource::Catalog,
-                "data_dir",
-                "Cannot reconcile stored bucket IAM and ACL state; inspect the catalog or restore a valid backup before restarting.",
-            )
-        };
+        let mut diagnostics = Diagnostics::error(
+            DiagnosticSource::Catalog,
+            "data_dir",
+            "Cannot reconcile stored bucket IAM and ACL state; inspect the catalog or restore a valid backup before restarting.",
+        );
         if cleanup.is_some() {
             diagnostics.errors.push(Diagnostic::new(
                 DiagnosticSource::Catalog,

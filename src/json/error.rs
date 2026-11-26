@@ -1013,7 +1013,6 @@ mod tests {
                 },
                 generic,
             ),
-            (CatalogError::AuthenticationAlreadyConfigured, generic),
             (
                 CatalogError::Corrupt("/secret token=private".into()),
                 generic,

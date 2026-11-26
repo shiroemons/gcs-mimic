@@ -701,7 +701,6 @@ crate::choice::string_enum! {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CatalogError {
-    AuthenticationAlreadyConfigured,
     AlreadyExists,
     NotFound,
     NotEmpty,
@@ -1014,9 +1013,6 @@ mod tests {
 impl fmt::Display for CatalogError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AuthenticationAlreadyConfigured => {
-                formatter.write_str("Catalog authentication is already configured")
-            }
             Self::AlreadyExists => formatter.write_str("bucket already exists"),
             Self::NotFound => formatter.write_str("bucket not found"),
             Self::NotEmpty => formatter.write_str("bucket is not empty"),
@@ -1071,8 +1067,7 @@ impl TypedSource for CatalogError {
             Self::Io(cause) => cause.typed_source(),
             Self::Corrupt(cause) | Self::Unavailable(cause) => cause.typed_source(),
             Self::Metadata(error) => Link::Leaf(error).source(),
-            Self::AuthenticationAlreadyConfigured
-            | Self::AlreadyExists
+            Self::AlreadyExists
             | Self::NotFound
             | Self::NotEmpty
             | Self::RestoreConflict

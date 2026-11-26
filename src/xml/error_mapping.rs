@@ -247,9 +247,7 @@ impl From<CatalogError> for Error {
                 XmlCode::ServiceUnavailable,
                 wording::catalog_backend(&cause).message,
             ),
-            error @ (CatalogError::AuthenticationAlreadyConfigured
-            | CatalogError::Io(_)
-            | CatalogError::NewerSchema { .. }) => Self::new(
+            error @ (CatalogError::Io(_) | CatalogError::NewerSchema { .. }) => Self::new(
                 XmlCode::ServiceUnavailable,
                 wording::catalog_backend(&BackendCause::from_error(error)).message,
             ),

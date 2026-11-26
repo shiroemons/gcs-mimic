@@ -254,10 +254,6 @@ fn backend_causes_are_actionable_and_private_details_stay_private() {
             catalog,
         ),
         (
-            ApiError::from(CatalogError::AuthenticationAlreadyConfigured),
-            catalog,
-        ),
-        (
             ApiError::from(CatalogError::NewerSchema {
                 version: 99,
                 supported: 50,

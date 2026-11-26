@@ -438,8 +438,7 @@ impl StorageCause for CatalogError {
             Self::Corrupt(cause) => Classified::Corrupt(cause),
             Self::Io(cause) => Classified::Io(cause),
             Self::Unavailable(cause) => Classified::Unavailable(cause),
-            error @ (Self::AuthenticationAlreadyConfigured
-            | Self::AlreadyExists
+            error @ (Self::AlreadyExists
             | Self::NotFound
             | Self::NotEmpty
             | Self::RestoreConflict

@@ -1406,35 +1406,6 @@ body: 358 bytes, no final newline
 -- media download: same as response
 -- anonymous caller: same as response
 
-== CatalogError::AuthenticationAlreadyConfigured
--- response
-503 Service Unavailable
-content-type: application/json; charset=UTF-8
-cache-control: no-cache, no-store, max-age=0, must-revalidate
-pragma: no-cache
-body: 236 bytes, no final newline
-{
-  "error": {
-    "code": 503,
-    "message": "Bucket catalog is unavailable",
-    "errors": [
-      {
-        "message": "Bucket catalog is unavailable",
-        "domain": "global",
-        "reason": "backendError"
-      }
-    ]
-  }
-}
--- anonymous caller: same as response
--- fake-gcs-server bucket route
-503 Service Unavailable
-content-type: application/json
-cache-control: no-cache, no-store, max-age=0, must-revalidate
-pragma: no-cache
-body: 162 bytes
-{"error":{"code":503,"message":"Bucket catalog is unavailable","errors":[{"message":"Bucket catalog is unavailable","domain":"global","reason":"backendError"}]}}
-
 == CatalogError::AlreadyExists
 -- response
 409 Conflict

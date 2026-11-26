@@ -424,10 +424,6 @@ fn catalog_cases() -> Vec<Case<CatalogError>> {
         domain::catalog_cases(),
         vec![
             (
-                "AuthenticationAlreadyConfigured",
-                plain(Code::Unavailable, CATALOG_UNAVAILABLE),
-            ),
-            (
                 "AlreadyExists",
                 plain(
                     Code::AlreadyExists,

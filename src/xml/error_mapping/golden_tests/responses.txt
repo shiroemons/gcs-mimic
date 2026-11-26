@@ -782,18 +782,6 @@ body: 193 bytes, no final newline
 -- anonymous caller, via ServiceError: same as direct
 -- named object, via ServiceError: same as direct
 
-== CatalogError::AuthenticationAlreadyConfigured
--- direct
-503 Service Unavailable
-content-type: application/xml; charset=UTF-8
-content-length: 132
-cache-control: private, max-age=0
-body: 132 bytes, no final newline
-<?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket catalog is unavailable</Message></Error>
--- anonymous caller: same as direct
--- via ServiceError: same as direct
--- anonymous caller, via ServiceError: same as direct
-
 == CatalogError::AlreadyExists
 -- direct
 409 Conflict

@@ -1204,8 +1204,7 @@ impl From<crate::bucket::CatalogError> for ObjectError {
             CatalogError::Corrupt(reason) => Self::Corrupt(reason),
             // The same mapping as `object_unavailable`, which keeps an unavailable cause as is.
             CatalogError::Unavailable(reason) => Self::Unavailable(reason),
-            error @ (CatalogError::AuthenticationAlreadyConfigured
-            | CatalogError::AlreadyExists
+            error @ (CatalogError::AlreadyExists
             | CatalogError::NotFound
             | CatalogError::NotEmpty
             | CatalogError::RestoreConflict

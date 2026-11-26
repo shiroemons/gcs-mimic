@@ -716,6 +716,7 @@ journal sweep in the maintenance diagnostic.
   - the silent `unwrap_or_default()` of session limits;
   - sixteen `.get().cloned()` sites.
 
+  Authentication is supplied at open, so reconfiguration is unreachable and its error variant and adapter golden cases are removed.
   Startup keeps its order and diagnostics. No typestate: hundreds of tests use
   `Catalog` directly, and a typestate would only guard two start calls.
 - **Shutdown.** `close()` cancels one token, closes admission, waits for the

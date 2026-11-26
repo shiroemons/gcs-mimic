@@ -417,7 +417,6 @@ pub(crate) fn object_cases() -> Vec<Case<ObjectError>> {
 /// [`catalog_cases`] and its name in [`CATALOG_VARIANTS`].
 pub(crate) fn catalog_variant(error: &CatalogError) -> &'static str {
     match error {
-        CatalogError::AuthenticationAlreadyConfigured => "AuthenticationAlreadyConfigured",
         CatalogError::AlreadyExists => "AlreadyExists",
         CatalogError::NotFound => "NotFound",
         CatalogError::NotEmpty => "NotEmpty",
@@ -439,8 +438,7 @@ pub(crate) fn catalog_variant(error: &CatalogError) -> &'static str {
     }
 }
 
-pub(crate) const CATALOG_VARIANTS: [&str; 19] = [
-    "AuthenticationAlreadyConfigured",
+pub(crate) const CATALOG_VARIANTS: [&str; 18] = [
     "AlreadyExists",
     "NotFound",
     "NotEmpty",
@@ -464,11 +462,6 @@ pub(crate) const CATALOG_VARIANTS: [&str; 19] = [
 /// Every bucket catalog failure, with an input for each branch the adapters word differently.
 pub(crate) fn catalog_cases() -> Vec<Case<CatalogError>> {
     let cases = vec![
-        case(
-            "AuthenticationAlreadyConfigured",
-            CatalogError::AuthenticationAlreadyConfigured,
-        )
-        .logging(UNCLASSIFIED),
         case("AlreadyExists", CatalogError::AlreadyExists),
         case("NotFound", CatalogError::NotFound),
         case("NotEmpty", CatalogError::NotEmpty),
