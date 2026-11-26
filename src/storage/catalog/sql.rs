@@ -9,6 +9,67 @@ use rusqlite::{
     types::{FromSql, Type},
 };
 
+macro_rules! revision_integer {
+    ($($revision:ty),+ $(,)?) => {
+        $(
+            impl rusqlite::ToSql for $revision {
+                fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+                    Ok(rusqlite::types::ToSqlOutput::Owned(self.get().into()))
+                }
+            }
+
+            impl FromSql for $revision {
+                fn column_result(
+                    value: rusqlite::types::ValueRef<'_>,
+                ) -> rusqlite::types::FromSqlResult<Self> {
+                    let raw = i64::column_result(value)?;
+                    Self::try_from(raw).map_err(|_| rusqlite::types::FromSqlError::OutOfRange(raw))
+                }
+            }
+        )+
+    };
+}
+
+revision_integer!(
+    crate::object::generation::Generation,
+    crate::object::generation::Metageneration,
+);
+
+#[cfg(test)]
+#[test]
+fn revision_columns_keep_integer_bytes_and_reject_nonpositive_values() {
+    use crate::object::generation::{Generation, Metageneration};
+    use rusqlite::{
+        ToSql,
+        types::{FromSqlError, ToSqlOutput, Value, ValueRef},
+    };
+
+    for raw in [1, i64::MAX] {
+        let value = ValueRef::Integer(raw);
+        let generation = Generation::column_result(value).unwrap();
+        let metageneration = Metageneration::column_result(value).unwrap();
+        assert_eq!(
+            generation.to_sql().unwrap(),
+            ToSqlOutput::Owned(Value::Integer(raw))
+        );
+        assert_eq!(
+            metageneration.to_sql().unwrap(),
+            ToSqlOutput::Owned(Value::Integer(raw))
+        );
+    }
+    for raw in [i64::MIN, -1, 0] {
+        let value = ValueRef::Integer(raw);
+        assert_eq!(
+            Generation::column_result(value),
+            Err(FromSqlError::OutOfRange(raw))
+        );
+        assert_eq!(
+            Metageneration::column_result(value),
+            Err(FromSqlError::OutOfRange(raw))
+        );
+    }
+}
+
 impl rusqlite::ToSql for crate::object::CustomTime {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
         Ok(rusqlite::types::ToSqlOutput::Borrowed(self.as_str().into()))

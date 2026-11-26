@@ -16,7 +16,7 @@ use crate::{
         BucketCreation, Catalog,
         bucket_update::{self, BucketChange},
         create_bucket_in_transaction,
-        policies::{self, Metageneration, PolicyWrite},
+        policies::{self, MetagenerationMode, PolicyWrite},
         principals::Profile,
         sql, unavailable, unix_micros,
     },
@@ -381,9 +381,9 @@ impl Apply<'_> {
                     self.clock,
                     self.principals,
                 )?;
-                Metageneration::Advanced
+                MetagenerationMode::Advanced
             }
-            None => Metageneration::Advance {
+            None => MetagenerationMode::Advance {
                 updated: unix_micros(self.clock.now())?,
             },
         };

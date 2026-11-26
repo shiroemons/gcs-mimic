@@ -390,7 +390,7 @@ impl Catalog {
             if policy.etag.is_some() && policy.etag != current.etag {
                 return Err(CatalogError::PreconditionFailed);
             }
-            let step = Metageneration::Advance {
+            let step = MetagenerationMode::Advance {
                 updated: super::unix_micros(clock.now())?,
             };
             replace_policy(
@@ -411,7 +411,7 @@ impl Catalog {
 
 /// How a policy write moves the bucket metageneration.
 #[derive(Clone, Copy)]
-pub(super) enum Metageneration {
+pub(super) enum MetagenerationMode {
     /// Advances it and sets `updated`, in Unix microseconds.
     Advance { updated: i64 },
     /// A bucket update earlier in the same transaction advanced it, and one change to a bucket
@@ -423,7 +423,7 @@ pub(super) enum Metageneration {
 #[derive(Clone, Copy)]
 pub(super) struct PolicyWrite<'a> {
     pub(super) bucket: &'a str,
-    pub(super) metageneration: Metageneration,
+    pub(super) metageneration: MetagenerationMode,
 }
 
 /// Replaces the stored policy as setIamPolicy does once its preconditions hold: refuses public
@@ -448,8 +448,10 @@ pub(super) fn replace_policy(
     // Every accepted policy write advanced the bucket metageneration on Cloud Storage,
     // including a replay of the current policy (recorded 2026-10-31).
     match metageneration {
-        Metageneration::Advance { updated } => advance_acl_revision(connection, bucket, updated)?,
-        Metageneration::Advanced => {}
+        MetagenerationMode::Advance { updated } => {
+            advance_acl_revision(connection, bucket, updated)?;
+        }
+        MetagenerationMode::Advanced => {}
     }
     store_policy(connection, bucket, policy)
 }
