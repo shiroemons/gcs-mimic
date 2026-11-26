@@ -5,7 +5,8 @@
 use std::{collections::BTreeMap, fmt};
 
 /// The longest raw query string a request may carry. Cloud Storage documents no limit; this
-/// bounds the work and memory one query can cause.
+/// bounds the work and memory one query can cause. The gRPC v1 listing adapter also applies it
+/// to the encoded query it would build, since it does not go through the HTTP/1 head limit.
 pub(crate) const MAX_QUERY_BYTES: usize = 16 * 1024;
 
 /// How `decode` treats `+`: form-encoded query components use it for a space, while path

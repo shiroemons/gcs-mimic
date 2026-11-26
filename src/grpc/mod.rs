@@ -416,7 +416,7 @@ async fn serve_with_service<S, F>(
             }
             () = phase.idle_turn() => {
                 if slots.take_request() {
-                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Debug, "grpc_idle_reclaimed", serde_json::json!({"message":"gRPC connection was the longest idle while a client waited for a slot; sending GOAWAY; the client reconnects for its next call, or raise max_connections, for example 4096"}));
+                    crate::diagnostics::emit_lazy(crate::diagnostics::LogLevel::Debug, "grpc_idle_reclaimed", || serde_json::json!({"message":"gRPC connection was the longest idle while a client waited for a slot; sending GOAWAY; the client reconnects for its next call, or raise max_connections, for example 4096"}));
                     connection.as_mut().graceful_shutdown();
                     phase = ConnectionPhase::ClosingIdle;
                     idle.as_mut().reset(Instant::now() + idle_grace);
@@ -442,7 +442,7 @@ async fn serve_with_service<S, F>(
                         (ConnectionPhase::Draining, peer_wait)
                     }
                     (ConnectionPhase::Idle { .. } | ConnectionPhase::Streaming, 0) => {
-                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Debug, "grpc_idle_timeout", serde_json::json!({"message":"gRPC connection idle deadline exceeded; sending GOAWAY; reconnect or raise keep_alive_timeout_ms, for example 300000"}));
+                        crate::diagnostics::emit_lazy(crate::diagnostics::LogLevel::Debug, "grpc_idle_timeout", || serde_json::json!({"message":"gRPC connection idle deadline exceeded; sending GOAWAY; reconnect or raise keep_alive_timeout_ms, for example 300000"}));
                         (ConnectionPhase::ClosingIdle, idle_grace)
                     }
                     (ConnectionPhase::Idle { .. } | ConnectionPhase::Streaming | ConnectionPhase::ClosingIdle, _) => {

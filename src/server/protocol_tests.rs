@@ -3,6 +3,28 @@
 use super::*;
 use crate::json::JsonErrorResponse;
 
+#[tokio::test]
+async fn http1_rejects_a_40_kib_request_header() {
+    let (mut client, server) = tokio::io::duplex(64 * 1024);
+    let request = format!(
+        "GET /_internal/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nX-Large: {}\r\n\r\n",
+        "x".repeat(40 * 1024),
+    );
+    client.write_all(request.as_bytes()).await.unwrap();
+    let service = hyper::service::service_fn(|_: Request<Incoming>| async {
+        Ok::<_, Infallible>(Response::new(Full::new(Bytes::new())))
+    });
+    let result = http1_builder()
+        .serve_connection(TokioIo::new(server), service)
+        .await;
+    let mut response = String::new();
+    client.read_to_string(&mut response).await.unwrap();
+    assert!(
+        response.starts_with("HTTP/1.1 431 "),
+        "{response:?} ({result:?})"
+    );
+}
+
 #[test]
 fn body_presence_compares_content_length_numerically() {
     for (value, expected) in [

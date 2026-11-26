@@ -118,10 +118,10 @@ fn enable_keepalive(stream: &TcpStream) {
     if let Err(error) = socket2::SockRef::from(stream).set_tcp_keepalive(&probes) {
         // A peer that already reset fails here too. Any other connection only loses dead peer
         // detection, so it still serves.
-        crate::diagnostics::emit(
+        crate::diagnostics::emit_lazy(
             crate::diagnostics::LogLevel::Debug,
             "tcp_keepalive_failed",
-            serde_json::json!({"message":"could not enable TCP keep-alive on an accepted connection; a dead peer stays connected until a configured timeout","cause":error.kind().to_string()}),
+            || serde_json::json!({"message":"could not enable TCP keep-alive on an accepted connection; a dead peer stays connected until a configured timeout","cause":error.kind().to_string()}),
         );
     }
 }
@@ -132,10 +132,10 @@ fn enable_keepalive(stream: &TcpStream) {
 fn disable_nagle(stream: &TcpStream) {
     if let Err(error) = stream.set_nodelay(true) {
         // A peer that already reset fails here too. Any other connection only risks that delay.
-        crate::diagnostics::emit(
+        crate::diagnostics::emit_lazy(
             crate::diagnostics::LogLevel::Debug,
             "tcp_nodelay_failed",
-            serde_json::json!({"message":"could not disable Nagle's algorithm on an accepted connection; the end of a response can be delayed","cause":error.kind().to_string()}),
+            || serde_json::json!({"message":"could not disable Nagle's algorithm on an accepted connection; the end of a response can be delayed","cause":error.kind().to_string()}),
         );
     }
 }

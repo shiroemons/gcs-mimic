@@ -1480,9 +1480,12 @@ mod reclaim_tests;
 #[cfg(test)]
 mod upload_frame_tests;
 
-/// hyper's per-connection read buffer limit. It bounds how much hyper reserves before each
-/// read, not the read itself: one read fills the buffer's spare capacity, which can grow to
-/// about twice this value, so HTTP/1 body frames stay below `2 * CONNECTION_READ_BUFFER`
+/// hyper's per-connection read buffer limit also bounds the entire HTTP/1 request head,
+/// including the request line. A head still incomplete at the limit gets 431.
+///
+/// For request bodies, the limit bounds how much hyper reserves before each read. A read
+/// fills the buffer's spare capacity, which can grow to about twice this value, so HTTP/1
+/// body frames stay below `2 * CONNECTION_READ_BUFFER`
 /// (24 KiB observed). [`stream_upload`] forwards frames without copying, so this bound is what
 /// keeps the memory an upload's two-slot channel retains small; `upload_frame_tests` fails if
 /// the value or the frame bound changes.
@@ -1546,10 +1549,10 @@ async fn serve_connection(
         UnreadInput::MayRemain => discard_lingering_input(&mut stream, &mut stopping).await,
         UnreadInput::None => {}
     }
-    crate::diagnostics::emit(
+    crate::diagnostics::emit_lazy(
         crate::diagnostics::LogLevel::Debug,
         "connection_closed",
-        serde_json::json!({}),
+        || serde_json::json!({}),
     );
 }
 
