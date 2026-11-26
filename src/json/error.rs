@@ -48,22 +48,9 @@ enum ErrorKind {
     MissingBucket,
     MissingObject,
     NamedMissingObject,
-    Required,
-    RetentionNotMet,
-    ActiveHold,
-    Csek(crate::csek::CsekError),
-    Unsupported,
-    CancelledUpload,
-    IncompleteBody,
     InvalidArgument,
-    UniformAccessAcl,
-    ClassLocation,
     LegacyParseError,
-    MalformedJson,
-    FieldMaskSyntax,
-    PreconditionFailed,
-    NotModified,
-    WriteNotModified,
+    ClassLocation,
     Other,
 }
 
@@ -338,12 +325,10 @@ impl ApiError {
             "conditionNotMet",
             PRECONDITION_NOT_HELD,
         )
-        .with_kind(ErrorKind::PreconditionFailed)
     }
 
     pub(crate) fn not_modified() -> Self {
         Self::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
-            .with_kind(ErrorKind::NotModified)
     }
 
     /// A Match and NotMatch condition on the same value of a move, which Cloud Storage refuses
@@ -356,14 +341,9 @@ impl ApiError {
         )
     }
 
-    /// The JSON API returns 304 when a write's not-match condition names the current value.
-    fn write_not_modified() -> Self {
-        Self::not_modified().with_kind(ErrorKind::WriteNotModified)
-    }
-
     /// A request body that is not JSON, with the wording the JSON adapter quotes for it.
     pub(crate) fn malformed_json(message: impl Into<String>) -> Self {
-        Self::invalid(message).with_kind(ErrorKind::MalformedJson)
+        Self::invalid(message)
     }
 
     pub(crate) fn legacy_parse_error(message: impl Into<String>) -> Self {
@@ -372,13 +352,11 @@ impl ApiError {
     }
 
     pub(crate) fn unsupported_message(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, "badRequest", message).with_kind(ErrorKind::Unsupported)
+        Self::new(StatusCode::BAD_REQUEST, "badRequest", message)
     }
 
     pub(crate) fn field_mask_syntax(message: impl Into<String>) -> Self {
-        Self::invalid_parameter(message)
-            .with_kind(ErrorKind::FieldMaskSyntax)
-            .at_parameter("fields")
+        Self::invalid_parameter(message).at_parameter("fields")
     }
 
     /// Names the rejected query parameter in the error item (`locationType: parameter`). A name
@@ -429,7 +407,7 @@ impl ApiError {
     }
 
     pub(crate) fn required(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, "required", message).with_kind(ErrorKind::Required)
+        Self::new(StatusCode::BAD_REQUEST, "required", message)
     }
 
     pub(crate) fn method_not_allowed(

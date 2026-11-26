@@ -98,7 +98,6 @@ impl From<AuthFailure> for ApiError {
                 "required",
                 wording::LOGIN_REQUIRED,
             )
-            .with_kind(ErrorKind::Required)
             .at(&AUTHORIZATION_HEADER),
             // The reason is documented; message and location are a local choice.
             AuthFailure::InvalidCredentials => Self::new(
@@ -126,7 +125,6 @@ impl From<Box<Denied>> for ApiError {
 impl From<crate::csek::CsekError> for ApiError {
     fn from(error: crate::csek::CsekError) -> Self {
         Self::new(StatusCode::BAD_REQUEST, error.reason(), error.message())
-            .with_kind(ErrorKind::Csek(error))
     }
 }
 
@@ -222,7 +220,6 @@ impl ApiError {
             "clientClosedRequest",
             "clientClosedRequest",
         )
-        .with_kind(ErrorKind::CancelledUpload)
     }
 }
 
@@ -255,7 +252,6 @@ impl From<Box<crate::object::HeldObject>> for ApiError {
             "forbidden",
             wording::held_object(&held),
         )
-        .with_kind(ErrorKind::ActiveHold)
     }
 }
 
@@ -268,7 +264,6 @@ impl From<Box<crate::object::RetainedObject>> for ApiError {
             "retentionPolicyNotMet",
             wording::retained_object(&retained),
         )
-        .with_kind(ErrorKind::RetentionNotMet)
     }
 }
 
@@ -313,8 +308,7 @@ impl From<ObjectError> for ApiError {
             }
             ObjectError::UnsupportedMetadata(field) => Self::unsupported_object(&field),
             ObjectError::CustomerEncryption(error) => error.into(),
-            ObjectError::NotModified => Self::not_modified(),
-            ObjectError::WriteNotModified => Self::write_not_modified(),
+            ObjectError::NotModified | ObjectError::WriteNotModified => Self::not_modified(),
             ObjectError::ObjectNotFound => Self::missing_object(),
             ObjectError::ObjectNotSoftDeleted => Self::new(
                 StatusCode::PRECONDITION_FAILED,
@@ -355,16 +349,13 @@ impl From<ObjectError> for ApiError {
             ),
             ObjectError::BodyAborted(_) => {
                 Self::new(StatusCode::BAD_REQUEST, "badRequest", wording::BODY_ABORTED)
-                    .with_kind(ErrorKind::IncompleteBody)
             }
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid(reason),
             ObjectError::UniformAccessPredefinedAcl => {
                 Self::invalid(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
-                    .with_kind(ErrorKind::UniformAccessAcl)
             }
             ObjectError::UniformAccessAclUpdate => {
                 Self::invalid(crate::acl::UNIFORM_ACCESS_UPDATE_OBJECT_ACL)
-                    .with_kind(ErrorKind::UniformAccessAcl)
             }
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
             ObjectError::Unavailable(cause) => Self::backend(&cause),

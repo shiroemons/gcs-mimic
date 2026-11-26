@@ -89,7 +89,10 @@ pub(crate) fn constructor_cases() -> Vec<Case<ApiError>> {
             "conflicting_preconditions()",
             ApiError::conflicting_preconditions(),
         ),
-        case("write_not_modified()", ApiError::write_not_modified()),
+        case(
+            "write_not_modified()",
+            ApiError::from(ObjectError::WriteNotModified),
+        ),
         case(
             "malformed_json()",
             ApiError::malformed_json(
@@ -274,47 +277,21 @@ fn kind_name(kind: ErrorKind) -> &'static str {
         ErrorKind::MissingBucket => "MissingBucket",
         ErrorKind::MissingObject => "MissingObject",
         ErrorKind::NamedMissingObject => "NamedMissingObject",
-        ErrorKind::Required => "Required",
-        ErrorKind::RetentionNotMet => "RetentionNotMet",
-        ErrorKind::ActiveHold => "ActiveHold",
-        ErrorKind::Csek(_) => "Csek",
-        ErrorKind::Unsupported => "Unsupported",
-        ErrorKind::CancelledUpload => "CancelledUpload",
-        ErrorKind::IncompleteBody => "IncompleteBody",
         ErrorKind::InvalidArgument => "InvalidArgument",
-        ErrorKind::UniformAccessAcl => "UniformAccessAcl",
         ErrorKind::ClassLocation => "ClassLocation",
         ErrorKind::LegacyParseError => "LegacyParseError",
-        ErrorKind::MalformedJson => "MalformedJson",
-        ErrorKind::FieldMaskSyntax => "FieldMaskSyntax",
-        ErrorKind::PreconditionFailed => "PreconditionFailed",
-        ErrorKind::NotModified => "NotModified",
-        ErrorKind::WriteNotModified => "WriteNotModified",
         ErrorKind::Other => "Other",
     }
 }
 
-const KINDS: [&str; 21] = [
+const KINDS: [&str; 8] = [
     "Backend",
     "MissingBucket",
     "MissingObject",
     "NamedMissingObject",
-    "Required",
-    "RetentionNotMet",
-    "ActiveHold",
-    "Csek",
-    "Unsupported",
-    "CancelledUpload",
-    "IncompleteBody",
     "InvalidArgument",
-    "UniformAccessAcl",
     "ClassLocation",
     "LegacyParseError",
-    "MalformedJson",
-    "FieldMaskSyntax",
-    "PreconditionFailed",
-    "NotModified",
-    "WriteNotModified",
     "Other",
 ];
 
