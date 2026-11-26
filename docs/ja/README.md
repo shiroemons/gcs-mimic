@@ -252,6 +252,17 @@ gcs_emulator:
 
 数字は[比べてみる](#比べてみる)にあります。
 
+### 対象外のもの
+
+gcs-mimicが扱うのは、公式SDKが呼び出す範囲です。Cloud Storageとバイト単位で同じ応答を返すことや、fake-gcs-serverの完全な上位互換になることは目標にしていません。次のものは対象外です。
+
+- Storage Control v2（フォルダー、マネージドフォルダー、階層型名前空間）、長時間実行オペレーション、FeatureConfigs
+- Storage Insights、Storage Intelligence、Storage Batch Operations、Anywhere Cache、Rapid Cache
+- XML APIのバケット設定のサブリソース、XMLの複数オブジェクト削除、XMLのcompose、HTMLフォームのアップロード
+- Cloud Storageの背後にあるGoogleのサービス（KMS、OAuthトークンの発行、CDN、課金など）
+
+全体の一覧は[ロードマップ](roadmap.md#対象範囲)にあります。SDKの利用でどれかが必要になったら、[Issue](https://github.com/shiroemons/gcs-mimic/issues)で知らせてください。
+
 ## Docker Compose
 
 ```yaml
@@ -349,14 +360,9 @@ gcs-mimic、fake-gcs-server、gcp-storage-emulatorはCloud Storageだけをエ�
 | --- | --- | --- | --- | --- |
 | イメージ（圧縮、linux/amd64） | 8.4 MB | 25.4 MB | 48.8 MB | 67.2 MB |
 | メモリ（待機時→1,000オブジェクト読み取り後） | 9.9→29.3 MiB | 33.9→57.2 MiB | 27.3→32.0 MiB | 103.6→320.0 MiB |
-| ダウンロード速度、1 KiB〜100 KiBのオブジェクト | 1.2〜2.7倍 | 1倍 | 0.08〜0.29倍 | 0.62〜1.5倍 |
-| ダウンロード速度、1 MiBのオブジェクト | 0.99〜1.3倍 | 1倍 | 0.09〜0.57倍 | 0.87〜1.06倍 |
-| ダウンロード速度、10 MiBのオブジェクト | 0.73〜1.15倍 | 1倍 | 0.1〜0.66倍 | 0.48〜1倍 |
-| アップロード速度 | 1.1〜3.5倍 | 1倍 | 0.97〜1.5倍 | 1.2〜25倍 |
 
 2026-11-09に0.16.0、1.56.1、v2026.07.19、0.12.0をApple siliconのMac 1台のDocker Desktop上で測定しました。最新のイメージサイズは冒頭のバッジで確認できます。
-各サーバーのオブジェクトは1,000個までです。floci-gcpは`hybrid`モードで動かしました。オブジェクトをメモリに持ってバックグラウンドでディスクへ書き出すため、アップロードはディスクを待たず、メモリは保存量に応じて増えます。メモリはプロセスのRSSです。
-書き込みの間に読むオブジェクトが約1,000個を超えると、0.16.0は超えた分を毎秒7,500リクエスト前後で読みました。0.17.0は8接続以上で[毎秒36,000〜63,000リクエスト（英語）](../en/evidence/read-path-performance.md#reads-past-the-read-cache-and-ram-reads)です。
+各サーバーのオブジェクトは1,000個までです。floci-gcpは`hybrid`モードで動かしました。オブジェクトをメモリに持ってバックグラウンドでディスクへ書き出すため、メモリは保存量に応じて増えます。メモリはプロセスのRSSです。
 [測定条件と全結果（英語）](../en/evidence/product-comparison-0.16.0.md)を参照してください。
 
 ### 機能の比較
@@ -408,6 +414,7 @@ gRPCの行は一部のRPCが対象です。
 ケースの通過は通常のSDKの操作が動くことを示すもので、APIの完成を意味しません。
 n/aはSDKに公開APIがないケースで、そのSDKの分母から除きます。
 gcs-mimicは9つのSDKの全ケースを通過します。
+リリースするコミットで全ケースを通過することが、1.0.0の最初の条件です（[バージョン方針](release-policy.md#100の条件)）。
 
 ## fake-gcs-serverから移行する
 

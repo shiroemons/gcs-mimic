@@ -292,6 +292,25 @@ signer and CI.
 
 The numbers are under [how it compares](#how-it-compares).
 
+### What it leaves out
+
+gcs-mimic covers what the official SDKs call. It does not answer byte for
+byte as Cloud Storage does, and it does not aim to be a complete superset of
+fake-gcs-server. These are out of scope:
+
+- Storage Control v2 (folders, managed folders and hierarchical namespace),
+  long-running operations and FeatureConfigs.
+- Storage Insights, Storage Intelligence, Storage Batch Operations, Anywhere
+  Cache and Rapid Cache.
+- XML bucket configuration subresources, XML multi-object delete, XML compose
+  and HTML form upload.
+- The Google services behind Cloud Storage, such as KMS, OAuth token
+  issuance, CDN and billing.
+
+The [roadmap](docs/en/roadmap.md#scope) has the full list. If your SDK
+workflow needs one of them,
+[open an issue](https://github.com/shiroemons/gcs-mimic/issues).
+
 ## Docker Compose
 
 ```yaml
@@ -410,22 +429,13 @@ so consider it when your tests need several of them at once.
 | --- | --- | --- | --- | --- |
 | Image, compressed (linux/amd64) | 8.4 MB | 25.4 MB | 48.8 MB | 67.2 MB |
 | Memory: idle, then after reading 1,000 objects | 9.9, then 29.3 MiB | 33.9, then 57.2 MiB | 27.3, then 32.0 MiB | 103.6, then 320.0 MiB |
-| Download speed, 1 KiB to 100 KiB objects | 1.2× to 2.7× | 1× | 0.08× to 0.29× | 0.62× to 1.5× |
-| Download speed, 1 MiB objects | 0.99× to 1.3× | 1× | 0.09× to 0.57× | 0.87× to 1.06× |
-| Download speed, 10 MiB objects | 0.73× to 1.15× | 1× | 0.1× to 0.66× | 0.48× to 1× |
-| Upload speed | 1.1× to 3.5× | 1× | 0.97× to 1.5× | 1.2× to 25× |
 
 Measured on 2026-11-09 with 0.16.0, 1.56.1, v2026.07.19 and 0.12.0 on one
 Apple-silicon Mac under Docker Desktop; the badge at the top shows the current
 image size. Each server held up to 1,000 objects. floci-gcp ran in its `hybrid`
 mode, which keeps objects in memory and writes them to disk in the background,
-so its uploads do not wait for the disk and its memory grows with the stored
-objects. Memory is process RSS. See the
+so its memory grows with the stored objects. Memory is process RSS. See the
 [conditions and full results](docs/en/evidence/product-comparison-0.16.0.md).
-Past about 1,000 distinct objects between writes, 0.16.0 read the rest at around
-7,500 requests per second. 0.17.0
-[reads them at 36,000 to 63,000](docs/en/evidence/read-path-performance.md#reads-past-the-read-cache-and-ram-reads)
-with 8 or more connections.
 
 ### Feature comparison
 
@@ -480,7 +490,9 @@ Recorded on 2026-11-18 with the 0.26.0 source
 ([results](sdk-scorecard/results/2026-11-18/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
-gcs-mimic passes every case for all nine SDKs.
+gcs-mimic passes every case for all nine SDKs. Passing every case on the
+release commit is the first condition for 1.0.0
+([release policy](docs/en/release-policy.md#the-100-gate)).
 
 ## Coming from fake-gcs-server?
 
