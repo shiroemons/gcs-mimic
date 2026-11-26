@@ -1,5 +1,8 @@
 //! Cached, static SQL shared by catalog operations.
 
+#[cfg(test)]
+mod write_tx_tests;
+
 use rusqlite::{
     Connection, OptionalExtension, Params, Row, Transaction, TransactionBehavior, config::DbConfig,
     types::FromSql,
