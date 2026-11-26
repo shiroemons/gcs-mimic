@@ -225,8 +225,8 @@ impl Golden {
     }
 }
 
-#[test]
-fn every_error_keeps_its_storage_v2_status() {
+#[tokio::test]
+async fn every_error_keeps_its_storage_v2_status() {
     let mut golden = Golden {
         transcript: Transcript::new(
             module_path!(),
@@ -270,6 +270,16 @@ fn every_error_keeps_its_storage_v2_status() {
     golden.shared("ApiError", constructor_cases());
     for (label, error) in crate::api_error::test_support::bucket_service_errors() {
         golden.transcript.case("bucket", label);
+        golden
+            .transcript
+            .render("response", rendering(&Status::from(error)));
+    }
+    for (label, error) in crate::api_error::test_support::upload::cases()
+        .await
+        .into_iter()
+        .chain(crate::api_error::test_support::upload::hash_cases())
+    {
+        golden.transcript.case("upload", label);
         golden
             .transcript
             .render("response", rendering(&Status::from(error)));

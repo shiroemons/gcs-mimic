@@ -254,6 +254,22 @@ async fn every_error_keeps_its_xml_response() {
             .transcript
             .render("response", document(Error::from(error)).await);
     }
+    for (label, error) in crate::api_error::test_support::upload::cases().await {
+        golden.transcript.case("upload", label);
+        golden
+            .transcript
+            .render("response", document(Error::from(error)).await);
+    }
+    for &(label, value) in crate::api_error::test_support::upload::HASH_CASES {
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert(
+            "x-goog-hash",
+            hyper::header::HeaderValue::from_static(value),
+        );
+        golden.transcript.case("XML PUT", label);
+        let error = crate::xml::put::content_type_and_hashes(&headers).unwrap_err();
+        golden.transcript.render("response", document(error).await);
+    }
     golden.kinds.assert_complete();
     golden.transcript.assert_golden(GOLDEN);
 }

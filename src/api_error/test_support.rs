@@ -5,6 +5,8 @@
 //! file that differs and then fails, so a regenerated file is never taken for a passing check.
 //! Review the diff, then run the tests again without the variable.
 
+pub(crate) mod upload;
+
 use super::*;
 use crate::storage::failure::{
     BackendFailure,

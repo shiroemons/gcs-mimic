@@ -413,6 +413,34 @@ async fn every_error_keeps_its_json_response() {
             http_response(ApiError::from(error).into_response()).await,
         );
     }
+    for (label, error) in crate::api_error::test_support::upload::cases()
+        .await
+        .into_iter()
+        .chain(crate::api_error::test_support::upload::hash_cases())
+    {
+        golden.transcript.case("upload", label);
+        golden.transcript.render(
+            "response",
+            http_response(ApiError::from(error).into_response()).await,
+        );
+    }
+    for (label, value) in [
+        ("malformed hash", "md5"),
+        ("conflicting hashes", "crc32c=AAAAAA==,crc32c=AAAAAQ=="),
+    ] {
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert(
+            "x-goog-hash",
+            hyper::header::HeaderValue::from_static(value),
+        );
+        let options =
+            crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive);
+        let error = crate::json::resumable::final_options(&headers, options).unwrap_err();
+        golden.transcript.case("resumable headers", label);
+        golden
+            .transcript
+            .render("response", http_response(error.into_response()).await);
+    }
     golden.kinds.assert_complete();
     golden.transcript.assert_golden(GOLDEN);
 }

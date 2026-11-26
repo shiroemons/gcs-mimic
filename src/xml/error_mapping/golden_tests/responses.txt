@@ -2761,3 +2761,102 @@ content-length: 159
 cache-control: private, max-age=0
 body: 159 bytes, no final newline
 <?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Bucket timestamp is outside the supported RFC 3339 range</Message></Error>
+
+== upload::invalid content type
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 127
+cache-control: private, max-age=0
+body: 127 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Invalid Content-Type header</Message></Error>
+
+== upload::duplicate content type
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 129
+cache-control: private, max-age=0
+body: 129 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Duplicate Content-Type header</Message></Error>
+
+== upload::invalid framing
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 133
+cache-control: private, max-age=0
+body: 133 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Invalid multipart/related framing</Message></Error>
+
+== upload::missing boundary
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 133
+cache-control: private, max-age=0
+body: 133 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Invalid multipart/related framing</Message></Error>
+
+== upload::unsupported parameter
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 216
+cache-control: private, max-age=0
+body: 216 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>gcs-mimic does not support object API setting start; omit this option or header (for example, use projection=noAcl).</Message></Error>
+
+== upload::missing end boundary
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 139
+cache-control: private, max-age=0
+body: 139 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Missing end boundary in multipart body.</Message></Error>
+
+== upload::stored header
+-- response
+503 Service Unavailable
+content-type: application/xml; charset=UTF-8
+content-length: 140
+cache-control: private, max-age=0
+body: 140 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>Invalid stored object response header</Message></Error>
+
+== XML PUT::malformed hash
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 125
+cache-control: private, max-age=0
+body: 125 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidDigest</Code><Message>Invalid x-goog-hash digest.</Message></Error>
+
+== XML PUT::unsupported algorithm
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 232
+cache-control: private, max-age=0
+body: 232 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>gcs-mimic does not support object API setting x-goog-hash algorithm; omit this option or header (for example, use projection=noAcl).</Message></Error>
+
+== XML PUT::invalid digest
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 125
+cache-control: private, max-age=0
+body: 125 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidDigest</Code><Message>Invalid x-goog-hash digest.</Message></Error>
+
+== XML PUT::duplicate algorithm
+-- response
+400 Bad Request
+content-type: application/xml; charset=UTF-8
+content-length: 125
+cache-control: private, max-age=0
+body: 125 bytes, no final newline
+<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidDigest</Code><Message>Invalid x-goog-hash digest.</Message></Error>

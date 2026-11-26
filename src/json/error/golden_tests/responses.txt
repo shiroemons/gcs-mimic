@@ -6393,3 +6393,248 @@ body: 290 bytes, no final newline
     ]
   }
 }
+
+== upload::invalid content type
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 236 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid Content-Type header",
+    "errors": [
+      {
+        "message": "Invalid Content-Type header",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== upload::duplicate content type
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 240 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Duplicate Content-Type header",
+    "errors": [
+      {
+        "message": "Duplicate Content-Type header",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== upload::invalid framing
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 248 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid multipart/related framing",
+    "errors": [
+      {
+        "message": "Invalid multipart/related framing",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== upload::missing boundary
+-- response
+400 Bad Request
+content-type: text/plain; charset=utf-8
+body: 40 bytes, no final newline
+Bad content type.  Please use multipart.
+
+== upload::unsupported parameter
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 408 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support object API setting start; omit this option or header (for example, use projection=noAcl).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support object API setting start; omit this option or header (for example, use projection=noAcl).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+
+== upload::missing end boundary
+-- response
+400 Bad Request
+content-type: text/plain; charset=utf-8
+body: 39 bytes, no final newline
+Missing end boundary in multipart body.
+
+== upload::stored header
+-- response
+503 Service Unavailable
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 252 bytes, no final newline
+{
+  "error": {
+    "code": 503,
+    "message": "Invalid stored object response header",
+    "errors": [
+      {
+        "message": "Invalid stored object response header",
+        "domain": "global",
+        "reason": "backendError"
+      }
+    ]
+  }
+}
+
+== upload::malformed hash
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 234 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid x-goog-hash header",
+    "errors": [
+      {
+        "message": "Invalid x-goog-hash header",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== upload::unsupported algorithm
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 440 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "gcs-mimic does not support object API setting x-goog-hash algorithm; omit this option or header (for example, use projection=noAcl).",
+    "errors": [
+      {
+        "message": "gcs-mimic does not support object API setting x-goog-hash algorithm; omit this option or header (for example, use projection=noAcl).",
+        "domain": "global",
+        "reason": "badRequest"
+      }
+    ]
+  }
+}
+
+== upload::invalid digest
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 228 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid base64 checksum",
+    "errors": [
+      {
+        "message": "Invalid base64 checksum",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== upload::duplicate algorithm
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 244 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Duplicate x-goog-hash algorithm",
+    "errors": [
+      {
+        "message": "Duplicate x-goog-hash algorithm",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== resumable headers::malformed hash
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 220 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid x-goog-hash",
+    "errors": [
+      {
+        "message": "Invalid x-goog-hash",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
+
+== resumable headers::conflicting hashes
+-- response
+400 Bad Request
+content-type: application/json; charset=UTF-8
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+body: 244 bytes, no final newline
+{
+  "error": {
+    "code": 400,
+    "message": "Conflicting CRC32C declarations",
+    "errors": [
+      {
+        "message": "Conflicting CRC32C declarations",
+        "domain": "global",
+        "reason": "invalidParameter"
+      }
+    ]
+  }
+}
