@@ -1191,6 +1191,9 @@ mod tests {
     #[tokio::test]
     async fn only_same_placement_one_call_rewrites_publish_the_pinned_body() {
         let (catalog, directory, _) = fixture().await;
+        let mut remote = bucket("remote", "project");
+        remote.location = "EU".parse().unwrap();
+        catalog.insert_bucket(remote).await.unwrap();
         catalog
             .put_object(
                 permissive_upload("bucket", "source", 8),
@@ -1198,8 +1201,14 @@ mod tests {
             )
             .await
             .unwrap();
-        for class in [None, Some(crate::bucket::StorageClass::Nearline)] {
+        for (bucket, class, limit) in [
+            ("bucket", None, None),
+            ("bucket", Some(crate::bucket::StorageClass::Nearline), None),
+            ("remote", None, NonZeroU64::new(2)),
+        ] {
             let (segment, mut start) = start_request(&catalog).await;
+            start.binding.destination.bucket = bucket.into();
+            start.destination.bucket = bucket.into();
             let buckets = catalog
                 .rewrite_buckets(
                     "bucket",
@@ -1210,13 +1219,13 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap();
-            start.budget = buckets.budget(segment.source.object.storage_class, class, None);
+            start.budget = buckets.budget(segment.source.object.storage_class, class, limit);
             start.destination.storage_class = class;
             let (step, mut owner) = catalog
                 .begin_checked_rewrite(vec![segment], 8, start, buckets)
                 .await
                 .unwrap();
-            assert_eq!(step.pin.is_some(), class.is_none());
+            assert_eq!(step.pin.is_some(), class.is_none() && bucket == "bucket");
             let token = step.token.to_string();
             let result = catalog
                 .advance_rewrite(
@@ -1228,6 +1237,19 @@ mod tests {
                 .await
                 .unwrap();
             owner.disarm();
+            if bucket == "remote" {
+                assert_eq!(result.offset, 2);
+                let next = continue_to_end(&catalog, &result.token.unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(next.offset, 4);
+                let complete = continue_to_end(&catalog, &next.token.unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(complete.offset, 5);
+                assert!(complete.token.is_none());
+                continue;
+            }
             assert_eq!(result.offset, 5);
             assert_eq!(result.token, None);
             let replay = continue_to_end(&catalog, &token).await.unwrap();

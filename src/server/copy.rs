@@ -279,7 +279,7 @@ mod tests {
         source: DerivedSource,
         source_access: BucketAccess,
         destination: DerivedDestination,
-        after_bytes: u64,
+        after_bytes: impl Into<Option<u64>>,
         wait_ms: u64,
     ) -> (
         tokio::task::JoinHandle<Result<ObjectRecord, ObjectError>>,
@@ -287,12 +287,15 @@ mod tests {
         oneshot::Sender<()>,
     ) {
         let catalog = catalog.clone();
-        // These checkpoints exercise cancellation and authorization during the streaming fallback.
-        catalog.inject(
-            crate::storage::fault::Step::CopyLink,
-            0,
-            crate::storage::fault::Fault::Io(std::io::ErrorKind::Unsupported),
-        );
+        let after_bytes = after_bytes.into();
+        if after_bytes.is_some() {
+            catalog.inject(
+                crate::storage::fault::Step::CopyLink,
+                0,
+                crate::storage::fault::Fault::Io(std::io::ErrorKind::Unsupported),
+            );
+        }
+        let after_bytes = after_bytes.unwrap_or(0);
         let (reached, observed) = oneshot::channel();
         let (resume, paused) = oneshot::channel();
         let request = tokio::spawn(async move {
@@ -563,6 +566,12 @@ mod tests {
 
     #[tokio::test]
     async fn copy_rechecks_source_read_grant_before_publication() {
+        for checkpoint in [Some(BYTE_BUDGET), None] {
+            revoked_source_grant(checkpoint).await;
+        }
+    }
+
+    async fn revoked_source_grant(checkpoint: Option<u64>) {
         use crate::auth::{Auth, Binding, OBJECTS_GET, Policy, Registry};
 
         let (catalog, path) = fixture().await;
@@ -596,10 +605,9 @@ mod tests {
             .unwrap();
         let target = destination(&source, "copy", b"");
         let refused = ObjectError::Denied(access.denied("bucket"));
-        let (request, progress, resume) =
-            start(&catalog, source, access, target, BYTE_BUDGET, 5000);
+        let (request, progress, resume) = start(&catalog, source, access, target, checkpoint, 5000);
         let progress = progress.await.unwrap();
-        assert_eq!(progress.offset, BYTE_BUDGET);
+        assert_eq!(progress.offset, checkpoint.unwrap_or(0));
         catalog
             .set_policy(
                 "bucket",
@@ -626,6 +634,7 @@ mod tests {
         );
         clean(&catalog, &path.0, &progress.id).await;
         let connection = rusqlite::Connection::open(path.0.join("catalog.sqlite3")).unwrap();
+        assert_eq!(blob_count(&path.0), 1);
         assert_eq!(
             connection
                 .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
@@ -639,6 +648,19 @@ mod tests {
 
     #[tokio::test]
     async fn copy_rechecks_destination_conditions_after_the_advisory_check() {
+        for checkpoint in [Some(BYTE_BUDGET), None] {
+            competing_destination(checkpoint).await;
+        }
+    }
+
+    fn blob_count(root: &std::path::Path) -> usize {
+        fs::read_dir(root.join("blobs"))
+            .unwrap()
+            .map(|s| fs::read_dir(s.unwrap().path()).unwrap().count())
+            .sum()
+    }
+
+    async fn competing_destination(checkpoint: Option<u64>) {
         let (catalog, path) = fixture().await;
         let source = source(&catalog).await;
         let mut target = destination(&source, "copy", b"");
@@ -648,7 +670,7 @@ mod tests {
             source,
             BucketAccess::Permissive,
             target,
-            BYTE_BUDGET,
+            checkpoint,
             5000,
         );
         let progress = progress.await.unwrap();
@@ -663,6 +685,7 @@ mod tests {
             competing
         );
         clean(&catalog, &path.0, &progress.id).await;
+        assert_eq!(blob_count(&path.0), 2);
         catalog.close().await.unwrap();
     }
 

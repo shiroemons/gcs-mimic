@@ -9,7 +9,7 @@ use std::io;
 pub(crate) struct DerivedSource {
     pub object: ObjectRecord,
     pub(super) pin: SourcePin,
-    linkable: bool,
+    snapshot_hashes: Option<Hashes>,
     activity: std::sync::Arc<super::super::Activity>,
 }
 
@@ -36,9 +36,29 @@ pub(crate) struct PublicationPin {
 }
 
 fn link_unavailable(error: &BlobError) -> bool {
-    matches!(error, BlobError::Io(error) if matches!(error.kind(),
-        io::ErrorKind::CrossesDevices | io::ErrorKind::Unsupported |
-        io::ErrorKind::TooManyLinks | io::ErrorKind::PermissionDenied))
+    let BlobError::Io(error) = error else {
+        return false;
+    };
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED};
+        // Rust maps neither of these filesystem capability errors to Unsupported.
+        if matches!(
+            error
+                .raw_os_error()
+                .and_then(|code| u32::try_from(code).ok()),
+            Some(ERROR_INVALID_FUNCTION | ERROR_NOT_SUPPORTED)
+        ) {
+            return true;
+        }
+    }
+    matches!(
+        error.kind(),
+        io::ErrorKind::CrossesDevices
+            | io::ErrorKind::Unsupported
+            | io::ErrorKind::TooManyLinks
+            | io::ErrorKind::PermissionDenied
+    )
 }
 
 pub(crate) struct DerivedSegment {
@@ -104,7 +124,7 @@ pub(crate) struct DerivedSourceSpec {
 
 impl DerivedSource {
     pub(crate) async fn publication_pin(&self) -> Result<Option<PublicationPin>, ObjectError> {
-        let Some(backend) = self.pin.backend.clone().filter(|_| self.linkable) else {
+        let Some(backend) = self.pin.backend.clone() else {
             return Ok(None);
         };
         let input = self.pin.id;
@@ -112,7 +132,21 @@ impl DerivedSource {
         let size = self.object.size;
         // A cancelled caller can leave the blocking link operation running until it returns.
         let activity = self.activity.clone();
+        if let Some(hashes) = self.snapshot_hashes {
+            // The input row owns this private file until publication takes it over.
+            return Ok(Some(PublicationPin {
+                pin: SourcePin {
+                    backend: None,
+                    id: input,
+                },
+                input,
+                hashes,
+                _activity: activity,
+            }));
+        }
         crate::task::run_blocking("derived-publication-pin", move || {
+            // A short file must still report the streaming reader's EOF. A longer file
+            // must publish only the recorded range, never its unexpected trailing bytes.
             if let BlobBackend::Disk(root) = &backend
                 && fs::metadata(input.staging_path(root))?.len() != size
             {
@@ -346,16 +380,21 @@ impl Catalog {
             #[cfg(all(test, unix))]
             fault::file_created(&source.pin.id.staging_path(root));
             let mut reader = InputReader::Disk(file);
+            let mut hasher = Hasher::default();
             objects::with_copy_buffer(|buffer| {
                 catalog.copy_range(
                     &mut reader,
                     source.object.size,
                     buffer,
-                    |bytes| output.write(bytes),
+                    |bytes| {
+                        hasher.update(bytes);
+                        output.write(bytes)
+                    },
                     InputReader::short_derived_input,
                 )
             })?;
             output.make_durable()?;
+            source.snapshot_hashes = Some(hasher.finish());
             Ok(source)
         })
         .await?
@@ -406,7 +445,7 @@ fn pin_source(
                 backend: file.is_none().then(|| backend.clone()),
                 id,
             },
-            linkable: file.is_none(),
+            snapshot_hashes: None,
             activity: activity.clone(),
         },
         file,

@@ -877,7 +877,15 @@ live blob (`publish_pinned`).
   retains its own catalog reference and can be reclaimed independently.
 - If a filesystem rejects a hard link, the request streams the selected bytes.
   When selection itself cannot link, it opens the source in the selecting
-  transaction and copies it to private staging on the blocking pool.
+  transaction and copies it to private staging on the blocking pool. A
+  single-call copy or eligible rewrite publishes that snapshot with the
+  hashes computed during the copy. Once its input moves, a crash discards
+  the unpublished request. No continuation token has been issued.
+- On Windows, Rust maps `ERROR_NOT_SAME_DEVICE` to `CrossesDevices`,
+  `ERROR_TOO_MANY_LINKS` to `TooManyLinks`, `ERROR_ACCESS_DENIED` to
+  `PermissionDenied` and `ERROR_CALL_NOT_IMPLEMENTED` to `Unsupported`.
+  The link fallback also recognizes the raw codes for `ERROR_INVALID_FUNCTION`
+  and `ERROR_NOT_SUPPORTED`, which this toolchain leaves uncategorized.
 - **Tests.** Publication gets the crash and `Fault::PowerLoss` tests at the
   rename and directory-sync seams.
 - A single 1 GiB JSON copy on the disk backend over HTTP/1 loopback on

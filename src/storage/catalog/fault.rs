@@ -56,7 +56,7 @@ pub(crate) const MID_WRITE_BODY_BYTES: usize = 3 * super::objects::WRITE_BATCH_B
 pub(crate) enum Step {
     /// Report an error while releasing recovered directory ownership.
     CatalogClose,
-    /// Creating either link to immutable copy input.
+    /// Linking an immutable input for a derived operation, its publication, or soft-delete restore.
     CopyLink,
     /// Between reading a listing's object page and its bucket metageneration.
     ListedObjectPage,

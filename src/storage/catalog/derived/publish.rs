@@ -86,11 +86,13 @@ where
     if request.pinned.is_none() && progress.offset != progress.total {
         return Err(ObjectError::DerivedTransferIncomplete);
     }
+    let (blob, hashes) = request.pinned.unwrap_or_else(|| (id, hasher.finish()));
     let pins = inputs(connection, &id)?
         .into_iter()
         .map(|source| source.id)
+        // The commit transfers a private snapshot's input row to the destination.
+        .filter(|source| *source != blob)
         .collect::<Vec<_>>();
-    let (blob, hashes) = request.pinned.unwrap_or_else(|| (id, hasher.finish()));
     if backend.is_memory() && request.pinned.is_none() {
         backend.publish_draft(&id)?;
     }
@@ -406,6 +408,11 @@ impl Catalog {
                     None => progress.offset == progress.total,
                 };
                 if !ready { return Err(ObjectError::DerivedTransferIncomplete); }
+                if input == Some(blob) {
+                    // This first and only call has issued no token. Once its sole input
+                    // moves to blobs, a crash must abandon the transfer and sweep the orphan.
+                    sql::exec_on_writer(connection, "UPDATE derived_transfers SET ephemeral=1 WHERE id=?1 AND ephemeral=0", [query])?;
+                }
                 Ok(())
             }).await?;
             if !backend.is_memory() {
