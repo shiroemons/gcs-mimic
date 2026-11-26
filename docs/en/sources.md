@@ -9,7 +9,7 @@ executed conformance evidence are recorded below and in the feature ledger.
 
 | Source | Evidence |
 | --- | --- |
-| [Live JSON Discovery](https://storage.googleapis.com/$discovery/rest?version=v1) | Revision20261013;87 methods;38 schemas; SHA-256 `1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0` |
+| [JSON Discovery copy, discovery-artifact-manager](https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json) | Apache-2.0; revision 20261009; 87 methods; 38 schemas; SHA-256 `29a43bad9086086cef7da19b7fad6f26afda3d1cb1e3c72c5ba263c0726609c7` |
 | [Storage v2 protobuf](https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto) | 24 direct RPCs; Git blob `f56e4f3e0a0795ae8dc45f322477ee14b96d5291` |
 | [Control generated Go reference](https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/storage/latest/control/apiv2/controlpb) | 39 full method constants, matching the current proto |
 | [XML method reference](https://docs.cloud.google.com/storage/docs/xml-api/reference-methods) | 52 operation variants, with bucket metadata subresources separated |
@@ -18,11 +18,13 @@ executed conformance evidence are recorded below and in the feature ledger.
 | [Storage Batch Operations REST](https://docs.cloud.google.com/storage/docs/storagebatchoperations/reference/rest) | 13 REST methods, including common-service methods |
 | [Release notes](https://docs.cloud.google.com/storage/docs/release-notes) | Semantic changes, preview features and deprecations beyond schema changes |
 
-The full live Discovery was compared recursively with the Google-maintained mirror revision 20261009. Only the top-level revision and etag differed; all method, parameter and schema content matched. This comparison does not verify service behavior.
-
 Exact Git blob identities, SHA-256 values and upstream paths for the eight extended proto/service-config snapshots are in `compatibility/upstream/source-manifest.json`. Factual extracts are packaged; upstream prose is not reproduced as documentation.
 
 Source URLs on a moving branch may change after this date. Re-fetch and record the new identity when implementing or refreshing a slice. Do not confuse a Git blob identity with a repository commit SHA.
+
+### Discovery document
+
+The packaged extracts `compatibility/upstream/json-methods.json` and `json-schemas.json` come from the Discovery document copy that Google publishes in its open-source [discovery-artifact-manager](https://github.com/googleapis/discovery-artifact-manager) repository under Apache-2.0, pinned to commit `a21535716fb55fafd11f5bec842acc5ea742ed09`. No repository tool fetches the live Discovery endpoint; see the development guide's [no live Cloud Storage contact](development.md#no-live-cloud-storage-contact) rule. On 2026-11-26 both extracts were derived again from the pinned copy, with descriptions removed, and matched exactly. They were first taken on 2026-10-21 from the live endpoint (revision 20261013), whose method, parameter and schema content matched this copy; only the revision and etag differed. To refresh the extracts, take a newer copy from that repository (google-api-go-client's `storage/v1/storage-api.json` carries the same document under BSD-3-Clause) and record its commit and digest here and in `source-manifest.json`. These documents describe the API surface; they do not verify service behavior.
 
 ## Known contract questions
 
@@ -364,6 +366,5 @@ Protocol fields and public APIs are a dated baseline. An inventory is not an ass
 - <https://github.com/googleapis/storage-testbench>
 - <https://guides.rubyonrails.org/active_storage_overview.html>
 - <https://rust-lang.github.io/rustup/overrides.html>
-- <https://storage.googleapis.com/$discovery/rest?version=v1>
 - <https://tokio.rs/tokio/tutorial/channels>
 - <https://www.sqlite.org/wal.html>

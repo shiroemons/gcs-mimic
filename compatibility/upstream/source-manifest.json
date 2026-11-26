@@ -17,9 +17,13 @@
     },
     {
       "name": "JSON Discovery v1",
-      "source_url": "https://storage.googleapis.com/$discovery/rest?version=v1",
-      "revision": "20261013",
-      "sha256": "1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0",
+      "source_url": "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
+      "revision": "20261009",
+      "repository_commit": "a21535716fb55fafd11f5bec842acc5ea742ed09",
+      "license": "Apache-2.0",
+      "source_checked_at": "2026-11-26",
+      "sha256": "29a43bad9086086cef7da19b7fad6f26afda3d1cb1e3c72c5ba263c0726609c7",
+      "git_blob": "b2b79fedc83f39aa42f033128cc0cdeea57cdc61",
       "method_count": 87,
       "schema_count": 38,
       "packaged_extracts": [
@@ -253,7 +257,6 @@
     "https://github.com/googleapis/storage-testbench",
     "https://guides.rubyonrails.org/active_storage_overview.html",
     "https://rust-lang.github.io/rustup/overrides.html",
-    "https://storage.googleapis.com/$discovery/rest?version=v1",
     "https://tokio.rs/tokio/tutorial/channels",
     "https://www.sqlite.org/wal.html"
   ]

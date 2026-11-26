@@ -161,7 +161,7 @@
       "title": "Local soft-delete defaults, boundaries and bucket deletion",
       "status": "OPEN",
       "affected_features": ["BEHAVIOR-BUCKET-015", "BEHAVIOR-OBJECT-030", "BEHAVIOR-OBJECT-031", "JSON-OBJECTS-011"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/soft-delete", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/restore", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/soft-delete", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/restore", "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"],
       "observed_at": "2026-11-17",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Discovery revision 20261020 SHA256 eeb0831df501d131c9497534b2c3d130ea40f9fa215195115d011cb64e1a42bc. GCS defaults new buckets to seven days and a recorded bucket (2026-10-31) carried retentionDurationSeconds 604800 with effectiveTime equal to timeCreated, and the official overview (checked 2026-11-06) accepts 0 or 7 to 90 days. Both the default and the range deliberately differ locally: a bucket created without a policy stores none on every backend, so an overwrite or delete frees its body at once, and the server setting default_soft_delete_retention_seconds (default 0), the JSON API, the initialization file and gRPC accept 0 or 1..7776000 seconds (before 2026-11-13 the upper bound was 3155760000), so tests can watch a deletion expire. A test of rejection below seven days therefore cannot run locally. Differential cases soft-delete-below-minimum and patch-soft-delete-below-minimum keep Cloud Storage's 400 as expect_status, the emulator answers 200, and the run reports them as a note. Buckets that store a policy keep it, including the seven days that 0.11.0 and earlier gave new buckets. Import, directory-sync and legacy-profile buckets get no default; an explicit request policy, zero included, wins. Expired rows are freed by the maintenance pass at the next hard delete time, and three consecutive failed passes take readiness down. A bucket with no stored policy and an explicit zero are equivalent: until 2026-11-17 both answered a softDeleted listing with 200 (empty unless retained generations remained) and get/restore with 404 notFound, deliberately differing from the absent-policy 400 the official list/restore references document; both now refuse them with that 400 (see the update at the end). Null/empty settings normalize to omission without a provider guarantee. The bucket reference says less than 90 days, but the overview describes 7 to 90 days; the requested local scope accepts the inclusive 90-day boundary. Policy updates apply immediately rather than simulating propagation. A bucket containing only retained generations can be deleted; without a positive policy it is deleted permanently with those generations, and with one it becomes a soft-deleted bucket version that keeps them (SPEC-BUCKET-SOFT-DELETE). Update 2026-11-13 (case bkt-config-edges; docs/en/evidence/provider-differential-gap-probes.md): a bucket PATCH with retentionDurationSeconds 7776000 (90 days) answered 200, 7776001 answered 400 invalid 'Soft delete policy must have a retention duration between 3 days and 90 days.', an empty softDeletePolicy object left the stored 90-day policy unchanged, a non-numeric duration answered 400 'Parse Error: Invalid value for TYPE_INT64 field: '\"abc\"'.', and 0 turned soft delete off (retentionDurationSeconds 0 without effectiveTime). The JSON API, gRPC, the buckets file and the server default now share the 7776000-second ceiling and that message; the other answers matched without a change. The provider's text names 3 days, while the overview names 7; the lower bound was not probed in this run, and durations below seven days stay the owner-approved local difference. Update 2026-11-17 (case obj-gaps-json; docs/en/evidence/provider-differential-gap-probes.md): on a bucket whose soft delete is off, Cloud Storage refused a softDeleted listing with 400 invalid 'Soft delete policy is required to list soft-deleted versions', a softDeleted get of a deleted generation with 400 invalid 'Soft delete policy is required to request a soft-deleted version.' and its restore with 400 invalid 'bucket soft delete policy must be set.'. gcs-mimic answers an empty listing and 404 notFound instead; the three steps are declared local_choice until aligned. On the same day the owner kept the local default of no policy and the one-second minimum, and approved aligning these refusals: the catalog now checks for a positive policy inside the listing, read and restore transactions, after authorization and before any generation lookup, and answers 400 invalid with each recorded message; the markers were removed. Generations retained under an earlier policy are refused the same way while the policy is off and stay until their hard delete time, so a positive policy reaches them again; Cloud Storage was recorded only on a bucket that never had a policy, so that state is inferred. The debug explanation of an empty policy-free listing was removed with it.",
@@ -183,7 +183,7 @@
       "title": "Bucket retention null defaults and edge error details",
       "status": "OPEN",
       "affected_features": ["JSON-BUCKETS-007", "BEHAVIOR-OBJECT-036", "JSON-BUCKETS-005", "JSON-BUCKETS-008", "JSON-BUCKETS-013", "RPC-STORAGE-005"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/lockRetentionPolicy", "https://docs.cloud.google.com/storage/docs/bucket-lock", "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/lockRetentionPolicy", "https://docs.cloud.google.com/storage/docs/bucket-lock", "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes", "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"],
       "observed_at": "2026-11-13",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Discovery revision 20261020 SHA256 eeb0831df501d131c9497534b2c3d130ea40f9fa215195115d011cb64e1a42bc establishes creation-based retention and required metageneration. Its generic PERMISSION_DENIED for locked policy removal/shortening conflicts with the specific Bucket Lock guide and JSON status-codes reference, which document 400 badRequestException; the JSON adapter follows those specific HTTP sources and returns actionable locked-policy guidance, separately from IAM 403 forbidden. Null and empty normalization are unspecified: locally insert null/empty means absent and PATCH null/empty removes an unlocked policy. Output-only effectiveTime/isLocked never grant a lock. Exact absent/already-locked errors require provider verification; locally a bucket without a policy is 400 badRequest and a second lock is 400 invalid on JSON, and both are INVALID_ARGUMENT on Storage v2. The differential harness refuses every lock request, so these answers cannot be recorded there. Ruby Storage 1.62.1 / google-apis-core 1.4.0 repeats the metageneration URL query in a form POST body; locally only an identical single field is accepted. Since 2026-11-18 (catalog schema 57) releasing a held event-based hold restarts the bucket retention period from the release, and the deadline is omitted while that hold is held. Both follow the pinned googleapis protos (storage v1 revision b2e2bc62 and v2 revision 933dd1be): the event-based hold descriptions say retention duration 'begins from the moment event-based hold transitioned from true to false', and retention_expiration_time / retention_expire_time is 'not provided for objects with an active event-based hold, since retention expiration is unknown until the hold is removed'. The JSON Objects resource page (fetched 2026-11-18) says neither, and Cloud Storage was not recorded doing either. Objects released before the upgrade keep counting from creation, because their release time was never stored. Update 2026-11-13 (case bkt-config-edges; docs/en/evidence/provider-differential-gap-probes.md): a bucket PATCH with retentionPeriod 0, -1 or 3155760001 answered 400 'Retention policy must have a retention period greater than 0 and less than 100 years.', and retentionPolicy null removed the unlocked policy; gcs-mimic matched each step without a change. No policy was locked. Update 2026-11-15: two more lock answers stay local choices, because the harness refuses every lock request. lockRetentionPolicy accepts a leading + in ifMetagenerationMatch (%2B1), while the other int64 query parameters refuse it as recorded; and a native bucket PUT whose retentionPolicy is {} asks for removal, so a locked policy refuses it with the locked-policy guidance.",
@@ -194,7 +194,7 @@
       "title": "Lifecycle configuration normalization and unsupported action scope",
       "status": "OPEN",
       "affected_features": ["BEHAVIOR-LIFECYCLE-001", "JSON-BUCKETS-005", "JSON-BUCKETS-008", "JSON-BUCKETS-013"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/lifecycle", "https://docs.cloud.google.com/storage/docs/json_api", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/lifecycle", "https://docs.cloud.google.com/storage/docs/json_api", "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"],
       "observed_at": "2026-11-17",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Discovery revision 20261020 SHA256 eeb0831df501d131c9497534b2c3d130ea40f9fa215195115d011cb64e1a42bc established configuration storage. JSON overview explicitly permits deleting lifecycle configurations with null. Empty objects/rules and null rule lists locally normalize to absence. Ruby 1.62.1 emits null unused conditions/action.storageClass and empty unused lists; locally these defaults normalize to absence before validation. Valid unsupported storage classes use the shared unsupported response with indexed field paths. AbortIncompleteMultipartUpload allows age/prefix/suffix. Rechecked 2026-11-10 against the lifecycle guide and configuration examples: JSON sizeAboveBytes and sizeBelowBytes accept string or numeric int64 values in 0..5497558138880 and evaluate strict comparisons. The pinned gRPC proto has no size fields. matchesPattern remains Early Access and allowlist-only, and is rejected. Discovery revision 20261103 SHA256 30b498129041aceedca2e60678443e2671531cf0c08b3488c6934c212a2cb272 is the execution research baseline. Update 2026-11-13 (case bkt-config-edges; docs/en/evidence/provider-differential-gap-probes.md): a bucket PATCH with lifecycle {} or null cleared the rules; a rule with an empty condition answered 400 'Lifecycle rules must have a condition.'; the action type Archive answered 400 'Invalid value for: Archive is not a valid value'; a condition with an unknown field was stored without that field; an AbortIncompleteMultipartUpload rule with age 0 was accepted; and one that adds isLive answered 400 'Lifecycle age_days, matches_prefix, and matches_suffix conditions are the only ones allowed for a ABORT_INCOMPLETE_MULTIPART_UPLOAD rule.'. gcs-mimic now drops unknown condition fields on input and uses those three messages; matchesPattern stays an unsupported condition, and stored rules are still validated strictly. The empty-object, null and age-zero answers matched without a change. Update 2026-11-17 (case bkt-gaps-settings): a bucket PATCH with a Delete rule whose condition is matchesPattern was refused with 400 invalid 'MatchesPattern is not available for this project <project-number>' for a project outside the Early Access allowlist. gcs-mimic also refuses it with 400, but with reason badRequest and its shared unsupported-setting message; the step is declared local_choice. Update 2026-11-17 (cases bkt-gaps-legacy-class-region and bkt-gaps-legacy-class-multi-region): REGIONAL as a SetStorageClass target and a matchesStorageClass class was accepted in a region bucket, and a target or matched class the bucket location cannot hold (REGIONAL in US, MULTI_REGIONAL in US-CENTRAL1) was refused with 400 invalid 'Project <number> may not create storageClass <CLASS> buckets with locationConstraint <LOCATION>.'. gcs-mimic now accepts REGIONAL there and refuses both with that message, which replaces its local matchesStorageClass location message and the former acceptance of an inert regional MULTI_REGIONAL target; only RAPID keeps the shared unsupported response.",
@@ -238,7 +238,7 @@
       "title": "Location normalization and invalid-name error detail",
       "status": "OPEN",
       "affected_features": ["JSON-BUCKETS-005"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/locations", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://storage.googleapis.com/$discovery/rest?version=v1", "https://docs.cloud.google.com/storage/docs/samples/storage-create-bucket-dual-region"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/locations", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json", "https://docs.cloud.google.com/storage/docs/samples/storage-create-bucket-dual-region"],
       "observed_at": "2026-11-13",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Official sources enumerate location names/types and document case-insensitive location inputs. Exact invalid-location reason/message and uppercase response normalization lack provider differential evidence. Locally unknown names returned 400 invalidArgument with valid examples; omitted/null location uses the default (an empty string did too until 2026-11-13), and accepted names normalize to uppercase. Null/empty customPlacementConfig is absent; meaningful placement configuration remains unsupported. See docs/en/slices/sdk-regional-locations.md. Since 2026-11-01 an unknown name answers Cloud Storage's 400 invalid 'The specified location constraint is not valid.' instead of invalidArgument with examples. Update 2026-11-13 (cases bkt-location-errors, bkt-location-mixed-case and bkt-location-us-west1; docs/en/evidence/provider-differential-gap-probes.md): Cloud Storage refused a JSON bucket insert whose location is \" us-central1\" (leading space), \"us_central1\", \"\" or the zone \"us-central1-a\" with that 400, created a bucket requested as \"Us-East1\" with location US-EAST1 and locationType region, and reported US-WEST1 for us-west1. gcs-mimic now refuses an empty JSON location with the same 400 instead of applying the default; an omitted or null location still gets the configured default, and the buckets file and an empty XML LocationConstraint keep their documented default. The other answers, including the uppercase normalization, matched without a change.",
@@ -272,7 +272,7 @@
       "title": "Uniform access aliases, defaults and error details",
       "status": "OPEN",
       "affected_features": ["DESIGN-019", "BEHAVIOR-BUCKET-013", "JSON-BUCKETS-005"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"],
       "observed_at": "2026-11-17",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Discovery revision 20261020 requires identical bucketPolicyOnly/uniformBucketLevelAccess output; the resource reference warns that supplying both aliases is unreliable without defining conflict precedence. Until 2026-11-13 the explicit modern enabled value took precedence over the alias locally: Ruby 1.62.1 resends the old bucketPolicyOnly value from GET when its high-level setter changes uniformBucketLevelAccess. Null/empty settings are absent, disabled output uses enabled:false without lockedTime, and read-only lockedTime input is ignored. Omitted PUT UBLA preserves existing configuration. Predefined ACL under enabled UBLA and disabling at/after 90 consecutive days return 400 invalidArgument with corrective guidance; exact provider reason/message/precedence is unverified. The UBLA limitations in the historical SPEC-PAP-EDGES snapshot are superseded by this slice. See docs/en/slices/sdk-ubla-predefined-acl.md. Update 2026-11-13 (case bkt-config-edges; docs/en/evidence/provider-differential-gap-probes.md): on a bucket with uniform bucket-level access disabled, a PATCH whose iamConfiguration carried bucketPolicyOnly enabled true and uniformBucketLevelAccess enabled false enabled uniform access (both aliases then read enabled true with a lockedTime), so the modern value does not always win. A following PATCH with only uniformBucketLevelAccess enabled false disabled it, and both aliases read enabled false without lockedTime. The rule that fits this recording and the Ruby 1.62.1 setter, which disables access while resending the alias's old true value, is that the alias whose value changes the stored setting wins; gcs-mimic now resolves a conflict that way inside the catalog transaction against the stored setting, and a bucket insert treats a conflict as enabling. A conflict on an already enabled bucket (true modern, false alias) is covered only by the Ruby observation. Update 2026-11-17 (case bkt-gaps-settings): on a bucket with uniform access enabled, a PATCH with uniformBucketLevelAccess true and bucketPolicyOnly false disabled uniform access, and a following PATCH with uniformBucketLevelAccess false and bucketPolicyOnly true enabled it again, so the alias whose value changes the stored setting wins in both directions, as gcs-mimic already resolves it. A media upload with predefinedAcl=private under uniform access was refused with 400 invalid 'Cannot insert legacy ACL for an object when uniform bucket-level access is enabled.' followed by a documentation link; gcs-mimic answered 400 invalidArgument with corrective guidance and now gives the same reason and message, which the XML x-goog-acl refusal already used. A follow-up run that day gave the project owners roles/storage.objectAdmin on the bucket first: without it uniform access left them no object read, and Cloud Storage answered a copy, rewrite or compose with 403 before it looked at the ACL. With it, destinationPredefinedAcl=private on a copy, rewrite and compose drew the same 400 invalid refusal as the upload, which gcs-mimic, now applying destinationPredefinedAcl outside uniform access, gives too. An objects.patch with predefinedAcl=private drew 400 invalid 'Cannot update access control for an object when uniform bucket-level access is enabled.' followed by the link; gcs-mimic now applies predefinedAcl on a PATCH or PUT and gives that refusal under uniform access.",
@@ -294,7 +294,7 @@
       "title": "Bucket testIamPermissions local error and profile choices",
       "status": "OPEN",
       "affected_features": ["JSON-BUCKETS-012", "DESIGN-028"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/testIamPermissions", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/testIamPermissions", "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"],
       "observed_at": "2026-11-13",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "The method requires no permissions and rejects bucket create/list project permissions. Exact missing-query, unknown-name and absent-bucket errors are not established by these sources. Locally these are 400 required, 400 invalid and 404 notFound. Permissive returns every supported requested permission to match its authorization bypass; strict uses the same catalog authorization as operations. Permission checks observe individual short catalog transactions, not one atomic multi-permission snapshot. See docs/en/slices/sdk-test-permissions.md. Update 2026-11-13 (case bkt-iam-policy-shape; docs/en/evidence/provider-differential-gap-probes.md): Cloud Storage answered permissions= (empty), permissions=storage and permissions=compute.instances.list with 400 invalid '<permission> is not a valid Google Cloud Storage permission.' (the empty value gives a message starting with a space), a valid permission on a missing bucket with 404 notFound 'The specified bucket does not exist.', and a malformed permission on a missing bucket with the 400, so the permission is validated before the bucket is looked up. gcs-mimic, which has used that wording since 2026-11-01, matched every step without a change. A request without the permissions parameter was not recorded. Update 2026-11-17: that request is in fact recorded as step test-permissions-missing-query of case bkt-iam-pap-ubla, where Cloud Storage answered 400 'Required parameter: permissions', and gcs-mimic matches it in replay.",
@@ -308,7 +308,7 @@
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "observed_at": "2026-11-17",
       "kind": "LOCAL_DEVIATION",
@@ -622,7 +622,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
         "https://docs.cloud.google.com/storage/docs/request-preconditions",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "observed_at": "2026-11-13",
       "kind": "SOURCE_QUESTION",
@@ -649,7 +649,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api#patch",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://docs.cloud.google.com/storage/docs/tags-and-labels",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://github.com/googleapis/googleapis/blob/14a161a98ef045be80c12ab69d924504a756f109/google/storage/v2/storage.proto"
       ],
       "observed_at": "2026-10-27",
@@ -706,7 +706,7 @@
       "title": "Temporary hold null defaults and custom time error wire details are local choices",
       "status": "RESOLVED",
       "affected_features": ["BEHAVIOR-OBJECT-035", "BEHAVIOR-OBJECT-004"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/objects", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update", "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/objects", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update", "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes", "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"],
       "observed_at": "2026-11-01",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Official sources establish boolean temporaryHold and non-removable/non-decreasing customTime; objects.update requires an equal/later customTime on PUT after setting it. They do not establish explicit-null temporaryHold acceptance or customTime failure reason/message. The SDK compatibility slice locally treats temporaryHold:null as absent and uses 400 invalidArgument with corrective guidance for customTime clear/backdate or omitted PUT after setting. Hold failures answer 403 forbidden with the recorded message ('Object ... is under active Temporary hold and cannot be deleted, overwritten or archived until hold is removed.'); combined failure precedence remains unverified. Update 2026-11-01: the recorded session shows a mistyped hold value and unknown metadata members ignored on PATCH, and a PUT releasing a hold it does not name; gcs-mimic now does the same. The customTime reason and message questions stay open. The same recording shows a hold reported as false once it was set (a PATCH to false, or to false on one never set) and omitted on an object that never had one, while a PUT that omits it returns to omitted; gcs-mimic keeps never set, released and held apart (catalog schema 48). A create-time false, the state after copy, rewrite and compose, and a bucket default hold released by a client are not in the recording: a new generation starts never set, an explicit false is kept as sent, and these remain inferences. Recorded 2026-11-13 (case obj-unsupported-derived): a copy, rewrite and compose naming temporaryHold true and a customTime stored both, and gcs-mimic, which refused them as unsupported until 2026-11-17, now stores them as an upload does. Also inferred: a mistyped value or null on PATCH leaves a hold unchanged in every state; the recording has only a mistyped value on PATCH while the hold is true and null on PUT while it is never set (put-null-hold). Resolved by the 2026-11-01 recording (reconciled 2026-11-18, case obj-holds-customtime): a PUT with temporaryHold null answered 200 and left the hold omitted (put-null-hold); a PATCH that decreased customTime answered 400 invalid 'Custom time cannot be decreased. Previously: 2030-01-01T00:00:00+00:00. Attempting to set: 2029-01-01T00:00:00+00:00.' (custom-time-backdate); a malformed customTime answered 400 invalid with the protobuf Timestamp parse message (custom-time-invalid-format); and a PATCH with customTime null and a PUT that omits customTime both answered 200 and kept the time (custom-time-null, put-omits-custom-time). gcs-mimic returns the same statuses, reasons and messages, and the replay of the case matches. The unrecorded hold and customTime input edges above, a customTime of a non-string JSON type (local 400 invalidArgument) and an impossible calendar date (local 400 invalid) moved to SPEC-EVENT-HOLD-WIRE.",
@@ -717,7 +717,7 @@
       "title": "Object retention error wire details and unspecified edge choices are local",
       "status": "OPEN",
       "affected_features": ["BEHAVIOR-OBJECT-034"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/object-lock", "https://docs.cloud.google.com/storage/docs/using-object-lock", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/insert", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/object-lock", "https://docs.cloud.google.com/storage/docs/using-object-lock", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/insert", "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"],
       "observed_at": "2026-10-29",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "The Object Retention Lock guides establish Unlocked/Locked rules, overrideUnlockedRetention and its permission, the 100-year cap, the event-based-hold conflict, noncurrent transitions of retained live versions and independence from bucket retention policies. They do not state the status, reason or message for invalid transitions, buckets without the feature or the event-hold conflict; locally these return 400 invalidArgument with corrective guidance. Retained deletes and replacements reuse 403 retentionPolicyNotMet with an object-retention message. Past retainUntilTime values are accepted. null, {} and all-null retention remove a configuration; PUT omission keeps it. Echoed bucket objectRetention values are accepted only when they match the stored state. overrideUnlockedRetention=true is authorized whenever it accompanies a retention change. No provider differential request was made. Update 2026-11-17: case obj-retention-unlocked has since recorded Cloud Storage refusing a past retainUntilTime with 400 'Retain until time cannot be in the past.' (it is not accepted, as stated above), an invalid mode with 400 'Invalid value for: Bogus is not a valid value' and retention together with an event-based hold with 400 'Retention and event based holds cannot be configured together.'; gcs-mimic matches each in replay. A later run that day added a copy, rewrite and compose whose destination named an Unlocked retention: Cloud Storage stored it on all three, and (case obj-unsupported-derived, recorded 2026-11-13) refused one on a copy into a bucket without object retention with 400 invalid 'Bucket does not have object retention enabled.'. gcs-mimic, which refused a destination retention as unsupported, now applies it under the rules of an upload: the bucket must have object retention, the time must not have passed, and the caller needs storage.objects.setRetention.",
@@ -756,7 +756,7 @@
         "DESIGN-082"
       ],
       "source_urls": [
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
         "https://github.com/googleapis/google-api-go-client/blob/v0.307.0/storage/v1/storage-gen.go"
       ],
@@ -932,7 +932,7 @@
       ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/consistency"
       ],
       "observed_at": "2026-11-13",
@@ -950,7 +950,7 @@
       ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://github.com/googleapis/google-api-go-client/blob/v0.306.0/storage/v1/storage-gen.go"
       ],
       "observed_at": "2026-11-13",
@@ -984,7 +984,7 @@
         "JSON-FOLDERS-006"
       ],
       "source_urls": [
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/folders/rename"
       ],
       "observed_at": "2026-10-21",
@@ -1000,7 +1000,7 @@
         "JSON-OBJECTS-001"
       ],
       "source_urls": [
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/bulkRestore"
       ],
       "observed_at": "2026-10-21",
@@ -1044,7 +1044,7 @@
         "JSON-RAPIDCACHES-005"
       ],
       "source_urls": [
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/release-notes"
       ],
       "observed_at": "2026-10-21",
@@ -1100,7 +1100,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto"
       ],
       "observed_at": "2026-11-13",
@@ -1120,7 +1120,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/get",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
         "https://docs.cloud.google.com/storage/docs/request-endpoints",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "observed_at": "2026-11-01",
       "required_resolution": "Keep OPEN after the 2026-10-23 re-check: obtain authoritative clarification or explicitly authorized service evidence reconciling the 303 mediaDownloadRedirect wording with ordinary objects.get and optional download endpoint documentation. Keep direct 200/206 on the ordinary /storage/v1 prefix as a named local deviation on JSON-OBJECTS-005 and BEHAVIOR-OBJECT-015, not a documented-and-matching redirect claim; direct media support on /download/storage/v1 is documented. Any future redirect must preserve encoded names, conditions and the externally configured endpoint in Location. Do not infer a mediaDownload.path from flags. See docs/en/slices/basic-json-contract.md; this gap is excluded from documented checksum, condition and envelope scopes without removing method-level pending coverage.",
@@ -1191,7 +1191,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
         "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go",
         "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/reader.go",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto"
       ],
       "observed_at": "2026-10-23",
@@ -1359,7 +1359,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api#partial-response",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
         "https://developers.google.com/workspace/drive/api/guides/fields-parameter",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "observed_at": "2026-11-13",
       "kind": "SOURCE_QUESTION",
@@ -1383,7 +1383,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/get",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/get",
         "https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "observed_at": "2026-10-23",
       "kind": "SCOPE_VERIFICATION",
@@ -1426,7 +1426,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/list",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "observed_at": "2026-11-17",
       "kind": "SOURCE_QUESTION",
@@ -1447,7 +1447,7 @@
         "https://docs.cloud.google.com/storage/quotas",
         "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto",
         "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/copy.go"
       ],
@@ -1488,7 +1488,7 @@
         "DESIGN-082"
       ],
       "source_urls": [
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
         "https://docs.cloud.google.com/apis/docs/system-parameters",
         "https://registry.npmjs.org/@google-cloud/storage/-/storage-8.4.0.tgz"
@@ -1514,7 +1514,7 @@
         "JSON-OBJECTACCESSCONTROLS-004"
       ],
       "source_urls": [
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
         "https://docs.cloud.google.com/apis/docs/system-parameters"
       ],
@@ -1534,7 +1534,7 @@
         "JSON-BUCKETS-013"
       ],
       "source_urls": [
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/lifecycle-configurations",
         "https://docs.cloud.google.com/storage/docs/managing-lifecycles",
         "https://github.com/googleapis/google-cloud-php-storage/tree/cf14f967fa45113e2a239fe9103bada8d7b92021"

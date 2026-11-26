@@ -753,7 +753,8 @@ Decide unclear behavior from, in order:
    ([SDK scorecard](../../sdk-scorecard/README.md), `sdk-tests/`);
 2. Google documentation, which is published under CC BY 4.0;
 3. the googleapis protos (Apache-2.0) and the Discovery document copies that
-   Google's open-source client repositories carry (see [sources](sources.md));
+   Google's open-source repositories carry (see
+   [sources](sources.md#discovery-document));
 4. fake-gcs-server and storage-testbench, as comparisons rather than authorities.
 
 When none of these settles a question, choose the behavior that keeps the

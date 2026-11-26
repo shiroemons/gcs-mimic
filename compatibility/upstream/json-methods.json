@@ -1,9 +1,9 @@
 {
-  "retrieved": "2026-10-21",
-  "revision": "20261013",
-  "source": "https://storage.googleapis.com/$discovery/rest?version=v1",
-  "live_discovery_revision_observed": "20261013",
-  "note": "Full live Discovery fetched 2026-10-21. Complete structural comparison against Google-maintained mirror revision 20261009 found no method, parameter, or schema differences; only revision and etag changed.",
+  "retrieved": "2026-11-26",
+  "revision": "20261009",
+  "source": "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
+  "license": "Apache-2.0",
+  "note": "Factual extract, descriptions removed, of the Discovery document copy that googleapis/discovery-artifact-manager publishes under Apache-2.0. On 2026-11-26 the methods were derived again from that file and matched this extract exactly. The extract was first taken on 2026-10-21 from the live Discovery endpoint (revision 20261013), whose content differed from this revision only in revision and etag; no repository tool fetches the live endpoint.",
   "methods": [
     {
       "resource": "anywhereCaches",
@@ -3245,7 +3245,6 @@
       "deprecated": false
     }
   ],
-  "source_sha256": "1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0",
-  "mirror_blob_sha": "d5869bb1b3846363dc748d5bff4ed9d9fbd6e0ab",
-  "mirror_revision": "20261009"
+  "source_sha256": "29a43bad9086086cef7da19b7fad6f26afda3d1cb1e3c72c5ba263c0726609c7",
+  "source_blob_sha": "b2b79fedc83f39aa42f033128cc0cdeea57cdc61"
 }

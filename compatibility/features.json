@@ -3317,7 +3317,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -3359,7 +3359,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -3401,7 +3401,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -3439,7 +3439,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -3485,7 +3485,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -3527,7 +3527,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -3569,7 +3569,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -3611,7 +3611,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
@@ -3723,7 +3723,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
@@ -3835,7 +3835,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
@@ -3943,7 +3943,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
@@ -4051,7 +4051,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
@@ -4163,7 +4163,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
@@ -4275,7 +4275,7 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/request-preconditions",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete"
       ],
@@ -4840,7 +4840,7 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/public-access-prevention",
         "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
@@ -5802,7 +5802,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/getIamPolicy",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/setIamPolicy",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
@@ -6301,7 +6301,7 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/getStorageLayout"
       ],
       "source_checked_at": "2026-11-02",
@@ -6422,7 +6422,7 @@
         "https://docs.cloud.google.com/storage/docs/samples/storage-create-bucket-dual-region",
         "https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/public-access-prevention",
         "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
@@ -7157,7 +7157,7 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/public-access-prevention",
         "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
@@ -7703,7 +7703,7 @@
         "https://docs.cloud.google.com/storage/docs/bucket-lock",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -7762,7 +7762,7 @@
       "source_urls": [
         "https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://docs.cloud.google.com/storage/docs/json_api#partial-updates",
@@ -8636,7 +8636,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -8676,7 +8676,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/restore",
         "https://docs.cloud.google.com/storage/docs/soft-delete",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-31",
       "source_evidence": "SPEC_AND_DISCOVERY_CONFIRMED",
@@ -8835,7 +8835,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/getIamPolicy",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/setIamPolicy",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
@@ -9318,7 +9318,7 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/testIamPermissions",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-permissions"
       ],
@@ -9499,7 +9499,7 @@
       "source_urls": [
         "https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update",
         "https://docs.cloud.google.com/storage/docs/json_api#patch",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
@@ -10292,7 +10292,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
@@ -10410,7 +10410,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
@@ -10528,7 +10528,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
@@ -10642,7 +10642,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
@@ -10764,7 +10764,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
@@ -10882,7 +10882,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
@@ -11000,7 +11000,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11050,7 +11050,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -11100,7 +11100,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11150,7 +11150,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11192,7 +11192,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11254,7 +11254,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11308,7 +11308,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11362,7 +11362,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11412,7 +11412,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11462,7 +11462,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11500,7 +11500,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11550,7 +11550,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11596,7 +11596,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -11646,7 +11646,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -11696,7 +11696,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/notifications",
         "https://docs.cloud.google.com/storage/docs/pubsub-notifications",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json"
@@ -11938,7 +11938,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/notifications",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json"
       ],
@@ -12163,7 +12163,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/notifications",
         "https://docs.cloud.google.com/storage/docs/pubsub-notifications",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json"
@@ -12403,7 +12403,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/notifications",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json"
       ],
@@ -12625,7 +12625,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
@@ -12745,7 +12745,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
@@ -12865,7 +12865,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
@@ -12981,7 +12981,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
@@ -13121,7 +13121,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
@@ -13241,7 +13241,7 @@
       "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/access-control/lists",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
@@ -13361,7 +13361,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -13399,7 +13399,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
         "https://docs.cloud.google.com/storage/docs/composite-objects",
         "https://docs.cloud.google.com/storage/quotas"
@@ -13827,7 +13827,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/copy",
         "https://docs.cloud.google.com/storage/docs/request-preconditions"
       ],
@@ -14274,7 +14274,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -14883,7 +14883,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -15937,7 +15937,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -15987,7 +15987,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
         "https://docs.cloud.google.com/storage/docs/data-validation#json-api-multipart-uploads"
       ],
@@ -17402,7 +17402,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list"
       ],
       "source_checked_at": "2026-10-23",
@@ -17951,7 +17951,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/move"
       ],
       "source_checked_at": "2026-10-27",
@@ -18109,7 +18109,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
@@ -18779,7 +18779,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -18973,7 +18973,7 @@
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -19316,7 +19316,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -19366,7 +19366,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -19420,7 +19420,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
@@ -20028,7 +20028,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -20082,7 +20082,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -20124,7 +20124,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -20166,7 +20166,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -20208,7 +20208,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -20262,7 +20262,7 @@
         "https://docs.cloud.google.com/storage/docs/authentication/hmackeys",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -20509,7 +20509,7 @@
         "https://docs.cloud.google.com/storage/docs/authentication/hmackeys",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -20716,7 +20716,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys/get",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -20907,7 +20907,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys/list",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -21124,7 +21124,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys/update",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -21333,7 +21333,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/serviceAccount/get",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
@@ -21473,7 +21473,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -21515,7 +21515,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -21557,7 +21557,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -21595,7 +21595,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -21641,7 +21641,7 @@
       "actual_fidelity": "NONE",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED; DEDICATED_DOC_VALIDATION_REQUIRED",
@@ -27261,7 +27261,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api#partial-response",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
         "https://developers.google.com/workspace/drive/api/guides/fields-parameter",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
@@ -28345,7 +28345,7 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
         "https://docs.cloud.google.com/storage/docs/metadata#etags",
         "https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
@@ -29877,7 +29877,7 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access"
       ],
       "source_checked_at": "2026-10-27",
@@ -36940,7 +36940,7 @@
         "https://docs.cloud.google.com/storage/docs/lifecycle",
         "https://docs.cloud.google.com/storage/docs/json_api",
         "https://docs.cloud.google.com/storage/docs/xml-api/put-bucket-metadata",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-11-11",
@@ -42713,7 +42713,7 @@
         "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
         "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go",
         "https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
@@ -51669,7 +51669,7 @@
         "https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/insert",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
@@ -70193,7 +70193,7 @@
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/release-notes",
         "https://docs.cloud.google.com/storage/docs/object-change-notification",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://github.com/googleapis/discovery-artifact-manager/blob/a21535716fb55fafd11f5bec842acc5ea742ed09/discoveries/storage.v1.json"
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
