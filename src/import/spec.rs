@@ -5,7 +5,7 @@ use crate::{
     acl::AclEntry,
     bucket::StorageClass,
     object::{
-        ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch, generation::Generation,
+        CustomTime, ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch, generation::Generation,
         retention::ObjectRetention,
     },
     storage::admin::{GenerationCondition, Publication, PublishMode},
@@ -54,7 +54,7 @@ impl ObjectSpec {
                 retention: Patch::nullable(self.retention),
                 acl: self.acl.into(),
                 storage_class: Some(self.storage_class),
-                custom_time: Patch::nullable(self.custom_time),
+                custom_time: Patch::nullable(self.custom_time.map(CustomTime::from_text)),
                 content_encoding: named(attrs.content_encoding),
                 content_disposition: named(attrs.content_disposition),
                 content_language: named(attrs.content_language),

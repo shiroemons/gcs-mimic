@@ -716,7 +716,10 @@ fn filesystem_import_preserves_classes_and_custom_time_through_resume_and_restar
                     .unwrap();
                 assert_eq!(object.storage_class.as_str(), class);
                 assert_eq!(
-                    object.custom_time.as_deref(),
+                    object
+                        .custom_time
+                        .as_ref()
+                        .map(gcs_mimic::object::CustomTime::as_str),
                     Some("2026-01-02T03:04:05.123456+09:00")
                 );
                 assert_eq!(object.generation, GENERATION);

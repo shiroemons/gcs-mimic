@@ -854,7 +854,10 @@ mod tests {
             let stored = stored_object(&s, name).await.unwrap();
             assert!(stored.temporary_hold.is_held(), "{name}");
             assert_eq!(
-                stored.custom_time.as_deref(),
+                stored
+                    .custom_time
+                    .as_ref()
+                    .map(crate::object::CustomTime::as_str),
                 Some("2020-01-01T00:00:00Z"),
                 "{name}"
             );

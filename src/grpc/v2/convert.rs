@@ -10,7 +10,9 @@ use crate::{
         },
     },
     csek::StoredHashes,
-    object::{ObjectError, ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
+    object::{
+        CustomTime, ObjectError, ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos,
+    },
     project::ProjectNumber,
 };
 use prost_types::{Duration, Timestamp};
@@ -417,12 +419,10 @@ pub(crate) fn object(
     let custom_time = record
         .custom_time
         .as_ref()
-        .map(|time| {
-            crate::object::custom_time_key(time)
-                .map(unix_nanos_timestamp)
-                .map_err(ObjectConversionError::InvalidCustomTime)
-        })
-        .transpose()?;
+        .map(CustomTime::instant)
+        .transpose()
+        .map_err(ObjectConversionError::InvalidCustomTime)?
+        .map(unix_nanos_timestamp);
     Ok(pb::Object {
         name: record.name.clone(),
         bucket: format!("projects/_/buckets/{}", record.bucket),

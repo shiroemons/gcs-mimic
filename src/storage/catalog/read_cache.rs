@@ -82,11 +82,12 @@ impl CachedObject {
             content_disposition,
             content_language,
             cache_control,
-            custom_time,
         ]
         .into_iter()
         .flatten()
-        .map(String::len)
+        .map(String::as_str)
+        .chain(custom_time.as_ref().map(crate::object::CustomTime::as_str))
+        .map(str::len)
         .sum::<usize>();
         let metadata = metadata
             .iter()

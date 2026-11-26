@@ -10,7 +10,7 @@ use crate::{
             evaluate::{Evaluation, PlannedAction, VersionFacts, evaluate, wakeup_at},
         },
     },
-    object::{ObjectError, ObjectRecord, ObjectTarget, custom_time_key, unix_nanos::UnixNanos},
+    object::{CustomTime, ObjectError, ObjectRecord, ObjectTarget, unix_nanos::UnixNanos},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
@@ -887,8 +887,8 @@ fn version_facts(
 ) -> Result<VersionFacts<'_>, ObjectError> {
     let custom_time = record
         .custom_time
-        .as_deref()
-        .map(custom_time_key)
+        .as_ref()
+        .map(CustomTime::instant)
         .transpose()?;
     // Creation/noncurrent times are already SystemTime: catalog decoding rejects out-of-range values.
     // Custom-Time is accepted as RFC3339 text even before Windows' 1601 epoch; keep its integer time.

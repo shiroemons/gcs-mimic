@@ -144,10 +144,10 @@ impl Canonical {
             content_disposition,
             content_language,
             cache_control,
-            custom_time,
         ] {
             self.patch(field, |encoded, value| encoded.text(value));
         }
+        self.patch(custom_time, |encoded, value| encoded.text(value.as_str()));
         self.custom_metadata(metadata);
         self.optional(*event_based_hold, Self::flag);
         self.optional(*temporary_hold, Self::flag);

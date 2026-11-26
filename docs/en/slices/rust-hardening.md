@@ -202,6 +202,17 @@ Decided by the owner on 2026-11-26:
 
 Pending the evidence below:
 
+- **Custom time in import preflight and publication.** Preflight accepts year
+  `0000` (such as `0000-12-31T23:59:59Z`) and fractions with ten or more
+  digits and only zeros after the sixth digit (such as
+  `1969-12-31T23:59:59.0000000000Z`). An actual import carrying either
+  spelling fails with `Metadata(CustomTime)` during validation of the staged
+  metadata, before publication. The candidates are to keep both checks as
+  they are, accept both spellings at publication, or reject them at preflight.
+  Evidence for the decision comes from the pinned SDK sources, the official
+  documentation and the `Object.custom_time` comment in the pinned
+  `storage.proto`, under [development](../development.md#no-live-cloud-storage-contact).
+
 - **Negative and zero preconditions on JSON routes.**
   - Today the JSON media, multipart, get and delete routes compare
     `ifGenerationMatch=-1` against the object, so it fails with 412.
@@ -858,8 +869,9 @@ try_from = "i64")]`.
   Precondition values stay `i64`, because 0 and negatives mean something there.
 - **Custom time.** `CustomTime { text, instant }` is parsed once, ordered by
   instant and rendered as its text. It replaces four re-parses.
-  - Before it lands, a property test shows that every value import accepts
-    also parses as `CustomTime`.
+  - A property test shows that values the current import can publish also
+    parse as `CustomTime`. Preflight also accepts year zero and some longer
+    zero-padded fractions that publication rejects.
   - Replay fingerprints keep hashing the text.
 - **Resumable completion.** `SessionState::Complete(StoredCompletion)` with
   `Json(Map)` and `Proto(Vec<u8>)` replaces the separate `completion` field.

@@ -9,6 +9,7 @@ use std::{collections::BTreeMap, fmt, time::SystemTime};
 use unix_nanos::UnixNanos;
 
 pub(crate) mod content_type;
+mod custom_time;
 pub(crate) mod generation;
 mod idempotency;
 pub(crate) mod media_headers;
@@ -20,6 +21,7 @@ pub(crate) mod unix_nanos;
 pub(crate) mod upload_headers;
 pub(crate) use idempotency::{IdempotencyToken, OpaqueTokenError, TextTokenError};
 
+pub use custom_time::CustomTime;
 pub use patch::{MapPatch, Patch, WriteMode};
 
 /// Unset holds are omitted from JSON; a released hold keeps its explicit false value.
@@ -124,7 +126,7 @@ pub struct ObjectRecord {
     /// precision. Older serialized records and generations never released have none.
     #[serde(default)]
     pub(crate) event_based_hold_release_time: Option<SystemTime>,
-    pub custom_time: Option<String>,
+    pub custom_time: Option<CustomTime>,
     /// Bucket retention policy expiration only, counted from [`Self::retention_period_start`];
     /// object retention is kept in `retention`.
     pub retention_expiration_time: Option<SystemTime>,
@@ -313,7 +315,7 @@ mod custom_time_tests {
 
 /// Reuse the strict civil-date parser while preserving nanosecond precision on the wire.
 pub(crate) fn custom_time_key(value: &str) -> Result<UnixNanos, ObjectError> {
-    let invalid = || ObjectError::Metadata(crate::metadata_error::MetadataError::CustomTime);
+    let invalid = invalid_custom_time;
     if !value.is_ascii() || value.len() < 20 || value.starts_with("0000") {
         return Err(invalid());
     }
@@ -340,6 +342,10 @@ pub(crate) fn custom_time_key(value: &str) -> Result<UnixNanos, ObjectError> {
     UnixNanos::new(micros / 1_000_000, nanos).ok_or_else(invalid)
 }
 
+fn invalid_custom_time() -> ObjectError {
+    ObjectError::Metadata(crate::metadata_error::MetadataError::CustomTime)
+}
+
 /// Content fields reset on PUT; holds only change when explicitly supplied.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectMetadataUpdate {
@@ -355,7 +361,7 @@ pub struct ObjectMetadataUpdate {
     pub event_based_hold: Option<bool>,
     pub temporary_hold: Option<bool>,
     /// Only a time changes the stored custom time; `Clear` keeps it (see `apply_with`).
-    pub custom_time: Patch<String>,
+    pub custom_time: Patch<CustomTime>,
     /// `Clear` removes the configuration; transitions are checked by the catalog.
     pub(crate) retention: Patch<retention::ObjectRetention>,
     pub(crate) override_unlocked_retention: retention::UnlockedOverride,
@@ -448,7 +454,7 @@ impl ObjectMetadataUpdate {
     pub(crate) fn validate(&self) -> Result<(), ObjectError> {
         self.check_encoded_size()?;
         if let Some(value) = self.custom_time.value() {
-            custom_time_key(value)?;
+            value.instant()?;
         }
         for (field, patch) in self.fixed_fields() {
             if let Some(value) = patch.value() {
@@ -523,9 +529,9 @@ impl ObjectMetadataUpdate {
         // Cloud Storage kept the current custom time for `null` and for a PUT that omits it
         // (both recorded as 200); only a time can change it, and never backwards.
         if let Patch::Set(value) = self.custom_time {
-            let next = custom_time_key(&value)?;
+            let next = value.instant()?;
             if let Some(previous) = &record.custom_time {
-                let previous = custom_time_key(previous)?;
+                let previous = previous.instant()?;
                 if next < previous {
                     return Err(ObjectError::InvalidFixedMetadata(format!(
                         "Custom time cannot be decreased. Previously: {}. Attempting to set: {}.",

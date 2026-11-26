@@ -7,8 +7,8 @@ use crate::{
     http_header::{TextError, TextOrder, sole},
     net::{TrailingDot, normalized_host},
     object::{
-        IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget, OpaqueTokenError,
-        media_headers::CUSTOM_METADATA_PREFIX,
+        CustomTime, IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget,
+        OpaqueTokenError, media_headers::CUSTOM_METADATA_PREFIX,
     },
 };
 use http_body_util::{BodyExt, Full};
@@ -951,11 +951,10 @@ pub(crate) enum HeaderPolicy {
 const CUSTOM_TIME: &str = "x-goog-custom-time";
 
 /// Validates an `x-goog-custom-time` value and returns it in the stored form.
-fn custom_time(value: &str) -> Result<String, Error> {
-    crate::object::custom_time_key(value).map_err(|_| {
+fn custom_time(value: &str) -> Result<CustomTime, Error> {
+    CustomTime::parse(value.to_owned()).map_err(|_| {
         Error::invalid("x-goog-custom-time must be RFC 3339, for example 2026-10-20T01:02:03Z.")
-    })?;
-    Ok(value.to_owned())
+    })
 }
 
 /// Validates an XML object request's headers and returns their preconditions.

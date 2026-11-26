@@ -7,7 +7,8 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     json::Projection,
     object::{
-        ExpectedHashes, Hold, MapPatch, ObjectConditions, ObjectMetadataUpdate, Patch, WriteMode,
+        CustomTime, ExpectedHashes, Hold, MapPatch, ObjectConditions, ObjectMetadataUpdate, Patch,
+        WriteMode,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -62,7 +63,7 @@ impl<T, C> Metadata<T, C> {
             },
             event_based_hold: self.event_based_hold.into(),
             temporary_hold: self.temporary_hold.into(),
-            custom_time: restored(self.custom_time, &string),
+            custom_time: restored(self.custom_time, &string).map(CustomTime::from_text),
             content_type: restored(self.content_type, &string),
             content_encoding: restored(self.content_encoding, &string),
             content_disposition: restored(self.content_disposition, &string),
@@ -91,12 +92,12 @@ impl<T, C> Metadata<T, C> {
 
 /// A nullable update field as the session document stores it: absent keeps, `{"value":null}`
 /// clears, `{"value":v}` sets.
-fn stored<T: Clone>(patch: &Patch<T>) -> Option<Field<Option<T>>> {
+fn stored<T, U>(patch: &Patch<T>, convert: impl FnOnce(&T) -> U) -> Option<Field<Option<U>>> {
     match patch {
         Patch::Keep => None,
         Patch::Clear => Some(Field { value: None }),
         Patch::Set(value) => Some(Field {
-            value: Some(value.clone()),
+            value: Some(convert(value)),
         }),
     }
 }
@@ -170,12 +171,12 @@ impl StoredOptions {
             replace: Some(m.write == WriteMode::Replace),
             event_based_hold: m.event_based_hold.into(),
             temporary_hold: m.temporary_hold.into(),
-            custom_time: stored(&m.custom_time),
-            content_type: stored(&m.content_type),
-            content_encoding: stored(&m.content_encoding),
-            content_disposition: stored(&m.content_disposition),
-            content_language: stored(&m.content_language),
-            cache_control: stored(&m.cache_control),
+            custom_time: stored(&m.custom_time, |time| time.as_str().to_owned()),
+            content_type: stored(&m.content_type, String::clone),
+            content_encoding: stored(&m.content_encoding, String::clone),
+            content_disposition: stored(&m.content_disposition, String::clone),
+            content_language: stored(&m.content_language, String::clone),
+            cache_control: stored(&m.cache_control, String::clone),
             metadata: stored_metadata(&m.metadata),
             retention: super::super::objects::retention::session_value(&m.retention)
                 .map_err(unavailable)?,

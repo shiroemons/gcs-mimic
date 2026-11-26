@@ -40,6 +40,14 @@ impl<T> Patch<T> {
         }
     }
 
+    pub(crate) fn map<U>(self, f: impl FnOnce(T) -> U) -> Patch<U> {
+        match self {
+            Self::Keep => Patch::Keep,
+            Self::Clear => Patch::Clear,
+            Self::Set(value) => Patch::Set(f(value)),
+        }
+    }
+
     /// Keeps, clears or replaces the stored value of the field this patch names.
     pub(crate) fn apply_to(self, field: &mut Option<T>) {
         match self {

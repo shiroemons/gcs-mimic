@@ -865,7 +865,11 @@ async fn verify_object(
         || target.metadata != attributes.metadata.clone().unwrap_or_default()
         || target.event_based_hold.is_held()
         || target.storage_class != spec.storage_class
-        || target.custom_time != spec.custom_time
+        || target
+            .custom_time
+            .as_ref()
+            .map(crate::object::CustomTime::as_str)
+            != spec.custom_time.as_deref()
     {
         return Err(invalid("committed object differs from the source binding"));
     }

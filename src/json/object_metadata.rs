@@ -1,8 +1,8 @@
 use super::ApiError;
 use crate::config::ApiBaseSource;
 use crate::object::{
-    MapPatch, ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
-    validate_fixed_metadata,
+    CustomTime, MapPatch, ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch,
+    WriteMode, validate_fixed_metadata,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -201,7 +201,7 @@ fn metadata_from_map(
         cache_control: string(body, "cacheControl")?,
         metadata,
         temporary_hold: hold(body, "temporaryHold"),
-        custom_time: string(body, "customTime")?,
+        custom_time: string(body, "customTime")?.map(CustomTime::from_text),
         event_based_hold: hold(body, "eventBasedHold"),
         retention: body
             .get("retention")

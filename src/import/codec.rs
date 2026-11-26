@@ -573,10 +573,12 @@ mod tests {
                 format!("{date}.{digits}{zone}")
             };
             if is_unset_time(&input) == Ok(false) {
-                let instant = crate::object::custom_time_key(&input);
-                prop_assert!(instant.is_ok(), "{input}: {instant:?}");
                 let micros = parse_timestamp(&input).unwrap();
-                prop_assert_eq!(instant.unwrap().micros_and_remainder(), Some((micros, 0)));
+                let time = crate::object::CustomTime::parse(input.clone());
+                prop_assert!(time.is_ok(), "{input}: {time:?}");
+                let time = time.unwrap();
+                prop_assert_eq!(time.as_str(), input);
+                prop_assert_eq!(time.instant().unwrap().micros_and_remainder(), Some((micros, 0)));
             }
         }
     }

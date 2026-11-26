@@ -9,7 +9,7 @@ use crate::{
     clock::{RFC3339_MAX_MICROS, YEAR_ONE_MICROS},
     metadata_error::MetadataError,
     object::{
-        MapPatch, ObjectError, ObjectMetadataUpdate, ObjectRecord, Patch, WriteMode,
+        CustomTime, MapPatch, ObjectError, ObjectMetadataUpdate, ObjectRecord, Patch, WriteMode,
         retention::{ObjectRetention, RetentionMode},
         unix_nanos::UnixNanos,
     },
@@ -127,7 +127,11 @@ fn apply_path(
             update.cache_control = Patch::nullable(set(&object.cache_control));
         }
         UpdatePath::CustomTime => {
-            update.custom_time = Patch::nullable(object.custom_time.map(|time| time.to_string()));
+            update.custom_time = Patch::nullable(
+                object
+                    .custom_time
+                    .map(|time| CustomTime::from_text(time.to_string())),
+            );
         }
         UpdatePath::TemporaryHold => update.temporary_hold = Some(object.temporary_hold),
         UpdatePath::EventBasedHold => {
@@ -262,9 +266,9 @@ pub(super) fn for_write(object: &pb::Object) -> ObjectMetadataUpdate {
         ),
         temporary_hold: object.temporary_hold.then_some(true),
         event_based_hold: object.event_based_hold,
-        custom_time: object
-            .custom_time
-            .map_or(Patch::Keep, |time| Patch::Set(time.to_string())),
+        custom_time: object.custom_time.map_or(Patch::Keep, |time| {
+            Patch::Set(CustomTime::from_text(time.to_string()))
+        }),
         ..Default::default()
     }
 }

@@ -5,6 +5,18 @@ use rusqlite::{
     types::FromSql,
 };
 
+impl rusqlite::ToSql for crate::object::CustomTime {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::Borrowed(self.as_str().into()))
+    }
+}
+
+impl FromSql for crate::object::CustomTime {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        String::column_result(value).map(Self::from_text)
+    }
+}
+
 /// Makes a prepared statement keep its plan when a bound value changes. SQLite otherwise recompiles
 /// any statement whose plan it thinks a bound value could affect, as it did the object ACL join on
 /// every read. No plan here needs a bound value: no LIKE or GLOB takes a parameter, no partial

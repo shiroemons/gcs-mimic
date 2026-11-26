@@ -35,7 +35,10 @@ fn listed_bytes(record: &ObjectRecord) -> usize {
         record.content_disposition.as_deref(),
         record.content_language.as_deref(),
         record.cache_control.as_deref(),
-        record.custom_time.as_deref(),
+        record
+            .custom_time
+            .as_ref()
+            .map(crate::object::CustomTime::as_str),
     ]
     .into_iter()
     .flatten()
