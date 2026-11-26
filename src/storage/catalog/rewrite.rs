@@ -1229,6 +1229,50 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
+    #[tokio::test]
+    async fn rewrite_prechecks_use_the_expected_catalog_jobs() {
+        let (catalog, directory, _) = fixture().await;
+        let (writes, reads) = catalog.job_counts();
+        assert!(
+            catalog
+                .has_bucket_permission("bucket", PERMISSIVE)
+                .await
+                .unwrap()
+        );
+        let source = catalog
+            .resolve_derived_source(live("bucket", "source"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap();
+        catalog
+            .check_upload("bucket", "destination", Default::default(), PERMISSIVE)
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            catalog
+                .get_bucket("bucket", PERMISSIVE)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+        assert_eq!(catalog.job_counts(), (writes + 2, reads + 3));
+        drop(source);
+
+        let token = finish_rewrite(&catalog).await;
+        let (writes, reads) = catalog.job_counts();
+        let session = catalog.rewrite_session(&token).await.unwrap();
+        assert_eq!(session.binding.destination.name, "destination");
+        assert!(
+            continue_to_end(&catalog, &token)
+                .await
+                .unwrap()
+                .resource
+                .is_some()
+        );
+        assert_eq!(catalog.job_counts(), (writes + 1, reads + 2));
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     async fn finish_rewrite(catalog: &Catalog) -> String {
         let (token, mut owner) = new_session(catalog).await.unwrap();
         owner.disarm();
