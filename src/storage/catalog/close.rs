@@ -18,6 +18,9 @@ async fn drain(
 impl Catalog {
     /// Stops admission on all handles and waits for blocking work before releasing ownership.
     /// Remaining handles become unavailable; repeated closes succeed without touching a new owner.
+    /// The runtime used at open must stay driven through this drain: it owns the blocking
+    /// descriptor closes and their supervisors. Runtime shutdown cancels queued work and
+    /// drops its owned files, but cannot guarantee completion of an orderly catalog close.
     pub async fn close(&self) -> Result<(), CatalogError> {
         crate::sync::lock(&self.0.uploads).closed = true;
         self.0.admission.close();

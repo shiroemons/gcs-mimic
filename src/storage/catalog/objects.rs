@@ -164,6 +164,7 @@ pub(super) use reader::{ReaderData, with_copy_buffer};
 use reclaim::{JOURNAL_CONFLICT, live_journal_error};
 pub(super) use reclaim::{
     Journaled, StagedBlob, blob_referenced, journal_deletion, journal_new_deletion, reclaim,
+    referenced_batch,
 };
 pub(super) use recovery::recover;
 pub(super) use schema::{GENERATION_SCHEMA, METADATA_SCHEMA, SCHEMA, VERSIONING_SCHEMA, migrate};

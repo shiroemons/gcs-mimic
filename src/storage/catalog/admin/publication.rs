@@ -536,20 +536,26 @@ impl super::super::BlobBackend {
 async fn cleanup(catalog: &Catalog, ids: Vec<BlobId>) -> Result<(), AdminError> {
     // The handles own these private IDs until cleanup finishes. Only their settled commit
     // could have made them reachable, including when its result was ambiguous.
-    let (ids, referenced) = catalog.run_upload(move |connection| {
-        let mut statement = connection.prepare_cached(
-            "SELECT DISTINCT blob_id FROM objects WHERE blob_id IN (SELECT value FROM json_each(?1))"
-        )?;
-        let referenced = statement.query_map([sql::Json(&ids)], |row| row.get(0))?
-            .collect::<rusqlite::Result<std::collections::HashSet<BlobId>>>()?;
-        Ok::<_, ObjectError>((ids, referenced))
-    }).await?;
+    let (ids, referenced) = catalog
+        .run_upload(move |connection| {
+            let referenced = objects::referenced_batch(connection, &ids)?;
+            Ok::<_, ObjectError>((ids, referenced))
+        })
+        .await?;
     let backend = catalog.0.backend.clone();
     let remove = move || {
+        // Staging permits bound this job to 256 IDs. Sync each successful unlink before
+        // the next failure so a later shard error cannot leave earlier removals unsynced.
         let mut failure = None;
         for id in ids {
             if let Err(error) = remove_staged_blob(&backend, &id, &referenced) {
-                failure = Some(error);
+                if let Some(previous) = failure.replace(error) {
+                    crate::diagnostics::emit_lazy(
+                        crate::diagnostics::LogLevel::Error,
+                        crate::diagnostics::Event::PublicationCleanupFailed,
+                        || serde_json::json!({"message": previous.to_string()}),
+                    );
+                }
             }
         }
         failure.map_or(Ok(()), Err)

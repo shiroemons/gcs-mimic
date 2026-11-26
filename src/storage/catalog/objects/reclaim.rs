@@ -1,12 +1,32 @@
 use super::*;
 
+// Both probes use the same source of live references, with an indexed predicate for each shape.
+macro_rules! referenced_blobs {
+    ($predicate:literal) => {
+        concat!(
+            "SELECT DISTINCT blob_id FROM objects WHERE blob_id ",
+            $predicate
+        )
+    };
+}
+
+pub(in crate::storage::catalog) fn referenced_batch(
+    connection: &Connection,
+    ids: &[BlobId],
+) -> rusqlite::Result<std::collections::HashSet<BlobId>> {
+    connection
+        .prepare_cached(referenced_blobs!("IN (SELECT value FROM json_each(?1))"))?
+        .query_map([sql::Json(ids)], |row| row.get(0))?
+        .collect()
+}
+
 pub(in crate::storage::catalog) fn blob_referenced(
     connection: &Connection,
     id: &BlobId,
 ) -> rusqlite::Result<bool> {
     sql::scalar(
         connection,
-        "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
+        concat!("SELECT EXISTS(", referenced_blobs!("= ?1"), ")"),
         [id],
     )
 }

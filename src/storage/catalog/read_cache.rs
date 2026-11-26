@@ -215,7 +215,7 @@ impl ReadCache {
     /// runs under the lock, so an insert either sees the new revision or is cleared here.
     pub(super) fn invalidate(&self, runtime: &tokio::runtime::Handle) {
         self.revision.fetch_add(1, Ordering::AcqRel);
-        // Bound first: dropping it closes every open file, which no hit should wait behind.
+        // Swap before scheduling closes so new hits can immediately populate the fresh map.
         let mut stale = std::mem::take(&mut *self.write());
         if stale.file_slots.is_some() {
             // The slots bound retired descriptors together with the live map and track them
