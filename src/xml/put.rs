@@ -378,7 +378,7 @@ pub(crate) async fn respond(
     let access = ctx
         .authorize(auth::OBJECTS_CREATE, &operation.target.bucket)
         .await
-        .map_err(|error| anonymous_error(error, caller))?;
+        .map_err(|error| Error::from(error).for_caller(caller))?;
     let signing = if streaming.is_some() {
         Signing::Streaming
     } else {

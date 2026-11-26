@@ -19,7 +19,7 @@ Each object is written through one transport and observed or mutated through the
 
 ## Anonymous denials
 
-The strict test first exposed that Storage v2 object RPCs reported anonymous denials as PERMISSION_DENIED, while JSON, XML, legacy v1, Storage v2 bucket RPCs and `BidiReadObject` reported an unauthenticated caller. The v2 object I/O and update/copy adapters passed `authorize_bucket` failures to the status converter without the shared `anonymous_error` mapping. Both adapters now apply it, so an anonymous caller without access receives UNAUTHENTICATED on every v2 object RPC, including CancelResumableWrite, and an authenticated caller without the permission still receives PERMISSION_DENIED.
+The strict test first exposed that Storage v2 object RPCs reported anonymous denials as PERMISSION_DENIED, while JSON, XML, legacy v1, Storage v2 bucket RPCs and `BidiReadObject` reported an unauthenticated caller. The v2 object I/O and update/copy adapters passed `authorize_bucket` failures to the status converter without the shared `anonymous_error` mapping. Storage v2 maps typed bucket access failures and applies its anonymous-caller rule. An anonymous caller without access receives UNAUTHENTICATED on every v2 object RPC, including CancelResumableWrite, and an authenticated caller without the permission receives PERMISSION_DENIED.
 
 ## Scope limits
 

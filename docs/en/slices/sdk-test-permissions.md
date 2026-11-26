@@ -10,7 +10,7 @@ ACLs, UBLA or PAP are excluded. Existing authorization semantics remain unchange
 | Case | Required behavior |
 | --- | --- |
 | TEST-PERMISSIONS-ROUTE | GET bucket iam/testPermissions accepts repeated permissions and returns storage#testIamPermissionsResponse with permissions. Missing/invalid names and project-only bucket create/list fail with 400; absent buckets fail with 404. |
-| TEST-PERMISSIONS-STRICT-EFFECTIVE | The same authorize_bucket/catalog bucket_access function used by operations checks each supported permission; project and bucket grants are additive. Mixed grants, denial without policy-read permission and revocation are checked. |
+| TEST-PERMISSIONS-STRICT-EFFECTIVE | Operations and permission tests use the same bucket access functions to check each supported permission; project and bucket grants are additive. Mixed grants, denial without policy-read permission and revocation are checked. |
 | TEST-PERMISSIONS-PERMISSIVE | All supported requested permissions are returned because permissive operations do not authorize callers. This is a local profile choice. |
 | TEST-PERMISSIONS-SDK | Default Go IAM().TestPermissions and Ruby bucket.test_permissions calls work in strict and permissive modes. |
 
@@ -32,7 +32,7 @@ errors for project-only bucket permissions. Error envelopes for missing input,
 unknown names and absent buckets are local choices pending provider evidence,
 recorded in SPEC-TEST-PERMISSIONS. No real-cloud requests are authorized.
 
-The adapter reuses `server::authorize_bucket` and `Catalog::bucket_access`;
+The adapter reuses `server::bucket_access` and `Catalog::bucket_access`;
 no authorization logic or storage interfaces are added. Each permission uses
 an existing short transaction, so the response is advisory rather than an atomic
 snapshot during policy changes. Duplicate requested permissions are returned once,

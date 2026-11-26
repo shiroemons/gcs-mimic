@@ -588,6 +588,51 @@ async fn list_buckets_without_project_spans_projects_with_paging() {
 }
 
 #[tokio::test]
+async fn anonymous_bucket_access_names_the_refused_permission() {
+    let dir = TestDir::new();
+    let registry = Registry::parse(br#"{"identities":[{"id":"reader","tokens":[]}]}"#).unwrap();
+    let storage = storage(&dir, Auth::strict(registry)).await;
+    let status = Legacy::get_bucket(
+        &storage,
+        Request::new(pb::GetBucketRequest {
+            bucket: "list-a".into(),
+            ..Default::default()
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(status.code(), tonic::Code::Unauthenticated);
+    assert_eq!(
+        status.message(),
+        "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+    );
+    storage.state.catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn authenticated_bucket_access_names_the_principal_and_refused_permission() {
+    let dir = TestDir::new();
+    let registry =
+        Registry::parse(br#"{"identities":[{"id":"none@example.invalid","tokens":["tok-none"]}]}"#)
+            .unwrap();
+    let storage = storage(&dir, Auth::strict(registry)).await;
+    let mut request = Request::new(pb::GetBucketRequest {
+        bucket: "list-a".into(),
+        ..Default::default()
+    });
+    request
+        .metadata_mut()
+        .insert("authorization", "Bearer tok-none".parse().unwrap());
+    let status = Legacy::get_bucket(&storage, request).await.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    assert_eq!(
+        status.message(),
+        "none@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."
+    );
+    storage.state.catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn strict_list_buckets_without_project_only_sees_listable_projects() {
     let dir = TestDir::new();
     let registry = Registry::parse(

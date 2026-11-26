@@ -122,7 +122,7 @@ pub(crate) async fn start(
     let access = ctx
         .authorize(auth::OBJECTS_CREATE, &object.bucket)
         .await
-        .map_err(|error| anonymous_error(error, caller))?;
+        .map_err(|error| Error::from(error).for_caller(caller))?;
     let options = options(request.headers(), put::Signing::of(&request), access)?;
     super::canned_acl::check(
         options.metadata.acl.predefined(),

@@ -6,9 +6,7 @@ use crate::server::upload_drive::{
 };
 use crate::{
     object::{ObjectError, media_headers::CUSTOM_METADATA_PREFIX},
-    server::{
-        ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed, empty_response, stream_upload,
-    },
+    server::{ObjectCtx, RequestBody, ResponseBody, boxed, empty_response, stream_upload},
     storage::xml_multipart as storage,
 };
 use hyper::{
@@ -336,7 +334,7 @@ pub(crate) async fn respond(
     let access = ctx
         .authorize(operation.permission(), &path.target.bucket)
         .await
-        .map_err(|error| anonymous_error(error, ctx.caller))?;
+        .map_err(|error| Error::from(error).for_caller(ctx.caller))?;
     match operation {
         Operation::List(listing) => render::list(request, path, listing, query, access, ctx).await,
         Operation::Write(write) => {

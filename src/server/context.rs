@@ -3,11 +3,11 @@
 //! Handlers receive these structs instead of long parameter lists, so adding shared
 //! request state changes one definition rather than every signature on the call path.
 
-use super::{ObjectActivity, State, authorize_bucket, await_upload_catalog};
+use super::{ObjectActivity, State, await_upload_catalog, bucket_access};
 use crate::{
     api_error::ApiError,
     auth::{Caller, ListenerRole, signature::Resource},
-    bucket::BucketAccess,
+    bucket::{BucketAccess, CatalogError},
     config::{ApiBaseSource, Config, RequestEndpoints},
     json,
     object::ObjectError,
@@ -187,7 +187,7 @@ impl ObjectCtx<'_> {
         &self,
         permission: crate::auth::Permission,
         bucket: &str,
-    ) -> Result<BucketAccess, ApiError> {
-        authorize_bucket(self.state, self.caller, permission, bucket).await
+    ) -> Result<BucketAccess, CatalogError> {
+        bucket_access(self.state, self.caller, permission, bucket).await
     }
 }

@@ -2,8 +2,8 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    QueryPrecondition, State, ValidatedRead, authorize_bucket, bucket_access, empty_response,
-    json_response_selected, read_metadata_response, require_empty_body,
+    QueryPrecondition, State, ValidatedRead, bucket_access, empty_response, json_response_selected,
+    read_metadata_response, require_empty_body,
 };
 use crate::{
     acl::{AclEntry, AclKind, AclOwner, AclTarget},
@@ -100,7 +100,7 @@ pub(super) async fn respond(
         fields,
     } = operation;
     let acl_access = operation.access();
-    let access = authorize_bucket(
+    let access = bucket_access(
         state,
         caller,
         permission(target.kind(), acl_access),

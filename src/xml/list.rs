@@ -259,7 +259,7 @@ pub(crate) async fn respond(
     let access = ctx
         .authorize(auth::OBJECTS_LIST, &operation.target.bucket)
         .await
-        .map_err(|error| anonymous_error(error, ctx.caller))?;
+        .map_err(|error| Error::from(error).for_caller(ctx.caller))?;
     let params = parse(
         operation.target.bucket.clone(),
         request.uri().query().unwrap_or_default(),

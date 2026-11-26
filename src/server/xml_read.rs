@@ -36,7 +36,7 @@ pub(super) async fn respond(
     let access = ctx
         .authorize(permission, &operation.target.bucket)
         .await
-        .map_err(|error| anonymous_error(error, ctx.caller))?;
+        .map_err(|error| xml::Error::from(error).for_caller(ctx.caller))?;
     let conditions = xml::headers(
         request.headers(),
         if delete {

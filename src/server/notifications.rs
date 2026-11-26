@@ -15,7 +15,7 @@ pub(super) async fn respond(
     state: &State,
     base: &str,
 ) -> Result<Response<Full<Bytes>>, ApiError> {
-    let access = authorize_bucket(
+    let access = bucket_access(
         state,
         caller,
         operation.required_permission(),

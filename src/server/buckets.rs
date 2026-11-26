@@ -5,7 +5,7 @@ use super::RequestBody as Incoming;
 use super::{
     EmptyJsonBody, QueryPrecondition, RESOURCE_BODY_LIMIT, State, ValidatedRead,
     acl::{self, AclSubjects, BucketVersion, Rendered},
-    authorize_bucket, authorize_project, bucket_access, empty_response, json_response_selected,
+    authorize_project, bucket_access, empty_response, json_response_selected,
     read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
 };
 use crate::{
@@ -193,26 +193,26 @@ async fn authorize(
             BucketAccess::Permissive
         }
         BucketRequest::Get { bucket, .. } => {
-            authorize_bucket(state, caller, auth::BUCKETS_GET, bucket).await?
+            bucket_access(state, caller, auth::BUCKETS_GET, bucket).await?
         }
         BucketRequest::Patch { bucket, .. }
         | BucketRequest::Update { bucket, .. }
         | BucketRequest::LockRetentionPolicy { bucket, .. } => {
-            authorize_bucket(state, caller, auth::BUCKETS_UPDATE, bucket).await?
+            bucket_access(state, caller, auth::BUCKETS_UPDATE, bucket).await?
         }
         BucketRequest::Delete { bucket, .. } => {
-            authorize_bucket(state, caller, auth::BUCKETS_DELETE, bucket).await?
+            bucket_access(state, caller, auth::BUCKETS_DELETE, bucket).await?
         }
         BucketRequest::GetIam { bucket } => {
-            authorize_bucket(state, caller, auth::BUCKETS_GET_IAM, bucket).await?
+            bucket_access(state, caller, auth::BUCKETS_GET_IAM, bucket).await?
         }
         BucketRequest::SetIam { bucket } => {
-            authorize_bucket(state, caller, auth::BUCKETS_SET_IAM, bucket).await?
+            bucket_access(state, caller, auth::BUCKETS_SET_IAM, bucket).await?
         }
         BucketRequest::TestIam { .. } => BucketAccess::Permissive,
         // The reference requires `storage.objects.list`, not a `storage.buckets.*` permission.
         BucketRequest::GetStorageLayout { bucket } => {
-            authorize_bucket(state, caller, auth::OBJECTS_LIST, bucket).await?
+            bucket_access(state, caller, auth::OBJECTS_LIST, bucket).await?
         }
         BucketRequest::ListSoftDeleted(params) => {
             authorize_project(caller, auth::BUCKETS_LIST, &params.project)?;

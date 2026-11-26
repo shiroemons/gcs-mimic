@@ -9,7 +9,7 @@ use crate::{
         content_type,
     },
     server::{
-        ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed,
+        ObjectCtx, RequestBody, ResponseBody, boxed,
         copy::{self, CopyBudget, CopyJob},
     },
     storage::DerivedDestination,
@@ -147,13 +147,13 @@ pub(super) async fn respond(
     let access = ctx
         .authorize(auth::OBJECTS_CREATE, &operation.target.bucket)
         .await
-        .map_err(|error| anonymous_error(error, ctx.caller))?;
+        .map_err(|error| Error::from(error).for_caller(ctx.caller))?;
     let source = source(request.headers(), ctx)?;
     let (source_bucket, source_name) = (source.bucket.clone(), source.name.clone());
     let source_access = ctx
         .authorize(auth::OBJECTS_GET, &source.bucket)
         .await
-        .map_err(|error| anonymous_error(error, ctx.caller))?;
+        .map_err(|error| Error::from(error).for_caller(ctx.caller))?;
     let directive = match put::single(request.headers(), "x-goog-metadata-directive")? {
         None | Some("COPY") => MetadataDirective::Copy,
         Some("REPLACE") => MetadataDirective::Replace,

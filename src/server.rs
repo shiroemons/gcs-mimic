@@ -1936,19 +1936,8 @@ pub(crate) fn anonymous_error(error: ApiError, caller: Option<Caller<'_>>) -> Ap
 ///
 /// The returned access must be passed to the catalog operation, which re-validates it against
 /// the owner it observes in its own transaction: the bucket can be deleted and recreated under
-/// another project after this lookup. Permissive mode returns `Unchecked` without catalog
-/// access. Anonymous callers have no project grants and are evaluated against bucket policy.
-pub(crate) async fn authorize_bucket(
-    state: &State,
-    caller: Option<Caller<'_>>,
-    permission: auth::Permission,
-    bucket: &str,
-) -> Result<BucketAccess, ApiError> {
-    Ok(bucket_access(state, caller, permission, bucket).await?)
-}
-
-/// The access `caller` holds for `permission` on `bucket`. The error stays a `CatalogError`,
-/// so a caller that hides a refusal tells it apart with `CatalogError::is_refusal`.
+/// another project after this lookup. Permissive mode skips the catalog. Anonymous callers
+/// have no project grants and are evaluated against bucket policy.
 pub(crate) async fn bucket_access(
     state: &State,
     caller: Option<Caller<'_>>,

@@ -21,7 +21,7 @@ text::layer_dependency	src/config/runtime.rs	3
 text::layer_dependency	src/config_input/options.rs	2
 text::layer_dependency	src/diagnostics.rs	2
 text::layer_dependency	src/grpc/mod.rs	1
-text::layer_dependency	src/grpc/v1/mod.rs	3
+text::layer_dependency	src/grpc/v1/mod.rs	2
 text::layer_dependency	src/grpc/v2/bidi_read/request_refusals.rs	3
 text::layer_dependency	src/grpc/v2/bucket_iam.rs	1
 text::layer_dependency	src/grpc/v2/buckets.rs	1

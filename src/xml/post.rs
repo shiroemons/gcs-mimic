@@ -20,7 +20,7 @@ use crate::{
         ExpectedHashes, MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate,
         ObjectRecord, Patch, UploadChunk, content_type, media_headers::CUSTOM_METADATA_PREFIX,
     },
-    server::{ObjectCtx, RequestCtx, ResponseBody, anonymous_error, boxed},
+    server::{ObjectCtx, RequestCtx, ResponseBody, boxed},
     storage::ObjectUpload,
 };
 use http_body_util::Full;
@@ -706,7 +706,7 @@ pub(crate) async fn respond(
     let access = ctx
         .authorize(auth::OBJECTS_CREATE, &bucket)
         .await
-        .map_err(|error| anonymous_error(error, caller))?;
+        .map_err(|error| Error::from(error).for_caller(caller))?;
     let permit = ctx
         .await_catalog(state.catalog.prepare_object_upload(
             &bucket,

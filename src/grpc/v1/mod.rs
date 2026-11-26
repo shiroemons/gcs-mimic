@@ -60,6 +60,17 @@ pub(crate) fn service(
 /// The path prefix of every legacy v1 method.
 pub(crate) const SERVICE_PREFIX: &str = "/google.storage.v1.Storage/";
 
+fn access_status(error: CatalogError, caller: Option<Caller<'_>>) -> Status {
+    // The legacy API names the denied permission even for an anonymous caller.
+    if matches!(caller, Some(Caller::Anonymous))
+        && let CatalogError::Denied(denied) = &error
+        && denied.is_anonymous()
+    {
+        return Status::unauthenticated(denied.to_string());
+    }
+    crate::grpc::v2::status::anonymous(error.into(), caller)
+}
+
 // Dispatch and forwarding come from one list: a method listed here has a handler, and the
 // generated trait's "Not yet implemented" default can only answer a method that is not.
 macro_rules! legacy_methods {
@@ -335,9 +346,9 @@ impl Storage {
         permission: crate::auth::Permission,
     ) -> Result<BucketAccess, Status> {
         crate::bucket::name::validate_for_profile(bucket, self.compat_profile)?;
-        crate::server::authorize_bucket(&self.state, caller, permission, bucket)
+        crate::server::bucket_access(&self.state, caller, permission, bucket)
             .await
-            .map_err(|e| Status::from(crate::server::anonymous_error(e, caller)))
+            .map_err(|error| access_status(error, caller))
     }
 
     /// The ID of the project `named` names by ID or by number, once the caller may act in it.

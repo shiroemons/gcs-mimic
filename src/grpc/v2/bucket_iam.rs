@@ -4,7 +4,7 @@ use super::{Storage, iam, names, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
-    server::authorize_bucket,
+    server::bucket_access,
 };
 use tonic::{Request, Response, Status};
 
@@ -142,7 +142,7 @@ impl Storage {
             .await?;
         let mut permissions = Vec::new();
         for p in requested {
-            match authorize_bucket(&self.state, caller, p, bucket).await {
+            match bucket_access(&self.state, caller, p, bucket).await {
                 Ok(access)
                     if self
                         .state
@@ -153,7 +153,7 @@ impl Storage {
                     permissions.push(p.as_str().to_owned())
                 }
                 Ok(_) => {}
-                Err(e) if e.status == hyper::StatusCode::FORBIDDEN => {}
+                Err(e) if e.is_refusal() => {}
                 Err(e) => return Err(e.into()),
             }
         }
