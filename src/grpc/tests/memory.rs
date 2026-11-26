@@ -733,6 +733,27 @@ async fn ram_grpc_appendable_and_legacy_share_the_same_catalog_and_readers() {
     .await;
     assert_eq!(code, Code::Ok);
     assert_eq!(objects[0].size, 11);
+    let bad = v1::pb::InsertObjectRequest {
+        object_checksums: Some(v1::pb::ObjectChecksums {
+            crc32c: Some(1),
+            ..Default::default()
+        }),
+        ..insert.clone()
+    };
+    let (status, replies): (_, Vec<v1::pb::Object>) = fixtures::rpc_status(
+        "/google.storage.v1.Storage/InsertObject",
+        Some("admin"),
+        &[bad],
+        async |request| legacy.call(request).await.unwrap(),
+    )
+    .await;
+    assert_eq!(status.code(), Code::InvalidArgument);
+    assert_eq!(
+        status.message(),
+        "Object checksum mismatch; recompute object_checksums"
+    );
+    assert!(status.details().is_empty());
+    assert!(replies.is_empty());
     let (code, _): (_, Vec<v1::pb::Object>) = rpc(
         &mut legacy,
         "/google.storage.v1.Storage/InsertObject",

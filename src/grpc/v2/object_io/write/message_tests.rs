@@ -475,6 +475,30 @@ async fn run_on_objects(storage: &Storage, cases: Vec<Case>) {
 }
 
 #[tokio::test]
+async fn single_shot_object_checksum_mismatches_keep_their_status_details() {
+    let (_dir, storage) = setup(false).await;
+    for rpc in [Rpc::WriteObject, Rpc::Bidi] {
+        for (message, expected) in [
+            (
+                opening("crc", b"abc").crc(1),
+                "Object crc32c mismatch: server computed: '364b3fb7', client provided: '00000001'.",
+            ),
+            (
+                opening("md5", b"abc").md5(16),
+                "Object md5 mismatch: server computed: '900150983cd24fb0d6963f7d28e17f72', client provided: '00000000000000000000000000000000'.",
+            ),
+        ] {
+            let (status, replies) = call(&storage, rpc, &[message.finish()]).await;
+            assert_eq!(status.code(), Code::InvalidArgument);
+            assert_eq!(status.message(), expected);
+            assert!(status.details().is_empty());
+            assert!(replies.is_empty());
+        }
+    }
+    storage.state.catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn grpc_single_shot_write_message_errors() {
     use Code::{InvalidArgument, OutOfRange, ResourceExhausted};
     let (_dir, storage) = setup(false).await;
