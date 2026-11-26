@@ -979,9 +979,13 @@ Checked on rustc 1.100.0 on 2026-11-26.
   changes its logic.
 - **Phase order.** The phases run in the order below.
   - Golden tests come first, so later phases have something to compare against.
-  - Catalog and body I/O come before the large moves, so their diffs stay
-    reviewable.
-  - Type changes come after the catalog API settles.
+  - After Safety nets and Quick wins, the catalog round-trip, body I/O, error
+    model, and types, configuration and rules slices run in parallel. Catalog
+    structure follows.
+  - Run the large module moves in sequence after the parallel slices and
+    catalog structure settle. This avoids conflicts with concurrent edits and
+    moves code whose types and catalog interfaces are already in place. These
+    moves still land before 1.0.0.
 - **Checks.** Every slice runs:
   - `cargo xtask lint`, lowering baselines in the same change;
   - `cargo test -p xtask`;
@@ -1061,23 +1065,6 @@ after job counts.
 | Cause vocabulary | the `cause` module, `Layer`, the classified storage links and removal of their temporary test exceptions, plain `Report` |
 | thiserror conversion | module by module, then `text::error_displays_source` |
 
-### Layers and structure
-
-| Slice | Scope |
-| --- | --- |
-| Foundation moves | `choice`, the RFC 3339 parser, private `fsutil` and `net` |
-| Model value types | `profile`, URL helpers, auth choices, validator callers |
-| JSON-owned rules out of `json` | `Projection`, component counting, fixed metadata, bucket insert parsing, the two JSON round trips, authority helpers |
-| Notification renderer | injected at catalog open |
-| `auth` split and `HmacKeys` | — |
-| `fsutil` per OS | `cfg_select!` inside bodies; `scripts/check-cross.sh` and the portability CI job |
-| `service`, part one | the shared request pieces and `State`; ledger IDs under `server::copy` become `service::copy` |
-| gRPC listener | into `server` |
-| JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |
-| Config documents | the parse half moves to the settings layer |
-| Protobuf crate | generated code in its own crate, with the build measurement |
-| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` listener accessors are public for the startup binary. |
-
 ### Types, configuration and rules
 
 | Slice | Scope |
@@ -1102,12 +1089,29 @@ after job counts.
 | Shutdown | token, tracker, `close`, the `tokio-util` edge |
 | In-process derived state | compose and multi-step copies keep offset and hasher in memory |
 
+### Layers and structure
+
+| Slice | Scope |
+| --- | --- |
+| Foundation moves | `choice`, the RFC 3339 parser, private `fsutil` and `net` |
+| Model value types | `profile`, URL helpers, auth choices, validator callers |
+| JSON-owned rules out of `json` | `Projection`, component counting, fixed metadata, bucket insert parsing, the two JSON round trips, authority helpers |
+| Notification renderer | injected at catalog open |
+| `auth` split and `HmacKeys` | — |
+| `fsutil` per OS | `cfg_select!` inside bodies; `scripts/check-cross.sh` and the portability CI job |
+| `service`, part one | the shared request pieces and `State`; ledger IDs under `server::copy` become `service::copy` |
+| gRPC listener | into `server` |
+| JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |
+| Config documents | the parse half moves to the settings layer |
+| Protobuf crate | generated code in its own crate, with the build measurement |
+| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` listener accessors are public for the startup binary. |
+
 ### Last
 
 | Slice | Scope |
 | --- | --- |
 | Behavior decisions | the owner's choices, with ledger rows, gaps, release note and docs |
-| Test layout | `*_tests.rs` files and directories moved, ledger IDs renamed, the `xtask` check |
+| Test layout | after code moves: `*_tests.rs` files and directories moved, ledger IDs renamed, the `xtask` check |
 | Final verification | full suite, `just check-sdk`, the nine-SDK scorecard |
 
 The release candidate then follows the [release policy](../release-policy.md#the-100-gate).
