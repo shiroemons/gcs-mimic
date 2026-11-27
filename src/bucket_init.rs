@@ -515,16 +515,11 @@ fn entry_ranges(reports: &BTreeMap<usize, EntryReport>) -> String {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "Encoded native resource exceeds 16 MiB; reduce it to at most 16,777,216 bytes after removing project."
+)]
 struct ResourceSizeError;
-
-impl std::fmt::Display for ResourceSizeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Encoded native resource exceeds 16 MiB; reduce it to at most 16,777,216 bytes after removing project.")
-    }
-}
-
-impl std::error::Error for ResourceSizeError {}
 
 fn check_resource_size(bytes: &[u8]) -> Result<(), ResourceSizeError> {
     if bytes.len() > ENTRY_LIMIT {
@@ -3561,4 +3556,15 @@ mod tests {
             assert!(load(&fifo, "seed-project", &fixed_clock(), "US").is_err());
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = ResourceSizeError;
+    assert_eq!(
+        error.to_string(),
+        "Encoded native resource exceeds 16 MiB; reduce it to at most 16,777,216 bytes after removing project."
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }

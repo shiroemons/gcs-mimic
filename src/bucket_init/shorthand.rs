@@ -8,7 +8,7 @@ use std::{borrow::Cow, collections::BTreeSet};
 
 /// Why a `buckets` value is neither a document nor a list of valid bucket names. Each names a
 /// one-based position rather than the value, as the document's diagnostics name paths.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum ShorthandError {
     InvalidName { position: usize },
     RepeatedName { position: usize },
@@ -29,8 +29,6 @@ impl std::fmt::Display for ShorthandError {
         }
     }
 }
-
-impl std::error::Error for ShorthandError {}
 
 /// The document that the `buckets` setting's `value` supplies: `value` itself when it is a
 /// document, or else the canonical document its names stand for. The document's own checks then

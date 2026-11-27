@@ -23,34 +23,18 @@ const PUBLIC_ACCESS_FIX: &str = "Public access prevention is enforced for this b
 const PROJECT_FIX: &str = "Existing bucket ownership is retained; align or remove this entry, or choose another bucket name, for example local-assets.";
 
 /// Why a run stopped before it changed anything.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(super) enum PlanError {
-    Admin(AdminError),
+    #[error("bucket initialization stopped by a catalog failure")]
+    Admin(#[source] AdminError),
     /// The file asks for something the stored state refuses; the diagnostics name each entry.
-    Rejected(Diagnostics),
+    #[error("bucket initialization refused by stored state")]
+    Rejected(#[source] Diagnostics),
 }
 
 impl From<AdminError> for PlanError {
     fn from(error: AdminError) -> Self {
         Self::Admin(error)
-    }
-}
-
-impl std::fmt::Display for PlanError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Admin(_) => "bucket initialization stopped by a catalog failure",
-            Self::Rejected(_) => "bucket initialization refused by stored state",
-        })
-    }
-}
-
-impl std::error::Error for PlanError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Admin(error) => Some(error),
-            Self::Rejected(diagnostics) => Some(diagnostics),
-        }
     }
 }
 

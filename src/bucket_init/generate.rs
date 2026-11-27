@@ -790,6 +790,7 @@ pub enum GenerateError {
     Encode(serde_json::Error),
 }
 
+// Rejected exposes the Diagnostics it displays. Keep that public contract until Public facade.
 impl std::fmt::Display for GenerateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -869,3 +870,15 @@ impl std::error::Error for GenerateError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = GenerateError::Rejected(Diagnostics::default());
+    assert_eq!(error.to_string(), "");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<Diagnostics>()
+    );
+}
