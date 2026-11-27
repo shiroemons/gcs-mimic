@@ -330,8 +330,8 @@ pub(crate) fn bare_object_record() -> ObjectRecord {
     ObjectRecord {
         bucket: "bucket".into(),
         name: "bare.txt".into(),
-        generation: 1_700_000_000_123_456_i64.try_into().unwrap(),
-        metageneration: 1_i64.try_into().unwrap(),
+        generation: crate::object::Generation::for_test(1_700_000_000_123_456),
+        metageneration: crate::object::Metageneration::for_test(1),
         owner: None,
         content_type: "application/octet-stream".into(),
         content_encoding: None,
@@ -370,8 +370,8 @@ pub(crate) fn populated_object_record() -> ObjectRecord {
     ObjectRecord {
         bucket: "bucket".into(),
         name: "folder/full object.txt".into(),
-        generation: 1_700_000_000_123_456_i64.try_into().unwrap(),
-        metageneration: 3_i64.try_into().unwrap(),
+        generation: crate::object::Generation::for_test(1_700_000_000_123_456),
+        metageneration: crate::object::Metageneration::for_test(3),
         owner: Some(ObjectOwner::Principal {
             id: "uploader".into(),
             entity: Some("user-uploader@example.test".parse().unwrap()),

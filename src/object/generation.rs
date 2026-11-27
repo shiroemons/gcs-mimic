@@ -18,6 +18,11 @@ macro_rules! positive_revision {
             $visibility fn get(self) -> i64 {
                 self.0.get()
             }
+
+            #[cfg(test)]
+            pub(crate) fn for_test(value: i64) -> Self {
+                Self::try_from(value).unwrap()
+            }
         }
 
         impl TryFrom<i64> for $revision {
@@ -57,6 +62,7 @@ positive_revision! {
 }
 
 impl Metageneration {
+    // The smallest nonzero unsigned value is 1, which can be cast to signed in a constant.
     pub(crate) const INITIAL: Self = Self(NonZeroU64::MIN.cast_signed());
 
     pub(crate) fn checked_next(self) -> Option<Self> {

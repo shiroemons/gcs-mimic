@@ -1034,6 +1034,11 @@ try_from = "i64")]`.
   default of 0 after backfilling existing rows. Live and soft-deleted bucket
   metagenerations also have no positivity constraint. Keep reading the signed
   values from those columns so existing data directories can still be read.
+  The public Rust fields `ObjectRecord::generation` and
+  `ObjectRecord::metageneration` now use `Generation` and `Metageneration`,
+  respectively. `object` newly exposes `Metageneration` and
+  `InvalidMetageneration` and re-exports `Generation` and `InvalidGeneration`,
+  which are also available through `storage::admin`.
 - **Custom time.** `CustomTime { text, instant }` is parsed once, ordered by
   instant and rendered as its text. It replaces four re-parses.
   - Text that cannot be parsed keeps its spelling with an empty
@@ -1310,7 +1315,7 @@ after job counts.
 | JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |
 | Config documents | the parse half moves to the settings layer |
 | Protobuf crate | generated code in its own crate, with the build measurement |
-| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` listener accessors are public for the startup binary. |
+| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` listener accessors are public for the startup binary. Review consolidating the public paths to `Generation` and `InvalidGeneration`. |
 
 ### Last
 

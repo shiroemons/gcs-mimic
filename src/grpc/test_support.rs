@@ -14,8 +14,8 @@ pub(super) fn object_record(
     crate::object::ObjectRecord {
         bucket: bucket.into(),
         name: "folder/%2F.txt".into(),
-        generation: 42_i64.try_into().unwrap(),
-        metageneration: 2_i64.try_into().unwrap(),
+        generation: crate::object::Generation::for_test(42),
+        metageneration: crate::object::Metageneration::for_test(2),
         content_type: "text/plain".into(),
         content_encoding: Some("gzip".into()),
         content_language: Some("en".into()),

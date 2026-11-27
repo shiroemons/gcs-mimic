@@ -1012,12 +1012,12 @@ impl Catalog {
                 })
                 .transpose()?;
             let micros = unix_micros(clock.now())?;
-            state.metageneration = state
-                .metageneration
-                .checked_add(1)
-                .ok_or_else(|| unavailable("metageneration exhausted"))?;
             match loaded {
                 Loaded::Bucket(scope) => {
+                    state.metageneration = state
+                        .metageneration
+                        .checked_add(1)
+                        .ok_or_else(|| unavailable("metageneration exhausted"))?;
                     if scope == BucketScope::Bucket {
                         bucket_policy::replace_policy(&transaction, bucket, &state.entries, principals.as_ref())?;
                     }
@@ -1028,13 +1028,15 @@ impl Catalog {
                         .map_err(unavailable)?;
                 }
                 Loaded::Object(mut record) => {
+                    let next = record.metageneration.checked_next()
+                        .ok_or_else(|| unavailable("metageneration exhausted"))?;
                     sql::exec(&transaction, UPSERT_OBJECT_ENTRIES, params![bucket, record.name, record.generation, entries])
                         .map_err(unavailable)?;
                     sql::exec(&transaction,
-                            "UPDATE objects SET metageneration = ?4, updated = ?5 WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![bucket, record.name, record.generation, state.metageneration, micros])
+                            "UPDATE objects SET metageneration = ?4, updated = ?5 WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![bucket, record.name, record.generation, next, micros])
                         .map_err(unavailable)?;
-                    record.metageneration = crate::object::Metageneration::try_from(state.metageneration)
-                        .map_err(|_| unavailable("metageneration exhausted"))?;
+                    record.metageneration = next;
+                    state.metageneration = next.get();
                     record.updated = super::system_time_micros(micros).map_err(unavailable)?;
                     notification_outbox::metadata_updated(
                         &transaction,

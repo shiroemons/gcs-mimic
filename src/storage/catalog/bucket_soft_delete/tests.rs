@@ -34,6 +34,13 @@ async fn legacy_bucket_revisions_remain_readable_after_reopen() {
     for name in ["legacy-zero", "legacy-negative"] {
         catalog.insert_bucket(record(name)).await.unwrap();
     }
+    let retired = ["retired-zero", "retired-negative"];
+    let mut generations = Vec::new();
+    for name in retired {
+        catalog.insert_bucket(record(name)).await.unwrap();
+        generations.push(set_retention(&catalog, name, 7 * DAY).await.generation());
+        delete(&catalog, name).await.unwrap();
+    }
     catalog.close().await.unwrap();
 
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
@@ -43,7 +50,9 @@ async fn legacy_bucket_revisions_remain_readable_after_reopen() {
              SET generation = (SELECT dflt_value FROM pragma_table_info('buckets')
                                WHERE name = 'generation'), metageneration = 0
              WHERE name = 'legacy-zero';
-             UPDATE buckets SET metageneration = -3 WHERE name = 'legacy-negative';",
+             UPDATE buckets SET metageneration = -3 WHERE name = 'legacy-negative';
+             UPDATE soft_deleted_buckets SET metageneration = 0 WHERE name = 'retired-zero';
+             UPDATE soft_deleted_buckets SET metageneration = -3 WHERE name = 'retired-negative';",
         )
         .unwrap();
     drop(connection);
@@ -62,6 +71,28 @@ async fn legacy_bucket_revisions_remain_readable_after_reopen() {
     assert_eq!(zero.generation, Some(0));
     assert_eq!(zero.metageneration, 0);
     assert_eq!(negative.metageneration, -3);
+    let json =
+        crate::json::bucket_resource(&zero, "http://localhost", crate::json::Projection::NoAcl)
+            .unwrap();
+    assert_eq!(json["generation"], "0");
+    let page = catalog
+        .list_soft_deleted_buckets("project", "", None, 10)
+        .await
+        .unwrap();
+    assert_eq!(page.items.len(), 2);
+    for ((name, generation), expected) in retired.into_iter().zip(generations).zip([0, -3]) {
+        let deleted = catalog
+            .get_soft_deleted_bucket(name, generation, PERMISSIVE)
+            .await
+            .unwrap();
+        assert_eq!(deleted.record.metageneration, expected);
+        assert!(page.items.contains(&deleted));
+        let restored = catalog
+            .restore_bucket(name, generation, PERMISSIVE)
+            .await
+            .unwrap();
+        assert_eq!(restored.metageneration, expected);
+    }
     catalog.close().await.unwrap();
 }
 

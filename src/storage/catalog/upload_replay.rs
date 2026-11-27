@@ -911,7 +911,11 @@ mod tests {
             owner: None,
         }
         .record(
-            crate::object::ObjectTarget::new("bucket", "object", 1_i64.try_into().unwrap()),
+            crate::object::ObjectTarget::new(
+                "bucket",
+                "object",
+                crate::object::Generation::for_test(1),
+            ),
             "text/plain".into(),
             0,
             crate::hashing::Hashes {

@@ -127,8 +127,8 @@ pub(crate) fn record() -> ObjectRecord {
     ObjectRecord {
         bucket: "test-bucket".to_owned(),
         name: "dir/猫 %2F?#".to_owned(),
-        generation: 9_007_199_254_740_993_i64.try_into().unwrap(),
-        metageneration: 2_i64.try_into().unwrap(),
+        generation: crate::object::Generation::for_test(9_007_199_254_740_993),
+        metageneration: crate::object::Metageneration::for_test(2),
         content_type: "text/plain; charset=utf-8".to_owned(),
         size: 5,
         md5: [0; 16],

@@ -1602,7 +1602,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
     let original_paths = blobs(&dir.0);
     let original = ObjectRecord {
         name: "metadata".into(),
-        generation: 1234567_i64.try_into().unwrap(),
+        generation: crate::object::Generation::for_test(1234567),
         content_type: "application/test".into(),
         size: 9,
         md5,

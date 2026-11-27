@@ -549,8 +549,8 @@ fn cached(name: &str, file: Option<Arc<File>>) -> CachedObject {
         record: ObjectRecord {
             bucket: "bucket".to_owned(),
             name: name.to_owned(),
-            generation: 1_i64.try_into().unwrap(),
-            metageneration: 1_i64.try_into().unwrap(),
+            generation: crate::object::Generation::for_test(1),
+            metageneration: crate::object::Metageneration::for_test(1),
             owner: None,
             content_type: "image/jpeg".to_owned(),
             content_encoding: None,
