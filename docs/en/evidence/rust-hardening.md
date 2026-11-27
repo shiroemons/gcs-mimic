@@ -209,14 +209,17 @@ alone and a run of its whole `it_protocol` binary, and the repeated
 ## Foundation moves, 2026-11-28
 
 `just check` passed on the source that parses RFC 3339 text in `time_format`
-instead of `import::codec`. Its Rust lane passed 4,190 tests with the same
+instead of `import::codec`. Its Rust lane passed 4,191 tests with the same
 Pub/Sub case ignored. The production gate counted zero new violations, 69
 ratcheted findings and nine reasoned suppressions on the host, after the
 `src/object.rs` layer finding left the baseline, and zero new Clippy
 violations for the three other targets. The ledger check validated 611
 feature rows.
 
-The parser's tests passed from `time_format`, and the import codec tests that
-parse bucket, retention and custom times passed unchanged. A new codec test
-confirmed that the Go zero time still reads as unset and that names still
-escape as Go's `PathEscape` does.
+The parser's tests passed from `time_format`. The import codec tests that
+parse bucket, retention and custom times passed with import's own timestamp
+failures as codec error kinds, and the platform range failure kept its text
+and cause. Two new codec tests confirmed that the Go zero time still reads as
+unset and that names still escape as Go's `PathEscape` does. A Clippy probe
+added to the parser module and then removed confirmed that the module rejects
+`unwrap` and `expect`.
