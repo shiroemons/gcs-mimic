@@ -4,7 +4,6 @@
 
 use std::{
     collections::{BTreeMap, btree_map::Entry},
-    fmt,
     sync::OnceLock,
 };
 
@@ -56,8 +55,8 @@ pub(crate) static EMPTY_REQUEST_URI: std::sync::LazyLock<RequestUri> =
     std::sync::LazyLock::new(RequestUri::default);
 
 #[cfg(test)]
-impl fmt::Display for RequestUri {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for RequestUri {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.uri.fmt(formatter)
     }
 }
@@ -85,16 +84,9 @@ pub(crate) enum Decoding {
 
 /// A component whose `%` escapes are incomplete or not hexadecimal, or whose bytes are not
 /// UTF-8.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("Malformed URI encoding")]
 pub(crate) struct MalformedEncoding;
-
-impl fmt::Display for MalformedEncoding {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("Malformed URI encoding")
-    }
-}
-
-impl std::error::Error for MalformedEncoding {}
 
 pub(crate) fn decode(raw: &str, decoding: Decoding) -> Result<String, MalformedEncoding> {
     let bytes = decode_bytes(raw, decoding).map_err(|_| MalformedEncoding)?;
@@ -124,32 +116,16 @@ pub(crate) fn decode_bytes(raw: &str, decoding: Decoding) -> Result<Vec<u8>, Mal
 }
 
 /// Why a query string was refused.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum QueryError {
     /// The query is longer than [`MAX_QUERY_BYTES`].
+    #[error("Query exceeds 16 KiB")]
     TooLong,
     /// The query names this parameter more than once.
+    #[error("Duplicate query parameter: {0}")]
     Duplicate(String),
+    #[error(transparent)]
     Malformed(MalformedEncoding),
-}
-
-impl fmt::Display for QueryError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooLong => formatter.write_str("Query exceeds 16 KiB"),
-            Self::Duplicate(key) => write!(formatter, "Duplicate query parameter: {key}"),
-            Self::Malformed(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for QueryError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Malformed(error) => error.source(),
-            Self::TooLong | Self::Duplicate(_) => None,
-        }
-    }
 }
 
 impl From<MalformedEncoding> for QueryError {
@@ -284,5 +260,26 @@ mod tests {
             parse_query("a=%G").unwrap_err().to_string(),
             "Malformed URI encoding"
         );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let cases: &[(&dyn std::error::Error, &str)] = &[
+        (&MalformedEncoding, "Malformed URI encoding"),
+        (&QueryError::TooLong, "Query exceeds 16 KiB"),
+        (
+            &QueryError::Duplicate("key".into()),
+            "Duplicate query parameter: key",
+        ),
+        (
+            &QueryError::Malformed(MalformedEncoding),
+            "Malformed URI encoding",
+        ),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.to_string(), *expected);
+        assert!(error.source().is_none());
     }
 }
