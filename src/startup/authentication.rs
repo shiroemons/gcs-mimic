@@ -4,11 +4,12 @@ use gcs_mimic::{
     bucket::CatalogError,
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
 };
-use std::{error::Error, fmt};
+use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) struct Failure {
     diagnostics: Diagnostics,
+    #[source]
     cause: CatalogError,
     cleanup: Option<CatalogError>,
 }
@@ -46,11 +47,5 @@ impl fmt::Display for Failure {
             write!(formatter, "; catalog close failed: {cleanup}")?;
         }
         Ok(())
-    }
-}
-
-impl Error for Failure {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(&self.cause)
     }
 }
