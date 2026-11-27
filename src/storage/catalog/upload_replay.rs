@@ -2,7 +2,7 @@ use super::{Catalog, UploadGuard, objects, unix_micros};
 use crate::storage::catalog::{Incarnation, bucket_incarnation, connection::SerializedRead, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
-    object::{ObjectConditions, ObjectError, ObjectRecord},
+    object::{ObjectConditions, ObjectError, ObjectKey, ObjectRecord},
 };
 use ring::digest::{SHA256, digest};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -57,6 +57,12 @@ pub(super) struct CopySource {
     generation: i64,
 }
 
+impl CopySource {
+    fn key(&self) -> ObjectKey<'_> {
+        ObjectKey::from_parts_unchecked(&self.bucket, &self.name)
+    }
+}
+
 /// How many completions a retry can get back. This is a window over recent uploads, not a quota:
 /// a full table makes room by dropping its oldest record, see [`make_room`].
 const CAPACITY: i64 = 4096;
@@ -88,6 +94,12 @@ pub(crate) struct CopyReplaySource<'a> {
     pub(crate) name: &'a str,
     pub(crate) generation: Option<i64>,
     pub(crate) access: &'a BucketAccess,
+}
+
+impl<'a> CopyReplaySource<'a> {
+    fn key(self) -> ObjectKey<'a> {
+        ObjectKey::from_parts_unchecked(self.bucket, self.name)
+    }
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
@@ -229,7 +241,7 @@ impl CopyReplay {
             {
                 objects::authorize_generation(
                     connection,
-                    crate::object::ObjectKey::from_parts_unchecked(&source.bucket, &source.name),
+                    source.key(),
                     source.generation,
                     &self.source_access,
                 )?;
@@ -458,21 +470,13 @@ fn copy_source_generation(
         }
         None => match source.generation {
             Some(generation) => generation,
-            None => match objects::lookup(
-                connection,
-                crate::object::ObjectKey::from_parts_unchecked(source.bucket, source.name),
-            )? {
+            None => match objects::lookup(connection, source.key())? {
                 Some(stored) => stored.record.generation.get(),
                 None => return Err(check.refusal()),
             },
         },
     };
-    objects::authorize_generation(
-        connection,
-        crate::object::ObjectKey::from_parts_unchecked(source.bucket, source.name),
-        generation,
-        source.access,
-    )?;
+    objects::authorize_generation(connection, source.key(), generation, source.access)?;
     Ok(Some(generation))
 }
 
@@ -573,7 +577,7 @@ impl Catalog {
                 UploadCheck::Bucket => self.check_upload_bucket(bucket, access).await,
                 UploadCheck::Object { name, conditions } => {
                     self.check_upload(
-                        crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+                        ObjectKey::from_parts_unchecked(bucket, name),
                         conditions,
                         access,
                     )
@@ -646,10 +650,8 @@ impl Catalog {
             if replay.cached(&snapshot, now)?.is_none()
                 && let Some((name, conditions)) = &object
             {
-                let previous = objects::lookup(
-                    &snapshot,
-                    crate::object::ObjectKey::from_parts_unchecked(&bucket, name),
-                )?;
+                let previous =
+                    objects::lookup(&snapshot, ObjectKey::from_parts_unchecked(&bucket, name))?;
                 objects::check_publication(
                     previous.as_ref(),
                     *conditions,

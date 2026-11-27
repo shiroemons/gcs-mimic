@@ -310,7 +310,7 @@ impl Catalog {
             .reads
             .cache
             .read()
-            .object(&target.bucket, &target.name)
+            .object(target.bucket.as_str(), &target.name)
             .cloned()
     }
 

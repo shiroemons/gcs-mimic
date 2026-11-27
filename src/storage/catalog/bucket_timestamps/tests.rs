@@ -1,4 +1,5 @@
 use super::*;
+use crate::bucket::name::BucketKey;
 use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{storage::Catalog, test_support::TestDir};
 
@@ -26,7 +27,7 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
         };
     catalog
         .run(move |connection| {
-            let key = crate::bucket::name::BucketKey::from_unchecked("time-bucket");
+            let key = BucketKey::from_unchecked("time-bucket");
             let mut record = super::super::select_bucket(connection, key)
                 .map_err(unavailable)?
                 .unwrap();
@@ -102,7 +103,7 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
         // Restore a nonzero remainder so each independent writer proves it clears stale precision.
         catalog
             .run(move |connection| {
-                let key = crate::bucket::name::BucketKey::from_unchecked("time-bucket");
+                let key = BucketKey::from_unchecked("time-bucket");
                 let mut record = super::super::select_bucket(connection, key)
                     .map_err(unavailable)?
                     .unwrap();

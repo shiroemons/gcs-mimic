@@ -4,6 +4,7 @@ use super::*;
 use crate::bucket::BucketAccess;
 use crate::grpc::v2::{routing::Admitted, stored};
 use crate::hashing::Hashes;
+use crate::object::ObjectKey;
 use crate::storage::{ChunkEnd, ChunkWait, SessionLease, Written};
 use bytes::{Buf, Bytes, BytesMut};
 
@@ -95,7 +96,7 @@ impl Storage {
             .state
             .catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                ObjectKey::from_parts_unchecked(&bucket, &name),
                 options,
                 total,
             )
@@ -205,11 +206,7 @@ impl Storage {
         let session = &lease.session;
         self.state
             .catalog
-            .check_upload(
-                crate::object::ObjectKey::from_parts_unchecked(&session.bucket, &session.name),
-                options.conditions,
-                &options.access,
-            )
+            .check_upload(session.key(), options.conditions, &options.access)
             .await
             .map_err(object_status)?;
         if end.finishes() {

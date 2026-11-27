@@ -1045,9 +1045,11 @@ time its original text, completions the same TEXT. JSON in TEXT columns keeps
 its bytes through `#[serde(transparent)]` and `#[serde(into = "i64",
 try_from = "i64")]`.
 
-- **Buckets.** `BucketKey<String>` is the stored bucket name, never
-  re-validated when read. `AdmittedBucket` is a request's name, admitted under
-  the server's compatibility profile; `BucketName` converts into it.
+- **Buckets.** `BucketKey<String>` stores the exact name. Adapters use
+  `BucketKey::for_profile` at the existing validation points and
+  `BucketKey::from_unchecked` for stored names and legacy routes that bypass
+  validation. Both paths produce a catalog identity, so a separate admission
+  wrapper would be discarded at construction.
 - **Objects.** `ObjectKey<'a>` groups a `BucketKey<&'a str>` and an object name.
   This can borrow the strings on public bucket and object records directly.
   `ObjectTarget` owns the names and carries the generation selection.

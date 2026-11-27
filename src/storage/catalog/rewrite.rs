@@ -7,6 +7,7 @@ use super::{
     rewrite_token::RewriteToken,
     session_limits::{MAX_TRIMMED_AT_ONCE, finished_excess},
 };
+use crate::bucket::name::BucketKey;
 use crate::cause::BackendFailure;
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
@@ -85,7 +86,7 @@ fn check_continuation(
         )?;
         super::objects::authorized_bucket(
             connection,
-            &session.binding.destination.bucket,
+            session.binding.destination.bucket.as_str(),
             access.1,
         )?;
         Ok(None)
@@ -591,8 +592,9 @@ fn check_incarnations(
     connection: &Connection,
     session: &RewriteSession,
 ) -> Result<(), ObjectError> {
-    if incarnation(connection, &session.binding.source.bucket)? != session.source_incarnation
-        || incarnation(connection, &session.binding.destination.bucket)?
+    if incarnation(connection, session.binding.source.bucket.as_str())?
+        != session.source_incarnation
+        || incarnation(connection, session.binding.destination.bucket.as_str())?
             != session.destination_incarnation
     {
         return Err(ObjectError::PreconditionFailed);
@@ -641,7 +643,7 @@ impl Catalog {
                 &access,
                 clock.now(),
             )?;
-            let source_key = crate::bucket::name::BucketKey::from_unchecked(source.as_str());
+            let source_key = BucketKey::from_unchecked(source.as_str());
             let Some(from) = super::buckets::select_bucket(&snapshot, source_key)? else {
                 return Ok(None);
             };
@@ -651,7 +653,7 @@ impl Catalog {
                 access: access.clone(),
                 conditions,
                 source: incarnation(&snapshot, &source)?,
-                destination: incarnation(&snapshot, &destination.bucket)?,
+                destination: incarnation(&snapshot, destination.bucket.as_str())?,
                 same_location: from.location == to.location,
                 destination_class: to.storage_class,
             }))
@@ -668,7 +670,7 @@ impl Catalog {
     ) -> Result<(RewriteToken, super::derived::DerivedRequestGuard), RewriteError> {
         let buckets = self
             .rewrite_buckets(
-                &start.binding.source.bucket,
+                start.binding.source.bucket.as_str(),
                 &start.binding.destination,
                 start.destination.conditions,
                 &start.destination.access,
@@ -918,7 +920,7 @@ impl Catalog {
                 return Err(ObjectError::DerivedTransferNotFound);
             }
             // Mid-copy source changes invalidate the same session as the guarded pre-check.
-            if incarnation(&transaction, &session.binding.source.bucket)? != session.source_incarnation {
+            if incarnation(&transaction, session.binding.source.bucket.as_str())? != session.source_incarnation {
                 return Err(ObjectError::PreconditionFailed);
             }
             check_source_generation(&transaction, &session, &source_access)?;
@@ -1194,8 +1196,7 @@ mod tests {
             ("remote", None, NonZeroU64::new(2)),
         ] {
             let (segment, mut start) = start_request(&catalog).await;
-            start.binding.destination.bucket =
-                crate::bucket::name::BucketKey::from_unchecked(bucket.into());
+            start.binding.destination.bucket = BucketKey::from_unchecked(bucket.into());
             start.destination.bucket = bucket.into();
             let buckets = catalog
                 .rewrite_buckets(
@@ -1399,8 +1400,7 @@ mod tests {
                 .await
                 .unwrap();
             let (segment, mut start) = start_request(&catalog).await;
-            start.binding.destination.bucket =
-                crate::bucket::name::BucketKey::from_unchecked(name.into());
+            start.binding.destination.bucket = BucketKey::from_unchecked(name.into());
             start.destination.bucket = name.into();
             if !recreate {
                 start.destination.access = grant_create(&catalog, name).await;

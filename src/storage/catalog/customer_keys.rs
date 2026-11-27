@@ -12,6 +12,8 @@ use super::{
     read_cache::{self, CachedObject},
     read_pool::ReadPath,
 };
+#[cfg(test)]
+use crate::object::ObjectKey;
 use crate::{
     bucket::BucketAccess,
     csek::{CustomerKey, StoredHashes, check_data},
@@ -166,7 +168,7 @@ mod tests {
         let body = body(vec![bytes::Bytes::from_static(b"secret")]);
         let permit = catalog
             .prepare_object_upload(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", name),
+                ObjectKey::from_parts_unchecked("bucket", name),
                 Default::default(),
                 PERMISSIVE,
             )
@@ -175,7 +177,7 @@ mod tests {
         catalog
             .put_object_prechecked(
                 crate::storage::ObjectUpload {
-                    key: crate::object::ObjectKey::from_parts_unchecked("bucket", name),
+                    key: ObjectKey::from_parts_unchecked("bucket", name),
                     content_type: "text/plain".into(),
                     expected: Default::default(),
                     conditions: Default::default(),

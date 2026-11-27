@@ -1,5 +1,6 @@
 use super::*;
 use crate::clock::ManualClock;
+use crate::object::ObjectKey;
 use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
 use crate::{
     json::{self, Projection},
@@ -334,7 +335,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
         };
         let session = catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked("timestamp-bucket", "resumable"),
+                ObjectKey::from_parts_unchecked("timestamp-bucket", "resumable"),
                 options.clone(),
                 Some(1),
             )
@@ -466,7 +467,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
         };
         let session = catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked("timestamp-bucket", "resumable"),
+                ObjectKey::from_parts_unchecked("timestamp-bucket", "resumable"),
                 options.clone(),
                 Some(1),
             )
@@ -614,7 +615,7 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
         .unwrap();
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("timestamp-0", "pending"),
+            ObjectKey::from_parts_unchecked("timestamp-0", "pending"),
             ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
             Some(1),
         )

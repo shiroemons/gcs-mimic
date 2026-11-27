@@ -33,7 +33,7 @@ async fn copy(
 async fn resumable_replace(catalog: &Catalog, name: &str) {
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", name),
+            ObjectKey::from_parts_unchecked("bucket", name),
             ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -345,7 +345,7 @@ async fn copy_selects_only_finalized_appendable_bytes() {
     let (catalog, path) = setup().await;
     let mut writer = catalog
         .create_appendable(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
+            ObjectKey::from_parts_unchecked("bucket", "source"),
             ResumableOptions::new(BucketAccess::Permissive),
         )
         .await

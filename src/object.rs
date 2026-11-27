@@ -650,6 +650,10 @@ impl<'a> ObjectKey<'a> {
     pub(crate) fn bucket(self) -> BucketKey<&'a str> {
         self.bucket
     }
+
+    pub(crate) fn name(self) -> &'a str {
+        self.name
+    }
 }
 
 /// The object version a catalog call addresses: optional for live selection, concrete

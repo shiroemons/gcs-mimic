@@ -19,7 +19,7 @@ async fn readable_selection_survives_appendable_finalization() {
             .state
             .catalog
             .create_appendable(
-                crate::object::ObjectKey::from_parts_unchecked("grpc-append", &name),
+                ObjectKey::from_parts_unchecked("grpc-append", &name),
                 crate::storage::ResumableOptions::new(BucketAccess::Permissive),
             )
             .await
@@ -408,7 +408,7 @@ async fn append_refuses_an_invalid_opening_message_before_creating_or_taking_ove
         .state
         .catalog
         .create_appendable(
-            crate::object::ObjectKey::from_parts_unchecked("grpc-append", "held"),
+            ObjectKey::from_parts_unchecked("grpc-append", "held"),
             crate::storage::ResumableOptions::new(BucketAccess::Permissive),
         )
         .await
@@ -453,7 +453,7 @@ async fn append_checks_an_opening_offset_after_the_takeover() {
         .state
         .catalog
         .create_appendable(
-            crate::object::ObjectKey::from_parts_unchecked("grpc-append", "gapped"),
+            ObjectKey::from_parts_unchecked("grpc-append", "gapped"),
             crate::storage::ResumableOptions::new(BucketAccess::Permissive),
         )
         .await
@@ -525,7 +525,7 @@ async fn append_takeover_supersedes_the_previous_writer() {
     options.content_type = "text/plain".into();
     let mut first = catalog
         .create_appendable(
-            crate::object::ObjectKey::from_parts_unchecked("grpc-append", "single"),
+            ObjectKey::from_parts_unchecked("grpc-append", "single"),
             options,
         )
         .await

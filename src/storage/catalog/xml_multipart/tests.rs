@@ -1,5 +1,6 @@
 use super::super::fault::{Fault, Step};
 use super::*;
+use crate::object::ObjectKey;
 use crate::storage::catalog::read_pool::tests::assert_point_read;
 use crate::storage::test_fixtures::{PERMISSIVE, body, live, permissive_upload, read_all};
 use crate::{
@@ -71,7 +72,7 @@ pub(super) async fn begin(catalog: &Catalog) -> Target {
     };
     catalog
         .begin_xml_multipart(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "value"),
+            ObjectKey::from_parts_unchecked("bucket", "value"),
             options,
             BucketAccess::Permissive,
         )
@@ -92,7 +93,7 @@ async fn upload_listing_resumes_after_its_key_and_upload_id_markers() {
         };
         let target = catalog
             .begin_xml_multipart(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", name),
+                ObjectKey::from_parts_unchecked("bucket", name),
                 options,
                 BucketAccess::Permissive,
             )

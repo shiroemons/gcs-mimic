@@ -1,5 +1,7 @@
 use super::{Catalog, CatalogError, Work, unavailable};
 use crate::cause::BackendFailure;
+#[cfg(test)]
+use crate::object::ObjectKey;
 use crate::storage::catalog::Activity;
 use crate::storage::{blob_id::BlobId, catalog::session_limits::WriterWait};
 use std::{
@@ -648,7 +650,7 @@ mod tests {
             .unwrap();
         let session = catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                ObjectKey::from_parts_unchecked("bucket", "object"),
                 ResumableOptions::new(BucketAccess::Permissive),
                 None,
             )

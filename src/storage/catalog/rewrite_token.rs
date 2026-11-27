@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::bucket::name::BucketKey;
 use crate::object::ObjectTarget;
 use serde_json::{Map, Value};
 
@@ -126,15 +128,9 @@ mod tests {
             assert!(!binding.accepts(&names, &changed, None), "{key}");
         }
         let edits: [fn(&mut RewriteNames); 4] = [
-            |names| {
-                names.source.bucket =
-                    crate::bucket::name::BucketKey::from_unchecked("different".into())
-            },
+            |names| names.source.bucket = BucketKey::from_unchecked("different".into()),
             |names| names.source.name = "different".into(),
-            |names| {
-                names.destination.bucket =
-                    crate::bucket::name::BucketKey::from_unchecked("different".into())
-            },
+            |names| names.destination.bucket = BucketKey::from_unchecked("different".into()),
             |names| names.destination.name = "different".into(),
         ];
         for edit in edits {

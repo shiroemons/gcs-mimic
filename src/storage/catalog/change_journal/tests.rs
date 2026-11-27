@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use crate::storage::catalog::{BucketAccess, Catalog};
 use crate::storage::test_fixtures::{PERMISSIVE, body, live, publication};
 use crate::{
@@ -98,7 +99,7 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
     let policy = catalog.get_policy("test-bucket", PERMISSIVE).await.unwrap();
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("test-bucket", "pending"),
+            ObjectKey::from_parts_unchecked("test-bucket", "pending"),
             ResumableOptions::new(BucketAccess::Permissive),
             Some(4),
         )

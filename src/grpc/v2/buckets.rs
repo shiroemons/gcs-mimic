@@ -6,6 +6,8 @@ use super::{
 };
 use crate::auth::Caller;
 use crate::bucket::{BucketConditions, CatalogError, name::MAX_BUCKET_NAME_BYTES};
+#[cfg(test)]
+use crate::object::ObjectKey;
 use serde_json::{Map, Value, json};
 use tonic::{Request, Response, Status};
 
@@ -1338,7 +1340,7 @@ mod tests {
         }
         catalog
             .begin_xml_multipart(
-                crate::object::ObjectKey::from_parts_unchecked("multipart-only", "parts"),
+                ObjectKey::from_parts_unchecked("multipart-only", "parts"),
                 crate::storage::xml_multipart::Options {
                     content_type: "text/plain".into(),
                     metadata: Default::default(),
@@ -1349,7 +1351,7 @@ mod tests {
             .unwrap();
         let mut appendable = catalog
             .create_appendable(
-                crate::object::ObjectKey::from_parts_unchecked("appendable-only", "appending"),
+                ObjectKey::from_parts_unchecked("appendable-only", "appending"),
                 crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
             )
             .await

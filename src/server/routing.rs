@@ -638,8 +638,13 @@ async fn respond_session(
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let result = match parsed {
         Ok(json::resumable::UploadSession { bucket, upload_id }) => {
-            resumable::session_response(request, &bucket, &upload_id, ctx.object(None, deadline))
-                .await
+            resumable::session_response(
+                request,
+                bucket.as_str(),
+                &upload_id,
+                ctx.object(None, deadline),
+            )
+            .await
         }
         Err(error) => Err(error),
     };
@@ -789,7 +794,7 @@ async fn respond_xml_object(
     }
     result.unwrap_or_else(|error| {
         let error = match &target {
-            Some((bucket, name)) => error.naming_object(bucket, name),
+            Some((bucket, name)) => error.naming_object(bucket.as_str(), name),
             None => error,
         };
         boxed(error.response(error_body))
@@ -879,7 +884,7 @@ async fn respond_json_object(
     }
     result.unwrap_or_else(|error| {
         let error = match &target {
-            Some((bucket, name)) => error.naming_object(bucket, name),
+            Some((bucket, name)) => error.naming_object(bucket.as_str(), name),
             None => error,
         };
         boxed(if media {

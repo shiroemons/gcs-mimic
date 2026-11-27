@@ -3,7 +3,7 @@ use crate::page_token::decode_page_token;
 use crate::{
     bucket::{
         BucketConditions,
-        name::{AdmittedBucket, BucketKey, MAX_BUCKET_NAME_BYTES},
+        name::{BucketKey, MAX_BUCKET_NAME_BYTES},
     },
     config::CompatProfile,
     decimal::Grammar,
@@ -47,7 +47,7 @@ pub(super) fn path_bucket(
 ) -> Result<BucketKey, ApiError> {
     let bucket = decode_bucket_segment(segment)?;
     if check == BucketCheck::ForProfile || profile == CompatProfile::Native {
-        return Ok(AdmittedBucket::for_profile(bucket, profile)?.into_key());
+        return BucketKey::for_profile(bucket, profile).map_err(ApiError::from);
     }
     // Legacy bucket item and notification routes accept the decoded name as sent.
     Ok(BucketKey::from_unchecked(bucket))

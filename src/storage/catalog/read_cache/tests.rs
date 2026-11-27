@@ -1,5 +1,6 @@
 use super::super::sql;
 use super::*;
+use crate::object::ObjectKey;
 use crate::{
     auth::Binding,
     bucket::BucketMetadataUpdate,
@@ -477,7 +478,7 @@ async fn a_short_blob_fails_on_a_hit_as_on_a_miss() {
         .run(|connection| {
             let stored = super::super::objects::lookup(
                 connection,
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                ObjectKey::from_parts_unchecked("bucket", "object"),
             )?;
             Ok::<_, ObjectError>(stored.unwrap().blob)
         })

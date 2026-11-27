@@ -457,8 +457,7 @@ impl Catalog {
                 let authority = objects::BucketAuthority::load(&transaction, &session.bucket, &options.access)?;
                 let bucket = authority.publication?;
                 let storage_class = bucket.storage_class(options.metadata.storage_class)?;
-                let key = crate::object::ObjectKey::from_parts_unchecked(&session.bucket, &session.name);
-                let previous = bucket.lookup(&transaction, key)?;
+                let previous = bucket.lookup(&transaction, session.key())?;
                 check_publication(
                     previous.as_ref(),
                     options.conditions,

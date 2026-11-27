@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     clock::SystemClock,
@@ -464,7 +465,7 @@ async fn reset_waits_for_staged_files_session_and_appendable_writers_and_clears_
     staged.discard().await.unwrap();
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("reset-bucket", "pending"),
+            ObjectKey::from_parts_unchecked("reset-bucket", "pending"),
             ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -478,7 +479,7 @@ async fn reset_waits_for_staged_files_session_and_appendable_writers_and_clears_
     drop(lease);
     let mut writer = catalog
         .create_appendable(
-            crate::object::ObjectKey::from_parts_unchecked("reset-bucket", "append"),
+            ObjectKey::from_parts_unchecked("reset-bucket", "append"),
             ResumableOptions::new(BucketAccess::Permissive),
         )
         .await

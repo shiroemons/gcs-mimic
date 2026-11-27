@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use crate::{bucket::BucketAccess, storage::catalog::resumable::ResumableSession};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -8,7 +9,7 @@ async fn failed_finalization() -> (crate::test_support::TestDir, Catalog, Sessio
     crate::storage::test_fixtures::seed_bucket(&catalog).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            ObjectKey::from_parts_unchecked("bucket", "object"),
             ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -45,7 +46,7 @@ async fn a_panicking_chunk_writer_keeps_its_cause_and_reopens_at_the_checkpoint(
     crate::storage::test_fixtures::seed_bucket(&catalog).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            ObjectKey::from_parts_unchecked("bucket", "object"),
             ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -299,7 +300,7 @@ async fn a_session_staged_before_running_digests_reports_none_and_still_complete
     crate::storage::test_fixtures::seed_bucket(&catalog).await;
     let id = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            ObjectKey::from_parts_unchecked("bucket", "object"),
             ResumableOptions::new(BucketAccess::Permissive),
             Some(8),
         )
@@ -368,7 +369,7 @@ async fn a_finishing_chunk_cut_short_of_its_end_marker_publishes_nothing() {
     crate::storage::test_fixtures::seed_bucket(&catalog).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            ObjectKey::from_parts_unchecked("bucket", "object"),
             ResumableOptions::new(BucketAccess::Permissive),
             Some(8),
         )

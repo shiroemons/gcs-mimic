@@ -237,6 +237,10 @@ pub(crate) struct ResumableSession {
 }
 
 impl ResumableSession {
+    pub(crate) fn key(&self) -> ObjectKey<'_> {
+        ObjectKey::from_parts_unchecked(&self.bucket, &self.name)
+    }
+
     pub(crate) fn progress(&self) -> Result<Progress, ResumableError> {
         let hashes = self
             .running_hash
@@ -356,6 +360,12 @@ struct CreateSession {
     total: Option<u64>,
 }
 
+impl CreateSession {
+    fn key(&self) -> ObjectKey<'_> {
+        ObjectKey::from_parts_unchecked(&self.bucket, &self.name)
+    }
+}
+
 fn insert_session(
     connection: &mut Connection,
     catalog: &Catalog,
@@ -396,10 +406,7 @@ fn stage_session(
     // publication; no recording shows when Cloud Storage refuses it.
     super::objects::BucketPublication::load(transaction, &request.bucket)?
         .check_class(request.options.metadata.storage_class)?;
-    let previous = super::objects::lookup(
-        transaction,
-        crate::object::ObjectKey::from_parts_unchecked(&request.bucket, &request.name),
-    )?;
+    let previous = super::objects::lookup(transaction, request.key())?;
     let now = catalog.0.policy.clock.now();
     super::objects::check_publication(
         previous.as_ref(),
@@ -1022,7 +1029,7 @@ mod tests {
             assert!(
                 catalog
                     .create_resumable_session(
-                        crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                        ObjectKey::from_parts_unchecked("bucket", "object"),
                         options.clone(),
                         None
                     )
@@ -1055,7 +1062,7 @@ mod tests {
             assert!(
                 catalog
                     .create_resumable_session(
-                        crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                        ObjectKey::from_parts_unchecked("bucket", "object"),
                         options,
                         None
                     )

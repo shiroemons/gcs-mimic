@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use crate::{
     bucket::{BucketAccess, BucketMetadataUpdate},
     clock::{Clock, ManualClock},
@@ -69,7 +70,7 @@ async fn rules(catalog: &Catalog, rules: Vec<Value>) {
 async fn begin(catalog: &Catalog, name: &str) -> Target {
     catalog
         .begin_xml_multipart(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", name),
+            ObjectKey::from_parts_unchecked("bucket", name),
             Options {
                 content_type: "text/plain".into(),
                 metadata: Default::default(),
@@ -224,7 +225,7 @@ async fn multipart_abort_name_conditions_and_multiple_rules_preserve_other_resou
     }
     catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "dir/resumable.jpg"),
+            ObjectKey::from_parts_unchecked("bucket", "dir/resumable.jpg"),
             crate::storage::catalog::resumable::ResumableOptions::new(BucketAccess::Permissive),
             None,
         )

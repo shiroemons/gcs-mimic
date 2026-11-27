@@ -1,6 +1,7 @@
 //! JSON API simple (media) and multipart object uploads.
 
 use super::{AclSource, Written, idempotency_token};
+use crate::object::ObjectKey;
 use crate::server::RequestBody as Incoming;
 use crate::server::upload_drive::{
     CatalogWait, UploadEnd, UploadSender, drive_upload, upload_channel,
@@ -86,7 +87,7 @@ pub(super) async fn insert(
         .await_catalog(ctx.state.catalog.wait_object_upload())
         .await?;
     ctx.await_catalog(ctx.state.catalog.check_upload_replay(
-        &bucket,
+        bucket.as_str(),
         UploadCheck::Object {
             name: &name,
             conditions: params.conditions,
@@ -100,7 +101,7 @@ pub(super) async fn insert(
     let acl = AclSource::from(permit.replay_acl_snapshot());
     let upload = ctx.state.catalog.put_object_prechecked(
         ObjectUpload {
-            key: crate::object::ObjectKey::from_bucket(bucket.as_key(), &name),
+            key: ObjectKey::from_bucket(bucket.as_key(), &name),
             content_type,
             expected,
             conditions: params.conditions,
@@ -165,7 +166,7 @@ pub(super) async fn multipart(
     // The final name may be in metadata; check the bucket before reading any body.
     ctx.await_catalog(
         catalog.check_upload_replay(
-            &bucket,
+            bucket.as_str(),
             name.as_deref()
                 .map_or(UploadCheck::Bucket, |name| UploadCheck::Object {
                     name,
@@ -189,7 +190,7 @@ pub(super) async fn multipart(
     crate::server::retention_access::authorize_upload(
         &ctx.state.catalog,
         &access,
-        &bucket,
+        bucket.as_str(),
         &metadata,
     )
     .await?;
@@ -197,7 +198,7 @@ pub(super) async fn multipart(
     metadata.acl = params.predefined_acl.into();
     if !name_known {
         ctx.await_catalog(catalog.check_upload_replay(
-            &bucket,
+            bucket.as_str(),
             UploadCheck::Object {
                 name: &name,
                 conditions: params.conditions,
@@ -218,7 +219,7 @@ pub(super) async fn multipart(
     let acl = AclSource::from(permit.replay_acl_snapshot());
     let upload = catalog.put_object_prechecked(
         ObjectUpload {
-            key: crate::object::ObjectKey::from_bucket(bucket.as_key(), &name),
+            key: ObjectKey::from_bucket(bucket.as_key(), &name),
             content_type,
             expected,
             conditions: params.conditions,

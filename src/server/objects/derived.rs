@@ -42,7 +42,7 @@ pub(super) async fn copy(
         ],
     )?;
     let source_access = ctx
-        .authorize(auth::OBJECTS_GET, &params.source_bucket)
+        .authorize(auth::OBJECTS_GET, params.source_bucket.as_str())
         .await?;
     let method = request.method().clone();
     let uri = request.uri().clone();
@@ -56,12 +56,12 @@ pub(super) async fn copy(
     );
     let replay = ctx
         .await_catalog(ctx.state.catalog.prepare_copy_replay(
-            &params.bucket,
+            params.bucket.as_str(),
             &params.name,
             params.conditions,
             &access,
             CopyReplaySource {
-                bucket: &params.source_bucket,
+                bucket: params.source_bucket.as_str(),
                 name: &params.source_name,
                 generation: params.source_generation.map(Generation::get),
                 access: &source_access,
@@ -138,7 +138,8 @@ async fn copy_object(
         )
         .await
         .map_err(|failure| {
-            ApiError::from(failure).naming_object(&params.source_bucket, &params.source_name)
+            ApiError::from(failure)
+                .naming_object(params.source_bucket.as_str(), &params.source_name)
         })?;
     let json::DerivedMetadata {
         update: mut metadata,
@@ -149,7 +150,7 @@ async fn copy_object(
     crate::server::retention_access::authorize_upload(
         &ctx.state.catalog,
         &access,
-        &params.bucket,
+        params.bucket.as_str(),
         &metadata,
     )
     .await?;
@@ -158,7 +159,7 @@ async fn copy_object(
     let source_location = if source.object.component_count.is_some() {
         Some(
             catalog
-                .get_bucket(&params.source_bucket, &BucketAccess::Permissive)
+                .get_bucket(params.source_bucket.as_str(), &BucketAccess::Permissive)
                 .await?
                 .ok_or(ObjectError::BucketNotFound)?
                 .location
@@ -220,11 +221,11 @@ pub(super) async fn compose(
         ],
     )?;
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
-    let mut body = json::compose::parse_compose(&bytes, &bucket)?;
+    let mut body = json::compose::parse_compose(&bytes, bucket.as_str())?;
     crate::server::retention_access::authorize_upload(
         &ctx.state.catalog,
         &access,
-        &bucket,
+        bucket.as_str(),
         &body.destination,
     )
     .await?;

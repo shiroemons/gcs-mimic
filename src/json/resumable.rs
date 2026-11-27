@@ -4,10 +4,7 @@ use super::{
 };
 use crate::percent::RequestUri;
 use crate::{
-    bucket::{
-        BucketAccess,
-        name::{AdmittedBucket, BucketKey},
-    },
+    bucket::{BucketAccess, name::BucketKey},
     config::CompatProfile,
     decimal::Grammar,
     http_header::{TextError, TextOrder, sole},
@@ -71,7 +68,7 @@ fn parse_session(
         ));
     }
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
-    let bucket = AdmittedBucket::for_profile(bucket, profile)?.into_key();
+    let bucket = BucketKey::for_profile(bucket, profile)?;
     let mut query = uri.parameters()?.clone();
     let upload_id = query
         .remove("upload_id")

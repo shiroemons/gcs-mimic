@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use crate::storage::catalog::sql;
 use crate::storage::test_fixtures::{
     PERMISSIVE, PERMISSIVE_RESTORE, live, permissive_upload, publication, read_all, version,
@@ -430,7 +431,7 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
             .publish_derived(&first.id, ram_destination("value"), move |connection, _| {
                 Catalog::delete_derived_source_in_transaction(
                     connection,
-                    crate::object::ObjectKey::from_parts_unchecked("test-bucket", "value"),
+                    ObjectKey::from_parts_unchecked("test-bucket", "value"),
                     source_generation.get(),
                     Default::default(),
                     PERMISSIVE,

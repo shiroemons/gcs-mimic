@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::object::ObjectKey;
 
 #[must_use = "reclamation must retain its leases until file and SQL work settle"]
 pub(in crate::storage::catalog) struct ReclamationPermit {
@@ -350,7 +352,7 @@ mod tests {
             .unwrap();
         let live = catalog
             .run_upload::<_, ObjectError>(|connection| {
-                let key = crate::object::ObjectKey::from_parts_unchecked("bucket", "live");
+                let key = ObjectKey::from_parts_unchecked("bucket", "live");
                 let id = lookup(connection, key)?.unwrap().blob;
                 sql::exec_on_writer(connection, JOURNAL_NEW_DELETION, [&id])?;
                 Ok(id)

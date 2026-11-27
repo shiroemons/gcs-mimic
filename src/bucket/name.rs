@@ -7,6 +7,11 @@ use crate::config::CompatProfile;
 pub(crate) struct BucketKey<S = String>(S);
 
 impl<S: AsRef<str>> BucketKey<S> {
+    pub(crate) fn for_profile(name: S, profile: CompatProfile) -> Result<Self, ProfileNameError> {
+        validate_for_profile(name.as_ref(), profile)?;
+        Ok(Self(name))
+    }
+
     /// Stored and already admitted names retain their exact spelling.
     pub(crate) fn from_unchecked(name: S) -> Self {
         Self(name)
@@ -31,14 +36,6 @@ impl<S: std::fmt::Debug> std::fmt::Debug for BucketKey<S> {
     }
 }
 
-impl<S: AsRef<str>> std::ops::Deref for BucketKey<S> {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        self.as_str()
-    }
-}
-
 impl<S: AsRef<str>> AsRef<str> for BucketKey<S> {
     fn as_ref(&self) -> &str {
         self.as_str()
@@ -54,26 +51,6 @@ impl<S: AsRef<str>> std::fmt::Display for BucketKey<S> {
 impl From<BucketKey> for String {
     fn from(key: BucketKey) -> Self {
         key.into_inner()
-    }
-}
-
-/// A request bucket name admitted under the active compatibility profile.
-pub(crate) struct AdmittedBucket<S>(BucketKey<S>);
-
-impl<S: AsRef<str>> AdmittedBucket<S> {
-    pub(crate) fn for_profile(name: S, profile: CompatProfile) -> Result<Self, ProfileNameError> {
-        validate_for_profile(name.as_ref(), profile)?;
-        Ok(Self(BucketKey::from_unchecked(name)))
-    }
-
-    pub(crate) fn into_key(self) -> BucketKey<S> {
-        self.0
-    }
-}
-
-impl From<BucketName> for AdmittedBucket<String> {
-    fn from(name: BucketName) -> Self {
-        Self(BucketKey::from_unchecked(name.0))
     }
 }
 

@@ -376,7 +376,7 @@ pub(crate) async fn respond(
         ..
     } = ctx;
     let access = ctx
-        .authorize(auth::OBJECTS_CREATE, &operation.target.bucket)
+        .authorize(auth::OBJECTS_CREATE, operation.target.bucket.as_str())
         .await
         .map_err(|error| Error::from(error).for_caller(caller))?;
     let signing = if streaming.is_some() {
@@ -400,7 +400,7 @@ pub(crate) async fn respond(
     )?;
     super::canned_acl::check(
         metadata.acl.predefined(),
-        &operation.target.bucket,
+        operation.target.bucket.as_str(),
         &access,
         ctx,
     )

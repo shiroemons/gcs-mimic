@@ -30,8 +30,8 @@ fn selected_appendable(
     conditions: ObjectConditions,
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, BlobId), ObjectError> {
-    let (storage_class, _) = authorized_bucket(snapshot, &target.bucket, access)?;
-    let Lookup::Live(row) = select(snapshot, &target.bucket, &target.name)? else {
+    let (storage_class, _) = authorized_bucket(snapshot, target.bucket.as_str(), access)?;
+    let Lookup::Live(row) = select(snapshot, target.bucket.as_str(), &target.name)? else {
         return Err(ObjectError::ObjectNotFound);
     };
     if target
@@ -42,7 +42,7 @@ fn selected_appendable(
     }
     let record = record(
         snapshot,
-        &target.bucket,
+        target.bucket.as_str(),
         &target.name,
         storage_class,
         &row,
@@ -154,7 +154,7 @@ impl Catalog {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
-        let slot = SlotHandle::new(self, &target.bucket, &target.name);
+        let slot = SlotHandle::new(self, target.key());
         let mut guard = slot.lock().await;
         // Finalization uses this slot before entering the catalog executor too.
         match self.delete_object(target.clone(), conditions, access).await {

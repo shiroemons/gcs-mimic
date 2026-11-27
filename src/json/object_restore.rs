@@ -8,7 +8,7 @@ use super::{
     },
 };
 use crate::{
-    bucket::name::AdmittedBucket,
+    bucket::name::BucketKey,
     config::CompatProfile,
     object::ObjectTarget,
     percent::{Decoding, RequestUri, decode},
@@ -52,7 +52,7 @@ fn parse(
     }
     let bucket = decode(bucket, Decoding::Path)?;
     let name = decode(name, Decoding::Path)?;
-    let bucket = AdmittedBucket::for_profile(bucket, profile)?.into_key();
+    let bucket = BucketKey::for_profile(bucket, profile)?;
     super::validate_object_name(&name)?;
     let mut query = uri.parameters()?.clone();
     super::Fields::take(&mut query, super::Schema::Object)?;

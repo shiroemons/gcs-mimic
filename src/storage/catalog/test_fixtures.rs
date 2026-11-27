@@ -1,6 +1,7 @@
 use super::admin::{BucketDefinition, Origin, Publication, PublishMode};
 use super::{Catalog, ObjectReader, ObjectUpload, RestoreAccess};
 use crate::bucket::{BucketAccess, BucketRecord};
+use crate::object::ObjectKey;
 use crate::object::{ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, UploadChunk};
 use crate::test_support::TestDir;
 use bytes::Bytes;
@@ -79,7 +80,7 @@ pub(crate) fn permissive_upload<'a>(
     max_bytes: u64,
 ) -> ObjectUpload<'a> {
     ObjectUpload {
-        key: crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+        key: ObjectKey::from_parts_unchecked(bucket, name),
         content_type: "text/plain".into(),
         expected: Default::default(),
         conditions: Default::default(),

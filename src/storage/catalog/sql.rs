@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod write_tx_tests;
 
+use crate::bucket::name::BucketKey;
 use rusqlite::{
     Connection, OptionalExtension, Params, Row,
     config::DbConfig,
@@ -35,7 +36,7 @@ revision_integer!(
     crate::object::generation::Metageneration,
 );
 
-impl<S: AsRef<str>> rusqlite::ToSql for crate::bucket::name::BucketKey<S> {
+impl<S: AsRef<str>> rusqlite::ToSql for BucketKey<S> {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
         Ok(rusqlite::types::ToSqlOutput::Borrowed(self.as_str().into()))
     }
@@ -44,7 +45,6 @@ impl<S: AsRef<str>> rusqlite::ToSql for crate::bucket::name::BucketKey<S> {
 #[cfg(test)]
 #[test]
 fn bucket_keys_bind_the_original_text() {
-    use crate::bucket::name::BucketKey;
     use rusqlite::{
         ToSql,
         types::{ToSqlOutput, ValueRef},

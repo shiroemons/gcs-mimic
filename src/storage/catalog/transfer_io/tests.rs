@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use crate::{
     storage::catalog::fault::{Fault, Step},
     test_support::TestDir,
@@ -151,7 +152,7 @@ async fn dropping_a_running_write_keeps_the_session_locked_until_the_worker_retu
     crate::storage::test_fixtures::seed_bucket(&catalog).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            ObjectKey::from_parts_unchecked("bucket", "object"),
             crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
             None,
         )

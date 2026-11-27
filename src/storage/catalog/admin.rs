@@ -16,7 +16,9 @@
 //! ```
 
 use super::{Catalog, Work, objects, read_bucket, select_bucket, unavailable};
+use crate::bucket::name::BucketKey;
 use crate::cause::{BackendCause, IoCause, Link, TypedSource};
+use crate::object::ObjectKey;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError, DefaultBucketError},
@@ -685,11 +687,8 @@ impl Admin {
         let name = name.as_str().to_owned();
         self.catalog
             .run_admin(move |connection| {
-                select_bucket(
-                    connection,
-                    crate::bucket::name::BucketKey::from_unchecked(name.as_str()),
-                )
-                .map_err(unavailable)
+                select_bucket(connection, BucketKey::from_unchecked(name.as_str()))
+                    .map_err(unavailable)
             })
             .await
     }
@@ -757,10 +756,7 @@ impl Admin {
         self.catalog
             .put_object_with_mode(
                 objects::ObjectUpload {
-                    key: crate::object::ObjectKey::from_parts_unchecked(
-                        bucket.as_str(),
-                        name.as_str(),
-                    ),
+                    key: ObjectKey::from_parts_unchecked(bucket.as_str(), name.as_str()),
                     content_type: request.content_type,
                     expected: request.expected,
                     conditions,
@@ -802,7 +798,7 @@ impl Admin {
                 objects::authorized_bucket(&transaction, &bucket, &access)?;
                 let previous = objects::lookup(
                     &transaction,
-                    crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                    ObjectKey::from_parts_unchecked(&bucket, &name),
                 )?;
                 objects::check_publication(
                     previous.as_ref(),
@@ -829,7 +825,7 @@ impl Admin {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 objects::selected(
                     &transaction,
-                    crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                    ObjectKey::from_parts_unchecked(&bucket, &name),
                     generation.map(Generation::get),
                     ObjectConditions::default(),
                     super::objects::RequestKind::Read,

@@ -262,7 +262,7 @@ pub(crate) async fn respond(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
     let access = ctx
-        .authorize(auth::OBJECTS_LIST, &operation.target.bucket)
+        .authorize(auth::OBJECTS_LIST, operation.target.bucket.as_str())
         .await
         .map_err(|error| Error::from(error).for_caller(ctx.caller))?;
     let params = parse(

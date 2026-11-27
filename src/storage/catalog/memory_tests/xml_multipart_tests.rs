@@ -6,7 +6,7 @@ use crate::test_support::eventually_async;
 async fn begin(catalog: &Catalog) -> Target {
     catalog
         .begin_xml_multipart(
-            crate::object::ObjectKey::from_parts_unchecked("test-bucket", "value"),
+            ObjectKey::from_parts_unchecked("test-bucket", "value"),
             Options {
                 content_type: "text/plain".into(),
                 metadata: Default::default(),

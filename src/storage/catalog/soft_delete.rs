@@ -3,7 +3,7 @@ use crate::storage::{BlobError, catalog::sql};
 use crate::{
     bucket::BucketAccess,
     object::{
-        Metageneration, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget,
+        Metageneration, ObjectConditions, ObjectError, ObjectKey, ObjectRecord, ObjectTarget,
         SoftDeletedRequest,
     },
 };
@@ -140,15 +140,14 @@ fn expiry_step(connection: &mut Connection, now: UnixMicros) -> Result<ExpirySte
 
 fn selected(
     connection: &Connection,
-    bucket: &str,
-    name: &str,
+    key: ObjectKey<'_>,
     generation: i64,
     now: i64,
 ) -> Result<objects::StoredObject, ObjectError> {
     sql::row(
         connection,
         SELECT_SOFT_DELETED_GENERATION,
-        params![bucket, name, generation, now],
+        params![key.bucket(), key.name(), generation, now],
         read_object,
     )
     .optional()?
@@ -168,20 +167,18 @@ fn restore_candidate(
     request: &RestoreRequest,
     now: objects::PublicationTime,
 ) -> Result<(objects::StoredObject, Option<objects::StoredObject>), ObjectError> {
-    let ObjectTarget {
-        bucket,
-        name,
-        generation,
-    } = &request.target;
+    let key = request.target.key();
+    let bucket = key.bucket().into_inner();
+    let generation = request.target.generation;
     authorized_bucket(connection, bucket, &request.restore)?;
     let (_, delete_permission) = authorized_bucket(connection, bucket, &request.create)?;
-    let source = match selected(connection, bucket, name, *generation, now.micros) {
+    let source = match selected(connection, key, generation, now.micros) {
         Err(ObjectError::ObjectNotFound) => {
             return Err(
                 match objects::selected(
                     connection,
-                    crate::object::ObjectKey::from_parts_unchecked(bucket, name),
-                    Some(*generation),
+                    key,
+                    Some(generation),
                     Default::default(),
                     objects::RequestKind::Write,
                     &request.restore,
@@ -194,10 +191,7 @@ fn restore_candidate(
         result => result?,
     };
     source.record.check_retention(now.time)?;
-    let previous = objects::lookup(
-        connection,
-        crate::object::ObjectKey::from_parts_unchecked(bucket, name),
-    )?;
+    let previous = objects::lookup(connection, key)?;
     objects::check_publication(
         previous.as_ref(),
         request.conditions,
@@ -225,7 +219,7 @@ fn restore_in_transaction(
         ));
     }
     published?.map_err(object_unavailable)?;
-    let bucket = objects::BucketPublication::load(&transaction, &request.target.bucket)?;
+    let bucket = objects::BucketPublication::load(&transaction, request.target.bucket.as_str())?;
     record.metageneration = Metageneration::INITIAL;
     record.time_created = now.time;
     record.updated = now.time;
@@ -296,18 +290,15 @@ impl Catalog {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
-        let ObjectTarget {
-            bucket,
-            name,
-            generation,
-        } = target;
         let (access, clock) = (access.clone(), self.0.policy.clock.clone());
         self.run_read(move |connection| {
             let snapshot = sql::read_snapshot(connection)?;
-            let object_acl = objects::object_acl_authority(&snapshot, &bucket, &access)?;
+            let key = target.key();
+            let bucket = key.bucket().into_inner();
+            let object_acl = objects::object_acl_authority(&snapshot, bucket, &access)?;
             let now = unix_micros(clock.now())?;
-            let selection = require_policy(&snapshot, &bucket, SoftDeletedRequest::Get)
-                .and_then(|()| selected(&snapshot, &bucket, &name, generation, now));
+            let selection = require_policy(&snapshot, bucket, SoftDeletedRequest::Get)
+                .and_then(|()| selected(&snapshot, key, target.generation, now));
             // A caller the bucket refused cannot learn that the generation is missing, nor
             // whether the bucket has a soft delete policy.
             let record = match (selection, object_acl) {
@@ -320,7 +311,7 @@ impl Catalog {
                 (Ok(stored), Some(check)) => {
                     if !super::acl::object_granted(
                         &snapshot,
-                        crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                        key,
                         stored.record.generation.get(),
                         check.access,
                     )? {
@@ -371,16 +362,20 @@ impl Catalog {
         );
         let pinned = self
             .run_upload::<_, ObjectError>(move |connection| {
-                authorized_bucket(connection, &selection.target.bucket, &selection.restore)?;
+                authorized_bucket(
+                    connection,
+                    selection.target.bucket.as_str(),
+                    &selection.restore,
+                )?;
                 require_policy(
                     connection,
-                    &selection.target.bucket,
+                    selection.target.bucket.as_str(),
                     SoftDeletedRequest::Restore,
                 )?;
                 let now = objects::PublicationTime::read(clock.as_ref())?;
                 after_purge(
                     connection,
-                    &selection.target.bucket,
+                    selection.target.bucket.as_str(),
                     now.time.try_into()?,
                     |connection| {
                         let transaction = connection.transaction()?;

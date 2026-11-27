@@ -6,6 +6,8 @@ use super::{
     routing::{Admitted, Route},
     status::unsupported,
 };
+#[cfg(test)]
+use crate::object::ObjectKey;
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
@@ -939,7 +941,7 @@ mod tests {
         let mut writer = state
             .catalog
             .create_appendable(
-                crate::object::ObjectKey::from_parts_unchecked("handle-bucket", "log"),
+                ObjectKey::from_parts_unchecked("handle-bucket", "log"),
                 crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
             )
             .await

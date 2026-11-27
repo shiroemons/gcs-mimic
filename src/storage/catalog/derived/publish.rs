@@ -1,6 +1,7 @@
 use super::cleanup::DiscardedTransfer;
 use super::source::PublicationFile;
 use super::*;
+use crate::object::ObjectKey;
 
 pub(crate) struct DerivedBody {
     checkpoint: Checkpoint,
@@ -55,8 +56,8 @@ pub(crate) struct DerivedDestination {
 }
 
 impl DerivedDestination {
-    pub(crate) fn key(&self) -> crate::object::ObjectKey<'_> {
-        crate::object::ObjectKey::from_parts_unchecked(&self.bucket, &self.name)
+    pub(crate) fn key(&self) -> ObjectKey<'_> {
+        ObjectKey::from_parts_unchecked(&self.bucket, &self.name)
     }
 }
 

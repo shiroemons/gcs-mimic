@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use crate::{
     bucket::BucketAccess,
     clock::SystemClock,
@@ -103,7 +104,7 @@ async fn requests_during_a_running_reset_wait_and_then_see_the_cleared_state() {
     let (_dir, catalog, admin) = setup().await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked(BUCKET, "pending"),
+            ObjectKey::from_parts_unchecked(BUCKET, "pending"),
             ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -150,7 +151,7 @@ async fn requests_during_a_running_reset_wait_and_then_see_the_cleared_state() {
     let append = tokio::spawn(async move {
         appender
             .create_appendable(
-                crate::object::ObjectKey::from_parts_unchecked(BUCKET, "appended"),
+                ObjectKey::from_parts_unchecked(BUCKET, "appended"),
                 ResumableOptions::new(BucketAccess::Permissive),
             )
             .await
@@ -263,7 +264,7 @@ async fn a_client_waiting_for_a_session_writer_also_waits_out_an_exclusive_job()
     let (_dir, catalog, _admin) = setup_with_limits(Some(&config)).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked(BUCKET, "pending"),
+            ObjectKey::from_parts_unchecked(BUCKET, "pending"),
             ResumableOptions::new(BucketAccess::Permissive),
             None,
         )

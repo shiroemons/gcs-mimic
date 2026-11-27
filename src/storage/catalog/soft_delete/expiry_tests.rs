@@ -1,6 +1,7 @@
 //! Expiry of soft-deleted objects driven by the maintenance scheduler and an injected clock.
 
 use super::*;
+use crate::bucket::name::BucketKey;
 use crate::storage::catalog::read_pool::tests::assert_point_read;
 use crate::{
     bucket::SoftDeletePolicy,
@@ -322,7 +323,7 @@ async fn moving_over_a_live_destination_reclaims_its_blob() {
     catalog
         .move_object(
             MoveNames {
-                bucket: crate::bucket::name::BucketKey::from_unchecked("bucket".into()),
+                bucket: BucketKey::from_unchecked("bucket".into()),
                 source: "source".into(),
                 destination: "destination".into(),
             },
@@ -795,7 +796,7 @@ async fn delete_overwrite_move_and_restore_wake_the_scheduler() {
         catalog
             .move_object(
                 super::super::object_move::MoveNames {
-                    bucket: crate::bucket::name::BucketKey::from_unchecked("bucket".into()),
+                    bucket: BucketKey::from_unchecked("bucket".into()),
                     source: "source".into(),
                     destination: "destination".into(),
                 },

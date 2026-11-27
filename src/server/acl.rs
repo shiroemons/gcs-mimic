@@ -5,6 +5,7 @@ use super::{
     QueryPrecondition, State, ValidatedRead, bucket_access, empty_response, json_response_selected,
     read_metadata_response, require_empty_body,
 };
+use crate::object::ObjectKey;
 use crate::{
     acl::{AclEntry, AclKind, AclOwner, AclTarget},
     auth::{self, Caller},
@@ -231,6 +232,10 @@ impl From<&ObjectRecord> for ObjectVersion {
 }
 
 impl ObjectVersion {
+    pub(super) fn key(&self) -> ObjectKey<'_> {
+        ObjectKey::from_parts_unchecked(&self.bucket, &self.name)
+    }
+
     /// The version a stored object resource describes, read from its own identity fields. A
     /// completed resumable session and a finished rewrite keep only the resource they first
     /// answered with, not its record, so this is the one place a version is read back out of

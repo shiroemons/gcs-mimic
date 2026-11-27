@@ -4,8 +4,9 @@ use super::{
     ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response, json_response, stream_upload,
 };
 use crate::json::JsonErrorResponse;
+use crate::object::ObjectKey;
 use crate::{
-    bucket::BucketAccess,
+    bucket::{BucketAccess, name::BucketKey},
     cause::BackendFailure,
     input::InputError,
     json::ApiError,
@@ -27,7 +28,7 @@ use tokio::sync::watch;
 
 pub(super) async fn initiate(
     request: Request<Incoming>,
-    bucket: &crate::bucket::name::BucketKey,
+    bucket: &BucketKey,
     name: Option<String>,
     params: ObjectInsertParams,
     encoding: Option<String>,
@@ -82,7 +83,7 @@ pub(super) async fn initiate(
     options.response_fields = response_fields;
     // The session binds the key fingerprint; later chunks cannot change it.
     options.metadata.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
-    let key = crate::object::ObjectKey::from_bucket(bucket.as_key(), &name);
+    let key = ObjectKey::from_bucket(bucket.as_key(), &name);
     let id = create_session(ctx, key, options, total).await?;
     let location = session_location(&location_base, &query, id);
     let mut response = empty_response(StatusCode::OK);
@@ -118,7 +119,7 @@ fn session_location(base: &str, query: &str, id: crate::storage::SessionId) -> S
 /// adapter parses its own initiation request and builds its own session URI.
 pub(crate) async fn create_session(
     ctx: ObjectCtx<'_>,
-    key: crate::object::ObjectKey<'_>,
+    key: ObjectKey<'_>,
     options: ResumableOptions,
     total: Option<u64>,
 ) -> Result<crate::storage::SessionId, ServiceError> {

@@ -226,8 +226,7 @@ async fn add_acl(
     let AclSubjects::Object(object) = &rendered.subjects else {
         return Err(mismatch());
     };
-    let key = crate::object::ObjectKey::from_parts_unchecked(&object.bucket, &object.name);
-    if !snapshot.matches_resource(key, object.generation) {
+    if !snapshot.matches_resource(object.key(), object.generation) {
         return Err(mismatch());
     }
     let access = ctx.authorize(auth::OBJECTS_GET_IAM, &object.bucket).await?;
@@ -274,7 +273,9 @@ async fn restore(
 ) -> Result<Written, ApiError> {
     json::validate_object_get_headers(request.headers())?;
     validate_bodyless_post(request, query, EmptyJsonBody::Accepted).await?;
-    let create_access = ctx.authorize(auth::OBJECTS_CREATE, &target.bucket).await?;
+    let create_access = ctx
+        .authorize(auth::OBJECTS_CREATE, target.bucket.as_str())
+        .await?;
     let record = ctx
         .state
         .catalog
@@ -316,8 +317,12 @@ async fn move_object(
             "Move requires an empty body or an empty JSON object",
         ));
     }
-    let source_read = ctx.authorize(auth::OBJECTS_GET, &names.bucket).await?;
-    let source_delete = ctx.authorize(auth::OBJECTS_DELETE, &names.bucket).await?;
+    let source_read = ctx
+        .authorize(auth::OBJECTS_GET, names.bucket.as_str())
+        .await?;
+    let source_delete = ctx
+        .authorize(auth::OBJECTS_DELETE, names.bucket.as_str())
+        .await?;
     let (bucket, source) = (names.bucket.clone(), names.source.clone());
     #[expect(
         clippy::wildcard_enum_match_arm,
@@ -423,7 +428,7 @@ async fn update(
     retention_access::authorize_update(
         &ctx.state.catalog,
         access,
-        &target.bucket,
+        target.bucket.as_str(),
         &mut update.update,
         retention_override,
     )

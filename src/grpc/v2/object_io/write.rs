@@ -2,6 +2,7 @@ use super::step::AdmittedStep;
 use super::*;
 use crate::csek::{CsekError, CustomerKey};
 use crate::grpc::v2::routing;
+use crate::object::ObjectKey;
 use crate::object::content_type;
 
 /// A caller the write task can own: [`Caller`] borrows its identity from the request.
@@ -295,7 +296,7 @@ impl Storage {
             .state
             .catalog
             .prepare_object_upload(
-                crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                ObjectKey::from_parts_unchecked(&bucket, &name),
                 options.conditions,
                 &options.access,
             )
@@ -311,7 +312,7 @@ impl Storage {
         let producer = body.produce(stream, opening, tx, rpc);
         let write = self.state.catalog.put_object_prechecked(
             ObjectUpload {
-                key: crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                key: ObjectKey::from_parts_unchecked(&bucket, &name),
                 content_type: options.content_type.clone(),
                 expected: options.expected,
                 conditions: options.conditions,

@@ -602,7 +602,7 @@ fn target_access(
             generation,
         } => super::objects::authorize_generation(
             connection,
-            crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+            ObjectKey::from_parts_unchecked(bucket, name),
             generation,
             access,
         )
@@ -674,7 +674,7 @@ pub(super) fn replace_resource_acl(
                             name, generation, ..
                         } => stored_object_entries(
                             connection,
-                            crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+                            ObjectKey::from_parts_unchecked(bucket, name),
                             generation,
                         )?,
                         ResolvedAclTarget::Bucket { scope, .. } => {

@@ -1,6 +1,7 @@
 use super::{
     Catalog, DerivedDestination, DerivedSource, DerivedSourceSpec, compose_crc32c::combine, objects,
 };
+use crate::object::ObjectKey;
 use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
@@ -140,7 +141,7 @@ impl ComposePlan {
         for (name, generation) in &self.keys {
             let source = Catalog::check_derived_source_in_transaction(
                 connection,
-                crate::object::ObjectKey::from_parts_unchecked(&self.bucket, name),
+                ObjectKey::from_parts_unchecked(&self.bucket, name),
                 Some(*generation),
                 ObjectConditions::default(),
                 &self.read_access,
@@ -169,7 +170,7 @@ impl ComposePlan {
             }
             Catalog::delete_derived_source_in_transaction(
                 connection,
-                crate::object::ObjectKey::from_parts_unchecked(&record.bucket, name),
+                ObjectKey::from_parts_unchecked(&record.bucket, name),
                 *generation,
                 ObjectConditions::default(),
                 &self.read_access,

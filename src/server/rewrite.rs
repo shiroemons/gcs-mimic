@@ -52,7 +52,7 @@ async fn authorize_source(
 ) -> Result<Option<(RewriteStep, RewriteSession)>, ApiError> {
     let source = &operation.names.source;
     if catalog
-        .has_bucket_permission(&source.bucket, access)
+        .has_bucket_permission(source.bucket.as_str(), access)
         .await?
     {
         return Ok(None);
@@ -96,17 +96,20 @@ pub(super) async fn respond(
         ..
     } = ctx;
     let source_access = ctx
-        .authorize(auth::OBJECTS_GET, &operation.names.source.bucket)
+        .authorize(auth::OBJECTS_GET, operation.names.source.bucket.as_str())
         .await?;
     let session = authorize_source(&state.catalog, &operation, &source_access).await?;
     let destination_access = ctx
-        .authorize(auth::OBJECTS_CREATE, &operation.names.destination.bucket)
+        .authorize(
+            auth::OBJECTS_CREATE,
+            operation.names.destination.bucket.as_str(),
+        )
         .await?;
     if operation.predefined_acl.is_some() {
         let record = state
             .catalog
             .get_bucket(
-                &operation.names.destination.bucket,
+                operation.names.destination.bucket.as_str(),
                 &BucketAccess::Permissive,
             )
             .await?
@@ -211,8 +214,10 @@ async fn resolve_source(
         .resolve_derived_source_keyed(target, conditions, access, keys.source)
         .await
         .map_err(|failure| {
-            ApiError::from(failure)
-                .naming_object(&operation.names.source.bucket, &operation.names.source.name)
+            ApiError::from(failure).naming_object(
+                operation.names.source.bucket.as_str(),
+                &operation.names.source.name,
+            )
         })
 }
 
@@ -256,7 +261,7 @@ async fn execute(
         super::retention_access::authorize_upload(
             &catalog,
             &destination_access,
-            &names.destination.bucket,
+            names.destination.bucket.as_str(),
             &destination.metadata,
         )
         .await?;
@@ -265,7 +270,7 @@ async fn execute(
         destination.metadata.acl = operation.predefined_acl.into();
         let buckets = catalog
             .rewrite_buckets(
-                &names.source.bucket,
+                names.source.bucket.as_str(),
                 &names.destination,
                 operation.conditions,
                 &destination_access,

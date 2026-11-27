@@ -265,7 +265,8 @@ struct SlotHandle {
 }
 
 impl SlotHandle {
-    fn new(catalog: &Catalog, bucket: &str, name: &str) -> Self {
+    fn new(catalog: &Catalog, key: ObjectKey<'_>) -> Self {
+        let (bucket, name) = key.parts();
         let key = (Namespace::of(catalog), bucket.to_owned(), name.to_owned());
         // The map only counts holders, and each update completes before the lock is
         // released, so a panic elsewhere cannot leave it inconsistent.
@@ -519,6 +520,10 @@ pub(crate) struct AppendWriter {
 }
 
 impl AppendWriter {
+    fn key(&self) -> ObjectKey<'_> {
+        ObjectKey::from_parts_unchecked(&self.bucket, &self.name)
+    }
+
     pub(crate) fn record(&self) -> &ObjectRecord {
         &self.record
     }
@@ -723,7 +728,7 @@ impl AppendWriter {
         };
         let publish = catalog.put_object_with_mode(
             ObjectUpload {
-                key: crate::object::ObjectKey::from_parts_unchecked(&self.bucket, &self.name),
+                key: self.key(),
                 content_type: self.record.content_type.clone(),
                 expected: Default::default(),
                 // Ordinary writes may have created the name since the appendable generation began.
@@ -935,7 +940,7 @@ impl Catalog {
         .map_err(object_unavailable)?
         .map_err(object_unavailable)?;
         let (bucket, name) = key.parts();
-        let slot = SlotHandle::new(self, bucket, name);
+        let slot = SlotHandle::new(self, key);
         let mut guard = slot.lock().await;
         let result = self
             .insert_appendable(key, &blob_id, &handle, options)
@@ -1059,7 +1064,7 @@ impl Catalog {
                 .map_err(ObjectError::from)?,
         );
         let new_handle = BlobId::generate().map_err(object_unavailable)?.to_hex();
-        let slot = SlotHandle::new(self, &target.bucket, &target.name);
+        let slot = SlotHandle::new(self, target.key());
         let guard = slot.slot.clone().lock_owned().await;
         let ObjectTarget {
             bucket,
@@ -1072,12 +1077,12 @@ impl Catalog {
         let selected = self
             .run_upload::<_, AppendError>(move |connection| {
                 let transaction = sql::immediate(connection)?;
-                let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
-                let row = match select(&transaction, &bucket, &name)? {
+                let (storage_class, _) = authorized_bucket(&transaction, bucket.as_str(), &access)?;
+                let row = match select(&transaction, bucket.as_str(), &name)? {
                     Lookup::Live(row) if row.generation.get() == generation => row,
                     Lookup::Live(_) | Lookup::Stale(_) | Lookup::Absent => {
                         return Err(
-                            if published_generation(&transaction, &bucket, &name, generation)? {
+                            if published_generation(&transaction, bucket.as_str(), &name, generation)? {
                                 AppendError::Finalized
                             } else {
                                 AppendError::Object(ObjectError::ObjectNotFound)
@@ -1085,7 +1090,7 @@ impl Catalog {
                         );
                     }
                 };
-                let record = record(&transaction, &bucket, &name, storage_class, &row, principals.as_ref())?;
+                let record = record(&transaction, bucket.as_str(), &name, storage_class, &row, principals.as_ref())?;
                 match presented {
                     Some(presented) if presented != row.write_handle.as_bytes() => {
                         return Err(AppendError::Superseded);
@@ -1156,7 +1161,7 @@ impl Catalog {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
-        let slot = SlotHandle::new(self, &target.bucket, &target.name);
+        let slot = SlotHandle::new(self, target.key());
         let mut guard = slot.lock().await;
         self.delete_appendable_locked(target, conditions, access, &mut guard)
             .await
@@ -1181,8 +1186,8 @@ impl Catalog {
         let id = self
             .run_upload(move |connection| {
                 let transaction = sql::immediate(connection)?;
-                let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
-                let Lookup::Live(row) = select(&transaction, &bucket, &name)? else {
+                let (storage_class, _) = authorized_bucket(&transaction, bucket.as_str(), &access)?;
+                let Lookup::Live(row) = select(&transaction, bucket.as_str(), &name)? else {
                     return Err(ObjectError::ObjectNotFound);
                 };
                 if generation.is_some_and(|generation| generation != row.generation.get()) {
@@ -1190,7 +1195,7 @@ impl Catalog {
                 }
                 let record = record(
                     &transaction,
-                    &bucket,
+                    bucket.as_str(),
                     &name,
                     storage_class,
                     &row,

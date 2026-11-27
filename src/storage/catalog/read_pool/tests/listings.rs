@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use crate::{
     bucket::{BucketAccess, Versioning},
     storage::{
@@ -96,7 +97,7 @@ async fn appendable_with_bytes(dir: &TestDir, bytes: &'static [u8]) -> (Catalog,
         .unwrap();
     let mut writer = catalog
         .create_appendable(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            ObjectKey::from_parts_unchecked("bucket", "object"),
             ResumableOptions::new(BucketAccess::Permissive),
         )
         .await

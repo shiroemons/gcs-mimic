@@ -21,7 +21,7 @@ async fn retired_blob(data: &Path) -> (Catalog, BlobId) {
         .unwrap();
     let old = catalog
         .run_upload::<_, ObjectError>(|connection| {
-            let key = crate::object::ObjectKey::from_parts_unchecked("bucket", "object");
+            let key = ObjectKey::from_parts_unchecked("bucket", "object");
             Ok(lookup(connection, key)?.unwrap().blob)
         })
         .await

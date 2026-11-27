@@ -4,6 +4,7 @@ use super::durability::cleanup_failed_shard;
 use super::list::{ListSource, UpperBound, list_page_within, list_seek_sql};
 use super::publication::expiration_after;
 use super::*;
+use crate::object::ObjectKey;
 use crate::object::Patch;
 use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1334,7 +1335,7 @@ async fn prepared_upload_skips_advisory_repeat_but_rechecks_publication() {
         let conditions = ObjectConditions::default();
         let permit = catalog
             .prepare_object_upload(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                ObjectKey::from_parts_unchecked("bucket", "object"),
                 conditions,
                 PERMISSIVE,
             )
@@ -1352,7 +1353,7 @@ async fn prepared_upload_skips_advisory_repeat_but_rechecks_publication() {
         let error = catalog
             .put_object_prechecked(
                 ObjectUpload {
-                    key: crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                    key: ObjectKey::from_parts_unchecked("bucket", "object"),
                     content_type: "text/plain".into(),
                     expected,
                     conditions,
@@ -1396,7 +1397,7 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
         async move {
             let permit = catalog
                 .prepare_object_upload(
-                    crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                    ObjectKey::from_parts_unchecked("bucket", "object"),
                     ObjectConditions::default(),
                     &project_access(allow_overwrite),
                 )
@@ -1411,7 +1412,7 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
     let publish = |body, permit, allow_overwrite| {
         catalog.put_object_prechecked(
             ObjectUpload {
-                key: crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                key: ObjectKey::from_parts_unchecked("bucket", "object"),
                 content_type: "text/plain".into(),
                 expected: ExpectedHashes::default(),
                 conditions: ObjectConditions::default(),
@@ -1453,7 +1454,7 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
         assert_eq!(
             catalog
                 .check_upload(
-                    crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                    ObjectKey::from_parts_unchecked("bucket", "object"),
                     conditions,
                     &project_access(false)
                 )
@@ -1465,7 +1466,7 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
     assert!(
         catalog
             .check_upload(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "fresh"),
+                ObjectKey::from_parts_unchecked("bucket", "fresh"),
                 Default::default(),
                 &project_access(false)
             )
@@ -1543,7 +1544,7 @@ async fn publish(
     catalog
         .put_object_prechecked(
             ObjectUpload {
-                key: crate::object::ObjectKey::from_parts_unchecked("bucket", name),
+                key: ObjectKey::from_parts_unchecked("bucket", name),
                 content_type: "text/plain".into(),
                 expected: ExpectedHashes::default(),
                 conditions: ObjectConditions::default(),
@@ -1579,7 +1580,7 @@ async fn assert_all_forbidden(catalog: &Catalog, access: &BucketAccess, current:
     assert_eq!(
         catalog
             .check_upload(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                ObjectKey::from_parts_unchecked("bucket", "object"),
                 conditions,
                 access
             )
@@ -1688,7 +1689,7 @@ async fn pap_is_rechecked_after_upload_admission_and_before_reads() {
             .unwrap();
         let permit = catalog
             .prepare_object_upload(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "fresh"),
+                ObjectKey::from_parts_unchecked("bucket", "fresh"),
                 Default::default(),
                 &create,
             )
@@ -1893,7 +1894,7 @@ async fn revoked_bucket_binding_is_rechecked_inside_operations() {
             .unwrap();
         let permit = catalog
             .prepare_object_upload(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "fresh"),
+                ObjectKey::from_parts_unchecked("bucket", "fresh"),
                 Default::default(),
                 &create,
             )
@@ -1951,7 +1952,7 @@ async fn operations_recheck_the_authorized_project_after_bucket_recreation() {
     // recreated under another project before the body completes.
     let permit = catalog
         .prepare_object_upload(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            ObjectKey::from_parts_unchecked("bucket", "object"),
             Default::default(),
             &access,
         )
@@ -2014,7 +2015,7 @@ async fn missing_bucket_access_reauthorizes_against_the_actual_project() {
     assert_eq!(
         catalog
             .check_upload(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                ObjectKey::from_parts_unchecked("bucket", "object"),
                 conditions,
                 &access
             )
@@ -2044,7 +2045,7 @@ async fn missing_bucket_access_reauthorizes_against_the_actual_project() {
     create_bucket(&catalog, "project").await;
     let permit = catalog
         .prepare_object_upload(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            ObjectKey::from_parts_unchecked("bucket", "object"),
             conditions,
             &access,
         )

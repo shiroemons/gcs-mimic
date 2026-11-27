@@ -1,5 +1,6 @@
 use crate as gcs_mimic;
 use crate::json::resumable_cancel::cancel_wire;
+use crate::object::ObjectKey;
 use crate::storage::test_fixtures::{body, publication, seed_bucket};
 use crate::test_support::{TestDir, eventually_async};
 use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
@@ -42,7 +43,7 @@ async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_de
         .unwrap();
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -97,7 +98,7 @@ async fn completed_session_cannot_be_cancelled_or_have_its_bytes_removed() {
     let catalog = setup(&dir, Arc::new(ManualClock::new(UNIX_EPOCH))).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             Some(0),
         )
@@ -151,7 +152,7 @@ async fn cancel_reloads_terminal_state_when_transition_no_longer_matches() {
         let catalog = setup(&dir, clock.clone()).await;
         let session = catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+                ObjectKey::from_parts_unchecked("bucket", "name"),
                 gcs_mimic::storage::ResumableOptions::new(
                     gcs_mimic::bucket::BucketAccess::Permissive,
                 ),
@@ -184,7 +185,7 @@ async fn cancel_obeys_writer_lease_and_only_one_cancellation_wins() {
     let catalog = setup(&dir, Arc::new(ManualClock::new(UNIX_EPOCH))).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -218,7 +219,7 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -282,7 +283,7 @@ async fn expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots()
     for _ in 0..128 {
         catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+                ObjectKey::from_parts_unchecked("bucket", "name"),
                 gcs_mimic::storage::ResumableOptions::new(
                     gcs_mimic::bucket::BucketAccess::Permissive,
                 ),
@@ -298,7 +299,7 @@ async fn expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots()
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "new"),
+            ObjectKey::from_parts_unchecked("bucket", "new"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -314,7 +315,7 @@ async fn cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slo
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -373,7 +374,7 @@ async fn expiry_waits_for_writer_and_retries_after_lease_release() {
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -416,7 +417,7 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
     seed_bucket(&catalog).await;
     let first = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "first"),
+            ObjectKey::from_parts_unchecked("bucket", "first"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -425,7 +426,7 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
     clock.set_without_waking(first.deadline);
     catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "second"),
+            ObjectKey::from_parts_unchecked("bucket", "second"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -444,7 +445,7 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
 async fn prefix(catalog: &Catalog, data: &[u8]) -> gcs_mimic::storage::ResumableSession {
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -789,7 +790,7 @@ async fn scheduler_retries_failed_cleanup_and_clears_its_error_after_repair() {
     catalog.start_resumable_maintenance();
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -828,7 +829,7 @@ async fn scheduler_restarts_after_a_panic_and_readiness_reports_the_gap() {
     };
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -879,7 +880,7 @@ async fn persistent_maintenance_failures_turn_readiness_off_until_a_pass_succeed
     };
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -911,7 +912,7 @@ async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadlin
     let catalog = setup(&dir, clock).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "cancelled"),
+            ObjectKey::from_parts_unchecked("bucket", "cancelled"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -938,7 +939,7 @@ async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadlin
     for _ in 0..3 {
         catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "new"),
+                ObjectKey::from_parts_unchecked("bucket", "new"),
                 gcs_mimic::storage::ResumableOptions::new(
                     gcs_mimic::bucket::BucketAccess::Permissive,
                 ),

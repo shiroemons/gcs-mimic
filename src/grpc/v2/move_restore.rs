@@ -4,6 +4,7 @@ use super::{
     Storage, convert, names, pb,
     status::{invalid_field, unsupported},
 };
+use crate::bucket::name::BucketKey;
 use crate::{
     auth::{self, Caller},
     object::{
@@ -47,7 +48,7 @@ impl Storage {
         let sc = move_conditions(r.source_conditions())?;
         let dc = move_conditions(ObjectConditions::from(&r))?;
         let object_names = MoveNames {
-            bucket: crate::bucket::name::BucketKey::from_unchecked(bucket.into()),
+            bucket: BucketKey::from_unchecked(bucket.into()),
             source: source.into(),
             destination: r.destination_object,
         };

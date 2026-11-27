@@ -6,6 +6,8 @@ use super::{
 };
 use crate::cause::BackendCause;
 use crate::clock::{Clock, SystemClock};
+#[cfg(test)]
+use crate::object::ObjectKey;
 use crate::storage::catalog::sql;
 use crate::storage::{BlobError, BlobId};
 use rusqlite::{Connection, params};
@@ -775,7 +777,7 @@ mod tests {
             .unwrap();
         let session = catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "first"),
+                ObjectKey::from_parts_unchecked("bucket", "first"),
                 ResumableOptions::new(BucketAccess::Permissive),
                 None,
             )
@@ -784,7 +786,7 @@ mod tests {
         clock.advance(Duration::from_secs(1));
         let later = catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "later"),
+                ObjectKey::from_parts_unchecked("bucket", "later"),
                 ResumableOptions::new(BucketAccess::Permissive),
                 None,
             )
@@ -863,7 +865,7 @@ mod tests {
             .unwrap();
         let session = catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                ObjectKey::from_parts_unchecked("bucket", "object"),
                 super::super::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
                 None,
             )
@@ -871,7 +873,7 @@ mod tests {
             .unwrap();
         let multipart = catalog
             .begin_xml_multipart(
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "multipart"),
+                ObjectKey::from_parts_unchecked("bucket", "multipart"),
                 super::super::xml_multipart::Options {
                     content_type: "text/plain".into(),
                     metadata: Default::default(),

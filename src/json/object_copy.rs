@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     acl::PredefinedObjectAcl,
-    bucket::name::{AdmittedBucket, BucketKey},
+    bucket::name::BucketKey,
     config::CompatProfile,
     object::{ObjectConditions, generation::Generation},
     percent::{Decoding, RequestUri, decode},
@@ -104,7 +104,7 @@ fn names(path: &str, profile: CompatProfile) -> Result<(BucketKey, String), ApiE
         return Err(ApiError::invalid_parameter("Invalid copy path"));
     }
     let bucket = decode(bucket, Decoding::Path)?;
-    let bucket = AdmittedBucket::for_profile(bucket, profile)?.into_key();
+    let bucket = BucketKey::for_profile(bucket, profile)?;
     let name = decode(name, Decoding::Path)?;
     super::validate_object_name(&name)?;
     Ok((bucket, name))

@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 #[cfg(unix)]
 use crate::storage::catalog::fault::Crash;
 use crate::{
@@ -653,7 +654,7 @@ async fn requests_during_a_seed_commit_wait_and_then_see_what_it_published() {
         let session = tokio::spawn(async move {
             starter
                 .create_resumable_session(
-                    crate::object::ObjectKey::from_parts_unchecked("test-bucket", "session"),
+                    ObjectKey::from_parts_unchecked("test-bucket", "session"),
                     crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
                     None,
                 )

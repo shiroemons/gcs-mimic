@@ -685,7 +685,7 @@ fn evaluate_version(
 ) -> Result<LifecycleCounts, ObjectError> {
     let target = candidate.target;
     let key = QuarantineKey::Version {
-        bucket: &target.bucket,
+        bucket: target.bucket.as_str(),
         incarnation,
         name: &target.name,
         generation: target.generation,

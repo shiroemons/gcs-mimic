@@ -1,4 +1,5 @@
 use super::*;
+use crate::bucket::name::BucketKey;
 use crate::bucket::{ClassLocationConflict, LocationKind, RetentionPolicyUpdate, Rpo};
 use crate::object::{MapPatch, WriteMode};
 
@@ -199,11 +200,8 @@ fn authorize_update(
     conditions: BucketConditions,
     access: &BucketAccess,
 ) -> Result<BucketRecord, CatalogError> {
-    let record = select_bucket(
-        transaction,
-        crate::bucket::name::BucketKey::from_unchecked(name),
-    )?
-    .ok_or(CatalogError::NotFound)?;
+    let record = select_bucket(transaction, BucketKey::from_unchecked(name))?
+        .ok_or(CatalogError::NotFound)?;
     check_access(transaction, name, &record.project, access)?;
     let pap = update
         .public_access_prevention

@@ -1,6 +1,8 @@
 //! A prepared fixture namespace has one catalog publication boundary.
 
 use super::*;
+use crate::bucket::name::BucketKey;
+use crate::object::ObjectKey;
 use crate::{
     fsutil::Vacant,
     storage::catalog::{
@@ -595,7 +597,7 @@ pub(super) fn create_bucket(
 ) -> Result<Bucket, AdminError> {
     match crate::storage::catalog::select_bucket(
         transaction,
-        crate::bucket::name::BucketKey::from_unchecked(record.name.as_str()),
+        BucketKey::from_unchecked(record.name.as_str()),
     )
     .map_err(objects_error)?
     {
@@ -632,10 +634,7 @@ fn replay_files(
     {
         validate_staged_entry(entry)?;
         let (bucket, name) = (entry.bucket.as_str(), entry.name.as_str());
-        let previous = objects::lookup(
-            transaction,
-            crate::object::ObjectKey::from_parts_unchecked(bucket, name),
-        )?;
+        let previous = objects::lookup(transaction, ObjectKey::from_parts_unchecked(bucket, name))?;
         let live = previous
             .as_ref()
             .map(|stored| live_object(transaction, &stored.record, entry, now))
@@ -791,10 +790,7 @@ pub(super) fn absent_object(
     name: &str,
     now: SystemTime,
 ) -> Result<Option<LiveObject>, AdminError> {
-    let Some(stored) = objects::lookup(
-        transaction,
-        crate::object::ObjectKey::from_parts_unchecked(bucket, name),
-    )?
+    let Some(stored) = objects::lookup(transaction, ObjectKey::from_parts_unchecked(bucket, name))?
     else {
         return Ok(None);
     };
@@ -964,7 +960,7 @@ fn confirmed(
     for bucket in &batch.buckets {
         if crate::storage::catalog::select_bucket(
             connection,
-            crate::bucket::name::BucketKey::from_unchecked(bucket.0.name.as_str()),
+            BucketKey::from_unchecked(bucket.0.name.as_str()),
         )
         .map_err(objects_error)?
         .is_none()

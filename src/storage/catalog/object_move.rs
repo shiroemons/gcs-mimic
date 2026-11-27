@@ -87,7 +87,8 @@ impl Catalog {
                         "Source and destination object names must be different.".into(),
                     ));
                 }
-                let publication = super::objects::BucketPublication::load(&transaction, &bucket)?;
+                let publication =
+                    super::objects::BucketPublication::load(&transaction, bucket.as_str())?;
                 super::notification_outbox::enqueue(
                     &transaction,
                     crate::notification::Message {

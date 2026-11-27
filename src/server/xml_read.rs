@@ -34,7 +34,7 @@ pub(super) async fn respond(
         auth::OBJECTS_GET
     };
     let access = ctx
-        .authorize(permission, &operation.target.bucket)
+        .authorize(permission, operation.target.bucket.as_str())
         .await
         .map_err(|error| xml::Error::from(error).for_caller(ctx.caller))?;
     let conditions = xml::headers(

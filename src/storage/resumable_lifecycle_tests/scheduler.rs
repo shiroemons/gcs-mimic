@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use crate::storage::catalog::fault;
 #[cfg(unix)]
 use crate::storage::catalog::fault::{Fault, Step};
@@ -29,7 +30,7 @@ async fn expired_busy_session_wakes_scheduler_when_its_writer_is_released() {
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "expired"),
+            ObjectKey::from_parts_unchecked("bucket", "expired"),
             crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
             None,
         )
@@ -42,7 +43,7 @@ async fn expired_busy_session_wakes_scheduler_when_its_writer_is_released() {
     clock.set(session.deadline);
     catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "future"),
+            ObjectKey::from_parts_unchecked("bucket", "future"),
             crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
             None,
         )
@@ -72,7 +73,7 @@ async fn failed_cleanup_retries_after_writer_release_without_another_request() {
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "cancelled"),
+            ObjectKey::from_parts_unchecked("bucket", "cancelled"),
             crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
             None,
         )

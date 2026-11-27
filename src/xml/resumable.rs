@@ -3,6 +3,7 @@
 //! shared resumable engine; this adapter only parses XML requests and renders XML responses.
 
 use super::{Error, HeaderKind, ObjectPath, Validators, XmlCode, accepted_parameter, put};
+use crate::object::ObjectKey;
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth,
@@ -135,7 +136,7 @@ pub(crate) async fn start(
     crate::bounded_body::read_body(request.into_body(), 0)
         .await
         .map_err(|_| Error::invalid("Resumable upload initiation carries no body."))?;
-    let key = crate::object::ObjectKey::from_parts_unchecked(&object.bucket, &name);
+    let key = ObjectKey::from_parts_unchecked(&object.bucket, &name);
     let id = resumable::create_session(ctx, key, options, None)
         .await
         .map_err(|error| Error::from(error).for_caller(caller))?;

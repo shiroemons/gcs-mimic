@@ -57,7 +57,7 @@ async fn upload_and_part_times_keep_microseconds_through_listings_replacement_an
     };
     let upload = catalog
         .begin_xml_multipart(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "value"),
+            ObjectKey::from_parts_unchecked("bucket", "value"),
             options,
             BucketAccess::Permissive,
         )

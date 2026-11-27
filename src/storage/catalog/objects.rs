@@ -474,7 +474,7 @@ fn publicly_readable(
     key: ObjectKey<'_>,
     generation: i64,
 ) -> Result<bool, ObjectError> {
-    let (bucket, _) = key.parts();
+    let bucket = key.bucket().into_inner();
     Ok(super::policies::read_policy(connection, bucket)?.allows(
         None,
         crate::auth::OBJECTS_GET,
@@ -500,10 +500,10 @@ pub(super) fn delete_selected(
     access: &BucketAccess,
 ) -> Result<(Journaled, Result<Retired, ObjectError>), ObjectError> {
     let transaction = sql::immediate(connection)?;
-    let authority = BucketAuthority::load(&transaction, &target.bucket, access)?;
+    let authority = BucketAuthority::load(&transaction, target.bucket.as_str(), access)?;
     let removed = super::soft_delete::purge_in_transaction(
         &transaction,
-        &target.bucket,
+        target.bucket.as_str(),
         clock.now().try_into()?,
     )?;
     // A refused or partially executed delete must still leave the preceding purge committed.
@@ -551,7 +551,7 @@ pub(super) fn delete_in_transaction(
     target: &ObjectTarget,
     context: DeleteContext<'_>,
 ) -> Result<Deleted, ObjectError> {
-    let authority = BucketAuthority::load(transaction, &target.bucket, context.access)?;
+    let authority = BucketAuthority::load(transaction, target.bucket.as_str(), context.access)?;
     delete_authorized(transaction, target, context, authority)
 }
 
@@ -635,11 +635,10 @@ pub(super) fn lookup(
     connection: &Connection,
     key: ObjectKey<'_>,
 ) -> Result<Option<StoredObject>, ObjectError> {
-    let (_, name) = key.parts();
     sql::row(
         connection,
         SELECT_LIVE_OBJECT,
-        params![key.bucket(), name],
+        params![key.bucket(), key.name()],
         read_object,
     )
     .optional()
@@ -654,7 +653,7 @@ pub(super) fn selected(
     request: RequestKind,
     access: &BucketAccess,
 ) -> Result<StoredObject, ObjectError> {
-    let (bucket, _) = key.parts();
+    let bucket = key.bucket().into_inner();
     let object_acl = object_acl_authority(connection, bucket, access)?;
     let record = lookup_generation(connection, key, generation)?;
     if let Some(check) = object_acl {
@@ -736,7 +735,7 @@ pub(super) fn authorize_generation(
     generation: i64,
     access: &BucketAccess,
 ) -> Result<(), ObjectError> {
-    let (bucket, _) = key.parts();
+    let bucket = key.bucket().into_inner();
     if let Some(check) = object_acl_authority(connection, bucket, access)?
         && !super::acl::object_granted(connection, key, generation, check.access)?
     {
@@ -752,7 +751,7 @@ pub(super) fn check_upload_destination(
     access: &BucketAccess,
     now: std::time::SystemTime,
 ) -> Result<Option<StoredObject>, ObjectError> {
-    let (bucket, _) = key.parts();
+    let bucket = key.bucket().into_inner();
     let (_, permission) = authorized_bucket(connection, bucket, access)?;
     let previous = lookup(connection, key)?;
     check_publication(previous.as_ref(), conditions, permission, now)?;

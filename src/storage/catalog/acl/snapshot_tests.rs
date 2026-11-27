@@ -1,5 +1,6 @@
 use super::super::read_pool::tests::assert_point_read;
 use super::*;
+use crate::object::ObjectKey;
 use crate::storage::test_fixtures::{PERMISSIVE, body, live};
 use crate::{
     auth::{Auth, Registry},
@@ -119,7 +120,7 @@ async fn page_projection_preserves_generation_order_owner_and_access_restriction
                 .run::<_, CatalogError>(move |connection| {
                     match super::super::objects::authorize_generation(
                         connection,
-                        crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                        ObjectKey::from_parts_unchecked("bucket", "object"),
                         generation.get(),
                         &checked,
                     ) {
@@ -291,7 +292,7 @@ async fn setup(data: &TestDir, backend: &str) -> (Catalog, Auth, crate::object::
     let record = catalog
         .put_object_prechecked(
             ObjectUpload {
-                key: crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                key: ObjectKey::from_parts_unchecked("bucket", "object"),
                 content_type: "text/plain".into(),
                 expected: ExpectedHashes::default(),
                 conditions: Default::default(),
@@ -535,19 +536,19 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 .any(|entry| entry.entity.as_str() == "user-uploader@example.test")
         );
         assert!(snapshot.matches_resource(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            ObjectKey::from_parts_unchecked("bucket", "object"),
             record.generation.get()
         ));
         assert!(!snapshot.matches_resource(
-            crate::object::ObjectKey::from_parts_unchecked("other", "object"),
+            ObjectKey::from_parts_unchecked("other", "object"),
             record.generation.get()
         ));
         assert!(!snapshot.matches_resource(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "other"),
+            ObjectKey::from_parts_unchecked("bucket", "other"),
             record.generation.get()
         ));
         assert!(!snapshot.matches_resource(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            ObjectKey::from_parts_unchecked("bucket", "object"),
             record.generation.get() + 1
         ));
         assert!(

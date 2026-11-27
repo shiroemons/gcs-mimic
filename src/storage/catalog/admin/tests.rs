@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use crate::object::{MapPatch, Patch};
 use crate::storage::ObjectUpload;
 use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
@@ -203,7 +204,7 @@ async fn shared_reclamation_preserves_cancelled_session_cleanup_markers() {
     let (dir, catalog, _admin, _bucket, _name) = setup().await;
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("test-bucket", "cancelled"),
+            ObjectKey::from_parts_unchecked("test-bucket", "cancelled"),
             super::super::ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -304,7 +305,7 @@ async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bod
                 "resumable" => {
                     let session = worker
                         .create_resumable_session(
-                            crate::object::ObjectKey::from_parts_unchecked("test-bucket", "object"),
+                            ObjectKey::from_parts_unchecked("test-bucket", "object"),
                             super::super::ResumableOptions::new(BucketAccess::Permissive),
                             Some(3),
                         )
@@ -1562,7 +1563,7 @@ async fn disk_full_during_resumable_retirement_preserves_the_same_session_and_by
     options.content_type = "text/plain".into();
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked(bucket.as_str(), name.as_str()),
+            ObjectKey::from_parts_unchecked(bucket.as_str(), name.as_str()),
             options,
             Some(5),
         )

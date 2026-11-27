@@ -118,6 +118,10 @@ impl PublishIdentity {
 }
 
 impl UploadCommit {
+    fn key(&self) -> ObjectKey<'_> {
+        ObjectKey::from_parts_unchecked(&self.bucket, &self.name)
+    }
+
     /// Identifies the request for upload replay: target, metadata, conditions and body.
     fn fingerprint(&self, sha256: [u8; 32]) -> Result<[u8; 32], ObjectError> {
         super::super::upload_replay::UploadFingerprint {
@@ -181,10 +185,7 @@ impl UploadCommit {
         }
         let bucket = authority.publication?;
         let storage_class = bucket.storage_class(self.metadata.storage_class)?;
-        let previous = bucket.lookup(
-            transaction,
-            ObjectKey::from_parts_unchecked(&self.bucket, &self.name),
-        )?;
+        let previous = bucket.lookup(transaction, self.key())?;
         // Rechecked under the write lock so a concurrent create cannot be overwritten.
         check_publication(
             previous.as_ref(),

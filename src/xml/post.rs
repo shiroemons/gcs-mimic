@@ -5,6 +5,7 @@
 //! admission are the same as for an XML PUT.
 
 use super::{Error, Namespace, ObjectPath, XmlCode, XmlWriter, put::storage_error, writer::Quotes};
+use crate::object::ObjectKey;
 use crate::server::RequestBody as Incoming;
 use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
@@ -709,7 +710,7 @@ pub(crate) async fn respond(
         .map_err(|error| Error::from(error).for_caller(caller))?;
     let permit = ctx
         .await_catalog(state.catalog.prepare_object_upload(
-            crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+            ObjectKey::from_parts_unchecked(&bucket, &name),
             ObjectConditions::default(),
             &access,
         ))
@@ -718,7 +719,7 @@ pub(crate) async fn respond(
     let (sender, receiver) = upload_channel();
     let upload = state.catalog.put_object_prechecked(
         ObjectUpload {
-            key: crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+            key: ObjectKey::from_parts_unchecked(&bucket, &name),
             content_type,
             expected: ExpectedHashes::default(),
             conditions: ObjectConditions::default(),

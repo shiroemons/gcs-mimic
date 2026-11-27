@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ObjectKey;
 use gcs_mimic::storage::{ResumableChunk, ResumableOptions, ResumableSession};
 use std::assert_matches;
 use std::num::NonZeroU32;
@@ -11,7 +12,7 @@ async fn create(
     clock.advance(Duration::from_millis(1));
     catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
+            ObjectKey::from_parts_unchecked("bucket", "name"),
             ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )

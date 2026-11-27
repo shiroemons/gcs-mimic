@@ -1,8 +1,5 @@
 use crate::{
-    bucket::{
-        StorageClass,
-        name::{AdmittedBucket, BucketKey},
-    },
+    bucket::{StorageClass, name::BucketKey},
     decimal::Grammar,
     json::{ApiError, WriteMode, object_metadata_from_map, validate_object_name},
     object::{ComposeSource, ObjectMetadataUpdate},
@@ -41,7 +38,7 @@ fn parse(
         ));
     }
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
-    let bucket = AdmittedBucket::for_profile(bucket, profile)?.into_key();
+    let bucket = BucketKey::for_profile(bucket, profile)?;
     let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
     validate_object_name(&name)?;
     let mut query = uri.parameters()?.clone();

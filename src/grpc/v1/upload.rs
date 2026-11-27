@@ -1,6 +1,7 @@
 use super::{
     Storage, common, conditions, convert, metadata, object_name, pb, projection, unsupported,
 };
+use crate::object::ObjectKey;
 use crate::{
     auth::Caller,
     grpc::upload::{self, Intake, IntakeError, IntakePiece, Resend},
@@ -71,7 +72,7 @@ impl Storage {
             .state
             .catalog
             .prepare_object_upload(
-                crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                ObjectKey::from_parts_unchecked(&bucket, &name),
                 conditions,
                 &access,
             )
@@ -79,7 +80,7 @@ impl Storage {
         let (sender, receiver) = mpsc::channel(2);
         let write = self.state.catalog.put_object_prechecked(
             ObjectUpload {
-                key: crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                key: ObjectKey::from_parts_unchecked(&bucket, &name),
                 content_type,
                 expected: ExpectedHashes::default(),
                 conditions,

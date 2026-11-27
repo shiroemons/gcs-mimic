@@ -61,7 +61,7 @@ async fn appendable_finalization_preserves_creator_when_a_different_principal_ta
             .unwrap();
         let mut original = catalog
             .create_appendable(
-                crate::object::ObjectKey::from_parts_unchecked("append", "owned"),
+                ObjectKey::from_parts_unchecked("append", "owned"),
                 ResumableOptions::new(access),
             )
             .await
@@ -224,7 +224,7 @@ async fn appendable_owner_survives_power_loss_on_both_sides_of_finalization_comm
             .unwrap();
         let mut writer = catalog
             .create_appendable(
-                crate::object::ObjectKey::from_parts_unchecked("append", "power-loss"),
+                ObjectKey::from_parts_unchecked("append", "power-loss"),
                 ResumableOptions::new(access),
             )
             .await

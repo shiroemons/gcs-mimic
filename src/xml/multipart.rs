@@ -332,7 +332,7 @@ pub(crate) async fn respond(
     let operation = Operation::parse(request.method(), &path.target.name, &mut query)?;
     xml_text(&path.target.name)?;
     let access = ctx
-        .authorize(operation.permission(), &path.target.bucket)
+        .authorize(operation.permission(), path.target.bucket.as_str())
         .await
         .map_err(|error| Error::from(error).for_caller(ctx.caller))?;
     match operation {
@@ -375,7 +375,7 @@ async fn write_upload(
             }
             super::canned_acl::check(
                 headers.metadata.acl.predefined(),
-                &path.target.bucket,
+                path.target.bucket.as_str(),
                 &access,
                 ctx,
             )

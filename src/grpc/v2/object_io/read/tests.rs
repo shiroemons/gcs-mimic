@@ -6,6 +6,7 @@ use super::test_support::{body, read};
 use super::*;
 use crate::csek::CsekError;
 use crate::grpc::test_support::{assert_customer_encryption, key_params, mask, put_keyed};
+use crate::object::ObjectKey;
 use crate::storage::test_fixtures::live;
 use crate::{bucket::BucketAccess, storage::ResumableOptions};
 
@@ -298,7 +299,7 @@ async fn a_key_on_an_unfinalized_appendable_object_is_refused() {
     let catalog = &storage.state.catalog;
     let mut writer = catalog
         .create_appendable(
-            crate::object::ObjectKey::from_parts_unchecked("grpc-io", "growing"),
+            ObjectKey::from_parts_unchecked("grpc-io", "growing"),
             ResumableOptions::new(BucketAccess::Permissive),
         )
         .await

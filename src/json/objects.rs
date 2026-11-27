@@ -104,17 +104,19 @@ impl ObjectRequest {
     /// The permission an operation needs on the bucket its request names.
     pub(crate) fn required_permission(&self) -> (auth::Permission, &str) {
         match self {
-            Self::Restore { target, .. } => (auth::OBJECTS_RESTORE, &target.bucket),
-            Self::Move(params) => (auth::OBJECTS_CREATE, &params.names.bucket),
-            Self::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
+            Self::Restore { target, .. } => (auth::OBJECTS_RESTORE, target.bucket.as_str()),
+            Self::Move(params) => (auth::OBJECTS_CREATE, params.names.bucket.as_str()),
+            Self::Copy(params) => (auth::OBJECTS_CREATE, params.bucket.as_str()),
             Self::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
-            Self::Update(params) => (auth::OBJECTS_UPDATE, &params.target.bucket),
+            Self::Update(params) => (auth::OBJECTS_UPDATE, params.target.bucket.as_str()),
             Self::Compose(super::ComposeParams { bucket, .. })
             | Self::Insert(UploadRequest { bucket, .. })
             | Self::Multipart(UploadRequest { bucket, .. })
-            | Self::Resumable(UploadRequest { bucket, .. }) => (auth::OBJECTS_CREATE, bucket),
-            Self::Get { target, .. } => (auth::OBJECTS_GET, &target.bucket),
-            Self::Delete { target, .. } => (auth::OBJECTS_DELETE, &target.bucket),
+            | Self::Resumable(UploadRequest { bucket, .. }) => {
+                (auth::OBJECTS_CREATE, bucket.as_str())
+            }
+            Self::Get { target, .. } => (auth::OBJECTS_GET, target.bucket.as_str()),
+            Self::Delete { target, .. } => (auth::OBJECTS_DELETE, target.bucket.as_str()),
         }
     }
 

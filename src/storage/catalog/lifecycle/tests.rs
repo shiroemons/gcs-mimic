@@ -1248,7 +1248,7 @@ async fn candidate(
             let mut diagnostics = Vec::new();
             let BucketRules::Ready { rules, .. } = bucket_rules(
                 &transaction,
-                &target.bucket,
+                target.bucket.as_str(),
                 incarnation,
                 BucketRules::Absent,
                 &mut diagnostics,

@@ -10,7 +10,7 @@ async fn session(catalog: &Catalog) -> crate::storage::ResumableSession {
     options.content_type = "application/test".into();
     catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("test-bucket", "value"),
+            ObjectKey::from_parts_unchecked("test-bucket", "value"),
             options,
             None,
         )
@@ -410,7 +410,7 @@ async fn ram_resumable_session_limit_and_expiry_recycle_all_staging_capacity() {
     assert!(
         catalog
             .create_resumable_session(
-                crate::object::ObjectKey::from_parts_unchecked("test-bucket", "value"),
+                ObjectKey::from_parts_unchecked("test-bucket", "value"),
                 options,
                 None
             )

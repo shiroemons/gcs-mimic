@@ -1,5 +1,6 @@
 use super::cleanup::discard_transfer;
 use super::*;
+use crate::object::ObjectKey;
 use crate::storage::test_fixtures::{
     PERMISSIVE, body, bucket, live, permissive_upload, read_all, version,
 };
@@ -729,7 +730,7 @@ async fn callback_source_deletion_rolls_back_with_destination_and_checks_holds()
         .publish_derived(&transfer.id, destination("target"), move |connection, _| {
             Catalog::delete_derived_source_in_transaction(
                 connection,
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
+                ObjectKey::from_parts_unchecked("bucket", "source"),
                 generation.get(),
                 Default::default(),
                 PERMISSIVE,
@@ -773,7 +774,7 @@ async fn callback_source_deletion_rolls_back_with_destination_and_checks_holds()
         .publish_derived(&transfer.id, destination("target"), move |connection, _| {
             Catalog::delete_derived_source_in_transaction(
                 connection,
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
+                ObjectKey::from_parts_unchecked("bucket", "source"),
                 generation.get(),
                 Default::default(),
                 PERMISSIVE,
@@ -894,7 +895,7 @@ async fn validation_sees_same_name_source_before_retirement_and_completion_sees_
             move |connection, destination| {
                 let source = Catalog::check_derived_source_in_transaction(
                     connection,
-                    crate::object::ObjectKey::from_parts_unchecked("bucket", "same"),
+                    ObjectKey::from_parts_unchecked("bucket", "same"),
                     Some(generation.get()),
                     Default::default(),
                     PERMISSIVE,
@@ -906,7 +907,7 @@ async fn validation_sees_same_name_source_before_retirement_and_completion_sees_
             move |connection, destination| {
                 let live = Catalog::check_derived_source_in_transaction(
                     connection,
-                    crate::object::ObjectKey::from_parts_unchecked("bucket", "same"),
+                    ObjectKey::from_parts_unchecked("bucket", "same"),
                     None,
                     Default::default(),
                     PERMISSIVE,
@@ -1310,7 +1311,7 @@ async fn injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs() {
     );
     let session = catalog
         .create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked("bucket", "upload"),
+            ObjectKey::from_parts_unchecked("bucket", "upload"),
             crate::storage::ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -1535,7 +1536,7 @@ async fn committed_callback_deletion_reclaims_source_blob_without_restart() {
         .publish_derived(&transfer.id, destination("copy"), move |connection, _| {
             Catalog::delete_derived_source_in_transaction(
                 connection,
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
+                ObjectKey::from_parts_unchecked("bucket", "source"),
                 original.generation.get(),
                 Default::default(),
                 PERMISSIVE,
@@ -1571,7 +1572,7 @@ async fn callback_reclamation_failure_preserves_success_and_maintenance_retries(
             Ok::<_, ObjectError>(
                 objects::lookup(
                     connection,
-                    crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
+                    ObjectKey::from_parts_unchecked("bucket", "source"),
                 )?
                 .unwrap()
                 .blob,
@@ -1586,7 +1587,7 @@ async fn callback_reclamation_failure_preserves_success_and_maintenance_retries(
         .publish_derived(&transfer.id, destination("copy"), move |connection, _| {
             Catalog::delete_derived_source_in_transaction(
                 connection,
-                crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
+                ObjectKey::from_parts_unchecked("bucket", "source"),
                 original.generation.get(),
                 Default::default(),
                 PERMISSIVE,

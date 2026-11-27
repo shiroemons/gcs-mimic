@@ -7,7 +7,7 @@ use super::{
 use crate::percent::{Decoding, RequestUri, decode};
 use crate::{
     acl::PredefinedObjectAcl,
-    bucket::name::AdmittedBucket,
+    bucket::name::BucketKey,
     config::CompatProfile,
     object::{ObjectConditions, ObjectTarget, generation::Generation},
     storage::rewrite::{RewriteNames, RewriteProgress},
@@ -92,8 +92,8 @@ fn parse(
     let source_name = decode(path.source_name, Decoding::Path)?;
     let destination_bucket = decode(path.destination_bucket, Decoding::Path)?;
     let destination_name = decode(path.destination_name, Decoding::Path)?;
-    let source_bucket = AdmittedBucket::for_profile(source_bucket, profile)?.into_key();
-    let destination_bucket = AdmittedBucket::for_profile(destination_bucket, profile)?.into_key();
+    let source_bucket = BucketKey::for_profile(source_bucket, profile)?;
+    let destination_bucket = BucketKey::for_profile(destination_bucket, profile)?;
     validate_object_name(&source_name)?;
     validate_object_name(&destination_name)?;
     let names = RewriteNames {

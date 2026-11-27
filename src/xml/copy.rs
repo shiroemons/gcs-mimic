@@ -146,7 +146,7 @@ pub(super) async fn respond(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
     let access = ctx
-        .authorize(auth::OBJECTS_CREATE, &operation.target.bucket)
+        .authorize(auth::OBJECTS_CREATE, operation.target.bucket.as_str())
         .await
         .map_err(|error| Error::from(error).for_caller(ctx.caller))?;
     let source = source(request.headers(), ctx)?;
@@ -172,7 +172,7 @@ pub(super) async fn respond(
     let options = options(request.headers(), put::Signing::of(&request))?;
     super::canned_acl::check(
         options.metadata.acl.predefined(),
-        &operation.target.bucket,
+        operation.target.bucket.as_str(),
         &access,
         ctx,
     )

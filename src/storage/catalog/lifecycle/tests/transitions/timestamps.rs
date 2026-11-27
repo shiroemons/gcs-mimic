@@ -1,4 +1,5 @@
 use super::*;
+use crate::bucket::name::BucketKey;
 use crate::{
     bucket::autoclass::AutoclassUpdate,
     object::ComposeSource,
@@ -188,7 +189,7 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
             "move" => catalog
                 .move_object(
                     MoveNames {
-                        bucket: crate::bucket::name::BucketKey::from_unchecked("bucket".into()),
+                        bucket: BucketKey::from_unchecked("bucket".into()),
                         source: "source".into(),
                         destination: route.into(),
                     },

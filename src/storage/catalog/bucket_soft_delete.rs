@@ -12,6 +12,7 @@ use super::{
     policies::next_revision, principals::Profile, read_bucket, remove_objects, select_bucket,
     system_time_micros, unavailable, unix_micros,
 };
+use crate::bucket::name::BucketKey;
 use crate::bucket::{BucketAccess, BucketRecord, CatalogError, SoftDeletedBucket};
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -219,12 +220,7 @@ fn restore_in_transaction(
             "SELECT project FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2 AND hard_delete_time > ?3", params![name, generation, now])?
         .ok_or(CatalogError::NotFound)?;
     authorize(access, &project)?;
-    if select_bucket(
-        connection,
-        crate::bucket::name::BucketKey::from_unchecked(name),
-    )?
-    .is_some()
-    {
+    if select_bucket(connection, BucketKey::from_unchecked(name))?.is_some() {
         return Err(CatalogError::RestoreConflict);
     }
     // The restored policy is a new IAM revision so stale policy etags cannot overwrite it.
@@ -258,11 +254,8 @@ fn restore_in_transaction(
         "DELETE FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2",
         params![name, generation],
     )?;
-    let record = select_bucket(
-        connection,
-        crate::bucket::name::BucketKey::from_unchecked(name),
-    )?
-    .ok_or(CatalogError::NotFound)?;
+    let record = select_bucket(connection, BucketKey::from_unchecked(name))?
+        .ok_or(CatalogError::NotFound)?;
     if !record.lifecycle.is_empty() {
         super::lifecycle::rules_written();
     }
