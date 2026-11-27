@@ -1019,16 +1019,9 @@ impl RangeRequest<'_> {
 
 /// A single range that starts at or past the end of the object, or any range of an empty
 /// object other than a suffix `resolve` ignores.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the requested range cannot be satisfied")]
 pub(crate) struct UnsatisfiableRange;
-
-impl std::fmt::Display for UnsatisfiableRange {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("the requested range cannot be satisfied")
-    }
-}
-
-impl std::error::Error for UnsatisfiableRange {}
 
 /// Cloud Storage's JSON answer: 416 `requestedRangeNotSatisfiable`.
 impl From<UnsatisfiableRange> for ApiError {
@@ -1307,3 +1300,11 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, InputError> {
 }
 
 pub(crate) use crate::base64::encode as base64;
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = UnsatisfiableRange;
+    assert_eq!(error.to_string(), "the requested range cannot be satisfied");
+    assert!(std::error::Error::source(&error).is_none());
+}
