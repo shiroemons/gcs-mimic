@@ -1,7 +1,7 @@
 //! How a command on the server's host finds the server when it is given no address, as the
 //! healthcheck does.
 
-use gcs_mimic::{config::Config, diagnostics::Diagnostics, tls};
+use crate::{config::Config, diagnostics::Diagnostics, tls};
 use std::{ffi::OsString, path::Path, str::FromStr, sync::Arc};
 use tokio_rustls::rustls::ClientConfig;
 
@@ -192,7 +192,7 @@ fn container_server_args(cmdline: &[u8]) -> Option<Vec<String>> {
     if Path::new(program).file_name() != Some("gcs-mimic".as_ref()) {
         return None;
     }
-    gcs_mimic::config_input::server_arguments(args)
+    crate::config_input::server_arguments(args)
         .filter(|options| !options.is_empty())
         .map(<[String]>::to_vec)
 }

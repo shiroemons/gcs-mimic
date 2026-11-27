@@ -1,5 +1,5 @@
 use super::*;
-use gcs_mimic::bucket_init::generate::PublicAccessPrevention;
+use crate::bucket_init::generate::PublicAccessPrevention;
 use std::assert_matches;
 
 fn args(values: &[&str]) -> Vec<String> {

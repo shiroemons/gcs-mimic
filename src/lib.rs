@@ -1,4 +1,5 @@
 mod acl;
+pub mod app;
 pub mod auth;
 mod base64;
 mod bounded_body;

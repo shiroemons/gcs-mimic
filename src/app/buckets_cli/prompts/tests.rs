@@ -2,7 +2,7 @@ use super::cors::{Access, LOCALHOST, MAX_AGES, METHODS, Needs, ORIGINS, RESPONSE
 use super::lists::Port;
 use super::script::{Reply, Script};
 use super::*;
-use gcs_mimic::bucket_init::generate::{CorsMethod, CorsResponseHeader, GenerateError};
+use crate::bucket_init::generate::{CorsMethod, CorsResponseHeader, GenerateError};
 use std::str::FromStr;
 
 /// Several names typed at once share the answers that follow; empty names around commas are

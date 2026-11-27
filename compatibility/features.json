@@ -54155,7 +54155,7 @@
           "description": "url sign without --signer and --private-key signs as the built-in test signer, producing the same URL as an explicit signature with the published key, and the server verifies it; either credential alone fails with a diagnostic.",
           "result": "PASS",
           "test_ids": [
-            "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
+            "app::tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
             "an_enabled_undeclared_signer_verifies_v4_and_v2_needs_a_grant_and_warns",
             "an_enabled_declared_signer_keeps_its_tokens_and_project_roles"
           ]
@@ -54254,7 +54254,7 @@
         "an_undeclared_signer_reads_and_writes_the_setups_buckets_but_administers_nothing",
         "auth::test_signer::tests::an_undeclared_signer_reads_and_writes_objects_in_the_implicit_projects_only",
         "strict_mode_starts_without_identities_only_for_an_explicitly_enabled_signer",
-        "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
+        "app::tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
         "credentials_print_a_service_account_key_file_for_the_built_in_signer",
         "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
         "unknown_test_signer_arguments_are_rejected",
@@ -54322,7 +54322,7 @@
           "verified_at": "2026-11-08",
           "artifact": "docs/en/evidence/signed-request-verification.md",
           "test_ids": [
-            "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials"
+            "app::tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials"
           ]
         },
         {
@@ -64296,7 +64296,7 @@
             "bucket_init::error_text_and_sources",
             "bucket_init::generate::error_text_and_sources",
             "bucket_init::plan::error_text_and_sources",
-            "buckets_cli::prompts::lists::error_text_and_sources",
+            "app::buckets_cli::prompts::lists::error_text_and_sources",
             "cause::error_text_and_sources",
             "choice::error_text_and_sources",
             "config::error_text_and_sources",
@@ -64324,8 +64324,8 @@
             "object::expected_hashes_tests::digest_errors_name_both_values_and_have_no_source",
             "page_token::error_text_and_sources",
             "percent::error_text_and_sources",
-            "seed_cli::error_text_and_sources",
-            "seed_cli::retains_the_underlying_diagnostic_source",
+            "app::seed_cli::error_text_and_sources",
+            "app::seed_cli::retains_the_underlying_diagnostic_source",
             "server::copy::error_text_and_sources",
             "server::host::error_text_and_sources",
             "server::ingress::error_text_and_sources",
@@ -64346,8 +64346,8 @@
             "storage::failure::public_source_tests::documented_source_exceptions_still_match_the_held_error_and_its_text",
             "storage::failure::public_source_tests::classified_exception_examples_keep_the_concrete_layer_and_its_text",
             "lint::tests::io_error_other_checks_calls_function_values_and_direct_imports",
-            "buckets_cli::prompts::names::invalid_name_keeps_the_rejected_name_and_its_source",
-            "buckets_cli::tests::save_failures_keep_the_operation_and_io_source",
+            "app::buckets_cli::prompts::names::invalid_name_keeps_the_rejected_name_and_its_source",
+            "app::buckets_cli::tests::save_failures_keep_the_operation_and_io_source",
             "grpc::v2::convert::conversion_errors_keep_the_custom_time_and_storage_causes",
             "lint::error_format::tests::source_suppression_is_counted_and_expires_when_the_source_is_forwarded"
           ]
@@ -64433,7 +64433,7 @@
         "bucket_init::error_text_and_sources",
         "bucket_init::generate::error_text_and_sources",
         "bucket_init::plan::error_text_and_sources",
-        "buckets_cli::prompts::lists::error_text_and_sources",
+        "app::buckets_cli::prompts::lists::error_text_and_sources",
         "cause::error_text_and_sources",
         "choice::error_text_and_sources",
         "config::error_text_and_sources",
@@ -64461,8 +64461,8 @@
         "object::expected_hashes_tests::digest_errors_name_both_values_and_have_no_source",
         "page_token::error_text_and_sources",
         "percent::error_text_and_sources",
-        "seed_cli::error_text_and_sources",
-        "seed_cli::retains_the_underlying_diagnostic_source",
+        "app::seed_cli::error_text_and_sources",
+        "app::seed_cli::retains_the_underlying_diagnostic_source",
         "server::copy::error_text_and_sources",
         "server::host::error_text_and_sources",
         "server::ingress::error_text_and_sources",
@@ -64483,8 +64483,8 @@
         "storage::failure::public_source_tests::documented_source_exceptions_still_match_the_held_error_and_its_text",
         "storage::failure::public_source_tests::classified_exception_examples_keep_the_concrete_layer_and_its_text",
         "lint::tests::io_error_other_checks_calls_function_values_and_direct_imports",
-        "buckets_cli::prompts::names::invalid_name_keeps_the_rejected_name_and_its_source",
-        "buckets_cli::tests::save_failures_keep_the_operation_and_io_source",
+        "app::buckets_cli::prompts::names::invalid_name_keeps_the_rejected_name_and_its_source",
+        "app::buckets_cli::tests::save_failures_keep_the_operation_and_io_source",
         "grpc::v2::convert::conversion_errors_keep_the_custom_time_and_storage_causes",
         "lint::error_format::tests::source_suppression_is_counted_and_expires_when_the_source_is_forwarded",
         "lint::layers::tests::adapters_may_not_name_each_other",
@@ -64615,7 +64615,7 @@
             "bucket_init::error_text_and_sources",
             "bucket_init::generate::error_text_and_sources",
             "bucket_init::plan::error_text_and_sources",
-            "buckets_cli::prompts::lists::error_text_and_sources",
+            "app::buckets_cli::prompts::lists::error_text_and_sources",
             "cause::error_text_and_sources",
             "choice::error_text_and_sources",
             "config::error_text_and_sources",
@@ -64643,8 +64643,8 @@
             "object::expected_hashes_tests::digest_errors_name_both_values_and_have_no_source",
             "page_token::error_text_and_sources",
             "percent::error_text_and_sources",
-            "seed_cli::error_text_and_sources",
-            "seed_cli::retains_the_underlying_diagnostic_source",
+            "app::seed_cli::error_text_and_sources",
+            "app::seed_cli::retains_the_underlying_diagnostic_source",
             "server::copy::error_text_and_sources",
             "server::host::error_text_and_sources",
             "server::ingress::error_text_and_sources",
@@ -64673,8 +64673,8 @@
           "verified_at": "2026-11-27",
           "artifact": "docs/en/evidence/rust-hardening.md",
           "test_ids": [
-            "buckets_cli::prompts::names::invalid_name_keeps_the_rejected_name_and_its_source",
-            "buckets_cli::tests::save_failures_keep_the_operation_and_io_source",
+            "app::buckets_cli::prompts::names::invalid_name_keeps_the_rejected_name_and_its_source",
+            "app::buckets_cli::tests::save_failures_keep_the_operation_and_io_source",
             "grpc::v2::convert::conversion_errors_keep_the_custom_time_and_storage_causes",
             "lint::error_format::tests::source_suppression_is_counted_and_expires_when_the_source_is_forwarded"
           ]

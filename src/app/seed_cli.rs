@@ -1,11 +1,11 @@
 //! `gcs-mimic seed status|wait`: what the passes that replay the seed directory while the server
 //! runs report, read through the local administration routes as a script reads it.
 
-use crate::{
+use super::{
     CliError,
     local_server::{self, InvalidOrigin, Origin, Scheme, Untrusted},
 };
-use gcs_mimic::{
+use crate::{
     config_input::{DurationError, duration},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     seed::{DEFAULT_WAIT, MAX_WAIT},
@@ -317,7 +317,7 @@ impl Endpoint {
 #[derive(Debug)]
 pub(super) enum ExchangeFailure {
     /// The CA certificate that verifies the server could not be loaded.
-    Trust(Box<gcs_mimic::tls::TlsError>),
+    Trust(Box<crate::tls::TlsError>),
     /// `--ca-cert` names a CA for a server that its configuration reaches over plain HTTP.
     CaCertOverHttp,
     /// The host resolved to no address that accepted a connection.
@@ -478,12 +478,12 @@ async fn exchange(
         })?;
     let deadline = command.deadline();
     tokio::time::timeout(deadline, async {
-        let stream = crate::connect(&origin.authority)
+        let stream = super::connect(&origin.authority)
             .await
             .map_err(ExchangeFailure::Connect)?;
         match client {
             Some(client) => {
-                let stream = crate::connect_tls(client, &origin.host, stream)
+                let stream = super::connect_tls(client, &origin.host, stream)
                     .await
                     .map_err(ExchangeFailure::Tls)?;
                 send(stream, &origin.authority, command).await
@@ -767,7 +767,7 @@ fn error_text_and_sources() {
 #[cfg(test)]
 #[test]
 fn retains_the_underlying_diagnostic_source() {
-    let error = ExchangeFailure::Trust(Box::new(gcs_mimic::tls::TlsError::MissingCertificates));
+    let error = ExchangeFailure::Trust(Box::new(crate::tls::TlsError::MissingCertificates));
     assert_eq!(
         error.to_string(),
         "the CA certificate that verifies it cannot be loaded"
@@ -775,6 +775,6 @@ fn retains_the_underlying_diagnostic_source() {
     assert!(
         std::error::Error::source(&error)
             .unwrap()
-            .is::<gcs_mimic::tls::TlsError>()
+            .is::<crate::tls::TlsError>()
     );
 }

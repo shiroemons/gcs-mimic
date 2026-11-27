@@ -1,6 +1,6 @@
 //! Authentication setup failures retain catalog causes during catalog opening.
 
-use gcs_mimic::{
+use crate::{
     bucket::CatalogError,
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
 };

@@ -1,8 +1,8 @@
 //! `gcs-mimic buckets new`: the argument and output layer over the library's document generator.
 //! Flags become the same [`Setting`] answers that the questions give, so both write one document.
 
-use crate::CliError;
-use gcs_mimic::{
+use super::CliError;
+use crate::{
     bucket_init::generate::{
         AuthMode, Bucket, CorsGap, Document, Format, GenerateError, STRICT_SERVE_OPTIONS, Setting,
     },
@@ -420,11 +420,11 @@ fn setting<'a>(
         "--project" => Setting::Project(text()?),
         "--location" => Setting::Location(text()?),
         "--storage-class" => Setting::StorageClass(text()?),
-        "--public-access-prevention" => {
-            Setting::PublicAccessPrevention(text()?.parse().map_err(
-                |error: gcs_mimic::config::InvalidChoice| failure(flag, error.to_string()),
-            )?)
-        }
+        "--public-access-prevention" => Setting::PublicAccessPrevention(
+            text()?
+                .parse()
+                .map_err(|error: crate::config::InvalidChoice| failure(flag, error.to_string()))?,
+        ),
         "--soft-delete-retention-seconds" => {
             Setting::SoftDeleteRetentionSeconds(seconds(flag, &text()?)?)
         }

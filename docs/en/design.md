@@ -88,8 +88,9 @@ and the two rules are separate so that a file cannot trade one forbidden edge fo
 under an unchanged count. The table lists exactly the modules that `src/lib.rs` declares
 outside `#[cfg(test)]`: the gate fails when a declared module has no layer or a layer names an
 undeclared one, and an `xtask` test keeps this copy equal to the table in
-`xtask/src/lint/layers.rs`. The binary's modules (`src/main.rs`, `buckets_cli`,
-`local_server`, `seed_cli` and `startup`) are a separate crate and are not checked.
+`xtask/src/lint/layers.rs`. The command line lives in the library as `app`, the highest
+layer; the binary, `src/main.rs`, is a separate crate that only sets the allocator and
+paging policy and calls `app::main`, so it is not checked.
 
 | Layer | Modules |
 | --- | --- |
@@ -100,6 +101,7 @@ undeclared one, and an `xtask` test keeps this copy equal to the table in
 | service | `page_token`, `multipart`, `service` |
 | adapters (isolated) | `json`, `xml`, `grpc` |
 | transport | `server` |
+| application | `app` |
 
 The foundation module `cause` owns backend and I/O causes, memory budgets and
 the links used to classify nested errors. Model and storage errors can expose
