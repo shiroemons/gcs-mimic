@@ -30,14 +30,9 @@ thread_local! {
 type FileJob = Box<dyn FnOnce() + Send>;
 thread_local! { static IN_FILE_JOB: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("file worker job started another file worker job")]
 pub(in crate::storage) struct NestedFileJob;
-impl std::fmt::Display for NestedFileJob {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("file worker job started another file worker job")
-    }
-}
-impl std::error::Error for NestedFileJob {}
 #[must_use = "dropping the guard clears the file worker's nested-job check"]
 struct InFileJob;
 impl Drop for InFileJob {
@@ -1271,4 +1266,15 @@ pub(in crate::storage::catalog) fn apply_acl(
         .map_err(objects::acl_update_error)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = NestedFileJob;
+    assert_eq!(
+        error.to_string(),
+        "file worker job started another file worker job"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }
