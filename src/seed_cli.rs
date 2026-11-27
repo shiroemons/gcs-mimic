@@ -352,6 +352,7 @@ impl std::fmt::Display for ExchangeFailure {
     }
 }
 
+// Trust exposes TlsError itself so the CLI's cause chain passes through the box.
 impl std::error::Error for ExchangeFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -761,4 +762,19 @@ fn error_text_and_sources() {
         "--timeout requires an integer with ms, s or m"
     );
     assert!(std::error::Error::source(&error).is_none());
+}
+
+#[cfg(test)]
+#[test]
+fn retains_the_underlying_diagnostic_source() {
+    let error = ExchangeFailure::Trust(Box::new(gcs_mimic::tls::TlsError::MissingCertificates));
+    assert_eq!(
+        error.to_string(),
+        "the CA certificate that verifies it cannot be loaded"
+    );
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<gcs_mimic::tls::TlsError>()
+    );
 }
