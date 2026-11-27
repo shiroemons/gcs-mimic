@@ -1,10 +1,27 @@
 use super::*;
-use crate::{
-    clock::{RFC3339_MAX_MICROS, RFC3339_MIN_MICROS, system_time_from_unix_seconds},
-    import::codec::parse_timestamp,
-};
+use crate::clock::{RFC3339_MAX_MICROS, RFC3339_MIN_MICROS, system_time_from_unix_seconds};
 use proptest::prelude::*;
 use std::time::Duration;
+
+#[test]
+fn exact_times_offsets_zero_and_negative_epoch() {
+    assert_eq!(parse_timestamp("1970-01-01T00:00:00Z"), Ok(0));
+    assert_eq!(
+        parse_timestamp("1970-01-01T01:30:00.123456000+01:30"),
+        Ok(123456)
+    );
+    assert_eq!(parse_timestamp("1969-12-31T23:59:59.999999Z"), Ok(-1));
+    for input in [
+        "2025-02-29T00:00:00Z",
+        "1970-01-01T00:00:00.123456001Z",
+        "1970-01-01T24:00:00Z",
+        "1970-01-01T00:00:00Zx",
+        "9999-12-31T23:59:59-01:00",
+        "0000-01-01T00:00:00+01:00",
+    ] {
+        assert!(parse_timestamp(input).is_err(), "{input}");
+    }
+}
 
 #[test]
 fn http_header_dates_omit_unrenderable_times() {
@@ -19,6 +36,9 @@ fn http_header_dates_omit_unrenderable_times() {
 }
 
 proptest! {
+    #[test]
+    fn arbitrary_times_never_panic(input in any::<String>()) { let _ = parse_timestamp(&input); }
+
     #[test]
     fn timestamp_text_round_trips_at_wire_precision(
         micros in RFC3339_MIN_MICROS..=RFC3339_MAX_MICROS,

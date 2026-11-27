@@ -336,7 +336,7 @@ fn fixture_acl(acl: &Value) -> Result<crate::acl::AclRequest, ApiError> {
 
 fn timestamp(value: Option<&Value>, default: SystemTime) -> Result<SystemTime, ApiError> {
     let micros = if let Some(value) = value {
-        crate::import::codec::parse_timestamp(value.as_str().ok_or_else(|| {
+        crate::time_format::parse_timestamp(value.as_str().ok_or_else(|| {
             ApiError::invalid_argument("Fixture timestamps must be RFC3339 strings")
         })?)
         .map_err(ApiError::invalid_argument)?

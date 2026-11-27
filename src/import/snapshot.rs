@@ -286,7 +286,7 @@ impl Capture<'_> {
                 None
             }
             Membership::Archived => Some(
-                codec::parse_timestamp(&attributes.deleted)
+                crate::time_format::parse_timestamp(&attributes.deleted)
                     .map_err(|error| corrupt(BackendCause::from_error(error)))?,
             ),
         };

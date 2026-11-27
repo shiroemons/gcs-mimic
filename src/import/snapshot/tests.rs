@@ -243,7 +243,8 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
                 archived.time_deleted,
                 Some(
                     super::super::filesystem::time(
-                        codec::parse_timestamp("2026-01-02T03:04:05.123456+09:00").unwrap()
+                        crate::time_format::parse_timestamp("2026-01-02T03:04:05.123456+09:00")
+                            .unwrap()
                     )
                     .unwrap()
                 )
