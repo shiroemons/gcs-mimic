@@ -3,33 +3,18 @@
 //! Configurations feed a durable outbox; delivery requires an explicit local Pub/Sub endpoint.
 
 use serde_json::{Map, Value};
-use std::{collections::BTreeMap, fmt};
+use std::collections::BTreeMap;
 
 mod event;
 pub(crate) mod publisher;
 mod topic;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("invalid stored notification")]
 pub(crate) enum NotificationDecodeError {
-    Json(serde_json::Error),
+    Json(#[source] serde_json::Error),
     Shape,
-    Invalid(NotificationError),
-}
-
-impl fmt::Display for NotificationDecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("invalid stored notification")
-    }
-}
-
-impl std::error::Error for NotificationDecodeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Json(error) => Some(error),
-            Self::Invalid(error) => Some(error),
-            Self::Shape => None,
-        }
-    }
+    Invalid(#[source] NotificationError),
 }
 
 impl From<NotificationDecodeError> for crate::cause::BackendCause {
@@ -100,63 +85,39 @@ pub(crate) struct NotificationConfig {
 }
 
 /// A rejected notification configuration. `Display` is the client-visible JSON error message.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum NotificationError {
+    #[error(
+        "Invalid topic {0:?}; use //pubsub.googleapis.com/projects/PROJECT/topics/TOPIC (for example, //pubsub.googleapis.com/projects/local-project/topics/uploads)"
+    )]
     InvalidTopic(String),
+    #[error("Invalid payload_format {0:?}; use JSON_API_V1 or NONE")]
     InvalidPayloadFormat(String),
+    #[error(
+        "Invalid event type {0:?}; use OBJECT_FINALIZE, OBJECT_METADATA_UPDATE, OBJECT_DELETE or OBJECT_ARCHIVE"
+    )]
     InvalidEventType(String),
+    #[error("Duplicate event type {0}; list each event type once")]
     DuplicateEventType(Event),
+    #[error(
+        "custom_attributes has {0} entries; a notification allows at most {MAX_CUSTOM_ATTRIBUTES}"
+    )]
     TooManyCustomAttributes(usize),
+    #[error("Invalid custom attribute key {0:?}; use 1 to 256 bytes that do not start with goog")]
     InvalidCustomAttributeKey(String),
+    #[error("Custom attribute {0:?} exceeds 1024 bytes")]
     CustomAttributeTooLong(String),
+    #[error("object_name_prefix exceeds 1024 bytes")]
     ObjectNamePrefixTooLong,
+    #[error(
+        "Bucket already has {MAX_PER_BUCKET} notification configurations; delete one before adding another"
+    )]
     BucketLimit,
+    #[error(
+        "Bucket already has {MAX_PER_EVENT_TYPE} notification configurations for {0}; delete one or narrow event_types"
+    )]
     EventTypeLimit(Event),
 }
-
-impl fmt::Display for NotificationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidTopic(topic) => write!(
-                f,
-                "Invalid topic {topic:?}; use //pubsub.googleapis.com/projects/PROJECT/topics/TOPIC (for example, //pubsub.googleapis.com/projects/local-project/topics/uploads)"
-            ),
-            Self::InvalidPayloadFormat(format) => write!(
-                f,
-                "Invalid payload_format {format:?}; use JSON_API_V1 or NONE"
-            ),
-            Self::InvalidEventType(event) => write!(
-                f,
-                "Invalid event type {event:?}; use OBJECT_FINALIZE, OBJECT_METADATA_UPDATE, OBJECT_DELETE or OBJECT_ARCHIVE"
-            ),
-            Self::DuplicateEventType(event) => {
-                write!(f, "Duplicate event type {event}; list each event type once")
-            }
-            Self::TooManyCustomAttributes(count) => write!(
-                f,
-                "custom_attributes has {count} entries; a notification allows at most {MAX_CUSTOM_ATTRIBUTES}"
-            ),
-            Self::InvalidCustomAttributeKey(key) => write!(
-                f,
-                "Invalid custom attribute key {key:?}; use 1 to 256 bytes that do not start with goog"
-            ),
-            Self::CustomAttributeTooLong(key) => {
-                write!(f, "Custom attribute {key:?} exceeds 1024 bytes")
-            }
-            Self::ObjectNamePrefixTooLong => f.write_str("object_name_prefix exceeds 1024 bytes"),
-            Self::BucketLimit => write!(
-                f,
-                "Bucket already has {MAX_PER_BUCKET} notification configurations; delete one before adding another"
-            ),
-            Self::EventTypeLimit(event) => write!(
-                f,
-                "Bucket already has {MAX_PER_EVENT_TYPE} notification configurations for {event}; delete one or narrow event_types"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for NotificationError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct NotificationRecord {
@@ -448,4 +409,30 @@ mod tests {
             r#"{"topic":"//pubsub.googleapis.com/projects/p/topics/topic","payload_format":"NONE","event_types":["OBJECT_DELETE","OBJECT_FINALIZE"],"custom_attributes":{"a":"1","b":"2"},"object_name_prefix":"logs/"}"#
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let cases: &[(&dyn std::error::Error, &str)] = &[
+        (
+            &NotificationDecodeError::Shape,
+            "invalid stored notification",
+        ),
+        (
+            &NotificationError::InvalidPayloadFormat("X".into()),
+            "Invalid payload_format \"X\"; use JSON_API_V1 or NONE",
+        ),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.to_string(), *expected);
+        assert!(error.source().is_none());
+    }
+    let error = NotificationDecodeError::Invalid(NotificationError::BucketLimit);
+    assert_eq!(error.to_string(), "invalid stored notification");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<NotificationError>()
+    );
 }

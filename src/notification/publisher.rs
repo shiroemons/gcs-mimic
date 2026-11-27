@@ -7,7 +7,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::{Request, Uri, client::conn::http1};
 use hyper_util::rt::TokioIo;
 use std::{
-    fmt, io,
+    io,
     net::{IpAddr, SocketAddr},
     time::Duration,
 };
@@ -17,16 +17,9 @@ pub(crate) const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
 const INVALID_ENDPOINT: &str = "Pub/Sub requires an explicit local emulator host:port (HTTP, no credentials, path or query); public, metadata and Google endpoints are disabled";
 
 /// The emulator endpoint is not an explicit local `host:port`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{}", INVALID_ENDPOINT)]
 pub(crate) struct InvalidEndpoint;
-
-impl fmt::Display for InvalidEndpoint {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(INVALID_ENDPOINT)
-    }
-}
-
-impl std::error::Error for InvalidEndpoint {}
 
 /// A connection attempt reports a rejected endpoint as invalid input, as parsing does.
 impl From<InvalidEndpoint> for io::Error {
@@ -225,3 +218,14 @@ pub(crate) enum TopicCheckError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidEndpoint;
+    assert_eq!(
+        error.to_string(),
+        "Pub/Sub requires an explicit local emulator host:port (HTTP, no credentials, path or query); public, metadata and Google endpoints are disabled"
+    );
+    assert!(std::error::Error::source(&error).is_none());
+}
