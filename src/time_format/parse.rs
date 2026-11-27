@@ -1,19 +1,14 @@
+#![deny(clippy::unwrap_used, clippy::expect_used)]
 //! RFC 3339 text parsed into microseconds since the Unix epoch, the inverse of the renderings in
 //! `time_format`. Import snapshots, fixtures, custom times and POST policy expirations share it.
 
 use super::civil::{CivilDate, days_from_civil, days_in_month};
 
+/// RFC 3339 text that this parser refused. Only the parser builds one, so callers that report a
+/// failure of their own about a parsed instant use their own error type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
 pub(crate) struct TimestampError(&'static str);
-
-impl TimestampError {
-    /// A failure that a caller reports in its own words about an instant this parser accepted,
-    /// such as one its clock cannot hold.
-    pub(crate) const fn new(message: &'static str) -> Self {
-        Self(message)
-    }
-}
 
 impl From<TimestampError> for String {
     fn from(error: TimestampError) -> Self {

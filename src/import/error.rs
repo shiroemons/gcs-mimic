@@ -1,9 +1,11 @@
-use super::{ImportFailure, codec::CodecError};
+use super::{
+    ImportFailure,
+    codec::{CodecError, OutsidePlatformRange},
+};
 use crate::{
     bucket::{CatalogError, DefaultBucketError},
     diagnostics::Diagnostics,
     storage::{admin::AdminError, import_journal::ResumeError},
-    time_format::TimestampError,
 };
 use std::{borrow::Cow, error::Error, fmt, io, num::TryFromIntError};
 
@@ -245,8 +247,8 @@ impl From<CodecError> for ImportError {
         Self::Codec(error)
     }
 }
-impl From<TimestampError> for ImportError {
-    fn from(error: TimestampError) -> Self {
+impl From<OutsidePlatformRange> for ImportError {
+    fn from(error: OutsidePlatformRange) -> Self {
         Self::Codec(error.into())
     }
 }

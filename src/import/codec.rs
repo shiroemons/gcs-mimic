@@ -8,8 +8,9 @@ use serde::{
 use std::{collections::BTreeMap, fmt};
 
 /// A valid timestamp that this platform's `SystemTime` cannot hold.
-pub(super) const OUTSIDE_PLATFORM_RANGE: TimestampError =
-    TimestampError::new("source timestamp is outside this platform's range");
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("source timestamp is outside this platform's range")]
+pub(super) struct OutsidePlatformRange;
 
 /// A source value this codec cannot convert. Callers report its message; only the codec's own
 /// tests look at which conversion failed.
@@ -21,9 +22,20 @@ pub struct CodecError(Kind);
 enum Kind {
     #[error(transparent)]
     Timestamp(TimestampError),
+    #[error(transparent)]
+    PlatformRange(OutsidePlatformRange),
     /// A bucket timestamp outside this platform's clock; the inner error names the range.
     #[error("bucket timestamp is outside this platform's range")]
-    BucketTimeRange(#[source] TimestampError),
+    BucketTimeRange(#[source] OutsidePlatformRange),
+    /// The nanoseconds past the microsecond carry a bucket timestamp past this platform's clock.
+    #[error("bucket timestamp is outside this platform's range")]
+    BucketNanosRange,
+    #[error("bucket timestamp is finer than this platform's clock resolution")]
+    BucketResolution,
+    /// Unreachable: the parser keeps the remainder below a microsecond. The conversion still
+    /// names a failure because this module denies `expect`.
+    #[error("retention timestamp is outside the supported range")]
+    RetentionRange,
     #[error(transparent)]
     Acl(crate::acl::AclError),
     #[error("ACL auxiliary identity fields cannot be preserved; retain the source snapshot")]
@@ -41,6 +53,12 @@ enum Kind {
 impl From<TimestampError> for CodecError {
     fn from(error: TimestampError) -> Self {
         Self(Kind::Timestamp(error))
+    }
+}
+
+impl From<OutsidePlatformRange> for CodecError {
+    fn from(error: OutsidePlatformRange) -> Self {
+        Self(Kind::PlatformRange(error))
     }
 }
 
@@ -203,11 +221,10 @@ pub(crate) fn path_unescape(name: &str) -> Result<String, CodecError> {
 /// `SystemTime`, so a platform that floors to 100 ns still keeps every digit.
 pub(super) fn parse_retention_timestamp(
     input: &str,
-) -> Result<crate::object::unix_nanos::UnixNanos, TimestampError> {
+) -> Result<crate::object::unix_nanos::UnixNanos, CodecError> {
     let (micros, nanos) = parse_nanosecond_timestamp(input)?;
-    crate::object::unix_nanos::UnixNanos::from_micros_and_remainder(micros, nanos).ok_or(
-        TimestampError::new("retention timestamp is outside the supported range"),
-    )
+    crate::object::unix_nanos::UnixNanos::from_micros_and_remainder(micros, nanos)
+        .ok_or(CodecError(Kind::RetentionRange))
 }
 
 pub(super) fn parse_bucket_timestamp(input: &str) -> Result<std::time::SystemTime, CodecError> {
@@ -215,16 +232,13 @@ pub(super) fn parse_bucket_timestamp(input: &str) -> Result<std::time::SystemTim
     let base = super::filesystem::time(micros)
         .map_err(|error| CodecError(Kind::BucketTimeRange(error)))?;
     let remainder = std::time::Duration::from_nanos(u64::from(nanos));
-    let time = base.checked_add(remainder).ok_or(TimestampError::new(
-        "bucket timestamp is outside this platform's range",
-    ))?;
+    let time = base
+        .checked_add(remainder)
+        .ok_or(CodecError(Kind::BucketNanosRange))?;
     // Windows keeps 100 ns intervals, so sub-interval digits would be dropped silently;
     // reject them like other unrepresentable source precision.
     if time.duration_since(base).ok() != Some(remainder) {
-        return Err(TimestampError::new(
-            "bucket timestamp is finer than this platform's clock resolution",
-        )
-        .into());
+        return Err(CodecError(Kind::BucketResolution));
     }
     Ok(time)
 }
@@ -380,7 +394,11 @@ mod tests {
             ),
             ("1969-12-31T23:59:59.999999999Z", at(-1, 999_999_999)),
         ] {
-            assert_eq!(parse_retention_timestamp(input), Ok(expected), "{input}");
+            assert_eq!(
+                parse_retention_timestamp(input).unwrap(),
+                expected,
+                "{input}"
+            );
         }
         assert!(parse_retention_timestamp("2030-01-01T00:00:00.1234567891Z").is_err());
     }
@@ -448,8 +466,12 @@ mod tests {
     }
 
     #[test]
-    fn the_go_zero_time_is_unset_and_names_escape_like_go_path_escape() {
+    fn the_go_zero_time_is_unset() {
         assert!(is_unset_time("0001-01-01T00:00:00Z").unwrap());
+    }
+
+    #[test]
+    fn names_escape_like_go_path_escape() {
         assert_eq!(path_escape("a/b;c,d?%+"), "a%2Fb%3Bc%2Cd%3F%25+");
     }
 
@@ -490,7 +512,7 @@ mod tests {
     fn a_bucket_timestamp_outside_the_platform_keeps_its_text_and_cause() {
         const OUTER: &str = "bucket timestamp is outside this platform's range";
         const CHAIN: &str = "bucket timestamp is outside this platform's range: source timestamp is outside this platform's range";
-        let error = CodecError(Kind::BucketTimeRange(OUTSIDE_PLATFORM_RANGE));
+        let error = CodecError(Kind::BucketTimeRange(OutsidePlatformRange));
         assert_eq!(error.to_string(), OUTER);
         assert_eq!(crate::error::Report::chain(&error).to_string(), CHAIN);
         // Windows SystemTime starts in 1601, so only it reaches this through parsing.
