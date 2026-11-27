@@ -93,49 +93,27 @@ pub(crate) struct HmacKeyListQuery {
     pub limit: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum HmacKeyError {
+    #[error("HMAC key not found")]
     NotFound,
+    #[error("HMAC key precondition failed")]
     PreconditionFailed,
     /// The key is ACTIVE; it must be deactivated before deletion.
+    #[error("active HMAC key must be deactivated before deletion")]
     DeleteActive,
     /// A DELETED key cannot be deleted again or change state.
+    #[error("HMAC key is deleted")]
     Deleted,
+    #[error("HMAC key limit reached")]
     LimitReached,
+    #[error(transparent)]
     Catalog(CatalogError),
 }
 
 impl From<CatalogError> for HmacKeyError {
     fn from(error: CatalogError) -> Self {
         Self::Catalog(error)
-    }
-}
-
-impl std::fmt::Display for HmacKeyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound => f.write_str("HMAC key not found"),
-            Self::PreconditionFailed => f.write_str("HMAC key precondition failed"),
-            Self::DeleteActive => {
-                f.write_str("active HMAC key must be deactivated before deletion")
-            }
-            Self::Deleted => f.write_str("HMAC key is deleted"),
-            Self::LimitReached => f.write_str("HMAC key limit reached"),
-            Self::Catalog(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for HmacKeyError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Catalog(error) => error.source(),
-            Self::NotFound
-            | Self::PreconditionFailed
-            | Self::DeleteActive
-            | Self::Deleted
-            | Self::LimitReached => None,
-        }
     }
 }
 
@@ -710,4 +688,12 @@ mod tests {
         assert_ne!(generate_access_id().unwrap(), access_id);
         assert_ne!(generate_secret().unwrap(), secret);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = HmacKeyError::Deleted;
+    assert_eq!(error.to_string(), "HMAC key is deleted");
+    assert!(std::error::Error::source(&error).is_none());
 }
