@@ -1,7 +1,7 @@
 //! Keyset pages, page sizes and positions that catalog listings share.
 
 use crate::bucket::CatalogError;
-use std::{fmt, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 /// A bounded keyset page. Continue after the last item when `has_more` is true.
 #[derive(Debug)]
@@ -74,16 +74,9 @@ text_cursor!(crate::storage::BlobId, super::SessionId, String);
 pub(crate) struct PageLimit<const MAX: usize>(NonZeroUsize);
 
 /// A requested page size outside the listing's 1..=MAX. Callers report it in their own words.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("page limit out of range")]
 pub(crate) struct InvalidPageLimit;
-
-impl fmt::Display for InvalidPageLimit {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("page limit out of range")
-    }
-}
-
-impl std::error::Error for InvalidPageLimit {}
 
 impl<const MAX: usize> PageLimit<MAX> {
     pub(crate) const fn get(self) -> usize {
@@ -111,3 +104,11 @@ impl<const MAX: usize> rusqlite::ToSql for PageLimit<MAX> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidPageLimit;
+    assert_eq!(error.to_string(), "page limit out of range");
+    assert!(std::error::Error::source(&error).is_none());
+}
