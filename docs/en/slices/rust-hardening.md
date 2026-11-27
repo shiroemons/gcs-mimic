@@ -1050,11 +1050,12 @@ time its original text, completions the same TEXT. JSON in TEXT columns keeps
 its bytes through `#[serde(transparent)]` and `#[serde(into = "i64",
 try_from = "i64")]`.
 
-- **Buckets.** `BucketKey<String>` stores the exact name. Adapters use
-  `BucketKey::for_profile` at the existing validation points and
-  `BucketKey::from_unchecked` for stored names and legacy routes that bypass
-  validation. Both paths produce a catalog identity, so a separate admission
-  wrapper would be discarded at construction.
+- **Buckets.** `BucketKey<String>` stores the exact name. JSON and XML build
+  keys at their existing path and name checks. Storage v2 builds keys from
+  parsed resource names, and v1 builds them in its bucket authorization
+  check. These paths use `BucketKey::for_profile`; `from_unchecked` preserves
+  stored names and legacy paths that bypass validation. Both constructors
+  return the same catalog identity.
 - **Objects.** `ObjectKey<'a>` groups a `BucketKey<&'a str>` and an object name.
   This can borrow the strings on public bucket and object records directly.
   `ObjectTarget` owns the names and carries the generation selection.

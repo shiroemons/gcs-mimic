@@ -6,8 +6,6 @@ use super::{
     routing::{Admitted, Route},
     status::unsupported,
 };
-#[cfg(test)]
-use crate::object::{ObjectKey, ObjectTarget};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
@@ -611,6 +609,7 @@ mod tests {
     use super::*;
     use crate::grpc::test_support::assert_code;
     use crate::grpc::v2::access_status;
+    use crate::object::{ObjectKey, ObjectTarget};
     use crate::storage::test_fixtures::PERMISSIVE;
     use std::sync::Arc;
 

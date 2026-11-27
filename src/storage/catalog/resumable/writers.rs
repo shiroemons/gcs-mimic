@@ -1,7 +1,5 @@
 use super::{Catalog, CatalogError, Work, unavailable};
 use crate::cause::BackendFailure;
-#[cfg(test)]
-use crate::object::ObjectKey;
 use crate::storage::catalog::Activity;
 use crate::storage::{blob_id::BlobId, catalog::session_limits::WriterWait};
 use std::{
@@ -515,6 +513,7 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::ObjectKey;
     use crate::{
         bucket::BucketAccess,
         cause::BackendFailure,

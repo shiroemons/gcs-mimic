@@ -6,8 +6,6 @@ use super::{
 };
 use crate::cause::BackendCause;
 use crate::clock::{Clock, SystemClock};
-#[cfg(test)]
-use crate::object::ObjectKey;
 use crate::storage::catalog::sql;
 use crate::storage::{BlobError, BlobId};
 use rusqlite::{Connection, params};
@@ -654,6 +652,7 @@ async fn maintenance_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::ObjectKey;
     use std::fs;
 
     #[tokio::test]

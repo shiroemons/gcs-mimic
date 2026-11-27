@@ -6,8 +6,6 @@ use super::{
 };
 use crate::auth::Caller;
 use crate::bucket::{BucketConditions, CatalogError, name::MAX_BUCKET_NAME_BYTES};
-#[cfg(test)]
-use crate::object::ObjectKey;
 use serde_json::{Map, Value, json};
 use tonic::{Request, Response, Status};
 
@@ -498,6 +496,7 @@ mod tests {
     use crate::grpc::test_support::{
         self as fixtures, assert_code, assert_unsupported, caller, registry,
     };
+    use crate::object::ObjectKey;
     use crate::storage::test_fixtures::PERMISSIVE;
     use crate::{auth::Auth, json, storage::Catalog, test_support::TestDir};
     use std::assert_matches;

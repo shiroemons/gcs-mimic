@@ -1,5 +1,3 @@
-#[cfg(test)]
-use crate::bucket::name::BucketKey;
 use crate::object::ObjectTarget;
 use serde_json::{Map, Value};
 
@@ -63,6 +61,7 @@ impl RewriteBinding {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bucket::name::BucketKey;
     use serde_json::json;
 
     #[test]

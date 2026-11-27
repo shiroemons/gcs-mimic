@@ -12,8 +12,6 @@ use super::{
     read_cache::{self, CachedObject},
     read_pool::ReadPath,
 };
-#[cfg(test)]
-use crate::object::ObjectKey;
 use crate::{
     bucket::BucketAccess,
     csek::{CustomerKey, StoredHashes, check_data},
@@ -151,6 +149,7 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::ObjectKey;
     use crate::storage::test_fixtures::{PERMISSIVE, body, bucket, live};
     use crate::{csek::CsekError, object::ObjectMetadataUpdate, test_support::TestDir};
     use rusqlite::Connection;

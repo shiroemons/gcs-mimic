@@ -1,6 +1,4 @@
 use super::*;
-#[cfg(test)]
-use crate::object::ObjectKey;
 
 #[must_use = "reclamation must retain its leases until file and SQL work settle"]
 pub(in crate::storage::catalog) struct ReclamationPermit {
@@ -333,6 +331,7 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::ObjectKey;
     use crate::storage::test_fixtures::{body, bucket, permissive_upload};
 
     #[tokio::test]
