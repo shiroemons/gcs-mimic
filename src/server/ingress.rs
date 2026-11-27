@@ -387,28 +387,12 @@ fn decoder_unavailable() -> ApiError {
     ApiError::service_unavailable("Request decoder is unavailable")
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum DecodeError {
-    Invalid(io::Error),
+    #[error("Invalid gzip input")]
+    Invalid(#[source] io::Error),
+    #[error("Expanded input exceeds its limit")]
     Limit,
-}
-
-impl std::fmt::Display for DecodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Invalid(_) => f.write_str("Invalid gzip input"),
-            Self::Limit => f.write_str("Expanded input exceeds its limit"),
-        }
-    }
-}
-
-impl std::error::Error for DecodeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Invalid(error) => Some(error),
-            Self::Limit => None,
-        }
-    }
 }
 
 fn decode(compressed: &[u8], cap: usize) -> Result<Vec<u8>, DecodeError> {
@@ -761,4 +745,12 @@ mod tests {
         drop(authenticated);
         fixture.state.catalog.close().await.unwrap();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = DecodeError::Limit;
+    assert_eq!(error.to_string(), "Expanded input exceeds its limit");
+    assert!(std::error::Error::source(&error).is_none());
 }

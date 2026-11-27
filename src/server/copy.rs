@@ -28,24 +28,13 @@ pub(crate) struct Checkpoint {
 }
 
 #[cfg(test)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, thiserror::Error)]
 pub(crate) enum CheckpointError {
+    #[error("copy checkpoint observer dropped")]
     ObserverDropped,
+    #[error("copy checkpoint abandoned")]
     Abandoned,
 }
-
-#[cfg(test)]
-impl std::fmt::Display for CheckpointError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(match self {
-            Self::ObserverDropped => "copy checkpoint observer dropped",
-            Self::Abandoned => "copy checkpoint abandoned",
-        })
-    }
-}
-
-#[cfg(test)]
-impl std::error::Error for CheckpointError {}
 
 /// Pauses the copy once it has transferred the bytes the test's armed checkpoint waits for.
 #[cfg(test)]
@@ -942,4 +931,12 @@ mod tests {
         );
         catalog.close().await.unwrap();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = CheckpointError::Abandoned;
+    assert_eq!(error.to_string(), "copy checkpoint abandoned");
+    assert!(std::error::Error::source(&error).is_none());
 }

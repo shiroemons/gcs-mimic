@@ -22,44 +22,22 @@ const FIXED_HEADER_BYTES: usize = 10;
 const TRAILER_BYTES: usize = 8;
 
 /// Why a request body is not a sequence of gzip members.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(super) enum GzipError {
+    #[error("The body does not start a gzip member")]
     NotGzip,
     /// Bytes follow the last complete member.
+    #[error("Bytes follow the last gzip member")]
     TrailingData,
+    #[error("Gzip compression method {0} is not deflate")]
     UnsupportedMethod(u8),
+    #[error("Gzip header flags {0:#04x} are reserved")]
     ReservedFlags(u8),
     /// The body ends inside a member.
+    #[error("The body ends inside a gzip member")]
     Truncated,
-    Deflate(flate2::DecompressError),
-}
-
-impl std::fmt::Display for GzipError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotGzip => f.write_str("The body does not start a gzip member"),
-            Self::TrailingData => f.write_str("Bytes follow the last gzip member"),
-            Self::UnsupportedMethod(method) => {
-                write!(f, "Gzip compression method {method} is not deflate")
-            }
-            Self::ReservedFlags(flags) => write!(f, "Gzip header flags {flags:#04x} are reserved"),
-            Self::Truncated => f.write_str("The body ends inside a gzip member"),
-            Self::Deflate(_) => f.write_str("Invalid deflate data in a gzip member"),
-        }
-    }
-}
-
-impl std::error::Error for GzipError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Deflate(error) => Some(error),
-            Self::NotGzip
-            | Self::TrailingData
-            | Self::UnsupportedMethod(_)
-            | Self::ReservedFlags(_)
-            | Self::Truncated => None,
-        }
-    }
+    #[error("Invalid deflate data in a gzip member")]
+    Deflate(#[source] flate2::DecompressError),
 }
 
 /// A decode failure leaves [`Members`] as [`io::ErrorKind::InvalidData`]; every other error it
@@ -433,4 +411,12 @@ mod tests {
         assert_eq!(decoded, [b"head ".as_slice(), &[b'x'; 3000]].concat());
         assert!(blocked > 30, "every input byte arrived after a WouldBlock");
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = GzipError::ReservedFlags(0x20);
+    assert_eq!(error.to_string(), "Gzip header flags 0x20 are reserved");
+    assert!(std::error::Error::source(&error).is_none());
 }

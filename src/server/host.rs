@@ -7,20 +7,12 @@ use crate::{
     net::{TrailingDot, normalized_host},
 };
 use hyper::{HeaderMap, Uri, http::uri::Authority};
-use std::fmt;
 
 /// A request that names no single valid authority: several Host fields, an unparsable one,
 /// user information, an empty host or a port that is not a number.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the request names no single valid Host authority")]
 pub(super) struct InvalidHost;
-
-impl fmt::Display for InvalidHost {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("the request names no single valid Host authority")
-    }
-}
-
-impl std::error::Error for InvalidHost {}
 
 /// The normalized host the request addressed, or `None` when it names none. An authority in the
 /// request target overrides Host, as RFC 9112 section 3.2.2 requires.
@@ -118,4 +110,15 @@ mod tests {
         }
         assert!(!is_single_label("gcs.example"));
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidHost;
+    assert_eq!(
+        error.to_string(),
+        "the request names no single valid Host authority"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }
