@@ -1,15 +1,8 @@
 //! Shared spelling tables for configuration, wire values and stored text.
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
 pub struct InvalidChoice(pub(crate) &'static str);
-
-impl std::fmt::Display for InvalidChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-
-impl std::error::Error for InvalidChoice {}
 
 /// A spelling table for an enum. The shorthand generates `as_str` and exact-match `FromStr`.
 ///
@@ -178,3 +171,11 @@ macro_rules! string_enum {
     };
 }
 pub(crate) use string_enum;
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidChoice("unsupported value");
+    assert_eq!(error.to_string(), "unsupported value");
+    assert!(std::error::Error::source(&error).is_none());
+}
