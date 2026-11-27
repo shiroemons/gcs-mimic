@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{
     auth,
+    bucket::name::BucketKey,
     object::ObjectConditions,
     server::{RequestBody, RequestCtx, ResponseBody, boxed, bucket_access, empty_response},
 };
@@ -66,33 +67,33 @@ async fn execute(
                 crate::percent::Decoding::Path,
             )?,
         };
-        crate::bucket::name::validate_for_profile(&bucket, ctx.config.compat_profile())?;
-        return create::respond(request, &bucket, ctx, caller).await;
+        let bucket = BucketKey::for_profile(bucket, ctx.config.compat_profile())?;
+        return create::respond(request, bucket.as_str(), ctx, caller).await;
     }
     if let Some(path) = selected {
-        crate::bucket::name::validate_for_profile(&path.bucket, ctx.config.compat_profile())?;
+        let bucket = BucketKey::for_profile(path.bucket.as_str(), ctx.config.compat_profile())?;
         let permission = if request.method() == Method::DELETE {
             auth::BUCKETS_DELETE
         } else {
             auth::BUCKETS_GET
         };
-        let access = bucket_access(ctx.state, caller, permission, &path.bucket)
+        let access = bucket_access(ctx.state, caller, permission, bucket.as_str())
             .await
             .map_err(|error| Error::from(error).for_caller(caller))?;
-        validate(&request, &path.bucket)?;
+        validate(&request, bucket.as_str())?;
         let delete = request.method() == Method::DELETE;
         super::empty_body(request.into_body()).await?;
         if delete {
             ctx.state
                 .catalog
-                .delete_bucket(&path.bucket, Default::default(), &access)
+                .delete_bucket(bucket.as_str(), Default::default(), &access)
                 .await
                 .map_err(|error| catalog_error(error, caller))?;
             return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
         }
         ctx.state
             .catalog
-            .get_bucket(&path.bucket, &access)
+            .get_bucket(bucket.as_str(), &access)
             .await
             .map_err(|error| Error::from(error).for_caller(caller))?
             .ok_or_else(|| Error::new(XmlCode::NoSuchBucket, "Bucket not found"))?;

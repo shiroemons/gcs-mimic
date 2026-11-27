@@ -1,6 +1,7 @@
 //! XML objects. Shared authorization, generation selection and bytes live in storage.
 
 use crate::{
+    bucket::name::BucketKey,
     config::{Config, EndpointSnapshot},
     hashing::Hashes,
     http_header::{TextError, TextOrder, sole},
@@ -720,7 +721,7 @@ pub(crate) fn route(
         .path()
         .get(name_start..)
         .ok_or_else(|| Error::invalid("Invalid object path"))?;
-    crate::bucket::name::validate_for_profile(&bucket, config.compat_profile())?;
+    let bucket = BucketKey::for_profile(bucket, config.compat_profile())?;
     let mut query = crate::auth::signature::xml_query(uri.query().unwrap_or_default(), headers)?;
     let v2 = query
         .keys()
@@ -737,13 +738,13 @@ pub(crate) fn route(
             crate::object::name::validate(&name)?;
         }
         return Ok(ReadRequest {
-            target: ObjectTarget::new(bucket, name, None),
+            target: ObjectTarget::from_bucket(bucket, name, None),
             response_overrides: HeaderMap::new(),
         });
     }
     if *method == Method::GET && name.is_empty() {
         return Ok(ReadRequest {
-            target: ObjectTarget::new(bucket, String::new(), None),
+            target: ObjectTarget::from_bucket(bucket, String::new(), None),
             response_overrides: HeaderMap::new(),
         });
     }
@@ -798,7 +799,7 @@ pub(crate) fn route(
         return Err(Error::unsupported(key));
     }
     Ok(ReadRequest {
-        target: ObjectTarget::new(bucket, name, generation),
+        target: ObjectTarget::from_bucket(bucket, name, generation),
         response_overrides,
     })
 }

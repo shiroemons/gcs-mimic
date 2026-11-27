@@ -15,6 +15,7 @@ use crate::{
         self, Caller,
         signature::{self, Failure, MAX_EXPIRES},
     },
+    bucket::name::BucketKey,
     multipart::{Multipart, form_data_boundary},
     object::{
         ExpectedHashes, MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate,
@@ -660,8 +661,7 @@ pub(crate) async fn respond(
     deadline: tokio::time::Instant,
 ) -> Result<Response<ResponseBody>, Error> {
     let RequestCtx { state, config, .. } = ctx;
-    let bucket = object.bucket.clone();
-    crate::bucket::name::validate_for_profile(&bucket, config.compat_profile())?;
+    let bucket = BucketKey::for_profile(object.bucket.as_str(), config.compat_profile())?;
     // POST Object takes every option from the form; query options belong to other operations.
     if let Some(query) = request.uri().query() {
         let key = query.split('&').next().unwrap_or_default();
@@ -685,7 +685,7 @@ pub(crate) async fn respond(
         declared_length,
         success,
         policy,
-    } = plan(&form, &bucket)?;
+    } = plan(&form, bucket.as_str())?;
     let fields = &form.fields;
     let caller = authenticate(ctx, &headers, policy.as_ref()).await?;
     let range = policy
@@ -699,18 +699,25 @@ pub(crate) async fn respond(
                     .flatten(),
                 Credentials::V2 { .. } => None,
             };
-            check_policy(policy, fields, &bucket, state.clock.now(), signed_at)
+            check_policy(
+                policy,
+                fields,
+                bucket.as_str(),
+                state.clock.now(),
+                signed_at,
+            )
         })
         .transpose()?
         .flatten();
     let ctx = ctx.object(caller, deadline);
     let access = ctx
-        .authorize(auth::OBJECTS_CREATE, &bucket)
+        .authorize(auth::OBJECTS_CREATE, bucket.as_str())
         .await
         .map_err(|error| Error::from(error).for_caller(caller))?;
+    let key = ObjectKey::from_bucket(bucket, &name);
     let permit = ctx
         .await_catalog(state.catalog.prepare_object_upload(
-            ObjectKey::from_parts_unchecked(&bucket, &name),
+            key,
             ObjectConditions::default(),
             &access,
         ))
@@ -719,7 +726,7 @@ pub(crate) async fn respond(
     let (sender, receiver) = upload_channel();
     let upload = state.catalog.put_object_prechecked(
         ObjectUpload {
-            key: ObjectKey::from_parts_unchecked(&bucket, &name),
+            key,
             content_type,
             expected: ExpectedHashes::default(),
             conditions: ObjectConditions::default(),

@@ -7,6 +7,7 @@ use crate::object::ObjectKey;
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth,
+    bucket::name::BucketKey,
     input::InputError,
     server::{
         ObjectCtx, ResponseBody, boxed, empty_response,
@@ -45,11 +46,14 @@ pub(crate) fn route(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<R
 }
 
 /// The bucket and decoded object name of an XML resumable request.
-fn target(object: &ObjectPath, ctx: ObjectCtx<'_>) -> Result<String, Error> {
-    crate::bucket::name::validate_for_profile(&object.bucket, ctx.config.compat_profile())?;
+fn target<'a>(
+    object: &'a ObjectPath,
+    ctx: ObjectCtx<'_>,
+) -> Result<(BucketKey<&'a str>, String), Error> {
+    let bucket = BucketKey::for_profile(object.bucket.as_str(), ctx.config.compat_profile())?;
     let name = crate::percent::decode(object.name(), crate::percent::Decoding::Path)?;
     crate::object::name::validate(&name)?;
-    Ok(name)
+    Ok((bucket, name))
 }
 
 /// The `x-goog-*` headers besides the common object headers that an initiation reads.
@@ -114,7 +118,7 @@ pub(crate) async fn start(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
     let caller = ctx.caller;
-    let name = target(object, ctx)?;
+    let (bucket, name) = target(object, ctx)?;
     // Signing parameters authenticate the request; any other query selects another operation.
     let query =
         auth::signature::xml_query(request.uri().query().unwrap_or_default(), request.headers())?;
@@ -122,13 +126,13 @@ pub(crate) async fn start(
         return Err(Error::unsupported(key));
     }
     let access = ctx
-        .authorize(auth::OBJECTS_CREATE, &object.bucket)
+        .authorize(auth::OBJECTS_CREATE, bucket.as_str())
         .await
         .map_err(|error| Error::from(error).for_caller(caller))?;
     let options = options(request.headers(), put::Signing::of(&request), access)?;
     super::canned_acl::check(
         options.metadata.acl.predefined(),
-        &object.bucket,
+        bucket.as_str(),
         &options.access,
         ctx,
     )
@@ -136,7 +140,7 @@ pub(crate) async fn start(
     crate::bounded_body::read_body(request.into_body(), 0)
         .await
         .map_err(|_| Error::invalid("Resumable upload initiation carries no body."))?;
-    let key = ObjectKey::from_parts_unchecked(&object.bucket, &name);
+    let key = ObjectKey::from_bucket(bucket, &name);
     let id = resumable::create_session(ctx, key, options, None)
         .await
         .map_err(|error| Error::from(error).for_caller(caller))?;
@@ -165,7 +169,7 @@ pub(crate) async fn session(
     object: &ObjectPath,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
-    let name = target(object, ctx)?;
+    let (bucket, name) = target(object, ctx)?;
     let mut query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     let id = query
         .remove("upload_id")
@@ -174,7 +178,7 @@ pub(crate) async fn session(
         return Err(Error::unsupported(key));
     }
     let target = SessionTarget {
-        bucket: &object.bucket,
+        bucket: bucket.into_inner(),
         id: &id,
         name: Some(&name),
     };

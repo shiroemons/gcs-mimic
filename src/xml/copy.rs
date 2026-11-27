@@ -3,7 +3,7 @@
 use super::{Error, Namespace, ReadRequest, XmlCode, XmlWriter, number, put};
 use crate::{
     auth,
-    bucket::BucketAccess,
+    bucket::{BucketAccess, name::BucketKey},
     object::{
         ObjectConditions, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
         content_type,
@@ -28,7 +28,7 @@ const SOURCE_FIELDS: &[&str] = &[
 ];
 
 struct Source {
-    bucket: String,
+    bucket: BucketKey,
     name: String,
     generation: Option<Generation>,
     conditions: ObjectConditions,
@@ -54,7 +54,7 @@ fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
         .ok_or_else(|| Error::invalid("x-goog-copy-source must be /BUCKET/OBJECT"))?;
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
     let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
-    crate::bucket::name::validate_for_profile(&bucket, ctx.config.compat_profile())?;
+    let bucket = BucketKey::for_profile(bucket, ctx.config.compat_profile())?;
     crate::object::name::validate(&name)?;
     let generation = source_number(headers, "x-goog-copy-source-generation")?;
     let conditions = ObjectConditions {
@@ -152,7 +152,7 @@ pub(super) async fn respond(
     let source = source(request.headers(), ctx)?;
     let (source_bucket, source_name) = (source.bucket.clone(), source.name.clone());
     let source_access = ctx
-        .authorize(auth::OBJECTS_GET, &source.bucket)
+        .authorize(auth::OBJECTS_GET, source.bucket.as_str())
         .await
         .map_err(|error| Error::from(error).for_caller(ctx.caller))?;
     let directive = match put::single(request.headers(), "x-goog-metadata-directive")? {
@@ -164,7 +164,7 @@ pub(super) async fn respond(
             ));
         }
     };
-    if source.bucket == operation.target.bucket.as_str() && source.name == operation.target.name {
+    if source.bucket == operation.target.bucket && source.name == operation.target.name {
         return Err(Error::unsupported(
             "self-copy metadata updates; use the JSON object metadata update API",
         ));
@@ -179,7 +179,7 @@ pub(super) async fn respond(
     .await?;
     let key =
         crate::csek::CustomerKey::from_headers(request.headers(), crate::csek::SOURCE_PREFIX)?;
-    let target = ObjectTarget::new(source.bucket, source.name, source.generation);
+    let target = ObjectTarget::from_bucket(source.bucket, source.name, source.generation);
     let source = ctx
         .await_catalog(ctx.state.catalog.resolve_derived_source_keyed(
             target.into_signed_target(),
@@ -189,7 +189,8 @@ pub(super) async fn respond(
         ))
         .await
         .map_err(|error| {
-            put::storage_error(error, ctx.caller).naming_object(&source_bucket, &source_name)
+            put::storage_error(error, ctx.caller)
+                .naming_object(source_bucket.as_str(), &source_name)
         })?;
     validate_source_etags(request.headers(), &source.object)?;
     crate::bounded_body::read_body(request.into_body(), 0).await?;
