@@ -1,6 +1,7 @@
 //! Semantic metadata failures, rendered with each adapter's field vocabulary.
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{}", self.message(|name| name))]
 pub enum MetadataError {
     FixedHeader(String),
     LongLanguage,
@@ -132,10 +133,10 @@ impl MetadataError {
     }
 }
 
-impl std::fmt::Display for MetadataError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message(|name| name))
-    }
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = MetadataError::LifecycleEmptyCondition;
+    assert_eq!(error.to_string(), "Lifecycle rules must have a condition.");
+    assert!(std::error::Error::source(&error).is_none());
 }
-
-impl std::error::Error for MetadataError {}
