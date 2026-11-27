@@ -180,34 +180,25 @@ fn wait_timeout(value: &str) -> Result<Duration, Usage> {
 }
 
 /// Options that cannot run.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 enum Usage {
+    #[error("use seed status or seed wait")]
     Command,
+    #[error("unknown option {0}")]
     Unknown(String),
+    #[error("{0} needs a value")]
     Missing(String),
+    #[error("{0} is given more than once")]
     Duplicate(String),
+    #[error("--endpoint must be http(s)://HOST:PORT")]
     Endpoint,
+    #[error("--ca-cert requires an HTTPS endpoint")]
     CaCertNeedsHttps,
+    #[error("--timeout requires an integer with ms, s or m")]
     TimeoutUnit,
+    #[error("--timeout must be 1ms through 10m")]
     TimeoutRange,
 }
-
-impl std::fmt::Display for Usage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Command => f.write_str("use seed status or seed wait"),
-            Self::Unknown(name) => write!(f, "unknown option {name}"),
-            Self::Missing(name) => write!(f, "{name} needs a value"),
-            Self::Duplicate(name) => write!(f, "{name} is given more than once"),
-            Self::Endpoint => f.write_str("--endpoint must be http(s)://HOST:PORT"),
-            Self::CaCertNeedsHttps => f.write_str("--ca-cert requires an HTTPS endpoint"),
-            Self::TimeoutUnit => f.write_str("--timeout requires an integer with ms, s or m"),
-            Self::TimeoutRange => f.write_str("--timeout must be 1ms through 10m"),
-        }
-    }
-}
-
-impl std::error::Error for Usage {}
 
 /// Options that cannot run are reported with the usage, before any server is looked for.
 impl From<Usage> for Diagnostics {
@@ -759,4 +750,15 @@ mod tests {
         assert_eq!(unsettled(&left, Require::Nothing), None);
         assert!(unsettled(&left, Require::Clean).is_some());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = Usage::TimeoutUnit;
+    assert_eq!(
+        error.to_string(),
+        "--timeout requires an integer with ms, s or m"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }
