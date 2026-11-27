@@ -138,6 +138,7 @@ impl fmt::Display for ImportFailure {
         }
     }
 }
+// Corrupt includes field and repair text as well as the cause whose source the report follows.
 impl std::error::Error for ImportFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -1383,4 +1384,20 @@ fn walk_failure(error: WalkError) -> ImportFailure {
             "Restore an accessible source directory, not a symlink or special entry.",
         ),
     }
+}
+
+#[cfg(test)]
+#[test]
+fn retains_the_underlying_diagnostic_source() {
+    let error = ImportFailure::corrupt(
+        CorruptField::Entry,
+        crate::cause::BackendFailure::CatalogClosed,
+        "retry",
+    );
+    assert_eq!(error.to_string(), "catalog is closed");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<crate::cause::BackendFailure>()
+    );
 }
