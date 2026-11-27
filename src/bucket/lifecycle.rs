@@ -95,16 +95,9 @@ impl From<ConditionInt> for u64 {
 }
 
 /// A count outside the nonnegative int32 range.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("Invalid lifecycle condition count")]
 pub(crate) struct InvalidConditionInt;
-
-impl std::fmt::Display for InvalidConditionInt {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Invalid lifecycle condition count")
-    }
-}
-
-impl std::error::Error for InvalidConditionInt {}
 
 /// A lifecycle condition date, 0001-01-01 to 9999-12-31 in the proleptic Gregorian calendar,
 /// written `YYYY-MM-DD`. `FromStr` is the one calendar rule, shared by input validation and
@@ -159,16 +152,9 @@ impl FromStr for LifecycleDate {
 }
 
 /// Text that is not a `YYYY-MM-DD` calendar date.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("Invalid lifecycle date")]
 pub(crate) struct InvalidLifecycleDate;
-
-impl std::fmt::Display for InvalidLifecycleDate {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Invalid lifecycle date")
-    }
-}
-
-impl std::error::Error for InvalidLifecycleDate {}
 
 impl serde::Serialize for LifecycleDate {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -800,5 +786,18 @@ mod tests {
         ] {
             validate(&[json!({"action":{"type":"SetStorageClass","storageClass":class},"condition":{"age":0}})]).unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let cases: &[(&dyn std::error::Error, &str)] = &[
+        (&InvalidConditionInt, "Invalid lifecycle condition count"),
+        (&InvalidLifecycleDate, "Invalid lifecycle date"),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.to_string(), *expected);
+        assert!(error.source().is_none());
     }
 }

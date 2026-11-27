@@ -60,7 +60,8 @@ impl StorageClass {
 /// A storage class that a bucket's location cannot hold. Cloud Storage gives the same refusal
 /// wherever a request names the class: a bucket's default, an object's class and a lifecycle
 /// action or condition (recorded 2026-11-17).
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("Project {project_number} may not create storageClass {} buckets with locationConstraint {}.", .class.as_str(), .location.as_str())]
 pub struct ClassLocationConflict {
     project_number: crate::project::ProjectNumber,
     class: StorageClass,
@@ -84,20 +85,6 @@ impl ClassLocationConflict {
         })
     }
 }
-
-impl fmt::Display for ClassLocationConflict {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "Project {} may not create storageClass {} buckets with locationConstraint {}.",
-            self.project_number,
-            self.class.as_str(),
-            self.location.as_str()
-        )
-    }
-}
-
-impl std::error::Error for ClassLocationConflict {}
 
 impl From<ClassLocationConflict> for CatalogError {
     fn from(conflict: ClassLocationConflict) -> Self {

@@ -140,16 +140,9 @@ impl TryFrom<StoredAutoclass> for Autoclass {
 }
 
 /// A stored configuration whose enablement disagrees with its terminal class fields.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("stored autoclass enablement disagrees with its terminal storage class")]
 pub(crate) struct InconsistentAutoclass;
-
-impl std::fmt::Display for InconsistentAutoclass {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("stored autoclass enablement disagrees with its terminal storage class")
-    }
-}
-
-impl std::error::Error for InconsistentAutoclass {}
 
 /// A requested change. `None` fields keep the current value under patch semantics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -570,4 +563,15 @@ mod tests {
             assert!(serde_json::from_str::<Autoclass>(&text).is_err(), "{text}");
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InconsistentAutoclass;
+    assert_eq!(
+        error.to_string(),
+        "stored autoclass enablement disagrees with its terminal storage class"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }
