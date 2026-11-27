@@ -241,7 +241,7 @@ impl Diagnostic {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, thiserror::Error)]
 pub struct Diagnostics {
     pub info: Vec<Diagnostic>,
     pub warnings: Vec<Diagnostic>,
@@ -326,8 +326,6 @@ impl fmt::Display for Diagnostics {
         Ok(())
     }
 }
-
-impl std::error::Error for Diagnostics {}
 
 /// Appends a failed close to `result`, after the operation's own failure.
 pub fn combine_shutdown_results(
@@ -630,4 +628,12 @@ mod tests {
             assert_eq!(serde_json::to_value(source).unwrap(), published(source));
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = Diagnostics::default();
+    assert_eq!(error.to_string(), "");
+    assert!(std::error::Error::source(&error).is_none());
 }
