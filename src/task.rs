@@ -619,7 +619,15 @@ pub(crate) mod tests {
         const NAME: &str = "test-aborted";
         let task = spawn_supervised(NAME, std::future::pending::<()>());
         task.abort();
-        assert!(task.await.unwrap_err().is_cancelled());
+        let cause = task.await.unwrap_err();
+        assert!(cause.is_cancelled());
+        let error = BlockingFailed::Cancelled(cause);
+        assert_eq!(error.to_string(), "blocking job cancelled");
+        assert!(
+            std::error::Error::source(&error)
+                .unwrap()
+                .is::<tokio::task::JoinError>()
+        );
         assert!(reported_panics(NAME).is_empty());
     }
 

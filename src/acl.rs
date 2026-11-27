@@ -1233,6 +1233,32 @@ fn error_text_and_sources() {
         (&ConflictingAcl, "acl together with a predefined ACL"),
         (&InvalidCannedAcl("x"), "Invalid canned acl: x"),
         (
+            &AclError::TooManyEntries,
+            "An ACL can hold at most 100 entries",
+        ),
+        (
+            &AclError::EntityTooLong,
+            "An ACL entity can hold at most 272 bytes",
+        ),
+        (
+            &AclError::InvalidEntity("bad".into()),
+            "Invalid ACL entity \"bad\"; use user-EMAIL, group-EMAIL, domain-DOMAIN, project-owners-PROJECT, allUsers or allAuthenticatedUsers (for example, user-liz@example.com)",
+        ),
+        (
+            &AclError::InvalidRole {
+                kind: AclKind::Bucket,
+                role: "bad".into(),
+            },
+            "Invalid ACL role \"bad\"; use one of OWNER, WRITER, READER (for example, READER)",
+        ),
+        (
+            &AclError::InvalidRole {
+                kind: AclKind::Object,
+                role: "bad".into(),
+            },
+            "Invalid ACL role \"bad\"; use one of OWNER, READER (for example, READER)",
+        ),
+        (
             &AclError::DuplicateEntity("user-x".into()),
             "Duplicate ACL entity \"user-x\"",
         ),

@@ -416,6 +416,42 @@ mod tests {
 fn error_text_and_sources() {
     let cases: &[(&dyn std::error::Error, &str)] = &[
         (
+            &NotificationError::InvalidTopic("bad".into()),
+            "Invalid topic \"bad\"; use //pubsub.googleapis.com/projects/PROJECT/topics/TOPIC (for example, //pubsub.googleapis.com/projects/local-project/topics/uploads)",
+        ),
+        (
+            &NotificationError::InvalidEventType("bad".into()),
+            "Invalid event type \"bad\"; use OBJECT_FINALIZE, OBJECT_METADATA_UPDATE, OBJECT_DELETE or OBJECT_ARCHIVE",
+        ),
+        (
+            &NotificationError::DuplicateEventType(Event::Finalize),
+            "Duplicate event type OBJECT_FINALIZE; list each event type once",
+        ),
+        (
+            &NotificationError::TooManyCustomAttributes(11),
+            "custom_attributes has 11 entries; a notification allows at most 10",
+        ),
+        (
+            &NotificationError::InvalidCustomAttributeKey("bad".into()),
+            "Invalid custom attribute key \"bad\"; use 1 to 256 bytes that do not start with goog",
+        ),
+        (
+            &NotificationError::CustomAttributeTooLong("key".into()),
+            "Custom attribute \"key\" exceeds 1024 bytes",
+        ),
+        (
+            &NotificationError::ObjectNamePrefixTooLong,
+            "object_name_prefix exceeds 1024 bytes",
+        ),
+        (
+            &NotificationError::BucketLimit,
+            "Bucket already has 100 notification configurations; delete one before adding another",
+        ),
+        (
+            &NotificationError::EventTypeLimit(Event::Delete),
+            "Bucket already has 10 notification configurations for OBJECT_DELETE; delete one or narrow event_types",
+        ),
+        (
             &NotificationDecodeError::Shape,
             "invalid stored notification",
         ),

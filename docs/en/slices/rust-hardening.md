@@ -579,6 +579,11 @@ A further split waits until after `1.0.0`:
   `Entry` and `Import` expose the error inside their box and `Unopenable`
   can expose its static cause.
 
+| Diagnostic compatibility exception | Reason and review point |
+| --- | --- |
+| `fsutil::CloneFailure::{Created, NotCreated}` | Both expose the same concrete `FsError` they display. `Report` joins the equal messages once. Revisit when changing the clone diagnostic contract. |
+| `auth::PolicyDecodeError::Json` and `auth::IdentityError` | The stored-policy and startup diagnostics include the decoder or registry text and expose the cause itself. Keep their prefixed Display until those diagnostics are reviewed. |
+
 ### `io::Error::other`
 
 Production code keeps these failures typed until their callers require an I/O error.
@@ -1337,7 +1342,7 @@ after job counts.
 | JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |
 | Config documents | the parse half moves to the settings layer |
 | Protobuf crate | generated code in its own crate, with the build measurement |
-| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` listener accessors are public for the startup binary. Review consolidating the public paths to `Generation` and `InvalidGeneration`. |
+| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` listener accessors are public for the startup binary. Review consolidating the public paths to `Generation` and `InvalidGeneration`, the five public source exception groups and the two private `ObjectError` groups in `public_source_tests.rs`. |
 
 ### Last
 

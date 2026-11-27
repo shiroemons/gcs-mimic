@@ -636,4 +636,11 @@ fn error_text_and_sources() {
     let error = Diagnostics::default();
     assert_eq!(error.to_string(), "");
     assert!(std::error::Error::source(&error).is_none());
+    let mut errors = Diagnostics::error(DiagnosticSource::Runtime, "first", "fix one");
+    errors.errors.push(Diagnostic::new(
+        DiagnosticSource::Catalog,
+        "second",
+        "fix two",
+    ));
+    assert_eq!(errors.to_string(), "first: fix one; second: fix two");
 }

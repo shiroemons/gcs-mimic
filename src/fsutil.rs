@@ -456,6 +456,7 @@ impl std::fmt::Display for CloneFailure {
     }
 }
 
+// Both outcomes expose the same FsError they display. Revisit with the clone diagnostic contract.
 impl std::error::Error for CloneFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -464,8 +465,6 @@ impl std::error::Error for CloneFailure {
     }
 }
 
-// Both clone outcomes expose the FsError they display. Preserve its identity until the
-// diagnostic contract is revisited; Report emits adjacent identical messages once.
 #[cfg(test)]
 pub(crate) fn clone_failure_pair(
     outer: &(dyn std::error::Error + 'static),

@@ -598,6 +598,7 @@ impl IdentityError {
     }
 }
 
+// Startup diagnostics include the setting and the registry's message, and expose the registry error.
 impl fmt::Display for IdentityError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let setting = self.setting().as_str();
@@ -2506,4 +2507,23 @@ fn error_text_and_sources() {
         assert_eq!(error.to_string(), *expected);
         assert!(error.source().is_none());
     }
+    let unavailable = AuthError::Unavailable(crate::cause::BackendFailure::CatalogClosed.into());
+    assert_eq!(
+        unavailable.to_string(),
+        "Authentication verifier unavailable"
+    );
+    assert!(
+        std::error::Error::source(&unavailable)
+            .unwrap()
+            .is::<crate::cause::BackendCause>()
+    );
+    let error = IdentityError::new(None, RegistryError::Invalid("invalid principal".into()));
+    assert_eq!(error.to_string(), "auth_mode: invalid principal");
+    assert!(std::ptr::eq(
+        std::error::Error::source(&error)
+            .unwrap()
+            .downcast_ref()
+            .unwrap(),
+        &error.source
+    ));
 }

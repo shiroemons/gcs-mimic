@@ -13,6 +13,7 @@ pub(crate) enum PolicyDecodeError {
     Shape(&'static str),
 }
 
+// Catalog corruption diagnostics include the decoder's text; classification retains the decoder.
 impl std::fmt::Display for PolicyDecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

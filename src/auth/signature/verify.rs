@@ -743,3 +743,18 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    use std::error::Error as _;
+    let signature = VerificationError::Signature(Failure::Malformed);
+    assert_eq!(signature.to_string(), "Invalid XML signature");
+    assert!(signature.source().is_none());
+    let catalog = VerificationError::Catalog(CatalogError::NotFound);
+    assert_eq!(catalog.to_string(), "Signature verifier unavailable");
+    assert!(catalog.source().unwrap().is::<CatalogError>());
+    let worker = VerificationError::Worker(crate::cause::BackendFailure::CatalogClosed.into());
+    assert_eq!(worker.to_string(), "Signature verifier unavailable");
+    assert!(worker.source().unwrap().is::<BackendCause>());
+}

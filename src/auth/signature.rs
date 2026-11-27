@@ -251,16 +251,12 @@ pub enum SigningError {
     PrivateKeyTooLarge,
     #[error("private key must be RSA PKCS#8 or PKCS#1 PEM")]
     UnsupportedPrivateKey,
-    /// ring's reason for rejecting the key.
+    /// ring's reason stays typed. It implements Error only with ring's optional std feature.
     #[error("invalid RSA private key: {0}")]
     InvalidPrivateKey(ring::error::KeyRejected),
     #[error("RSA signing failed")]
     SigningFailed,
 }
-
-// ring's `KeyRejected` implements `std::error::Error` only with ring's `std` feature, which
-// this crate does not enable, so `InvalidPrivateKey` keeps it typed but cannot expose it as
-// `source()`.
 
 /// The refused query is client input that `InvalidQuery` names in its message; the public error
 /// type keeps the crate's query error out of its interface.
@@ -983,12 +979,17 @@ fn rsa_sign(private_key: &[u8], message: &str) -> Result<Vec<u8>, SigningError> 
 #[cfg(test)]
 #[test]
 fn error_text_and_sources() {
+    let rejected = signature::RsaKeyPair::from_der(&[]).unwrap_err();
     let cases: &[(&dyn std::error::Error, &str)] = &[
         (
             &InvalidPublicKey,
             "public_keys must contain only RSA SubjectPublicKeyInfo PEM (2048..8192 bits)",
         ),
         (&SigningError::InvalidHost, "invalid host"),
+        (
+            &SigningError::InvalidPrivateKey(rejected),
+            "invalid RSA private key: InvalidEncoding",
+        ),
     ];
     for (error, expected) in cases {
         assert_eq!(error.to_string(), *expected);
