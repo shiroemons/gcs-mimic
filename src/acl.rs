@@ -194,16 +194,9 @@ impl fmt::Debug for AclRole {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("invalid ACL role")]
 pub(crate) struct InvalidAclRole;
-
-impl fmt::Display for InvalidAclRole {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("invalid ACL role")
-    }
-}
-
-impl std::error::Error for InvalidAclRole {}
 
 impl AclRole {
     /// The legacy bucket IAM role that holds the same authority as this bucket ACL role.
@@ -241,41 +234,22 @@ pub(crate) fn object_role_allows(role: AclRole, permission: crate::auth::Permiss
 }
 
 /// A rejected ACL entry or entry list. `Display` is the client-visible JSON error message.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum AclError {
+    #[error("An ACL can hold at most {MAX_ENTRIES} entries")]
     TooManyEntries,
+    #[error("Duplicate ACL entity {0:?}")]
     DuplicateEntity(String),
+    #[error(
+        "Invalid ACL entity {0:?}; use user-EMAIL, group-EMAIL, domain-DOMAIN, project-owners-PROJECT, allUsers or allAuthenticatedUsers (for example, user-liz@example.com)"
+    )]
     InvalidEntity(String),
     /// Names no entity, so that a rejected value of any size is not repeated to the client.
+    #[error("An ACL entity can hold at most {MAX_ENTITY_BYTES} bytes")]
     EntityTooLong,
-    InvalidRole {
-        kind: AclKind,
-        role: String,
-    },
+    #[error("Invalid ACL role {role:?}; use one of {} (for example, READER)", .kind.role_names())]
+    InvalidRole { kind: AclKind, role: String },
 }
-
-impl fmt::Display for AclError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooManyEntries => write!(f, "An ACL can hold at most {MAX_ENTRIES} entries"),
-            Self::DuplicateEntity(entity) => write!(f, "Duplicate ACL entity {entity:?}"),
-            Self::InvalidEntity(entity) => write!(
-                f,
-                "Invalid ACL entity {entity:?}; use user-EMAIL, group-EMAIL, domain-DOMAIN, project-owners-PROJECT, allUsers or allAuthenticatedUsers (for example, user-liz@example.com)"
-            ),
-            Self::EntityTooLong => {
-                write!(f, "An ACL entity can hold at most {MAX_ENTITY_BYTES} bytes")
-            }
-            Self::InvalidRole { kind, role } => write!(
-                f,
-                "Invalid ACL role {role:?}; use one of {} (for example, READER)",
-                kind.role_names()
-            ),
-        }
-    }
-}
-
-impl std::error::Error for AclError {}
 
 pub(crate) fn validate_entries(kind: AclKind, entries: &[AclEntry]) -> Result<(), AclError> {
     if entries.len() > MAX_ENTRIES {
@@ -799,16 +773,9 @@ impl AclRequest {
 }
 
 /// A metadata write named explicit ACL entries together with a canned ACL.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("acl together with a predefined ACL")]
 pub(crate) struct ConflictingAcl;
-
-impl std::fmt::Display for ConflictingAcl {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("acl together with a predefined ACL")
-    }
-}
-
-impl std::error::Error for ConflictingAcl {}
 
 impl From<Option<Vec<AclEntry>>> for AclRequest {
     fn from(entries: Option<Vec<AclEntry>>) -> Self {
@@ -823,16 +790,9 @@ impl From<Option<PredefinedObjectAcl>> for AclRequest {
 }
 
 /// An `x-goog-acl` value the XML API does not define, kept for the error that names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("Invalid canned acl: {0}")]
 pub(crate) struct InvalidCannedAcl<'a>(pub(crate) &'a str);
-
-impl std::fmt::Display for InvalidCannedAcl<'_> {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "Invalid canned acl: {}", self.0)
-    }
-}
-
-impl std::error::Error for InvalidCannedAcl<'_> {}
 
 /// The XML API's hyphenated names. The JSON API's camelCase values, which `FromStr` reads, are
 /// invalid in `x-goog-acl` (recorded 2026-11-09).
@@ -1262,5 +1222,23 @@ mod tests {
             project_private("local")[0].entity.as_str(),
             "project-owners-902648055030"
         );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let cases: &[(&dyn std::error::Error, &str)] = &[
+        (&InvalidAclRole, "invalid ACL role"),
+        (&ConflictingAcl, "acl together with a predefined ACL"),
+        (&InvalidCannedAcl("x"), "Invalid canned acl: x"),
+        (
+            &AclError::DuplicateEntity("user-x".into()),
+            "Duplicate ACL entity \"user-x\"",
+        ),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.to_string(), *expected);
+        assert!(error.source().is_none());
     }
 }
