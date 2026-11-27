@@ -37,7 +37,7 @@ pub(crate) struct PurgeOutcome {
 }
 
 /// Why a purge made no changes, or could not confirm what it changed.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum PurgeError {
     /// No live or soft-deleted bucket has the name.
     NotFound,
@@ -46,7 +46,7 @@ pub(crate) enum PurgeError {
     /// A request writes one of the bucket's upload sessions or appendable objects.
     WriterBusy,
     /// The administrative operation failed as any other does.
-    Admin(AdminError),
+    Admin(#[source] AdminError),
 }
 
 impl fmt::Display for PurgeError {
@@ -57,15 +57,6 @@ impl fmt::Display for PurgeError {
             Self::Importing => f.write_str("an import is incomplete"),
             Self::WriterBusy => f.write_str("a request writes one of the bucket's sessions"),
             Self::Admin(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for PurgeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Admin(error) => Some(error),
-            Self::NotFound | Self::Importing | Self::WriterBusy => None,
         }
     }
 }
