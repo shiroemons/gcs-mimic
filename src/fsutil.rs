@@ -433,10 +433,10 @@ pub(crate) fn sync_ordered(file: &File) -> io::Result<()> {
 pub(crate) enum CloneFailure {
     NotCreated(FsError),
     #[cfg_attr(
-        not(any(target_os = "linux", target_os = "macos")),
+        all(not(test), not(any(target_os = "linux", target_os = "macos"))),
         expect(
             dead_code,
-            reason = "only supported clone platforms can create a destination before failure"
+            reason = "outside tests, only supported clone platforms create a destination before failure"
         )
     )]
     Created(FsError),
