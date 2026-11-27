@@ -4,10 +4,9 @@
 //! Fixed-length lowercase hex sorts like the bytes it encodes, so the derived `Ord` agrees with
 //! SQLite's `ORDER BY` on the stored TEXT and a keyset cursor may compare either form.
 
-use std::fmt;
-
 /// Text that is not the canonical lowercase hexadecimal form of an identifier.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{what}")]
 pub struct InvalidOpaqueId {
     what: &'static str,
 }
@@ -17,14 +16,6 @@ impl InvalidOpaqueId {
         Self { what }
     }
 }
-
-impl fmt::Display for InvalidOpaqueId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.what)
-    }
-}
-
-impl std::error::Error for InvalidOpaqueId {}
 
 /// `N` bytes from the operating system's random source.
 pub(crate) fn random<const N: usize>() -> Result<[u8; N], getrandom::Error> {
@@ -133,3 +124,13 @@ macro_rules! opaque_id {
     };
 }
 pub(crate) use opaque_id;
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidOpaqueId {
+        what: "blob identifier",
+    };
+    assert_eq!(error.to_string(), "blob identifier");
+    assert!(std::error::Error::source(&error).is_none());
+}
