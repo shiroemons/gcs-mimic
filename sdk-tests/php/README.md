@@ -14,7 +14,7 @@ not full PHP compatibility; the broader ledger rows stay `PARTIAL`.
 | --- | --- |
 | PHP SDK | `google/cloud-storage` 2.7.0 (source `2ad43074f03edcb8b867b1627e57edcce06b2095`), exact pin in `composer.json` |
 | Dependency graph | `composer.lock`, the same 26-package graph as `sdk-scorecard/php/composer.lock` (only the content hash differs) |
-| Runtime | Official `composer:2.11.3` image (PHP 8.5.13), pinned by manifest index digest `sha256:4e5f671c4a5784b422c20fcb993a38da96529438889dbce40be27c452d18dd6d` in `run.sh` |
+| Runtime | Official `composer:2.11.3` image (PHP 8.5.13), pinned by manifest index digest `sha256:5b2137f112f939a92788ceb5e55f54859d9dbf467a44037cf7760bdda949f365` in `run.sh` |
 
 PHP is not required on the host: Composer and PHP run only in that container.
 The pin is identical to the one in `sdk-scorecard/run.sh`, whose digest the

@@ -1639,3 +1639,11 @@ The scheduled full check on 2026-11-26 and a local full check on 2026-11-27 repo
 | `just check` | Passed in 723 s, the host lint and the cross-target lint for x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu and x86_64-unknown-linux-musl reporting no new production violation |
 
 The change touches no Rust source, container input or non-Go SDK input, so `just check-containers` and the Ruby, Node.js, Python and PHP SDK suites were not rerun. Both freshness checks ran with `GITHUB_TOKEN` set.
+
+## Image digest refresh: 2026-11-27T03:28:20Z
+
+`cargo xtask dependencies update-images` found these images rebuilt under an unchanged version tag. The checks of the pull request that adopts them are the validation; this record does not establish a result by itself.
+
+| Input | Previous | Proposed | Changed manifests |
+| --- | --- | --- | --- |
+| composer:2.11.3 | `sha256:4e5f671c4a5784b422c20fcb993a38da96529438889dbce40be27c452d18dd6d` | `sha256:5b2137f112f939a92788ceb5e55f54859d9dbf467a44037cf7760bdda949f365` | None on the declared platforms |
