@@ -693,7 +693,35 @@ mod tests {
 #[cfg(test)]
 #[test]
 fn error_text_and_sources() {
-    let error = HmacKeyError::Deleted;
-    assert_eq!(error.to_string(), "HMAC key is deleted");
-    assert!(std::error::Error::source(&error).is_none());
+    for (error, expected) in [
+        (HmacKeyError::NotFound, "HMAC key not found"),
+        (
+            HmacKeyError::PreconditionFailed,
+            "HMAC key precondition failed",
+        ),
+        (
+            HmacKeyError::DeleteActive,
+            "active HMAC key must be deactivated before deletion",
+        ),
+        (HmacKeyError::Deleted, "HMAC key is deleted"),
+        (HmacKeyError::LimitReached, "HMAC key limit reached"),
+        (
+            HmacKeyError::Catalog(CatalogError::NotFound),
+            "bucket not found",
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+        assert!(std::error::Error::source(&error).is_none());
+        crate::error::assert_distinct_causes(&error);
+    }
+    let error = HmacKeyError::Catalog(CatalogError::Unavailable(
+        crate::cause::BackendFailure::CatalogClosed.into(),
+    ));
+    assert_eq!(error.to_string(), "catalog unavailable: catalog is closed");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<crate::cause::BackendFailure>()
+    );
+    crate::error::assert_distinct_causes(&error);
 }

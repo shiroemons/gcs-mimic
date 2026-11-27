@@ -874,8 +874,16 @@ mod tests;
 #[cfg(test)]
 #[test]
 fn error_text_and_sources() {
-    let error = GenerateError::Rejected(Diagnostics::default());
-    assert_eq!(error.to_string(), "");
+    let error = GenerateError::Rejected(Diagnostics::error(
+        crate::diagnostics::DiagnosticSource::Catalog,
+        "buckets",
+        "invalid",
+    ));
+    assert_eq!(error.to_string(), "buckets: invalid");
+    assert_eq!(
+        crate::error::Report::chain(&error).to_string(),
+        error.to_string()
+    );
     assert!(
         std::error::Error::source(&error)
             .unwrap()

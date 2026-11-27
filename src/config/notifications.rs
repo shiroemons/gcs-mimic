@@ -235,5 +235,9 @@ fn error_text_and_sources() {
         let source = std::error::Error::source(&error).unwrap();
         assert!(source.is::<InvalidEndpoint>() || source.is::<NotificationError>());
         assert_eq!(error.to_string(), source.to_string());
+        assert_eq!(
+            crate::error::Report::chain(&error).to_string(),
+            source.to_string()
+        );
     }
 }

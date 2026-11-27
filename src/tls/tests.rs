@@ -44,8 +44,16 @@ fn server_identity_errors_retain_the_io_cause_and_distinguish_input_settings() {
             ServerIdentityError::PrivateKey(io::Error::from(io::ErrorKind::PermissionDenied)),
             "tls_key",
         ),
+        (
+            ServerIdentityError::Identity(io::ErrorKind::InvalidData.into()),
+            "tls_cert",
+        ),
     ] {
         assert_eq!(error.setting(), setting);
+        assert_eq!(
+            crate::error::Report::chain(&error).to_string(),
+            error.source().unwrap().to_string()
+        );
         assert!(
             error
                 .source()
@@ -62,6 +70,12 @@ fn server_identity_errors_retain_the_io_cause_and_distinguish_input_settings() {
                 .is_some()
         );
     }
+    let error = ServerIdentityError::Rejected(rustls::Error::General("fixture".into()));
+    assert!(error.source().unwrap().is::<rustls::Error>());
+    assert_eq!(
+        crate::error::Report::chain(&error).to_string(),
+        error.source().unwrap().to_string()
+    );
 }
 
 #[test]

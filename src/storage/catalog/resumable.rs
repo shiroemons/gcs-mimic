@@ -1185,7 +1185,42 @@ mod tests {
 #[cfg(test)]
 #[test]
 fn error_text_and_sources() {
-    let error = ResumableError::Cancelled;
-    assert_eq!(error.to_string(), "clientClosedRequest");
-    assert!(std::error::Error::source(&error).is_none());
+    for (error, expected) in [
+        (ResumableError::NotFound, "upload session not found"),
+        (ResumableError::Gone, "upload session is no longer active"),
+        (ResumableError::Cancelled, "clientClosedRequest"),
+        (
+            ResumableError::InvalidContentRange,
+            "Failed to parse Content-Range header.",
+        ),
+        (
+            ResumableError::Overrun(Overrun {
+                received: 5,
+                room: 3,
+            }),
+            "Invalid request.  There were 5 byte(s) (or more) in the request body.  There should have been 3 byte(s) according to the Content-Range header.",
+        ),
+        (
+            ResumableError::Invalid("invalid range".into()),
+            "invalid range",
+        ),
+        (
+            ResumableError::Object(ObjectError::ObjectNotFound),
+            "object not found",
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+        assert!(std::error::Error::source(&error).is_none());
+        crate::error::assert_distinct_causes(&error);
+    }
+    let error = ResumableError::Object(ObjectError::Unavailable(
+        crate::cause::BackendFailure::CatalogClosed.into(),
+    ));
+    assert_eq!(error.to_string(), "catalog unavailable: catalog is closed");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<crate::cause::BackendFailure>()
+    );
+    crate::error::assert_distinct_causes(&error);
 }

@@ -49,6 +49,7 @@ pub(crate) enum PurgeError {
     Admin(#[source] AdminError),
 }
 
+// All purge failures share this diagnostic prefix, including the AdminError exposed as a source.
 impl fmt::Display for PurgeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("bucket purge: ")?;
@@ -65,6 +66,38 @@ impl From<AdminError> for PurgeError {
     fn from(error: AdminError) -> Self {
         Self::Admin(error)
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    use std::error::Error;
+
+    for (error, expected) in [
+        (
+            PurgeError::NotFound,
+            "bucket purge: no live or soft-deleted bucket has the name",
+        ),
+        (
+            PurgeError::Importing,
+            "bucket purge: an import is incomplete",
+        ),
+        (
+            PurgeError::WriterBusy,
+            "bucket purge: a request writes one of the bucket's sessions",
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+        assert!(error.source().is_none());
+        crate::error::assert_distinct_causes(&error);
+    }
+    let error = PurgeError::Admin(AdminError::Closed);
+    assert_eq!(
+        error.to_string(),
+        "bucket purge: administrative operation: Closed"
+    );
+    assert!(error.source().unwrap().is::<AdminError>());
+    crate::error::assert_distinct_causes(&error);
 }
 
 impl From<CatalogError> for PurgeError {

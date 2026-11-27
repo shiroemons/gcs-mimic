@@ -45,6 +45,8 @@ pub(crate) use draft::ConfigDraft;
 pub use draft::ConfigurationReport;
 use draft::{Settings, Validation, unknown_setting};
 pub use help::help;
+#[cfg(test)]
+pub(crate) use notifications::EventSettingsError;
 pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
     ApiBaseSource, ConnectionScheme, EndpointError, EndpointSnapshot, RequestEndpoints,

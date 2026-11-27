@@ -136,6 +136,10 @@ fn error_text_and_sources() {
     assert!(std::error::Error::source(&error).is_none());
     let error = DurationError::Number("x".parse::<u64>().unwrap_err());
     assert_eq!(error.to_string(), "invalid digit found in string");
+    assert_eq!(
+        crate::error::Report::chain(&error).to_string(),
+        error.to_string()
+    );
     assert!(
         std::error::Error::source(&error)
             .unwrap()

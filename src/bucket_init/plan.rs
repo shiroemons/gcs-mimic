@@ -38,6 +38,31 @@ impl From<AdminError> for PlanError {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    use std::error::Error;
+
+    let admin = PlanError::Admin(AdminError::Closed);
+    assert_eq!(
+        admin.to_string(),
+        "bucket initialization stopped by a catalog failure"
+    );
+    assert!(admin.source().unwrap().is::<AdminError>());
+    let rejected = PlanError::Rejected(Diagnostics::error(
+        DiagnosticSource::Initializer,
+        "buckets",
+        "invalid",
+    ));
+    assert_eq!(
+        rejected.to_string(),
+        "bucket initialization refused by stored state"
+    );
+    assert!(rejected.source().unwrap().is::<Diagnostics>());
+    crate::error::assert_distinct_causes(&admin);
+    crate::error::assert_distinct_causes(&rejected);
+}
+
 /// An entry whose bucket definition the catalog accepts.
 pub(super) struct Prepared {
     creation: Creation,

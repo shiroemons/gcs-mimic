@@ -10,24 +10,13 @@ use std::{borrow::Cow, collections::BTreeSet};
 /// one-based position rather than the value, as the document's diagnostics name paths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum ShorthandError {
+    /// A value read the wrong way shows both forms, so the intended one is at hand.
+    #[error(
+        "buckets does not start with {{, so it is read as comma-separated bucket names, and name {position} is not a valid bucket name; write bucket names such as uploads,exports, or a document such as {{\"version\":1,\"buckets\":[{{\"name\":\"uploads\"}}]}}."
+    )]
     InvalidName { position: usize },
+    #[error("buckets names bucket {position} more than once; list each bucket once.")]
     RepeatedName { position: usize },
-}
-
-impl std::fmt::Display for ShorthandError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            // A value read the wrong way shows both forms, so the intended one is at hand.
-            Self::InvalidName { position } => write!(
-                f,
-                "buckets does not start with {{, so it is read as comma-separated bucket names, and name {position} is not a valid bucket name; write bucket names such as uploads,exports, or a document such as {{\"version\":1,\"buckets\":[{{\"name\":\"uploads\"}}]}}."
-            ),
-            Self::RepeatedName { position } => write!(
-                f,
-                "buckets names bucket {position} more than once; list each bucket once."
-            ),
-        }
-    }
 }
 
 /// The document that the `buckets` setting's `value` supplies: `value` itself when it is a

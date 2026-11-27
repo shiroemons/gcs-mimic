@@ -767,6 +767,10 @@ mod tests {
 fn error_text_and_sources() {
     let error = ClaimError::Catalog(CatalogError::NotFound);
     assert_eq!(error.to_string(), "bucket not found");
+    assert_eq!(
+        crate::error::Report::chain(&error).to_string(),
+        error.to_string()
+    );
     assert!(
         std::error::Error::source(&error)
             .unwrap()

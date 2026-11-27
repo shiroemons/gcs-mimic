@@ -574,15 +574,20 @@ A further split waits until after `1.0.0`:
   Its boundary test pins those repeated bytes; a report of the private rollback
   error itself gives the context and the concrete SQLite cause once.
 - **thiserror.** Types are converted module by module. `#[from]` never replaces
-  a `classified_from!` conversion, and the ten `TypedSource` types keep their
+  a `classified_from!` conversion, and the `TypedSource` types keep their
   hand-written `source()`. `SeedError` also implements `source()` by hand so
   `Entry` and `Import` expose the error inside their box and `Unopenable`
-  can expose its static cause.
+  can expose its static cause. Hand-written sources also preserve the two failures
+  in `ImportError::Cleanup`, the delegated sources of `WalkError::Entry` and
+  `ImportFailure::Corrupt`, and the concrete TLS error inside `ExchangeFailure::Trust`.
 
 | Diagnostic compatibility exception | Reason and review point |
 | --- | --- |
 | `fsutil::CloneFailure::{Created, NotCreated}` | Both expose the same concrete `FsError` they display. `Report` joins the equal messages once. Revisit when changing the clone diagnostic contract. |
 | `auth::PolicyDecodeError::Json` and `auth::IdentityError` | The stored-policy and startup diagnostics include the decoder or registry text and expose the cause itself. Keep their prefixed Display until those diagnostics are reviewed. |
+| `DurationError::Number`, `GenerateError::Rejected`, `ServerIdentityError::{Certificate, PrivateKey, Identity, Rejected}` | Callers can print these public types and inspect the same concrete cause. Revisit at Public facade. |
+| `EventSettingsError::{Endpoint, Topic, ObjectPrefix}`, `ClaimError::Catalog` | Setting and resumable diagnostics display the cause directly and expose it through `source()`. Revisit when changing those diagnostic contracts. |
+| `PurgeError::Admin`, `NameError::Invalid`, `InvalidSeconds`, `SaveError::{Create, Write}` | Purge and bucket CLI diagnostics prefix the cause and expose it directly. Revisit with the corresponding CLI or admin diagnostics. |
 
 ### `io::Error::other`
 
