@@ -103,16 +103,9 @@ pub(crate) struct Hashes {
 }
 
 /// A declared digest that is not the padded standard base64 of exactly the algorithm's width.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("Invalid base64 checksum")]
 pub(crate) struct InvalidDigest;
-
-impl std::fmt::Display for InvalidDigest {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Invalid base64 checksum")
-    }
-}
-
-impl std::error::Error for InvalidDigest {}
 
 /// The `N` bytes of a digest declared in padded standard base64, as headers and resource
 /// fields carry MD5 and CRC32C values.
@@ -269,4 +262,12 @@ mod tests {
         assert!(Hasher::from_md5_state(&[0; 87], 0, 0).is_err());
         assert!(Hasher::from_md5_state(&[0; 89], 0, 0).is_err());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidDigest;
+    assert_eq!(error.to_string(), "Invalid base64 checksum");
+    assert!(std::error::Error::source(&error).is_none());
 }
