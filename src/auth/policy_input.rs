@@ -4,7 +4,6 @@ use super::{
     roles::GrantLevel,
 };
 use crate::acl::ProjectTeam;
-use std::fmt;
 
 /// Adapter-decoded policy fields, before shared semantic validation.
 pub(crate) struct PolicyInput {
@@ -19,23 +18,12 @@ pub(crate) struct BindingInput {
     pub members: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
 pub(crate) enum PolicyInputError {
     InvalidInput(String),
     UnsupportedInput(String),
 }
-
-impl fmt::Display for PolicyInputError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidInput(message) | Self::UnsupportedInput(message) => {
-                formatter.write_str(message)
-            }
-        }
-    }
-}
-
-impl std::error::Error for PolicyInputError {}
 
 impl PolicyInput {
     pub(crate) fn into_policy(self) -> Result<Policy, PolicyInputError> {
@@ -233,4 +221,12 @@ mod tests {
             ]
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = PolicyInputError::UnsupportedInput("entry".into());
+    assert_eq!(error.to_string(), "entry");
+    assert!(std::error::Error::source(&error).is_none());
 }

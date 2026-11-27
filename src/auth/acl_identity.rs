@@ -29,16 +29,9 @@ impl EmailKey {
 }
 
 /// A creator address must be a canonical ACL user email, so `user-EMAIL` is a valid entity.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("must be an email address such as name@example.test")]
 pub(crate) struct InvalidCreatorEmail;
-
-impl std::fmt::Display for InvalidCreatorEmail {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("must be an email address such as name@example.test")
-    }
-}
-
-impl std::error::Error for InvalidCreatorEmail {}
 
 /// A creator address as its `user-EMAIL` entity.
 pub(crate) fn creator_entity(email: &str) -> Result<Entity, InvalidCreatorEmail> {
@@ -253,4 +246,15 @@ mod tests {
             );
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidCreatorEmail;
+    assert_eq!(
+        error.to_string(),
+        "must be an email address such as name@example.test"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }

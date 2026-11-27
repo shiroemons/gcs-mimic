@@ -2,36 +2,20 @@
 //! v2 gRPC check the same list; each words a refusal in its own protocol.
 
 use super::{Permission, roles::Role};
-use std::fmt;
 
 /// A permission a bucket permission test cannot answer.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum UntestablePermission {
     /// A permission a predefined role grants but no supported operation checks.
+    #[error("permission {0}; use a supported operation permission such as storage.objects.get")]
     Unsupported(String),
     /// Text that names no Cloud Storage permission.
+    #[error("{0} is not a valid Google Cloud Storage permission.")]
     Unknown(String),
     /// A project-scoped permission, which a bucket cannot hold.
+    #[error("Invalid argument.")]
     ProjectScoped,
 }
-
-impl fmt::Display for UntestablePermission {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Unsupported(permission) => write!(
-                formatter,
-                "permission {permission}; use a supported operation permission such as storage.objects.get"
-            ),
-            Self::Unknown(permission) => write!(
-                formatter,
-                "{permission} is not a valid Google Cloud Storage permission."
-            ),
-            Self::ProjectScoped => formatter.write_str("Invalid argument."),
-        }
-    }
-}
-
-impl std::error::Error for UntestablePermission {}
 
 /// The permission `permission` names, when a bucket permission test may ask for it.
 pub(crate) fn testable_permission(permission: &str) -> Result<Permission, UntestablePermission> {
@@ -48,4 +32,15 @@ pub(crate) fn testable_permission(permission: &str) -> Result<Permission, Untest
         return Err(UntestablePermission::ProjectScoped);
     }
     Ok(parsed)
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = UntestablePermission::Unknown("read".into());
+    assert_eq!(
+        error.to_string(),
+        "read is not a valid Google Cloud Storage permission."
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }

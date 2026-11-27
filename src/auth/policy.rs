@@ -7,9 +7,9 @@ use std::{
     str::FromStr,
 };
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum PolicyDecodeError {
-    Json(serde_json::Error),
+    Json(#[source] serde_json::Error),
     Shape(&'static str),
 }
 
@@ -18,15 +18,6 @@ impl std::fmt::Display for PolicyDecodeError {
         match self {
             Self::Json(error) => write!(f, "invalid stored policy: {error}"),
             Self::Shape(message) => f.write_str(message),
-        }
-    }
-}
-
-impl std::error::Error for PolicyDecodeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Json(error) => Some(error),
-            Self::Shape(_) => None,
         }
     }
 }
@@ -175,16 +166,9 @@ impl From<MemberRef<'_>> for Member {
 }
 
 /// A stored member of neither public name nor a known `KIND:`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("not a stored policy member")]
 pub(crate) struct InvalidMember;
-
-impl fmt::Display for InvalidMember {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("not a stored policy member")
-    }
-}
-
-impl std::error::Error for InvalidMember {}
 
 /// The stored form: the two public names, or `KIND:ID` with a known KIND and any ID.
 impl FromStr for Member {
@@ -473,4 +457,19 @@ mod tests {
         assert!(Member::from(MemberRef::AllUsers).is_public());
         assert!(!Member::from(MemberRef::Domain("example.test")).is_public());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidMember;
+    assert_eq!(error.to_string(), "not a stored policy member");
+    assert!(std::error::Error::source(&error).is_none());
+    let error = PolicyDecodeError::Json(serde_json::from_str::<u8>("{").unwrap_err());
+    let source = std::error::Error::source(&error).unwrap();
+    assert!(source.is::<serde_json::Error>());
+    assert_eq!(
+        error.to_string(),
+        format!("invalid stored policy: {source}")
+    );
 }

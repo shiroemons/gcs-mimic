@@ -91,16 +91,9 @@ macro_rules! permissions {
     (@parsed $variant:path, untestable) => { None };
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[error("unsupported permission")]
 pub(crate) struct UnsupportedPermission;
-
-impl fmt::Display for UnsupportedPermission {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("unsupported permission")
-    }
-}
-
-impl std::error::Error for UnsupportedPermission {}
 
 permissions! {
     BucketsCreate(BUCKETS_CREATE) => "storage.buckets.create",
@@ -331,59 +324,34 @@ fn strict_only(field: &str) -> String {
 }
 
 /// Transport-independent authentication or authorization failure; adapters render it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum AuthFailure {
     /// Credentials were presented but are unknown, malformed or of an unsupported kind.
+    #[error("invalid credentials")]
     InvalidCredentials,
     /// An anonymous caller needs a permission.
+    #[error("login required")]
     LoginRequired,
     /// An authenticated caller lacks the named Cloud Storage permission.
+    #[error("{0}")]
     Denied(Box<Denied>),
     /// An authenticated caller is refused for a reason no Cloud Storage permission names,
     /// such as an emulator administration route or project visibility.
+    #[error("forbidden")]
     Forbidden,
 }
 
-impl fmt::Display for AuthFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::InvalidCredentials => "invalid credentials",
-            Self::LoginRequired => "login required",
-            Self::Denied(denied) => return denied.fmt(formatter),
-            Self::Forbidden => "forbidden",
-        })
-    }
-}
-
-impl std::error::Error for AuthFailure {}
-
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum AuthError {
+    #[error(transparent)]
     Failure(AuthFailure),
-    Unavailable(crate::cause::BackendCause),
+    #[error("Authentication verifier unavailable")]
+    Unavailable(#[source] crate::cause::BackendCause),
 }
 
 impl From<AuthFailure> for AuthError {
     fn from(error: AuthFailure) -> Self {
         Self::Failure(error)
-    }
-}
-
-impl fmt::Display for AuthError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Failure(error) => error.fmt(f),
-            Self::Unavailable(_) => f.write_str("Authentication verifier unavailable"),
-        }
-    }
-}
-
-impl std::error::Error for AuthError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Failure(error) => error.source(),
-            Self::Unavailable(error) => Some(error),
-        }
     }
 }
 
@@ -555,16 +523,9 @@ impl<'a> Caller<'a> {
 }
 
 /// A persisted resumable-upload identity snapshot that no longer decodes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("invalid upload identity snapshot")]
 pub(crate) struct InvalidUploadSnapshot;
-
-impl fmt::Display for InvalidUploadSnapshot {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("invalid upload identity snapshot")
-    }
-}
-
-impl std::error::Error for InvalidUploadSnapshot {}
 
 /// Why an identity document is invalid. `Display` names, for an invalid entry, its index; token
 /// values are never included. [`IdentityError`] adds the setting that supplied the document.
@@ -613,7 +574,7 @@ impl RegistryError {
 
 /// Why the identity document could not be loaded, with the setting that supplied it:
 /// `identity_file` for a file and `identities` for the inline document.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) struct IdentityError {
     /// `None` when strict mode started without a document, with built-in identities only.
     form: Option<Form>,
@@ -649,12 +610,6 @@ impl fmt::Display for IdentityError {
             | RegistryError::PublicKey { .. }
             | RegistryError::Project { .. }) => write!(f, "{setting}: {source}"),
         }
-    }
-}
-
-impl std::error::Error for IdentityError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
     }
 }
 
@@ -2535,5 +2490,20 @@ mod tests {
         let error = load(&file).unwrap_err();
         assert!(error.to_string().starts_with("identity_file: "));
         assert!(std::error::Error::source(&error).is_some());
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let cases: &[(&dyn std::error::Error, &str)] = &[
+        (&UnsupportedPermission, "unsupported permission"),
+        (&InvalidUploadSnapshot, "invalid upload identity snapshot"),
+        (&AuthFailure::LoginRequired, "login required"),
+        (&AuthError::Failure(AuthFailure::Forbidden), "forbidden"),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.to_string(), *expected);
+        assert!(error.source().is_none());
     }
 }

@@ -93,7 +93,7 @@ impl Resource {
 
 /// A permission that strict authorization refused, with the principal it refused and the
 /// resource the permission applies to.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub struct Denied {
     principal: Principal,
     permission: Permission,
@@ -200,8 +200,6 @@ impl fmt::Display for Denied {
         )
     }
 }
-
-impl std::error::Error for Denied {}
 
 #[cfg(test)]
 mod tests {

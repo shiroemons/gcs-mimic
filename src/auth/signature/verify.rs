@@ -107,30 +107,14 @@ pub(super) struct Prepared {
     pub signature: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum VerificationError {
+    #[error("Invalid XML signature")]
     Signature(Failure),
-    Catalog(CatalogError),
-    Worker(BackendCause),
-}
-
-impl fmt::Display for VerificationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Signature(_) => f.write_str("Invalid XML signature"),
-            Self::Catalog(_) | Self::Worker(_) => f.write_str("Signature verifier unavailable"),
-        }
-    }
-}
-
-impl std::error::Error for VerificationError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Signature(_) => None,
-            Self::Catalog(error) => Some(error),
-            Self::Worker(error) => Some(error),
-        }
-    }
+    #[error("Signature verifier unavailable")]
+    Catalog(#[source] CatalogError),
+    #[error("Signature verifier unavailable")]
+    Worker(#[source] BackendCause),
 }
 
 impl From<Failure> for VerificationError {

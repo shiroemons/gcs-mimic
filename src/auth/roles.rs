@@ -520,13 +520,17 @@ impl fmt::Display for Role {
 }
 
 /// A role name outside the pinned snapshot, including the basic roles.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("not a pinned predefined Cloud Storage role")]
 pub(crate) struct UnknownRole;
 
-impl fmt::Display for UnknownRole {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("not a pinned predefined Cloud Storage role")
-    }
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = UnknownRole;
+    assert_eq!(
+        error.to_string(),
+        "not a pinned predefined Cloud Storage role"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }
-
-impl std::error::Error for UnknownRole {}

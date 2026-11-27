@@ -110,16 +110,9 @@ impl fmt::Display for V4Parameter {
 }
 
 /// A query name that does not identify a V4 signing parameter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("not a V4 signing query parameter")]
 pub struct NotV4Parameter;
-
-impl fmt::Display for NotV4Parameter {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("not a V4 signing query parameter")
-    }
-}
-
-impl std::error::Error for NotV4Parameter {}
 
 impl FromStr for V4Parameter {
     type Err = NotV4Parameter;
@@ -490,4 +483,12 @@ impl<'a> TryFrom<&'a HeaderMap> for Fields<'a> {
             signing: Signing::Header,
         })
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = NotV4Parameter;
+    assert_eq!(error.to_string(), "not a V4 signing query parameter");
+    assert!(std::error::Error::source(&error).is_none());
 }

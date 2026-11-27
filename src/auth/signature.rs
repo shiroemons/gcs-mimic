@@ -219,71 +219,48 @@ fn host_without_port(value: &str) -> Option<&str> {
 }
 
 /// A `public_keys` entry that is not a supported RSA SubjectPublicKeyInfo PEM.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("public_keys must contain only RSA SubjectPublicKeyInfo PEM (2048..8192 bits)")]
 pub struct InvalidPublicKey;
-
-impl fmt::Display for InvalidPublicKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("public_keys must contain only RSA SubjectPublicKeyInfo PEM (2048..8192 bits)")
-    }
-}
-
-impl std::error::Error for InvalidPublicKey {}
 
 /// Why a timestamp could not be parsed or a URL or policy could not be signed. `Display` is the
 /// operator-facing message printed by the `url sign` command.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum SigningError {
+    #[error("timestamp must be a valid YYYYMMDDTHHMMSSZ UTC date")]
     InvalidTimestamp,
+    #[error("timestamp out of range")]
     TimestampOutOfRange,
+    #[error("invalid signing URL")]
     InvalidUrl,
+    #[error(
+        "signing requires an HTTP(S) URL, GET/HEAD/PUT/DELETE or POST with x-goog-resumable:start, a signer ID and 1..604800 seconds"
+    )]
     UnsupportedRequest,
+    #[error("host and authorization cannot be supplied as signing headers")]
     ReservedHeader,
+    #[error("invalid host")]
     InvalidHost,
+    #[error("{0}")]
     InvalidQuery(String),
+    #[error("URL already contains signing parameters")]
     ExistingSigningParameters,
+    #[error("invalid signing request")]
     InvalidRequest,
+    #[error("private key exceeds 16 KiB")]
     PrivateKeyTooLarge,
+    #[error("private key must be RSA PKCS#8 or PKCS#1 PEM")]
     UnsupportedPrivateKey,
     /// ring's reason for rejecting the key.
+    #[error("invalid RSA private key: {0}")]
     InvalidPrivateKey(ring::error::KeyRejected),
+    #[error("RSA signing failed")]
     SigningFailed,
-}
-
-impl fmt::Display for SigningError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidTimestamp => {
-                f.write_str("timestamp must be a valid YYYYMMDDTHHMMSSZ UTC date")
-            }
-            Self::TimestampOutOfRange => f.write_str("timestamp out of range"),
-            Self::InvalidUrl => f.write_str("invalid signing URL"),
-            Self::UnsupportedRequest => f.write_str(
-                "signing requires an HTTP(S) URL, GET/HEAD/PUT/DELETE or POST with x-goog-resumable:start, a signer ID and 1..604800 seconds",
-            ),
-            Self::ReservedHeader => {
-                f.write_str("host and authorization cannot be supplied as signing headers")
-            }
-            Self::InvalidHost => f.write_str("invalid host"),
-            Self::InvalidQuery(message) => f.write_str(message),
-            Self::ExistingSigningParameters => {
-                f.write_str("URL already contains signing parameters")
-            }
-            Self::InvalidRequest => f.write_str("invalid signing request"),
-            Self::PrivateKeyTooLarge => f.write_str("private key exceeds 16 KiB"),
-            Self::UnsupportedPrivateKey => {
-                f.write_str("private key must be RSA PKCS#8 or PKCS#1 PEM")
-            }
-            Self::InvalidPrivateKey(reason) => write!(f, "invalid RSA private key: {reason}"),
-            Self::SigningFailed => f.write_str("RSA signing failed"),
-        }
-    }
 }
 
 // ring's `KeyRejected` implements `std::error::Error` only with ring's `std` feature, which
 // this crate does not enable, so `InvalidPrivateKey` keeps it typed but cannot expose it as
 // `source()`.
-impl std::error::Error for SigningError {}
 
 /// The refused query is client input that `InvalidQuery` names in its message; the public error
 /// type keeps the crate's query error out of its interface.
@@ -1001,4 +978,20 @@ fn rsa_sign(private_key: &[u8], message: &str) -> Result<Vec<u8>, SigningError> 
     )
     .map_err(|_| SigningError::SigningFailed)?;
     Ok(bytes)
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let cases: &[(&dyn std::error::Error, &str)] = &[
+        (
+            &InvalidPublicKey,
+            "public_keys must contain only RSA SubjectPublicKeyInfo PEM (2048..8192 bits)",
+        ),
+        (&SigningError::InvalidHost, "invalid host"),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.to_string(), *expected);
+        assert!(error.source().is_none());
+    }
 }
