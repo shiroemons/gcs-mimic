@@ -381,6 +381,31 @@ impl From<ObjectConversionError> for tonic::Status {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn conversion_errors_keep_the_custom_time_and_storage_causes() {
+    use std::error::Error;
+    let invalid = ObjectConversionError::InvalidCustomTime(ObjectError::ObjectNotFound);
+    assert_eq!(invalid.to_string(), INVALID_CUSTOM_TIME);
+    assert!(invalid.source().unwrap().is::<ObjectError>());
+    crate::error::assert_distinct_causes(&invalid);
+    let storage = ObjectConversionError::Storage(ObjectError::Unavailable(
+        crate::cause::BackendCause::with_source(
+            "cannot read object",
+            crate::cause::BackendFailure::CatalogClosed,
+        ),
+    ));
+    let ObjectConversionError::Storage(inner) = &storage else {
+        unreachable!()
+    };
+    assert_eq!(storage.to_string(), inner.to_string());
+    assert!(std::ptr::addr_eq(
+        storage.source().unwrap(),
+        inner.source().unwrap()
+    ));
+    crate::error::assert_distinct_causes(&storage);
+}
+
 impl From<ObjectConversionError> for ObjectError {
     fn from(error: ObjectConversionError) -> Self {
         match error {

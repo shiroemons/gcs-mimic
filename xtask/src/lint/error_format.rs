@@ -2,86 +2,6 @@
 
 use super::{close_expression, close_group, ident_at, skip_space, words};
 
-// These legacy single-field variants display and expose the very same error.
-const RETAINED: &[(&str, &str, &[&str])] = &[
-    ("src/fsutil.rs", "CloneFailure", &["NotCreated", "Created"]),
-    ("src/config_input/options.rs", "DurationError", &["Number"]),
-    (
-        "src/config/notifications.rs",
-        "EventSettingsError",
-        &["Endpoint", "Topic", "ObjectPrefix"],
-    ),
-    (
-        "src/bucket_init/generate.rs",
-        "GenerateError",
-        &["Rejected"],
-    ),
-    (
-        "src/storage/catalog/resumable/writers.rs",
-        "ClaimError",
-        &["Catalog"],
-    ),
-    (
-        "src/tls.rs",
-        "ServerIdentityError",
-        &["Certificate", "PrivateKey", "Identity", "Rejected"],
-    ),
-];
-
-// These diagnostics embed the exposed source in a larger message. Matching their exact
-// format and field count keeps other interpolations subject to the rule.
-const PREFIXED: &[(&str, &str, &str, usize, &str)] = &[
-    (
-        "src/auth/policy.rs",
-        "PolicyDecodeError",
-        "Json",
-        1,
-        "invalid stored policy: {0}",
-    ),
-    (
-        "src/auth/mod.rs",
-        "",
-        "IdentityError",
-        2,
-        "{setting}: {source}",
-    ),
-    (
-        "src/storage/catalog/admin/purge.rs",
-        "PurgeError",
-        "Admin",
-        1,
-        "bucket purge: {0}",
-    ),
-    (
-        "src/buckets_cli/prompts/names.rs",
-        "NameError",
-        "Invalid",
-        2,
-        "{name}: {error}",
-    ),
-    (
-        "src/buckets_cli/prompts/lists.rs",
-        "",
-        "InvalidSeconds",
-        1,
-        "Cannot read the seconds: {0}",
-    ),
-    (
-        "src/buckets_cli.rs",
-        "SaveError",
-        "Create",
-        1,
-        "Cannot create that file: {0}.",
-    ),
-    (
-        "src/buckets_cli.rs",
-        "SaveError",
-        "Write",
-        1,
-        "Cannot write that file, so it was removed: {0}.",
-    ),
-];
-
 /// Split an argument, variant or field list at its own commas. Groups can contain commas
 /// of their own, including in a generic field type, an attribute or a format expression.
 fn entries(input: &str, types: bool) -> Vec<&str> {
@@ -139,7 +59,9 @@ fn prints(literal: &str, arguments: &[&str], field: &str) -> bool {
     // field as a format argument (possibly under an alias) prints the cause itself.
     if arguments.iter().any(|arg| {
         let value = arg.split_once('=').map_or(*arg, |(_, value)| value);
-        let value = value.trim().trim_start_matches('&').trim_start();
+        let value = value.trim().trim_start_matches(['&', '*', ' ']);
+        let value = value.strip_suffix(".to_string()").unwrap_or(value);
+        let value = value.strip_suffix(".as_ref()").unwrap_or(value);
         value
             .strip_prefix("self.")
             .or_else(|| value.strip_prefix('.'))
@@ -151,12 +73,6 @@ fn prints(literal: &str, arguments: &[&str], field: &str) -> bool {
     if arguments.iter().any(|arg| {
         arg.split_once('=')
             .is_some_and(|(name, _)| name.trim() == field)
-    }) || field.parse::<usize>().is_ok_and(|index| {
-        index
-            < arguments
-                .iter()
-                .take_while(|arg| !arg.contains('='))
-                .count()
     }) {
         return false;
     }
@@ -181,7 +97,7 @@ fn prints(literal: &str, arguments: &[&str], field: &str) -> bool {
     false
 }
 
-fn prints_source(file: &str, owner: &str, item: &str, literal: &str, arguments: &[&str]) -> bool {
+fn prints_source(item: &str, literal: &str, arguments: &[&str]) -> bool {
     let name = ident_at(item, 0);
     let mut fields = item[name.len()..].trim_start();
     if fields.starts_with('<')
@@ -206,31 +122,23 @@ fn prints_source(file: &str, owner: &str, item: &str, literal: &str, arguments: 
         return false;
     };
     let fields = entries(&fields[1..end - 1], true);
-    if arguments.is_empty() && PREFIXED.contains(&(file, owner, name, fields.len(), literal)) {
-        return false;
-    }
-    if !named
-        && fields.len() == 1
-        && literal == "{0}"
-        && arguments.is_empty()
-        && RETAINED
-            .iter()
-            .any(|&(path, ty, variants)| path == file && ty == owner && variants.contains(&name))
-    {
-        return false;
-    }
-    fields.into_iter().enumerate().any(|(index, field)| {
+    let mut implicit = false;
+    for (index, field) in fields.into_iter().enumerate() {
         let (field, marked) = declaration(field);
-        if named {
-            let name = ident_at(field, 0);
-            (marked || name == "source") && prints(literal, arguments, name)
-        } else {
-            marked && prints(literal, arguments, &index.to_string())
+        let name = ident_at(field, 0);
+        if marked {
+            return if named {
+                prints(literal, arguments, name)
+            } else {
+                prints(literal, arguments, &index.to_string())
+            };
         }
-    })
+        implicit |= named && name == "source";
+    }
+    implicit && prints(literal, arguments, "source")
 }
 
-pub(super) fn findings(file: &str, text: &str, masked: &str) -> Vec<usize> {
+pub(super) fn findings(text: &str, masked: &str) -> Vec<usize> {
     let bytes = masked.as_bytes();
     let mut hits = Vec::new();
     for attr in words(masked, "error") {
@@ -262,12 +170,11 @@ pub(super) fn findings(file: &str, text: &str, masked: &str) -> Vec<usize> {
         };
         let (item, _) = declaration(tail);
         let hit = match ident_at(item, 0) {
-            "struct" => prints_source(file, "", item[6..].trim_start(), literal, &args[1..]),
+            "struct" => prints_source(item[6..].trim_start(), literal, &args[1..]),
             "enum" => {
-                let Some((header, body)) = item[4..].split_once('{') else {
+                let Some((_, body)) = item[4..].split_once('{') else {
                     continue;
                 };
-                let owner = ident_at(header.trim_start(), 0);
                 let open = item.len() - body.len() - 1;
                 let Some(close) = close_expression(item.as_bytes(), open) else {
                     continue;
@@ -278,15 +185,10 @@ pub(super) fn findings(file: &str, text: &str, masked: &str) -> Vec<usize> {
                         let (decl, _) = declaration(variant);
                         let attrs = &variant[..variant.len() - decl.len()];
                         words(attrs, "error").next().is_none()
-                            && prints_source(file, owner, decl, literal, &args[1..])
+                            && prints_source(decl, literal, &args[1..])
                     })
             }
-            _ => {
-                let owner = words(&masked[..attr], "enum")
-                    .last()
-                    .map_or("", |offset| ident_at(masked, skip_space(bytes, offset + 4)));
-                prints_source(file, owner, item, literal, &args[1..])
-            }
+            _ => prints_source(item, literal, &args[1..]),
         };
         if hit {
             hits.push(attr);
@@ -320,8 +222,17 @@ mod tests {
 #[error("bad {source}")] pub(crate) struct Outer { pub source: io::Error }
 #[error("{0}")] enum Shared { Wrapped(#[source] io::Error), Other(String) }
 #[error("{source}")] struct Generic<T> where T: Error { source: T }
+#[error(
+    "cannot read: {}",
+    .reason.to_string()
+)] struct Wrapped { #[from] reason: io::Error }
+#[error("{}", .0.as_ref())] struct Boxed(#[source] Box<io::Error>);
+#[error("{}", &*.source)] struct Borrowed { source: Box<io::Error> }
 "##;
-        assert_eq!(lines("src/example.rs", code), [2, 3, 4, 5, 6, 8, 9, 10]);
+        assert_eq!(
+            lines("src/example.rs", code),
+            [2, 3, 4, 5, 6, 8, 9, 10, 11, 15, 16]
+        );
     }
 
     #[test]
@@ -333,8 +244,8 @@ enum Error {
     #[error("{0}")] Other(String, #[source] io::Error),
     #[error("{}", .source.kind())] Kind { source: io::Error },
     #[error("{source}", source = .source.kind())] Alias { source: io::Error },
-    #[error("{0}", .0.kind())] Positional(#[source] io::Error),
     #[error("{cause}")] Leaf { cause: String },
+    #[error("{source}")] Explicit { source: String, #[source] cause: io::Error },
 }
 #[error("{0}")] enum Shared { #[error("context")] Override(#[source] io::Error), Leaf(String) }
 // #[error("{0}")] struct Fake(#[source] io::Error);
@@ -345,28 +256,24 @@ mod tests { #[error("{0}")] struct Fixture(#[source] io::Error); }
     }
 
     #[test]
-    fn compatibility_requires_the_file_type_and_single_field_variant() {
-        let code = r#"enum ServerIdentityError {
-    #[error("{0}")] Certificate(#[source] io::Error),
-    #[error("{0}")] Future(#[source] io::Error),
-    #[error("{0}")] Identity(#[source] io::Error, usize),
-    #[error("new prefix: {0}")] Rejected(#[source] io::Error),
+    fn source_suppression_is_counted_and_expires_when_the_source_is_forwarded() {
+        let code = r#"enum Error {
+    // xtask-lint: allow(text::error_displays_source) -- Callers inspect and print this same error.
+    #[error("{0}")] Io(#[source] io::Error),
+    #[error("{0}")] Other(#[source] io::Error),
 }"#;
-        assert_eq!(lines("src/tls.rs", code), [3, 4, 5]);
-        assert_eq!(lines("src/other.rs", code), [2, 3, 4, 5]);
-        let purge =
-            r#"enum PurgeError { #[error("bucket purge: {0}")] Admin(#[source] AdminError) }"#;
-        assert!(lines("src/storage/catalog/admin/purge.rs", purge).is_empty());
-        assert_eq!(
-            lines(
-                "src/storage/catalog/admin/purge.rs",
-                &purge.replace("bucket purge:", "new:")
-            ),
-            [1]
+        let scan = scan_source("src/example.rs", code);
+        assert!(scan.problems.is_empty());
+        assert_eq!(scan.suppressed.len(), 1);
+        assert_eq!(scan.suppressed[0].rule, ERROR_DISPLAYS_SOURCE);
+        assert_eq!(lines("src/example.rs", code), [4]);
+        let fixed = code.replace(
+            r#"#[error("{0}")] Io(#[source] io::Error)"#,
+            "#[error(transparent)] Io(io::Error)",
         );
-        assert_eq!(
-            lines("src/tls.rs", &code.replace("ServerIdentityError", "Other")),
-            [2, 3, 4, 5]
-        );
+        let scan = scan_source("src/example.rs", &fixed);
+        assert!(scan.suppressed.is_empty());
+        assert_eq!(scan.problems.len(), 1);
+        assert!(scan.problems[0].message.starts_with("stale suppression"));
     }
 }

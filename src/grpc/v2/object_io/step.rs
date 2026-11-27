@@ -68,6 +68,7 @@ pub(in crate::grpc::v2) enum MessageError {
     #[error("md5_hash must contain exactly 16 bytes")]
     Md5Length,
     /// The data's CRC32C differs from the one its message declared.
+    /// The gRPC response preserves Cloud Storage's wording and hexadecimal form.
     #[error("Checksummed data message crc32c mismatch: server computed: '{:08x}', client provided '{:08x}'.", .0.computed, .0.client)]
     ChunkCrc(CrcMismatch),
 }

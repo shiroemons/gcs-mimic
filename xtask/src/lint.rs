@@ -836,7 +836,7 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
     for offset in stringified_errors(text, masked) {
         add(STRINGIFIED_ERROR, offset);
     }
-    for offset in error_format::findings(file, text, masked) {
+    for offset in error_format::findings(text, masked) {
         add(ERROR_DISPLAYS_SOURCE, offset);
     }
     for offset in json_macro_values(masked) {

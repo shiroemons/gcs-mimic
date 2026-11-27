@@ -416,7 +416,31 @@ mod tests {
 #[cfg(test)]
 #[test]
 fn error_text_and_sources() {
-    let error = GzipError::ReservedFlags(0x20);
-    assert_eq!(error.to_string(), "Gzip header flags 0x20 are reserved");
-    assert!(std::error::Error::source(&error).is_none());
+    for (error, text) in [
+        (GzipError::NotGzip, "The body does not start a gzip member"),
+        (GzipError::TrailingData, "Bytes follow the last gzip member"),
+        (
+            GzipError::UnsupportedMethod(7),
+            "Gzip compression method 7 is not deflate",
+        ),
+        (
+            GzipError::ReservedFlags(0x20),
+            "Gzip header flags 0x20 are reserved",
+        ),
+        (GzipError::Truncated, "The body ends inside a gzip member"),
+    ] {
+        assert_eq!(error.to_string(), text);
+        assert!(std::error::Error::source(&error).is_none());
+    }
+    let failure = Decompress::new(false)
+        .decompress(&[0xff], &mut [0; 16], FlushDecompress::Finish)
+        .unwrap_err();
+    let error = GzipError::Deflate(failure);
+    assert_eq!(error.to_string(), "Invalid deflate data in a gzip member");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<flate2::DecompressError>()
+    );
+    crate::error::assert_distinct_causes(&error);
 }

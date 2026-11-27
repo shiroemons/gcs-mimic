@@ -1122,4 +1122,22 @@ fn error_text_and_sources() {
     let error = HealthcheckUsage::Duplicate("option".into());
     assert_eq!(error.to_string(), "option is given more than once");
     assert!(std::error::Error::source(&error).is_none());
+    let diagnostics = || Diagnostics::error(DiagnosticSource::Cli, "seed", "select an endpoint");
+    for error in [
+        CliError::Diagnostics(diagnostics()),
+        CliError::Import(gcs_mimic::import::ImportError::Diagnostics(diagnostics())),
+    ] {
+        assert_eq!(error.to_string(), "seed: select an endpoint");
+        assert!(std::error::Error::source(&error).is_none());
+    }
+    let io = CliError::Io(io::Error::new(io::ErrorKind::BrokenPipe, "closed output"));
+    assert_eq!(io.to_string(), "closed output");
+    assert!(std::error::Error::source(&io).is_none());
+    let error = CliError::Unanswered(diagnostics(), seed_cli::ExchangeFailure::CaCertOverHttp);
+    assert_eq!(error.to_string(), "seed: select an endpoint");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<seed_cli::ExchangeFailure>()
+    );
 }

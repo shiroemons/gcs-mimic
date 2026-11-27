@@ -195,4 +195,27 @@ fn error_text_and_sources() {
         "stored rewrite response has no proto key"
     );
     assert!(std::error::Error::source(&error).is_none());
+    let not_bytes = decode(&Value::Null).unwrap_err();
+    assert_eq!(
+        not_bytes.to_string(),
+        "stored resource is not an array of bytes"
+    );
+    assert!(
+        std::error::Error::source(&not_bytes)
+            .unwrap()
+            .is::<serde_json::Error>()
+    );
+    let not_object = decode_proto(&[0xff]).unwrap_err();
+    assert_eq!(
+        not_object.to_string(),
+        "stored bytes are not a Storage v2 object"
+    );
+    assert!(
+        std::error::Error::source(&not_object)
+            .unwrap()
+            .is::<prost::DecodeError>()
+    );
+    for error in [error, not_bytes, not_object] {
+        crate::error::assert_distinct_causes(&error);
+    }
 }

@@ -753,4 +753,12 @@ fn error_text_and_sources() {
     let error = DecodeError::Limit;
     assert_eq!(error.to_string(), "Expanded input exceeds its limit");
     assert!(std::error::Error::source(&error).is_none());
+    let invalid = decode(b"not gzip", 256).unwrap_err();
+    assert_eq!(invalid.to_string(), "Invalid gzip input");
+    assert!(
+        std::error::Error::source(&invalid)
+            .unwrap()
+            .is::<io::Error>()
+    );
+    crate::error::assert_distinct_causes(&invalid);
 }

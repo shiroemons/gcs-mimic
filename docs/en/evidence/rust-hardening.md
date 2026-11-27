@@ -164,3 +164,23 @@ Limits
 On 2026-11-26, `cargo test --locked --lib -- server::protocol_tests::http1_enforces_the_request_head_buffer_limit`
 passed one test on the 64 KiB source. The HTTP/1 service accepted a request carrying
 a 40 KiB header value with status 200 and rejected a 160 KiB value with status 431.
+
+## Error model and wire goldens, 2026-11-27
+
+The workspace run at `328b3069f` passed 4,179 tests with
+`cargo test --locked --workspace --no-fail-fast`. The one ignored test
+requires an explicitly started local Pub/Sub emulator. The JSON, XML and
+Storage v2 error fixtures, stored completion bytes, replay fingerprints and
+bucket defaults passed with no changes to their expected bytes.
+
+The error tests check the concrete causes of storage and adapter failures,
+the text that the CLI and import journal expose, and the documented cases
+where callers can print and inspect the same cause. The verification entry
+for this run lists the test IDs observed in its output.
+
+With the source-format lint using reasoned suppressions, a separate workspace
+run passed 4,184 tests, with the same Pub/Sub case ignored. The gate counted
+four TLS suppressions and zero new violations. Tests confirmed that changing
+a source-printing format to transparent makes its suppression stale. The CLI
+save and bucket-name errors exposed the same concrete causes they formatted,
+and gRPC conversion preserved the underlying storage source.

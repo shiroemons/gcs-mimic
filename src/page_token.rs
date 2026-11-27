@@ -609,7 +609,30 @@ mod tests {
 #[cfg(test)]
 #[test]
 fn error_text_and_sources() {
-    let error = PageTokenError::ObjectCursor(Some("x".into()));
-    assert_eq!(error.to_string(), "Next page token not valid: x");
-    assert!(std::error::Error::source(&error).is_none());
+    for (error, text) in [
+        (
+            PageTokenError::ObjectCursor(Some("x".into())),
+            "Next page token not valid: x",
+        ),
+        (
+            PageTokenError::ObjectCursor(None),
+            "Next page token not valid",
+        ),
+        (
+            PageTokenError::BucketCursor,
+            "Invalid pageToken for this project and prefix",
+        ),
+        (
+            PageTokenError::Project(InvalidProjectId),
+            InvalidProjectId::MESSAGE,
+        ),
+        (
+            PageTokenError::BucketName(ProfileNameError::FakeGcsServer),
+            "invalid bucket name",
+        ),
+    ] {
+        assert_eq!(error.to_string(), text);
+        assert!(std::error::Error::source(&error).is_none());
+        crate::error::assert_distinct_causes(&error);
+    }
 }

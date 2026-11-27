@@ -466,3 +466,28 @@ fn a_saved_document_never_replaces_a_file() {
     );
     assert!(!missing.exists());
 }
+
+#[test]
+fn save_failures_keep_the_operation_and_io_source() {
+    let denied = || io::Error::new(io::ErrorKind::PermissionDenied, "fixture denied");
+    for (error, text) in [
+        (
+            SaveError::Create(denied()),
+            "Cannot create that file: fixture denied.",
+        ),
+        (
+            SaveError::Write(denied()),
+            "Cannot write that file, so it was removed: fixture denied.",
+        ),
+    ] {
+        assert_eq!(error.to_string(), text);
+        let (SaveError::Create(cause) | SaveError::Write(cause)) = &error else {
+            unreachable!()
+        };
+        let source = std::error::Error::source(&error)
+            .unwrap()
+            .downcast_ref::<io::Error>()
+            .unwrap();
+        assert!(std::ptr::eq(source, cause));
+    }
+}

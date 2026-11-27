@@ -338,6 +338,16 @@ pub(super) fn custom(error: impl std::error::Error + Send + Sync + 'static) -> I
 #[cfg(test)]
 #[test]
 fn error_text_and_sources() {
+    let seconds = InvalidSeconds("bad".parse::<u64>().unwrap_err());
+    assert_eq!(
+        seconds.to_string(),
+        "Cannot read the seconds: invalid digit found in string"
+    );
+    let source = std::error::Error::source(&seconds)
+        .unwrap()
+        .downcast_ref::<std::num::ParseIntError>()
+        .unwrap();
+    assert!(std::ptr::eq(source, &seconds.0));
     let error = UnknownEntry(3);
     assert_eq!(
         error.to_string(),

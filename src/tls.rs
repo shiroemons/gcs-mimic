@@ -31,10 +31,13 @@ pub enum TlsError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerIdentityError {
+    // xtask-lint: allow(text::error_displays_source) -- Public callers print and inspect the certificate I/O error.
     #[error("{0}")]
     Certificate(#[source] io::Error),
+    // xtask-lint: allow(text::error_displays_source) -- Public callers print and inspect the private-key I/O error.
     #[error("{0}")]
     PrivateKey(#[source] io::Error),
+    // xtask-lint: allow(text::error_displays_source) -- Public callers print and inspect the identity I/O error.
     #[error("{0}")]
     Identity(#[source] io::Error),
     #[error(transparent)]
@@ -44,6 +47,7 @@ pub enum ServerIdentityError {
     #[error("TLS listeners require a server identity")]
     MissingIdentity,
     /// rustls refused the pair, such as a key that does not match the certificate.
+    // xtask-lint: allow(text::error_displays_source) -- Public callers print and inspect the original rustls rejection.
     #[error("{0}")]
     Rejected(#[source] rustls::Error),
 }

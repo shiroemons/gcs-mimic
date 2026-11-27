@@ -102,3 +102,21 @@ impl fmt::Display for NameError {
         }
     }
 }
+
+#[cfg(test)]
+#[test]
+fn invalid_name_keeps_the_rejected_name_and_its_source() {
+    let error = Names::parse("uploads_", &[]).unwrap_err();
+    let NameError::Invalid { error: cause, .. } = &error else {
+        panic!("unexpected {error:?}")
+    };
+    assert_eq!(
+        error.to_string(),
+        "uploads_: Bucket names use lower-case letters, digits, '-', '_' and '.', 3 to 63 characters (222 with dots), and start and end with a letter or digit, for example app-uploads."
+    );
+    let source = std::error::Error::source(&error)
+        .unwrap()
+        .downcast_ref::<GenerateError>()
+        .unwrap();
+    assert!(std::ptr::eq(source, cause));
+}
