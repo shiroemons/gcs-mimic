@@ -68,16 +68,9 @@ fn metageneration_only(conditions: BucketConditions) -> ObjectConditions {
 
 /// A proto3 `int64` that selects an object version was negative; each API words the rejection
 /// itself.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("generation is negative")]
 pub(super) struct NegativeGeneration;
-
-impl std::fmt::Display for NegativeGeneration {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("generation is negative")
-    }
-}
-
-impl std::error::Error for NegativeGeneration {}
 
 /// A proto3 `int64` that selects an object version. 0 is the field's absent value and selects
 /// the live object; a negative value selects nothing.
@@ -275,4 +268,12 @@ mod tests {
             "lenient"
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = NegativeGeneration;
+    assert_eq!(error.to_string(), "generation is negative");
+    assert!(std::error::Error::source(&error).is_none());
 }

@@ -62,28 +62,15 @@ impl StepEnd {
 }
 
 /// A message that no write path can read.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub(in crate::grpc::v2) enum MessageError {
     /// `object_checksums.md5_hash` is not 16 bytes long.
+    #[error("md5_hash must contain exactly 16 bytes")]
     Md5Length,
     /// The data's CRC32C differs from the one its message declared.
+    #[error("Checksummed data message crc32c mismatch: server computed: '{:08x}', client provided '{:08x}'.", .0.computed, .0.client)]
     ChunkCrc(CrcMismatch),
 }
-
-impl std::fmt::Display for MessageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Md5Length => f.write_str("md5_hash must contain exactly 16 bytes"),
-            // Cloud Storage's wording and hexadecimal form over gRPC.
-            Self::ChunkCrc(CrcMismatch { computed, client }) => write!(
-                f,
-                "Checksummed data message crc32c mismatch: server computed: '{computed:08x}', client provided '{client:08x}'."
-            ),
-        }
-    }
-}
-
-impl std::error::Error for MessageError {}
 
 impl From<CrcMismatch> for MessageError {
     fn from(mismatch: CrcMismatch) -> Self {
@@ -320,4 +307,12 @@ where
         return Ok(None);
     };
     Ok(Some(WriteStep::from(message)))
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = MessageError::Md5Length;
+    assert_eq!(error.to_string(), "md5_hash must contain exactly 16 bytes");
+    assert!(std::error::Error::source(&error).is_none());
 }

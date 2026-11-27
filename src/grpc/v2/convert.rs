@@ -354,30 +354,12 @@ fn millis(time: std::time::SystemTime) -> Timestamp {
 const INVALID_CUSTOM_TIME: &str =
     "Stored customTime is invalid; repair the catalog or restore a valid backup";
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum ObjectConversionError {
-    InvalidCustomTime(ObjectError),
+    #[error("{INVALID_CUSTOM_TIME}")]
+    InvalidCustomTime(#[source] ObjectError),
+    #[error(transparent)]
     Storage(ObjectError),
-}
-
-impl std::fmt::Display for ObjectConversionError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidCustomTime(_) => formatter.write_str(INVALID_CUSTOM_TIME),
-            Self::Storage(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for ObjectConversionError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::InvalidCustomTime(error) => Some(error),
-            // A transparent wrapper: its message is the storage error's, so the chain goes on
-            // with that error's cause instead of repeating the message.
-            Self::Storage(error) => error.source(),
-        }
-    }
 }
 
 impl From<ObjectError> for ObjectConversionError {

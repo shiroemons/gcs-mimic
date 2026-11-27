@@ -21,16 +21,9 @@ crate::choice::string_enum! {
 }
 
 /// A routing key no Storage v2 RPC compares with its request.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("unknown routing metadata key")]
 pub(super) struct UnknownRoutingKey;
-
-impl std::fmt::Display for UnknownRoutingKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("unknown routing metadata key")
-    }
-}
-
-impl std::error::Error for UnknownRoutingKey {}
 
 /// The bucket ID of a routed bucket resource name `projects/_/buckets/<id>`. Routing checks
 /// only the resource name's form; the handler validates the request's own bucket name.
@@ -1057,4 +1050,12 @@ mod tests {
             "The x-goog-request-params metadata has duplicate entries for the key 'project'."
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = UnknownRoutingKey;
+    assert_eq!(error.to_string(), "unknown routing metadata key");
+    assert!(std::error::Error::source(&error).is_none());
 }

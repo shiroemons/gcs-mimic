@@ -96,16 +96,9 @@ fn starts_with_field<F: ResourceField>(path: &str) -> bool {
 }
 
 /// A path that is no top-level field gcs-mimic selects, nested paths included.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("path is no selectable top-level field")]
 pub(super) struct UnselectableField;
-
-impl std::fmt::Display for UnselectableField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("path is no selectable top-level field")
-    }
-}
-
-impl std::error::Error for UnselectableField {}
 
 // `macro_rules!` cannot capitalize an identifier, so each field names its variant.
 macro_rules! bucket_fields {
@@ -507,4 +500,12 @@ mod tests {
             }
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = UnselectableField;
+    assert_eq!(error.to_string(), "path is no selectable top-level field");
+    assert!(std::error::Error::source(&error).is_none());
 }

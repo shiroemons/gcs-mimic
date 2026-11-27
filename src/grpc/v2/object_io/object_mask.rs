@@ -221,28 +221,19 @@ pub(super) enum ObjectPath {
 }
 
 /// A read mask path that selects nothing.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(super) enum UnselectablePath {
     /// The path names no field of the resource: an unknown name, a member its message does not
     /// have, or anything under a scalar, a repeated field or a map. On GetObject Cloud Storage
     /// answered so for `no_such_field`, `owner.no_such_field` and `acl.role` (recorded
     /// 2026-11-18) and for a map key, a path under a scalar or a member, and an empty, trailing
     /// or leading dot path (recorded in case grpc-probe-inferred-object-masks).
+    #[error("read mask path {0} names no object field")]
     Unknown(String),
     /// A member that exists but that gcs-mimic does not select apart from its field.
+    #[error("read mask path {0} is not selectable")]
     Unsupported(String),
 }
-
-impl std::fmt::Display for UnselectablePath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Unknown(path) => write!(f, "read mask path {path} names no object field"),
-            Self::Unsupported(path) => write!(f, "read mask path {path} is not selectable"),
-        }
-    }
-}
-
-impl std::error::Error for UnselectablePath {}
 
 impl std::str::FromStr for ObjectPath {
     type Err = UnselectablePath;
@@ -488,4 +479,12 @@ mod tests {
             ))
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = UnselectablePath::Unsupported("x".into());
+    assert_eq!(error.to_string(), "read mask path x is not selectable");
+    assert!(std::error::Error::source(&error).is_none());
 }

@@ -22,27 +22,18 @@ pub(in crate::grpc::v2) struct UploadId {
 
 /// An upload ID StartResumableWrite cannot have issued, with the two answers Cloud Storage gave
 /// such IDs (recorded 2026-11-18).
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(in crate::grpc::v2) enum UnknownUploadId {
     /// The text is no upload ID at all: Cloud Storage answered INVALID_ARGUMENT to
     /// `not-an-upload-id` and to an empty ID. Here that is an ID without a bucket part.
+    #[error("Invalid upload ID '{0}'.")]
     Malformed(String),
     /// The ID cannot be read: Cloud Storage failed with INTERNAL on an issued ID with a
     /// character appended and on an unissued ID under a bucket's resource name. Here that is a
     /// bucket part followed by anything but a session.
+    #[error("unreadable upload ID")]
     Unreadable,
 }
-
-impl std::fmt::Display for UnknownUploadId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Malformed(id) => write!(f, "Invalid upload ID '{id}'."),
-            Self::Unreadable => f.write_str("unreadable upload ID"),
-        }
-    }
-}
-
-impl std::error::Error for UnknownUploadId {}
 
 impl From<UnknownUploadId> for Status {
     fn from(error: UnknownUploadId) -> Self {
@@ -163,4 +154,12 @@ mod tests {
             format!("bucket/{}", "ab".repeat(32))
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = UnknownUploadId::Malformed("x".into());
+    assert_eq!(error.to_string(), "Invalid upload ID 'x'.");
+    assert!(std::error::Error::source(&error).is_none());
 }

@@ -20,31 +20,14 @@ use tonic::Status;
 const REWRITE_KEY: &str = "proto";
 
 /// Why a stored resource cannot be read back.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum Unreadable {
-    NotBytes(serde_json::Error),
-    NotObject(prost::DecodeError),
+    #[error("stored resource is not an array of bytes")]
+    NotBytes(#[source] serde_json::Error),
+    #[error("stored bytes are not a Storage v2 object")]
+    NotObject(#[source] prost::DecodeError),
+    #[error("stored rewrite response has no proto key")]
     MissingKey,
-}
-
-impl std::fmt::Display for Unreadable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::NotBytes(_) => "stored resource is not an array of bytes",
-            Self::NotObject(_) => "stored bytes are not a Storage v2 object",
-            Self::MissingKey => "stored rewrite response has no proto key",
-        })
-    }
-}
-
-impl std::error::Error for Unreadable {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::NotBytes(error) => Some(error),
-            Self::NotObject(error) => Some(error),
-            Self::MissingKey => None,
-        }
-    }
 }
 
 /// Both stored forms answer the caller that created the object, with the key it supplied (or
@@ -201,4 +184,15 @@ mod tests {
             assert!(std::error::Error::source(&status).is_some(), "{value}");
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = Unreadable::MissingKey;
+    assert_eq!(
+        error.to_string(),
+        "stored rewrite response has no proto key"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }
