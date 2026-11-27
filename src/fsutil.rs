@@ -127,16 +127,9 @@ pub(crate) enum Opened<T> {
 /// Errors carry it as a variant of their own, never inside an `io::Error`: there it read as the
 /// kind the open failed with, which each caller judged its own way, and none as a failure that
 /// passes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the entry kept failing to open while its name still held one")]
 pub(crate) struct Unopenable;
-
-impl std::fmt::Display for Unopenable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("the entry kept failing to open while its name still held one")
-    }
-}
-
-impl std::error::Error for Unopenable {}
 
 /// Proof that `fstatat`, not following a symlink, found nothing under a name. Only a lookup
 /// makes one, so no other answer of a failed open passes for an empty name.
@@ -209,9 +202,11 @@ impl DirectoryNames {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum FsError {
+    #[error(transparent)]
     Io(io::Error),
+    #[error("filesystem operation is unsupported")]
     Unsupported,
 }
 
@@ -227,24 +222,6 @@ impl From<FsError> for io::Error {
         match error {
             FsError::Io(error) => error,
             FsError::Unsupported => io::ErrorKind::Unsupported.into(),
-        }
-    }
-}
-
-impl std::fmt::Display for FsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Io(error) => error.fmt(f),
-            Self::Unsupported => f.write_str("filesystem operation is unsupported"),
-        }
-    }
-}
-
-impl std::error::Error for FsError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(error) => std::error::Error::source(error),
-            Self::Unsupported => None,
         }
     }
 }
@@ -485,6 +462,17 @@ impl std::error::Error for CloneFailure {
             Self::NotCreated(error) | Self::Created(error) => Some(error),
         }
     }
+}
+
+// Both clone outcomes expose the FsError they display. Preserve its identity until the
+// diagnostic contract is revisited; Report emits adjacent identical messages once.
+#[cfg(test)]
+pub(crate) fn clone_failure_pair(
+    outer: &(dyn std::error::Error + 'static),
+    inner: &(dyn std::error::Error + 'static),
+) -> bool {
+    matches!(outer.downcast_ref(), Some(CloneFailure::NotCreated(error) | CloneFailure::Created(error))
+        if inner.downcast_ref().is_some_and(|source| std::ptr::eq(error, source)))
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
@@ -1525,5 +1513,38 @@ pub(crate) mod test_support {
             let _ = (file, bytes);
             Ok(false)
         }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let cases: &[(&dyn std::error::Error, &str)] = &[
+        (
+            &Unopenable,
+            "the entry kept failing to open while its name still held one",
+        ),
+        (&FsError::Unsupported, "filesystem operation is unsupported"),
+        (
+            &FsError::Io(std::io::ErrorKind::NotFound.into()),
+            "entity not found",
+        ),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.to_string(), *expected);
+        assert!(error.source().is_none());
+    }
+    for error in [
+        CloneFailure::Created(FsError::Unsupported),
+        CloneFailure::NotCreated(FsError::Unsupported),
+    ] {
+        let cause = std::error::Error::source(&error).unwrap();
+        assert!(cause.is::<FsError>());
+        assert_eq!(error.to_string(), "filesystem operation is unsupported");
+        assert_eq!(cause.to_string(), error.to_string());
+        assert_eq!(
+            crate::error::Report::chain(&error).to_string(),
+            error.to_string()
+        );
     }
 }

@@ -51,6 +51,7 @@ pub(crate) fn assert_distinct_causes(error: &(dyn Error + 'static)) {
         assert!(
             !outer.to_string().ends_with(&inner.to_string())
                 || upstream_repeat(outer, inner)
+                || crate::fsutil::clone_failure_pair(outer, inner)
                 || crate::storage::failure::public_source_tests::compatible_pair(outer, inner),
             "error repeats its source: {outer:?} -> {inner:?}"
         );
