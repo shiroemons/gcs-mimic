@@ -205,3 +205,18 @@ An earlier `just check` on the same source failed one test,
 500 ms request deadline, while 4,184 others passed. The test passed five runs
 alone and a run of its whole `it_protocol` binary, and the repeated
 `just check` passed it.
+
+## Foundation moves, 2026-11-28
+
+`just check` passed on the source that parses RFC 3339 text in `time_format`
+instead of `import::codec`. Its Rust lane passed 4,190 tests with the same
+Pub/Sub case ignored. The production gate counted zero new violations, 69
+ratcheted findings and nine reasoned suppressions on the host, after the
+`src/object.rs` layer finding left the baseline, and zero new Clippy
+violations for the three other targets. The ledger check validated 611
+feature rows.
+
+The parser's tests passed from `time_format`, and the import codec tests that
+parse bucket, retention and custom times passed unchanged. A new codec test
+confirmed that the Go zero time still reads as unset and that names still
+escape as Go's `PathEscape` does.

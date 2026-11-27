@@ -59266,6 +59266,7 @@
             "valid_bucket_names_round_trip",
             "arbitrary_times_never_panic",
             "exact_times_offsets_zero_and_negative_epoch",
+            "import::codec::tests::the_go_zero_time_is_unset_and_names_escape_like_go_path_escape",
             "checkpoint_resumes_both_digests"
           ]
         },
@@ -59443,6 +59444,7 @@
         "valid_bucket_names_round_trip",
         "arbitrary_times_never_panic",
         "exact_times_offsets_zero_and_negative_epoch",
+        "import::codec::tests::the_go_zero_time_is_unset_and_names_escape_like_go_path_escape",
         "checkpoint_resumes_both_digests",
         "normalized_source_names_are_reported_without_inventing_original_names",
         "native_storage_class_and_fixed_metadata_validation_matches_import_eligibility",
@@ -59813,7 +59815,8 @@
           "artifact": "docs/en/slices/shared-publication-modes.md",
           "test_ids": ["probes_answer_without_waiting_for_a_held_catalog", "failing_maintenance_turns_readiness_off", "publication_disk_full_rolls_back_the_batch_and_its_generations", "publication_equal_hash_keeps_generation_and_metadata", "import_publications_report_no_notifications"]
         },
-        {"command": "cargo test --locked --workspace --no-fail-fast", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["overlap_and_walk_fail_closed_without_creating_destination", "source_tree::tests::os_detritus_and_paths_inside_the_source_are_recognized"]}
+        {"command": "cargo test --locked --workspace --no-fail-fast", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["overlap_and_walk_fail_closed_without_creating_destination", "source_tree::tests::os_detritus_and_paths_inside_the_source_are_recognized"]},
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["arbitrary_times_never_panic", "exact_times_offsets_zero_and_negative_epoch", "import::codec::tests::the_go_zero_time_is_unset_and_names_escape_like_go_path_escape"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [
