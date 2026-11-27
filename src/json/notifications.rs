@@ -100,7 +100,7 @@ fn parse(
     uri: &RequestUri,
     profile: CompatProfile,
 ) -> Result<(NotificationRequest, Fields), ApiError> {
-    let bucket = query::path_bucket(segment, profile, query::BucketCheck::NativeOnly)?;
+    let bucket = query::path_bucket(segment, profile, query::BucketCheck::NativeOnly)?.into_inner();
     let allowed = if notification.is_some() {
         "GET, DELETE"
     } else {

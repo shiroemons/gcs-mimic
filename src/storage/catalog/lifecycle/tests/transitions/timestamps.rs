@@ -188,7 +188,7 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
             "move" => catalog
                 .move_object(
                     MoveNames {
-                        bucket: "bucket".into(),
+                        bucket: crate::bucket::name::BucketKey::from_unchecked("bucket".into()),
                         source: "source".into(),
                         destination: route.into(),
                     },

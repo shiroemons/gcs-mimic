@@ -7,15 +7,15 @@ use super::{
 };
 use crate::storage::catalog::sql;
 use crate::{
-    bucket::BucketAccess,
-    object::{Metageneration, ObjectConditions, ObjectError, ObjectRecord},
+    bucket::{BucketAccess, name::BucketKey},
+    object::{Metageneration, ObjectConditions, ObjectError, ObjectKey, ObjectRecord},
 };
 use rusqlite::params;
 
 /// The same-bucket rename: the live source becomes the destination.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MoveNames {
-    pub(crate) bucket: String,
+    pub(crate) bucket: BucketKey,
     pub(crate) source: String,
     pub(crate) destination: String,
 }
@@ -61,7 +61,7 @@ impl Catalog {
                     blob: blob_id,
                 } = selected(
                     &transaction,
-                    crate::object::ObjectKey::from_parts_unchecked(&bucket, &source),
+                    ObjectKey::from_bucket(bucket.as_key(), &source),
                     None,
                     conditions.source,
                     super::objects::RequestKind::Write,
@@ -76,7 +76,7 @@ impl Catalog {
                 let source_acl = super::acl::effective_object_entries(&transaction, &record)?;
                 let previous = check_upload_destination(
                     &transaction,
-                    crate::object::ObjectKey::from_parts_unchecked(&bucket, &destination),
+                    ObjectKey::from_bucket(bucket.as_key(), &destination),
                     conditions.destination,
                     &destination_create,
                     now.time,

@@ -1,7 +1,10 @@
 use super::{ApiError, EtagConditions, FieldSelection, ResponseCache, Schema, integer::take_int64};
 use crate::page_token::decode_page_token;
 use crate::{
-    bucket::{BucketConditions, name::MAX_BUCKET_NAME_BYTES},
+    bucket::{
+        BucketConditions,
+        name::{AdmittedBucket, BucketKey, MAX_BUCKET_NAME_BYTES},
+    },
     config::CompatProfile,
     decimal::Grammar,
     object::generation::Generation,
@@ -41,12 +44,13 @@ pub(super) fn path_bucket(
     segment: &str,
     profile: CompatProfile,
     check: BucketCheck,
-) -> Result<String, ApiError> {
+) -> Result<BucketKey, ApiError> {
     let bucket = decode_bucket_segment(segment)?;
     if check == BucketCheck::ForProfile || profile == CompatProfile::Native {
-        crate::bucket::name::validate_for_profile(&bucket, profile)?;
+        return Ok(AdmittedBucket::for_profile(bucket, profile)?.into_key());
     }
-    Ok(bucket)
+    // Legacy bucket item and notification routes accept the decoded name as sent.
+    Ok(BucketKey::from_unchecked(bucket))
 }
 
 /// The decoded bucket of a raw path segment of at most [`MAX_BUCKET_SEGMENT_BYTES`] encoded bytes,
@@ -588,7 +592,9 @@ fn parse_bucket_route(
     seed_project: &str,
 ) -> Result<BucketRequest, ApiError> {
     let bucket = segment
-        .map(|segment| path_bucket(segment, profile, BucketCheck::NativeOnly))
+        .map(|segment| {
+            path_bucket(segment, profile, BucketCheck::NativeOnly).map(BucketKey::into_inner)
+        })
         .transpose()?;
     let call = BucketMethod::select(method, bucket)?;
     parse(call, uri, profile, seed_project)

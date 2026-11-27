@@ -9,6 +9,7 @@ use super::{
 };
 use crate::{
     acl::PredefinedObjectAcl,
+    bucket::name::{AdmittedBucket, BucketKey},
     config::CompatProfile,
     object::{ObjectConditions, generation::Generation},
     percent::{Decoding, RequestUri, decode},
@@ -17,9 +18,9 @@ use hyper::Method;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectCopyParams {
-    pub source_bucket: String,
+    pub source_bucket: BucketKey,
     pub source_name: String,
-    pub bucket: String,
+    pub bucket: BucketKey,
     pub name: String,
     pub source_generation: Option<Generation>,
     pub source_conditions: ObjectConditions,
@@ -91,7 +92,7 @@ fn parse(
     }))
 }
 
-fn names(path: &str, profile: CompatProfile) -> Result<(String, String), ApiError> {
+fn names(path: &str, profile: CompatProfile) -> Result<(BucketKey, String), ApiError> {
     let (bucket, name) = path
         .split_once("/o/")
         .ok_or_else(|| ApiError::invalid_parameter("Invalid copy path"))?;
@@ -103,7 +104,7 @@ fn names(path: &str, profile: CompatProfile) -> Result<(String, String), ApiErro
         return Err(ApiError::invalid_parameter("Invalid copy path"));
     }
     let bucket = decode(bucket, Decoding::Path)?;
-    crate::bucket::name::validate_for_profile(&bucket, profile)?;
+    let bucket = AdmittedBucket::for_profile(bucket, profile)?.into_key();
     let name = decode(name, Decoding::Path)?;
     super::validate_object_name(&name)?;
     Ok((bucket, name))

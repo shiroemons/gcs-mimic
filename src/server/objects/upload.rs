@@ -100,7 +100,7 @@ pub(super) async fn insert(
     let acl = AclSource::from(permit.replay_acl_snapshot());
     let upload = ctx.state.catalog.put_object_prechecked(
         ObjectUpload {
-            key: crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+            key: crate::object::ObjectKey::from_bucket(bucket.as_key(), &name),
             content_type,
             expected,
             conditions: params.conditions,
@@ -218,7 +218,7 @@ pub(super) async fn multipart(
     let acl = AclSource::from(permit.replay_acl_snapshot());
     let upload = catalog.put_object_prechecked(
         ObjectUpload {
-            key: crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+            key: crate::object::ObjectKey::from_bucket(bucket.as_key(), &name),
             content_type,
             expected,
             conditions: params.conditions,

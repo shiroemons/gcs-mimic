@@ -636,10 +636,11 @@ pub(crate) struct ObjectKey<'a> {
 impl<'a> ObjectKey<'a> {
     /// Stored keys and names already checked by their adapter must retain their exact spelling.
     pub(crate) fn from_parts_unchecked(bucket: &'a str, name: &'a str) -> Self {
-        Self {
-            bucket: BucketKey::from_unchecked(bucket),
-            name,
-        }
+        Self::from_bucket(BucketKey::from_unchecked(bucket), name)
+    }
+
+    pub(crate) fn from_bucket(bucket: BucketKey<&'a str>, name: &'a str) -> Self {
+        Self { bucket, name }
     }
 
     pub(crate) fn parts(self) -> (&'a str, &'a str) {
@@ -663,18 +664,19 @@ pub(crate) struct ObjectTarget<G = Option<i64>> {
 impl<G> ObjectTarget<G> {
     /// Takes stored names or names already admitted by the caller.
     pub(crate) fn new(bucket: impl Into<String>, name: impl Into<String>, generation: G) -> Self {
+        Self::from_bucket(BucketKey::from_unchecked(bucket.into()), name, generation)
+    }
+
+    pub(crate) fn from_bucket(bucket: BucketKey, name: impl Into<String>, generation: G) -> Self {
         Self {
-            bucket: BucketKey::from_unchecked(bucket.into()),
+            bucket,
             name: name.into(),
             generation,
         }
     }
 
     pub(crate) fn key(&self) -> ObjectKey<'_> {
-        ObjectKey {
-            bucket: self.bucket.as_key(),
-            name: &self.name,
-        }
+        ObjectKey::from_bucket(self.bucket.as_key(), &self.name)
     }
 }
 

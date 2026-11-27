@@ -8,6 +8,7 @@ use super::{
     },
 };
 use crate::{
+    bucket::name::AdmittedBucket,
     config::CompatProfile,
     object::ObjectTarget,
     percent::{Decoding, RequestUri, decode},
@@ -51,7 +52,7 @@ fn parse(
     }
     let bucket = decode(bucket, Decoding::Path)?;
     let name = decode(name, Decoding::Path)?;
-    crate::bucket::name::validate_for_profile(&bucket, profile)?;
+    let bucket = AdmittedBucket::for_profile(bucket, profile)?.into_key();
     super::validate_object_name(&name)?;
     let mut query = uri.parameters()?.clone();
     super::Fields::take(&mut query, super::Schema::Object)?;
@@ -81,7 +82,7 @@ fn parse(
     // its profile keeps rejecting one.
     finish_for_profile(&query, profile)?;
     Ok(ObjectRequest::Restore {
-        target: ObjectTarget::new(bucket, name, generation),
+        target: ObjectTarget::from_bucket(bucket, name, generation),
         conditions,
     })
 }

@@ -72,7 +72,7 @@ async fn move_reuses_blob_and_preserves_failed_source_conditions() {
         destination_create: &access,
     };
     let names = MoveNames {
-        bucket: "bucket".into(),
+        bucket: crate::bucket::name::BucketKey::from_unchecked("bucket".into()),
         source: "source".into(),
         destination: "target".into(),
     };
@@ -128,7 +128,7 @@ async fn move_answers_with_the_record_a_read_returns() {
     let moved = catalog
         .move_object(
             MoveNames {
-                bucket: "bucket".into(),
+                bucket: crate::bucket::name::BucketKey::from_unchecked("bucket".into()),
                 source: "source".into(),
                 destination: "target".into(),
             },

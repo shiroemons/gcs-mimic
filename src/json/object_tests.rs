@@ -177,7 +177,7 @@ fn obj_route_001_media_upload_metadata_download_delete() {
     assert_eq!(
         request(Method::POST, &format!("/upload/storage/v1/b/abc/o?uploadType=media&name=dir%2F%E7%8C%AB+%252F&projection=full&{query}")).unwrap(),
         ObjectRequest::Insert(UploadRequest {
-            bucket: "abc".to_owned(), name: "dir/猫 %2F".to_owned(),
+            bucket: crate::bucket::name::BucketKey::from_unchecked("abc".to_owned()), name: "dir/猫 %2F".to_owned(),
             params: ObjectInsertParams { conditions, projection: Projection::Full, predefined_acl: None }, content_encoding: None,
         })
     );

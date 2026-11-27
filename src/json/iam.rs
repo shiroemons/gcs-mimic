@@ -25,7 +25,7 @@ fn parse_test_permissions(
     uri: &Uri,
     profile: crate::config::CompatProfile,
 ) -> Result<BucketRequest, ApiError> {
-    let bucket = query::path_bucket(segment, profile, query::BucketCheck::ForProfile)?;
+    let bucket = query::path_bucket(segment, profile, query::BucketCheck::ForProfile)?.into_inner();
     if *method != Method::GET {
         return Err(ApiError::method_not_allowed(
             "Use GET for bucket testIamPermissions",

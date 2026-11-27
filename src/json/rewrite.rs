@@ -7,6 +7,7 @@ use super::{
 use crate::percent::{Decoding, RequestUri, decode};
 use crate::{
     acl::PredefinedObjectAcl,
+    bucket::name::AdmittedBucket,
     config::CompatProfile,
     object::{ObjectConditions, ObjectTarget, generation::Generation},
     storage::rewrite::{RewriteNames, RewriteProgress},
@@ -87,24 +88,18 @@ fn parse(
             Some("POST"),
         ));
     }
+    let source_bucket = decode(path.source_bucket, Decoding::Path)?;
+    let source_name = decode(path.source_name, Decoding::Path)?;
+    let destination_bucket = decode(path.destination_bucket, Decoding::Path)?;
+    let destination_name = decode(path.destination_name, Decoding::Path)?;
+    let source_bucket = AdmittedBucket::for_profile(source_bucket, profile)?.into_key();
+    let destination_bucket = AdmittedBucket::for_profile(destination_bucket, profile)?.into_key();
+    validate_object_name(&source_name)?;
+    validate_object_name(&destination_name)?;
     let names = RewriteNames {
-        source: ObjectTarget::new(
-            decode(path.source_bucket, Decoding::Path)?,
-            decode(path.source_name, Decoding::Path)?,
-            (),
-        ),
-        destination: ObjectTarget::new(
-            decode(path.destination_bucket, Decoding::Path)?,
-            decode(path.destination_name, Decoding::Path)?,
-            (),
-        ),
+        source: ObjectTarget::from_bucket(source_bucket, source_name, ()),
+        destination: ObjectTarget::from_bucket(destination_bucket, destination_name, ()),
     };
-    for bucket in [&names.source.bucket, &names.destination.bucket] {
-        crate::bucket::name::validate_for_profile(bucket, profile)?;
-    }
-    for object in [&names.source.name, &names.destination.name] {
-        validate_object_name(object)?;
-    }
     let mut parameters = uri.parameters()?.clone();
     let token = parameters.remove("rewriteToken");
     // A rewrite token binds these parameters; an ignored API key or billing project must not

@@ -31,6 +31,31 @@ fn request(method: Method, path: &str) -> Result<BucketRequest, ApiError> {
 }
 
 #[test]
+fn legacy_bucket_item_admits_a_name_object_routes_refuse() {
+    let item = "/storage/v1/b/a%2Fb".parse().unwrap();
+    let object = "/storage/v1/b/a%2Fb/o/value".parse().unwrap();
+    let fake = CompatProfile::FakeGcsServer;
+    let response = route_with_profile(&Method::GET, &item, fake, "project")
+        .unwrap()
+        .unwrap();
+    assert_matches!(response, BucketRequest::Get { bucket, .. } if bucket == "a/b");
+    assert_eq!(
+        route_with_profile(&Method::GET, &item, CompatProfile::Native, "project")
+            .unwrap()
+            .unwrap_err()
+            .message(),
+        "Invalid bucket name"
+    );
+    assert_eq!(
+        super::objects::route_object_with_profile(&Method::GET, &object, fake)
+            .unwrap()
+            .unwrap_err()
+            .message(),
+        "invalid bucket name"
+    );
+}
+
+#[test]
 fn route_validation_keeps_method_and_path_errors_ahead_of_query_errors() {
     let uri = "/storage/v1/b/valid-bucket/o/%FF?fields=x&fields=y"
         .parse()

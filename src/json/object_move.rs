@@ -8,6 +8,7 @@ use super::{
 };
 use crate::percent::{Decoding, RequestUri, decode};
 use crate::{
+    bucket::name::AdmittedBucket,
     config::CompatProfile,
     object::ObjectConditions,
     storage::{MoveConditions, MoveNames},
@@ -60,7 +61,7 @@ fn parse(
         return Err(ApiError::invalid_parameter("Invalid move path"));
     }
     let bucket = decode(bucket, Decoding::Path)?;
-    crate::bucket::name::validate_for_profile(&bucket, profile)?;
+    let bucket = AdmittedBucket::for_profile(bucket, profile)?.into_key();
     let source = decode(source, Decoding::Path)?;
     let destination = decode(destination, Decoding::Path)?;
     super::validate_object_name(&source)?;
@@ -128,7 +129,7 @@ mod tests {
         else {
             panic!("expected move route")
         };
-        assert_eq!(params.names.bucket, "bucket");
+        assert_eq!(params.names.bucket.as_str(), "bucket");
         assert_eq!(params.names.source, "source/%2F");
         assert_eq!(params.names.destination, "target/%2F");
         assert_eq!(params.conditions.source.if_generation_match, Some(7));

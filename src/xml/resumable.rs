@@ -135,7 +135,8 @@ pub(crate) async fn start(
     crate::bounded_body::read_body(request.into_body(), 0)
         .await
         .map_err(|_| Error::invalid("Resumable upload initiation carries no body."))?;
-    let id = resumable::create_session(ctx, &object.bucket, &name, options, None)
+    let key = crate::object::ObjectKey::from_parts_unchecked(&object.bucket, &name);
+    let id = resumable::create_session(ctx, key, options, None)
         .await
         .map_err(|error| Error::from(error).for_caller(caller))?;
     // The raw path keeps the client's object-name encoding; the session URI is path-style on

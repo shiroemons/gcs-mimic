@@ -1,5 +1,8 @@
 use crate::{
-    bucket::StorageClass,
+    bucket::{
+        StorageClass,
+        name::{AdmittedBucket, BucketKey},
+    },
     decimal::Grammar,
     json::{ApiError, WriteMode, object_metadata_from_map, validate_object_name},
     object::{ComposeSource, ObjectMetadataUpdate},
@@ -38,7 +41,7 @@ fn parse(
         ));
     }
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
-    crate::bucket::name::validate_for_profile(&bucket, profile)?;
+    let bucket = AdmittedBucket::for_profile(bucket, profile)?.into_key();
     let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
     validate_object_name(&name)?;
     let mut query = uri.parameters()?.clone();
@@ -93,7 +96,7 @@ fn parse(
 /// The destination and options an objects.compose path and query name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ComposeParams {
-    pub bucket: String,
+    pub bucket: BucketKey,
     pub name: String,
     pub conditions: crate::object::ObjectConditions,
     /// Replaces the bucket's default object ACL on the composed object.

@@ -10,6 +10,7 @@ use crate::percent::{Decoding, RequestUri, decode};
 use crate::time_format::{TimeOutOfRange, timestamp};
 use crate::{
     auth,
+    bucket::name::BucketKey,
     config::CompatProfile,
     csek::CustomerKey,
     http_header::{TextOrder, sole},
@@ -54,7 +55,7 @@ pub(crate) struct ObjectUpdateParams {
 /// `Option<String>` there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UploadRequest<N> {
-    pub bucket: String,
+    pub bucket: BucketKey,
     pub name: N,
     pub params: ObjectInsertParams,
     pub content_encoding: Option<String>,
@@ -392,7 +393,7 @@ impl<'a> ObjectPath<'a> {
         let bucket = path_bucket(self.bucket(), profile, BucketCheck::ForProfile)?;
         match self {
             Self::Collection { .. } => {
-                super::object_list::parse_list(bucket, uri).map(ObjectRequest::List)
+                super::object_list::parse_list(bucket.into_inner(), uri).map(ObjectRequest::List)
             }
             Self::Upload { .. } => parse_object_query(method, bucket, QueryObject::Upload, uri),
             Self::Object { object, .. } => {
@@ -456,7 +457,7 @@ enum QueryObject {
 /// `take_common_parameters`.
 fn parse_object_query(
     method: &Method,
-    bucket: String,
+    bucket: BucketKey,
     object: QueryObject,
     uri: &RequestUri,
 ) -> Result<ObjectRequest, ApiError> {
@@ -585,7 +586,7 @@ pub(crate) fn unsupported_upload_type() -> ApiError {
 }
 
 fn parse_upload_query(
-    bucket: String,
+    bucket: BucketKey,
     mut query: BTreeMap<String, String>,
     upload: UploadQuery,
 ) -> Result<ObjectRequest, ApiError> {
@@ -682,7 +683,7 @@ fn validate_session_preconditions(conditions: &ObjectConditions) -> Result<(), A
 
 /// The object a non-upload request names, with the options already parsed from its query.
 struct QueryTarget {
-    bucket: String,
+    bucket: BucketKey,
     name: String,
     conditions: ObjectConditions,
     media: bool,
@@ -699,7 +700,7 @@ fn parse_named_object_query(
         conditions,
         media,
     } = target;
-    let target = ObjectTarget::new(bucket, name, take_long(&mut query, "generation")?);
+    let target = ObjectTarget::from_bucket(bucket, name, take_long(&mut query, "generation")?);
     if method == Method::PATCH || method == Method::PUT {
         // A PUT without `projection` answered without `acl` and `owner` (recorded), although
         // the reference documents `full` as its default.

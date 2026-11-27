@@ -124,8 +124,8 @@ async fn copy_object(
         replay,
     } = request;
     let catalog = &ctx.state.catalog;
-    let target = ObjectTarget::new(
-        &params.source_bucket,
+    let target = ObjectTarget::from_bucket(
+        params.source_bucket.clone(),
         &params.source_name,
         params.source_generation.map(Generation::get),
     );
@@ -172,7 +172,7 @@ async fn copy_object(
         source,
         source_access,
         destination: DerivedDestination {
-            bucket: params.bucket,
+            bucket: params.bucket.into_inner(),
             name: params.name,
             content_type: String::new(),
             metadata,
@@ -236,7 +236,7 @@ pub(super) async fn compose(
         .catalog
         .compose_object(
             DerivedDestination {
-                bucket,
+                bucket: bucket.into_inner(),
                 name,
                 conditions,
                 access,

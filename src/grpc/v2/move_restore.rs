@@ -47,7 +47,7 @@ impl Storage {
         let sc = move_conditions(r.source_conditions())?;
         let dc = move_conditions(ObjectConditions::from(&r))?;
         let object_names = MoveNames {
-            bucket: bucket.into(),
+            bucket: crate::bucket::name::BucketKey::from_unchecked(bucket.into()),
             source: source.into(),
             destination: r.destination_object,
         };

@@ -4,7 +4,10 @@ use super::{
 };
 use crate::percent::RequestUri;
 use crate::{
-    bucket::BucketAccess,
+    bucket::{
+        BucketAccess,
+        name::{AdmittedBucket, BucketKey},
+    },
     config::CompatProfile,
     decimal::Grammar,
     http_header::{TextError, TextOrder, sole},
@@ -21,7 +24,7 @@ use hyper::{HeaderMap, Method};
 /// The resumable session a request continues.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UploadSession {
-    pub(crate) bucket: String,
+    pub(crate) bucket: BucketKey,
     pub(crate) upload_id: String,
 }
 
@@ -68,7 +71,7 @@ fn parse_session(
         ));
     }
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
-    crate::bucket::name::validate_for_profile(&bucket, profile)?;
+    let bucket = AdmittedBucket::for_profile(bucket, profile)?.into_key();
     let mut query = uri.parameters()?.clone();
     let upload_id = query
         .remove("upload_id")

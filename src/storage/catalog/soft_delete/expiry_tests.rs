@@ -322,7 +322,7 @@ async fn moving_over_a_live_destination_reclaims_its_blob() {
     catalog
         .move_object(
             MoveNames {
-                bucket: "bucket".into(),
+                bucket: crate::bucket::name::BucketKey::from_unchecked("bucket".into()),
                 source: "source".into(),
                 destination: "destination".into(),
             },
@@ -795,7 +795,7 @@ async fn delete_overwrite_move_and_restore_wake_the_scheduler() {
         catalog
             .move_object(
                 super::super::object_move::MoveNames {
-                    bucket: "bucket".into(),
+                    bucket: crate::bucket::name::BucketKey::from_unchecked("bucket".into()),
                     source: "source".into(),
                     destination: "destination".into(),
                 },

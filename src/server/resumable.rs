@@ -27,7 +27,7 @@ use tokio::sync::watch;
 
 pub(super) async fn initiate(
     request: Request<Incoming>,
-    bucket: &str,
+    bucket: &crate::bucket::name::BucketKey,
     name: Option<String>,
     params: ObjectInsertParams,
     encoding: Option<String>,
@@ -82,7 +82,8 @@ pub(super) async fn initiate(
     options.response_fields = response_fields;
     // The session binds the key fingerprint; later chunks cannot change it.
     options.metadata.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
-    let id = create_session(ctx, bucket, &name, options, total).await?;
+    let key = crate::object::ObjectKey::from_bucket(bucket.as_key(), &name);
+    let id = create_session(ctx, key, options, total).await?;
     let location = session_location(&location_base, &query, id);
     let mut response = empty_response(StatusCode::OK);
     response.headers_mut().insert(
@@ -117,8 +118,7 @@ fn session_location(base: &str, query: &str, id: crate::storage::SessionId) -> S
 /// adapter parses its own initiation request and builds its own session URI.
 pub(crate) async fn create_session(
     ctx: ObjectCtx<'_>,
-    bucket: &str,
-    name: &str,
+    key: crate::object::ObjectKey<'_>,
     options: ResumableOptions,
     total: Option<u64>,
 ) -> Result<crate::storage::SessionId, ServiceError> {
@@ -126,16 +126,12 @@ pub(crate) async fn create_session(
     super::retention_access::authorize_upload(
         &state.catalog,
         &options.access,
-        bucket,
+        key.bucket().into_inner(),
         &options.metadata,
     )
     .await?;
     let session = ctx
-        .await_catalog(state.catalog.create_resumable_session(
-            crate::object::ObjectKey::from_parts_unchecked(bucket, name),
-            options,
-            total,
-        ))
+        .await_catalog(state.catalog.create_resumable_session(key, options, total))
         .await?;
     Ok(session.id)
 }

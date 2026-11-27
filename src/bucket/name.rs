@@ -57,6 +57,26 @@ impl From<BucketKey> for String {
     }
 }
 
+/// A request bucket name admitted under the active compatibility profile.
+pub(crate) struct AdmittedBucket<S>(BucketKey<S>);
+
+impl<S: AsRef<str>> AdmittedBucket<S> {
+    pub(crate) fn for_profile(name: S, profile: CompatProfile) -> Result<Self, ProfileNameError> {
+        validate_for_profile(name.as_ref(), profile)?;
+        Ok(Self(BucketKey::from_unchecked(name)))
+    }
+
+    pub(crate) fn into_key(self) -> BucketKey<S> {
+        self.0
+    }
+}
+
+impl From<BucketName> for AdmittedBucket<String> {
+    fn from(name: BucketName) -> Self {
+        Self(BucketKey::from_unchecked(name.0))
+    }
+}
+
 /// A bucket name under the native Cloud Storage rules. The fake-gcs-server profile admits a
 /// superset ([`validate_for_profile`]), so catalog records keep `String`; this type names
 /// buckets the local administration tools create and the sync engine maps to directories.
