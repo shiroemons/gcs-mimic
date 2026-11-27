@@ -3,9 +3,10 @@ use super::*;
 
 impl RequestTransfer {
     pub(crate) async fn advance(self, catalog: &Catalog, budget: u64) -> Result<Self, ObjectError> {
-        catalog
+        let (progress, hasher) = catalog
             .advance_from(Checkpoint::Request(self), budget)
-            .await
+            .await?;
+        Ok(Self { progress, hasher })
     }
 }
 
@@ -27,14 +28,14 @@ impl Catalog {
     ) -> Result<DerivedTransfer, ObjectError> {
         self.advance_from(Checkpoint::Stored(*id), budget)
             .await
-            .map(|state| state.progress)
+            .map(|(progress, _)| progress)
     }
 
     async fn advance_from(
         &self,
         checkpoint: Checkpoint,
         budget: u64,
-    ) -> Result<RequestTransfer, ObjectError> {
+    ) -> Result<(DerivedTransfer, Hasher), ObjectError> {
         let id = checkpoint.id();
         let permit = self.continue_object_upload().await?;
         let guard = self.derived_guard(&id)?;
@@ -88,7 +89,7 @@ impl Catalog {
                 sql::exec_on_writer(connection, "UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4, deadline = CASE ephemeral WHEN 1 THEN max(deadline, ?5) ELSE deadline END WHERE id = ?1", params![id, progress.offset, md5_state.as_slice(), crc, renewed])?;
                 // The queued SQL job owns the draft until its acknowledged prefix is updated.
                 output.acknowledge(progress.offset);
-                Ok(RequestTransfer { progress, hasher })
+                Ok((progress, hasher))
             }).await
         }).await?
     }

@@ -735,6 +735,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_copy_offset_update_reclaims_the_transfer_and_draft() {
+        let (catalog, path) = fixture().await;
+        let source = source(&catalog).await;
+        let target = destination(&source, "copy", b"");
+        let (request, progress, resume) = start(
+            &catalog,
+            source,
+            BucketAccess::Permissive,
+            target,
+            CopyPath::Stream(BYTE_BUDGET),
+            5000,
+        );
+        let progress = progress.await.unwrap();
+        assert_eq!(progress.offset, BYTE_BUDGET);
+        rusqlite::Connection::open(path.0.join("catalog.sqlite3"))
+            .unwrap()
+            .execute_batch("CREATE TRIGGER reject_copy_offset BEFORE UPDATE OF offset ON derived_transfers WHEN NEW.ephemeral=1 BEGIN SELECT RAISE(ABORT, 'injected SQL checkpoint failure'); END;")
+            .unwrap();
+        resume.send(()).unwrap();
+        let error = request.await.unwrap().unwrap_err();
+        assert!(error.is_backend_failure());
+        assert!(
+            crate::error::causes(&error)
+                .any(|cause| cause.to_string() == "injected SQL checkpoint failure"),
+            "{error:?}"
+        );
+        let files = UploadCleanup::wait("failed copy checkpoint cleanup", || {
+            UploadCleanup::observe(&path.0, catalog.active_uploads())
+        })
+        .await;
+        assert_eq!(files.objects, 1);
+        assert_eq!(
+            catalog.get_derived(&progress.id).await,
+            Err(ObjectError::DerivedTransferNotFound)
+        );
+        assert_eq!(
+            catalog
+                .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
+                .await,
+            Err(ObjectError::ObjectNotFound)
+        );
+        catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn failed_snapshot_publication_releases_its_input_and_transfer() {
         use crate::storage::fault::{Fault, Step};
         for step in [Step::BeforePublish, Step::BeforeCommit] {
@@ -756,16 +801,16 @@ mod tests {
             resume.send(()).unwrap();
             assert!(request.await.unwrap().unwrap_err().is_backend_failure());
             assert_eq!(catalog.pending_faults(), 0);
-            clean(&catalog, &path.0, &transfer.id).await;
-            let files = crate::test_support::eventually_some_async(
-                "snapshot reclamation to finish",
-                || async {
-                    let files = UploadCleanup::observe(&path.0, catalog.active_uploads());
-                    files.is_complete().then_some(files)
-                },
-            )
-            .await;
+            let files =
+                UploadCleanup::wait(&format!("snapshot reclamation after {step:?}"), || {
+                    UploadCleanup::observe(&path.0, catalog.active_uploads())
+                })
+                .await;
             assert_eq!(files.objects, 1);
+            assert_eq!(
+                catalog.get_derived(&transfer.id).await,
+                Err(ObjectError::DerivedTransferNotFound)
+            );
             assert_eq!(
                 catalog
                     .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)

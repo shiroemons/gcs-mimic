@@ -1262,6 +1262,7 @@ mod tests {
     #[tokio::test]
     async fn a_crash_discards_request_progress_but_replays_the_issued_rewrite_token() {
         use super::super::fault::{Crash, Step};
+        use crate::test_support::UploadCleanup;
         for &crash in Crash::ALL {
             let (catalog, directory, clock) = fixture().await;
             let original = catalog
@@ -1350,12 +1351,12 @@ mod tests {
                 crate::storage::test_fixtures::read_all(&mut reader).await,
                 b"abcdef"
             );
-            assert_eq!(
-                std::fs::read_dir(snapshot.0.join("staging"))
-                    .unwrap()
-                    .count(),
-                0
-            );
+            let files = UploadCleanup::wait(
+                &format!("copy and rewrite recovery after {crash:?}"),
+                || UploadCleanup::observe(&snapshot.0, recovered.active_uploads()),
+            )
+            .await;
+            assert_eq!((files.blobs, files.objects), (2, 2));
             recovered.close().await.unwrap();
             std::fs::remove_dir_all(directory).unwrap();
         }

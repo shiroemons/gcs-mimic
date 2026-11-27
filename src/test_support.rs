@@ -83,6 +83,19 @@ impl UploadCleanup {
             && self.pending == 0
             && self.derived == 0
     }
+
+    pub(crate) async fn wait(what: &str, mut observe: impl FnMut() -> Self) -> Self {
+        poll_result(|| {
+            let files = observe();
+            std::future::ready(if files.is_complete() {
+                Ok(files)
+            } else {
+                Err(files)
+            })
+        })
+        .await
+        .unwrap_or_else(|files| panic!("still waiting after {HANG_GUARD:?} for {what}: {files:?}"))
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -296,16 +309,25 @@ where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Option<T>>,
 {
-    let deadline = tokio::time::Instant::now() + HANG_GUARD;
+    poll_result(|| {
+        let attempt = attempt();
+        async move { attempt.await.ok_or(()) }
+    })
+    .await
+    .unwrap_or_else(|()| panic!("still waiting after {HANG_GUARD:?} for {what}"))
+}
+
+async fn poll_result<T, E, F, Fut>(mut attempt: F) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+{
+    let deadline = hang_deadline();
     loop {
-        if let Some(value) = attempt().await {
-            return value;
+        match attempt().await {
+            Err(_) if tokio::time::Instant::now() < deadline => tokio::time::sleep(POLL).await,
+            last => return last,
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "still waiting after {HANG_GUARD:?} for {what}"
-        );
-        tokio::time::sleep(POLL).await;
     }
 }
 
