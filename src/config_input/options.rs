@@ -10,18 +10,11 @@ crate::choice::string_enum! {
     "style must be path or virtual-hosted"
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("options require --name VALUE pairs")]
 pub enum PairError {
     MissingValue,
 }
-
-impl fmt::Display for PairError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("options require --name VALUE pairs")
-    }
-}
-
-impl std::error::Error for PairError {}
 
 pub fn option_pairs(args: &[String]) -> impl Iterator<Item = Result<(&str, &str), PairError>> {
     args.chunks(2).map(|pair| match pair {
@@ -37,6 +30,7 @@ pub enum DurationError {
     Overflow,
 }
 
+// Public callers can downcast the ParseIntError they just printed. Revisit in Public facade.
 impl fmt::Display for DurationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -132,4 +126,19 @@ mod tests {
             Err(DurationError::Overflow)
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = PairError::MissingValue;
+    assert_eq!(error.to_string(), "options require --name VALUE pairs");
+    assert!(std::error::Error::source(&error).is_none());
+    let error = DurationError::Number("x".parse::<u64>().unwrap_err());
+    assert_eq!(error.to_string(), "invalid digit found in string");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<ParseIntError>()
+    );
 }
