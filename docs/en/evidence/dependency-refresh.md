@@ -1639,3 +1639,24 @@ The scheduled full check on 2026-11-26 and a local full check on 2026-11-27 repo
 | `just check` | Passed in 723 s, the host lint and the cross-target lint for x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu and x86_64-unknown-linux-musl reporting no new production violation |
 
 The change touches no Rust source, container input or non-Go SDK input, so `just check-containers` and the Ruby, Node.js, Python and PHP SDK suites were not rerun. Both freshness checks ran with `GITHUB_TOKEN` set.
+
+## Composer 2.11.3 index (2026-11-27)
+
+After the Go refresh was pushed, the full check that the Dependency freshness workflow ran on it at 03:29 UTC reported the composer:2.11.3 index rebuilt under its unchanged tag; the tag still resolved to the previous index when the local check ran at 02:40 UTC. The workflow's `propose-image-refresh` job proposed the same rewrite in pull request 4. `cargo xtask dependencies update-images --checked-at 2026-11-27T03:31:00Z` rewrote the pins in `sdk-tests/php/run.sh`, `sdk-tests/php/README.md`, `sdk-scorecard/run.sh` and `sdk-scorecard/test-tls.sh` and the snapshot.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| composer:2.11.3 | index `sha256:4e5f671c4a5784b422c20fcb993a38da96529438889dbce40be27c452d18dd6d` | index `sha256:5b2137f112f939a92788ceb5e55f54859d9dbf467a44037cf7760bdda949f365`; it adds a linux/riscv64 manifest (`sha256:61fbed345f52b11c3318f00ee7a3f5cb9c67f4e1dba3805e9101dce8c0a00d1b`, built 2026-11-27T01:46:18Z), and every other platform manifest, linux/amd64 `sha256:00c34bf1…` and linux/arm64 `sha256:272b7632…` among them, is unchanged | `sdk-tests/php/run.sh`, `sdk-scorecard/run.sh`, `sdk-scorecard/test-tls.sh` |
+
+composer:latest now resolves to the same index, so the check no longer prints the linux/riscv64 `INFO` line for it.
+
+### Validation performed on 2026-11-27, for the Composer index
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask dependencies check` at `2026-11-27T03:33:43Z` | Exit 0 with 147 `CURRENT` lines and no updates or check errors; composer:2.11.3 and composer:latest both report the adopted index, and fake-gcs-server v1.56.1 stays `PINNED_REFERENCE` |
+| `cargo xtask dependencies check --scope release` at `2026-11-27T03:34:37Z` | Exit 0 with 45 `CURRENT` lines |
+| `bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-php` | Passed. It pulled the adopted index; the PHP origin self-check, the migration scenario and the permissive and strict suites on PHP 8.5.13 with google/cloud-storage 2.7.0 passed, and the Go suite passed 95 top-level tests with the HTTPS-only V2 signing test skipped |
+| `bash sdk-scorecard/test-tls.sh` | Passed in 117 s, the PHP probe among those that trust the fixture CA and reject the wrong-host certificate |
+
+Both freshness checks ran with `GITHUB_TOKEN` set.
