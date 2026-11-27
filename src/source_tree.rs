@@ -126,6 +126,7 @@ impl std::fmt::Display for WalkError {
     }
 }
 
+// Entry carries the path alongside the I/O error, but forwards the latter's source.
 impl std::error::Error for WalkError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -335,4 +336,25 @@ mod tests {
         assert_eq!(after.path, directory.0.join("a/z-after"));
         std::assert_matches!(root.as_ref().map(|_| ()), Err(WalkError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn retains_the_underlying_diagnostic_source() {
+    #[derive(Debug, thiserror::Error)]
+    #[error("entry read failed")]
+    struct ReadFailure(#[source] std::fmt::Error);
+    let error = WalkError::Entry {
+        path: PathBuf::from("entry"),
+        error: io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            ReadFailure(std::fmt::Error),
+        ),
+    };
+    assert_eq!(error.to_string(), "entry read failed");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<std::fmt::Error>()
+    );
 }
