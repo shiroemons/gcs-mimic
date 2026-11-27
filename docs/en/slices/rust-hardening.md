@@ -1053,9 +1053,9 @@ try_from = "i64")]`.
 - **Buckets.** `BucketKey<String>` stores the exact name. JSON and XML build
   keys at their existing path and name checks. Storage v2 builds keys from
   parsed resource names, and v1 builds them in its bucket authorization
-  check. These paths use `BucketKey::for_profile`; `from_unchecked` preserves
-  stored names and legacy paths that bypass validation. Both constructors
-  return the same catalog identity.
+  check. These paths use `BucketKey::for_profile`. The `from_unchecked`
+  constructor preserves stored names and legacy paths that bypass validation.
+  Both constructors return the same catalog identity.
 - **Objects.** `ObjectKey<'a>` groups a `BucketKey<&'a str>` and an object name.
   This can borrow the strings on public bucket and object records directly.
   `ObjectTarget` owns the names and carries the generation selection.
@@ -1094,6 +1094,25 @@ try_from = "i64")]`.
   - Each adapter preserves its cross-adapter reply pending the owner's
     decision in [Behavior decisions](#behavior-decisions), which can also
     revisit the compatibility variants.
+
+#### Bucket and object key verification
+
+On 2026-11-27, Rust 1.100.0 on macOS arm64 ran the following checks at
+commit `6c675d3f0` with `CARGO_INCREMENTAL=0`.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib` | 2,742 passed |
+| `cargo test --locked --test it_json --test it_objects --test it_xml_auth` | 142, 183 and 334 passed, respectively |
+| `cargo test --locked --test it_process -- grpc_` | 17 passed, 122 filtered out |
+
+The library run included
+`storage::catalog::sql::bucket_keys_bind_the_original_text` and
+`json::tests::legacy_bucket_item_admits_a_name_object_routes_refuse`. They
+check the SQLite TEXT bindings for legacy spellings and the JSON bucket item
+route's compatibility exception. The same run checked the gRPC profile and
+literal object-name spelling in
+`grpc::v2::tests::grpc_names_follow_the_configured_bucket_profile`.
 
 ### Configuration
 

@@ -64282,7 +64282,10 @@
           "id": "DESIGN-105-TYPES",
           "description": "Object records, resumable sessions and configuration carry typed fields with unchanged persisted bytes and diagnostics.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": [
+            "storage::catalog::sql::bucket_keys_bind_the_original_text",
+            "json::tests::legacy_bucket_item_admits_a_name_object_routes_refuse"
+          ]
         },
         {
           "id": "DESIGN-105-RULES",
@@ -64351,7 +64354,9 @@
         "server::protocol_tests::http1_enforces_the_request_head_buffer_limit",
         "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
         "lint::tests::every_gate_rule_has_one_row_in_the_development_guide",
-        "lint::tests::workspace_denied_lints_are_not_downgraded_by_the_gate"
+        "lint::tests::workspace_denied_lints_are_not_downgraded_by_the_gate",
+        "storage::catalog::sql::bucket_keys_bind_the_original_text",
+        "json::tests::legacy_bucket_item_admits_a_name_object_routes_refuse"
       ],
       "verification": [
         {
@@ -64418,12 +64423,22 @@
           "test_ids": [
             "server::protocol_tests::http1_enforces_the_request_head_buffer_limit"
           ]
+        },
+        {
+          "command": "cargo test --locked --lib",
+          "result": "PASS",
+          "verified_at": "2026-11-27",
+          "artifact": "docs/en/slices/rust-hardening.md",
+          "test_ids": [
+            "storage::catalog::sql::bucket_keys_bind_the_original_text",
+            "json::tests::legacy_bucket_item_admits_a_name_object_routes_refuse"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-11-26"
+      "last_verified": "2026-11-27"
     },
     {
       "id": "UX-001",
