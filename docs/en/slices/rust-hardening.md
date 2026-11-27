@@ -556,11 +556,11 @@ A further split waits until after `1.0.0`:
     `src/storage/failure/public_source_tests.rs`. Public facade revisits five
     groups that embedders can print and inspect (`BackendCause`, `IoCause`,
     catalog corrupt/unavailable, catalog I/O, and seed entry/import).
-    The thiserror conversion for `ObjectError` revisits the two private groups
-    (corrupt/unavailable/body aborted and I/O). Multipart cleanup logs this
-    error's Display directly, and backend causes can embed it in public
-    diagnostics. A transparent wrapper inherits an exception only for the
-    same text and the same source object;
+    The two private `ObjectError` groups (corrupt/unavailable/body aborted and
+    I/O) keep their hand-written typed sources. Multipart cleanup logs their
+    Display directly, and public catalog diagnostics embed it. Revisit these
+    pairs with those diagnostics in Public facade. A transparent wrapper
+    inherits an exception only for the same text and the same source object;
   - the `text::error_displays_source` rule rejects a `#[error]` format that
     interpolates its own source.
 - **`Report`** joins the display text of successive causes, including for

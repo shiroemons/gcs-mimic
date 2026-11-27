@@ -72,8 +72,8 @@ const PUBLIC_PAIRS: &[Exception] = &[
     },
 ];
 
-// Multipart cleanup logs ObjectError directly. Revisit these private groups when converting
-// ObjectError to thiserror. BackendCause also embeds their diagnostics for public errors.
+// Multipart cleanup logs ObjectError directly and public catalog diagnostics embed its Display.
+// Keep the concrete storage causes until Public facade revisits those diagnostics.
 const OBJECT_PAIRS: &[Exception] = &[
     // Object errors carry the same fixed backend guidance and database codes through object_context.
     Exception {

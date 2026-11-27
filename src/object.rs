@@ -711,12 +711,11 @@ pub(crate) struct RetainedObject {
 
 /// A digest the bytes were expected to have and the one computed from them, at the width of its
 /// algorithm.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum HashMismatch {
-    Crc32c {
-        expected: u32,
-        computed: u32,
-    },
+    #[error("CRC32C {expected:08x} expected, {computed:08x} computed")]
+    Crc32c { expected: u32, computed: u32 },
+    #[error("MD5 {} expected, {} computed", crate::hashing::encode_lower(.expected), crate::hashing::encode_lower(.computed))]
     Md5 {
         expected: [u8; 16],
         computed: [u8; 16],
@@ -731,27 +730,6 @@ impl HashMismatch {
         }
     }
 }
-
-impl fmt::Display for HashMismatch {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Crc32c { expected, computed } => {
-                write!(
-                    formatter,
-                    "CRC32C {expected:08x} expected, {computed:08x} computed"
-                )
-            }
-            Self::Md5 { expected, computed } => write!(
-                formatter,
-                "MD5 {} expected, {} computed",
-                crate::hashing::encode_lower(expected),
-                crate::hashing::encode_lower(computed)
-            ),
-        }
-    }
-}
-
-impl std::error::Error for HashMismatch {}
 
 /// A digest algorithm an upload can declare.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -806,16 +784,9 @@ pub(crate) enum Checksum {
 }
 
 /// A second, different value for a digest already declared.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("conflicting {} declarations", .0.name())]
 pub(crate) struct ChecksumConflict(pub(crate) HashAlgorithm);
-
-impl fmt::Display for ChecksumConflict {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "conflicting {} declarations", self.0.name())
-    }
-}
-
-impl std::error::Error for ChecksumConflict {}
 
 impl ExpectedHashes {
     /// Whether a digest of `algorithm` is declared.
@@ -895,6 +866,31 @@ impl Checksum {
 #[cfg(test)]
 mod expected_hashes_tests {
     use super::*;
+
+    #[test]
+    fn digest_errors_name_both_values_and_have_no_source() {
+        let crc = HashMismatch::Crc32c {
+            expected: 1,
+            computed: 0xff,
+        };
+        let md5 = HashMismatch::Md5 {
+            expected: [0x12; 16],
+            computed: [0xab; 16],
+        };
+        let conflict = ChecksumConflict(HashAlgorithm::Md5);
+        let cases: &[(&dyn std::error::Error, &str)] = &[
+            (&crc, "CRC32C 00000001 expected, 000000ff computed"),
+            (
+                &md5,
+                "MD5 12121212121212121212121212121212 expected, abababababababababababababababab computed",
+            ),
+            (&conflict, "conflicting MD5 declarations"),
+        ];
+        for (error, expected) in cases {
+            assert_eq!(error.to_string(), *expected);
+            assert!(error.source().is_none());
+        }
+    }
 
     #[test]
     fn a_declared_digest_is_replaced_by_set_and_must_agree_otherwise() {
