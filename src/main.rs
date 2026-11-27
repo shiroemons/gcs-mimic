@@ -120,19 +120,24 @@ fn command_exit(result: Result<(), CliError>) -> ExitCode {
 
 /// A command failure. Only its diagnostics reach the user; any other failure is reported as a
 /// generic runtime diagnostic so internal error text never replaces actionable advice.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum CliError {
+    #[error(transparent)]
     Diagnostics(Diagnostics),
     /// Authentication setup failed at startup: its diagnostics are reported, and its catalog
     /// cause remains the error's source. Box the diagnostics and cause together to keep
     /// unrelated command results small.
+    #[error(transparent)]
     Authentication(Box<startup::CatalogAuthenticationFailure>),
     /// A failure without advice of its own, such as a closed standard stream.
+    #[error(transparent)]
     Io(io::Error),
+    #[error(transparent)]
     Import(gcs_mimic::import::ImportError),
     /// A request to a running server got no answer the command can read: the diagnostics name
     /// the server and what to check, and the failure remains the error's source.
-    Unanswered(Diagnostics, seed_cli::ExchangeFailure),
+    #[error("{0}")]
+    Unanswered(Diagnostics, #[source] seed_cli::ExchangeFailure),
 }
 
 impl CliError {
@@ -143,29 +148,6 @@ impl CliError {
             | Self::Unanswered(diagnostics, _) => Some(diagnostics),
             Self::Authentication(failure) => Some(failure.diagnostics()),
             Self::Import(_) | Self::Io(_) => None,
-        }
-    }
-}
-
-impl std::fmt::Display for CliError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Diagnostics(diagnostics) | Self::Unanswered(diagnostics, _) => diagnostics.fmt(f),
-            Self::Authentication(failure) => failure.fmt(f),
-            Self::Io(error) => error.fmt(f),
-            Self::Import(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for CliError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Diagnostics(diagnostics) => diagnostics.source(),
-            Self::Authentication(failure) => failure.source(),
-            Self::Io(error) => error.source(),
-            Self::Import(error) => error.source(),
-            Self::Unanswered(_, failure) => Some(failure),
         }
     }
 }
@@ -683,30 +665,21 @@ impl TryFrom<&[String]> for HealthcheckArgs {
 }
 
 /// Healthcheck options that cannot run.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 enum HealthcheckUsage {
+    #[error("options require --name VALUE pairs")]
     Pairs,
+    #[error("unknown option {0}")]
     Unknown(String),
+    #[error("{0} needs a value")]
     Empty(String),
+    #[error("{0} is given more than once")]
     Duplicate(String),
+    #[error("--url {0}")]
     Url(InvalidProbeUrl),
+    #[error("--ca-cert requires an HTTPS healthcheck URL")]
     CaCertNeedsHttps,
 }
-
-impl std::fmt::Display for HealthcheckUsage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Pairs => f.write_str("options require --name VALUE pairs"),
-            Self::Unknown(name) => write!(f, "unknown option {name}"),
-            Self::Empty(name) => write!(f, "{name} needs a value"),
-            Self::Duplicate(name) => write!(f, "{name} is given more than once"),
-            Self::Url(error) => write!(f, "--url {error}"),
-            Self::CaCertNeedsHttps => f.write_str("--ca-cert requires an HTTPS healthcheck URL"),
-        }
-    }
-}
-
-impl std::error::Error for HealthcheckUsage {}
 
 /// A probe of this server: an HTTP(S) origin with an explicit port and a probe path.
 #[derive(Debug, PartialEq, Eq)]
@@ -723,16 +696,11 @@ impl std::fmt::Display for ProbeUrl {
 }
 
 /// A URL that names no probe of this server.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "expected http(s)://HOST:PORT/_internal/health, /_internal/ready or /_internal/healthcheck"
+)]
 struct InvalidProbeUrl;
-
-impl std::fmt::Display for InvalidProbeUrl {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("expected http(s)://HOST:PORT/_internal/health, /_internal/ready or /_internal/healthcheck")
-    }
-}
-
-impl std::error::Error for InvalidProbeUrl {}
 
 impl std::str::FromStr for ProbeUrl {
     type Err = InvalidProbeUrl;
@@ -1146,4 +1114,12 @@ mod tests {
             format!("missing required option: --object\n{URL_SIGN_HELP}")
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = HealthcheckUsage::Duplicate("option".into());
+    assert_eq!(error.to_string(), "option is given more than once");
+    assert!(std::error::Error::source(&error).is_none());
 }
