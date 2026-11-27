@@ -35,7 +35,7 @@ enum Reason {
 }
 
 /// A rejected header value with the reason Cloud Storage reports for it.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) struct MalformedRange<'a> {
     value: &'a str,
     reason: Reason,
@@ -54,8 +54,6 @@ impl fmt::Display for MalformedRange<'_> {
         }
     }
 }
-
-impl std::error::Error for MalformedRange<'_> {}
 
 impl From<MalformedRange<'_>> for Error {
     fn from(error: MalformedRange<'_>) -> Self {
@@ -275,4 +273,18 @@ mod tests {
         assert_eq!(range.cap(4), 4);
         assert_eq!(range.cap(100), 10);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = MalformedRange {
+        value: "9,4",
+        reason: Reason::Reversed,
+    };
+    assert_eq!(
+        error.to_string(),
+        "x-goog-content-length-range: '9,4' is invalid"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }
