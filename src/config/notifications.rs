@@ -59,6 +59,8 @@ impl EventSettingsError {
     }
 }
 
+// The endpoint and notification errors are both displayed and exposed as concrete sources.
+// Keep those identities until the diagnostic contract is revisited.
 impl fmt::Display for EventSettingsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -221,3 +223,17 @@ impl Validation {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    for error in [
+        EventSettingsError::Endpoint(InvalidEndpoint),
+        EventSettingsError::Topic(NotificationError::BucketLimit),
+        EventSettingsError::ObjectPrefix(NotificationError::ObjectNamePrefixTooLong),
+    ] {
+        let source = std::error::Error::source(&error).unwrap();
+        assert!(source.is::<InvalidEndpoint>() || source.is::<NotificationError>());
+        assert_eq!(error.to_string(), source.to_string());
+    }
+}

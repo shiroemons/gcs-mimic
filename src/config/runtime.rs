@@ -1,10 +1,7 @@
 use super::{Config, DomainLimit, VirtualHostDomains};
 use crate::url::{PublicOrigin, UrlError, normalize_base_url};
 use hyper::http::uri::Authority;
-use std::{
-    fmt,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 /// Shared endpoint state; each request retains one immutable snapshot across awaits.
 #[derive(Clone, Debug, Default)]
@@ -206,34 +203,22 @@ impl RequestEndpoints {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum EndpointError {
+    #[error(transparent)]
     Url(UrlError),
+    #[error(
+        "publicHost must be a host authority, for example localhost:4443; omit the scheme, path and credentials"
+    )]
     PublicHost,
+    #[error("publicHost and xml_virtual_host_domains must contain at most 32 distinct DNS names")]
     DomainLimit,
+    #[error(
+        "externalUrl host selects an XML virtual bucket; use a host outside the configured XML domains or the base domain itself"
+    )]
     ApiVirtualHost,
+    #[error("runtime endpoint state is unavailable; restart the local emulator")]
     Poisoned,
-}
-
-impl fmt::Display for EndpointError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Url(error) => error.fmt(f),
-            Self::PublicHost => f.write_str("publicHost must be a host authority, for example localhost:4443; omit the scheme, path and credentials"),
-            Self::DomainLimit => f.write_str("publicHost and xml_virtual_host_domains must contain at most 32 distinct DNS names"),
-            Self::ApiVirtualHost => f.write_str("externalUrl host selects an XML virtual bucket; use a host outside the configured XML domains or the base domain itself"),
-            Self::Poisoned => f.write_str("runtime endpoint state is unavailable; restart the local emulator"),
-        }
-    }
-}
-
-impl std::error::Error for EndpointError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Url(error) => error.source(),
-            Self::PublicHost | Self::DomainLimit | Self::ApiVirtualHost | Self::Poisoned => None,
-        }
-    }
 }
 
 impl From<UrlError> for EndpointError {
@@ -329,3 +314,14 @@ impl RuntimeEndpoints {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = EndpointError::Poisoned;
+    assert_eq!(
+        error.to_string(),
+        "runtime endpoint state is unavailable; restart the local emulator"
+    );
+    assert!(std::error::Error::source(&error).is_none());
+}

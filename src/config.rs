@@ -330,18 +330,9 @@ fn read_config(path: &str) -> Result<Vec<(String, Box<RawValue>)>, ConfigReadErr
 }
 
 /// A host or virtual-host domain that is not a plain DNS name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot")]
 pub struct InvalidDnsName;
-
-impl std::fmt::Display for InvalidDnsName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(
-            "virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot",
-        )
-    }
-}
-
-impl std::error::Error for InvalidDnsName {}
 
 pub(crate) fn validate_dns_name(value: &str) -> Result<(), InvalidDnsName> {
     if value.is_empty()
@@ -3044,4 +3035,15 @@ mod tests {
                 .is_empty()
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidDnsName;
+    assert_eq!(
+        error.to_string(),
+        "virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }
