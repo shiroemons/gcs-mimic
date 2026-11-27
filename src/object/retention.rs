@@ -29,8 +29,8 @@ crate::choice::string_enum! {
 /// The time is a [`UnixNanos`], never a `SystemTime`, which Windows floors to 100 ns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ObjectRetention {
-    pub mode: RetentionMode,
-    pub retain_until: UnixNanos,
+    pub(crate) mode: RetentionMode,
+    pub(crate) retain_until: UnixNanos,
 }
 
 impl ObjectRetention {

@@ -3,7 +3,7 @@ use crate::common::process::declare_server;
 
 use common::TestDir;
 use common::process::http_command;
-use gcs_mimic::auth::signature::parse_timestamp;
+use gcs_mimic::testing::auth::signature::parse_timestamp;
 use serde_json::{Value, json};
 use std::time::{Duration, SystemTime};
 

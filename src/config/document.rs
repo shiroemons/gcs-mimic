@@ -14,7 +14,7 @@ pub(super) const MEMBER_FIX: &str =
 
 /// Where a document's JSON text comes from.
 #[derive(Clone, PartialEq, Eq)]
-pub enum DocumentSource {
+pub(crate) enum DocumentSource {
     /// A path the document is read from when it loads; a relative one names the working directory.
     File(PathBuf),
     /// The document text itself: an identity registry of up to 16 MiB or a buckets document of

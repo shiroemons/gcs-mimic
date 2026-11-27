@@ -146,7 +146,9 @@ async fn grpc_idle_admission_and_sigterm_drain() {
     // stop_server waited for a clean exit and the stopped event, so both listeners are closed.
     // Connecting again proves nothing: the OS may already have given the freed port to another
     // test's server, which made that check fail spuriously in CI.
-    let catalog = gcs_mimic::storage::Catalog::open(&dir.0).await.unwrap();
+    let catalog = gcs_mimic::testing::storage::Catalog::open(&dir.0)
+        .await
+        .unwrap();
     catalog.close().await.unwrap();
 }
 
@@ -181,6 +183,8 @@ async fn grpc_sigterm_default_deadlines_close_incomplete_handshake() {
     // stop_server waited for a clean exit and the stopped event, so both listeners are closed.
     // Connecting again proves nothing: the OS may already have given the freed port to another
     // test's server, which made that check fail spuriously in CI.
-    let catalog = gcs_mimic::storage::Catalog::open(&dir.0).await.unwrap();
+    let catalog = gcs_mimic::testing::storage::Catalog::open(&dir.0)
+        .await
+        .unwrap();
     catalog.close().await.unwrap();
 }

@@ -18,9 +18,9 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectMoveParams {
-    pub names: MoveNames,
-    pub conditions: MoveConditions,
-    pub projection: Projection,
+    pub(crate) names: MoveNames,
+    pub(crate) conditions: MoveConditions,
+    pub(crate) projection: Projection,
 }
 
 pub(super) fn route(

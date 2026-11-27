@@ -1,6 +1,6 @@
 mod append;
 mod bidi_read;
-pub use bidi_read::ReadHandles;
+pub(crate) use bidi_read::ReadHandles;
 mod bucket_iam;
 mod bucket_update;
 mod buckets;
@@ -38,9 +38,9 @@ pub(crate) type ResponseStream<T> =
 
 #[derive(Clone)]
 pub(crate) struct Storage {
-    pub state: Arc<State>,
-    pub max_object_bytes: u64,
-    pub compat_profile: crate::config::CompatProfile,
+    pub(crate) state: Arc<State>,
+    pub(crate) max_object_bytes: u64,
+    pub(crate) compat_profile: crate::config::CompatProfile,
 }
 
 pub(crate) fn service(

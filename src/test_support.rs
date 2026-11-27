@@ -33,12 +33,12 @@ pub(crate) fn live_len(path: &Path) -> u64 {
 
 #[derive(Debug)]
 pub(crate) struct UploadCleanup {
-    pub active: usize,
-    pub staging: usize,
-    pub blobs: usize,
-    pub objects: usize,
-    pub pending: usize,
-    pub derived: usize,
+    pub(crate) active: usize,
+    pub(crate) staging: usize,
+    pub(crate) blobs: usize,
+    pub(crate) objects: usize,
+    pub(crate) pending: usize,
+    pub(crate) derived: usize,
 }
 
 pub(crate) fn blob_count(data: &Path) -> usize {

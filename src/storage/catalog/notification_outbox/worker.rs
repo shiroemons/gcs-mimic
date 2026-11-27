@@ -13,7 +13,7 @@ use tokio::sync::Notify;
 
 impl Catalog {
     /// Configures the legacy event rule before seeding and starts at most one bounded publisher.
-    pub async fn start_notifications(
+    pub(crate) async fn start_notifications(
         &self,
         config: &crate::config::Config,
     ) -> Result<(), CatalogError> {

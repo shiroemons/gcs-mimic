@@ -139,11 +139,11 @@ impl PathTarget<'_> {
 
 #[derive(Clone, Debug)]
 pub(crate) struct AclRequest {
-    pub target: AclTarget,
-    pub operation: AclOperation,
+    pub(crate) target: AclTarget,
+    pub(crate) operation: AclOperation,
     /// Bucket metageneration conditions; Discovery defines them only for default object ACL lists.
-    pub conditions: BucketConditions,
-    pub fields: Fields,
+    pub(crate) conditions: BucketConditions,
+    pub(crate) fields: Fields,
 }
 
 /// Parse an ACL route. Other paths and methods return `None` so they keep their existing routing.
@@ -246,8 +246,8 @@ fn parse_route(
 /// The entity and role a mutation applies; `role` is `None` only for a patch that omits it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AclBody {
-    pub entity: Entity,
-    pub role: Option<AclRole>,
+    pub(crate) entity: Entity,
+    pub(crate) role: Option<AclRole>,
 }
 
 pub(crate) fn parse_entries(value: &Value, kind: AclKind) -> Result<Vec<AclEntry>, ApiError> {

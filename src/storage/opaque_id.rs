@@ -7,7 +7,7 @@
 /// Text that is not the canonical lowercase hexadecimal form of an identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("{what}")]
-pub struct InvalidOpaqueId {
+pub(crate) struct InvalidOpaqueId {
     what: &'static str,
 }
 

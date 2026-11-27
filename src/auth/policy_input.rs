@@ -7,15 +7,15 @@ use crate::acl::ProjectTeam;
 
 /// Adapter-decoded policy fields, before shared semantic validation.
 pub(crate) struct PolicyInput {
-    pub version: i32,
-    pub bindings: Vec<BindingInput>,
-    pub etag: Option<String>,
+    pub(crate) version: i32,
+    pub(crate) bindings: Vec<BindingInput>,
+    pub(crate) etag: Option<String>,
 }
 
 /// One binding as an adapter decoded it, before validation.
 pub(crate) struct BindingInput {
-    pub role: String,
-    pub members: Vec<String>,
+    pub(crate) role: String,
+    pub(crate) members: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]

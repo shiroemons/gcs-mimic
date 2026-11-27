@@ -82,7 +82,7 @@ fn a_test_signer_jwt_names_the_disabled_signer_in_its_warning() {
     let (_config, _data, mut server, ready) =
         fixture_with(&["--test-signer", "disabled"], Stdio::piped());
     assert_eq!(ready["test_signer"], "disabled");
-    let signer = bearer(gcs_mimic::auth::test_signer::ID);
+    let signer = bearer(gcs_mimic::testing::auth::test_signer::ID);
     for _ in 0..2 {
         server
             .get(&signer, "/storage/v1/b/iam-bucket/o/object?alt=media")

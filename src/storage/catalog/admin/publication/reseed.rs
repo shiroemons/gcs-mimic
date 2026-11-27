@@ -44,20 +44,20 @@ impl SeedMode {
 
 #[derive(Default)]
 pub(crate) struct Counts {
-    pub buckets: usize,
-    pub objects: usize,
-    pub replaced: usize,
-    pub unchanged: usize,
+    pub(crate) buckets: usize,
+    pub(crate) objects: usize,
+    pub(crate) replaced: usize,
+    pub(crate) unchanged: usize,
     /// What a clearing commit removed before it published; zero for a merge.
-    pub removed: Removed,
+    pub(crate) removed: Removed,
     /// Whether a clearing commit left the bodies it removed for maintenance to reclaim.
-    pub cleanup_pending: bool,
+    pub(crate) cleanup_pending: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
 pub(crate) struct Removed {
-    pub buckets: i64,
-    pub objects: i64,
+    pub(crate) buckets: i64,
+    pub(crate) objects: i64,
 }
 
 /// One staged fixture file.

@@ -8,7 +8,7 @@ use std::io;
 /// Unconsumed handles clean their staging link; `begin_derived` transfers ownership to SQLite.
 #[must_use = "dropping an unconsumed source removes its staging link"]
 pub(crate) struct DerivedSource {
-    pub object: ObjectRecord,
+    pub(crate) object: ObjectRecord,
     pub(super) pin: SourcePin,
     snapshot_hashes: Option<Hashes>,
     activity: std::sync::Arc<super::super::Activity>,
@@ -69,9 +69,9 @@ fn link_unavailable(error: &BlobError) -> bool {
 }
 
 pub(crate) struct DerivedSegment {
-    pub source: DerivedSource,
-    pub offset: u64,
-    pub length: u64,
+    pub(crate) source: DerivedSource,
+    pub(crate) offset: u64,
+    pub(crate) length: u64,
 }
 
 /// The request a source is resolved for, which decides how a failed lookup is reported.

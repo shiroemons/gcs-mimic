@@ -27,27 +27,27 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectInsertParams {
-    pub conditions: ObjectConditions,
-    pub projection: Projection,
-    pub predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
+    pub(crate) conditions: ObjectConditions,
+    pub(crate) projection: Projection,
+    pub(crate) predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectGetParams {
-    pub projection: Projection,
-    pub media: bool,
-    pub soft_deleted: bool,
+    pub(crate) projection: Projection,
+    pub(crate) media: bool,
+    pub(crate) soft_deleted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectUpdateParams {
-    pub target: ObjectTarget,
-    pub conditions: ObjectConditions,
-    pub projection: Projection,
-    pub mode: WriteMode,
-    pub retention_override: UnlockedOverride,
+    pub(crate) target: ObjectTarget,
+    pub(crate) conditions: ObjectConditions,
+    pub(crate) projection: Projection,
+    pub(crate) mode: WriteMode,
+    pub(crate) retention_override: UnlockedOverride,
     /// `predefinedAcl`, which replaces the object's ACL.
-    pub predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
+    pub(crate) predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
 }
 
 /// A media, multipart or resumable upload: the object it names and the options its query
@@ -55,10 +55,10 @@ pub(crate) struct ObjectUpdateParams {
 /// `Option<String>` there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UploadRequest<N> {
-    pub bucket: BucketKey,
-    pub name: N,
-    pub params: ObjectInsertParams,
-    pub content_encoding: Option<String>,
+    pub(crate) bucket: BucketKey,
+    pub(crate) name: N,
+    pub(crate) params: ObjectInsertParams,
+    pub(crate) content_encoding: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

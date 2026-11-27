@@ -13,17 +13,17 @@ use tokio::time::Instant;
 const FAR_FUTURE: Duration = Duration::from_secs(30 * 365 * 24 * 60 * 60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TimeLimit(Option<NonZeroU64>);
+pub(crate) struct TimeLimit(Option<NonZeroU64>);
 
 impl TimeLimit {
-    pub const DISABLED: Self = Self(None);
+    pub(crate) const DISABLED: Self = Self(None);
 
-    pub const fn from_millis(millis: u64) -> Self {
+    pub(crate) const fn from_millis(millis: u64) -> Self {
         Self(NonZeroU64::new(millis))
     }
 
     /// The setting's own form, where zero means disabled.
-    pub fn as_millis(self) -> u64 {
+    pub(crate) fn as_millis(self) -> u64 {
         self.0.map_or(0, NonZeroU64::get)
     }
 

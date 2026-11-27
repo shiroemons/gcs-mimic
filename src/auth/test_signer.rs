@@ -32,7 +32,7 @@ pub(super) fn public_key() -> PublicKey {
 
 /// The signer as a service account key file. Images and binaries hold no copy of the repository,
 /// so this is how their users get the published key.
-pub fn service_account_json() -> String {
+pub(crate) fn service_account_json() -> String {
     let credentials = serde_json::json!({
         "type": "service_account",
         "project_id": PROJECT_ID,

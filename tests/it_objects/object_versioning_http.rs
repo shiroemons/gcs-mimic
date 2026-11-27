@@ -1,7 +1,9 @@
 use crate::common;
 use common::TestDir;
 use common::effects::{Server, blobs, request, settings};
-use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin, Publication, PublishMode};
+use gcs_mimic::testing::storage::admin::{
+    BucketName, ObjectName, Origin, Publication, PublishMode,
+};
 use std::assert_matches;
 use std::{
     io::Write,
@@ -464,7 +466,7 @@ fn versioned_crash_recovery_preserves_referenced_generations() {
 
 #[tokio::test]
 async fn versioned_schema_migrations_preserve_objects() {
-    use gcs_mimic::{
+    use gcs_mimic::testing::{
         object::{ExpectedHashes, UploadChunk},
         storage::Catalog,
     };
@@ -478,7 +480,7 @@ async fn versioned_schema_migrations_preserve_objects() {
         let current_schema: i64 = db
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        let expected: (gcs_mimic::object::ObjectRecord, Vec<u8>) = {
+        let expected: (gcs_mimic::testing::object::ObjectRecord, Vec<u8>) = {
             let catalog = Catalog::open(&dir.0).await.unwrap();
             let (mut record, mut reader) = catalog
                 .admin(Origin::Seed)

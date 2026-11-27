@@ -40,19 +40,19 @@ impl From<&BlobId> for DerivedBody {
 /// `None` selects the destination bucket default for an explicit resource without storageClass.
 #[derive(Clone, Debug)]
 pub(crate) struct DerivedDestination {
-    pub bucket: String,
-    pub name: String,
-    pub content_type: String,
-    pub metadata: ObjectMetadataUpdate,
-    pub storage_class: Option<crate::bucket::StorageClass>,
+    pub(crate) bucket: String,
+    pub(crate) name: String,
+    pub(crate) content_type: String,
+    pub(crate) metadata: ObjectMetadataUpdate,
+    pub(crate) storage_class: Option<crate::bucket::StorageClass>,
     /// Digests the client declared for the new object; a mismatch is the client's error.
-    pub declared: ExpectedHashes,
+    pub(crate) declared: ExpectedHashes,
     /// Digests recorded for the bytes the transfer copies; a mismatch means stored data is
     /// damaged, which is no fault of the request.
-    pub recorded: ExpectedHashes,
-    pub conditions: ObjectConditions,
-    pub access: BucketAccess,
-    pub component_count: Option<i64>,
+    pub(crate) recorded: ExpectedHashes,
+    pub(crate) conditions: ObjectConditions,
+    pub(crate) access: BucketAccess,
+    pub(crate) component_count: Option<i64>,
 }
 
 impl DerivedDestination {
@@ -84,8 +84,8 @@ struct Published<T> {
 /// A published derived object, and what completion produced unless a replay returned the
 /// stored record instead.
 pub(crate) struct DerivedPublication<T> {
-    pub record: ObjectRecord,
-    pub completion: Option<T>,
+    pub(crate) record: ObjectRecord,
+    pub(crate) completion: Option<T>,
 }
 
 fn publish_transfer<P, C, T>(

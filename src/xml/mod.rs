@@ -41,7 +41,7 @@ mod name_encoding;
 mod render_tests;
 #[cfg(test)]
 mod test_support;
-pub use cors::CorsWarnings;
+pub(crate) use cors::CorsWarnings;
 pub(crate) use cors::{cors, note_default_cors_fallback, warn_unconfigured_cors};
 pub(crate) mod post;
 pub(crate) mod put;
@@ -216,8 +216,8 @@ pub(crate) async fn authenticate_upload_target<'a>(
 
 /// An XML object request's path and response overrides; headers supply preconditions separately.
 pub(crate) struct ReadRequest {
-    pub target: ObjectTarget<Option<Generation>>,
-    pub response_overrides: HeaderMap,
+    pub(crate) target: ObjectTarget<Option<Generation>>,
+    pub(crate) response_overrides: HeaderMap,
 }
 
 #[derive(Debug)]
@@ -585,7 +585,7 @@ enum BucketSource {
 }
 
 pub(crate) struct ObjectPath {
-    pub bucket: String,
+    pub(crate) bucket: String,
     uri: Uri,
     name_start: usize,
     source: BucketSource,

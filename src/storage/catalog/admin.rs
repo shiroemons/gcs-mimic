@@ -73,7 +73,7 @@ pub(crate) struct AdminGrant {
 }
 
 #[derive(Clone, Copy)]
-pub enum LocalAdmin {
+pub(crate) enum LocalAdmin {
     Disabled,
     Enabled,
 }
@@ -115,7 +115,7 @@ impl AdminGrant {
 }
 
 pub use crate::bucket::name::{BucketName, InvalidBucketName};
-pub use crate::object::generation::{Generation, InvalidGeneration};
+pub(crate) use crate::object::generation::{Generation, InvalidGeneration};
 pub use crate::object::name::{InvalidObjectName, ObjectName};
 
 // The administration API's constructors keep its error type: seed and fixtures report
@@ -131,7 +131,7 @@ impl ObjectName {
     }
 }
 impl Generation {
-    pub fn new(value: i64) -> Result<Self, AdminError> {
+    pub(crate) fn new(value: i64) -> Result<Self, AdminError> {
         Ok(Self::try_from(value)?)
     }
 }
@@ -885,7 +885,8 @@ impl Admin {
             .await
     }
 
-    pub async fn delete_object(
+    #[cfg(test)]
+    pub(crate) async fn delete_object(
         &self,
         bucket: &BucketName,
         name: &ObjectName,

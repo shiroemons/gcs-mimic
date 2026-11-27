@@ -55,8 +55,8 @@ pub(crate) const MAX_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 const MIN_PART_BYTES: u64 = 5 * 1024 * 1024;
 
 pub(crate) struct Options {
-    pub content_type: String,
-    pub metadata: crate::object::ObjectMetadataUpdate,
+    pub(crate) content_type: String,
+    pub(crate) metadata: crate::object::ObjectMetadataUpdate,
 }
 
 #[derive(Debug)]
@@ -129,48 +129,48 @@ impl ReadOutcome for Error {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Target {
-    pub bucket: String,
-    pub name: String,
-    pub id: String,
+    pub(crate) bucket: String,
+    pub(crate) name: String,
+    pub(crate) id: String,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct Upload {
-    pub target: Target,
-    pub options: resumable::ResumableOptions,
-    pub created: SystemTime,
+    pub(crate) target: Target,
+    pub(crate) options: resumable::ResumableOptions,
+    pub(crate) created: SystemTime,
     incarnation: Incarnation,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct Part {
-    pub number: u16,
-    pub etag: String,
-    pub size: u64,
-    pub updated: SystemTime,
-    pub hashes: Hashes,
+    pub(crate) number: u16,
+    pub(crate) etag: String,
+    pub(crate) size: u64,
+    pub(crate) updated: SystemTime,
+    pub(crate) hashes: Hashes,
     blob_id: BlobId,
 }
 
 /// One page of an upload's parts in part-number order.
 #[derive(Debug)]
 pub(crate) struct PartsPage {
-    pub upload: Upload,
-    pub parts: Vec<Part>,
+    pub(crate) upload: Upload,
+    pub(crate) parts: Vec<Part>,
     /// Parts after the last one listed remain.
-    pub more: bool,
+    pub(crate) more: bool,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct CompletedPart {
-    pub number: u16,
-    pub etag: String,
+    pub(crate) number: u16,
+    pub(crate) etag: String,
 }
 
 /// Writes one part. Other part numbers of the upload may write at the same time, so this lease
 /// offers nothing that reads or retires the whole upload.
 pub(crate) struct PartLease {
-    pub upload: Upload,
+    pub(crate) upload: Upload,
     access: BucketAccess,
     number: u16,
     guard: std::sync::Arc<resumable::WriterGuard>,
@@ -179,7 +179,7 @@ pub(crate) struct PartLease {
 /// Owns a whole upload for completion: no part is writing, and none starts until this lease
 /// drops.
 pub(crate) struct UploadLease {
-    pub upload: Upload,
+    pub(crate) upload: Upload,
     access: BucketAccess,
     guard: std::sync::Arc<resumable::WriterGuard>,
 }

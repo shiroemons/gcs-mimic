@@ -140,9 +140,9 @@ impl StoredCompletion {
 pub(crate) struct Overrun {
     /// The bytes the chunk's `Content-Range` carries. Cloud Storage counted the bytes it had
     /// read when it noticed, so its count depends on its buffering.
-    pub received: u64,
+    pub(crate) received: u64,
     /// The bytes between the chunk's start and the session's total.
-    pub room: u64,
+    pub(crate) room: u64,
 }
 
 impl fmt::Display for Overrun {
@@ -180,14 +180,14 @@ pub(super) enum TerminalReason {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResumableOptions {
-    pub content_type: String,
-    pub metadata: ObjectMetadataUpdate,
-    pub expected: ExpectedHashes,
-    pub conditions: ObjectConditions,
-    pub access: BucketAccess,
-    pub origin: Option<String>,
-    pub projection: crate::json::Projection,
-    pub response_fields: Option<String>,
+    pub(crate) content_type: String,
+    pub(crate) metadata: ObjectMetadataUpdate,
+    pub(crate) expected: ExpectedHashes,
+    pub(crate) conditions: ObjectConditions,
+    pub(crate) access: BucketAccess,
+    pub(crate) origin: Option<String>,
+    pub(crate) projection: crate::json::Projection,
+    pub(crate) response_fields: Option<String>,
 }
 
 impl ResumableOptions {
@@ -220,20 +220,20 @@ impl SessionId {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResumableSession {
-    pub id: SessionId,
-    pub blob_id: BlobId,
-    pub bucket: String,
-    pub name: String,
-    pub incarnation: Incarnation,
-    pub options: ResumableOptions,
-    pub total: Option<u64>,
-    pub offset: u64,
-    pub created: SystemTime,
-    pub deadline: SystemTime,
-    pub state: SessionState,
+    pub(crate) id: SessionId,
+    pub(crate) blob_id: BlobId,
+    pub(crate) bucket: String,
+    pub(crate) name: String,
+    pub(crate) incarnation: Incarnation,
+    pub(crate) options: ResumableOptions,
+    pub(crate) total: Option<u64>,
+    pub(crate) offset: u64,
+    pub(crate) created: SystemTime,
+    pub(crate) deadline: SystemTime,
+    pub(crate) state: SessionState,
     /// The digests of the `offset` persisted bytes, continued by each chunk; `None` for a
     /// session an earlier release staged.
-    pub running_hash: Option<HasherState>,
+    pub(crate) running_hash: Option<HasherState>,
 }
 
 impl ResumableSession {
@@ -258,9 +258,9 @@ impl ResumableSession {
 /// How much of an open upload a session has persisted, as a status reply reports it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Progress {
-    pub offset: u64,
+    pub(crate) offset: u64,
     /// The digests of those bytes; `None` for a session an earlier release staged.
-    pub hashes: Option<Hashes>,
+    pub(crate) hashes: Option<Hashes>,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -294,7 +294,7 @@ impl From<CatalogError> for ResumableError {
 
 /// An exclusive operation on one session; dropping always releases its writer.
 pub(crate) struct SessionLease {
-    pub session: ResumableSession,
+    pub(crate) session: ResumableSession,
     pub(super) guard: std::sync::Arc<WriterGuard>,
 }
 impl SessionLease {

@@ -1,5 +1,5 @@
 use super::*;
-use gcs_mimic::url::{encode_object_name, public_object_url};
+use gcs_mimic::testing::url::{encode_object_name, public_object_url};
 use std::assert_matches;
 
 const OBJECT: &str = "/iam-bucket/object";

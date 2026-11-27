@@ -324,25 +324,6 @@ impl ObjectReader {
         self.next_bytes(limit, PageCache::Missed).await
     }
 
-    /// Transfers the already-opened immutable generation; no storage path is exposed. A duplicate
-    /// would share its cursor with every other holder of the file, so a file the read cache also
-    /// holds is refused instead. Only HTTP downloads open through the cache, and they never call
-    /// this.
-    pub fn into_file(self) -> io::Result<File> {
-        match self.file {
-            ReaderData::Disk(file) => {
-                let mut file = Arc::try_unwrap(file)
-                    .map_err(|_| public_read_failure(BlobError::SharedFile))?;
-                io::Seek::seek(&mut file, io::SeekFrom::Start(self.position))?;
-                Ok(file)
-            }
-            ReaderData::Memory(_) => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "RAM objects have no filesystem descriptor",
-            )),
-        }
-    }
-
     pub(crate) fn into_reader(self) -> Box<dyn io::Read + Send> {
         match self.file {
             ReaderData::Disk(file) => Box::new(PositionalRead {

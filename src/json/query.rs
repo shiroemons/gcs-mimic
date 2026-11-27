@@ -100,35 +100,35 @@ pub(crate) enum Projection {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct InsertParams {
-    pub project: String,
-    pub projection: Projection,
-    pub enable_object_retention: bool,
+    pub(crate) project: String,
+    pub(crate) projection: Projection,
+    pub(crate) enable_object_retention: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GetParams {
-    pub conditions: BucketConditions,
-    pub projection: Projection,
+    pub(crate) conditions: BucketConditions,
+    pub(crate) projection: Projection,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ListParams {
-    pub project: String,
-    pub projection: Projection,
-    pub max_results: u32,
-    pub prefix: String,
+    pub(crate) project: String,
+    pub(crate) projection: Projection,
+    pub(crate) max_results: u32,
+    pub(crate) prefix: String,
     /// Decoded last name, for a catalog keyset query; never a filesystem path.
-    pub start_after: Option<String>,
+    pub(crate) start_after: Option<String>,
 }
 
 /// `buckets.list` with `softDeleted=true`; the cursor is the last (name, generation).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SoftDeletedListParams {
-    pub project: String,
-    pub projection: Projection,
-    pub max_results: u32,
-    pub prefix: String,
-    pub start_after: Option<(String, i64)>,
+    pub(crate) project: String,
+    pub(crate) projection: Projection,
+    pub(crate) max_results: u32,
+    pub(crate) prefix: String,
+    pub(crate) start_after: Option<(String, i64)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

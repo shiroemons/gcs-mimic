@@ -9,7 +9,7 @@ mod xml_v4_streaming;
 
 use common::effects::Reply;
 use common::process::http_command;
-use gcs_mimic::auth::signature::{encode_query_component, timestamp};
+use gcs_mimic::testing::auth::signature::{encode_query_component, timestamp};
 use ring::{digest, hmac};
 use serde_json::json;
 use std::{
@@ -659,7 +659,7 @@ fn curl_aws_sigv4_independently_verifies_header_get_and_hashed_put() {
 
 #[test]
 fn rsa_authorization_headers_and_existing_query_helpers_transfer_the_same_object() {
-    use gcs_mimic::auth::signature::{SignUrlRequest, sign_policy, sign_url};
+    use gcs_mimic::testing::auth::signature::{SignUrlRequest, sign_policy, sign_url};
     let dir = TestDir::new();
     let server = Server::start(&dir, "disk");
     server.bucket("test-bucket");

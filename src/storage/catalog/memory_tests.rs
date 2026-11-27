@@ -637,7 +637,7 @@ async fn ram_incomplete_bodies_and_competing_conditions_preserve_committed_state
         left.err().or(right.err()),
         Some(ObjectError::PreconditionFailed)
     ));
-    let (_, reader) = catalog
+    catalog
         .admin(admin::Origin::Seed)
         .open_object(
             &BucketName::new("test-bucket").unwrap(),
@@ -646,12 +646,6 @@ async fn ram_incomplete_bodies_and_competing_conditions_preserve_committed_state
         )
         .await
         .unwrap();
-    let error: std::io::Error = reader.into_file().unwrap_err();
-    assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
-    assert_eq!(
-        error.to_string(),
-        "RAM objects have no filesystem descriptor"
-    );
     catalog.close().await.unwrap();
 }
 

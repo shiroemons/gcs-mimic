@@ -141,8 +141,8 @@ impl<'a> AclOwner<'a> {
 /// the write policy that [`validate_entries`] applies.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct AclEntry {
-    pub entity: Entity,
-    pub role: AclRole,
+    pub(crate) entity: Entity,
+    pub(crate) role: AclRole,
 }
 
 /// Client input keeps its strings, so a malformed entity is reported in Cloud Storage's words
@@ -150,8 +150,8 @@ pub(crate) struct AclEntry {
 
 #[derive(Deserialize)]
 pub(crate) struct AclEntryInput {
-    pub entity: String,
-    pub role: String,
+    pub(crate) entity: String,
+    pub(crate) role: String,
 }
 
 pub(crate) fn parse_entries(

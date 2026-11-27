@@ -176,12 +176,12 @@ pub(super) fn publish_object_acl(
 /// The effective entries plus the containing resource version used for ACL etags.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AclState {
-    pub entries: Vec<AclEntry>,
-    pub metageneration: i64,
+    pub(crate) entries: Vec<AclEntry>,
+    pub(crate) metageneration: i64,
     /// The target, with the object generation the read or change selected.
-    pub target: AclTarget<i64>,
+    pub(crate) target: AclTarget<i64>,
     /// The number of the owning project, as ACL entity names spell it.
-    pub project_number: crate::project::ProjectNumber,
+    pub(crate) project_number: crate::project::ProjectNumber,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -264,13 +264,13 @@ impl From<crate::acl::AclError> for CatalogError {
 /// under uniform bucket-level access, which only hides them from resources.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AclProjection {
-    pub uniform_access: bool,
-    pub project: String,
-    pub bucket: Vec<AclEntry>,
-    pub default_object: Vec<AclEntry>,
-    pub bucket_metageneration: i64,
+    pub(crate) uniform_access: bool,
+    pub(crate) project: String,
+    pub(crate) bucket: Vec<AclEntry>,
+    pub(crate) default_object: Vec<AclEntry>,
+    pub(crate) bucket_metageneration: i64,
     /// One per requested object generation, in request order.
-    pub objects: Vec<ObjectAcl>,
+    pub(crate) objects: Vec<ObjectAcl>,
 }
 
 /// One requested object's ACL as `projection=full` renders it.
@@ -299,8 +299,8 @@ pub(crate) struct ObjectAclSnapshot {
     pub(super) bucket: String,
     pub(super) name: String,
     pub(super) generation: i64,
-    pub entries: Vec<AclEntry>,
-    pub owner: Option<crate::object::owner::ObjectOwner>,
+    pub(crate) entries: Vec<AclEntry>,
+    pub(crate) owner: Option<crate::object::owner::ObjectOwner>,
     pub(super) incarnation: Incarnation,
 }
 

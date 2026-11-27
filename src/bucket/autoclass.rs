@@ -36,8 +36,8 @@ crate::choice::string_enum! {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(into = "StoredAutoclass", try_from = "StoredAutoclass")]
 pub(crate) struct Autoclass {
-    pub toggle_time: SystemTime,
-    pub state: AutoclassState,
+    pub(crate) toggle_time: SystemTime,
+    pub(crate) state: AutoclassState,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,8 +147,8 @@ pub(crate) struct InconsistentAutoclass;
 /// A requested change. `None` fields keep the current value under patch semantics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct AutoclassUpdate {
-    pub enabled: Option<bool>,
-    pub terminal_storage_class: Option<TerminalStorageClass>,
+    pub(crate) enabled: Option<bool>,
+    pub(crate) terminal_storage_class: Option<TerminalStorageClass>,
 }
 
 fn invalid(reason: &str) -> CatalogError {

@@ -13,11 +13,11 @@ use std::{
 mod environment;
 mod options;
 pub use environment::RenamedEnvironmentVariable;
-pub use options::{DurationError, Fix, PairError, UrlStyle, duration, option_pairs};
+pub(crate) use options::{DurationError, Fix, UrlStyle, duration, option_pairs};
 
 pub(crate) const MAX_SETTINGS: usize = 1024;
 /// The extra three pairs reserve two command words and two overflow pairs; equality detects take() truncation.
-pub const MAX_CLI_ARGS: usize = 2 * (MAX_SETTINGS + 3);
+pub(crate) const MAX_CLI_ARGS: usize = 2 * (MAX_SETTINGS + 3);
 pub(crate) const MAX_KEY_BYTES: usize = 256;
 
 pub(crate) fn ordered_members<'de, D, V>(
@@ -141,12 +141,12 @@ impl std::str::FromStr for ServerFlag {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Input {
-    pub source: DiagnosticSource,
-    pub key: String,
-    pub name: String,
-    pub value: String,
-    pub kind: InputKind,
-    pub invalid: Option<InputError>,
+    pub(crate) source: DiagnosticSource,
+    pub(crate) key: String,
+    pub(crate) name: String,
+    pub(crate) value: String,
+    pub(crate) kind: InputKind,
+    pub(crate) invalid: Option<InputError>,
 }
 
 /// How a supplied setting relates to the native configuration names.
@@ -179,8 +179,8 @@ pub(crate) enum CliCommand {
 
 #[derive(Default)]
 pub(crate) struct Inputs {
-    pub entries: Vec<Input>,
-    pub diagnostics: Diagnostics,
+    pub(crate) entries: Vec<Input>,
+    pub(crate) diagnostics: Diagnostics,
     count: usize,
     limited: bool,
     help_requested: bool,
@@ -860,7 +860,7 @@ fn refused_advice(flag: RefusedFlag, values: &BTreeMap<ServerFlag, &str>) -> Str
 /// when the first is an option. `docker run IMAGE --scheme http` and a Compose `command` replace
 /// the image's `serve`, and every other command starts with a word, so the option spelling never
 /// has to decide which command runs.
-pub fn server_arguments(args: &[String]) -> Option<&[String]> {
+pub(crate) fn server_arguments(args: &[String]) -> Option<&[String]> {
     match args {
         [command, options @ ..] if command == "serve" => Some(options),
         [first, ..] if first.starts_with('-') => Some(args),
@@ -869,19 +869,19 @@ pub fn server_arguments(args: &[String]) -> Option<&[String]> {
 }
 
 /// Whether `args` ask for the version and nothing else.
-pub fn requests_version(args: &[String]) -> bool {
+pub(crate) fn requests_version(args: &[String]) -> bool {
     matches!(args, [flag] if matches!(flag.as_str(), "-version" | "--version"))
 }
 
 /// Whether the server options ask for the usage text.
-pub fn requests_help(args: &[String]) -> bool {
+pub(crate) fn requests_help(args: &[String]) -> bool {
     let mut inputs = Inputs::default();
     inputs.cli(args, CliCommand::Serve);
     inputs.help_requested
 }
 
 /// Inspect option-name positions without reading server configuration or environment.
-pub fn cli_diagnostics(args: &[String]) -> Diagnostics {
+pub(crate) fn cli_diagnostics(args: &[String]) -> Diagnostics {
     if matches!(args, [command, kind, flag] if command == "url" && matches!(kind.as_str(), "public" | "sign") && flag == "--help")
         || matches!(args, [command, flag] if command == "test-signer" && flag == "--help")
     {

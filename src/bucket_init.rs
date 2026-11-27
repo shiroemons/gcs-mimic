@@ -32,7 +32,7 @@ use std::{
     time::SystemTime,
 };
 
-pub mod generate;
+pub(crate) mod generate;
 mod plan;
 mod policy;
 pub(crate) mod shorthand;
@@ -1141,7 +1141,7 @@ fn check_cors_rule(
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
-pub enum InitOutcome {
+pub(crate) enum InitOutcome {
     Disabled,
     Applied {
         created: usize,
@@ -1167,9 +1167,9 @@ pub(crate) struct InitEntry {
 /// What startup initialization applied, and the document it read. A reset to the startup state
 /// re-applies this document instead of reading a file that may have changed since startup, so
 /// the server keeps it in its configuration when local administration is enabled.
-pub struct Initialized {
-    pub outcome: InitOutcome,
-    pub document: Option<ParsedDocument>,
+pub(crate) struct Initialized {
+    pub(crate) outcome: InitOutcome,
+    pub(crate) document: Option<ParsedDocument>,
 }
 
 /// One read of the configured document, validated and checked against the catalog's rules.
@@ -1220,7 +1220,7 @@ async fn read(
 }
 
 /// Validate once, then publish missing buckets through local administrative authority.
-pub async fn apply(
+pub(crate) async fn apply(
     catalog: &Catalog,
     config: &crate::config::Config,
     clock: Arc<dyn Clock>,
@@ -1408,7 +1408,7 @@ pub(crate) fn load(
 /// instead of reading the file again. Both therefore see one version of a file that may change
 /// while the server starts, and a document of up to 1 GiB is read and parsed as one value once.
 #[derive(Clone, PartialEq, Eq)]
-pub struct ParsedDocument {
+pub(crate) struct ParsedDocument {
     form: Form,
     /// One JSON value within the document limit; shared, because a configuration copy keeps it.
     bytes: Arc<[u8]>,

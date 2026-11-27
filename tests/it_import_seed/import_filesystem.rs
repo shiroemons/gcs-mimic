@@ -2,7 +2,7 @@ use crate::common;
 use common::http::Body;
 
 use common::TestDir;
-use gcs_mimic::{
+use gcs_mimic::testing::{
     import::{self, Fingerprint, MetadataMode, Options, SourcePlatform},
     storage::{
         Catalog,
@@ -146,13 +146,15 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
             .publish_from_file(
                 &bucket,
                 &ObjectName::new("later").unwrap(),
-                gcs_mimic::storage::admin::Publication {
+                gcs_mimic::testing::storage::admin::Publication {
                     content_type: "application/octet-stream".into(),
                     metadata: Default::default(),
                     expected: Default::default(),
-                    condition: Some(gcs_mimic::storage::admin::GenerationCondition::Absent),
+                    condition: Some(
+                        gcs_mimic::testing::storage::admin::GenerationCondition::Absent,
+                    ),
                     max_bytes: 1024,
-                    mode: gcs_mimic::storage::admin::PublishMode::Replace,
+                    mode: gcs_mimic::testing::storage::admin::PublishMode::Replace,
                 },
                 File::open(&body).unwrap(),
             )
@@ -173,13 +175,13 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
             ])
         };
         let config = seed_config(&empty_fixture);
-        let clock: std::sync::Arc<dyn gcs_mimic::clock::Clock> =
-            std::sync::Arc::new(gcs_mimic::clock::SystemClock);
+        let clock: std::sync::Arc<dyn gcs_mimic::testing::clock::Clock> =
+            std::sync::Arc::new(gcs_mimic::testing::clock::SystemClock);
         std::assert_matches!(
-            gcs_mimic::seed::import(&catalog, &config, &clock)
+            gcs_mimic::testing::seed::import(&catalog, &config, &clock)
                 .await
                 .unwrap(),
-            gcs_mimic::seed::SeedOutcome::Imported {
+            gcs_mimic::testing::seed::SeedOutcome::Imported {
                 buckets: 0,
                 objects: 0,
                 replaced: 0,
@@ -205,7 +207,7 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
         );
         let config = seed_config(&options.source.join("does-not-exist"));
         assert!(
-            gcs_mimic::seed::import(&catalog, &config, &clock)
+            gcs_mimic::testing::seed::import(&catalog, &config, &clock)
                 .await
                 .is_err(),
             "a configured but missing seed root is an error, not a silent skip"
@@ -654,10 +656,10 @@ fn filesystem_import_rejects_destination_records_outside_its_prefix() {
         let catalog = Catalog::open(&options.destination).await.unwrap();
         let admin = catalog.admin(Origin::Import);
         let name = BucketName::new("unrelated-bucket").unwrap();
-        let definition = gcs_mimic::storage::admin::BucketDefinition::default_for(
+        let definition = gcs_mimic::testing::storage::admin::BucketDefinition::default_for(
             &name,
             "other-project",
-            &gcs_mimic::clock::SystemClock,
+            &gcs_mimic::testing::clock::SystemClock,
         )
         .unwrap();
         admin.ensure_bucket(definition).await.unwrap();
@@ -719,7 +721,7 @@ fn filesystem_import_preserves_classes_and_custom_time_through_resume_and_restar
                     object
                         .custom_time
                         .as_ref()
-                        .map(gcs_mimic::object::CustomTime::as_str),
+                        .map(gcs_mimic::testing::object::CustomTime::as_str),
                     Some("2026-01-02T03:04:05.123456+09:00")
                 );
                 assert_eq!(object.generation.get(), GENERATION);

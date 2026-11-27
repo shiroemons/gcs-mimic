@@ -219,6 +219,18 @@ fn helper() { super::server::call(); }
 }
 
 #[test]
+fn the_library_exposes_only_the_app_and_testing_modules() {
+    // `unreachable_pub` treats every item of the crate root as reachable, so only this check
+    // keeps a new public module or re-export from widening the surface again.
+    let public: Vec<&str> = include_str!("../../../../src/lib.rs")
+        .lines()
+        .map(str::trim_start)
+        .filter(|line| line.starts_with("pub "))
+        .collect();
+    assert_eq!(public, ["pub mod app;", "pub mod testing;"]);
+}
+
+#[test]
 fn every_library_module_has_exactly_one_layer() {
     assert_eq!(
         table_problems(include_str!("../../../../src/lib.rs")),

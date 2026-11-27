@@ -1,5 +1,5 @@
 mod blob_id;
-pub mod opaque_id;
+pub(crate) mod opaque_id;
 pub(crate) use blob_id::BlobId;
 mod catalog;
 #[cfg(test)]
@@ -8,21 +8,22 @@ pub(crate) use catalog::test_fixtures;
 mod catalog_tests;
 pub(crate) mod failure;
 /// The binary's startup diagnostics name the remedy of the budget a seed filled.
-pub use crate::cause::MemoryBudget;
+pub(crate) use crate::cause::MemoryBudget;
 mod lock;
 mod memory;
 pub(crate) use memory::BlobError;
 #[cfg(test)]
 mod object_tests;
-pub use catalog::admin;
+pub(crate) use catalog::admin;
 #[cfg(test)]
 pub(crate) use catalog::fault;
 pub(crate) use catalog::hmac_keys;
-pub use catalog::import_journal;
+pub(crate) use catalog::import_journal;
 pub(crate) use catalog::rewrite;
 pub(crate) use catalog::xml_multipart;
 
 pub(crate) use catalog::CopyReplay;
+pub(crate) use catalog::DataDirState;
 pub(crate) use catalog::Page;
 pub(crate) use catalog::ResumableError;
 #[cfg(test)]
@@ -36,8 +37,7 @@ pub(crate) use catalog::acl::{
 pub(crate) use catalog::retired_sync_left_in_folder;
 pub(crate) use catalog::{AppendError, AppendWriter, Finality, ReadableMetadata};
 pub use catalog::{
-    Catalog, CatalogBacking, CatalogOpenError, CatalogOpenFailure, CatalogOptions, DataDirState,
-    RecoveredCatalog,
+    Catalog, CatalogBacking, CatalogOpenError, CatalogOpenFailure, CatalogOptions, RecoveredCatalog,
 };
 pub(crate) use catalog::{
     ChunkEnd, ChunkWait, Overrun, Progress, ResumableChunk, SessionLease, Written,

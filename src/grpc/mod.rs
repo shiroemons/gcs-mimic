@@ -23,7 +23,7 @@ mod validate;
     rustdoc::broken_intra_doc_links,
     reason = "generated upstream code keeps its own style and documentation links"
 )]
-pub mod generated {
+pub(crate) mod generated {
     include!("generated/mod.rs");
 }
 

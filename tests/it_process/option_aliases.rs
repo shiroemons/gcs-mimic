@@ -694,7 +694,7 @@ fn translated_runtime(server: &Server, publisher: &TcpListener, ca: &Path) -> (S
         .set_write_timeout(Some(Duration::from_secs(10)))
         .unwrap();
     let connection = ClientConnection::new(
-        gcs_mimic::tls::client_config(ca).unwrap(),
+        gcs_mimic::testing::tls::client_config(ca).unwrap(),
         ServerName::try_from("localhost").unwrap(),
     )
     .unwrap();

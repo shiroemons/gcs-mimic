@@ -135,30 +135,30 @@ pub(crate) const UNIFORM_ACCESS_LOCK_PERIOD: Duration = Duration::from_secs(90 *
 /// Bucket metadata persisted by the catalog. Protocol adapters derive wire fields from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BucketRecord {
-    pub name: String,
+    pub(crate) name: String,
     /// Project identifier exactly as supplied by the creating request.
-    pub project: String,
+    pub(crate) project: String,
     /// The location; its type (`locationType`) follows from the name.
     pub(crate) location: Location,
-    pub storage_class: StorageClass,
+    pub(crate) storage_class: StorageClass,
     pub(crate) autoclass: Option<autoclass::Autoclass>,
-    pub labels: BTreeMap<String, String>,
+    pub(crate) labels: BTreeMap<String, String>,
     pub(crate) cors: Vec<CorsRule>,
     pub(crate) lifecycle: lifecycle::BucketLifecycle,
     pub(crate) retention_policy: Option<RetentionPolicy>,
     pub(crate) soft_delete_policy: Option<SoftDeletePolicy>,
     /// Set only at creation (`enableObjectRetention=true`); it can never be disabled.
-    pub object_retention_enabled: bool,
+    pub(crate) object_retention_enabled: bool,
     pub versioning: Versioning,
     pub default_event_based_hold: bool,
     pub(crate) public_access_prevention: PublicAccessPrevention,
-    pub uniform_bucket_level_access_locked_time: Option<SystemTime>,
-    pub metageneration: i64,
+    pub(crate) uniform_bucket_level_access_locked_time: Option<SystemTime>,
+    pub(crate) metageneration: i64,
     /// Unassigned before insertion. A stored value may be zero in an older catalog.
     pub(crate) generation: Option<i64>,
     /// Microsecond precision; the catalog floors sub-microsecond values.
-    pub time_created: SystemTime,
-    pub updated: SystemTime,
+    pub(crate) time_created: SystemTime,
+    pub(crate) updated: SystemTime,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -241,10 +241,10 @@ impl BucketRecord {
 /// A soft-deleted bucket version: the metadata it had when deleted plus its deletion times.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SoftDeletedBucket {
-    pub record: BucketRecord,
-    pub soft_delete_time: SystemTime,
+    pub(crate) record: BucketRecord,
+    pub(crate) soft_delete_time: SystemTime,
     /// Always at or after the latest hard delete time of an object retained with the bucket.
-    pub hard_delete_time: SystemTime,
+    pub(crate) hard_delete_time: SystemTime,
 }
 
 /// A requested uniform bucket-level access setting.
@@ -389,27 +389,27 @@ pub(crate) struct UnknownRpo;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BucketMetadataUpdate {
-    pub acl: Option<Vec<crate::acl::AclEntry>>,
-    pub default_object_acl: Option<Vec<crate::acl::AclEntry>>,
-    pub cors: Option<Vec<CorsRule>>,
+    pub(crate) acl: Option<Vec<crate::acl::AclEntry>>,
+    pub(crate) default_object_acl: Option<Vec<crate::acl::AclEntry>>,
+    pub(crate) cors: Option<Vec<CorsRule>>,
     pub(crate) lifecycle: Option<lifecycle::LifecycleRules>,
     pub(crate) retention_policy: RetentionPolicyUpdate,
     pub(crate) soft_delete_retention: Option<SoftDeleteRetention>,
     /// An echoed `objectRetention` value; it must match the stored state.
-    pub object_retention_enabled: Option<bool>,
-    pub labels: crate::object::MapPatch,
-    pub storage_class: Option<StorageClass>,
-    pub autoclass: Option<autoclass::AutoclassUpdate>,
+    pub(crate) object_retention_enabled: Option<bool>,
+    pub(crate) labels: crate::object::MapPatch,
+    pub(crate) storage_class: Option<StorageClass>,
+    pub(crate) autoclass: Option<autoclass::AutoclassUpdate>,
     pub(crate) versioning: Option<VersioningUpdate>,
-    pub default_event_based_hold: Option<bool>,
+    pub(crate) default_event_based_hold: Option<bool>,
     pub(crate) public_access_prevention: Option<PublicAccessPrevention>,
-    pub uniform_bucket_level_access_enabled: Option<UniformAccessRequest>,
+    pub(crate) uniform_bucket_level_access_enabled: Option<UniformAccessRequest>,
     /// A named recovery point objective. It is checked against the stored location and never
     /// stored: `DEFAULT` is the only objective a dual- or multi-region bucket has here.
     pub(crate) rpo: Option<Rpo>,
     /// A recognised member was present even though it sets nothing, which still counts as a
     /// change and advances the metageneration.
-    pub touched: bool,
+    pub(crate) touched: bool,
 }
 
 impl BucketMetadataUpdate {
@@ -456,15 +456,15 @@ impl BucketMetadataUpdate {
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RetentionPolicy {
-    pub retention_period: u64,
-    pub effective_time: SystemTime,
-    pub is_locked: bool,
+    pub(crate) retention_period: u64,
+    pub(crate) effective_time: SystemTime,
+    pub(crate) is_locked: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SoftDeletePolicy {
-    pub retention_duration_seconds: u64,
-    pub effective_time: SystemTime,
+    pub(crate) retention_duration_seconds: u64,
+    pub(crate) effective_time: SystemTime,
 }
 
 impl SoftDeletePolicy {
@@ -477,10 +477,10 @@ impl SoftDeletePolicy {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CorsRule {
-    pub origin: Vec<String>,
-    pub method: Vec<String>,
-    pub response_header: Vec<String>,
-    pub max_age_seconds: Option<i32>,
+    pub(crate) origin: Vec<String>,
+    pub(crate) method: Vec<String>,
+    pub(crate) response_header: Vec<String>,
+    pub(crate) max_age_seconds: Option<i32>,
 }
 
 pub(crate) fn cors_from_value(value: &serde_json::Value) -> Result<Vec<CorsRule>, CatalogError> {
@@ -1111,8 +1111,8 @@ impl TypedSource for CatalogError {
 /// [`crate::object::ObjectConditions`]. The default carries no condition.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct BucketConditions {
-    pub if_metageneration_match: Option<i64>,
-    pub if_metageneration_not_match: Option<i64>,
+    pub(crate) if_metageneration_match: Option<i64>,
+    pub(crate) if_metageneration_not_match: Option<i64>,
 }
 
 impl BucketConditions {

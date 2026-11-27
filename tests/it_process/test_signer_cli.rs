@@ -1,7 +1,7 @@
 use crate::common;
 
 use common::process::{Server, http_command};
-use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
+use gcs_mimic::testing::auth::signature::{SignUrlRequest, sign_url};
 use std::process::{Command, Output};
 
 fn run(args: &[&str]) -> Output {

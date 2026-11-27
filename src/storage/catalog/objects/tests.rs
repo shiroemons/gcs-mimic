@@ -225,19 +225,6 @@ fn publish_requires_a_shard_parent_for_directory_sync() {
     assert_eq!(error.to_string(), "blob shard has no parent directory");
 }
 
-#[test]
-fn a_shared_object_file_refuses_cursor_transfer() {
-    let data = crate::test_support::TestDir::new();
-    let file = Arc::new(File::create(data.0.join("blob")).unwrap());
-    let reader = ObjectReader::bounded_for_test(Arc::clone(&file), 0);
-    let error: io::Error = reader.into_file().unwrap_err();
-    assert_eq!(error.kind(), io::ErrorKind::Other);
-    assert_eq!(
-        error.to_string(),
-        "object data is shared with the read cache"
-    );
-}
-
 #[tokio::test]
 async fn glob_listing_pages_through_non_matching_rows() {
     for shape in ["items", "prefixes", "versions"] {
@@ -905,10 +892,6 @@ async fn a_read_ahead_is_not_lost_when_the_file_is_handed_over() {
     let (_dir, contents, reader) = read_ahead_fixture(1024);
     let mut bytes = Vec::new();
     reader.into_reader().read_to_end(&mut bytes).unwrap();
-    assert_eq!(bytes, contents);
-    let (_dir, contents, reader) = read_ahead_fixture(1024);
-    let mut bytes = Vec::new();
-    reader.into_file().unwrap().read_to_end(&mut bytes).unwrap();
     assert_eq!(bytes, contents);
 }
 

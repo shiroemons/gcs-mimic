@@ -101,7 +101,7 @@ paging policy and calls `app::main`, so it is not checked.
 | service | `page_token`, `multipart`, `service` |
 | adapters (isolated) | `json`, `xml`, `grpc` |
 | transport | `server` |
-| application | `app` |
+| application | `app`, `testing` |
 
 The foundation module `cause` owns backend and I/O causes, memory budgets and
 the links used to classify nested errors. Model and storage errors can expose

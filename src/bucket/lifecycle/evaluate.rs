@@ -11,16 +11,16 @@ mod tests;
 /// What the sweep knows about one live or noncurrent object version.
 /// Soft-deleted versions are never passed in.
 pub(crate) struct VersionFacts<'a> {
-    pub name: &'a str,
-    pub size: u64,
-    pub storage_class: StorageClass,
-    pub time_created: UnixNanos,
+    pub(crate) name: &'a str,
+    pub(crate) size: u64,
+    pub(crate) storage_class: StorageClass,
+    pub(crate) time_created: UnixNanos,
     /// Parsed Custom-Time; `None` when unset.
-    pub custom_time: Option<UnixNanos>,
+    pub(crate) custom_time: Option<UnixNanos>,
     /// When the version became noncurrent; `None` for a live version.
-    pub noncurrent_time: Option<UnixNanos>,
+    pub(crate) noncurrent_time: Option<UnixNanos>,
     /// Versions of the same name newer than this one, counting the live one.
-    pub newer_versions: u64,
+    pub(crate) newer_versions: u64,
 }
 
 /// The single action chosen for a version. Abort rules never select one.

@@ -4,22 +4,22 @@ use crate::storage::catalog::soft_delete;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectListCursor {
-    pub name: String,
-    pub is_prefix: bool,
-    pub generation: Option<i64>,
+    pub(crate) name: String,
+    pub(crate) is_prefix: bool,
+    pub(crate) generation: Option<i64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectListQuery {
-    pub bucket: String,
-    pub prefix: String,
-    pub delimiter: String,
+    pub(crate) bucket: String,
+    pub(crate) prefix: String,
+    pub(crate) delimiter: String,
     pub(crate) match_glob: Option<crate::match_glob::Glob>,
-    pub start_offset: String,
-    pub end_offset: String,
-    pub include_trailing_delimiter: bool,
-    pub versions: bool,
-    pub soft_deleted: bool,
+    pub(crate) start_offset: String,
+    pub(crate) end_offset: String,
+    pub(crate) include_trailing_delimiter: bool,
+    pub(crate) versions: bool,
+    pub(crate) soft_deleted: bool,
     pub(crate) cursor: Option<ObjectListCursor>,
     /// Ends a page early, past this estimate of its bytes, for an adapter whose response is one
     /// message of limited size. A page always holds one entry, so a listing keeps advancing.
@@ -55,7 +55,7 @@ fn listed_bytes(record: &ObjectRecord) -> usize {
 #[derive(Debug)]
 pub struct ObjectListPage {
     pub items: Vec<ObjectRecord>,
-    pub prefixes: Vec<String>,
+    pub(crate) prefixes: Vec<String>,
     pub(crate) next: Option<ObjectListCursor>,
     /// The listed bucket's metageneration, read by the same catalog job as the page so the two
     /// agree. Only an authorized listing fills it; other producers leave it empty.

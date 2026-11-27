@@ -16,14 +16,7 @@ use crate::{
     time_limit::TimeLimit,
 };
 use serde::Serialize;
-use std::{
-    borrow::Cow,
-    future::Future,
-    io,
-    net::SocketAddr,
-    pin::Pin,
-    sync::{Arc, atomic::AtomicBool},
-};
+use std::{borrow::Cow, future::Future, io, net::SocketAddr, pin::Pin, sync::Arc};
 
 mod authentication;
 pub(crate) use authentication::Failure as CatalogAuthenticationFailure;
@@ -612,17 +605,13 @@ pub(crate) async fn serve(
     catalog.start_resumable_maintenance();
     // The passes start with the listeners: the startup replay has just read the tree.
     crate::seed::watch(&catalog, &config, clock.clone());
-    let state = Arc::new(State {
-        pools: server::WorkPools::new(&config),
-        xml_cors_warned_buckets: Default::default(),
-        grpc_read_handles: Default::default(),
-        ready: AtomicBool::new(true),
-        clock,
+    let state = Arc::new(State::new(
+        &config,
         catalog,
-        api_base_url: ready.api_base_url,
-        default_location: config.default_location().to_owned(),
+        clock,
+        ready.api_base_url,
         auth,
-    });
+    ));
     // Readiness must follow every fallible startup step.
     println!("{}", ready.event);
     let BoundListeners {
@@ -952,7 +941,7 @@ mod tests {
     };
     use std::{
         fs::{self, File},
-        sync::{Arc, Mutex, mpsc},
+        sync::{Arc, Mutex, atomic::AtomicBool, mpsc},
         time::{Duration, SystemTime},
     };
 

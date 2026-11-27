@@ -8,7 +8,7 @@ pub(crate) struct ProjectId(String);
 /// Text that is not a project ID or number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("{}", Self::MESSAGE)]
-pub struct InvalidProjectId;
+pub(crate) struct InvalidProjectId;
 
 impl InvalidProjectId {
     pub(crate) const MESSAGE: &str = "project must be a nonempty identifier of at most 256 bytes";

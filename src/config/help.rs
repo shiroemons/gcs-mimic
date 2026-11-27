@@ -364,7 +364,7 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
 
 /// What `gcs-mimic --help` prints: the common options in their own order, then every other
 /// setting in declaration order.
-pub fn help() -> String {
+pub(crate) fn help() -> String {
     let [first, rest @ ..] = COMMON.map(Listed::Setting);
     let common = std::iter::once(first)
         .chain(NativeFlag::ALL.iter().copied().map(Listed::Flag))

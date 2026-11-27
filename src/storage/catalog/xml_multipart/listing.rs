@@ -3,20 +3,20 @@ use crate::storage::catalog::sql;
 
 #[derive(Clone)]
 pub(crate) struct UploadQuery {
-    pub bucket: String,
-    pub prefix: String,
-    pub delimiter: String,
-    pub key_marker: String,
-    pub upload_marker: Option<String>,
-    pub limit: usize,
+    pub(crate) bucket: String,
+    pub(crate) prefix: String,
+    pub(crate) delimiter: String,
+    pub(crate) key_marker: String,
+    pub(crate) upload_marker: Option<String>,
+    pub(crate) limit: usize,
 }
 
 pub(crate) struct UploadPage {
-    pub uploads: Vec<Upload>,
-    pub prefixes: Vec<String>,
-    pub next_key: String,
-    pub next_upload: String,
-    pub more: bool,
+    pub(crate) uploads: Vec<Upload>,
+    pub(crate) prefixes: Vec<String>,
+    pub(crate) next_key: String,
+    pub(crate) next_upload: String,
+    pub(crate) more: bool,
 }
 
 impl Catalog {

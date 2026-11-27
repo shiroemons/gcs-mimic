@@ -16,9 +16,7 @@ use unsupported as imp;
 pub(crate) use imp::directory_at;
 use imp::directory_names_within;
 pub(crate) use imp::uncached_identity;
-pub use imp::{
-    directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
-};
+pub(crate) use imp::{directory_names_after, open_directory_nofollow, open_regular_at};
 pub(crate) use lookup::Lookup;
 #[cfg(all(test, unix))]
 pub(crate) use lookup::Matching;
@@ -230,11 +228,11 @@ impl From<FsError> for io::Error {
 // same-size rewrites.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FileIdentity {
-    pub device: u64,
-    pub inode: u64,
-    pub size: u64,
-    pub modified_ns: i128,
-    pub changed_ns: i128,
+    pub(crate) device: u64,
+    pub(crate) inode: u64,
+    pub(crate) size: u64,
+    pub(crate) modified_ns: i128,
+    pub(crate) changed_ns: i128,
 }
 
 /// How long after a file's last change an observation of it is settled, in nanoseconds: two

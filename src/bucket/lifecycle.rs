@@ -15,8 +15,8 @@ pub(crate) use size::LifecycleSize;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct LifecycleRule {
-    pub action: LifecycleAction,
-    pub condition: LifecycleCondition,
+    pub(crate) action: LifecycleAction,
+    pub(crate) condition: LifecycleCondition,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -31,31 +31,31 @@ pub(crate) enum LifecycleAction {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LifecycleCondition {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub age: Option<ConditionInt>,
+    pub(crate) age: Option<ConditionInt>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_before: Option<LifecycleDate>,
+    pub(crate) created_before: Option<LifecycleDate>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_time_before: Option<LifecycleDate>,
+    pub(crate) custom_time_before: Option<LifecycleDate>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub days_since_custom_time: Option<ConditionInt>,
+    pub(crate) days_since_custom_time: Option<ConditionInt>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub days_since_noncurrent_time: Option<ConditionInt>,
+    pub(crate) days_since_noncurrent_time: Option<ConditionInt>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_live: Option<bool>,
+    pub(crate) is_live: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub matches_prefix: Vec<String>,
+    pub(crate) matches_prefix: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub matches_storage_class: Vec<StorageClass>,
+    pub(crate) matches_storage_class: Vec<StorageClass>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub matches_suffix: Vec<String>,
+    pub(crate) matches_suffix: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub noncurrent_time_before: Option<LifecycleDate>,
+    pub(crate) noncurrent_time_before: Option<LifecycleDate>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub num_newer_versions: Option<ConditionInt>,
+    pub(crate) num_newer_versions: Option<ConditionInt>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_above_bytes: Option<LifecycleSize>,
+    pub(crate) size_above_bytes: Option<LifecycleSize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_below_bytes: Option<LifecycleSize>,
+    pub(crate) size_below_bytes: Option<LifecycleSize>,
 }
 
 /// A condition's day or version count: a nonnegative int32, the range the lifecycle contract

@@ -16,7 +16,7 @@ mod upload;
     rustdoc::broken_intra_doc_links,
     reason = "generated upstream code keeps its own style and documentation links"
 )]
-pub mod pb {
+pub(crate) mod pb {
     include!("../generated/google.storage.v1.rs");
 }
 

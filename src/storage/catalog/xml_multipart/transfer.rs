@@ -8,8 +8,8 @@ use std::io;
 use tokio::sync::{mpsc, oneshot};
 
 pub(crate) struct PartUpload {
-    pub expected: ExpectedHashes,
-    pub max_bytes: u64,
+    pub(crate) expected: ExpectedHashes,
+    pub(crate) max_bytes: u64,
 }
 
 /// Validated in manifest order while the completion holds the whole upload.

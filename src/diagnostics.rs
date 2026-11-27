@@ -14,7 +14,7 @@ crate::choice::string_enum! {
     table
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
     #[repr(u8)]
-    pub enum LogLevel as pub as_str {
+    pub(crate) enum LogLevel as pub(crate) as_str {
         Debug => "debug",
         #[default]
         Info => "info",
@@ -30,7 +30,7 @@ crate::choice::string_enum! {
 static LOG_LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Info as u8);
 
 /// Configure the process threshold after preflight and before starting workers.
-pub fn set_log_level(level: LogLevel) {
+pub(crate) fn set_log_level(level: LogLevel) {
     LOG_LEVEL.store(level as u8, Ordering::Relaxed);
 }
 
@@ -49,7 +49,7 @@ fn configured_level() -> LogLevel {
     .unwrap_or(LogLevel::Error)
 }
 
-pub fn enabled(level: LogLevel) -> bool {
+pub(crate) fn enabled(level: LogLevel) -> bool {
     level >= configured_level()
 }
 
@@ -57,7 +57,7 @@ crate::choice::string_enum! {
     table
     /// An event written as a JSON line by the server or a command.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum Event as pub as_str {
+    pub(crate) enum Event as pub(crate) as_str {
         /// Published event name.
         Ready => "ready",
         /// Published event name.
@@ -82,8 +82,22 @@ crate::choice::string_enum! {
         BackgroundTaskPanicked => "background_task_panicked",
         BackgroundTaskRestarting => "background_task_restarting",
         BatchResponseStreamFailed => "batch_response_stream_failed",
+        #[cfg_attr(
+            not(all(unix, not(any(target_os = "linux", target_os = "android")))),
+            expect(
+                dead_code,
+                reason = "only Unix outside Linux, where address reuse is unsafe, waits out TIME_WAIT"
+            )
+        )]
         BindWait => "bind_wait",
         BlobReclaimDeferred => "blob_reclaim_deferred",
+        #[cfg_attr(
+            not(unix),
+            expect(
+                dead_code,
+                reason = "only Unix syncs a new blob shard, the step whose failure removes it"
+            )
+        )]
         BlobShardCleanupDeferred => "blob_shard_cleanup_deferred",
         BucketPurgeCleanupDeferred => "bucket_purge_cleanup_deferred",
         CatalogReaderUnavailable => "catalog_reader_unavailable",
@@ -149,6 +163,10 @@ crate::choice::string_enum! {
         TcpNodelayFailed => "tcp_nodelay_failed",
         TlsHandshakeFailed => "tls_handshake_failed",
         TlsHandshakeTimeout => "tls_handshake_timeout",
+        #[cfg_attr(
+            not(unix),
+            expect(dead_code, reason = "Unix domain socket listeners exist only on Unix")
+        )]
         UnixSocketCleanupFailed => "unix_socket_cleanup_failed",
         UploadBatchRetried => "upload_batch_retried",
         UploadCleanupDeferred => "upload_cleanup_deferred",
@@ -188,7 +206,7 @@ fn write_event<T: Serialize, W: Write>(
 }
 
 /// Ordinary events must not turn a closed stderr pipe into a storage failure.
-pub fn emit(level: LogLevel, event: Event, fields: impl Serialize) {
+pub(crate) fn emit(level: LogLevel, event: Event, fields: impl Serialize) {
     emit_lazy(level, event, || fields);
 }
 
@@ -206,7 +224,7 @@ pub(crate) fn emit_lazy<T: Serialize>(level: LogLevel, event: Event, fields: imp
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum DiagnosticSource {
+pub(crate) enum DiagnosticSource {
     Cli,
     Environment,
     Config,
@@ -223,15 +241,19 @@ pub enum DiagnosticSource {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Diagnostic {
-    pub source: DiagnosticSource,
+    pub(crate) source: DiagnosticSource,
     pub key: String,
     pub fix: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub native_args: Option<Vec<String>>,
+    pub(crate) native_args: Option<Vec<String>>,
 }
 
 impl Diagnostic {
-    pub fn new(source: DiagnosticSource, key: impl Into<String>, fix: impl Into<String>) -> Self {
+    pub(crate) fn new(
+        source: DiagnosticSource,
+        key: impl Into<String>,
+        fix: impl Into<String>,
+    ) -> Self {
         Self {
             source,
             key: key.into(),
@@ -243,8 +265,8 @@ impl Diagnostic {
 
 #[derive(Clone, Debug, Default, thiserror::Error)]
 pub struct Diagnostics {
-    pub info: Vec<Diagnostic>,
-    pub warnings: Vec<Diagnostic>,
+    pub(crate) info: Vec<Diagnostic>,
+    pub(crate) warnings: Vec<Diagnostic>,
     pub errors: Vec<Diagnostic>,
 }
 
@@ -260,7 +282,7 @@ impl From<Diagnostic> for Diagnostics {
 }
 
 /// The I/O kind printed alongside a startup or shutdown failure.
-pub trait RuntimeFailure: std::error::Error {
+pub(crate) trait RuntimeFailure: std::error::Error {
     fn kind(&self) -> io::ErrorKind;
 }
 
@@ -271,13 +293,17 @@ impl RuntimeFailure for io::Error {
 }
 
 impl Diagnostics {
-    pub fn error(source: DiagnosticSource, key: impl Into<String>, fix: impl Into<String>) -> Self {
+    pub(crate) fn error(
+        source: DiagnosticSource,
+        key: impl Into<String>,
+        fix: impl Into<String>,
+    ) -> Self {
         Diagnostic::new(source, key, fix).into()
     }
 
     /// The advice for a startup or shutdown failure that has none of its own: its kind and
     /// message, and where to look. Every such failure is reported through this one text.
-    pub fn startup_failure(error: &impl RuntimeFailure) -> Self {
+    pub(crate) fn startup_failure(error: &impl RuntimeFailure) -> Self {
         Self::error(
             DiagnosticSource::Runtime,
             "startup",
@@ -288,11 +314,11 @@ impl Diagnostics {
         )
     }
 
-    pub fn is_err(&self) -> bool {
+    pub(crate) fn is_err(&self) -> bool {
         !self.errors.is_empty()
     }
 
-    pub fn write(&self, mut writer: impl Write) -> io::Result<()> {
+    pub(crate) fn write(&self, mut writer: impl Write) -> io::Result<()> {
         for (level, records) in [
             (LogLevel::Info, &self.info),
             (LogLevel::Warn, &self.warnings),
@@ -328,7 +354,7 @@ impl fmt::Display for Diagnostics {
 }
 
 /// Appends a failed close to `result`, after the operation's own failure.
-pub fn combine_shutdown_results(
+pub(crate) fn combine_shutdown_results(
     result: Result<(), Diagnostics>,
     close: Result<(), impl RuntimeFailure>,
 ) -> Result<(), Diagnostics> {
@@ -336,7 +362,7 @@ pub fn combine_shutdown_results(
 }
 
 /// The diagnostic appended when releasing the catalog also failed.
-pub fn catalog_close_failure(close: &impl RuntimeFailure) -> Diagnostic {
+pub(crate) fn catalog_close_failure(close: &impl RuntimeFailure) -> Diagnostic {
     Diagnostic::new(
         DiagnosticSource::Catalog,
         "data_dir",

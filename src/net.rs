@@ -20,7 +20,7 @@ pub(crate) fn normalized_host(host: &str, trailing_dot: TrailingDot) -> String {
 /// Whether `ip` is a loopback or private-network address: IPv4 loopback or private ranges, IPv6
 /// loopback or unique local, or an IPv4 one carried in IPv6. Local controls and emulator
 /// endpoints accept only these, so a token or an event never leaves the host's network.
-pub fn is_local_address(ip: IpAddr) -> bool {
+pub(crate) fn is_local_address(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => ip.is_loopback() || ip.is_private(),
         IpAddr::V6(ip) => ip.to_ipv4_mapped().map_or_else(

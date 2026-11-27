@@ -65,7 +65,7 @@ fn every_member_passes_the_startup_parser_in_every_format() {
         bucket("app-exports", [Setting::Versioning]),
     ]);
     for format in Format::ALL.iter().copied() {
-        assert!(document.render(format).is_ok(), "{}", format.as_str());
+        assert!(document.render(format).is_ok(), "{format:?}");
     }
     let entries = parsed(&document.render(Format::Json).unwrap());
     assert_eq!(entries.len(), 2);
@@ -356,8 +356,7 @@ fn a_cors_rule_without_an_origin_or_a_method_is_refused() {
                     &refused,
                     Err(GenerateError::IncompleteCors { bucket, gap: actual })
                         if bucket == "app-uploads" && *actual == gap,
-                "{gap:?} {}: {refused:?}",
-                format.as_str()
+                "{gap:?} {format:?}: {refused:?}"
             );
         }
     }
@@ -663,8 +662,14 @@ fn answers_are_shared_under_another_name() {
 
 #[test]
 fn formats_parse_from_their_names() {
-    for format in Format::ALL.iter().copied() {
-        assert_eq!(format.as_str().parse::<Format>().unwrap(), format);
+    let names = [
+        ("json", Format::Json),
+        ("env", Format::Env),
+        ("compose", Format::Compose),
+    ];
+    assert_eq!(names.len(), Format::ALL.len());
+    for (name, format) in names {
+        assert_eq!(name.parse::<Format>().unwrap(), format);
     }
     assert!("yaml".parse::<Format>().is_err());
 }

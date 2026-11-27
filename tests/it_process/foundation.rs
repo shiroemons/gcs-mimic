@@ -1,8 +1,8 @@
 use crate::common;
 use common::http::Body;
 use common::{CleanEnv, FixedClock, TestDir};
-use gcs_mimic::storage::admin::{BucketName, Origin};
-use gcs_mimic::{
+use gcs_mimic::testing::storage::admin::{BucketName, Origin};
+use gcs_mimic::testing::{
     config::Config,
     config_input::RenamedEnvironmentVariable,
     server::{self, State},
@@ -14,10 +14,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpStream},
     process::{Child, ChildStdout, Command, Output, Stdio},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, atomic::Ordering},
     time::{Duration, Instant, UNIX_EPOCH},
 };
 use tokio::sync::oneshot;
@@ -676,25 +673,19 @@ async fn start(
     SocketAddr,
     Arc<State>,
     oneshot::Sender<()>,
-    tokio::task::JoinHandle<Result<(), gcs_mimic::diagnostics::Diagnostics>>,
+    tokio::task::JoinHandle<Result<(), gcs_mimic::testing::diagnostics::Diagnostics>>,
     TestDir,
 ) {
     let dir = TestDir::new();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    let state = Arc::new(State {
-        pools: Default::default(),
-        xml_cors_warned_buckets: Default::default(),
-        grpc_read_handles: Default::default(),
-        ready: AtomicBool::new(true),
-        clock: Arc::new(FixedClock(UNIX_EPOCH + Duration::from_secs(42))),
-        catalog: Catalog::open(&dir.0).await.unwrap(),
-        api_base_url: config.effective_api_base_url(address),
-        default_location: config.default_location().to_owned(),
-        auth: Default::default(),
-    });
+    let state = Arc::new(fixed_clock_state(
+        &config,
+        Catalog::open(&dir.0).await.unwrap(),
+        address,
+    ));
     let (stop, shutdown) = oneshot::channel();
-    let security = gcs_mimic::tls::ServerSecurity::load(&config).unwrap();
+    let security = gcs_mimic::testing::tls::ServerSecurity::load(&config).unwrap();
     let listeners = server::TcpListeners::public(listener, security.primary);
     let task = tokio::spawn(server::serve(
         listeners,
@@ -703,6 +694,16 @@ async fn start(
         server::Stop::on(async { shutdown.await.map_err(std::io::Error::other) }),
     ));
     (address, state, stop, task, dir)
+}
+
+fn fixed_clock_state(config: &Config, catalog: Catalog, address: SocketAddr) -> State {
+    State::new(
+        config,
+        catalog,
+        Arc::new(FixedClock(UNIX_EPOCH + Duration::from_secs(42))),
+        config.effective_api_base_url(address),
+        Default::default(),
+    )
 }
 
 fn stream(address: SocketAddr) -> TcpStream {
@@ -794,7 +795,7 @@ fn dual_listener_shares_state_and_https_primary_resumable_origin() {
     ] {
         let dir = TestDir::new();
         let ca = dir.0.join("ca.pem");
-        fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+        fs::write(&ca, gcs_mimic::testing::tls::DEVELOPMENT_CA_PEM).unwrap();
         let mut command = common::server_command();
         command
             .args([
@@ -901,7 +902,7 @@ fn dual_listener_shares_state_and_https_primary_resumable_origin() {
 
 #[tokio::test]
 async fn authentication_reconciliation_failure_reports_the_catalog_remedy_and_exits() {
-    use gcs_mimic::{
+    use gcs_mimic::testing::{
         auth::Auth,
         bucket::CatalogError,
         clock::SystemClock,
@@ -928,10 +929,12 @@ async fn authentication_reconciliation_failure_reports_the_catalog_remedy_and_ex
         &Auth::permissive(),
         Arc::new(SystemClock),
     );
-    let recovered =
-        gcs_mimic::storage::RecoveredCatalog::recover(CatalogBacking::Disk(&dir.0), options)
-            .await
-            .unwrap();
+    let recovered = gcs_mimic::testing::storage::RecoveredCatalog::recover(
+        CatalogBacking::Disk(&dir.0),
+        options,
+    )
+    .await
+    .unwrap();
     assert!(recovered.created_directory().is_none());
     recovered.close().await.unwrap();
     let options = CatalogOptions::for_server(
@@ -1364,19 +1367,13 @@ async fn shutdown_stops_accepting_on_original_listener() {
     let address = witness.local_addr().unwrap();
     let listener = tokio::net::TcpListener::from_std(witness.try_clone().unwrap()).unwrap();
     let config = common::http_config();
-    let state = Arc::new(State {
-        pools: Default::default(),
-        xml_cors_warned_buckets: Default::default(),
-        grpc_read_handles: Default::default(),
-        ready: AtomicBool::new(true),
-        clock: Arc::new(FixedClock(UNIX_EPOCH + Duration::from_secs(42))),
-        catalog: Catalog::open(&dir.0).await.unwrap(),
-        api_base_url: config.effective_api_base_url(address),
-        default_location: config.default_location().to_owned(),
-        auth: Default::default(),
-    });
+    let state = Arc::new(fixed_clock_state(
+        &config,
+        Catalog::open(&dir.0).await.unwrap(),
+        address,
+    ));
     let (stop, shutdown) = oneshot::channel();
-    let security = gcs_mimic::tls::ServerSecurity::load(&config).unwrap();
+    let security = gcs_mimic::testing::tls::ServerSecurity::load(&config).unwrap();
     let listeners = server::TcpListeners::public(listener, security.primary);
     let task = tokio::spawn(server::serve(
         listeners,
@@ -1431,18 +1428,12 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let config = common::http_config();
-    let restarted = Arc::new(State {
-        pools: Default::default(),
-        xml_cors_warned_buckets: Default::default(),
-        grpc_read_handles: Default::default(),
-        ready: AtomicBool::new(true),
-        clock: Arc::new(FixedClock(UNIX_EPOCH + Duration::from_secs(42))),
+    let restarted = Arc::new(fixed_clock_state(
+        &config,
         catalog,
-        api_base_url: config.effective_api_base_url(listener.local_addr().unwrap()),
-        default_location: config.default_location().to_owned(),
-        auth: Default::default(),
-    });
-    let security = gcs_mimic::tls::ServerSecurity::load(&config).unwrap();
+        listener.local_addr().unwrap(),
+    ));
+    let security = gcs_mimic::testing::tls::ServerSecurity::load(&config).unwrap();
     let listeners = server::TcpListeners::public(listener, security.primary);
     server::serve(
         listeners,

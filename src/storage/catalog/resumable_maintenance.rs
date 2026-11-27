@@ -537,7 +537,7 @@ impl Catalog {
     }
 
     /// Starts one scheduler. Its owner must call `close` before releasing directory ownership.
-    pub fn start_resumable_maintenance(&self) {
+    pub(crate) fn start_resumable_maintenance(&self) {
         if self
             .0
             .maintenance

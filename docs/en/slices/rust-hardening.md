@@ -555,13 +555,15 @@ A further split waits until after `1.0.0`:
     link's, called from every exhaustive error table;
   - `Report` panics on a repeat in tests. Separate test tables pin rusqlite's
     own repeated sources and the compatibility exceptions in
-    `src/storage/failure/public_source_tests.rs`. Public facade revisits five
-    groups that embedders can print and inspect (`BackendCause`, `IoCause`,
-    catalog corrupt/unavailable, catalog I/O, and seed entry/import).
-    The two private `ObjectError` groups (corrupt/unavailable/body aborted and
-    I/O) keep their hand-written typed sources. Multipart cleanup logs their
-    Display directly, and public catalog diagnostics embed it. Revisit these
-    pairs with those diagnostics in Public facade. A transparent wrapper
+    `src/storage/failure/public_source_tests.rs`. Public facade reviewed five
+    groups (`BackendCause`, `IoCause`, catalog corrupt/unavailable, catalog
+    I/O, and seed entry/import) once no embedder could reach them. Startup,
+    CLI and wire diagnostics still print their Display, and storage wording
+    inspects their typed causes, so they stay until those diagnostics change.
+    The two `ObjectError` groups (corrupt/unavailable/body aborted and I/O)
+    keep their hand-written typed sources. Multipart cleanup logs their
+    Display directly, and catalog diagnostics embed it. Revisit these pairs
+    with those diagnostics. A transparent wrapper
     inherits an exception only for the same text and the same source object;
   - the `text::error_displays_source` rule rejects a `#[error]` format that
     interpolates its own source.
@@ -591,7 +593,7 @@ prints its own source has a reasoned suppression at the attribute.
 | --- | --- |
 | `fsutil::CloneFailure::{Created, NotCreated}` | Both expose the same concrete `FsError` they display. `Report` joins the equal messages once. Revisit when changing the clone diagnostic contract. |
 | `auth::PolicyDecodeError::Json` and `auth::IdentityError` | The stored-policy and startup diagnostics include the decoder or registry text and expose the cause itself. Keep their prefixed Display until those diagnostics are reviewed. |
-| `DurationError::Number`, `GenerateError::Rejected`, `ServerIdentityError::{Certificate, PrivateKey, Identity, Rejected}` | Callers can print these public types and inspect the same concrete cause. Revisit at Public facade. |
+| `GenerateError::Rejected`, `ServerIdentityError::{Certificate, PrivateKey, Identity, Rejected}` | The interactive buckets prompt and the startup TLS diagnostic print these errors directly and expose the same concrete cause. Revisit when changing those diagnostics. Public facade gave `DurationError::Number` its own text, since nothing prints it. |
 | `EventSettingsError::{Endpoint, Topic, ObjectPrefix}`, `ClaimError::Catalog` | Setting and resumable diagnostics display the cause directly and expose it through `source()`. Revisit when changing those diagnostic contracts. |
 | `PurgeError::Admin` | Purge diagnostics prefix the exposed administrative failure. Revisit with the admin diagnostics. |
 | `NameError::Invalid`, `InvalidSeconds`, `SaveError::{Create, Write}` | The CLI binary displays these private errors directly. Its tests pin the complete prompt text and the identity of each source. Revisit when the prompt diagnostics change. |
@@ -615,9 +617,9 @@ Clippy in Rust 1.100.0 cannot resolve `std::io::Error::other` in `disallowed-met
 The zero-tolerance `text::io_error_other` rule covers it, with two reasoned
 exceptions for HTTP request transport and the gzip chunk body. HTTP and gRPC
 classify blob read failures directly. The HTTP `server::ResponseBody` carries
-`IoCause`, and gRPC maps the storage error to its status. The public
-`ObjectReader::{next_chunk, into_file}` boundary preserves each failure's
-kind when constructing its `io::Error`.
+`IoCause`, and gRPC maps the storage error to its status.
+`ObjectReader::next_chunk` preserves each failure's kind when constructing its
+`io::Error`.
 
 ## Catalog execution
 

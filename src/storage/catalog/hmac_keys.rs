@@ -53,13 +53,13 @@ crate::choice::string_enum! {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyRecord {
-    pub access_id: String,
-    pub project: String,
-    pub service_account_email: String,
-    pub state: HmacKeyState,
-    pub time_created: SystemTime,
-    pub updated: SystemTime,
-    pub revision: i64,
+    pub(crate) access_id: String,
+    pub(crate) project: String,
+    pub(crate) service_account_email: String,
+    pub(crate) state: HmacKeyState,
+    pub(crate) time_created: SystemTime,
+    pub(crate) updated: SystemTime,
+    pub(crate) revision: i64,
 }
 
 impl HmacKeyRecord {
@@ -70,8 +70,8 @@ impl HmacKeyRecord {
 
 /// A newly created key; the secret is returned only from creation.
 pub(crate) struct CreatedHmacKey {
-    pub record: HmacKeyRecord,
-    pub secret: String,
+    pub(crate) record: HmacKeyRecord,
+    pub(crate) secret: String,
 }
 
 impl std::fmt::Debug for CreatedHmacKey {
@@ -86,11 +86,11 @@ impl std::fmt::Debug for CreatedHmacKey {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyListQuery {
-    pub project: ProjectId,
-    pub service_account_email: Option<String>,
-    pub show_deleted: bool,
-    pub after: Option<String>,
-    pub limit: usize,
+    pub(crate) project: ProjectId,
+    pub(crate) service_account_email: Option<String>,
+    pub(crate) show_deleted: bool,
+    pub(crate) after: Option<String>,
+    pub(crate) limit: usize,
 }
 
 #[derive(Debug, thiserror::Error)]

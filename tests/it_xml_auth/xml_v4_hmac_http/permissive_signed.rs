@@ -2,7 +2,7 @@
 //! does, then grants permissive access: no signer permission is ever checked.
 
 use super::*;
-use gcs_mimic::auth::{
+use gcs_mimic::testing::auth::{
     signature::{SignUrlRequest, sign_policy, sign_url},
     test_signer,
 };
