@@ -12,6 +12,7 @@
 use crate::Verdict;
 use serde_json::Value;
 
+mod error_format;
 mod layers;
 mod ratchet;
 mod test_clock;
@@ -105,10 +106,11 @@ const FORMAT_SQL: &str = "text::format_sql";
 const SYNC_WITHOUT_FLUSH: &str = "text::sync_without_flush";
 const STRING_ERROR_VARIANT: &str = "text::string_error_variant";
 const STRINGIFIED_ERROR: &str = "text::stringified_error";
+const ERROR_DISPLAYS_SOURCE: &str = "text::error_displays_source";
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
-pub const TEXT_RULES: [&str; 16] = [
+pub const TEXT_RULES: [&str; 17] = [
     PATH_ATTRIBUTE,
     STRING_ERROR_RESULT,
     UNAVAILABLE_HELPER,
@@ -117,6 +119,7 @@ pub const TEXT_RULES: [&str; 16] = [
     SYNC_WITHOUT_FLUSH,
     STRING_ERROR_VARIANT,
     STRINGIFIED_ERROR,
+    ERROR_DISPLAYS_SOURCE,
     STATIC_STR_ERROR,
     JSON_MACRO_VALUE,
     DOWNCAST,
@@ -832,6 +835,9 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
     }
     for offset in stringified_errors(text, masked) {
         add(STRINGIFIED_ERROR, offset);
+    }
+    for offset in error_format::findings(file, text, masked) {
+        add(ERROR_DISPLAYS_SOURCE, offset);
     }
     for offset in json_macro_values(masked) {
         add(JSON_MACRO_VALUE, offset);

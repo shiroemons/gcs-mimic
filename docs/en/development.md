@@ -422,6 +422,7 @@ and `cargo::unused_dependencies`.
 | `text::static_str_error` | `Result<_, &'static str>` in signatures/aliases and associated static-string error types. |
 | `text::string_error_variant` | Tuple variants `Backend(String)`, `BodyAborted(String)`, `Database(String)`, `Internal(String)`, `Io(String)`, `Other(String)`, `Sqlite(String)`, `Storage(String)` or `Unavailable(String)` in an enum named `*Error`. |
 | `text::stringified_error` | `map_err(\|e\| Path(e.to_string()))` or `map_err(\|e\| Path(format!(".. {e}")))` whose only argument stringifies the error. |
+| `text::error_displays_source` | A thiserror format that prints its own source field, named `source` or marked `#[source]` or `#[from]`. Checks named and numbered placeholders and direct format arguments. A transparent wrapper forwards the cause's source. The diagnostic compatibility table in the [error model](slices/rust-hardening.md#display-and-source) records the existing exceptions. |
 | `text::unavailable_helper` | `fn unavailable` outside `src/storage/failure.rs`, or not exactly one there. |
 | `text::allow_too_many_arguments` | `#[allow]`, `#[expect]` or `cfg_attr` of `clippy::too_many_arguments`, including attributes split over several lines. |
 | `text::format_sql` | `format!` whose literal starts with an SQL statement. |

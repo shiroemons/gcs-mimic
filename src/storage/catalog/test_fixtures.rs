@@ -8,14 +8,7 @@ use bytes::Bytes;
 use rusqlite::Connection;
 use std::time::UNIX_EPOCH;
 
-pub(crate) fn claimed_catalog_source<'a>(
-    error: &'a (dyn std::error::Error + 'static),
-) -> Option<&'a dyn std::error::Error> {
-    match error.downcast_ref() {
-        Some(super::resumable::writers::ClaimError::Catalog(cause)) => Some(cause),
-        _ => None,
-    }
-}
+pub(crate) use super::resumable::writers::claimed_catalog_source;
 
 pub(crate) fn pause_read(
     catalog: &Catalog,

@@ -67,6 +67,16 @@ impl std::error::Error for ClaimError {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn claimed_catalog_source<'a>(
+    error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a dyn std::error::Error> {
+    match error.downcast_ref() {
+        Some(ClaimError::Catalog(cause)) => Some(cause),
+        _ => None,
+    }
+}
+
 impl From<ClaimError> for CatalogError {
     fn from(error: ClaimError) -> Self {
         match error {
