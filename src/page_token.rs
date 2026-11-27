@@ -10,7 +10,6 @@ use crate::{
     storage::{ObjectListCursor, ObjectListQuery},
 };
 use serde::{Serialize, de::DeserializeOwned};
-use std::fmt;
 
 /// The tag that opens a cursor payload. Each listing has its own, so a cursor cannot be
 /// replayed against another listing.
@@ -41,44 +40,22 @@ impl CursorTag {
 }
 
 /// Why a page token was refused, or why a listing position cannot become one.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum PageTokenError {
     /// A bucket listing token that no listing of this project and prefix issued.
+    #[error("Invalid pageToken for this project and prefix")]
     BucketCursor,
     /// An object listing token that no listing issued. Cloud Storage names the token it
     /// refuses; only a short one is named, so the size of an error stays independent of what
     /// the client sent.
+    #[error("Next page token not valid{}{}", if .0.is_some() { ": " } else { "" }, .0.as_deref().unwrap_or_default())]
     ObjectCursor(Option<String>),
     /// A listing project that cannot be bound into a token.
+    #[error(transparent)]
     Project(InvalidProjectId),
     /// A last bucket name outside even the fake-gcs-server rules.
+    #[error(transparent)]
     BucketName(ProfileNameError),
-}
-
-impl fmt::Display for PageTokenError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BucketCursor => {
-                formatter.write_str("Invalid pageToken for this project and prefix")
-            }
-            Self::ObjectCursor(Some(token)) => {
-                write!(formatter, "Next page token not valid: {token}")
-            }
-            Self::ObjectCursor(None) => formatter.write_str("Next page token not valid"),
-            Self::Project(error) => error.fmt(formatter),
-            Self::BucketName(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for PageTokenError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Project(error) => error.source(),
-            Self::BucketName(error) => error.source(),
-            Self::BucketCursor | Self::ObjectCursor(_) => None,
-        }
-    }
 }
 
 impl From<InvalidProjectId> for PageTokenError {
@@ -627,4 +604,12 @@ mod tests {
             assert_eq!(decode_object_page_token(token, &query).unwrap(), cursor);
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = PageTokenError::ObjectCursor(Some("x".into()));
+    assert_eq!(error.to_string(), "Next page token not valid: x");
+    assert!(std::error::Error::source(&error).is_none());
 }
