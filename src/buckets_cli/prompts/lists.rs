@@ -80,16 +80,9 @@ impl FromStr for Port {
 }
 
 /// A typed port that is not a number from 1 to 65535.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("Enter a port from 1 to 65535, for example 3001.")]
 pub(super) struct InvalidPort;
-
-impl fmt::Display for InvalidPort {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Enter a port from 1 to 65535, for example 3001.")
-    }
-}
-
-impl std::error::Error for InvalidPort {}
 
 /// An entry of a question for a number of seconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,20 +142,9 @@ fn entry<T: Clone>(entries: &[T], index: usize) -> Result<T, InquireError> {
 }
 
 /// A terminal answered with an entry it was not shown.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("The terminal chose entry {0}, which it was not shown.")]
 struct UnknownEntry(usize);
-
-impl fmt::Display for UnknownEntry {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "The terminal chose entry {}, which it was not shown.",
-            self.0
-        )
-    }
-}
-
-impl std::error::Error for UnknownEntry {}
 
 /// Asks to choose one of `entries`, with the answer line keeping what the list shows.
 pub(super) fn select_one<T>(
@@ -320,18 +302,12 @@ pub(super) fn pick_seconds(
 }
 
 /// Typed seconds the check accepted but a second reading refused, which ends the questions.
-#[derive(Debug)]
-struct InvalidSeconds(std::num::ParseIntError);
+#[derive(Debug, thiserror::Error)]
+struct InvalidSeconds(#[source] std::num::ParseIntError);
 
 impl fmt::Display for InvalidSeconds {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Cannot read the seconds: {}", self.0)
-    }
-}
-
-impl std::error::Error for InvalidSeconds {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.0)
     }
 }
 
@@ -357,4 +333,15 @@ pub(super) fn valid(result: Result<(), impl fmt::Display>) -> Validation {
 /// An answer the library refused after its question was validated, which ends the questions.
 pub(super) fn custom(error: impl std::error::Error + Send + Sync + 'static) -> InquireError {
     InquireError::Custom(Box::new(error))
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = UnknownEntry(3);
+    assert_eq!(
+        error.to_string(),
+        "The terminal chose entry 3, which it was not shown."
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }

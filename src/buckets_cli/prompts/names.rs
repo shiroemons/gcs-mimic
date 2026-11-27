@@ -80,10 +80,14 @@ impl fmt::Display for Names {
 }
 
 /// Why typed bucket names were refused.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(super) enum NameError {
     Empty,
-    Invalid { name: String, error: GenerateError },
+    Invalid {
+        name: String,
+        #[source]
+        error: GenerateError,
+    },
     Twice(String),
     Taken(String),
 }
@@ -95,15 +99,6 @@ impl fmt::Display for NameError {
             Self::Invalid { name, error } => write!(f, "{name}: {error}"),
             Self::Twice(name) => write!(f, "{name} is named twice."),
             Self::Taken(name) => write!(f, "This document already has a bucket named {name}."),
-        }
-    }
-}
-
-impl std::error::Error for NameError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Invalid { error, .. } => Some(error),
-            Self::Empty | Self::Twice(_) | Self::Taken(_) => None,
         }
     }
 }

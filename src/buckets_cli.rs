@@ -494,13 +494,13 @@ fn write(text: &str, output: Option<&Path>) -> Result<(), CliError> {
 }
 
 /// Why a document could not be saved as a new file.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum SaveError {
     /// The file exists, and is kept.
     Exists,
-    Create(io::Error),
+    Create(#[source] io::Error),
     /// The partial file was removed.
-    Write(io::Error),
+    Write(#[source] io::Error),
 }
 
 impl std::fmt::Display for SaveError {
@@ -509,15 +509,6 @@ impl std::fmt::Display for SaveError {
             Self::Exists => f.write_str("That file exists and is kept."),
             Self::Create(error) => write!(f, "Cannot create that file: {error}."),
             Self::Write(error) => write!(f, "Cannot write that file, so it was removed: {error}."),
-        }
-    }
-}
-
-impl std::error::Error for SaveError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Exists => None,
-            Self::Create(error) | Self::Write(error) => Some(error),
         }
     }
 }
