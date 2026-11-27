@@ -6,28 +6,12 @@ use std::{
     path::Path,
 };
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ReadError {
+    #[error(transparent)]
     Io(io::Error),
+    #[error("input exceeds the configured byte limit")]
     Limit,
-}
-
-impl std::fmt::Display for ReadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Io(error) => error.fmt(f),
-            Self::Limit => f.write_str("input exceeds the configured byte limit"),
-        }
-    }
-}
-
-impl std::error::Error for ReadError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(error) => std::error::Error::source(error),
-            Self::Limit => None,
-        }
-    }
 }
 
 pub fn read(path: &Path, limit: u64) -> Result<Vec<u8>, ReadError> {
@@ -80,5 +64,21 @@ mod tests {
         assert_eq!(input, b"f");
         assert!(read_from(&b""[..], 0).is_ok());
         std::assert_matches!(read_from(&b"a"[..], 0), Err(ReadError::Limit));
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let cases: &[(&dyn std::error::Error, &str)] = &[
+        (&ReadError::Limit, "input exceeds the configured byte limit"),
+        (
+            &ReadError::Io(std::io::ErrorKind::NotFound.into()),
+            "entity not found",
+        ),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.to_string(), *expected);
+        assert!(error.source().is_none());
     }
 }
