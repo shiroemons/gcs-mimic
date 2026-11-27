@@ -337,11 +337,18 @@ async fn grpc_names_follow_the_configured_bucket_profile() {
             tonic::Code::InvalidArgument
         );
         assert_eq!(
-            storage.object_name(resource, "a").unwrap_err().code(),
+            storage.object_key(resource, "a").unwrap_err().code(),
             tonic::Code::InvalidArgument
         );
     }
     storage.compat_profile = CompatProfile::FakeGcsServer;
+    assert_eq!(
+        storage
+            .object_key("projects/_/buckets/ab", "a/b%2Fc")
+            .unwrap()
+            .parts(),
+        ("ab", "a/b%2Fc")
+    );
     let created = pb::storage_server::Storage::create_bucket(
         &storage,
         fixtures::routed_request(

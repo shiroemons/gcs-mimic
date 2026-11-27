@@ -654,6 +654,10 @@ impl<'a> ObjectKey<'a> {
     pub(crate) fn name(self) -> &'a str {
         self.name
     }
+
+    pub(crate) fn into_target<G>(self, generation: G) -> ObjectTarget<G> {
+        ObjectTarget::from_bucket(self.bucket.into_owned(), self.name, generation)
+    }
 }
 
 /// The object version a catalog call addresses: optional for live selection, concrete

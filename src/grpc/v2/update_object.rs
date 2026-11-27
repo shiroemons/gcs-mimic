@@ -6,7 +6,7 @@ use super::{
 use crate::{
     auth::{self, Caller},
     grpc::validate::{self, NegativeGeneration},
-    object::{ObjectConditions, ObjectError, ObjectTarget, generation::Generation},
+    object::{ObjectConditions, ObjectError, generation::Generation},
 };
 use tonic::{Request, Response, Status};
 
@@ -36,7 +36,8 @@ impl Storage {
         let o = r.object.take().ok_or_else(|| {
             Status::invalid_argument("object is required; supply object.bucket and object.name")
         })?;
-        let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
+        let object = self.object_key(&o.bucket, &o.name)?;
+        let (bucket, name) = object.parts();
         let generation =
             validate::selected_generation(o.generation).map_err(|NegativeGeneration| {
                 Status::invalid_argument("generation must be positive or omitted")
@@ -66,7 +67,7 @@ impl Storage {
             .state
             .catalog
             .update_object_metadata(
-                ObjectTarget::new(bucket, name, generation.map(Generation::get)),
+                object.into_target(generation.map(Generation::get)),
                 c,
                 update,
                 // A wrong key fails before the metadata change commits.

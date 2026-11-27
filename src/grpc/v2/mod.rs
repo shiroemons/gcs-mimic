@@ -25,6 +25,8 @@ mod update_object;
 use crate::grpc::generated::google::{iam::v1 as iam, storage::v2 as pb};
 use crate::{
     auth::{AuthError, Caller, ListenerRole},
+    bucket::name::BucketKey,
+    object::ObjectKey,
     server::State,
 };
 use routing::{Route, Routes};
@@ -99,19 +101,18 @@ pub(crate) async fn dispatch(
 
 impl Storage {
     fn bucket_id<'a>(&self, resource: &'a str) -> Result<&'a str, Status> {
-        let id = names::bucket_name(resource)?;
-        crate::bucket::name::validate_for_profile(id, self.compat_profile)?;
-        Ok(id)
+        Ok(self.bucket_key(resource)?.into_inner())
     }
 
-    fn object_name<'a>(
-        &self,
-        bucket: &'a str,
-        object: &'a str,
-    ) -> Result<(&'a str, &'a str), Status> {
-        let bucket = self.bucket_id(bucket)?;
+    fn bucket_key<'a>(&self, resource: &'a str) -> Result<BucketKey<&'a str>, Status> {
+        let id = names::bucket_name(resource)?;
+        Ok(BucketKey::for_profile(id, self.compat_profile)?)
+    }
+
+    fn object_key<'a>(&self, bucket: &'a str, object: &'a str) -> Result<ObjectKey<'a>, Status> {
+        let bucket = self.bucket_key(bucket)?;
         names::object(object)?;
-        Ok((bucket, object))
+        Ok(ObjectKey::from_bucket(bucket, object))
     }
 
     /// Callers validate resource names before authorization.

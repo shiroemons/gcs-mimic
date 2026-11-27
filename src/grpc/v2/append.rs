@@ -10,7 +10,6 @@ use super::{
     pb,
     status::unsupported_for,
 };
-use crate::object::ObjectKey;
 use crate::{
     auth::{Caller, OBJECTS_CREATE},
     bucket::BucketAccess,
@@ -209,8 +208,7 @@ struct OpenedWriter {
 /// permission checked and nothing opened yet.
 enum Opening {
     Create {
-        bucket: String,
-        name: String,
+        target: ObjectTarget<()>,
         options: Box<ResumableOptions>,
     },
     TakeOver {
@@ -240,8 +238,7 @@ impl Storage {
                 }
                 spec.appendable = None;
                 let WriteSpec {
-                    bucket,
-                    name,
+                    target,
                     options,
                     total: _,
                 } = self
@@ -255,23 +252,24 @@ impl Storage {
                     ));
                 }
                 Ok(Opening::Create {
-                    bucket,
-                    name,
+                    target,
                     options: Box::new(options),
                 })
             }
             Some(FirstMessage::AppendObjectSpec(spec)) => {
-                let (bucket, name) = self.object_name(&spec.bucket, &spec.object)?;
+                let object = self.object_key(&spec.bucket, &spec.object)?;
                 let generation =
                     Generation::try_from(spec.generation).map_err(|InvalidGeneration| {
                         Status::invalid_argument(
                             "append_object_spec.generation is required; use the generation returned when the appendable object was created",
                         )
                     })?;
-                let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
+                let access = self
+                    .access(caller, object.bucket().into_inner(), OBJECTS_CREATE)
+                    .await?;
                 let conditions = ObjectConditions::from(&spec);
                 Ok(Opening::TakeOver {
-                    target: ObjectTarget::new(bucket, name, generation.get()),
+                    target: object.into_target(generation.get()),
                     write_handle: spec.write_handle,
                     conditions,
                     access,
@@ -290,16 +288,12 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<OpenedWriter, Status> {
         match opening {
-            Opening::Create {
-                bucket,
-                name,
-                options,
-            } => {
+            Opening::Create { target, options } => {
                 let access = options.access.clone();
                 let writer = self
                     .state
                     .catalog
-                    .create_appendable(ObjectKey::from_parts_unchecked(&bucket, &name), *options)
+                    .create_appendable(target.key(), *options)
                     .await
                     .map_err(|e| append_status(e, caller))?;
                 Ok(OpenedWriter {

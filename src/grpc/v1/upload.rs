@@ -65,22 +65,19 @@ impl Storage {
         object_name(&name)?;
         let metadata = metadata(object, crate::object::WriteMode::Patch)?;
         let conditions = conditions(ObjectConditions::from(&spec))?;
-        let access = self
-            .access(caller, &bucket, crate::auth::OBJECTS_CREATE)
+        let (bucket, access) = self
+            .key_and_access(caller, &bucket, crate::auth::OBJECTS_CREATE)
             .await?;
+        let key = ObjectKey::from_bucket(bucket, &name);
         let permit = self
             .state
             .catalog
-            .prepare_object_upload(
-                ObjectKey::from_parts_unchecked(&bucket, &name),
-                conditions,
-                &access,
-            )
+            .prepare_object_upload(key, conditions, &access)
             .await?;
         let (sender, receiver) = mpsc::channel(2);
         let write = self.state.catalog.put_object_prechecked(
             ObjectUpload {
-                key: ObjectKey::from_parts_unchecked(&bucket, &name),
+                key,
                 content_type,
                 expected: ExpectedHashes::default(),
                 conditions,

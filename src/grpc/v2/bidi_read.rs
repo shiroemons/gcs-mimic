@@ -7,7 +7,7 @@ use super::{
     status::unsupported,
 };
 #[cfg(test)]
-use crate::object::ObjectKey;
+use crate::object::{ObjectKey, ObjectTarget};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
@@ -16,7 +16,7 @@ use crate::{
         generated::google::rpc::Status as RpcStatus,
         validate::{self, NegativeGeneration},
     },
-    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, generation::Generation},
+    object::{ObjectConditions, ObjectError, ObjectRecord, generation::Generation},
     storage::{Finality, ObjectReader},
 };
 use prost::Message;
@@ -216,7 +216,8 @@ impl Storage {
         let handle = spec.read_handle.as_ref().ok_or_else(|| {
             Status::invalid_argument("Missing read_handle; reopen without read_handle")
         })?;
-        let (bucket, object) = self.object_name(&spec.bucket, &spec.object)?;
+        let object_key = self.object_key(&spec.bucket, &spec.object)?;
+        let (bucket, object) = object_key.parts();
         let entry = self
             .state
             .grpc_read_handles
@@ -235,7 +236,7 @@ impl Storage {
                 "Read handle does not match bucket, object or generation; use the original object or reopen without read_handle",
             ));
         }
-        let target = ObjectTarget::new(bucket, object, Some(entry.generation));
+        let target = object_key.into_target(Some(entry.generation));
         let (record, mut reader, _) = self
             .open_readable(target, Default::default(), access, key)
             .await
@@ -290,7 +291,8 @@ impl Storage {
         // read must repeat its key because a handle never stores one.
         let key = super::customer_key::key(spec.common_object_request_params.as_ref())?;
         Admitted::of(&extensions)?.compare(&[Route::Bucket(Some(spec.bucket.as_str()))])?;
-        let (bucket, object) = self.object_name(&spec.bucket, &spec.object)?;
+        let object_key = self.object_key(&spec.bucket, &spec.object)?;
+        let (bucket, object) = object_key.parts();
         let access = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let resumed = spec.read_handle.is_some();
         let (mut selected, token) = if resumed {
@@ -298,7 +300,7 @@ impl Storage {
                 .await?
         } else {
             let conditions = ObjectConditions::from(&spec);
-            let target = ObjectTarget::new(bucket, object, generation.map(Generation::get));
+            let target = object_key.into_target(generation.map(Generation::get));
             let (record, reader, finality) = self
                 .open_readable(target, conditions, &access, key)
                 .await

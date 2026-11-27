@@ -22,14 +22,14 @@ pub mod pb {
 
 use crate::{
     auth::{BUCKETS_LIST, Caller, ListenerRole},
-    bucket::{BucketAccess, BucketConditions, CatalogError},
+    bucket::{BucketAccess, BucketConditions, CatalogError, name::BucketKey},
     grpc::{
         v2::status::unsupported,
         validate::{self, NegativeGeneration},
     },
     object::{
-        MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch,
-        WriteMode, generation::Generation,
+        MapPatch, ObjectConditions, ObjectError, ObjectKey, ObjectMetadataUpdate, Patch, WriteMode,
+        generation::Generation,
     },
     page_token::{self, PageTokenError},
     server::State,
@@ -345,10 +345,23 @@ impl Storage {
         bucket: &str,
         permission: crate::auth::Permission,
     ) -> Result<BucketAccess, Status> {
-        crate::bucket::name::validate_for_profile(bucket, self.compat_profile)?;
-        crate::server::bucket_access(&self.state, caller, permission, bucket)
+        self.key_and_access(caller, bucket, permission)
             .await
-            .map_err(|error| access_status(error, caller))
+            .map(|(_, access)| access)
+    }
+
+    async fn key_and_access<'a>(
+        &self,
+        caller: Option<Caller<'_>>,
+        bucket: &'a str,
+        permission: crate::auth::Permission,
+    ) -> Result<(BucketKey<&'a str>, BucketAccess), Status> {
+        let key = BucketKey::for_profile(bucket, self.compat_profile)?;
+        let access =
+            crate::server::bucket_access(&self.state, caller, permission, key.into_inner())
+                .await
+                .map_err(|error| access_status(error, caller))?;
+        Ok((key, access))
     }
 
     /// The ID of the project `named` names by ID or by number, once the caller may act in it.
@@ -380,8 +393,8 @@ impl Storage {
             write,
         } = update;
         object_name(name)?;
-        let access = self
-            .access(caller, bucket, crate::auth::OBJECTS_UPDATE)
+        let (bucket_key, access) = self
+            .key_and_access(caller, bucket, crate::auth::OBJECTS_UPDATE)
             .await?;
         if (!object.name.is_empty() && object.name != name)
             || (!object.bucket.is_empty() && object.bucket != bucket)
@@ -397,7 +410,8 @@ impl Storage {
             .state
             .catalog
             .update_object_metadata(
-                ObjectTarget::new(bucket, name, generation(selected)?.map(Generation::get)),
+                ObjectKey::from_bucket(bucket_key, name)
+                    .into_target(generation(selected)?.map(Generation::get)),
                 conditions,
                 update,
                 move |record| {
@@ -605,14 +619,11 @@ impl Storage {
         )?;
         projection(r.projection)?;
         object_name(&r.object)?;
-        let access = self
-            .access(caller, &r.bucket, crate::auth::OBJECTS_GET)
+        let (bucket, access) = self
+            .key_and_access(caller, &r.bucket, crate::auth::OBJECTS_GET)
             .await?;
-        let target = ObjectTarget::new(
-            &r.bucket,
-            &r.object,
-            generation(r.generation)?.map(Generation::get),
-        );
+        let target = ObjectKey::from_bucket(bucket, &r.object)
+            .into_target(generation(r.generation)?.map(Generation::get));
         let record = self
             .state
             .catalog
@@ -633,14 +644,11 @@ impl Storage {
             r.common_object_request_params.as_ref(),
         )?;
         object_name(&r.object)?;
-        let access = self
-            .access(caller, &r.bucket, crate::auth::OBJECTS_DELETE)
+        let (bucket, access) = self
+            .key_and_access(caller, &r.bucket, crate::auth::OBJECTS_DELETE)
             .await?;
-        let target = ObjectTarget::new(
-            &r.bucket,
-            &r.object,
-            generation(r.generation)?.map(Generation::get),
-        );
+        let target = ObjectKey::from_bucket(bucket, &r.object)
+            .into_target(generation(r.generation)?.map(Generation::get));
         self.state
             .catalog
             .delete_object(target, conditions(ObjectConditions::from(&r))?, &access)

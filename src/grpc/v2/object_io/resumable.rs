@@ -4,7 +4,6 @@ use super::*;
 use crate::bucket::BucketAccess;
 use crate::grpc::v2::{routing::Admitted, stored};
 use crate::hashing::Hashes;
-use crate::object::ObjectKey;
 use crate::storage::{ChunkEnd, ChunkWait, SessionLease, Written};
 use bytes::{Buf, Bytes, BytesMut};
 
@@ -80,8 +79,7 @@ impl Storage {
             .ok_or_else(|| Status::invalid_argument("write_object_spec is required"))?;
         // The session binds this request's key; its upload_id messages cannot change it.
         let WriteSpec {
-            bucket,
-            name,
+            target,
             options,
             total,
         } = self
@@ -95,15 +93,11 @@ impl Storage {
         let session = self
             .state
             .catalog
-            .create_resumable_session(
-                ObjectKey::from_parts_unchecked(&bucket, &name),
-                options,
-                total,
-            )
+            .create_resumable_session(target.key(), options, total)
             .await
             .map_err(session_status)?;
         Ok(Response::new(pb::StartResumableWriteResponse {
-            upload_id: UploadId::issued(&bucket, session.id).to_string(),
+            upload_id: UploadId::issued(target.bucket.as_str(), session.id).to_string(),
         }))
     }
     pub(in crate::grpc::v2) async fn query_write_status(

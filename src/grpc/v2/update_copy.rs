@@ -9,11 +9,11 @@ use super::{
 use crate::{
     acl::{AclRequest, AnonymousCannedAcl, refuse_anonymous_canned_acl},
     auth::{self, Caller},
-    bucket::BucketAccess,
+    bucket::{BucketAccess, name::BucketKey},
     csek::{CopyKeys, CustomerKey},
     grpc::validate::{self, NegativeGeneration},
     object::{
-        ComposeSource, ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectTarget,
+        ComposeSource, ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectKey,
         content_type, generation::Generation,
     },
     storage::{
@@ -298,10 +298,8 @@ impl From<AnonymousCannedAcl> for Status {
 
 /// Source and destination of a rewrite; names a request omits come from its token's binding.
 struct RewriteTarget<'a> {
-    source_bucket: &'a str,
-    source_object: &'a str,
-    destination_bucket: &'a str,
-    destination_object: &'a str,
+    source: ObjectKey<'a>,
+    destination: ObjectKey<'a>,
 }
 
 impl<'a> RewriteTarget<'a> {
@@ -330,30 +328,18 @@ impl<'a> RewriteTarget<'a> {
         } else {
             &r.destination_name
         };
-        crate::bucket::name::validate_for_profile(sb, profile)?;
-        crate::bucket::name::validate_for_profile(db, profile)?;
+        let sb = BucketKey::for_profile(sb, profile)?;
+        let db = BucketKey::for_profile(db, profile)?;
         names::object(sn)?;
         names::object(dn)?;
         Ok(Self {
-            source_bucket: sb,
-            source_object: sn,
-            destination_bucket: db,
-            destination_object: dn,
+            source: ObjectKey::from_bucket(sb, sn),
+            destination: ObjectKey::from_bucket(db, dn),
         })
     }
 
     fn matches(&self, binding: &RewriteBinding) -> bool {
-        [
-            self.source_bucket,
-            self.source_object,
-            self.destination_bucket,
-            self.destination_object,
-        ] == [
-            binding.source.bucket.as_str(),
-            binding.source.name.as_str(),
-            binding.destination.bucket.as_str(),
-            binding.destination.name.as_str(),
-        ]
+        self.source == binding.source.key() && self.destination == binding.destination.key()
     }
 }
 
@@ -407,16 +393,17 @@ impl Storage {
         let (step, session) = session.unzip();
         let binding = session.as_ref().map(|s| &s.binding);
         let target = RewriteTarget::resolve(&r, binding, self.compat_profile)?;
+        let source_bucket = target.source.bucket().into_inner();
+        let destination_bucket = target.destination.bucket().into_inner();
         Admitted::of(&extensions)?.compare(&[
-            Route::SourceBucket(Some(target.source_bucket)),
-            Route::DestinationBucket(Some(target.destination_bucket)),
+            Route::SourceBucket(Some(source_bucket)),
+            Route::DestinationBucket(Some(destination_bucket)),
         ])?;
-        let destination_bucket = target.destination_bucket;
         let read = self
-            .access(caller, target.source_bucket, auth::OBJECTS_GET)
+            .access(caller, source_bucket, auth::OBJECTS_GET)
             .await?;
         let create = self
-            .access(caller, target.destination_bucket, auth::OBJECTS_CREATE)
+            .access(caller, destination_bucket, auth::OBJECTS_CREATE)
             .await?;
         // A new session's guard stays armed until its first response is stored and read back;
         // returning early drops it, which cancels the session.
@@ -489,10 +476,8 @@ impl Storage {
         let NewRewrite {
             target:
                 RewriteTarget {
-                    source_bucket: sb,
-                    source_object: sn,
-                    destination_bucket: db,
-                    destination_object: dn,
+                    source: source_key,
+                    destination: destination_key,
                 },
             options,
             source_conditions: sc,
@@ -507,7 +492,7 @@ impl Storage {
             .state
             .catalog
             .resolve_derived_source_keyed(
-                ObjectTarget::new(sb, sn, generation),
+                source_key.into_target(generation),
                 sc,
                 read,
                 options.keys.source,
@@ -542,11 +527,16 @@ impl Storage {
             ),
             None => metadata.storage_class.take(),
         };
-        let destination_target = ObjectTarget::new(db, dn, ());
+        let destination_target = destination_key.into_target(());
         let buckets = self
             .state
             .catalog
-            .rewrite_buckets(sb, &destination_target, dc, create)
+            .rewrite_buckets(
+                source_key.bucket().into_inner(),
+                &destination_target,
+                dc,
+                create,
+            )
             .await?
             .ok_or_else(|| Status::not_found("Source bucket not found"))?;
         let budget = buckets.budget(
@@ -560,8 +550,8 @@ impl Storage {
             .cloned()
             .unwrap_or_else(|| content_type::DEFAULT.to_owned());
         let destination = DerivedDestination {
-            bucket: db.into(),
-            name: dn.into(),
+            bucket: destination_key.bucket().into_inner().into(),
+            name: destination_key.name().into(),
             content_type,
             metadata,
             storage_class: class,
@@ -573,7 +563,7 @@ impl Storage {
         };
         let start = RewriteStart {
             binding: RewriteBinding {
-                source: crate::object::ObjectTarget::new(sb, sn, source.object.generation.get()),
+                source: source_key.into_target(source.object.generation.get()),
                 destination: destination_target,
                 parameters,
                 metadata: body,
@@ -606,8 +596,14 @@ impl Storage {
             Status::invalid_argument("destination is required; supply bucket and name")
         })?;
         let o = without_service_fields(o);
-        let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
-        let access = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
+        let destination = self.object_key(&o.bucket, &o.name)?;
+        let access = self
+            .access(
+                caller,
+                destination.bucket().into_inner(),
+                auth::OBJECTS_CREATE,
+            )
+            .await?;
         validate_derived_fields(&o)?;
         let mut metadata = super::object_update::for_write(&o);
         // The catalog applies this one key to every source and to the result.
@@ -643,8 +639,8 @@ impl Storage {
             .map_err(super::bucket_update::input_error)?;
         super::object_update::validate(&metadata)?;
         let destination = DerivedDestination {
-            bucket: bucket.into(),
-            name: name.into(),
+            bucket: destination.bucket().into_inner().into(),
+            name: destination.name().into(),
             content_type: content_type::or_default(o.content_type),
             metadata,
             storage_class,

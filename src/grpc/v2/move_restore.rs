@@ -4,11 +4,10 @@ use super::{
     Storage, convert, names, pb,
     status::{invalid_field, unsupported},
 };
-use crate::bucket::name::BucketKey;
 use crate::{
     auth::{self, Caller},
     object::{
-        ObjectConditions, ObjectTarget,
+        ObjectConditions,
         generation::{Generation, InvalidGeneration},
     },
     storage::{MoveAccess, MoveConditions, MoveNames, RestoreAccess},
@@ -40,7 +39,8 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
         let r = request.into_inner();
-        let (bucket, source) = self.object_name(&r.bucket, &r.source_object)?;
+        let source = self.object_key(&r.bucket, &r.source_object)?;
+        let bucket = source.bucket().into_inner();
         names::object(&r.destination_object)?;
         let read = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let delete = self.access(caller, bucket, auth::OBJECTS_DELETE).await?;
@@ -48,8 +48,8 @@ impl Storage {
         let sc = move_conditions(r.source_conditions())?;
         let dc = move_conditions(ObjectConditions::from(&r))?;
         let object_names = MoveNames {
-            bucket: BucketKey::from_unchecked(bucket.into()),
-            source: source.into(),
+            bucket: source.bucket().into_owned(),
+            source: source.name().into(),
             destination: r.destination_object,
         };
         let conditions = MoveConditions {
@@ -93,14 +93,15 @@ impl Storage {
                 "generation is required; select a positive soft-deleted generation",
             )
         })?;
-        let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
+        let object = self.object_key(&r.bucket, &r.object)?;
+        let bucket = object.bucket().into_inner();
         let restore = self.access(caller, bucket, auth::OBJECTS_RESTORE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         // The bucket's soft delete policy is checked before the conditions, which the catalog
         // then compares (recorded 2026-11-18 without a policy; with one, comparing is inferred
         // from the other object RPCs).
         let c = ObjectConditions::from(&r);
-        let target = ObjectTarget::new(bucket, name, generation.get());
+        let target = object.into_target(generation.get());
         let access = RestoreAccess {
             restore: &restore,
             create: &create,

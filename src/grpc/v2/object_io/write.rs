@@ -2,7 +2,6 @@ use super::step::AdmittedStep;
 use super::*;
 use crate::csek::{CsekError, CustomerKey};
 use crate::grpc::v2::routing;
-use crate::object::ObjectKey;
 use crate::object::content_type;
 
 /// A caller the write task can own: [`Caller`] borrows its identity from the request.
@@ -31,8 +30,7 @@ impl TaskCaller {
 
 /// A validated `WriteObjectSpec`: where the object goes and how its upload is checked.
 pub(in crate::grpc::v2) struct WriteSpec {
-    pub(in crate::grpc::v2) bucket: String,
-    pub(in crate::grpc::v2) name: String,
+    pub(in crate::grpc::v2) target: ObjectTarget<()>,
     pub(in crate::grpc::v2) options: ResumableOptions,
     /// `object_size`, when the client declared it.
     pub(in crate::grpc::v2) total: Option<u64>,
@@ -144,10 +142,12 @@ impl Storage {
             .resource
             .take()
             .ok_or_else(|| Status::invalid_argument("write_object_spec.resource is required"))?;
-        let (bucket, name) = self.object_name(&resource.bucket, &resource.name)?;
-        let bucket = bucket.to_owned();
-        let name = name.to_owned();
-        let access = self.access(caller, &bucket, OBJECTS_CREATE).await?;
+        let target = self
+            .object_key(&resource.bucket, &resource.name)?
+            .into_target(());
+        let access = self
+            .access(caller, target.bucket.as_str(), OBJECTS_CREATE)
+            .await?;
         let content_type = content_type::or_default(std::mem::take(&mut resource.content_type));
         let mut metadata = super::super::object_update::for_write(&resource);
         metadata.write = crate::object::WriteMode::Patch;
@@ -199,8 +199,7 @@ impl Storage {
         options.expected = expected;
         options.conditions = conditions;
         Ok(WriteSpec {
-            bucket,
-            name,
+            target,
             options,
             total,
         })
@@ -261,8 +260,7 @@ impl Storage {
         // The first message's object checksums are read with its data, as every later
         // message's are (`SingleBody::admit`), not with the spec.
         let WriteSpec {
-            bucket,
-            name,
+            target,
             options,
             total,
         } = self
@@ -288,6 +286,7 @@ impl Storage {
         // message is admitted before the catalog is asked. Not recorded: its object checksums,
         // which answer after its data (`WriteStep::admit`) and so before the conditions too.
         let opening = body.admit(first, MessagePosition::First)?;
+        let bucket = target.bucket.as_str();
         #[expect(
             clippy::wildcard_enum_match_arm,
             reason = "every other object error keeps the shared Storage v2 mapping"
@@ -295,11 +294,7 @@ impl Storage {
         let permit = self
             .state
             .catalog
-            .prepare_object_upload(
-                ObjectKey::from_parts_unchecked(&bucket, &name),
-                options.conditions,
-                &options.access,
-            )
+            .prepare_object_upload(target.key(), options.conditions, &options.access)
             .await
             .map_err(|error| match error {
                 // Over WriteObject Cloud Storage words a missing bucket differently from reads.
@@ -312,7 +307,7 @@ impl Storage {
         let producer = body.produce(stream, opening, tx, rpc);
         let write = self.state.catalog.put_object_prechecked(
             ObjectUpload {
-                key: ObjectKey::from_parts_unchecked(&bucket, &name),
+                key: target.key(),
                 content_type: options.content_type.clone(),
                 expected: options.expected,
                 conditions: options.conditions,

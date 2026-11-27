@@ -292,7 +292,8 @@ impl Storage {
         let mask = ReadMask::from(r.read_mask.as_ref());
         // A malformed key fails before the object is looked up (recorded 2026-11-15).
         let key = customer_key::key(r.common_object_request_params.as_ref())?;
-        let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
+        let object = self.object_key(&r.bucket, &r.object)?;
+        let (bucket, name) = object.parts();
         let object_mask = object_mask(mask, unknown_field)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
         if !r.restore_token.is_empty() {
@@ -306,21 +307,11 @@ impl Storage {
                     "soft_deleted=true requires generation; select the soft-deleted generation",
                 )
             })?;
-            self.get_soft_deleted(
-                ObjectTarget::new(bucket, name, generation),
-                conditions,
-                &access,
-                key,
-            )
-            .await
+            self.get_soft_deleted(object.into_target(generation), conditions, &access, key)
+                .await
         } else {
-            self.get_readable(
-                ObjectTarget::new(bucket, name, selected),
-                conditions,
-                &access,
-                key,
-            )
-            .await
+            self.get_readable(object.into_target(selected), conditions, &access, key)
+                .await
         };
         let ReadableMetadata {
             record,
@@ -395,12 +386,12 @@ impl Storage {
     ) -> Result<Response<ReadObjectStream>, Status> {
         let r = request.into_inner();
         let key = customer_key::key(r.common_object_request_params.as_ref())?;
-        let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
+        let object = self.object_key(&r.bucket, &r.object)?;
+        let (bucket, name) = object.parts();
         let mask = ReadMask::from(r.read_mask.as_ref());
         let first_mask = FirstResponseMask::parse(mask, caller)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
-        let target =
-            ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
+        let target = object.into_target(generation(r.generation)?.map(Generation::get));
         let (record, mut reader, finality) = self
             .open_readable(target, ObjectConditions::from(&r), &access, key)
             .await

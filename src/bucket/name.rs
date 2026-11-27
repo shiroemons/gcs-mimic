@@ -30,6 +30,12 @@ impl<S: AsRef<str>> BucketKey<S> {
     }
 }
 
+impl BucketKey<&str> {
+    pub(crate) fn into_owned(self) -> BucketKey {
+        BucketKey(self.0.to_owned())
+    }
+}
+
 impl<S: std::fmt::Debug> std::fmt::Debug for BucketKey<S> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(formatter)

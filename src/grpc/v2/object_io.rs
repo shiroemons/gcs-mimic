@@ -220,10 +220,10 @@ impl Storage {
         let r = request.into_inner();
         // Cloud Storage deletes an object whatever key the request carries, even a wrong one or
         // one for an unencrypted object (recorded 2026-11-15), so the parameters are not read.
-        let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
+        let object = self.object_key(&r.bucket, &r.object)?;
+        let (bucket, name) = object.parts();
         let access = self.access(caller, bucket, OBJECTS_DELETE).await?;
-        let target =
-            ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
+        let target = object.into_target(generation(r.generation)?.map(Generation::get));
         self.delete_including_appendable(target, ObjectConditions::from(&r), &access)
             .await
             .map_err(named_object_status(bucket, name))?;

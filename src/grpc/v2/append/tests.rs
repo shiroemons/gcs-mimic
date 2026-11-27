@@ -1,5 +1,6 @@
 use super::*;
 use crate::grpc::test_support::{assert_code, registry};
+use crate::object::ObjectKey;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{auth::Auth, bucket::BucketRecord, storage::Catalog, test_support::TestDir};
 use bytes::Bytes;
