@@ -82,7 +82,7 @@ crate::choice::string_enum! {
 /// `gcloud storage sign-url` send lowercase names. V2 names are not V4 parameters, and their
 /// parser reads only the exact spellings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct V4Parameter {
+pub(crate) struct V4Parameter {
     family: Family,
     field: Field,
 }
@@ -112,7 +112,7 @@ impl fmt::Display for V4Parameter {
 /// A query name that does not identify a V4 signing parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("not a V4 signing query parameter")]
-pub struct NotV4Parameter;
+pub(crate) struct NotV4Parameter;
 
 impl FromStr for V4Parameter {
     type Err = NotV4Parameter;
@@ -186,8 +186,8 @@ pub(super) fn bounded(uri: &Uri, headers: &HeaderMap) -> Result<(), Failure> {
 }
 
 pub(super) struct CredentialScope<'a> {
-    pub signer: &'a str,
-    pub scope: &'a str,
+    pub(crate) signer: &'a str,
+    pub(crate) scope: &'a str,
 }
 
 impl<'a> CredentialScope<'a> {

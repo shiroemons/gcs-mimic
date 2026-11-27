@@ -14,18 +14,18 @@ mod built_in;
 pub(crate) use built_in::BuiltIn;
 pub(crate) use built_in::TRUSTED_APP_ID;
 pub(crate) mod denied;
-pub use denied::Denied;
+pub(crate) use denied::Denied;
 mod jwt;
 mod policy;
 pub(crate) mod policy_input;
 mod project;
-pub use project::InvalidProjectId;
+pub(crate) use project::InvalidProjectId;
 pub(crate) use project::{ProjectId, valid_project_id, validate_project_id};
 pub(crate) mod roles;
-pub mod signature;
+pub(crate) mod signature;
 mod signing_keys;
 use signing_keys::SigningKeys;
-pub mod test_signer;
+pub(crate) mod test_signer;
 pub(crate) mod testable;
 pub(crate) use policy::PolicyDecodeError;
 pub(crate) use policy::PublicAccess;
@@ -208,7 +208,7 @@ const CREDENTIAL_QUERY_PARAMETERS: &[&str] = &[
 ];
 
 crate::choice::string_enum! {
-    pub enum AuthMode {
+    pub(crate) enum AuthMode {
         #[default]
         Permissive => "permissive",
         Strict => "strict",
@@ -220,7 +220,7 @@ crate::choice::string_enum! {
     no_default
     /// Whether the built-in [`test_signer`] identity exists. Its private key is published, so
     /// the default depends on the profile; see [`TestSignerChoice::select`].
-    pub enum TestSigner {
+    pub(crate) enum TestSigner {
         Enabled => "enabled",
         Disabled => "disabled",
     }
@@ -271,7 +271,7 @@ crate::choice::string_enum! {
     no_default
     /// How signed XML requests are treated. Strict mode always verifies them, because their
     /// signer is the caller; permissive mode ignores their credentials unless asked to verify.
-    pub enum SignedUrls {
+    pub(crate) enum SignedUrls {
         Ignore => "ignore",
         Verify => "verify",
     }
@@ -280,7 +280,7 @@ crate::choice::string_enum! {
 
 impl SignedUrls {
     /// An explicit setting wins; otherwise strict mode verifies and permissive mode ignores.
-    pub fn resolve(configured: Option<Self>, mode: AuthMode) -> Self {
+    pub(crate) fn resolve(configured: Option<Self>, mode: AuthMode) -> Self {
         configured.unwrap_or(match mode {
             AuthMode::Permissive => Self::Ignore,
             AuthMode::Strict => Self::Verify,
@@ -325,7 +325,7 @@ fn strict_only(field: &str) -> String {
 
 /// Transport-independent authentication or authorization failure; adapters render it.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum AuthFailure {
+pub(crate) enum AuthFailure {
     /// Credentials were presented but are unknown, malformed or of an unsupported kind.
     #[error("invalid credentials")]
     InvalidCredentials,
@@ -366,7 +366,7 @@ enum Presented<'a> {
 
 /// A registered local principal with its project-scoped permissions expanded at load time.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Identity {
+pub(crate) struct Identity {
     id: String,
     acl_entity: Option<crate::acl::Entity>,
     /// Shared because requests clone the caller, and a principal may hold any number of projects.
@@ -431,7 +431,7 @@ impl Identity {
         })
     }
 
-    pub fn id(&self) -> &str {
+    pub(crate) fn id(&self) -> &str {
         &self.id
     }
 
@@ -482,13 +482,13 @@ pub(crate) enum ListenerRole {
 
 /// The resolved strict-mode caller.
 #[derive(Clone, Copy, Debug)]
-pub enum Caller<'a> {
+pub(crate) enum Caller<'a> {
     Anonymous,
     Principal(&'a Identity),
 }
 
 impl<'a> Caller<'a> {
-    pub fn principal(self) -> Result<&'a Identity, AuthFailure> {
+    pub(crate) fn principal(self) -> Result<&'a Identity, AuthFailure> {
         match self {
             Self::Anonymous => Err(AuthFailure::LoginRequired),
             Self::Principal(identity) => Ok(identity),
@@ -530,7 +530,7 @@ pub(crate) struct InvalidUploadSnapshot;
 /// Why an identity document is invalid. `Display` names, for an invalid entry, its index; token
 /// values are never included. [`IdentityError`] adds the setting that supplied the document.
 #[derive(Debug, thiserror::Error)]
-pub enum RegistryError {
+pub(crate) enum RegistryError {
     #[error("exceeds {MAX_REGISTRY_MIB} MiB")]
     TooLarge,
     #[error(transparent)]
@@ -616,7 +616,7 @@ impl fmt::Display for IdentityError {
 
 /// Local principal registry loaded from the strict-mode identity document.
 #[derive(Debug)]
-pub struct Registry {
+pub(crate) struct Registry {
     identities: Vec<Identity>,
     /// Identities the file declares; the ready event counts these, not the built-in signer.
     declared: usize,
@@ -1077,7 +1077,8 @@ impl Auth {
         Self::default()
     }
 
-    pub fn strict(registry: Registry) -> Self {
+    #[cfg(test)]
+    pub(crate) fn strict(registry: Registry) -> Self {
         Self::with_profile(Profile::Strict(Box::new(registry)))
     }
 
@@ -1134,13 +1135,13 @@ impl Auth {
     }
 
     /// Whether the built-in test signer exists, as loading settled it.
-    pub fn test_signer(&self) -> TestSigner {
+    pub(crate) fn test_signer(&self) -> TestSigner {
         self.test_signer
     }
 
     /// The identity that requests without credentials on the trusted listener act as, named by
     /// `trusted_principal` or built in.
-    pub fn trusted_principal(&self) -> Option<&str> {
+    pub(crate) fn trusted_principal(&self) -> Option<&str> {
         let registry = self.registry()?;
         registry.identities.get(registry.trusted?).map(Identity::id)
     }
@@ -1153,7 +1154,7 @@ impl Auth {
 
     /// Whose V4 signatures also verify over a canonical host without the request's port, after
     /// the default that the settled test signer selects.
-    pub fn host_port_policy(&self) -> signature::HostPortPolicy {
+    pub(crate) fn host_port_policy(&self) -> signature::HostPortPolicy {
         self.host_port
     }
 
@@ -1183,7 +1184,7 @@ impl Auth {
     }
 
     /// Whether signed XML requests verify before they proceed.
-    pub fn signed_urls(&self) -> SignedUrls {
+    pub(crate) fn signed_urls(&self) -> SignedUrls {
         match self.profile {
             Profile::Permissive => SignedUrls::Ignore,
             Profile::VerifyingPermissive(_) | Profile::Strict(_) => SignedUrls::Verify,
@@ -1204,7 +1205,7 @@ impl Auth {
     }
 
     /// Reserve half the runtime's blocking slots for cryptography; other work shares the pool.
-    pub fn with_verifier_budget(mut self, max_blocking_threads: usize) -> Self {
+    pub(crate) fn with_verifier_budget(mut self, max_blocking_threads: usize) -> Self {
         self.verifiers = signature::Verifiers::for_blocking_threads(max_blocking_threads);
         self
     }
@@ -1213,7 +1214,7 @@ impl Auth {
     /// it because its callers are registered principals. `email` passed
     /// `validate_local_creator_email` when the setting loaded; an address that failed it only
     /// reaches here while startup is failing on that diagnostic, and records no creator.
-    pub fn with_local_creator_email(mut self, email: &str) -> Self {
+    pub(crate) fn with_local_creator_email(mut self, email: &str) -> Self {
         self.local_creator_entity = acl_identity::creator_entity(email).ok();
         self
     }
@@ -1231,7 +1232,7 @@ impl Auth {
         registry.trust(caller, &BTreeSet::new()).unwrap();
     }
 
-    pub fn mode(&self) -> AuthMode {
+    pub(crate) fn mode(&self) -> AuthMode {
         match self.profile {
             Profile::Permissive | Profile::VerifyingPermissive(_) => AuthMode::Permissive,
             Profile::Strict(_) => AuthMode::Strict,
@@ -1239,17 +1240,17 @@ impl Auth {
     }
 
     /// The identities the identity file declares; the built-in test signer is not counted.
-    pub fn identity_count(&self) -> Option<usize> {
+    pub(crate) fn identity_count(&self) -> Option<usize> {
         self.registry().map(|registry| registry.declared)
     }
 
-    pub fn principals(&self) -> Option<&[Identity]> {
+    pub(crate) fn principals(&self) -> Option<&[Identity]> {
         self.registry()
             .map(|registry| registry.identities.as_slice())
     }
 
     /// Local simulation of the effective parent organization policy, loaded before readiness.
-    pub fn public_access_prevention_projects(&self) -> &[String] {
+    pub(crate) fn public_access_prevention_projects(&self) -> &[String] {
         self.registry()
             .map_or(&[], |registry| &registry.public_access_prevention_projects)
     }

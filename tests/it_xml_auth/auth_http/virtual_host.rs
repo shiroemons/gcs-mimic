@@ -1,5 +1,5 @@
 use super::*;
-use gcs_mimic::{
+use gcs_mimic::testing::{
     auth::signature::{SignUrlRequest, sign_url},
     url::encode_object_name,
 };

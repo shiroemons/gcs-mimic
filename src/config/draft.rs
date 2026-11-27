@@ -642,7 +642,7 @@ fn non_empty<'a>(key: &str, value: &'a str) -> Result<&'a str, SettingFix> {
     Ok(value)
 }
 
-pub struct ConfigurationReport {
+pub(crate) struct ConfigurationReport {
     pub(super) draft: ConfigDraft,
     pub(crate) diagnostics: Diagnostics,
     pub(super) invalid: BTreeSet<Setting>,
@@ -657,11 +657,11 @@ pub struct ConfigurationReport {
 }
 
 impl ConfigurationReport {
-    pub fn into_diagnostics(self) -> Diagnostics {
+    pub(crate) fn into_diagnostics(self) -> Diagnostics {
         self.diagnostics
     }
 
-    pub fn record_error(&mut self, diagnostic: Diagnostic) {
+    pub(crate) fn record_error(&mut self, diagnostic: Diagnostic) {
         self.diagnostics.errors.push(diagnostic);
     }
 
@@ -674,15 +674,15 @@ impl ConfigurationReport {
         &self.draft
     }
 
-    pub fn log_level(&self) -> LogLevel {
+    pub(crate) fn log_level(&self) -> LogLevel {
         self.draft.log_level
     }
 
-    pub fn seed_dir(&self) -> Option<&Path> {
+    pub(crate) fn seed_dir(&self) -> Option<&Path> {
         self.draft.seed_dir.as_deref()
     }
 
-    pub fn local_origin(&self) -> String {
+    pub(crate) fn local_origin(&self) -> String {
         super::assemble::local_origin(
             self.draft.listen,
             self.draft.resolved_listen_http(),
@@ -690,7 +690,7 @@ impl ConfigurationReport {
         )
     }
 
-    pub fn resolve_default_seed(&mut self) {
+    pub(crate) fn resolve_default_seed(&mut self) {
         if self.default_seed_settings_valid() {
             self.diagnostics
                 .warnings
@@ -700,7 +700,7 @@ impl ConfigurationReport {
 
     /// Whether the settings that select the TLS identity are valid, so that loading it can fail
     /// only on the files themselves.
-    pub fn tls_settings_valid(&self) -> bool {
+    pub(crate) fn tls_settings_valid(&self) -> bool {
         self.valid(&[
             Setting::Scheme,
             Setting::GrpcListen,
@@ -711,11 +711,11 @@ impl ConfigurationReport {
     }
 
     /// Whether the directories that adopting `default_seed_dir` compares are valid.
-    pub fn default_seed_settings_valid(&self) -> bool {
+    pub(crate) fn default_seed_settings_valid(&self) -> bool {
         self.valid(&[Setting::DataDir, Setting::SeedDir, Setting::DefaultSeedDir])
     }
 
-    pub fn load_tls(&mut self) -> crate::tls::ServerSecurity {
+    pub(crate) fn load_tls(&mut self) -> crate::tls::ServerSecurity {
         if !self.tls_settings_valid() {
             return crate::tls::ServerSecurity::plain();
         }

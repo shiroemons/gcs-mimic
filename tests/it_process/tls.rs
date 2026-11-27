@@ -4,7 +4,7 @@ use crate::common;
 use common::http::Body;
 
 use common::{TestDir, closed_by_server};
-use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
+use gcs_mimic::testing::auth::signature::{SignUrlRequest, sign_url};
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
@@ -200,7 +200,7 @@ fn closed_within(stream: &mut TcpStream, wait: Duration) -> bool {
 fn the_default_scheme_serves_http_and_https_on_one_port_and_links_follow_the_connection() {
     let dir = TestDir::new();
     let ca = dir.0.join("development-ca.pem");
-    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    fs::write(&ca, gcs_mimic::testing::tls::DEVELOPMENT_CA_PEM).unwrap();
     let mut command = common::server_command();
     command
         .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
@@ -358,8 +358,9 @@ async fn served_after_a_silent_connection(address: &str, protocol: Protocol, ca:
             held_then_done(read_response(socket)).await
         }
         Protocol::Https => {
-            let connector =
-                tokio_rustls::TlsConnector::from(gcs_mimic::tls::client_config(ca).unwrap());
+            let connector = tokio_rustls::TlsConnector::from(
+                gcs_mimic::testing::tls::client_config(ca).unwrap(),
+            );
             let name = tokio_rustls::rustls::pki_types::ServerName::try_from("localhost").unwrap();
             let mut tls = held_then_done(connector.connect(name, socket))
                 .await
@@ -389,7 +390,7 @@ fn silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times
     const SLOTS: usize = 2;
     let dir = TestDir::new();
     let ca = dir.0.join("development-ca.pem");
-    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    fs::write(&ca, gcs_mimic::testing::tls::DEVELOPMENT_CA_PEM).unwrap();
     let mut command = common::server_command();
     command
         .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
@@ -442,7 +443,7 @@ fn http_and_https_clients_share_one_port_concurrently() {
     const OBJECTS: usize = 10;
     let dir = TestDir::new();
     let ca = dir.0.join("development-ca.pem");
-    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    fs::write(&ca, gcs_mimic::testing::tls::DEVELOPMENT_CA_PEM).unwrap();
     let mut command = common::server_command();
     command
         .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
@@ -504,7 +505,7 @@ fn signed_private_download_uses_the_https_listener_host_and_port() {
     let data = TestDir::new();
     let config = TestDir::new();
     let ca = config.0.join("ca.pem");
-    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    fs::write(&ca, gcs_mimic::testing::tls::DEVELOPMENT_CA_PEM).unwrap();
     let mut command = common::server_command();
     command
         .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
@@ -630,7 +631,7 @@ fn a_signed_url_verifies_over_both_protocols_on_one_port() {
     let data = TestDir::new();
     let config = TestDir::new();
     let ca = config.0.join("ca.pem");
-    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    fs::write(&ca, gcs_mimic::testing::tls::DEVELOPMENT_CA_PEM).unwrap();
     let strict = |extra: &[&str]| {
         let mut command = common::server_command();
         command
@@ -838,7 +839,7 @@ fn virtual_host_https_requires_a_matching_supplied_certificate() {
         .args(options);
     let embedded = Server::launch(command, Mode::Auto);
     let ca = dir.0.join("embedded-ca.pem");
-    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    fs::write(&ca, gcs_mimic::testing::tls::DEVELOPMENT_CA_PEM).unwrap();
     let port = embedded.address.split_once(':').unwrap().1;
     let host = format!("dotted.bucket.storage.example.invalid:{port}");
     let output = Command::new("curl")
@@ -879,7 +880,7 @@ fn tls_stream(
         .set_write_timeout(Some(Duration::from_secs(30)))
         .unwrap();
     let connection = tokio_rustls::rustls::ClientConnection::new(
-        gcs_mimic::tls::client_config(ca).unwrap(),
+        gcs_mimic::testing::tls::client_config(ca).unwrap(),
         tokio_rustls::rustls::pki_types::ServerName::try_from("localhost").unwrap(),
     )
     .unwrap();
@@ -928,7 +929,10 @@ fn tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate(
             .output()
             .unwrap(),
     );
-    assert_eq!(exported, gcs_mimic::tls::DEVELOPMENT_CA_PEM.as_bytes());
+    assert_eq!(
+        exported,
+        gcs_mimic::testing::tls::DEVELOPMENT_CA_PEM.as_bytes()
+    );
     let pem = std::str::from_utf8(&exported).unwrap();
     assert_eq!(pem.matches("-----BEGIN CERTIFICATE-----").count(), 1);
     assert!(!pem.contains("PRIVATE KEY"));
@@ -1324,7 +1328,7 @@ fn tls_handshake_admission_timeout_shutdown_and_strict_permissions() {
                 .await
                 .unwrap();
             let connector = tokio_rustls::TlsConnector::from(
-                gcs_mimic::tls::client_config(&certs.join("ca.pem")).unwrap(),
+                gcs_mimic::testing::tls::client_config(&certs.join("ca.pem")).unwrap(),
             );
             let handshake = connector.connect(
                 tokio_rustls::rustls::pki_types::ServerName::try_from("localhost").unwrap(),

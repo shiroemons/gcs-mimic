@@ -103,15 +103,15 @@ fn pinned_source_export_imports_selected_bodies_and_metadata_after_restart() {
                 assert_eq!(record.metadata.get("source").map(String::as_str), metadata);
                 assert_eq!(record.time_deleted.is_some(), generation != 7);
                 assert!(record.content_language.is_none());
-                let mut file = admin
+                let mut actual = Vec::new();
+                admin
                     .open_object(&bucket, &name, selected)
                     .await
                     .unwrap()
                     .1
-                    .into_file()
+                    .into_reader()
+                    .read_to_end(&mut actual)
                     .unwrap();
-                let mut actual = Vec::new();
-                file.read_to_end(&mut actual).unwrap();
                 assert_eq!(actual, body);
             }
             assert_eq!(

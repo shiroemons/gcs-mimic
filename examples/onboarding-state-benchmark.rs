@@ -1,8 +1,8 @@
 use bytes::Bytes;
-use gcs_mimic::storage::admin::{
+use gcs_mimic::testing::storage::admin::{
     BucketDefinition, BucketName, ObjectName, Origin, Publication, PublishMode,
 };
-use gcs_mimic::{
+use gcs_mimic::testing::{
     object::{ExpectedHashes, UploadChunk},
     storage::Catalog,
 };
@@ -218,7 +218,7 @@ fn prepare(path: &Path, count: usize) {
         .unwrap()
         .block_on(async {
             let catalog = Catalog::open(path).await.unwrap();
-            let record = gcs_mimic::json::parse_insert(
+            let record = gcs_mimic::testing::json::parse_insert(
                 br#"{"name":"benchmark-bucket"}"#,
                 "benchmark-project",
                 SystemTime::now(),
@@ -266,14 +266,14 @@ fn prepare(path: &Path, count: usize) {
             while let Some(result) = uploads.join_next().await {
                 result.unwrap();
             }
-            let config = gcs_mimic::config::Config::load(
+            let config = gcs_mimic::testing::config::Config::load(
                 &["--data-dir".into(), path.to_str().unwrap().into()],
                 &Default::default(),
             )
             .unwrap();
-            let clock: std::sync::Arc<dyn gcs_mimic::clock::Clock> =
-                std::sync::Arc::new(gcs_mimic::clock::SystemClock);
-            gcs_mimic::seed::import(&catalog, &config, &clock)
+            let clock: std::sync::Arc<dyn gcs_mimic::testing::clock::Clock> =
+                std::sync::Arc::new(gcs_mimic::testing::clock::SystemClock);
+            gcs_mimic::testing::seed::import(&catalog, &config, &clock)
                 .await
                 .unwrap();
             catalog.close().await.unwrap();

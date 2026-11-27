@@ -8,12 +8,12 @@ use serde_json::{Map, Value};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectListParams {
-    pub query: ObjectListQuery,
-    pub projection: Projection,
-    pub max_results: usize,
+    pub(crate) query: ObjectListQuery,
+    pub(crate) projection: Projection,
+    pub(crate) max_results: usize,
     /// The JSON API answered `maxResults=0` with an empty page; other protocols treat a zero
     /// page size as the default.
-    pub empty_page: bool,
+    pub(crate) empty_page: bool,
 }
 
 pub(super) fn parse_list(bucket: String, uri: &RequestUri) -> Result<ObjectListParams, ApiError> {

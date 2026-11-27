@@ -422,8 +422,8 @@ pub(crate) enum BucketAclWrite {
 /// The canned ACLs a bucket write asked for.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub(crate) struct BucketPredefinedAcls {
-    pub acl: Option<crate::acl::PredefinedBucketAcl>,
-    pub default_object_acl: Option<crate::acl::PredefinedObjectAcl>,
+    pub(crate) acl: Option<crate::acl::PredefinedBucketAcl>,
+    pub(crate) default_object_acl: Option<crate::acl::PredefinedObjectAcl>,
 }
 
 const UBLA_INSERT_ACL: &str = "Cannot use ACL API to set bucket policy when object policies are disabled, must use IAM API instead.";

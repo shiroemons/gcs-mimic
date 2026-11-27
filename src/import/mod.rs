@@ -20,7 +20,6 @@ use crate::{
     object::name::ObjectName,
     source_tree,
 };
-pub use codec::CodecError;
 pub use error::{CleanupOperation, ImportError, SourceChange};
 pub use filesystem::execute;
 pub use reader::{BodyStream, ChangedField, CorruptField, Fingerprint, ImportFailure};
@@ -87,15 +86,18 @@ crate::choice::string_enum! {
     "Use unix or windows, matching the source path platform."
 }
 
+// Only parsed: the import report names each format in its own words.
 crate::choice::string_enum! {
-    #[derive(Serialize)]
+    table
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
     #[serde(rename_all = "snake_case")]
-    pub enum SourceFormat {
+    pub(crate) enum SourceFormat {
         #[default]
         Filesystem => "filesystem",
         Snapshot => "snapshot",
-    }
-    "Use filesystem or snapshot."
+    };
+    from_str(crate::choice::InvalidChoice,
+        _ => Err(crate::choice::InvalidChoice("Use filesystem or snapshot.")))
 }
 
 /// Whether the destination must be empty (inspection) or may hold an unfinished import to
@@ -137,7 +139,7 @@ pub struct Options {
     pub destination: PathBuf,
     pub metadata_mode: MetadataMode,
     pub source_platform: SourcePlatform,
-    pub source_format: SourceFormat,
+    pub(crate) source_format: SourceFormat,
     pub verify_bodies: bool,
     pub max_object_bytes: u64,
     pub max_entries: Option<NonZeroUsize>,
@@ -265,13 +267,13 @@ impl Options {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct Finding {
-    pub diagnostic: Diagnostic,
-    pub reason: String,
-    pub blocking: bool,
+    pub(crate) diagnostic: Diagnostic,
+    pub(crate) reason: String,
+    pub(crate) blocking: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub original: Option<String>,
+    pub(crate) original: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub changed_fields: Vec<ChangedField>,
+    pub(crate) changed_fields: Vec<ChangedField>,
 }
 
 /// One eligible source entry. The dry-run report shows each as its `kind` tag followed by the
@@ -321,8 +323,8 @@ pub(crate) struct ObjectRecord {
 
 #[derive(Default, Serialize)]
 pub(crate) struct Page {
-    pub records: Vec<Record>,
-    pub findings: Vec<Finding>,
+    pub(crate) records: Vec<Record>,
+    pub(crate) findings: Vec<Finding>,
 }
 
 impl From<&Page> for Diagnostics {
@@ -348,20 +350,20 @@ pub struct Summary {
     pub complete: bool,
     pub eligible: bool,
     pub bodies_verified: bool,
-    pub original_names_verified: bool,
+    pub(crate) original_names_verified: bool,
     pub buckets: u64,
     pub objects: u64,
     pub eligible_buckets: u64,
     pub eligible_objects: u64,
-    pub entries: u64,
+    pub(crate) entries: u64,
     pub directories: u64,
     pub skipped_os_metadata: u64,
     pub blocking_findings: u64,
-    pub stat_identity_drift_findings: u64,
-    pub io_findings: u64,
-    pub warnings: u64,
+    pub(crate) stat_identity_drift_findings: u64,
+    pub(crate) io_findings: u64,
+    pub(crate) warnings: u64,
     pub bytes_hashed: u64,
-    pub mixed_format_absence_verified: bool,
+    pub(crate) mixed_format_absence_verified: bool,
     pub fingerprint_format: u8,
     pub manifest_sha256: Option<String>,
     pub stat_observations_sha256: Option<String>,
@@ -392,7 +394,7 @@ impl Summary {
 pub(super) struct Reporter {
     send: PageSender,
     page: Page,
-    pub summary: Summary,
+    pub(crate) summary: Summary,
     manifest: Context,
     observations: Context,
     body_manifest: Context,
@@ -949,7 +951,7 @@ fn execution_diagnostic(error: &ImportError) -> Diagnostics {
     )
 }
 
-pub fn cli(args: &[String]) -> Result<(), ImportError> {
+pub(crate) fn cli(args: &[String]) -> Result<(), ImportError> {
     if args == ["--help"] {
         println!("{HELP}");
         return Ok(());

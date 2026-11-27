@@ -76,11 +76,11 @@ impl Written {
 }
 
 pub(crate) struct ResumableChunk {
-    pub start: u64,
-    pub length: u64,
-    pub end: ChunkEnd,
-    pub options: ResumableOptions,
-    pub catalog_wait: watch::Sender<ChunkWait>,
+    pub(crate) start: u64,
+    pub(crate) length: u64,
+    pub(crate) end: ChunkEnd,
+    pub(crate) options: ResumableOptions,
+    pub(crate) catalog_wait: watch::Sender<ChunkWait>,
 }
 
 use crate::storage::failure::object_unavailable;

@@ -162,11 +162,11 @@ impl From<io::Error> for ImportFailure {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Fingerprint {
-    pub size: u64,
-    pub mtime_ns: i128,
-    pub ctime_ns: Option<i128>,
-    pub inode: Option<u64>,
-    pub device: Option<u64>,
+    pub(crate) size: u64,
+    pub(crate) mtime_ns: i128,
+    pub(crate) ctime_ns: Option<i128>,
+    pub(crate) inode: Option<u64>,
+    pub(crate) device: Option<u64>,
 }
 impl Fingerprint {
     pub fn of(metadata: &Metadata) -> io::Result<Self> {

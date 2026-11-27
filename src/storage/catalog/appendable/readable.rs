@@ -18,9 +18,9 @@ pub(crate) enum Finality {
 
 /// An object's metadata in whichever state the selected generation is in.
 pub(crate) struct ReadableMetadata {
-    pub record: ObjectRecord,
-    pub finality: Finality,
-    pub hashes: StoredHashes,
+    pub(crate) record: ObjectRecord,
+    pub(crate) finality: Finality,
+    pub(crate) hashes: StoredHashes,
 }
 
 fn selected_appendable(

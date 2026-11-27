@@ -13,22 +13,26 @@ use std::{collections::BTreeMap, str::FromStr};
 
 mod summary;
 
+// Only parsed; the tests list every format.
 crate::choice::string_enum! {
-    no_default listed
+    table
     /// Where the document goes: a `buckets_file` (`json`), a `.env` file or shell line (`env`),
     /// or a Compose service's `environment:` (`compose`).
-    pub enum Format {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum Format {
         Json => "json",
         Env => "env",
         Compose => "compose",
-    }
-    "format must be json, env or compose"
+    };
+    listed(#[cfg(test)] pub(crate));
+    from_str(crate::choice::InvalidChoice,
+        _ => Err(crate::choice::InvalidChoice("format must be json, env or compose")))
 }
 
 crate::choice::string_enum! {
     no_default listed
     /// The entry's `iamConfiguration.publicAccessPrevention`.
-    pub enum PublicAccessPrevention {
+    pub(crate) enum PublicAccessPrevention {
         Inherited => "inherited",
         Enforced => "enforced",
     }
@@ -37,22 +41,25 @@ crate::choice::string_enum! {
 
 crate::choice::string_enum!(serde PublicAccessPrevention);
 
+// Only parsed: the written settings spell the mode in their own templates.
 crate::choice::string_enum! {
-    no_default
+    table
     /// The authentication mode the written settings start the server in, which decides who reads
     /// a bucket without public read: anyone in `permissive`, the server's default, and only the
     /// application's servers and the URLs they sign in `strict`. No member of a bucket says
     /// this, so the document carries it for the settings written beside the buckets.
-    pub enum AuthMode {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum AuthMode {
         Permissive => "permissive",
         Strict => "strict",
-    }
-    "auth mode must be permissive or strict"
+    };
+    from_str(crate::choice::InvalidChoice,
+        _ => Err(crate::choice::InvalidChoice("auth mode must be permissive or strict")))
 }
 
 /// The `serve` options that start the server as the strict settings below do, for a buckets file,
 /// which holds only buckets.
-pub const STRICT_SERVE_OPTIONS: &str =
+pub(crate) const STRICT_SERVE_OPTIONS: &str =
     "--auth-mode strict --trusted-listen 127.0.0.1:4444 --test-signer enabled";
 
 /// Strict mode's settings as `.env` lines for `gcs-mimic serve` on the machine that runs the
@@ -81,22 +88,23 @@ const PUBLIC_READ_ROLE: &str = "roles/storage.objectViewer";
 
 /// The longest soft delete retention startup accepts, so that a question can refuse a longer one
 /// as it is typed.
-pub const MAX_SOFT_DELETE_RETENTION_SECONDS: u64 = crate::bucket::MAX_SOFT_DELETE_RETENTION_SECONDS;
+pub(crate) const MAX_SOFT_DELETE_RETENTION_SECONDS: u64 =
+    crate::bucket::MAX_SOFT_DELETE_RETENTION_SECONDS;
 
 /// The longest CORS max age startup accepts, since a bucket stores it as an `i32`.
-pub const MAX_CORS_MAX_AGE_SECONDS: u32 = i32::MAX.unsigned_abs();
+pub(crate) const MAX_CORS_MAX_AGE_SECONDS: u32 = i32::MAX.unsigned_abs();
 
 /// The methods browser uploads use: `PUT` sends a file, and `POST` starts a resumable upload.
-pub const UPLOAD_METHODS: [&str; 2] = ["PUT", "POST"];
+pub(crate) const UPLOAD_METHODS: [&str; 2] = ["PUT", "POST"];
 /// The request headers browser uploads send, which a preflight refuses unless the rule lists
 /// them: `Content-Type` with a file, and `x-goog-resumable` to start a resumable upload.
-pub const UPLOAD_HEADERS: [&str; 2] = ["Content-Type", "x-goog-resumable"];
+pub(crate) const UPLOAD_HEADERS: [&str; 2] = ["Content-Type", "x-goog-resumable"];
 /// The methods browser downloads use: `GET` reads an object and `HEAD` its metadata.
-pub const DOWNLOAD_METHODS: [&str; 2] = ["GET", "HEAD"];
+pub(crate) const DOWNLOAD_METHODS: [&str; 2] = ["GET", "HEAD"];
 
 /// The storage classes a prompt offers. The legacy `MULTI_REGIONAL`, `REGIONAL` and
 /// `DURABLE_REDUCED_AVAILABILITY` stay valid in a document but are not offered for new buckets.
-pub fn storage_classes() -> [&'static str; 4] {
+pub(crate) fn storage_classes() -> [&'static str; 4] {
     use crate::bucket::StorageClass;
     [
         StorageClass::Standard,
@@ -108,12 +116,12 @@ pub fn storage_classes() -> [&'static str; 4] {
 }
 
 /// The multi-regions a prompt lists before it asks for any other location.
-pub fn multi_regions() -> &'static [&'static str] {
+pub(crate) fn multi_regions() -> &'static [&'static str] {
     crate::bucket::LocationKind::MultiRegion.names()
 }
 
 /// The canonical name of a supported location, matched without regard to case as startup does.
-pub fn location(value: &str) -> Option<&'static str> {
+pub(crate) fn location(value: &str) -> Option<&'static str> {
     value
         .parse::<crate::bucket::Location>()
         .ok()
@@ -121,7 +129,7 @@ pub fn location(value: &str) -> Option<&'static str> {
 }
 
 /// The predefined roles a bucket policy can grant; the project-level ones are left out.
-pub fn bucket_roles() -> Vec<&'static str> {
+pub(crate) fn bucket_roles() -> Vec<&'static str> {
     use crate::auth::roles::{GrantLevel, Role};
     Role::ALL
         .iter()
@@ -137,7 +145,7 @@ pub fn bucket_roles() -> Vec<&'static str> {
 /// prompt can ask again at once instead of losing every answer to the parser's check of the
 /// whole document, which checks it again.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Label {
+pub(crate) struct Label {
     key: String,
     value: String,
 }
@@ -160,7 +168,7 @@ impl FromStr for Label {
 
 /// A CORS origin that startup accepts, checked when it is read as a label is.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CorsOrigin(String);
+pub(crate) struct CorsOrigin(String);
 
 impl FromStr for CorsOrigin {
     type Err = GenerateError;
@@ -181,7 +189,7 @@ impl std::fmt::Display for CorsOrigin {
 
 /// A CORS method that startup accepts: an HTTP method or `*`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CorsMethod(String);
+pub(crate) struct CorsMethod(String);
 
 impl FromStr for CorsMethod {
     type Err = GenerateError;
@@ -196,7 +204,7 @@ impl FromStr for CorsMethod {
 
 /// A CORS response header that startup accepts: a header name or `*`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CorsResponseHeader(String);
+pub(crate) struct CorsResponseHeader(String);
 
 impl FromStr for CorsResponseHeader {
     type Err = GenerateError;
@@ -213,7 +221,7 @@ impl FromStr for CorsResponseHeader {
 /// take them; spaces around each member are dropped. Each is checked by the rules startup applies
 /// to a policy.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Members(Vec<String>);
+pub(crate) struct Members(Vec<String>);
 
 /// Members chosen one at a time, such as from a list, form one binding.
 impl FromIterator<Members> for Members {
@@ -242,7 +250,7 @@ impl FromStr for Members {
 /// One answer about one bucket, naming one member of its entry. Single-valued answers may be
 /// given once per bucket; labels, CORS lists and IAM bindings accumulate.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Setting {
+pub(crate) enum Setting {
     Project(String),
     Location(String),
     StorageClass(String),
@@ -295,7 +303,7 @@ impl Setting {
 /// One entry of the document, in the order its members are written.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Bucket {
+pub(crate) struct Bucket {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     project: Option<String>,
@@ -366,7 +374,7 @@ impl Cors {
 
 /// What a bucket's CORS rule lacks before it can match a request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CorsGap {
+pub(crate) enum CorsGap {
     Origin,
     Method,
     OriginAndMethod,
@@ -412,7 +420,7 @@ struct Binding {
 impl Bucket {
     /// A name-only entry. The name is checked here so that a prompt can ask again at once; the
     /// startup parser checks it again with the whole document.
-    pub fn new(name: &str) -> Result<Self, GenerateError> {
+    pub(crate) fn new(name: &str) -> Result<Self, GenerateError> {
         crate::bucket::name::validate(name).map_err(|_| GenerateError::InvalidName)?;
         Ok(Self {
             name: name.to_owned(),
@@ -430,12 +438,12 @@ impl Bucket {
         })
     }
 
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
     /// The same answers for a bucket named `name`, so that several buckets can share them.
-    pub fn with_name(&self, name: &str) -> Result<Self, GenerateError> {
+    pub(crate) fn with_name(&self, name: &str) -> Result<Self, GenerateError> {
         Ok(Self {
             name: Self::new(name)?.name,
             ..self.clone()
@@ -494,7 +502,7 @@ impl Bucket {
     }
 
     /// Records one answer, refusing a second value for a single-valued member.
-    pub fn apply(&mut self, setting: Setting) -> Result<(), GenerateError> {
+    pub(crate) fn apply(&mut self, setting: Setting) -> Result<(), GenerateError> {
         let repeated = GenerateError::Repeated(setting.member());
         let fresh = match setting {
             Setting::Project(project) => set_once(&mut self.project, project),
@@ -604,7 +612,7 @@ fn extend(list: &mut Vec<String>, values: &[&str]) {
 
 /// A complete buckets document, and the mode the settings written beside it start the server in.
 #[derive(Debug, Serialize)]
-pub struct Document {
+pub(crate) struct Document {
     version: u8,
     buckets: Vec<Bucket>,
     #[serde(skip)]
@@ -613,7 +621,7 @@ pub struct Document {
 
 impl Document {
     /// The document for the server's default permissive mode, which needs no settings beside it.
-    pub fn new(buckets: Vec<Bucket>) -> Self {
+    pub(crate) fn new(buckets: Vec<Bucket>) -> Self {
         Self {
             version: 1,
             buckets,
@@ -624,11 +632,11 @@ impl Document {
     /// The same buckets with settings beside them, where the format has room for settings, that
     /// start the server in `auth_mode`.
     #[must_use]
-    pub fn with_auth_mode(self, auth_mode: AuthMode) -> Self {
+    pub(crate) fn with_auth_mode(self, auth_mode: AuthMode) -> Self {
         Self { auth_mode, ..self }
     }
 
-    pub fn auth_mode(&self) -> AuthMode {
+    pub(crate) fn auth_mode(&self) -> AuthMode {
         self.auth_mode
     }
 
@@ -637,7 +645,7 @@ impl Document {
     /// the catalog, such as a project's public access prevention, still happen at startup. In
     /// strict mode `env` and `compose` write that mode's settings before the buckets; a buckets
     /// file holds only buckets, so `json` leaves them to [`STRICT_SERVE_OPTIONS`].
-    pub fn render(&self, format: Format) -> Result<String, GenerateError> {
+    pub(crate) fn render(&self, format: Format) -> Result<String, GenerateError> {
         if let Some((bucket, gap)) = self.buckets.iter().find_map(|bucket| {
             let gap = bucket.cors.as_ref()?.gap()?;
             Some((bucket.name.clone(), gap))
@@ -719,7 +727,7 @@ impl Document {
     /// The buckets whose CORS rule lets browsers upload but refuses the preflight of an upload
     /// that sets `Content-Type`, as a browser does for a file. Startup accepts such a rule, since
     /// an upload without that header passes, so this is advice rather than a refusal.
-    pub fn uploads_refusing_content_type(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn uploads_refusing_content_type(&self) -> impl Iterator<Item = &str> {
         self.buckets
             .iter()
             .filter(|bucket| {
@@ -755,7 +763,7 @@ fn compose_member(text: &str) -> String {
 
 /// Why an answer or a document was refused.
 #[derive(Debug)]
-pub enum GenerateError {
+pub(crate) enum GenerateError {
     /// The name breaks the bucket-name rules.
     InvalidName,
     /// A label has no `=` between its key and value.
@@ -790,7 +798,8 @@ pub enum GenerateError {
     Encode(serde_json::Error),
 }
 
-// Rejected exposes the Diagnostics it displays. Keep that public contract until Public facade.
+// The interactive prompt shows a refused document through this Display, so Rejected prints the
+// Diagnostics it also exposes as its source. Revisit when the prompt diagnostics change.
 impl std::fmt::Display for GenerateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

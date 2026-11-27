@@ -24,7 +24,7 @@ impl fmt::Display for Bucket {
 impl Bucket {
     /// One line in words per thing the answers set, without the name, for a summary that adds
     /// lines of its own, such as who reads the bucket; none for a bucket with default settings.
-    pub fn summary_lines(&self) -> impl Iterator<Item = String> + '_ {
+    pub(crate) fn summary_lines(&self) -> impl Iterator<Item = String> + '_ {
         let settings = [
             self.cors.as_ref().map(Cors::to_string),
             self.public_read

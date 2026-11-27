@@ -60,7 +60,7 @@ enum OriginHost {
 
 /// A validated public origin; private fields keep routing and displayed URLs consistent.
 #[derive(Clone, Debug)]
-pub struct PublicOrigin {
+pub(crate) struct PublicOrigin {
     base: String,
     authority: hyper::http::uri::Authority,
     host: OriginHost,
@@ -123,7 +123,7 @@ impl PublicOrigin {
         })
     }
 
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.base
     }
 
@@ -243,7 +243,7 @@ pub fn public_object_url(base_url: &str, bucket: &str, object: &str) -> Result<S
 }
 
 /// Build the final bucket host before signing; virtual-host bases must have no path prefix.
-pub fn virtual_host_object_url(
+pub(crate) fn virtual_host_object_url(
     base_url: &str,
     bucket: &str,
     object: &str,

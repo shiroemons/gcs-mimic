@@ -8,8 +8,8 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 pub(crate) struct ObjectMetadataRequest {
-    pub update: ObjectMetadataUpdate,
-    pub unchanged: Map<String, Value>,
+    pub(crate) update: ObjectMetadataUpdate,
+    pub(crate) unchanged: Map<String, Value>,
 }
 
 impl ObjectMetadataRequest {

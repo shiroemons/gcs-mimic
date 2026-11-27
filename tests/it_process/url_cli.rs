@@ -230,7 +230,7 @@ fn rejects_reserved_api_collisions_without_stdout() {
             ]),
             &format!(
                 "http://localhost:4443/{bucket}/{}",
-                gcs_mimic::url::encode_object_name(object)
+                gcs_mimic::testing::url::encode_object_name(object)
             ),
         );
     }

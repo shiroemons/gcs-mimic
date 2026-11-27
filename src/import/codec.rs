@@ -117,14 +117,14 @@ pub(super) fn retention(
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
 pub(crate) struct BucketAttrs {
-    pub default_event_based_hold: bool,
+    pub(crate) default_event_based_hold: bool,
     #[serde(
         deserialize_with = "present_bool",
         skip_serializing_if = "Option::is_none"
     )]
-    pub versioning_enabled: Option<bool>,
+    pub(crate) versioning_enabled: Option<bool>,
     #[serde(rename = "ACL")]
-    pub acl: Option<Vec<SourceAcl>>,
+    pub(crate) acl: Option<Vec<SourceAcl>>,
 }
 
 fn present_bool<'de, D: serde::Deserializer<'de>>(
@@ -136,26 +136,26 @@ fn present_bool<'de, D: serde::Deserializer<'de>>(
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
 pub(crate) struct ObjectAttrs {
-    pub storage_class: String,
-    pub content_type: String,
-    pub content_encoding: String,
-    pub content_disposition: String,
-    pub content_language: String,
-    pub cache_control: String,
-    pub crc32c: String,
-    pub md5_hash: String,
-    pub etag: String,
+    pub(crate) storage_class: String,
+    pub(crate) content_type: String,
+    pub(crate) content_encoding: String,
+    pub(crate) content_disposition: String,
+    pub(crate) content_language: String,
+    pub(crate) cache_control: String,
+    pub(crate) crc32c: String,
+    pub(crate) md5_hash: String,
+    pub(crate) etag: String,
     #[serde(rename = "ACL")]
-    pub acl: Option<Vec<SourceAcl>>,
+    pub(crate) acl: Option<Vec<SourceAcl>>,
     #[serde(deserialize_with = "unique_metadata")]
-    pub metadata: Option<BTreeMap<String, String>>,
-    pub created: String,
-    pub deleted: String,
-    pub updated: String,
-    pub custom_time: String,
-    pub generation: i64,
-    pub retention_mode: String,
-    pub retention_retain_until: String,
+    pub(crate) metadata: Option<BTreeMap<String, String>>,
+    pub(crate) created: String,
+    pub(crate) deleted: String,
+    pub(crate) updated: String,
+    pub(crate) custom_time: String,
+    pub(crate) generation: i64,
+    pub(crate) retention_mode: String,
+    pub(crate) retention_retain_until: String,
 }
 
 fn unique_metadata<'de, D: de::Deserializer<'de>>(

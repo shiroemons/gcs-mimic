@@ -90,7 +90,7 @@ pub(crate) use derived::{
     DerivedDestination, DerivedRequestGuard, DerivedSource, DerivedSourceSpec, DerivedTransfer,
 };
 
-pub mod admin;
+pub(crate) mod admin;
 pub(crate) mod bucket_autoclass;
 mod bucket_timestamps;
 mod notification_outbox;
@@ -102,7 +102,7 @@ pub(crate) use retired_sync::left_in_folder as retired_sync_left_in_folder;
 
 pub(crate) mod change_journal;
 
-pub mod import_journal;
+pub(crate) mod import_journal;
 
 pub(crate) mod hmac_keys;
 
@@ -286,14 +286,14 @@ pub struct Catalog(Arc<Inner>);
 /// Whether this open initialized the catalog schema under directory ownership.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum DataDirState {
+pub(crate) enum DataDirState {
     Created,
     Opened,
 }
 
 impl Catalog {
     /// Returns startup facts without resolving symlinks or inspecting the filesystem again.
-    pub fn data_directory(&self) -> Option<(&Path, DataDirState)> {
+    pub(crate) fn data_directory(&self) -> Option<(&Path, DataDirState)> {
         match self.0.storage.backend {
             BlobBackend::Disk(_) => Some((&self.0.storage.data_dir, self.0.storage.data_dir_state)),
             BlobBackend::Memory(_) => None,
@@ -336,7 +336,7 @@ impl Catalog {
             })
     }
 
-    pub fn is_healthy(&self) -> bool {
+    pub(crate) fn is_healthy(&self) -> bool {
         !self.0.writer.resources.is_poisoned()
             && self.0.storage.backend.is_healthy()
             && !self.0.writers.sessions.is_poisoned()

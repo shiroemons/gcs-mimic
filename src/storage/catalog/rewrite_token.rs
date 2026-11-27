@@ -33,10 +33,10 @@ impl RewriteNames {
 /// Includes the selected immutable generation, even when sourceGeneration was omitted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RewriteBinding {
-    pub source: ObjectTarget<i64>,
-    pub destination: ObjectTarget<()>,
-    pub parameters: Map<String, Value>,
-    pub metadata: Option<Value>,
+    pub(crate) source: ObjectTarget<i64>,
+    pub(crate) destination: ObjectTarget<()>,
+    pub(crate) parameters: Map<String, Value>,
+    pub(crate) metadata: Option<Value>,
 }
 
 impl RewriteBinding {

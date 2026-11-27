@@ -1,6 +1,6 @@
 use super::*;
 use crate::common::base64;
-use gcs_mimic::auth::signature::{sign_policy, timestamp};
+use gcs_mimic::testing::auth::signature::{sign_policy, timestamp};
 use std::{
     sync::LazyLock,
     time::{Duration, SystemTime},

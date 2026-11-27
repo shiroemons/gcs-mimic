@@ -1,12 +1,9 @@
 use crate::common;
 
 use common::TestDir;
-use gcs_mimic::{
-    import::{
-        self, BodyStream, ChangedField, Fingerprint, ImportFailure, MetadataMode, Options,
-        SourcePlatform,
-    },
-    source_tree::{self, Walker},
+use gcs_mimic::testing::import::{
+    self, BodyStream, ChangedField, Fingerprint, ImportFailure, MetadataMode, Options,
+    SourcePlatform,
 };
 use serde_json::{Value, json};
 use std::{fs, num::NonZeroUsize, path::Path, process::Command};
@@ -474,24 +471,9 @@ fn body_stream_bounds_chunks_and_detects_same_size_replacement_and_truncation() 
 #[test]
 fn overlap_and_walk_fail_closed_without_creating_destination() {
     let (_dir, options) = setup();
-    assert!(source_tree::paths_overlap(&options.source, &options.source.join("new")).unwrap());
-    assert!(!source_tree::paths_overlap(&options.source, &options.destination).unwrap());
     let mut overlap = options.clone();
     overlap.destination = options.source.join("new");
     assert!(import::inspect(overlap, Vec::new(), Vec::new()).is_err());
-    fs::create_dir_all(options.source.join("bucket-one/a/b/c")).unwrap();
-    let shallow = source_tree::TreeLimits {
-        entries: NonZeroUsize::new(20),
-        depth: NonZeroUsize::new(1),
-    };
-    assert!(
-        Walker::new(&options.source, shallow)
-            .unwrap()
-            .any(|entry| entry.is_err())
-    );
-    assert!(source_tree::is_os_metadata("._file") && source_tree::is_editor_temporary(".file.swp"));
-    assert!(source_tree::is_ignored_regular_file("4913"));
-    assert!(!source_tree::is_os_metadata("normal"));
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(&options.source, options.source.join("bucket-one/link"))

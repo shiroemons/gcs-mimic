@@ -68,7 +68,7 @@ struct Handle {
 
 /// Read snapshots belong to one server state and survive individual gRPC connections.
 #[derive(Default)]
-pub struct ReadHandles(Mutex<VecDeque<Handle>>);
+pub(crate) struct ReadHandles(Mutex<VecDeque<Handle>>);
 
 impl ReadHandles {
     fn insert(&self, handle: Handle, now: SystemTime) {

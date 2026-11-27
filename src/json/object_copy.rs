@@ -18,16 +18,16 @@ use hyper::Method;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectCopyParams {
-    pub source_bucket: BucketKey,
-    pub source_name: String,
-    pub bucket: BucketKey,
-    pub name: String,
-    pub source_generation: Option<Generation>,
-    pub source_conditions: ObjectConditions,
-    pub conditions: ObjectConditions,
-    pub projection: Projection,
+    pub(crate) source_bucket: BucketKey,
+    pub(crate) source_name: String,
+    pub(crate) bucket: BucketKey,
+    pub(crate) name: String,
+    pub(crate) source_generation: Option<Generation>,
+    pub(crate) source_conditions: ObjectConditions,
+    pub(crate) conditions: ObjectConditions,
+    pub(crate) projection: Projection,
     /// Replaces the destination bucket's default object ACL on the copy.
-    pub predefined_acl: Option<PredefinedObjectAcl>,
+    pub(crate) predefined_acl: Option<PredefinedObjectAcl>,
 }
 
 pub(super) fn route(

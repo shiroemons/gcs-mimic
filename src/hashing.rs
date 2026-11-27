@@ -98,8 +98,8 @@ impl HasherState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct Hashes {
-    pub md5: [u8; 16],
-    pub crc32c: u32,
+    pub(crate) md5: [u8; 16],
+    pub(crate) crc32c: u32,
 }
 
 /// A declared digest that is not the padded standard base64 of exactly the algorithm's width.

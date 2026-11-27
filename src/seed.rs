@@ -24,8 +24,8 @@ use walk::{Fixture, Object, Opened, Seen, Source, Tree, Unlisted, Walked};
 mod error;
 mod walk;
 mod watch;
-pub use error::SeedError;
-pub use watch::{DEFAULT_WAIT, MAX_WAIT, watch};
+pub(crate) use error::SeedError;
+pub(crate) use watch::{DEFAULT_WAIT, MAX_WAIT, watch};
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "outcome", rename_all = "lowercase")]
@@ -73,7 +73,7 @@ pub async fn import(
 /// workspace it kept there remains. Seeding never writes to the folder, so it cannot tidy them,
 /// and the workspace may hold the only copy of a file a write-back displaced: the operator
 /// inspects and removes them before the server starts.
-pub fn refuse_retired_sync(root: Option<&Path>) -> Result<(), Diagnostic> {
+pub(crate) fn refuse_retired_sync(root: Option<&Path>) -> Result<(), Diagnostic> {
     let Some(root) = root else {
         return Ok(());
     };

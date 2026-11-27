@@ -7,14 +7,14 @@ use std::{
 };
 
 #[derive(Debug, thiserror::Error)]
-pub enum ReadError {
+pub(crate) enum ReadError {
     #[error(transparent)]
     Io(io::Error),
     #[error("input exceeds the configured byte limit")]
     Limit,
 }
 
-pub fn read(path: &Path, limit: u64) -> Result<Vec<u8>, ReadError> {
+pub(crate) fn read(path: &Path, limit: u64) -> Result<Vec<u8>, ReadError> {
     let file = File::open(path).map_err(ReadError::Io)?;
     read_from(file, limit)
 }

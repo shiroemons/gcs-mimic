@@ -37,18 +37,18 @@ PRAGMA user_version = 18;";
 mod tests;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ImportBinding {
-    pub source: [u8; 32],
-    pub fingerprint: [u8; 32],
-    pub expected_elements: i64,
+pub(crate) struct ImportBinding {
+    pub(crate) source: [u8; 32],
+    pub(crate) fingerprint: [u8; 32],
+    pub(crate) expected_elements: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ImportElement {
-    pub ordinal: i64,
-    pub fingerprint: [u8; 32],
-    pub inode: Option<u64>,
-    pub ctime_ns: Option<i128>,
+    pub(crate) ordinal: i64,
+    pub(crate) fingerprint: [u8; 32],
+    pub(crate) inode: Option<u64>,
+    pub(crate) ctime_ns: Option<i128>,
 }
 
 impl ImportElement {
@@ -95,7 +95,7 @@ pub(super) struct ElementResult<'a> {
 
 /// What the singleton journal row says about the import that owns the destination.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ImportState {
+pub(crate) enum ImportState {
     /// Elements are being published.
     Active,
     /// A terminal failure stopped publication; only a fresh destination can import again.
@@ -105,19 +105,19 @@ pub enum ImportState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ImportProgress {
-    pub binding: ImportBinding,
-    pub cursor: i64,
-    pub state: ImportState,
+pub(crate) struct ImportProgress {
+    pub(crate) binding: ImportBinding,
+    pub(crate) cursor: i64,
+    pub(crate) state: ImportState,
 }
 
 impl ImportProgress {
     /// The journal still owns the destination: publishing, or stopped by a failure.
-    pub fn is_open(&self) -> bool {
+    pub(crate) fn is_open(&self) -> bool {
         matches!(self.state, ImportState::Active | ImportState::Failed(_))
     }
 
-    pub fn failure(&self) -> Option<&JournalFailure> {
+    pub(crate) fn failure(&self) -> Option<&JournalFailure> {
         match &self.state {
             ImportState::Failed(failure) => Some(failure),
             ImportState::Active | ImportState::Finished => None,
@@ -178,7 +178,7 @@ impl JournalFailure {
         })
     }
 
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         match self {
             Self::ElementRejected => Self::ELEMENT_REJECTED,
             Self::Adapter(reason) => reason,
@@ -463,7 +463,7 @@ impl ImportJournal {
         self.0.run_admin(|connection| in_progress(connection)).await
     }
 
-    pub async fn begin(&self, binding: ImportBinding) -> Result<ImportProgress, AdminError> {
+    pub(crate) async fn begin(&self, binding: ImportBinding) -> Result<ImportProgress, AdminError> {
         if binding.expected_elements < 0 {
             return Err(AdminError::Invalid(
                 "import count must be nonnegative".into(),
@@ -537,7 +537,7 @@ impl ImportJournal {
     }
 
     /// Adapter calls only after final fingerprint/count/digest validation succeeds.
-    pub async fn finish(&self, binding: ImportBinding) -> Result<(), AdminError> {
+    pub(crate) async fn finish(&self, binding: ImportBinding) -> Result<(), AdminError> {
         self.0
             .run_admin(move |connection| {
                 let transaction = connection.transaction()?;

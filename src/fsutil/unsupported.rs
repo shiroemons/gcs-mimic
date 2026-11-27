@@ -19,7 +19,7 @@ use std::{
     path::Path,
 };
 
-pub fn directory_names_after(
+pub(crate) fn directory_names_after(
     _: &File,
     _: Option<&OsStr>,
     limit: usize,
@@ -44,15 +44,11 @@ pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> 
     Ok(super::stat_identity(file)?)
 }
 
-pub fn directory_writable(_: &File) -> io::Result<()> {
+pub(crate) fn open_directory_nofollow(_: &Path) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
-pub fn open_directory_nofollow(_: &Path) -> io::Result<File> {
-    Err(io::ErrorKind::Unsupported.into())
-}
-
-pub fn open_regular_at(_: &File, _: &OsStr) -> io::Result<File> {
+pub(crate) fn open_regular_at(_: &File, _: &OsStr) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }
 

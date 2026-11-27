@@ -318,7 +318,7 @@ impl Catalog {
         Self::open_with_clock(data_dir, Arc::new(SystemClock)).await
     }
 
-    pub async fn open_with_clock(
+    pub(crate) async fn open_with_clock(
         data_dir: impl AsRef<Path>,
         clock: Arc<dyn Clock>,
     ) -> Result<Self, CatalogError> {
@@ -520,7 +520,7 @@ impl RecoveredCatalog {
     }
 
     /// Reconciles authentication, checks the import journal and installs parent policy before admitting requests.
-    pub async fn finish(self) -> Result<Catalog, CatalogOpenError> {
+    pub(crate) async fn finish(self) -> Result<Catalog, CatalogOpenError> {
         crate::task::run_blocking("catalog-open", move || self.start())
             .await
             .map_err(CatalogError::from)?

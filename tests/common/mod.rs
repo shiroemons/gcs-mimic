@@ -28,7 +28,7 @@ pub(crate) use input_fixtures::eventually;
 
 pub(crate) struct FixedClock(pub(crate) SystemTime);
 
-impl gcs_mimic::clock::Clock for FixedClock {
+impl gcs_mimic::testing::clock::Clock for FixedClock {
     fn now(&self) -> SystemTime {
         self.0
     }
@@ -79,18 +79,18 @@ pub(crate) fn without_acl(mut value: serde_json::Value) -> serde_json::Value {
     value
 }
 
-pub(crate) fn http_config() -> gcs_mimic::config::Config {
+pub(crate) fn http_config() -> gcs_mimic::testing::config::Config {
     http_config_with(&[])
 }
 
-pub(crate) fn http_config_with(options: &[&str]) -> gcs_mimic::config::Config {
+pub(crate) fn http_config_with(options: &[&str]) -> gcs_mimic::testing::config::Config {
     let mut args = vec!["--scheme=http", "--api-base-url=http://127.0.0.1:4443"];
     args.extend_from_slice(options);
     parse_config(&args)
 }
 
-pub(crate) fn parse_config(args: &[&str]) -> gcs_mimic::config::Config {
-    gcs_mimic::config::Config::load(
+pub(crate) fn parse_config(args: &[&str]) -> gcs_mimic::testing::config::Config {
+    gcs_mimic::testing::config::Config::load(
         &args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
         &Default::default(),
     )
@@ -100,10 +100,10 @@ pub(crate) fn parse_config(args: &[&str]) -> gcs_mimic::config::Config {
 pub(crate) fn load_http_config(
     args: &[String],
     env: &std::collections::BTreeMap<String, String>,
-) -> Result<gcs_mimic::config::Config, gcs_mimic::diagnostics::Diagnostics> {
+) -> Result<gcs_mimic::testing::config::Config, gcs_mimic::testing::diagnostics::Diagnostics> {
     let mut args = args.to_vec();
     args.extend(["--scheme".into(), "http".into()]);
-    gcs_mimic::config::Config::load(&args, env)
+    gcs_mimic::testing::config::Config::load(&args, env)
 }
 
 // Schema downgrade fixtures must track the private catalog schema in one source.

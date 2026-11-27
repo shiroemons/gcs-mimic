@@ -98,13 +98,13 @@ fn legacy_hmac_key(secret: &str) -> hmac::Key {
 }
 
 pub(super) struct Prepared {
-    pub signer: String,
-    pub scheme: Scheme,
-    pub message: String,
+    pub(crate) signer: String,
+    pub(crate) scheme: Scheme,
+    pub(crate) message: String,
     /// For a V4 signature over a Host that names an explicit port, the string to sign with that
     /// port removed from the canonical host. Signatures that do not cover Host have none.
-    pub portless: Option<String>,
-    pub signature: Vec<u8>,
+    pub(crate) portless: Option<String>,
+    pub(crate) signature: Vec<u8>,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -6,8 +6,8 @@ use std::num::NonZeroUsize;
 /// A bounded keyset page. Continue after the last item when `has_more` is true.
 #[derive(Debug)]
 pub(crate) struct Page<T> {
-    pub items: Vec<T>,
-    pub has_more: bool,
+    pub(crate) items: Vec<T>,
+    pub(crate) has_more: bool,
 }
 
 /// Reads rows into a page of at most `limit` items whose charges fit `budget`. A row over the

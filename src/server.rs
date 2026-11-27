@@ -43,35 +43,52 @@ use tokio::{
     task::JoinSet,
 };
 
-pub use crate::grpc::v2::ReadHandles;
-pub use crate::xml::CorsWarnings;
+pub(crate) use crate::grpc::v2::ReadHandles;
+pub(crate) use crate::xml::CorsWarnings;
 
 pub struct State {
-    pub pools: WorkPools,
-    pub xml_cors_warned_buckets: CorsWarnings,
-    pub grpc_read_handles: ReadHandles,
+    pub(crate) pools: WorkPools,
+    pub(crate) xml_cors_warned_buckets: CorsWarnings,
+    pub(crate) grpc_read_handles: ReadHandles,
     pub ready: AtomicBool,
-    pub clock: Arc<dyn Clock>,
+    pub(crate) clock: Arc<dyn Clock>,
     pub catalog: Catalog,
-    pub api_base_url: String,
-    pub default_location: String,
-    pub auth: Auth,
+    pub(crate) api_base_url: String,
+    pub(crate) default_location: String,
+    pub(crate) auth: Auth,
 }
 
 impl State {
-    #[cfg(test)]
-    pub(crate) fn for_test(catalog: Catalog, auth: Auth) -> Self {
+    /// A ready server state whose work pools and default location follow `config`.
+    pub fn new(
+        config: &Config,
+        catalog: Catalog,
+        clock: Arc<dyn Clock>,
+        api_base_url: String,
+        auth: Auth,
+    ) -> Self {
         Self {
-            pools: WorkPools::default(),
+            pools: WorkPools::new(config),
             xml_cors_warned_buckets: Default::default(),
             grpc_read_handles: Default::default(),
             ready: AtomicBool::new(true),
-            clock: Arc::new(crate::clock::SystemClock),
+            clock,
             catalog,
-            api_base_url: "http://localhost:4443".into(),
-            default_location: "US".into(),
+            api_base_url,
+            default_location: config.default_location().to_owned(),
             auth,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(catalog: Catalog, auth: Auth) -> Self {
+        Self::new(
+            &Config::default(),
+            catalog,
+            Arc::new(crate::clock::SystemClock),
+            "http://localhost:4443".into(),
+            auth,
+        )
     }
 
     pub fn is_ready(&self) -> bool {
@@ -85,7 +102,7 @@ impl State {
 
 /// Per-server admission for CPU work and buffered batch envelopes.
 #[derive(Clone)]
-pub struct WorkPools {
+pub(crate) struct WorkPools {
     /// Decoder permits for the compressed bodies of callers who authenticate.
     pub(crate) gzip_decoders: Arc<Semaphore>,
     /// The one decoder permit that callers who do not authenticate share. A compressed body is
@@ -96,7 +113,7 @@ pub struct WorkPools {
 }
 
 impl WorkPools {
-    pub fn new(config: &Config) -> Self {
+    pub(crate) fn new(config: &Config) -> Self {
         Self {
             gzip_decoders: Arc::new(Semaphore::new(
                 config.max_blocking_threads().div_ceil(4).max(1),
@@ -127,7 +144,7 @@ mod objects;
 mod routing;
 mod transport;
 #[cfg(unix)]
-pub mod unix;
+pub(crate) mod unix;
 pub(crate) mod upload_drive;
 mod xml_read;
 pub(crate) use context::{DeadlineWatch, ObjectCtx, RequestCtx};
@@ -933,19 +950,19 @@ impl From<unix::Listener> for Listeners {
 /// The TCP listeners of one server. They share `max_connections` and every timeout.
 pub struct TcpListeners {
     /// The browser-facing listeners, each with how it secures its connections.
-    pub public: Vec<(TcpListener, ListenerSecurity)>,
+    pub(crate) public: Vec<(TcpListener, ListenerSecurity)>,
     /// The plain HTTP listener for the application's own servers, where a request without
     /// credentials acts as `trusted_principal`.
-    pub trusted: Option<TcpListener>,
+    pub(crate) trusted: Option<TcpListener>,
     /// The separate gRPC listener, with how it secures its connections.
-    pub grpc: Option<GrpcListener>,
+    pub(crate) grpc: Option<GrpcListener>,
 }
 
 /// The bound gRPC listener and its configured transport.
-pub struct GrpcListener {
-    pub listener: TcpListener,
-    pub security: ListenerSecurity,
-    pub scheme: GrpcScheme,
+pub(crate) struct GrpcListener {
+    pub(crate) listener: TcpListener,
+    pub(crate) security: ListenerSecurity,
+    pub(crate) scheme: GrpcScheme,
 }
 
 impl TcpListeners {
@@ -991,9 +1008,9 @@ impl TcpListeners {
 /// When a server stops, and the work it waits for once its connections drain.
 pub struct Stop<S, D> {
     /// Resolves when the server should stop accepting; its error becomes the server's result.
-    pub signal: S,
+    pub(crate) signal: S,
     /// Work outside the server that ends before the catalog closes.
-    pub background: D,
+    pub(crate) background: D,
 }
 
 impl<S> Stop<S, std::future::Ready<io::Result<()>>> {

@@ -23,12 +23,12 @@ const MAX_EMAIL_BYTES: usize = 254;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyListParams {
-    pub project: ProjectId,
-    pub service_account_email: Option<String>,
-    pub show_deleted_keys: bool,
-    pub max_results: u32,
+    pub(crate) project: ProjectId,
+    pub(crate) service_account_email: Option<String>,
+    pub(crate) show_deleted_keys: bool,
+    pub(crate) max_results: u32,
     /// Last access ID of the previous page, decoded from a token bound to these filters.
-    pub start_after: Option<String>,
+    pub(crate) start_after: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,8 +83,8 @@ impl ProjectRequest {
 /// The writable subset of an `HmacKeyMetadata` update body.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyUpdate {
-    pub state: HmacKeyState,
-    pub etag: Option<String>,
+    pub(crate) state: HmacKeyState,
+    pub(crate) etag: Option<String>,
 }
 
 /// Match `/storage/v1/projects/{projectId}/...` before decoding the path segments.

@@ -4,7 +4,7 @@ use crate::common::process::declare_server;
 
 use common::TestDir;
 use common::process::http_command;
-use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
+use gcs_mimic::testing::auth::signature::{SignUrlRequest, sign_url};
 use serde_json::{Value, json};
 use std::time::Duration;
 

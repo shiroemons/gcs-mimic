@@ -256,34 +256,34 @@ impl Drop for StagedObject {
 }
 
 pub(crate) struct BatchPublication {
-    pub bucket: BucketName,
-    pub name: ObjectName,
-    pub request: Publication,
-    pub staged: StagedObject,
+    pub(crate) bucket: BucketName,
+    pub(crate) name: ObjectName,
+    pub(crate) request: Publication,
+    pub(crate) staged: StagedObject,
 }
 
 pub(crate) struct BatchResult {
-    pub results: Vec<Result<ObjectRecord, AdminError>>,
-    pub unattempted: Vec<BatchPublication>,
-    pub budget_exceeded: bool,
+    pub(crate) results: Vec<Result<ObjectRecord, AdminError>>,
+    pub(crate) unattempted: Vec<BatchPublication>,
+    pub(crate) budget_exceeded: bool,
 }
 
 use super::super::import_journal::{self, ImportBinding, ImportElement};
 
 pub(crate) struct ImportedPublication {
-    pub publication: BatchPublication,
-    pub identity: ImportedIdentity,
-    pub element: ImportElement,
+    pub(crate) publication: BatchPublication,
+    pub(crate) identity: ImportedIdentity,
+    pub(crate) element: ImportElement,
 }
 
 pub(crate) struct ImportedBatchResult {
-    pub results: Vec<Result<ObjectRecord, AdminError>>,
-    pub unattempted: Vec<ImportedPublication>,
+    pub(crate) results: Vec<Result<ObjectRecord, AdminError>>,
+    pub(crate) unattempted: Vec<ImportedPublication>,
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "only unit tests read this field")
     )]
-    pub budget_exceeded: bool,
+    pub(crate) budget_exceeded: bool,
 }
 
 struct ImportBatch {

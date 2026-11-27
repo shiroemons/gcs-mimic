@@ -169,33 +169,33 @@ pub(crate) struct RewriteStep {
 }
 
 pub(crate) struct RewriteStart {
-    pub binding: RewriteBinding,
-    pub destination: DerivedDestination,
-    pub source_conditions: ObjectConditions,
-    pub source_metageneration: i64,
-    pub source_access: BucketAccess,
+    pub(crate) binding: RewriteBinding,
+    pub(crate) destination: DerivedDestination,
+    pub(crate) source_conditions: ObjectConditions,
+    pub(crate) source_metageneration: i64,
+    pub(crate) source_access: BucketAccess,
     /// Verified when the session starts; every continuation must repeat the same source key
     /// (`RewriteSession::check_customer_keys`).
-    pub source_key_sha256: Option<[u8; 32]>,
+    pub(crate) source_key_sha256: Option<[u8; 32]>,
     /// Bytes one rewrite call copies at most.
-    pub budget: NonZeroU64,
+    pub(crate) budget: NonZeroU64,
 }
 
 #[derive(Clone)]
 pub(crate) struct RewriteSession {
-    pub id: BlobId,
-    pub token: RewriteToken,
-    pub previous_token: Option<RewriteToken>,
-    pub binding: RewriteBinding,
-    pub destination: DerivedDestination,
+    pub(crate) id: BlobId,
+    pub(crate) token: RewriteToken,
+    pub(crate) previous_token: Option<RewriteToken>,
+    pub(crate) binding: RewriteBinding,
+    pub(crate) destination: DerivedDestination,
     source_conditions: ObjectConditions,
     source_metageneration: i64,
     source_incarnation: Incarnation,
     destination_incarnation: Incarnation,
-    pub source_key_sha256: Option<[u8; 32]>,
+    pub(crate) source_key_sha256: Option<[u8; 32]>,
     budget: NonZeroU64,
-    pub offset: u64,
-    pub total: u64,
+    pub(crate) offset: u64,
+    pub(crate) total: u64,
     deadline: UnixMillis,
     response: Option<StoredResponse>,
 }
@@ -269,11 +269,11 @@ impl TryFrom<Value> for StoredResponse {
 
 #[derive(Debug)]
 pub(crate) struct RewriteProgress {
-    pub total: u64,
-    pub offset: u64,
-    pub token: Option<String>,
-    pub resource: Option<Value>,
-    pub fields: Option<String>,
+    pub(crate) total: u64,
+    pub(crate) offset: u64,
+    pub(crate) token: Option<String>,
+    pub(crate) resource: Option<Value>,
+    pub(crate) fields: Option<String>,
 }
 
 fn incarnation(connection: &Connection, bucket: &str) -> Result<Incarnation, ObjectError> {

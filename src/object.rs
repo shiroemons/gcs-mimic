@@ -22,7 +22,7 @@ pub(crate) mod upload_headers;
 pub(crate) use idempotency::{IdempotencyToken, OpaqueTokenError, TextTokenError};
 
 pub use custom_time::CustomTime;
-pub use generation::{Generation, InvalidGeneration, InvalidMetageneration, Metageneration};
+pub(crate) use generation::{Generation, Metageneration};
 pub use patch::{MapPatch, Patch, WriteMode};
 
 /// Unset holds are omitted from JSON; a released hold keeps its explicit false value.
@@ -74,7 +74,7 @@ impl From<Hold> for Option<bool> {
 
 /// Multipart uploads retain an internal digest without exposing an MD5 checksum.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Md5Availability {
+pub(crate) enum Md5Availability {
     #[default]
     Available,
     Unavailable,
@@ -90,39 +90,39 @@ pub enum UploadChunk {
 /// Immutable generation metadata persisted for live and noncurrent objects.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ObjectRecord {
-    pub bucket: String,
-    pub name: String,
+    pub(crate) bucket: String,
+    pub(crate) name: String,
     pub generation: Generation,
     pub metageneration: Metageneration,
     /// Older generations have no recoverable uploader identity.
     #[serde(default)]
     pub(crate) owner: Option<owner::ObjectOwner>,
     pub content_type: String,
-    pub content_encoding: Option<String>,
+    pub(crate) content_encoding: Option<String>,
     pub content_disposition: Option<String>,
-    pub content_language: Option<String>,
-    pub cache_control: Option<String>,
+    pub(crate) content_language: Option<String>,
+    pub(crate) cache_control: Option<String>,
     pub metadata: BTreeMap<String, String>,
     pub size: u64,
     pub md5: [u8; 16],
     #[serde(default)]
-    pub md5_availability: Md5Availability,
+    pub(crate) md5_availability: Md5Availability,
     pub crc32c: u32,
-    pub component_count: Option<i64>,
+    pub(crate) component_count: Option<i64>,
     pub storage_class: StorageClass,
     /// Microsecond precision in the catalog; protocol adapters retain their wire precision.
     pub time_created: SystemTime,
     /// Older serialized records have no class-change timestamp.
     #[serde(default)]
-    pub time_storage_class_updated: Option<SystemTime>,
+    pub(crate) time_storage_class_updated: Option<SystemTime>,
     pub updated: SystemTime,
     pub time_deleted: Option<SystemTime>,
-    pub soft_delete_time: Option<SystemTime>,
-    pub hard_delete_time: Option<SystemTime>,
+    pub(crate) soft_delete_time: Option<SystemTime>,
+    pub(crate) hard_delete_time: Option<SystemTime>,
     #[serde(default)]
     pub event_based_hold: Hold,
     #[serde(default)]
-    pub temporary_hold: Hold,
+    pub(crate) temporary_hold: Hold,
     /// When the event-based hold last went from held to released, at the catalog's microsecond
     /// precision. Older serialized records and generations never released have none.
     #[serde(default)]
@@ -130,10 +130,10 @@ pub struct ObjectRecord {
     pub custom_time: Option<CustomTime>,
     /// Bucket retention policy expiration only, counted from [`Self::retention_period_start`];
     /// object retention is kept in `retention`.
-    pub retention_expiration_time: Option<SystemTime>,
+    pub(crate) retention_expiration_time: Option<SystemTime>,
     pub(crate) retention: Option<retention::ObjectRetention>,
     /// SHA-256 of the customer-supplied AES256 key; the key itself is never stored.
-    pub customer_key_sha256: Option<[u8; 32]>,
+    pub(crate) customer_key_sha256: Option<[u8; 32]>,
 }
 
 impl ObjectRecord {
@@ -356,25 +356,25 @@ fn invalid_custom_time() -> ObjectError {
 pub struct ObjectMetadataUpdate {
     pub(crate) acl: crate::acl::AclRequest,
     /// A PUT resets the content fields, custom metadata and holds it does not name.
-    pub write: WriteMode,
-    pub content_type: Patch<String>,
-    pub content_encoding: Patch<String>,
-    pub content_disposition: Patch<String>,
-    pub content_language: Patch<String>,
-    pub cache_control: Patch<String>,
-    pub metadata: MapPatch,
-    pub event_based_hold: Option<bool>,
-    pub temporary_hold: Option<bool>,
+    pub(crate) write: WriteMode,
+    pub(crate) content_type: Patch<String>,
+    pub(crate) content_encoding: Patch<String>,
+    pub(crate) content_disposition: Patch<String>,
+    pub(crate) content_language: Patch<String>,
+    pub(crate) cache_control: Patch<String>,
+    pub(crate) metadata: MapPatch,
+    pub(crate) event_based_hold: Option<bool>,
+    pub(crate) temporary_hold: Option<bool>,
     /// Only a time changes the stored custom time; `Clear` keeps it (see `apply_with`).
-    pub custom_time: Patch<CustomTime>,
+    pub(crate) custom_time: Patch<CustomTime>,
     /// `Clear` removes the configuration; transitions are checked by the catalog.
     pub(crate) retention: Patch<retention::ObjectRetention>,
     pub(crate) override_unlocked_retention: retention::UnlockedOverride,
     /// Set only by data writes that carry a customer-supplied key; metadata patches keep it.
-    pub customer_key_sha256: Option<[u8; 32]>,
+    pub(crate) customer_key_sha256: Option<[u8; 32]>,
     /// Requested class for a new generation; creation resolves it against the bucket's
     /// default and Autoclass. Metadata updates never change the class (rewrite does).
-    pub storage_class: Option<StorageClass>,
+    pub(crate) storage_class: Option<StorageClass>,
 }
 
 impl From<crate::bucket::ClassLocationConflict> for ObjectError {
@@ -708,25 +708,25 @@ pub(crate) enum ReadAhead {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ObjectConditions {
-    pub if_generation_match: Option<i64>,
-    pub if_generation_not_match: Option<i64>,
-    pub if_metageneration_match: Option<i64>,
-    pub if_metageneration_not_match: Option<i64>,
+    pub(crate) if_generation_match: Option<i64>,
+    pub(crate) if_generation_not_match: Option<i64>,
+    pub(crate) if_metageneration_match: Option<i64>,
+    pub(crate) if_metageneration_not_match: Option<i64>,
 }
 
 /// Digests a write's bytes must have, checked once they are all known: declared by a client,
 /// or recorded for the bytes a copy reproduces.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ExpectedHashes {
-    pub md5: Option<[u8; 16]>,
-    pub crc32c: Option<u32>,
+    pub(crate) md5: Option<[u8; 16]>,
+    pub(crate) crc32c: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ComposeSource {
-    pub name: String,
-    pub generation: Option<i64>,
-    pub if_generation_match: Option<i64>,
+pub(crate) struct ComposeSource {
+    pub(crate) name: String,
+    pub(crate) generation: Option<i64>,
+    pub(crate) if_generation_match: Option<i64>,
 }
 
 /// The wording Cloud Storage used when it refused to shorten or remove an Unlocked retention
@@ -747,17 +747,17 @@ pub(crate) enum HoldKind {
 /// The held object named by a denied delete or overwrite. Boxed to keep [`ObjectError`] small.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct HeldObject {
-    pub bucket: String,
-    pub name: String,
-    pub kind: HoldKind,
+    pub(crate) bucket: String,
+    pub(crate) name: String,
+    pub(crate) kind: HoldKind,
 }
 
 /// The retained object named by a denied delete or overwrite. Boxed to keep [`ObjectError`] small.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RetainedObject {
-    pub bucket: String,
-    pub name: String,
-    pub until: UnixNanos,
+    pub(crate) bucket: String,
+    pub(crate) name: String,
+    pub(crate) until: UnixNanos,
 }
 
 /// A digest the bytes were expected to have and the one computed from them, at the width of its
@@ -983,9 +983,9 @@ mod expected_hashes_tests {
 /// failures, which the generic missing-object and precondition errors cannot.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ComponentFailure {
-    pub bucket: String,
-    pub name: String,
-    pub kind: ComponentFailureKind,
+    pub(crate) bucket: String,
+    pub(crate) name: String,
+    pub(crate) kind: ComponentFailureKind,
 }
 
 #[derive(Debug, PartialEq, Eq)]

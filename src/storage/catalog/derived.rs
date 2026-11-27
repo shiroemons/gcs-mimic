@@ -104,11 +104,11 @@ impl TransferKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DerivedTransfer {
-    pub id: BlobId,
-    pub total: u64,
-    pub offset: u64,
-    pub created: std::time::SystemTime,
-    pub deadline: std::time::SystemTime,
+    pub(crate) id: BlobId,
+    pub(crate) total: u64,
+    pub(crate) offset: u64,
+    pub(crate) created: std::time::SystemTime,
+    pub(crate) deadline: std::time::SystemTime,
 }
 
 /// Owned by the single request that can advance this transfer. Recovery discards its SQL row.

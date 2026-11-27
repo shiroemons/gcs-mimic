@@ -110,7 +110,8 @@ const LAYERS: [Layer; 8] = [
     Layer {
         name: "application",
         peers: Peers::Shared,
-        modules: &["app"],
+        // `testing` re-exports items of every layer, and a re-export counts where it is written.
+        modules: &["app", "testing"],
     },
 ];
 

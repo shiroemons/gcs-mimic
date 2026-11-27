@@ -1,7 +1,7 @@
 /// XML virtual-host base domains: distinct lowercase DNS names, at most 32, longest first so that
 /// the most specific configured suffix owns a host that several of them match.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct VirtualHostDomains(Vec<String>);
+pub(crate) struct VirtualHostDomains(Vec<String>);
 
 /// Adding the domain would exceed the limit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

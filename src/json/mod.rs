@@ -12,7 +12,7 @@
 pub(crate) mod acl;
 mod buckets;
 mod checksum;
-pub mod compose;
+pub(crate) mod compose;
 pub(crate) mod cors;
 mod csek;
 mod derived_metadata;

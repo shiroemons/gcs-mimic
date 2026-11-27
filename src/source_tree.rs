@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub fn paths_overlap(left: &Path, right: &Path) -> io::Result<bool> {
+pub(crate) fn paths_overlap(left: &Path, right: &Path) -> io::Result<bool> {
     let left = fs::canonicalize(left)?;
     let right = canonical_destination(right)?;
     Ok(paths_overlap_canonical(&left, &right))
@@ -32,25 +32,25 @@ fn canonical_destination(path: &Path) -> io::Result<PathBuf> {
     }
 }
 
-pub fn is_os_metadata(name: &str) -> bool {
+pub(crate) fn is_os_metadata(name: &str) -> bool {
     name == ".DS_Store" || name.starts_with("._")
 }
 
-pub fn is_editor_temporary(name: &str) -> bool {
+pub(crate) fn is_editor_temporary(name: &str) -> bool {
     name == "4913" || name.ends_with(".swp") || name.ends_with('~')
 }
 
-pub fn is_ignored_regular_file(name: &str) -> bool {
+pub(crate) fn is_ignored_regular_file(name: &str) -> bool {
     is_os_metadata(name) || is_editor_temporary(name)
 }
 
 /// What a walked tree may hold. Cloud Storage documents no limit on objects or buckets, so a limit
 /// exists only where an operator names one.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TreeLimits {
-    pub entries: Option<NonZeroUsize>,
+pub(crate) struct TreeLimits {
+    pub(crate) entries: Option<NonZeroUsize>,
     /// Directory levels. How they are counted belongs to each kind of tree.
-    pub depth: Option<NonZeroUsize>,
+    pub(crate) depth: Option<NonZeroUsize>,
 }
 
 /// Past this many entries, a tree that no limit stops gets one warning: it is allowed, but a tree
@@ -72,7 +72,7 @@ pub(crate) fn warn_large_tree(event: crate::diagnostics::Event, directory: &str,
 }
 
 #[derive(Debug)]
-pub enum WalkError {
+pub(crate) enum WalkError {
     Io(io::Error),
     /// What the entry at `path` is, or what that directory lists, could not be read. Nothing
     /// below the entry is walked, and the walk goes on with the entries after it, so that a
@@ -144,7 +144,7 @@ impl From<io::Error> for WalkError {
 
 /// Walks with an explicit stack and one open directory at a time, so depth costs neither call stack
 /// nor descriptors. Paths are absolute, so a path past the platform's `PATH_MAX` fails as I/O.
-pub struct Walker {
+pub(crate) struct Walker {
     pending: Vec<(PathBuf, usize)>,
     entries: usize,
     limits: TreeLimits,
@@ -163,7 +163,7 @@ impl Walker {
             .iter()
             .filter_map(|(path, depth)| (*depth == 0).then_some(path.as_path()))
     }
-    pub fn new(root: &Path, limits: TreeLimits) -> Result<Self, WalkError> {
+    pub(crate) fn new(root: &Path, limits: TreeLimits) -> Result<Self, WalkError> {
         if !fs::symlink_metadata(root)?.is_dir() {
             return Err(WalkError::NotDirectory);
         }
@@ -226,10 +226,10 @@ impl Walker {
 
 /// One entry of a walk: its absolute path, its metadata, and how many directories below the root it is.
 #[derive(Debug)]
-pub struct WalkEntry {
-    pub path: PathBuf,
-    pub metadata: fs::Metadata,
-    pub depth: usize,
+pub(crate) struct WalkEntry {
+    pub(crate) path: PathBuf,
+    pub(crate) metadata: fs::Metadata,
+    pub(crate) depth: usize,
 }
 
 impl Iterator for Walker {
@@ -301,6 +301,18 @@ mod tests {
             depth.last(),
             Some(Err(WalkError::DepthLimit { limit })) if limit.get() == 1
         );
+    }
+
+    #[test]
+    fn os_detritus_and_paths_inside_the_source_are_recognized() {
+        let directory = crate::test_support::TestDir::new();
+        let source = directory.0.join("source");
+        fs::create_dir_all(source.join("bucket-one")).unwrap();
+        assert!(paths_overlap(&source, &source.join("new")).unwrap());
+        assert!(!paths_overlap(&source, &directory.0.join("destination")).unwrap());
+        assert!(is_os_metadata("._file") && is_editor_temporary(".file.swp"));
+        assert!(is_ignored_regular_file("4913"));
+        assert!(!is_os_metadata("normal"));
     }
 
     /// A directory that cannot be listed fails as its own entry, with nothing below it walked,

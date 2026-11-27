@@ -347,7 +347,8 @@ fn rsa_and_hmac_v2_queries_share_the_literal_virtual_bucket_resource() {
                         .next()
                         .unwrap();
                     let canonical = format!("{method}\n\n\n{expires}\n{resource}");
-                    let hex = gcs_mimic::auth::signature::sign_policy(&canonical, PRIVATE).unwrap();
+                    let hex = gcs_mimic::testing::auth::signature::sign_policy(&canonical, PRIVATE)
+                        .unwrap();
                     let signature = base64(
                         &(0..hex.len())
                             .step_by(2)

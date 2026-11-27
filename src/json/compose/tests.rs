@@ -1,10 +1,11 @@
-use gcs_mimic::json::compose;
-use gcs_mimic::object::{MapPatch, Patch, WriteMode};
+use super::{ComposeRequest, parse_compose};
+use crate::json::ApiError;
+use crate::object::{MapPatch, Patch, WriteMode};
 use hyper::StatusCode;
 use serde_json::{Value, json};
 
-fn parse(value: Value) -> Result<compose::ComposeRequest, gcs_mimic::json::ApiError> {
-    compose::parse_compose(value.to_string().as_bytes(), "compose-bucket")
+fn parse(value: Value) -> Result<ComposeRequest, ApiError> {
+    parse_compose(value.to_string().as_bytes(), "compose-bucket")
 }
 
 #[test]
@@ -81,7 +82,7 @@ fn compose_body_rejects_malformed_source_and_destination_shapes() {
         assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{body}");
     }
     assert_eq!(
-        compose::parse_compose(b"{", "bucket").unwrap_err().reason(),
+        parse_compose(b"{", "bucket").unwrap_err().reason(),
         "invalid"
     );
 }

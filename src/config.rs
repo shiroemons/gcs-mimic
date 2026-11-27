@@ -37,25 +37,25 @@ pub(crate) use assemble::{Tls, TlsIdentity};
 #[cfg(test)]
 pub(crate) use auth::Verification;
 pub(crate) use auth::{AuthProfile, TrustedCaller};
-pub use document::DocumentSource;
+pub(crate) use document::DocumentSource;
 pub(crate) use document::{DocumentKind, Form};
-pub use domains::VirtualHostDomains;
+pub(crate) use domains::VirtualHostDomains;
 use domains::{DomainLimit, Inserted};
 pub(crate) use draft::ConfigDraft;
-pub use draft::ConfigurationReport;
+pub(crate) use draft::ConfigurationReport;
 use draft::{Settings, Validation, unknown_setting};
-pub use help::help;
+pub(crate) use help::help;
 #[cfg(test)]
 pub(crate) use notifications::EventSettingsError;
-pub use runtime::RuntimeEndpoints;
+pub(crate) use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
     ApiBaseSource, ConnectionScheme, EndpointError, EndpointSnapshot, RequestEndpoints,
 };
 pub(crate) use setting::{MAX_OBJECT_BYTES, MAX_TREE_DEPTH, Setting, Spelled};
-pub use storage::Backend;
+pub(crate) use storage::Backend;
 
 /// Reserved-domain (RFC 2606) address, so it can never name a real Google account.
-pub const DEFAULT_LOCAL_CREATOR_EMAIL: &str = "local-user@gcs-mimic.invalid";
+pub(crate) const DEFAULT_LOCAL_CREATOR_EMAIL: &str = "local-user@gcs-mimic.invalid";
 
 /// RFC 9113 section 6.5.2 recommends advertising no fewer than 100 concurrent streams, "so as to
 /// not unnecessarily limit parallelism". A client past the limit queues its calls on its side.
@@ -74,25 +74,29 @@ fn default_worker_threads() -> usize {
 const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
-pub use crate::choice::InvalidChoice;
+pub(crate) use crate::choice::InvalidChoice;
 use crate::choice::string_enum;
 
+// Only parsed: no output names the profile.
 string_enum! {
-    pub enum CompatProfile {
+    table
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(crate) enum CompatProfile {
         #[default]
         Native => "native",
         /// fake-gcs-server's behavior where it differs from Cloud Storage, for migrations.
         FakeGcsServer => "fake-gcs-server",
-    }
-    "compat_profile must be native or fake-gcs-server";
-    withdrawn {
-        "legacy-emulator" => "compat_profile=legacy-emulator was renamed; set compat_profile=fake-gcs-server",
-    }
+    };
+    from_str(crate::choice::InvalidChoice,
+        "legacy-emulator" => Err(crate::choice::InvalidChoice(
+            "compat_profile=legacy-emulator was renamed; set compat_profile=fake-gcs-server",
+        )),
+        _ => Err(crate::choice::InvalidChoice("compat_profile must be native or fake-gcs-server")))
 }
 
 string_enum! {
     /// Whether stored lifecycle Delete rules execute.
-    pub enum LifecycleExecution {
+    pub(crate) enum LifecycleExecution {
         #[default]
         Enabled => "enabled",
         Disabled => "disabled",
@@ -105,7 +109,7 @@ string_enum! {
     /// How XML/public CORS treats a bucket without stored rules. Cloud Storage has no server-wide
     /// rules, so `AllowAll` exists only as a local convenience and fake-gcs-server migration aid;
     /// see [`CorsFallbackChoice::select`] for the default.
-    pub enum CorsFallback {
+    pub(crate) enum CorsFallback {
         None => "none",
         AllowAll => "allow-all",
     }
@@ -115,7 +119,7 @@ string_enum! {
 /// The effective CORS fallback and what chose it, since only a default that allows every origin
 /// is worth noting when it lets through a request that Cloud Storage would refuse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CorsFallbackChoice {
+pub(crate) enum CorsFallbackChoice {
     /// The `cors_fallback` setting.
     Explicit(CorsFallback),
     /// The authentication mode's default.
@@ -127,7 +131,7 @@ impl CorsFallbackChoice {
     /// fake-gcs-server does: its users want browser access without configuration, and CORS never
     /// grants access. Strict mode follows Cloud Storage, which has no fallback, so a
     /// production-like setup still catches a bucket that lacks `cors` rules.
-    pub fn select(configured: Option<CorsFallback>, mode: AuthMode) -> Self {
+    pub(crate) fn select(configured: Option<CorsFallback>, mode: AuthMode) -> Self {
         match (configured, mode) {
             (Some(fallback), _) => Self::Explicit(fallback),
             (None, AuthMode::Permissive) => Self::Default(CorsFallback::AllowAll),
@@ -135,29 +139,33 @@ impl CorsFallbackChoice {
         }
     }
 
-    pub fn fallback(self) -> CorsFallback {
+    pub(crate) fn fallback(self) -> CorsFallback {
         match self {
             Self::Explicit(fallback) | Self::Default(fallback) => fallback,
         }
     }
 }
 
+// Only parsed: no output names the mode.
 string_enum! {
+    table
     /// What a start does with an existing bucket that the buckets document names, whether the
     /// document comes from `buckets_file` or inline from `buckets`: the document is the source
     /// of truth either way, so its edits apply unless `create` is chosen.
-    pub enum BucketsMode {
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(crate) enum BucketsMode {
         /// Creates missing buckets only; existing ones keep every setting.
         Create => "create",
         /// Also applies the members each entry writes to its existing bucket.
         #[default]
         Reconcile => "reconcile",
-    }
-    "buckets_mode must be create or reconcile"
+    };
+    from_str(crate::choice::InvalidChoice,
+        _ => Err(crate::choice::InvalidChoice("buckets_mode must be create or reconcile")))
 }
 
 string_enum! {
-    pub enum Scheme {
+    pub(crate) enum Scheme {
         /// HTTP and HTTPS on the primary listener, chosen by each connection's first byte.
         #[default]
         Auto => "auto",
@@ -172,7 +180,7 @@ string_enum! {
 
 string_enum! {
     /// How the gRPC listener secures its connections, with the identity HTTPS uses.
-    pub enum GrpcScheme {
+    pub(crate) enum GrpcScheme {
         /// h2c or gRPC over TLS, chosen by each connection's first byte.
         #[default]
         Auto => "auto",
@@ -187,7 +195,7 @@ string_enum! {
 impl GrpcScheme {
     /// The gRPC entry of the ready event's `listeners`: `h2c` wherever plaintext is accepted,
     /// which consumers already search for, and `h2` for TLS only.
-    pub fn listener_scheme(self) -> &'static str {
+    pub(crate) fn listener_scheme(self) -> &'static str {
         match self {
             Self::Auto | Self::H2c => "h2c",
             Self::Tls => "h2",
@@ -199,7 +207,7 @@ impl Scheme {
     /// The scheme of URLs built without a connection to take it from, such as the fallback API
     /// base and the ready event's primary listener. `auto` uses `http`, which every client can
     /// follow without trusting a CA.
-    pub fn primary(self) -> &'static str {
+    pub(crate) fn primary(self) -> &'static str {
         match self {
             Self::Auto | Self::Http => "http",
             Self::Https | Self::Both => "https",
@@ -207,7 +215,7 @@ impl Scheme {
     }
 }
 
-pub fn loopback_if_unspecified(mut address: SocketAddr) -> SocketAddr {
+pub(crate) fn loopback_if_unspecified(mut address: SocketAddr) -> SocketAddr {
     if address.ip().is_unspecified() {
         address.set_ip(if address.is_ipv4() {
             std::net::Ipv4Addr::LOCALHOST.into()
@@ -219,7 +227,7 @@ pub fn loopback_if_unspecified(mut address: SocketAddr) -> SocketAddr {
 }
 
 /// Read only an explicitly selected helper config, without server-side validation or resources.
-pub fn read_public_base_url(path: &str) -> Result<Option<String>, Diagnostic> {
+pub(crate) fn read_public_base_url(path: &str) -> Result<Option<String>, Diagnostic> {
     let entries = read_config(path).map_err(|error| {
         Diagnostic::new(
             DiagnosticSource::Cli,

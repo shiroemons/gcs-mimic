@@ -279,7 +279,7 @@ impl ConfigurationReport {
     /// names can fail here, and only the document settles strict mode's test signer default;
     /// each failure or warning is recorded with the setting it concerns. Without a valid profile
     /// this is permissive, because validation has already reported why startup cannot proceed.
-    pub fn load_auth(&mut self) -> Auth {
+    pub(crate) fn load_auth(&mut self) -> Auth {
         // A copy shares its documents, and it leaves the report free to keep the buckets
         // document that the implicit projects come from.
         let Some(profile) = self.auth_profile.clone() else {

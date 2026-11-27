@@ -1,7 +1,7 @@
 use super::{Diagnostic, Setting, Settings, Validation};
 
 crate::choice::string_enum! {
-    pub enum Backend {
+    pub(crate) enum Backend {
         #[default]
         Disk => "disk",
         Memory => "memory",

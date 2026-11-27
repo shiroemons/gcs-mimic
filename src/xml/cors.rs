@@ -17,7 +17,7 @@ const WARNED_BUCKET_LIMIT: usize = 64;
 /// warning where the fallback is off, or the note where the permissive default allowed a request.
 /// The effective fallback is fixed for a process, so only one of them can ever use the set.
 #[derive(Default)]
-pub struct CorsWarnings(Mutex<BTreeSet<String>>);
+pub(crate) struct CorsWarnings(Mutex<BTreeSet<String>>);
 
 impl CorsWarnings {
     /// Records `bucket` and says whether this is its first logged fallback.

@@ -93,23 +93,23 @@ fn parse(
 /// The destination and options an objects.compose path and query name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ComposeParams {
-    pub bucket: BucketKey,
-    pub name: String,
-    pub conditions: crate::object::ObjectConditions,
+    pub(crate) bucket: BucketKey,
+    pub(crate) name: String,
+    pub(crate) conditions: crate::object::ObjectConditions,
     /// Replaces the bucket's default object ACL on the composed object.
-    pub predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
+    pub(crate) predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ComposeRequest {
-    pub sources: Vec<ComposeSource>,
-    pub destination: ObjectMetadataUpdate,
+pub(crate) struct ComposeRequest {
+    pub(crate) sources: Vec<ComposeSource>,
+    pub(crate) destination: ObjectMetadataUpdate,
     /// The destination class the request names; it must match every component's class.
-    pub storage_class: Option<StorageClass>,
-    pub delete_sources: bool,
+    pub(crate) storage_class: Option<StorageClass>,
+    pub(crate) delete_sources: bool,
 }
 
-pub fn parse_compose(bytes: &[u8], bucket: &str) -> Result<ComposeRequest, ApiError> {
+pub(crate) fn parse_compose(bytes: &[u8], bucket: &str) -> Result<ComposeRequest, ApiError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|cause| crate::json::parse_error(bytes, &cause))?;
     let body = object(&value, "Compose request")?;
@@ -276,3 +276,6 @@ fn integer(value: Option<&Value>, label: &str) -> Result<Option<i64>, ApiError> 
         })
         .transpose()
 }
+
+#[cfg(test)]
+mod tests;

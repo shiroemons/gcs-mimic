@@ -1,6 +1,6 @@
 use super::*;
 use crate::common::base64;
-use gcs_mimic::auth::{
+use gcs_mimic::testing::auth::{
     signature::{encode_query_component, sign_policy},
     test_signer,
 };

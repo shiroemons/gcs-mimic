@@ -3,7 +3,7 @@
 //! rather than by the server's own signer, so a shared canonicalization mistake cannot pass.
 
 use super::*;
-use gcs_mimic::auth::signature::{encode_query_component, sign_policy, timestamp};
+use gcs_mimic::testing::auth::signature::{encode_query_component, sign_policy, timestamp};
 use ring::digest;
 use std::time::Duration;
 

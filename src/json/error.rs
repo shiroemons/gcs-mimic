@@ -141,9 +141,9 @@ pub(crate) const BAD_REQUEST_TEXT: PlainText = PlainText {
 
 /// Where a rejected value was sent: `locationType` and `location` of an error item.
 #[derive(Debug, PartialEq, Eq)]
-pub struct ErrorLocation {
-    pub kind: &'static str,
-    pub name: &'static str,
+pub(crate) struct ErrorLocation {
+    pub(crate) kind: &'static str,
+    pub(crate) name: &'static str,
 }
 
 pub(crate) const AUTHORIZATION_HEADER: ErrorLocation = ErrorLocation {
@@ -228,15 +228,18 @@ impl ApiError {
         self.reason
     }
     /// The message associated with the rejected request.
-    pub fn message(&self) -> &str {
+    #[cfg(test)]
+    pub(crate) fn message(&self) -> &str {
         &self.message
     }
     /// The location of the rejected input, when the response identifies it.
-    pub fn location(&self) -> Option<&'static ErrorLocation> {
+    #[cfg(test)]
+    pub(crate) fn location(&self) -> Option<&'static ErrorLocation> {
         self.location
     }
     /// The allowed methods sent with a method refusal, when present.
-    pub fn allow(&self) -> Option<&'static str> {
+    #[cfg(test)]
+    pub(crate) fn allow(&self) -> Option<&'static str> {
         self.allow
     }
 
@@ -515,7 +518,7 @@ impl ApiError {
         Self::unsupported_message(wording::unsupported_bucket_setting(name))
     }
 
-    pub fn unsupported_object(name: &str) -> Self {
+    pub(crate) fn unsupported_object(name: &str) -> Self {
         Self::unsupported_message(wording::unsupported_object_setting(name))
     }
 

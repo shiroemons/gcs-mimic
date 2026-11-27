@@ -1,4 +1,4 @@
-//! Display/source pairs retained for public callers or existing storage diagnostics.
+//! Display/source pairs retained for existing storage diagnostics.
 
 use crate::cause::{BackendCause, BackendFailure, IoCause, Link, Source, TypedSource};
 use crate::{
@@ -23,8 +23,9 @@ struct Exception {
     example: fn() -> Box<Node>,
 }
 
-// Embedders can log these errors directly and inspect their concrete cause. Each exception
-// expires when Public facade settles that contract; a stale example fails immediately.
+// Startup, CLI and wire diagnostics print these errors directly, and storage wording inspects
+// their concrete cause. Dropping the repeated text would change those diagnostics, so each
+// exception lasts until they change; a stale example fails immediately.
 const PUBLIC_PAIRS: &[Exception] = &[
     // BackendCause::failure and sqlite_extended_code inspect the chain held by this context.
     Exception {
@@ -73,7 +74,7 @@ const PUBLIC_PAIRS: &[Exception] = &[
 ];
 
 // Multipart cleanup logs ObjectError directly and public catalog diagnostics embed its Display.
-// Keep the concrete storage causes until Public facade revisits those diagnostics.
+// Keep the concrete storage causes until those diagnostics change.
 const OBJECT_PAIRS: &[Exception] = &[
     // Object errors carry the same fixed backend guidance and database codes through object_context.
     Exception {

@@ -35,8 +35,6 @@ pub(crate) enum BlobError {
     #[cfg(unix)]
     #[error("blob shard has no parent directory")]
     ShardParentMissing,
-    #[error("object data is shared with the read cache")]
-    SharedFile,
     #[error(transparent)]
     ReadWorker(crate::task::BlockingFailed),
     #[error("RAM store is closed")]
@@ -80,8 +78,7 @@ impl BlobError {
             Self::Io(error) => error.kind(),
             #[cfg(unix)]
             Self::ShardParentMissing => io::ErrorKind::Other,
-            Self::SharedFile
-            | Self::ShardNotDirectory
+            Self::ShardNotDirectory
             | Self::ReadWorker(_)
             | Self::Missing(_)
             | Self::Poisoned(_)

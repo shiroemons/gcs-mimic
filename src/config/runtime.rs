@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 /// Shared endpoint state; each request retains one immutable snapshot across awaits.
 #[derive(Clone, Debug, Default)]
-pub struct RuntimeEndpoints {
+pub(crate) struct RuntimeEndpoints {
     current: Arc<RwLock<Option<Arc<EndpointSnapshot>>>>,
     declared_domains: Option<Arc<VirtualHostDomains>>,
 }

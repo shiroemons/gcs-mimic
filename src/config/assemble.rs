@@ -15,7 +15,6 @@ pub struct Config {
     limits: Limits,
     timeouts: Timeouts,
     auth: AuthSettings,
-    log_level: LogLevel,
     compat_profile: CompatProfile,
     cors_fallback: CorsFallbackChoice,
 }
@@ -198,9 +197,7 @@ struct Timeouts {
 
 #[derive(Clone, Debug)]
 struct AuthSettings {
-    mode: AuthMode,
     local_creator_email: Option<String>,
-    signed_urls: SignedUrls,
 }
 
 impl TryFrom<ConfigurationReport> for Config {
@@ -213,7 +210,7 @@ impl TryFrom<ConfigurationReport> for Config {
 
 impl ConfigurationReport {
     /// Assembles the configuration and returns the startup notices to report before serving.
-    pub fn into_config(self) -> Result<(Config, Diagnostics), Diagnostics> {
+    pub(crate) fn into_config(self) -> Result<(Config, Diagnostics), Diagnostics> {
         if self.diagnostics.is_err() {
             return Err(self.diagnostics);
         }
@@ -254,8 +251,8 @@ impl ConfigDraft {
 }
 
 macro_rules! getters {
-    ($($name:ident: $ty:ty = $($field:ident).+;)*) => {
-        $(pub fn $name(&self) -> $ty { self.$($field).+ })*
+    ([$vis:vis] $($name:ident: $ty:ty = $($field:ident).+;)*) => {
+        $($vis fn $name(&self) -> $ty { self.$($field).+ })*
     };
 }
 
@@ -269,7 +266,6 @@ impl Config {
         notifications: notification::Runtime,
     ) -> Self {
         let cors_fallback = draft.resolved_cors_fallback();
-        let signed_urls = draft.resolved_signed_urls();
         Self {
             listeners,
             tls,
@@ -326,32 +322,34 @@ impl Config {
                 shutdown: draft.shutdown_timeout,
             },
             auth: AuthSettings {
-                mode: draft.auth_mode,
                 local_creator_email: draft.local_creator_email,
-                signed_urls,
             },
-            log_level: draft.log_level,
             compat_profile: draft.compat_profile,
             cors_fallback,
         }
     }
 
+    // The integration tests read these through `testing`.
     getters! {
-        log_level: LogLevel = log_level;
+        [pub]
         listen: SocketAddr = listeners.listen;
+        seed_content_type: SeedContentType = seed.content_type;
+        admin_enabled: bool = admin.enabled;
+        max_connections: usize = limits.max_connections;
+        max_object_bytes: u64 = limits.max_object_bytes;
+    }
+
+    getters! {
+        [pub(crate)]
         scheme: Scheme = listeners.scheme;
         backend: Backend = storage.backend;
         memory_max_bytes: u64 = storage.memory_max_bytes;
         memory_catalog_max_bytes: u64 = storage.memory_catalog_max_bytes;
-        seed_content_type: SeedContentType = seed.content_type;
         seed_watch_interval: Option<Duration> = seed.watch_interval;
         default_soft_delete_retention_seconds: Option<NonZeroU64> = storage.default_soft_delete_retention_seconds;
         lifecycle_execution: LifecycleExecution = storage.lifecycle_execution;
         buckets_mode: BucketsMode = storage.buckets_mode;
-        admin_enabled: bool = admin.enabled;
-        max_connections: usize = limits.max_connections;
         max_grpc_streams: NonZeroU32 = limits.max_grpc_streams;
-        max_object_bytes: u64 = limits.max_object_bytes;
         max_resumable_sessions: Option<NonZeroU32> = limits.max_resumable_sessions;
         max_rewrite_sessions: Option<NonZeroU32> = limits.max_rewrite_sessions;
         max_seed_entries: Option<NonZeroUsize> = limits.max_seed_entries;
@@ -367,37 +365,35 @@ impl Config {
         object_request_timeout: TimeLimit = timeouts.object_request;
         catalog_wait_timeout: TimeLimit = timeouts.catalog_wait;
         shutdown_timeout: TimeLimit = timeouts.shutdown;
-        auth_mode: AuthMode = auth.mode;
-        signed_urls: SignedUrls = auth.signed_urls;
         compat_profile: CompatProfile = compat_profile;
         cors_fallback: CorsFallbackChoice = cors_fallback;
     }
 
-    pub fn listen_http(&self) -> Option<SocketAddr> {
+    pub(crate) fn listen_http(&self) -> Option<SocketAddr> {
         self.listeners.http()
     }
 
-    pub fn grpc_listen(&self) -> Option<SocketAddr> {
+    pub(crate) fn grpc_listen(&self) -> Option<SocketAddr> {
         self.grpc_listener().map(|(address, _)| address)
     }
 
-    pub fn grpc_scheme(&self) -> Option<GrpcScheme> {
+    pub(crate) fn grpc_scheme(&self) -> Option<GrpcScheme> {
         self.grpc_listener().map(|(_, scheme)| scheme)
     }
 
     /// The address and scheme of the dedicated gRPC listener, when configured.
     /// The startup binary binds the pair from one validated listener setting.
-    pub fn grpc_listener(&self) -> Option<(SocketAddr, GrpcScheme)> {
+    pub(crate) fn grpc_listener(&self) -> Option<(SocketAddr, GrpcScheme)> {
         self.listeners
             .grpc()
             .map(|listener| (listener.address, listener.scheme))
     }
 
-    pub fn trusted_listen(&self) -> Option<SocketAddr> {
+    pub(crate) fn trusted_listen(&self) -> Option<SocketAddr> {
         self.listeners.trusted().map(|listener| listener.address)
     }
 
-    pub fn unix_socket(&self) -> Option<&Path> {
+    pub(crate) fn unix_socket(&self) -> Option<&Path> {
         self.listeners.unix_socket()
     }
 
@@ -405,7 +401,7 @@ impl Config {
         self.tls.as_ref()
     }
 
-    pub fn data_dir(&self) -> &Path {
+    pub(crate) fn data_dir(&self) -> &Path {
         &self.storage.data_dir
     }
 
@@ -425,46 +421,46 @@ impl Config {
         &self.storage.default_location
     }
 
-    pub fn buckets(&self) -> Option<&DocumentSource> {
+    pub(crate) fn buckets(&self) -> Option<&DocumentSource> {
         self.storage.buckets.as_ref()
     }
 
     /// Retains the buckets document that startup actually applied, for future resets.
-    pub fn set_startup_buckets(&mut self, document: Option<DocumentSource>) {
+    pub(crate) fn set_startup_buckets(&mut self, document: Option<DocumentSource>) {
         self.storage.buckets = document;
     }
 
-    pub fn api_base_url(&self) -> Option<&str> {
+    pub(crate) fn api_base_url(&self) -> Option<&str> {
         self.endpoints.api_base_url.as_deref()
     }
 
-    pub fn public_base_url(&self) -> Option<&PublicOrigin> {
+    pub(crate) fn public_base_url(&self) -> Option<&PublicOrigin> {
         self.endpoints.public_base_url.as_ref()
     }
 
-    pub fn xml_virtual_host_domains(&self) -> &VirtualHostDomains {
+    pub(crate) fn xml_virtual_host_domains(&self) -> &VirtualHostDomains {
         &self.endpoints.xml_virtual_host_domains
     }
 
-    pub fn runtime_endpoints(&self) -> &RuntimeEndpoints {
+    pub(crate) fn runtime_endpoints(&self) -> &RuntimeEndpoints {
         &self.endpoints.runtime
     }
 
-    pub fn admin_principal(&self) -> Option<&str> {
+    pub(crate) fn admin_principal(&self) -> Option<&str> {
         self.admin.principal.as_deref()
     }
 
-    pub fn admin_allowed_hosts(&self) -> &[String] {
+    pub(crate) fn admin_allowed_hosts(&self) -> &[String] {
         &self.admin.allowed_hosts
     }
 
-    pub fn trusted_allowed_hosts(&self) -> &[String] {
+    pub(crate) fn trusted_allowed_hosts(&self) -> &[String] {
         self.listeners
             .trusted()
             .map_or(&[], |listener| listener.allowed_hosts.as_slice())
     }
 
-    pub fn local_creator_email(&self) -> Option<&str> {
+    pub(crate) fn local_creator_email(&self) -> Option<&str> {
         self.auth.local_creator_email.as_deref()
     }
 
@@ -476,7 +472,7 @@ impl Config {
         format!("{}{}", self.local_origin(), Self::HEALTHCHECK_PATH)
     }
 
-    pub fn local_origin(&self) -> String {
+    pub(crate) fn local_origin(&self) -> String {
         local_origin(self.listen(), self.listen_http(), self.scheme())
     }
 
@@ -484,7 +480,7 @@ impl Config {
         api_base(self.api_base_url(), self.scheme(), bound)
     }
 
-    pub fn public_virtual_host_enabled(&self) -> bool {
+    pub(crate) fn public_virtual_host_enabled(&self) -> bool {
         self.public_base_url()
             .is_some_and(|origin| origin.dns_name().is_some())
     }
@@ -503,7 +499,7 @@ impl Config {
         ConfigDraft::from_inputs(inputs)
     }
 
-    pub fn preflight_os(
+    pub(crate) fn preflight_os(
         args: &[String],
         env: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
     ) -> ConfigurationReport {

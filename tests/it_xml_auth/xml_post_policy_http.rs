@@ -6,7 +6,7 @@ use common::http::Body;
 
 use common::effects::Reply;
 use common::process::{http_command, write_request};
-use gcs_mimic::auth::signature::{encode_query_component, sign_policy, timestamp};
+use gcs_mimic::testing::auth::signature::{encode_query_component, sign_policy, timestamp};
 use ring::hmac;
 use serde_json::{Value, json};
 use std::{
@@ -1084,7 +1084,7 @@ fn policy_credentials_never_mix_with_headers_or_partial_versions_and_anonymous_e
 /// strict mode does, without any signer permission; the default profile ignores both.
 #[test]
 fn permissive_verification_checks_policy_signatures_and_their_date_window() {
-    use gcs_mimic::auth::test_signer;
+    use gcs_mimic::testing::auth::test_signer;
     let launch = |dir: &TestDir, options: &[&str]| {
         Server::launch(
             http_command(&dir.0.join("data"))

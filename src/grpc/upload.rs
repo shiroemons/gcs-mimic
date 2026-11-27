@@ -32,10 +32,10 @@ pub(super) enum Resend {
 }
 
 pub(super) struct IntakePiece {
-    pub offset: u64,
-    pub content: Bytes,
-    pub crc32c: Option<u32>,
-    pub finish: bool,
+    pub(crate) offset: u64,
+    pub(crate) content: Bytes,
+    pub(crate) crc32c: Option<u32>,
+    pub(crate) finish: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,8 +119,8 @@ impl Intake {
 /// Content whose CRC32C (`computed`) differs from the one the client declared for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct CrcMismatch {
-    pub computed: u32,
-    pub client: u32,
+    pub(crate) computed: u32,
+    pub(crate) client: u32,
 }
 
 impl From<CrcMismatch> for IntakeError {

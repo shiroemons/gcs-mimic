@@ -42,11 +42,9 @@ impl Layer for BlobError {
             Self::ReadWorker(error) => Link::Leaf(error),
             #[cfg(unix)]
             Self::ShardParentMissing => Link::Leaf(self),
-            Self::Missing(_)
-            | Self::Poisoned(_)
-            | Self::Closed
-            | Self::SharedFile
-            | Self::ShardNotDirectory => Link::Leaf(self),
+            Self::Missing(_) | Self::Poisoned(_) | Self::Closed | Self::ShardNotDirectory => {
+                Link::Leaf(self)
+            }
         }
     }
 }

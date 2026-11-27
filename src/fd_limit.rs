@@ -70,7 +70,7 @@ impl DescriptorBudget {
 /// `grpc_streams` can use, and returns a warning when the result falls short of what ordinary
 /// connections need. The server still starts then: it only refuses connections past the limit.
 #[cfg(unix)]
-pub fn raise_for_connections(
+pub(crate) fn raise_for_connections(
     max_connections: usize,
     grpc_streams: Option<NonZeroU32>,
 ) -> Option<Diagnostic> {
@@ -88,7 +88,7 @@ pub fn raise_for_connections(
 
 /// Windows has no such limit on sockets, and object files stay well below its handle limits.
 #[cfg(not(unix))]
-pub fn raise_for_connections(
+pub(crate) fn raise_for_connections(
     _max_connections: usize,
     _grpc_streams: Option<NonZeroU32>,
 ) -> Option<Diagnostic> {

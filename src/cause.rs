@@ -65,7 +65,7 @@ impl BackendFailure {
 
 /// A `backend=memory` budget, each with its own remedy when it runs out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MemoryBudget {
+pub(crate) enum MemoryBudget {
     /// Object bytes, bounded by `memory_max_bytes`.
     Blobs,
     /// Catalog database pages, bounded by `memory_catalog_max_bytes`.
@@ -276,7 +276,7 @@ impl IoCause {
     }
 
     /// The `backend=memory` budget this failure exhausted, if it is one. A full disk carries none.
-    pub fn memory_budget(&self) -> Option<MemoryBudget> {
+    pub(crate) fn memory_budget(&self) -> Option<MemoryBudget> {
         chain(self.typed_source()?).find_map(Link::memory_budget)
     }
 }

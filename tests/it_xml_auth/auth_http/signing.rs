@@ -1,5 +1,5 @@
 use super::*;
-use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
+use gcs_mimic::testing::auth::signature::{SignUrlRequest, sign_url};
 use hyper::{HeaderMap, Method, Uri};
 use std::time::SystemTime;
 
@@ -424,7 +424,10 @@ fn an_enabled_test_signer_makes_only_its_own_signatures_lenient_by_default() {
         );
         let host = server.address.rsplit_once(':').unwrap().0.to_owned();
         for (signer, passes) in [
-            (gcs_mimic::auth::test_signer::ID, test_signer_passes),
+            (
+                gcs_mimic::testing::auth::test_signer::ID,
+                test_signer_passes,
+            ),
             ("viewer@example.invalid", registered_passes),
         ] {
             let portless =
@@ -631,7 +634,7 @@ fn signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names
         "a/.../b",
         "/leading",
     ] {
-        let encoded = gcs_mimic::url::encode_object_name(name);
+        let encoded = gcs_mimic::testing::url::encode_object_name(name);
         server
             .upload(ADMIN, "iam-bucket", &encoded, name.as_bytes())
             .success();

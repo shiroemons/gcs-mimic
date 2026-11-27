@@ -27,7 +27,7 @@ impl Server {
             strict,
             catalog_milliseconds,
             request_milliseconds,
-            gcs_mimic::config::Config::default().max_object_bytes(),
+            gcs_mimic::testing::config::Config::default().max_object_bytes(),
         )
     }
     /// Permissive server with extra serve arguments.

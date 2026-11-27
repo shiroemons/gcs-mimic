@@ -16,7 +16,7 @@ use std::{
 };
 
 /// Returns an exact-spelling keyset page without following directory entries.
-pub fn directory_names_after(
+pub(crate) fn directory_names_after(
     directory: &File,
     after: Option<&OsStr>,
     limit: usize,
@@ -119,27 +119,6 @@ pub(crate) fn each_name(
     }
 }
 
-/// Checks effective write access to the pinned directory without creating an entry.
-#[expect(
-    unsafe_code,
-    reason = "faccessat on a pinned descriptor has no safe std equivalent"
-)]
-pub fn directory_writable(directory: &File) -> io::Result<()> {
-    // SAFETY: the live descriptor and terminated dot name select the pinned directory.
-    if unsafe {
-        libc::faccessat(
-            directory.as_raw_fd(),
-            c".".as_ptr(),
-            libc::W_OK,
-            libc::AT_EACCESS,
-        )
-    } != 0
-    {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
-}
-
 /// The identity of `file` as its filesystem reports it now. A Linux FUSE mount, virtiofs and
 /// therefore Docker Desktop's bind mounts included, and an NFS mount answer `fstat` from an
 /// attribute cache for a while, which a rename made on the host or another client does not
@@ -198,7 +177,7 @@ pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> 
 }
 
 /// Pins the selected directory without following a replacement symlink.
-pub fn open_directory_nofollow(path: &Path) -> io::Result<File> {
+pub(crate) fn open_directory_nofollow(path: &Path) -> io::Result<File> {
     // Trailing separators/dots otherwise make the OS follow a final symlink.
     let path: PathBuf = path.components().collect();
     std::fs::OpenOptions::new()
@@ -208,7 +187,7 @@ pub fn open_directory_nofollow(path: &Path) -> io::Result<File> {
 }
 
 /// Opens only a regular single-component entry under the pinned directory.
-pub fn open_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
+pub(crate) fn open_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     super::failing_open(directory, name)?;
     open_at(directory, &component(name)?, FileOpen::Existing)

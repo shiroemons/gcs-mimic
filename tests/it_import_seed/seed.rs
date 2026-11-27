@@ -3,8 +3,8 @@ use crate::common;
 use common::TestDir;
 #[cfg(unix)]
 use common::input_fixtures::HANG_GUARD;
-use gcs_mimic::storage::Catalog;
-use gcs_mimic::storage::admin::{BucketName, Origin};
+use gcs_mimic::testing::storage::Catalog;
+use gcs_mimic::testing::storage::admin::{BucketName, Origin};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -174,7 +174,7 @@ fn seed_configuration_precedence_and_validation() {
     assert_eq!(defaults.seed_project(), "local-project");
     assert_eq!(
         defaults.seed_content_type(),
-        gcs_mimic::mime::SeedContentType::Extension
+        gcs_mimic::testing::mime::SeedContentType::Extension
     );
     let loaded = common::load_http_config(&args, &BTreeMap::new()).unwrap();
     assert_eq!(loaded.seed_dir(), Some(Path::new("file-seed")));
@@ -182,7 +182,7 @@ fn seed_configuration_precedence_and_validation() {
     assert_eq!(loaded.seed_project(), "file-project");
     assert_eq!(
         loaded.seed_content_type(),
-        gcs_mimic::mime::SeedContentType::OctetStream
+        gcs_mimic::testing::mime::SeedContentType::OctetStream
     );
     let env = BTreeMap::from([
         ("GCS_MIMIC_SEED_DIR".into(), "env-seed".into()),
@@ -196,7 +196,7 @@ fn seed_configuration_precedence_and_validation() {
     assert_eq!(loaded.seed_project(), "env-project");
     assert_eq!(
         loaded.seed_content_type(),
-        gcs_mimic::mime::SeedContentType::Extension
+        gcs_mimic::testing::mime::SeedContentType::Extension
     );
     args.extend([
         "--seed-dir".into(),
@@ -214,7 +214,7 @@ fn seed_configuration_precedence_and_validation() {
     assert_eq!(loaded.seed_project(), "cli-project");
     assert_eq!(
         loaded.seed_content_type(),
-        gcs_mimic::mime::SeedContentType::OctetStream
+        gcs_mimic::testing::mime::SeedContentType::OctetStream
     );
     for (key, invalid) in [
         ("seed_dir", ""),

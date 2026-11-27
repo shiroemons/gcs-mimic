@@ -55,7 +55,7 @@ mod v4;
 mod verify;
 pub(crate) use streaming::{STREAMING_PAYLOAD, Streaming, is_streaming_payload};
 pub(crate) use v2::xml_query;
-pub use v4::{NotV4Parameter, V4Parameter};
+pub(crate) use v4::V4Parameter;
 pub(crate) use verify::VerificationError;
 pub(crate) use verify::Verifiers;
 
@@ -70,7 +70,7 @@ pub(crate) fn authentication_header(name: &str) -> bool {
 mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Failure {
+pub(crate) enum Failure {
     Malformed,
     /// One V4 query parameter sent under spellings that differ only in ASCII case.
     RepeatedParameter(V4Parameter),
@@ -93,7 +93,7 @@ pub enum Failure {
 
 /// The V4 query parameter that carries a signature's lifetime in seconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ExpiresParameter {
+pub(crate) enum ExpiresParameter {
     Google,
     Aws,
 }
@@ -110,14 +110,14 @@ impl fmt::Display for ExpiresParameter {
 /// How an expiry value falls outside its range. Zero has a likely cause worth naming: a signer
 /// that rounds a lifetime under one second down to zero seconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InvalidExpires {
+pub(crate) enum InvalidExpires {
     Zero,
     Other,
 }
 
 /// Where verification looked for a signer's key, so the error can say what to register.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KeyLookup {
+pub(crate) enum KeyLookup {
     /// Strict mode: registered identities and their keys.
     Registry,
     /// Permissive `signed_urls=verify`: identity file public keys, catalog HMAC keys and the
@@ -133,7 +133,7 @@ crate::choice::string_enum! {
     /// Whether V4 verification also accepts a signature whose canonical `host` omits the
     /// request Host's explicit port. Go storage builds the canonical host from the URL's
     /// host name, so its URLs for a non-default port fail exact verification.
-    pub enum SignedHostPort {
+    pub(crate) enum SignedHostPort {
         #[default]
         Exact => "exact",
         Lenient => "lenient",
@@ -144,7 +144,7 @@ crate::choice::string_enum! {
 /// Whose V4 signatures may omit the request Host's port: the `signed_host_port` setting after
 /// the default that the settled test signer selects.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum HostPortPolicy {
+pub(crate) enum HostPortPolicy {
     /// Every signature names the Host it was sent to, port included.
     #[default]
     Exact,
@@ -171,7 +171,7 @@ impl HostPortPolicy {
     }
 
     /// The ready event's `signed_host_port`: lenient where any signature may omit the port.
-    pub fn setting(self) -> SignedHostPort {
+    pub(crate) fn setting(self) -> SignedHostPort {
         match self {
             Self::Exact => SignedHostPort::Exact,
             Self::Lenient | Self::LenientForTestSigner => SignedHostPort::Lenient,
@@ -180,7 +180,7 @@ impl HostPortPolicy {
 
     /// The ready event's `signed_host_port_signers`: whose signatures may omit the port, or
     /// `None` when no signature may.
-    pub fn lenient_signers(self) -> Option<&'static str> {
+    pub(crate) fn lenient_signers(self) -> Option<&'static str> {
         match self {
             Self::Exact => None,
             Self::Lenient => Some("all"),
@@ -221,7 +221,7 @@ fn host_without_port(value: &str) -> Option<&str> {
 /// A `public_keys` entry that is not a supported RSA SubjectPublicKeyInfo PEM.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("public_keys must contain only RSA SubjectPublicKeyInfo PEM (2048..8192 bits)")]
-pub struct InvalidPublicKey;
+pub(crate) struct InvalidPublicKey;
 
 /// Why a timestamp could not be parsed or a URL or policy could not be signed. `Display` is the
 /// operator-facing message printed by the `url sign` command.

@@ -20,9 +20,9 @@ use crate::{
 
 /// An object opened for its metadata alone.
 pub(crate) struct KeyedMetadata {
-    pub record: ObjectRecord,
-    pub reader: ObjectReader,
-    pub hashes: StoredHashes,
+    pub(crate) record: ObjectRecord,
+    pub(crate) reader: ObjectReader,
+    pub(crate) hashes: StoredHashes,
 }
 
 /// Whether to fetch the body's start while opening the object. A stored-gzip response depends on

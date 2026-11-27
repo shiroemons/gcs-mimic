@@ -1,56 +1,45 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use std::{fmt, num::ParseIntError};
+use std::num::ParseIntError;
 
+// Only parsed: the commands print URLs, never the style's name.
 crate::choice::string_enum! {
-    no_default pub enum UrlStyle {
+    table
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum UrlStyle {
         Path => "path",
         VirtualHosted => "virtual-hosted",
-    }
-    "style must be path or virtual-hosted"
+    };
+    from_str(crate::choice::InvalidChoice,
+        _ => Err(crate::choice::InvalidChoice("style must be path or virtual-hosted")))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("options require --name VALUE pairs")]
-pub enum PairError {
+pub(crate) enum PairError {
     MissingValue,
 }
 
-pub fn option_pairs(args: &[String]) -> impl Iterator<Item = Result<(&str, &str), PairError>> {
+pub(crate) fn option_pairs(
+    args: &[String],
+) -> impl Iterator<Item = Result<(&str, &str), PairError>> {
     args.chunks(2).map(|pair| match pair {
         [name, value] => Ok((name.as_str(), value.as_str())),
         _ => Err(PairError::MissingValue),
     })
 }
 
-#[derive(Debug)]
-pub enum DurationError {
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DurationError {
+    #[error("unsupported duration unit")]
     Unit,
-    Number(ParseIntError),
+    #[error("invalid duration number")]
+    Number(#[source] ParseIntError),
+    #[error("duration is too large")]
     Overflow,
 }
 
-// Public callers can downcast the ParseIntError they just printed. Revisit in Public facade.
-impl fmt::Display for DurationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Unit => f.write_str("unsupported duration unit"),
-            Self::Number(error) => error.fmt(f),
-            Self::Overflow => f.write_str("duration is too large"),
-        }
-    }
-}
-
-impl std::error::Error for DurationError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Number(error) => Some(error),
-            Self::Unit | Self::Overflow => None,
-        }
-    }
-}
-
-pub fn duration(value: &str, units: &[(&str, u64)]) -> Result<u64, DurationError> {
+pub(crate) fn duration(value: &str, units: &[(&str, u64)]) -> Result<u64, DurationError> {
     let (number, factor) = units
         .iter()
         .find_map(|(suffix, factor)| value.strip_suffix(suffix).map(|number| (number, *factor)))
@@ -64,7 +53,7 @@ pub fn duration(value: &str, units: &[(&str, u64)]) -> Result<u64, DurationError
 
 /// User-facing repair text, copied verbatim into a diagnostic by its caller.
 #[derive(Debug)]
-pub struct Fix(pub String);
+pub(crate) struct Fix(pub String);
 
 impl From<String> for Fix {
     fn from(fix: String) -> Self {
@@ -135,10 +124,10 @@ fn error_text_and_sources() {
     assert_eq!(error.to_string(), "options require --name VALUE pairs");
     assert!(std::error::Error::source(&error).is_none());
     let error = DurationError::Number("x".parse::<u64>().unwrap_err());
-    assert_eq!(error.to_string(), "invalid digit found in string");
+    assert_eq!(error.to_string(), "invalid duration number");
     assert_eq!(
         crate::error::Report::chain(&error).to_string(),
-        error.to_string()
+        "invalid duration number: invalid digit found in string"
     );
     assert!(
         std::error::Error::source(&error)

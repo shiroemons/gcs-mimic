@@ -29,7 +29,7 @@ pub struct Listener {
 
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct SocketError(#[from] SocketFailure);
+pub(crate) struct SocketError(#[from] SocketFailure);
 
 #[derive(Debug, thiserror::Error)]
 enum SocketFailure {
@@ -55,7 +55,7 @@ impl crate::diagnostics::RuntimeFailure for SocketError {
 }
 
 impl Listener {
-    pub async fn bind(path: &Path) -> Result<Self, SocketError> {
+    pub(crate) async fn bind(path: &Path) -> Result<Self, SocketError> {
         let path = path.to_owned();
         let runtime = Handle::current();
         let bind_runtime = runtime.clone();
@@ -88,7 +88,7 @@ impl Listener {
         self.socket.poll_accept(cx).map_ok(|(stream, _)| stream)
     }
 
-    pub async fn close(self) -> Result<(), SocketError> {
+    pub(crate) async fn close(self) -> Result<(), SocketError> {
         let Self { socket, mut owner } = self;
         drop(socket);
         if let Some(path) = owner.path.take() {

@@ -31,13 +31,13 @@ pub enum TlsError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerIdentityError {
-    // xtask-lint: allow(text::error_displays_source) -- Public callers print and inspect the certificate I/O error.
+    // xtask-lint: allow(text::error_displays_source) -- The startup TLS diagnostic prints this text; the I/O error stays the source.
     #[error("{0}")]
     Certificate(#[source] io::Error),
-    // xtask-lint: allow(text::error_displays_source) -- Public callers print and inspect the private-key I/O error.
+    // xtask-lint: allow(text::error_displays_source) -- The startup TLS diagnostic prints this text; the I/O error stays the source.
     #[error("{0}")]
     PrivateKey(#[source] io::Error),
-    // xtask-lint: allow(text::error_displays_source) -- Public callers print and inspect the identity I/O error.
+    // xtask-lint: allow(text::error_displays_source) -- The startup TLS diagnostic prints this text; the I/O error stays the source.
     #[error("{0}")]
     Identity(#[source] io::Error),
     #[error(transparent)]
@@ -47,13 +47,13 @@ pub enum ServerIdentityError {
     #[error("TLS listeners require a server identity")]
     MissingIdentity,
     /// rustls refused the pair, such as a key that does not match the certificate.
-    // xtask-lint: allow(text::error_displays_source) -- Public callers print and inspect the original rustls rejection.
+    // xtask-lint: allow(text::error_displays_source) -- The startup TLS diagnostic prints this text; the rustls rejection stays the source.
     #[error("{0}")]
     Rejected(#[source] rustls::Error),
 }
 
 impl ServerIdentityError {
-    pub fn setting(&self) -> &'static str {
+    pub(crate) fn setting(&self) -> &'static str {
         match self {
             Self::Certificate(_)
             | Self::CertificateParse(_)
@@ -64,7 +64,7 @@ impl ServerIdentityError {
         }
     }
 
-    pub fn repair(&self) -> &'static str {
+    pub(crate) fn repair(&self) -> &'static str {
         match self {
             Self::Certificate(_) | Self::CertificateParse(_) => {
                 "provide a readable PEM certificate chain in tls_cert, at most 1 MiB, matching tls_key"
@@ -82,7 +82,7 @@ impl ServerIdentityError {
     }
 
     /// The startup diagnostic for this failure: the setting to fix, the cause and the repair.
-    pub fn diagnostic(&self) -> Diagnostic {
+    pub(crate) fn diagnostic(&self) -> Diagnostic {
         Diagnostic::new(
             DiagnosticSource::Tls,
             self.setting(),
@@ -260,12 +260,12 @@ pub struct ServerSecurity {
     /// The primary listener, `listen`.
     pub primary: ListenerSecurity,
     /// The gRPC listener, `grpc_listen`; plain while there is none.
-    pub grpc: ListenerSecurity,
+    pub(crate) grpc: ListenerSecurity,
 }
 
 impl ServerSecurity {
     /// Plaintext on every listener, for a configuration that loads no identity.
-    pub fn plain() -> Self {
+    pub(crate) fn plain() -> Self {
         Self {
             primary: ListenerSecurity::Plain,
             grpc: ListenerSecurity::Plain,
@@ -308,7 +308,7 @@ pub fn client_config(ca_cert: &Path) -> Result<Arc<rustls::ClientConfig>, TlsErr
     client_config_from_pem(&read_pem(ca_cert)?)
 }
 
-pub fn development_client_config() -> Result<Arc<rustls::ClientConfig>, TlsError> {
+pub(crate) fn development_client_config() -> Result<Arc<rustls::ClientConfig>, TlsError> {
     client_config_from_pem(DEVELOPMENT_CA_PEM.as_bytes())
 }
 

@@ -206,14 +206,14 @@ impl fmt::Debug for Member {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Binding {
-    pub role: Role,
-    pub members: Vec<Member>,
+    pub(crate) role: Role,
+    pub(crate) members: Vec<Member>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Policy {
-    pub bindings: Vec<Binding>,
-    pub etag: Option<String>,
+    pub(crate) bindings: Vec<Binding>,
+    pub(crate) etag: Option<String>,
 }
 
 impl Policy {

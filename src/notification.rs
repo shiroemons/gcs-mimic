@@ -76,12 +76,12 @@ crate::choice::string_enum! {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct NotificationConfig {
-    pub topic: Topic,
-    pub payload_format: PayloadFormat,
-    pub event_types: EventTypes,
-    pub custom_attributes: BTreeMap<String, String>,
+    pub(crate) topic: Topic,
+    pub(crate) payload_format: PayloadFormat,
+    pub(crate) event_types: EventTypes,
+    pub(crate) custom_attributes: BTreeMap<String, String>,
     /// Empty means every object name.
-    pub object_name_prefix: String,
+    pub(crate) object_name_prefix: String,
 }
 
 /// A rejected notification configuration. `Display` is the client-visible JSON error message.
@@ -121,8 +121,8 @@ pub(crate) enum NotificationError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct NotificationRecord {
-    pub id: i64,
-    pub config: NotificationConfig,
+    pub(crate) id: i64,
+    pub(crate) config: NotificationConfig,
 }
 
 impl NotificationConfig {
