@@ -259,43 +259,24 @@ pub(crate) struct Progress {
     pub hashes: Option<Hashes>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum ResumableError {
+    #[error("upload session not found")]
     NotFound,
+    #[error("upload session is no longer active")]
     Gone,
+    #[error("clientClosedRequest")]
     Cancelled,
+    #[error("Failed to parse Content-Range header.")]
     InvalidContentRange,
+    #[error("{0}")]
     Overrun(Overrun),
+    #[error("{0}")]
     Invalid(String),
+    #[error(transparent)]
     Object(ObjectError),
 }
 
-impl fmt::Display for ResumableError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NotFound => f.write_str("upload session not found"),
-            Self::Gone => f.write_str("upload session is no longer active"),
-            Self::Cancelled => f.write_str("clientClosedRequest"),
-            Self::InvalidContentRange => f.write_str("Failed to parse Content-Range header."),
-            Self::Overrun(overrun) => overrun.fmt(f),
-            Self::Invalid(message) => f.write_str(message),
-            Self::Object(error) => error.fmt(f),
-        }
-    }
-}
-impl std::error::Error for ResumableError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Object(error) => error.source(),
-            Self::NotFound
-            | Self::Gone
-            | Self::Cancelled
-            | Self::InvalidContentRange
-            | Self::Overrun(_)
-            | Self::Invalid(_) => None,
-        }
-    }
-}
 impl From<ObjectError> for ResumableError {
     fn from(error: ObjectError) -> Self {
         Self::Object(error)
@@ -836,7 +817,8 @@ pub(super) fn encode_new_options(
 }
 
 /// Stored resumable session options that no longer decode; the catalog treats them as corrupt.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error(transparent)]
 pub(in crate::storage) struct InvalidOptions(BackendCause);
 
 impl InvalidOptions {
@@ -854,18 +836,6 @@ impl InvalidOptions {
         error: impl Into<crate::cause::Source>,
     ) -> Self {
         Self(BackendCause::with_source(reason, error))
-    }
-}
-
-impl fmt::Display for InvalidOptions {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl std::error::Error for InvalidOptions {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0.source()
     }
 }
 
@@ -1193,4 +1163,12 @@ mod tests {
         );
         assert_eq!(connection.query_row("SELECT count(*) FROM sqlite_schema WHERE name IN ('bucket_incarnations','resumable_sessions_deadline')",[],|r|r.get::<_,i64>(0)).unwrap(),0);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = ResumableError::Cancelled;
+    assert_eq!(error.to_string(), "clientClosedRequest");
+    assert!(std::error::Error::source(&error).is_none());
 }

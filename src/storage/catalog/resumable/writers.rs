@@ -44,6 +44,8 @@ pub(in crate::storage::catalog) enum ClaimError {
     Catalog(CatalogError),
 }
 
+// A catalog refusal displays and exposes the same CatalogError. Retain that identity
+// until the diagnostic contract is revisited.
 impl fmt::Display for ClaimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -757,4 +759,16 @@ mod tests {
         drop(lease);
         catalog.close().await.unwrap();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = ClaimError::Catalog(CatalogError::NotFound);
+    assert_eq!(error.to_string(), "bucket not found");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<CatalogError>()
+    );
 }
