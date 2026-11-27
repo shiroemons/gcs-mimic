@@ -1,6 +1,7 @@
 //! Stored times rendered as text: RFC 3339 timestamps in resources and listings, and RFC 9110
 //! dates in headers. The JSON, XML and gRPC adapters and signing share these renderings; each
-//! answers a time it cannot render in its own protocol.
+//! answers a time it cannot render in its own protocol. RFC 3339 text parses back through
+//! [`parse_timestamp`] and its variants.
 
 use crate::object::unix_nanos::UnixNanos;
 use civil::CivilDate;
@@ -8,6 +9,11 @@ use hyper::header::HeaderValue;
 use std::time::SystemTime;
 
 pub(crate) mod civil;
+mod parse;
+
+pub(crate) use parse::{
+    TimestampError, parse_deadline_timestamp, parse_nanosecond_timestamp, parse_timestamp,
+};
 
 #[cfg(test)]
 mod tests;

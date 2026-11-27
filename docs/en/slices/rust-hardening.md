@@ -1372,8 +1372,8 @@ remove none, so the rule reaches zero tolerance as early as possible.
 
 | Slice | Scope |
 | --- | --- |
-| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` listener accessors are public for the startup binary. Review consolidating the public paths to `Generation` and `InvalidGeneration`, the five public source exception groups and the two private `ObjectError` groups in `public_source_tests.rs`. |
-| Foundation moves | the RFC 3339 parser, private `fsutil` and `net` |
+| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` accessors that the integration tests read stay public. Review consolidating the public paths to `Generation` and `InvalidGeneration`, the five public source exception groups and the two private `ObjectError` groups in `public_source_tests.rs`. |
+| Foundation moves | the RFC 3339 parser; `fsutil` and `net` became private with the public facade |
 | Model value types | `profile`, URL helpers, auth choices, validator callers, `AdminGrant` |
 | JSON-owned rules out of `json` | `Projection`, component counting, fixed metadata, bucket insert parsing, the two JSON round trips, authority helpers |
 | Notification renderer | injected at catalog open |

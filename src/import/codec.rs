@@ -1,27 +1,15 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use crate::time_format::civil::{CivilDate, days_from_civil, days_in_month};
+use crate::time_format::{TimestampError, parse_nanosecond_timestamp, parse_timestamp};
 use serde::{
     Deserialize, Serialize,
     de::{self, MapAccess, Visitor},
 };
 use std::{collections::BTreeMap, fmt};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("{0}")]
-pub(crate) struct TimestampError(&'static str);
-
-impl TimestampError {
-    /// A valid timestamp that this platform's `SystemTime` cannot hold.
-    pub(super) const OUTSIDE_PLATFORM_RANGE: Self =
-        Self("source timestamp is outside this platform's range");
-}
-
-impl From<TimestampError> for String {
-    fn from(error: TimestampError) -> Self {
-        error.0.into()
-    }
-}
+/// A valid timestamp that this platform's `SystemTime` cannot hold.
+pub(super) const OUTSIDE_PLATFORM_RANGE: TimestampError =
+    TimestampError::new("source timestamp is outside this platform's range");
 
 /// A source value this codec cannot convert. Callers report its message; only the codec's own
 /// tests look at which conversion failed.
@@ -211,139 +199,34 @@ pub(crate) fn path_unescape(name: &str) -> Result<String, CodecError> {
     String::from_utf8(bytes).map_err(|error| CodecError(Kind::Utf8(error)))
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Precision {
-    Micros,
-    Nanos,
-}
-
-pub(crate) fn parse_timestamp(input: &str) -> Result<i64, TimestampError> {
-    parse_timestamp_parts(input, Precision::Micros).map(|(micros, _)| micros)
-}
-
-/// An instant with up to nanosecond digits, floored to the microsecond. Only for a deadline:
-/// dropping the sub-microsecond digits can end it earlier, never later.
-pub(crate) fn parse_deadline_timestamp(input: &str) -> Result<i64, TimestampError> {
-    parse_timestamp_parts(input, Precision::Nanos).map(|(micros, _)| micros)
-}
-
 /// A retention time to the nanosecond, as seconds and nanoseconds. It never passes through a
 /// `SystemTime`, so a platform that floors to 100 ns still keeps every digit.
 pub(super) fn parse_retention_timestamp(
     input: &str,
 ) -> Result<crate::object::unix_nanos::UnixNanos, TimestampError> {
-    let (micros, nanos) = parse_timestamp_parts(input, Precision::Nanos)?;
+    let (micros, nanos) = parse_nanosecond_timestamp(input)?;
     crate::object::unix_nanos::UnixNanos::from_micros_and_remainder(micros, nanos).ok_or(
-        TimestampError("retention timestamp is outside the supported range"),
+        TimestampError::new("retention timestamp is outside the supported range"),
     )
 }
 
 pub(super) fn parse_bucket_timestamp(input: &str) -> Result<std::time::SystemTime, CodecError> {
-    let (micros, nanos) = parse_timestamp_parts(input, Precision::Nanos)?;
+    let (micros, nanos) = parse_nanosecond_timestamp(input)?;
     let base = super::filesystem::time(micros)
         .map_err(|error| CodecError(Kind::BucketTimeRange(error)))?;
     let remainder = std::time::Duration::from_nanos(u64::from(nanos));
-    let time = base.checked_add(remainder).ok_or(TimestampError(
+    let time = base.checked_add(remainder).ok_or(TimestampError::new(
         "bucket timestamp is outside this platform's range",
     ))?;
     // Windows keeps 100 ns intervals, so sub-interval digits would be dropped silently;
     // reject them like other unrepresentable source precision.
     if time.duration_since(base).ok() != Some(remainder) {
-        return Err(TimestampError(
+        return Err(TimestampError::new(
             "bucket timestamp is finer than this platform's clock resolution",
         )
         .into());
     }
     Ok(time)
-}
-
-fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32), TimestampError> {
-    let invalid =
-        TimestampError("invalid source timestamp; supply a complete RFC3339 source timestamp");
-    let bytes = input.as_bytes();
-    if bytes.len() < 20
-        || bytes.get(4) != Some(&b'-')
-        || bytes.get(7) != Some(&b'-')
-        || bytes.get(10) != Some(&b'T')
-        || bytes.get(13) != Some(&b':')
-        || bytes.get(16) != Some(&b':')
-    {
-        return Err(invalid);
-    }
-    let number = |start, end| -> Result<i64, TimestampError> {
-        bytes
-            .get(start..end)
-            .ok_or(invalid)?
-            .iter()
-            .try_fold(0i64, |n, b| {
-                if b.is_ascii_digit() {
-                    Ok(n * 10 + i64::from(b - b'0'))
-                } else {
-                    Err(invalid)
-                }
-            })
-    };
-    let (year, month, day) = (number(0, 4)?, number(5, 7)?, number(8, 10)?);
-    let (hour, minute, second) = (number(11, 13)?, number(14, 16)?, number(17, 19)?);
-    let days = days_in_month(year, month).ok_or(invalid)?;
-    if day < 1 || day > days || hour > 23 || minute > 59 || second > 59 {
-        return Err(invalid);
-    }
-    let mut index = 19;
-    let mut micros = 0;
-    let mut nanos = 0;
-    if bytes.get(index) == Some(&b'.') {
-        index += 1;
-        let start = index;
-        while let Some(&byte) = bytes.get(index).filter(|byte| byte.is_ascii_digit()) {
-            let digit = byte - b'0';
-            if index - start < 6 {
-                micros = micros * 10 + i64::from(digit);
-            } else if index - start < 9 && precision == Precision::Nanos {
-                nanos = nanos * 10 + u32::from(digit);
-            } else if digit != 0 {
-                if precision == Precision::Nanos {
-                    return Err(TimestampError(
-                        "nonzero sub-nanosecond timestamp digits; retain the exact source timestamp without truncation",
-                    ));
-                }
-                return Err(TimestampError(
-                    "nonzero sub-microsecond timestamp digits; use an exact-microsecond snapshot, without truncation",
-                ));
-            }
-            index += 1;
-        }
-        if index == start {
-            return Err(invalid);
-        }
-        for _ in (index - start)..6 {
-            micros *= 10;
-        }
-        for _ in (index - start).max(6)..9 {
-            nanos *= 10;
-        }
-    }
-    let zone = bytes.get(index..).ok_or(invalid)?;
-    let offset = if zone == b"Z" {
-        0
-    } else if let [sign @ (b'+' | b'-'), _, _, b':', _, _] = zone {
-        let zh = number(index + 1, index + 3)?;
-        let zm = number(index + 4, index + 6)?;
-        if zh > 23 || zm > 59 {
-            return Err(invalid);
-        }
-        (zh * 3600 + zm * 60) * if *sign == b'-' { -1 } else { 1 }
-    } else {
-        return Err(invalid);
-    };
-    let days = days_from_civil(CivilDate { year, month, day });
-    let micros = (days * 86400 + hour * 3600 + minute * 60 + second - offset) * 1_000_000 + micros;
-    if !crate::clock::rfc3339_micros(i128::from(micros)) {
-        return Err(TimestampError(
-            "timestamp is outside the supported RFC3339 UTC range after timezone normalization",
-        ));
-    }
-    Ok((micros, nanos))
 }
 
 pub(crate) fn is_unset_time(input: &str) -> Result<bool, TimestampError> {
@@ -512,9 +395,6 @@ mod tests {
             prop_assert_eq!(path_unescape(&path_escape(&name)).unwrap(), name);
         }
         #[test]
-        fn arbitrary_times_never_panic(input in any::<String>()) { let _ = parse_timestamp(&input); }
-
-        #[test]
         fn publishable_import_custom_times_match_the_object_parser(
             date in prop_oneof![
                 Just((1, 1, 1)),
@@ -568,24 +448,8 @@ mod tests {
     }
 
     #[test]
-    fn exact_times_offsets_zero_and_negative_epoch() {
-        assert_eq!(parse_timestamp("1970-01-01T00:00:00Z"), Ok(0));
-        assert_eq!(
-            parse_timestamp("1970-01-01T01:30:00.123456000+01:30"),
-            Ok(123456)
-        );
-        assert_eq!(parse_timestamp("1969-12-31T23:59:59.999999Z"), Ok(-1));
+    fn the_go_zero_time_is_unset_and_names_escape_like_go_path_escape() {
         assert!(is_unset_time("0001-01-01T00:00:00Z").unwrap());
-        for input in [
-            "2025-02-29T00:00:00Z",
-            "1970-01-01T00:00:00.123456001Z",
-            "1970-01-01T24:00:00Z",
-            "1970-01-01T00:00:00Zx",
-            "9999-12-31T23:59:59-01:00",
-            "0000-01-01T00:00:00+01:00",
-        ] {
-            assert!(parse_timestamp(input).is_err(), "{input}");
-        }
         assert_eq!(path_escape("a/b;c,d?%+"), "a%2Fb%3Bc%2Cd%3F%25+");
     }
 
@@ -626,9 +490,7 @@ mod tests {
     fn a_bucket_timestamp_outside_the_platform_keeps_its_text_and_cause() {
         const OUTER: &str = "bucket timestamp is outside this platform's range";
         const CHAIN: &str = "bucket timestamp is outside this platform's range: source timestamp is outside this platform's range";
-        let error = CodecError(Kind::BucketTimeRange(
-            TimestampError::OUTSIDE_PLATFORM_RANGE,
-        ));
+        let error = CodecError(Kind::BucketTimeRange(OUTSIDE_PLATFORM_RANGE));
         assert_eq!(error.to_string(), OUTER);
         assert_eq!(crate::error::Report::chain(&error).to_string(), CHAIN);
         // Windows SystemTime starts in 1601, so only it reaches this through parsing.

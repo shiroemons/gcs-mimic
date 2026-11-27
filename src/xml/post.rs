@@ -234,7 +234,7 @@ fn expiration(raw: &str) -> Option<SystemTime> {
     if let Ok(time) = auth::signature::parse_timestamp(raw) {
         return Some(time);
     }
-    let micros = crate::import::codec::parse_deadline_timestamp(raw).ok()?;
+    let micros = crate::time_format::parse_deadline_timestamp(raw).ok()?;
     if micros >= 0 {
         UNIX_EPOCH.checked_add(Duration::from_micros(micros.unsigned_abs()))
     } else {

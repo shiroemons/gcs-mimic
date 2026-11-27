@@ -11,6 +11,7 @@ use crate::{
         admin::{Admin, AdminError, BatchPublication, BucketDefinition, ImportedIdentity, Origin},
         import_journal::{ImportBinding, ImportElement, ImportProgress, ResumeError},
     },
+    time_format::TimestampError,
 };
 use ring::digest::{Context, SHA256, digest};
 use std::{
@@ -215,14 +216,14 @@ impl Baseline {
     }
 }
 
-pub(super) fn time(micros: i64) -> Result<SystemTime, codec::TimestampError> {
+pub(super) fn time(micros: i64) -> Result<SystemTime, TimestampError> {
     let duration = Duration::from_micros(micros.unsigned_abs());
     if micros >= 0 {
         UNIX_EPOCH.checked_add(duration)
     } else {
         UNIX_EPOCH.checked_sub(duration)
     }
-    .ok_or(codec::TimestampError::OUTSIDE_PLATFORM_RANGE)
+    .ok_or(codec::OUTSIDE_PLATFORM_RANGE)
 }
 
 impl ObjectRecord {
@@ -901,7 +902,7 @@ mod error_tests {
                 true,
             ),
             (ImportError::SourceUnreadable, false),
-            (codec::TimestampError::OUTSIDE_PLATFORM_RANGE.into(), true),
+            (codec::OUTSIDE_PLATFORM_RANGE.into(), true),
         ] {
             assert_eq!(terminal(&error), expected, "{error}");
         }

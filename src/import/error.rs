@@ -1,11 +1,9 @@
-use super::{
-    ImportFailure,
-    codec::{CodecError, TimestampError},
-};
+use super::{ImportFailure, codec::CodecError};
 use crate::{
     bucket::{CatalogError, DefaultBucketError},
     diagnostics::Diagnostics,
     storage::{admin::AdminError, import_journal::ResumeError},
+    time_format::TimestampError,
 };
 use std::{borrow::Cow, error::Error, fmt, io, num::TryFromIntError};
 

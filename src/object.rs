@@ -343,7 +343,7 @@ pub(crate) fn custom_time_key(value: &str) -> Result<UnixNanos, ObjectError> {
     } else {
         (normalized, 0)
     };
-    let micros = crate::import::codec::parse_timestamp(&seconds).map_err(|_| invalid())?;
+    let micros = crate::time_format::parse_timestamp(&seconds).map_err(|_| invalid())?;
     UnixNanos::new(micros / 1_000_000, nanos).ok_or_else(invalid)
 }
 

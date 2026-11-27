@@ -82,7 +82,7 @@ leaf_sources!(
     crate::auth::PolicyDecodeError,
     crate::auth::signature::VerificationError,
     crate::import::codec::CodecError,
-    crate::import::codec::TimestampError,
+    crate::time_format::TimestampError,
     crate::notification::NotificationDecodeError,
     crate::object::HashMismatch,
     crate::storage::opaque_id::InvalidOpaqueId,

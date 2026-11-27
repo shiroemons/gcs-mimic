@@ -674,7 +674,7 @@ fn timestamp(
     field: ObjectField,
     value: &str,
 ) -> Result<Checked<i64>, ImportFailure> {
-    let reason = match codec::parse_timestamp(value) {
+    let reason = match crate::time_format::parse_timestamp(value) {
         Ok(time) => match super::filesystem::time(time) {
             Ok(_) => return Ok(Ok(time)),
             Err(error) => error.to_string(),
