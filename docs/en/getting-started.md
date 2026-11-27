@@ -1066,7 +1066,7 @@ endpoint from the repository root:
 (cd sdk-tests/go && GCSM_ENDPOINT="$endpoint" GOTOOLCHAIN=auto go test -count=1 -v ./...)
 ```
 
-The harness pins `cloud.google.com/go/storage` v1.71.0 and `google.golang.org/api`
+The harness pins `cloud.google.com/go/storage` v1.71.1 and `google.golang.org/api`
 v0.317.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
 and redirects, and confines requests to the explicit emulator. It exercises
 bucket CRUD/paging and BucketHandle.Update with SetLabel/DeleteLabel, default

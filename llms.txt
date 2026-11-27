@@ -194,7 +194,7 @@ Steps that run directly on the runner use `localhost:4443`.
 | gcloud | `CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE=E`, `CLOUDSDK_AUTH_DISABLE_CREDENTIALS=True`, `CLOUDSDK_CORE_PROJECT=local-project` and a throwaway `CLOUDSDK_CONFIG` | `http://localhost:4443/` | `http://gcs:4443/` |
 | Rails Active Storage | `config/storage.yml` entry with `service: GCS`, `endpoint: E`, `universe_domain: gcs-emulator.invalid`, plus project, bucket and local credentials. See the Rails guide | `http://localhost:4443/` | `http://gcs:4443/` |
 
-Tested SDK versions: Go storage v1.71.0, Ruby google-cloud-storage 1.62.2, Node.js @google-cloud/storage 9.0.0 and 8.4.0 on Node.js 24+ (9.0.0 needs gcs-mimic 0.20.1 or later to delete and list objects), Python google-cloud-storage 3.17.2, PHP google/cloud-storage 2.7.0, Java google-cloud-storage 2.79.0, .NET Google.Cloud.Storage.V1 5.0.0, Rust google-cloud-storage 1.22.0, C++ google-cloud-cpp 3.14.2. Other versions are untested.
+Tested SDK versions: Go storage v1.71.1, Ruby google-cloud-storage 1.62.2, Node.js @google-cloud/storage 9.0.0 and 8.4.0 on Node.js 24+ (9.0.0 needs gcs-mimic 0.20.1 or later to delete and list objects), Python google-cloud-storage 3.17.2, PHP google/cloud-storage 2.7.0, Java google-cloud-storage 2.79.0, .NET Google.Cloud.Storage.V1 5.0.0, Rust google-cloud-storage 1.22.0, C++ google-cloud-cpp 3.14.2. Other versions are untested.
 
 **What works.** Each item works in a tested scope, not with every field of the Google API.
 

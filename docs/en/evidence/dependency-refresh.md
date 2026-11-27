@@ -1615,3 +1615,27 @@ and enables no optional features.
 lines, including `tokio-util`, and exited 1 because the three development Go
 modules still pinned cloud.google.com/go/storage v1.71.0 while v1.71.1 was
 available.
+
+## Refresh: 2026-11-27
+
+The scheduled full check on 2026-11-26 and a local full check on 2026-11-27 reported one development-only update, in three Go modules; the release-scoped check was current. This refresh adopts it.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| cloud.google.com/go/storage | v1.71.0 | v1.71.1 (changelog dated 2026-11-25, published to the Go proxy 2026-11-26T05:12:56Z, revision `84f687f56b6b7a30c2f0fc3ca77a2ae41f06aceb`, Go 1.26.0, 1,133,951-byte module zip) | `go`, `sdk-tests/go`, `sdk-scorecard/go` |
+
+[Storage v1.71.1](https://github.com/googleapis/google-cloud-go/releases/tag/storage%2Fv1.71.1) contains only bug fixes. Among them, parallel composite uploads set a `DoesNotExist` precondition on their intermediate composes and fix part naming, generation pinning and encryption key handling; the HTTP writer honors `maxAttempts` and `RetryNever`; `SignedURL`, `GenerateSignedPostPolicyV4` and the default `SignBlob` honor the universe domain; and `DownloadDirectory` is confined with `os.Root` and rejects escaping or absolute symlinks. The others refine metrics and forward the universe domain and credentials to the Cloud Monitoring exporters. The release keeps its retraction of v1.25.0 through v1.27.0, still requires Go 1.26.0, the facade's `go` directive, and its LICENSE is byte-identical to v1.71.0. `go get` and `go mod tidy` raise only indirect requirements to the module's new minimums: `cloud.google.com/go/monitoring` to v1.31.0 and the `GoogleCloudPlatform/opentelemetry-operations-go` `exporter/metric` and `internal/resourcemapping` modules to v0.63.0 in all three modules, and genproto/googleapis/api to `v0.0.0-20261118221215-c8830f628b3f` in the facade and the scorecard probe; the SDK suite already required that revision. `go mod verify` passed in all three modules. `examples/go` stays on v1.70.0, as it is not tracked by the freshness check.
+
+### Validation performed on 2026-11-27
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask dependencies check` at `2026-11-27T02:40:14Z` | Exit 0 with 147 `CURRENT` lines and no updates or check errors, the three `cloud.google.com/go/storage` lines among them; composer:latest differs from the pinned index only on linux/riscv64, and fake-gcs-server v1.56.1 stays `PINNED_REFERENCE` |
+| `cargo xtask dependencies check --scope release` at `2026-11-27T02:41:19Z` | Exit 0 with 45 `CURRENT` lines |
+| `just check-sdk-clients` | Passed in 177 s. `go vet` passed and the Go suite passed 95 top-level tests on Storage v1.71.1, with the HTTPS-only V2 signing test skipped. The Go facade under `go test -race -tags integration`, its `go vet` and tests on Go 1.26.0, `go/sourceexport`, and the Java, .NET and Rust clients passed |
+| `go vet ./...` and `go test -count=1 ./...` in `sdk-scorecard/go` | Passed |
+| `bash sdk-scorecard/run.sh --out <dir> gcs-mimic` | Passed in 698 s with Score and Core both 100: Go 66/66 on Storage v1.71.1, among them `sdk.parallel_composite_upload`, Ruby 57/57, Node.js 59/59, PHP 60/60, Python 63/63, Java 79/79, .NET 72/72, Rust 54/54 and C++ 61/61, with 10 checks not applicable |
+| `bash sdk-scorecard/test-tls.sh` | Passed in 103 s: every probe rejects the wrong-host certificate, and 32 client CA, SAN and origin transport cases pass |
+| `just check` | Passed in 723 s, the host lint and the cross-target lint for x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu and x86_64-unknown-linux-musl reporting no new production violation |
+
+The change touches no Rust source, container input or non-Go SDK input, so `just check-containers` and the Ruby, Node.js, Python and PHP SDK suites were not rerun. Both freshness checks ran with `GITHUB_TOKEN` set.

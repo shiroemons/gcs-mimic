@@ -113,7 +113,7 @@ Go, Java and C++ (`bucket.soft_delete_restore`), Ruby (`object.list_offsets`),
 
 | Input | Version |
 | --- | --- |
-| Go SDK | `cloud.google.com/go/storage` v1.71.0 (`go/go.mod`, same graph as `sdk-tests/go`) |
+| Go SDK | `cloud.google.com/go/storage` v1.71.1 (`go/go.mod`, same graph as `sdk-tests/go`) |
 | Ruby SDK | `google-cloud-storage` 1.62.2 (`ruby/Gemfile.lock`, same graph as `sdk-tests/ruby`) |
 | Node.js SDK | `@google-cloud/storage` 9.0.0 and `google-auth-library` 11.3.4 for its anonymous `PassThroughClient` (`node/package-lock.json`); requires Node.js 24+. The probe signs with a separate client, because 9.x would exchange a signing key at Google OAuth before every request |
 | PHP SDK | `google/cloud-storage` 2.7.0 (`php/composer.lock`); official Composer 2.11.3 / PHP 8.5.13 image, digest pinned in `run.sh` |
