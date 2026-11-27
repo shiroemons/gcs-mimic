@@ -184,3 +184,24 @@ four TLS suppressions and zero new violations. Tests confirmed that changing
 a source-printing format to transparent makes its suppression stale. The CLI
 save and bucket-name errors exposed the same concrete causes they formatted,
 and gRPC conversion preserved the underlying storage source.
+
+## Public facade, 2026-11-28
+
+`just check` passed on the source that keeps every library module private
+except `app` and `testing`. Its Rust lane passed 4,189 tests with the same
+Pub/Sub case ignored. The production gate counted zero new violations, 70
+ratcheted findings and nine reasoned suppressions on the host, and zero new
+Clippy violations for `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and
+`x86_64-unknown-linux-musl`. The ledger check validated 611 feature rows.
+
+The library-surface test confirmed that `src/lib.rs` declares only `app` and
+`testing` as public. The compose parsing tests passed from their new place in
+the library, and the source tree predicates passed in their own library test
+beside the import test they came from. `DurationError::Number` reported its
+own text with the `ParseIntError` as its source.
+
+An earlier `just check` on the same source failed one test,
+`obj_http_trickled_resource_body_renews_body_inactivity`, with a 503 after the
+500 ms request deadline, while 4,184 others passed. The test passed five runs
+alone and a run of its whole `it_protocol` binary, and the repeated
+`just check` passed it.

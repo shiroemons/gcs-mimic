@@ -59261,6 +59261,7 @@
             "broken_report_output_joins_the_bounded_worker_without_destination_writes",
             "cli_never_starts_serve_and_requires_explicit_read_only_mode",
             "overlap_and_walk_fail_closed_without_creating_destination",
+            "source_tree::tests::os_detritus_and_paths_inside_the_source_are_recognized",
             "escaped_names_round_trip",
             "valid_bucket_names_round_trip",
             "arbitrary_times_never_panic",
@@ -59437,6 +59438,7 @@
         "broken_report_output_joins_the_bounded_worker_without_destination_writes",
         "cli_never_starts_serve_and_requires_explicit_read_only_mode",
         "overlap_and_walk_fail_closed_without_creating_destination",
+        "source_tree::tests::os_detritus_and_paths_inside_the_source_are_recognized",
         "escaped_names_round_trip",
         "valid_bucket_names_round_trip",
         "arbitrary_times_never_panic",
@@ -59810,7 +59812,8 @@
           "verified_at": "2026-11-24",
           "artifact": "docs/en/slices/shared-publication-modes.md",
           "test_ids": ["probes_answer_without_waiting_for_a_held_catalog", "failing_maintenance_turns_readiness_off", "publication_disk_full_rolls_back_the_batch_and_its_generations", "publication_equal_hash_keeps_generation_and_metadata", "import_publications_report_no_notifications"]
-        }
+        },
+        {"command": "cargo test --locked --workspace --no-fail-fast", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["overlap_and_walk_fail_closed_without_creating_destination", "source_tree::tests::os_detritus_and_paths_inside_the_source_are_recognized"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [
@@ -59827,7 +59830,7 @@
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
       "implemented_in": "56a701b3905f43af372f861307863c0e3104de42",
-      "last_verified": "2026-11-20"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "DESIGN-073",
@@ -64385,8 +64388,10 @@
         {
           "id": "DESIGN-105-SURFACE",
           "description": "Only the app and testing modules of the library are public.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "lint::layers::tests::the_library_exposes_only_the_app_and_testing_modules"
+          ]
         },
         {
           "id": "DESIGN-105-BEHAVIOR",
@@ -64503,7 +64508,8 @@
         "lint::tests::every_gate_rule_has_one_row_in_the_development_guide",
         "lint::tests::workspace_denied_lints_are_not_downgraded_by_the_gate",
         "storage::catalog::sql::bucket_keys_bind_the_original_text",
-        "json::tests::legacy_bucket_item_admits_a_name_object_routes_refuse"
+        "json::tests::legacy_bucket_item_admits_a_name_object_routes_refuse",
+        "lint::layers::tests::the_library_exposes_only_the_app_and_testing_modules"
       ],
       "verification": [
         {
@@ -64678,12 +64684,22 @@
             "grpc::v2::convert::conversion_errors_keep_the_custom_time_and_storage_causes",
             "lint::error_format::tests::source_suppression_is_counted_and_expires_when_the_source_is_forwarded"
           ]
+        },
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; just check",
+          "result": "PASS",
+          "verified_at": "2026-11-28",
+          "artifact": "docs/en/evidence/rust-hardening.md",
+          "test_ids": [
+            "lint::layers::tests::the_library_exposes_only_the_app_and_testing_modules",
+            "config_input::options::error_text_and_sources"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-11-27"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "UX-001",
