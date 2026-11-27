@@ -6,7 +6,8 @@ mod source;
 pub(crate) use source::{Layer, Link, Source, TypedSource, chain};
 
 /// Fixed storage failures whose identity must survive contextual error messages.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{}", self.message())]
 pub(crate) enum BackendFailure {
     CatalogClosed,
     UploadWaitTimeout,
@@ -61,14 +62,6 @@ impl BackendFailure {
         })
     }
 }
-
-impl fmt::Display for BackendFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.message())
-    }
-}
-
-impl Error for BackendFailure {}
 
 /// A `backend=memory` budget, each with its own remedy when it runs out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -349,4 +342,12 @@ impl From<io::Error> for IoCause {
     fn from(error: io::Error) -> Self {
         Self::with_source(error.kind(), error)
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = BackendFailure::CatalogClosed;
+    assert_eq!(error.to_string(), "catalog is closed");
+    assert!(std::error::Error::source(&error).is_none());
 }
