@@ -134,20 +134,31 @@ fn obj_http_stalled_resource_bodies_outlive_header_and_request_deadlines() {
     server.upload("name=described", "", b"data").expect(200);
 
     // Each request sends its head and the start of its body, then stalls mid-body.
-    let mid_body = |head: &str, body: &str, split: usize| {
+    let mid_body = |server: &Server, head: &str, body: &str, split: usize| {
         let (first, second) = body.split_at(split);
         let head = format!(
             "{head}Connection: close\r\nContent-Length: {}\r\n\r\n{first}",
             body.len()
         );
-        stalled(&server, &head, &[second.as_bytes()])
+        stalled(server, &head, &[second.as_bytes()])
     };
-    mid_body(
-        "PATCH /storage/v1/b/test-bucket/o/described HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\n",
-        r#"{"metadata":{"stalled":"yes"}}"#,
-        12,
-    )
-    .expect(200);
+    // After the silent stall, the catalog write can still exhaust the request deadline.
+    // Setting the same metadata again is safe even if the timed-out write commits.
+    server
+        .once_settled(|server| {
+            let reply = mid_body(
+                server,
+                "PATCH /storage/v1/b/test-bucket/o/described HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\n",
+                r#"{"metadata":{"stalled":"yes"}}"#,
+                12,
+            );
+            if reply.status == 503 {
+                let body = String::from_utf8_lossy(&reply.body);
+                assert!(body.contains("raise request_timeout_ms"), "{body}");
+            }
+            reply
+        })
+        .expect(200);
     assert_eq!(server.get("described").json()["metadata"]["stalled"], "yes");
 
     // A bucket creation spends the request deadline on its catalog write too, so a loaded runner
@@ -163,7 +174,7 @@ fn obj_http_stalled_resource_bodies_outlive_header_and_request_deadlines() {
                     attempts += 1;
                     let name = format!("{prefix}-{attempts}");
                     let (head, body) = request(&name);
-                    let reply = mid_body(&head, &body, split);
+                    let reply = mid_body(&server, &head, &body, split);
                     (reply.status != 503).then_some((name, reply))
                 },
             )
