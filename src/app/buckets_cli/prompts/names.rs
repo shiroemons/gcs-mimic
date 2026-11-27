@@ -1,7 +1,7 @@
 //! Bucket names typed at once, comma-separated, which then share one set of answers: buckets
 //! made for the same purpose are named together instead of answered again one at a time.
 
-use gcs_mimic::bucket_init::generate::{Bucket, GenerateError};
+use crate::bucket_init::generate::{Bucket, GenerateError};
 use std::fmt;
 
 /// One bucket name or more, in the order typed.

@@ -4,7 +4,7 @@
 
 use super::lists::{Offer, Pick, SecondsPick, custom, pick_many, pick_seconds, positions};
 use super::terminal::{EnterMeans, Entry, Need, Question, Terminal};
-use gcs_mimic::bucket_init::generate::{
+use crate::bucket_init::generate::{
     self, Bucket, CorsMethod, CorsOrigin, CorsResponseHeader, Setting,
 };
 use inquire::InquireError;

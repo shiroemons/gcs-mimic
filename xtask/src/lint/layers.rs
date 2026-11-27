@@ -29,9 +29,9 @@ struct Layer {
     modules: &'static [&'static str],
 }
 
-/// The layers from the lowest to the highest. The binary's modules (`src/main.rs` and the
-/// modules it declares) are another crate and stay outside the table.
-const LAYERS: [Layer; 7] = [
+/// The layers from the lowest to the highest. `src/main.rs` is another crate that only calls
+/// `app::main`, so it stays outside the table.
+const LAYERS: [Layer; 8] = [
     Layer {
         name: "foundation",
         peers: Peers::Shared,
@@ -106,6 +106,11 @@ const LAYERS: [Layer; 7] = [
         name: "transport",
         peers: Peers::Shared,
         modules: &["server"],
+    },
+    Layer {
+        name: "application",
+        peers: Peers::Shared,
+        modules: &["app"],
     },
 ];
 

@@ -1,5 +1,5 @@
 use super::*;
-use gcs_mimic::storage::admin::{BucketDefinition, BucketName, Origin};
+use crate::storage::admin::{BucketDefinition, BucketName, Origin};
 use std::{error::Error, process::Command};
 
 #[test]
@@ -38,14 +38,13 @@ fn close_diagnostics_follow_the_original_startup_failure() {
                 "close failed",
             )))),
         });
-        let expected = |fix| {
-            gcs_mimic::diagnostics::Diagnostic::new(DiagnosticSource::Catalog, "data_dir", fix)
-        };
+        let expected =
+            |fix| crate::diagnostics::Diagnostic::new(DiagnosticSource::Catalog, "data_dir", fix);
         assert_eq!(
             error.diagnostics().unwrap().errors,
             [expected(first), expected(second)]
         );
-        if matches!(error, crate::CliError::Authentication(_)) {
+        if matches!(error, crate::app::CliError::Authentication(_)) {
             assert!(
                 error
                     .to_string()
@@ -68,7 +67,7 @@ fn a_shutdown_signal_with_failed_catalog_close_reports_only_close() {
     .unwrap_err();
     assert_eq!(
         failure.errors,
-        [gcs_mimic::diagnostics::Diagnostic::new(
+        [crate::diagnostics::Diagnostic::new(
             DiagnosticSource::Catalog,
             "data_dir",
             "Cannot close catalog (Other): catalog I/O: permission denied; inspect persistence before restarting.",
@@ -80,7 +79,7 @@ fn a_shutdown_signal_with_failed_catalog_close_reports_only_close() {
 async fn signals_preserve_startup_events_and_exit_status() {
     if let Ok(scenario) = std::env::var(SCENARIO) {
         let result = interrupt_open(&scenario).await;
-        let code = crate::command_exit(result);
+        let code = crate::app::command_exit(result);
         std::process::exit(i32::from(code != std::process::ExitCode::SUCCESS));
     }
     let diagnostic = r#"{"event":"diagnostics","level":"error","diagnostics":[{"source":"catalog","key":"data_dir","fix":"Cannot reconcile stored bucket IAM and ACL state; inspect the catalog or restore a valid backup before restarting."}]}"#;
@@ -94,7 +93,7 @@ async fn signals_preserve_startup_events_and_exit_status() {
         let output = Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "startup::tests::opening::signals_preserve_startup_events_and_exit_status",
+                "app::startup::tests::opening::signals_preserve_startup_events_and_exit_status",
                 "--nocapture",
             ])
             .env(SCENARIO, scenario)
@@ -120,7 +119,7 @@ async fn signals_preserve_startup_events_and_exit_status() {
     }
 }
 
-async fn interrupt_open(scenario: &str) -> Result<(), crate::CliError> {
+async fn interrupt_open(scenario: &str) -> Result<(), crate::app::CliError> {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let bucket = BucketName::new("existing-bucket").unwrap();
@@ -209,7 +208,7 @@ fn authentication_diagnostics_preserve_the_catalog_and_io_causes() {
     assert_eq!(diagnostic.source, DiagnosticSource::Catalog);
     assert_eq!(diagnostic.key, "data_dir");
     assert!(
-        crate::CliError::Io(io::Error::other("x"))
+        crate::app::CliError::Io(io::Error::other("x"))
             .diagnostics()
             .is_none()
     );

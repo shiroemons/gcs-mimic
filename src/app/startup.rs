@@ -1,4 +1,4 @@
-use gcs_mimic::{
+use crate::{
     auth::Auth,
     bucket::CatalogError,
     bucket_init::InitOutcome,
@@ -189,7 +189,7 @@ impl ReadyEvent {
         Self {
             event: Event::Ready,
             executable: "gcs-mimic",
-            version: gcs_mimic::VERSION,
+            version: crate::VERSION,
             healthcheck_path: Config::HEALTHCHECK_PATH,
             admin_enabled: config.admin_enabled(),
             lifecycle_execution: config.lifecycle_execution().as_str(),
@@ -257,7 +257,7 @@ struct BoundStartup {
     seed: SeedOutcome,
     buckets: InitOutcome,
     /// The buckets document initialization read, which a reset to the startup state re-applies.
-    buckets_document: Option<gcs_mimic::bucket_init::ParsedDocument>,
+    buckets_document: Option<crate::bucket_init::ParsedDocument>,
 }
 
 enum PrimaryListener {
@@ -345,7 +345,7 @@ impl ListenerSetting {
 
 async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
     #[cfg(unix)]
-    use gcs_mimic::diagnostics::RuntimeFailure as _;
+    use crate::diagnostics::RuntimeFailure as _;
     if let Some(_path) = config.unix_socket() {
         #[cfg(unix)]
         return server::unix::Listener::bind(_path).await.map(|listener| PrimaryListener::Unix { listener, path: _path.to_owned() }).map_err(|error| {
@@ -370,15 +370,15 @@ async fn open_catalog(
     clock: Arc<dyn Clock>,
     mut shutdown: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<()>>>,
     stopped: impl FnOnce(),
-) -> Result<PhaseResult<Catalog>, crate::CliError> {
+) -> Result<PhaseResult<Catalog>, super::CliError> {
     let options = CatalogOptions::for_server(config, auth, clock);
     let opening = async {
         let recovered = RecoveredCatalog::recover(config.into(), options)
             .await
             .map_err(|cause| catalog_open_failure(&cause))?;
         if let Some(path) = recovered.created_directory() {
-            gcs_mimic::diagnostics::emit(
-                gcs_mimic::diagnostics::LogLevel::Info,
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Info,
                 Event::DataDirCreated,
                 serde_json::json!({"data_dir":path.to_string_lossy(),"message":format!("created a new empty catalog at {}", path.display())}),
             );
@@ -424,7 +424,7 @@ async fn open_catalog(
     }
 }
 
-fn open_failure(error: CatalogOpenError) -> crate::CliError {
+fn open_failure(error: CatalogOpenError) -> super::CliError {
     let mut diagnostics = match error.failure {
         CatalogOpenFailure::Storage(cause) => catalog_open_failure(&cause),
         CatalogOpenFailure::Authentication(cause) => {
@@ -449,7 +449,7 @@ fn open_failure(error: CatalogOpenError) -> crate::CliError {
     if let Some(close) = error.cleanup {
         diagnostics
             .errors
-            .push(gcs_mimic::diagnostics::catalog_close_failure(&*close));
+            .push(crate::diagnostics::catalog_close_failure(&*close));
     }
     diagnostics.into()
 }
@@ -498,14 +498,10 @@ async fn prepare_startup(
         // The generic diagnostic names the error kind; a catalog error has none of its own.
         .map_err(|error| Diagnostics::startup_failure(&error))?;
     // Loading has no effects; submitted administrative jobs retain their permits through close.
-    let buckets = complete!(gcs_mimic::bucket_init::apply(
-        catalog,
-        config,
-        clock.clone()
-    ))?;
+    let buckets = complete!(crate::bucket_init::apply(catalog, config, clock.clone()))?;
     // Seed drops only source reads/request waits; publication and cleanup own upload permits.
     let seed = complete!(async {
-        gcs_mimic::seed::import(catalog, config, &clock)
+        crate::seed::import(catalog, config, &clock)
             .await
             .map_err(|error| {
                 Diagnostics::error(DiagnosticSource::Seed, "seed_dir", seed_failure(&error))
@@ -567,8 +563,8 @@ fn shutdown_result(signal: io::Result<()>) -> Result<(), Diagnostics> {
             "Cannot receive shutdown signal; check the runtime environment.",
         )
     })?;
-    gcs_mimic::diagnostics::emit(
-        gcs_mimic::diagnostics::LogLevel::Info,
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Info,
         Event::Stopping,
         serde_json::json!({}),
     );
@@ -578,9 +574,9 @@ fn shutdown_result(signal: io::Result<()>) -> Result<(), Diagnostics> {
 pub(crate) async fn serve(
     mut config: Config,
     auth: Auth,
-    security: gcs_mimic::tls::ServerSecurity,
+    security: crate::tls::ServerSecurity,
     shutdown: impl std::future::Future<Output = io::Result<()>>,
-) -> Result<(), crate::CliError> {
+) -> Result<(), super::CliError> {
     tokio::pin!(shutdown);
     let clock = Arc::new(SystemClock);
     let opened = open_catalog(
@@ -607,7 +603,7 @@ pub(crate) async fn serve(
     // Only a reset to the startup state reads the document again, so a server without local
     // administration does not keep a document of up to 1 GiB for its lifetime.
     if config.admin_enabled() {
-        config.set_startup_buckets(buckets_document.map(gcs_mimic::config::DocumentSource::Parsed));
+        config.set_startup_buckets(buckets_document.map(crate::config::DocumentSource::Parsed));
     }
     let ready = match ready_event(&config, &auth, &catalog, &listeners, seed, buckets) {
         Ok(ready) => ready,
@@ -615,7 +611,7 @@ pub(crate) async fn serve(
     };
     catalog.start_resumable_maintenance();
     // The passes start with the listeners: the startup replay has just read the tree.
-    gcs_mimic::seed::watch(&catalog, &config, clock.clone());
+    crate::seed::watch(&catalog, &config, clock.clone());
     let state = Arc::new(State {
         pools: server::WorkPools::new(&config),
         xml_cors_warned_buckets: Default::default(),
@@ -635,14 +631,14 @@ pub(crate) async fn serve(
         trusted,
         grpc,
     } = listeners;
-    let gcs_mimic::tls::ServerSecurity {
+    let crate::tls::ServerSecurity {
         primary: primary_security,
         grpc: grpc_security,
     } = security;
     let listeners = match primary {
         PrimaryListener::Tcp(listener) => {
             let mut public = vec![(listener, primary_security)];
-            public.extend(http.map(|listener| (listener, gcs_mimic::tls::ListenerSecurity::Plain)));
+            public.extend(http.map(|listener| (listener, crate::tls::ListenerSecurity::Plain)));
             server::Listeners::from(server::TcpListeners {
                 public,
                 trusted,
@@ -910,7 +906,7 @@ async fn bind_after_time_wait(
     }
     // Wait out TIME_WAIT without weakening exclusive binding or waiting indefinitely.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(65);
-    let probe = gcs_mimic::config::loopback_if_unspecified(address);
+    let probe = crate::config::loopback_if_unspecified(address);
     let mut logged = false;
     loop {
         let connected = tokio::time::timeout_at(
@@ -922,8 +918,8 @@ async fn bind_after_time_wait(
             return Err(original);
         }
         if !logged {
-            gcs_mimic::diagnostics::emit(
-                gcs_mimic::diagnostics::LogLevel::Warn,
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
                 Event::BindWait,
                 serde_json::json!({"listen":address.to_string(),"timeout_ms":65000,"reason":"address_in_use"}),
             );
@@ -950,7 +946,7 @@ mod tests {
     mod shutdown;
     use super::*;
     use crate::test_support::TestDir;
-    use gcs_mimic::{
+    use crate::{
         clock::{Clock, SystemClock},
         storage::Catalog,
     };
@@ -962,7 +958,7 @@ mod tests {
 
     #[test]
     fn seed_diagnostics_follow_typed_causes_through_context() {
-        use gcs_mimic::storage::admin::AdminError;
+        use crate::storage::admin::AdminError;
         for (error, message) in [
             (
                 SeedError::EntryLimit { limit: 10_000 },
@@ -1208,7 +1204,7 @@ mod tests {
     }
 
     /// The only error of a diagnostic that reports one failure.
-    fn only_error(diagnostics: &Diagnostics) -> &gcs_mimic::diagnostics::Diagnostic {
+    fn only_error(diagnostics: &Diagnostics) -> &crate::diagnostics::Diagnostic {
         assert!(diagnostics.info.is_empty() && diagnostics.warnings.is_empty());
         let [error] = diagnostics.errors.as_slice() else {
             panic!("one error expected: {:?}", diagnostics.errors);
@@ -1293,7 +1289,7 @@ mod tests {
     async fn unfinished_import_blocks_startup_before_policy_seed_and_bind() {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
-        let binding = gcs_mimic::storage::import_journal::ImportBinding {
+        let binding = crate::storage::import_journal::ImportBinding {
             source: [1; 32],
             fingerprint: [2; 32],
             expected_elements: 0,
@@ -1454,7 +1450,7 @@ mod tests {
     #[tokio::test]
     async fn shutdown_during_recovery_drains_open_before_unlocking() {
         let dir = TestDir::new();
-        use gcs_mimic::storage::admin::{BucketDefinition, BucketName, Origin};
+        use crate::storage::admin::{BucketDefinition, BucketName, Origin};
         let catalog = Catalog::open(&dir.0).await.unwrap();
         let name = BucketName::new("broken-bucket").unwrap();
         catalog
@@ -1519,7 +1515,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_during_reconciliation_drains_before_seed() {
-        use gcs_mimic::storage::admin::{BucketDefinition, BucketName, Origin};
+        use crate::storage::admin::{BucketDefinition, BucketName, Origin};
         let dir = TestDir::new();
         let seed = dir.0.join("fixtures");
         let data = dir.0.join("data");
@@ -1639,8 +1635,8 @@ mod tests {
         let reopened = Catalog::open(config.data_dir()).await.unwrap();
         assert!(
             reopened
-                .admin(gcs_mimic::storage::admin::Origin::BucketInit)
-                .get_bucket(&gcs_mimic::storage::admin::BucketName::new("pending-bucket").unwrap())
+                .admin(crate::storage::admin::Origin::BucketInit)
+                .get_bucket(&crate::storage::admin::BucketName::new("pending-bucket").unwrap())
                 .await
                 .unwrap()
                 .is_none()

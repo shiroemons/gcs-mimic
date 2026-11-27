@@ -10,7 +10,7 @@ mod names;
 mod terminal;
 
 use super::{Answers, save_new};
-use gcs_mimic::bucket_init::generate::{
+use crate::bucket_init::generate::{
     self, AuthMode, Bucket, CorsOrigin, Document, Format, Label, Members, PublicAccessPrevention,
     Setting,
 };

@@ -42,18 +42,18 @@ The inventory and the "Reason" and "Cost" entries of each candidate describe the
 
 | Command | Defined in | Documented in | Agree |
 | --- | --- | --- | --- |
-| `gcs-mimic serve [OPTIONS]` | `src/main.rs` `serve`; `src/config_input.rs` `server_arguments` | H, N, C, S `option-aliases.md` | Yes |
+| `gcs-mimic serve [OPTIONS]` | `src/app.rs` `serve`; `src/config_input.rs` `server_arguments` | H, N, C, S `option-aliases.md` | Yes |
 | `gcs-mimic OPTIONS`, when the first argument starts with `-` (runs `serve`) | `src/config_input.rs` `server_arguments` | H, L, S `option-aliases.md` | Yes |
 | `--help`, `-h`, `-help`, `--h`, after any server options | `src/config_input.rs` `Inputs::cli`, `requests_help` | H, N, release notes 0.15.0 | 13 |
 | `--version`, `-version`, only as the sole argument | `src/config_input.rs` `requests_version` | H, release notes 0.15.0 | 13 |
-| `gcs-mimic healthcheck [--url URL] [--ca-cert PATH]` | `src/main.rs` `healthcheck`, `probe` | H, C, S `option-aliases.md` | 17 |
-| `gcs-mimic tls ca` | `src/main.rs` `run` | H, `docs/en/local-https.md` | Yes |
-| `gcs-mimic url public`, `gcs-mimic url public --help` | `src/main.rs` `url_public`, `URL_PUBLIC_HELP` | H, N, F | Yes |
-| `gcs-mimic url sign`, `gcs-mimic url sign --help` | `src/main.rs` `url_sign`, `URL_SIGN_HELP` | H, L, `docs/en/signed-urls.md` | 12 |
-| `gcs-mimic test-signer credentials`, `gcs-mimic test-signer --help` | `src/main.rs` `run`, `src/auth/test_signer.rs` | H, L, C | Yes |
+| `gcs-mimic healthcheck [--url URL] [--ca-cert PATH]` | `src/app.rs` `healthcheck`, `probe` | H, C, S `option-aliases.md` | 17 |
+| `gcs-mimic tls ca` | `src/app.rs` `run` | H, `docs/en/local-https.md` | Yes |
+| `gcs-mimic url public`, `gcs-mimic url public --help` | `src/app.rs` `url_public`, `URL_PUBLIC_HELP` | H, N, F | Yes |
+| `gcs-mimic url sign`, `gcs-mimic url sign --help` | `src/app.rs` `url_sign`, `URL_SIGN_HELP` | H, L, `docs/en/signed-urls.md` | 12 |
+| `gcs-mimic test-signer credentials`, `gcs-mimic test-signer --help` | `src/app.rs` `run`, `src/auth/test_signer.rs` | H, L, C | Yes |
 | `gcs-mimic import fake-gcs-server`, `--help` | `src/import/mod.rs` `cli`, `HELP` | H, S `import-filesystem.md`, `docs/en/migrate-from-fake-gcs-server.md` | Yes |
-| `gcs-mimic buckets new`, `--help` | `src/buckets_cli.rs` `run`, `HELP`; `src/bucket_init/generate.rs` | H, S `bucket-initialization.md` | Yes |
-| `gcs-mimic seed status`, `gcs-mimic seed wait`, `--help` (added in `0.28.0`) | `src/seed_cli.rs` `run`, `HELP` | H, N, C, S `seed.md` | Yes |
+| `gcs-mimic buckets new`, `--help` | `src/app/buckets_cli.rs` `run`, `HELP`; `src/bucket_init/generate.rs` | H, S `bucket-initialization.md` | Yes |
+| `gcs-mimic seed status`, `gcs-mimic seed wait`, `--help` (added in `0.28.0`) | `src/app/seed_cli.rs` `run`, `HELP` | H, N, C, S `seed.md` | Yes |
 
 A bare `gcs-mimic` exits 1 and names `serve`. `gcs-mimic serve --version`, `healthcheck --help`, `tls --help`, `tls ca --help`, `url --help` and `test-signer credentials --help` all exit 1 (observed).
 
@@ -67,7 +67,7 @@ A bare `gcs-mimic` exits 1 and names `serve`. `gcs-mimic serve --version`, `heal
 | Precedence | CLI, then environment, then JSON file, then default | `src/config/draft.rs` `collect_settings` |
 | Duplicates | A repeated native option is an error. A repeated alias flag takes the last value (observed) | `src/config/draft.rs` `collect_settings`; `src/config_input.rs` `translate_aliases` |
 | Limits | At most 1024 supplied settings across sources; keys at most 256 bytes | `src/config_input.rs` `Inputs::push` |
-| Helper commands | Each has its own grammar; see [helper options](#helper-command-options) | `src/main.rs`, `src/import/mod.rs` |
+| Helper commands | Each has its own grammar; see [helper options](#helper-command-options) | `src/app.rs`, `src/import/mod.rs` |
 
 Any `GCS_MIMIC_*` name that is not a setting stops `serve` and makes `healthcheck` without `--url` fail. Since `0.18.0`, the seven names withdrawn by candidate 2 stop it with advice that names their `GCSM_*` replacement; see [environment variables outside the option table](#environment-variables-outside-the-option-table).
 
@@ -172,16 +172,16 @@ The native-equivalent block is one `info` diagnostic with key `native_equivalent
 
 | Command | Options | Grammar | Defined in | Documented in | Agree |
 | --- | --- | --- | --- | --- | --- |
-| `healthcheck` | `--url`, `--ca-cert` | Two hyphens, space-separated. A 2-second deadline; requires HTTP 200 | `src/main.rs` | H, C | 17 |
-| `url public` | `--base-url`, `--config`, `--bucket`, `--object`, `--style` | Two hyphens, space-separated | `src/main.rs` | H, F, N | Yes |
-| `url sign` | The `url public` options, `--method`, `--expires`, `--signer`, `--private-key`, `--header` (repeats), `--query` (repeats), `--timestamp` | Two hyphens, space-separated | `src/main.rs`, `src/auth/signature.rs` | H, `docs/en/signed-urls.md` | 12 |
+| `healthcheck` | `--url`, `--ca-cert` | Two hyphens, space-separated. A 2-second deadline; requires HTTP 200 | `src/app.rs` | H, C | 17 |
+| `url public` | `--base-url`, `--config`, `--bucket`, `--object`, `--style` | Two hyphens, space-separated | `src/app.rs` | H, F, N | Yes |
+| `url sign` | The `url public` options, `--method`, `--expires`, `--signer`, `--private-key`, `--header` (repeats), `--query` (repeats), `--timestamp` | Two hyphens, space-separated | `src/app.rs`, `src/auth/signature.rs` | H, `docs/en/signed-urls.md` | 12 |
 | `import fake-gcs-server` | `--source`, `--data-dir`, `--metadata-mode`, `--source-platform`, `--source-format`, `--max-object-bytes`, `--max-entries`, `--max-depth`, `--dry-run`, `--verify-bodies` | Two hyphens, space-separated; a value cannot start with `--` | `src/import/mod.rs` | H, S `import-filesystem.md` | Yes |
-| `buckets new` | `--name` (repeats, one per bucket), `--format`, `--auth-mode`, `--output`, and bucket settings after a `--name`: `--project`, `--location`, `--storage-class`, `--public-access-prevention`, `--soft-delete-retention-seconds`, `--cors-max-age-seconds`, valueless `--versioning`, `--default-event-based-hold`, `--public-read`, `--browser-uploads`, `--browser-downloads`, and repeating `--label`, `--cors-origin`, `--cors-method`, `--cors-response-header`, `--iam-binding` | Two hyphens, space-separated. The first helper grammar in which a setting belongs to the preceding `--name`; a setting before any `--name` fails, and so does a bucket whose CORS settings lack a `--cors-origin` or a method. The contract is the command and option names, exit code 1 with diagnostics on stderr, and a `json` output that startup validation accepts; the exact layout of `env` and `compose`, the questions, and the advice written to stderr only when it is a terminal are not | `src/buckets_cli.rs` | H, S `bucket-initialization.md` | Yes |
-| `seed status`, `seed wait` (added in `0.28.0`) | `--endpoint`, `--ca-cert`; `seed wait` also `--timeout` and valueless `--require-clean` | Two hyphens, space-separated, each at most once. `--timeout` takes `Nms`, `Ns` or `Nm` from 1 ms to 10 min, 60 s by default. Without `--endpoint`, the server is found as `healthcheck` finds it | `src/seed_cli.rs` | H, N, C, S `seed.md` | Yes |
+| `buckets new` | `--name` (repeats, one per bucket), `--format`, `--auth-mode`, `--output`, and bucket settings after a `--name`: `--project`, `--location`, `--storage-class`, `--public-access-prevention`, `--soft-delete-retention-seconds`, `--cors-max-age-seconds`, valueless `--versioning`, `--default-event-based-hold`, `--public-read`, `--browser-uploads`, `--browser-downloads`, and repeating `--label`, `--cors-origin`, `--cors-method`, `--cors-response-header`, `--iam-binding` | Two hyphens, space-separated. The first helper grammar in which a setting belongs to the preceding `--name`; a setting before any `--name` fails, and so does a bucket whose CORS settings lack a `--cors-origin` or a method. The contract is the command and option names, exit code 1 with diagnostics on stderr, and a `json` output that startup validation accepts; the exact layout of `env` and `compose`, the questions, and the advice written to stderr only when it is a terminal are not | `src/app/buckets_cli.rs` | H, S `bucket-initialization.md` | Yes |
+| `seed status`, `seed wait` (added in `0.28.0`) | `--endpoint`, `--ca-cert`; `seed wait` also `--timeout` and valueless `--require-clean` | Two hyphens, space-separated, each at most once. `--timeout` takes `Nms`, `Ns` or `Nm` from 1 ms to 10 min, 60 s by default. Without `--endpoint`, the server is found as `healthcheck` finds it | `src/app/seed_cli.rs` | H, N, C, S `seed.md` | Yes |
 
 ### Healthcheck URL selection
 
-Without `--url`, `healthcheck` chooses its target as follows (`src/main.rs` `healthcheck`, `probe_url`; `src/local_server.rs` `origin`, `with_container_fallback`, `container_server_args`; `src/config/assemble.rs` `healthcheck_url`). C and S `option-aliases.md` describe it; H does not (disagreement 17).
+Without `--url`, `healthcheck` chooses its target as follows (`src/app.rs` `healthcheck`, `probe_url`; `src/app/local_server.rs` `origin`, `with_container_fallback`, `container_server_args`; `src/config/assemble.rs` `healthcheck_url`). C and S `option-aliases.md` describe it; H does not (disagreement 17).
 
 1. It runs the server's configuration validation over the environment and the selected JSON file. An invalid configuration exits 1 without any probe, which is why an unknown `GCS_MIMIC_*` name fails it.
 2. It probes `/_internal/healthcheck` at the configured listener. A wildcard address becomes loopback, `scheme=both` selects the HTTP listener, and every scheme but `https` is probed over plain HTTP.
@@ -250,13 +250,13 @@ Management routes refuse browser-initiated requests with 403 and unapproved DNS 
 
 | Item | Current behavior | Defined in | Documented in | Agree |
 | --- | --- | --- | --- | --- |
-| Exit status | 0 on success, including graceful shutdown on a signal; 1 on any failure | `src/main.rs` `main` | F ("nonzero") | Yes |
+| Exit status | 0 on success, including graceful shutdown on a signal; 1 on any failure | `src/app.rs` `main` | F ("nonzero") | Yes |
 | Diagnostics | One JSON line per batch on stderr: `event: "diagnostics"`, `level` (`warn` or `error`), `diagnostics` of `source`, `key`, `fix`; warnings first, sorted by source then key | `src/diagnostics.rs` | N, F | Yes |
 | Diagnostic sources | `cli`, `environment`, `config`, `tls`, `identity`, `filesystem`, `catalog`, `initializer`, `seed`, `import`, `listener`, `runtime` | `src/diagnostics.rs` | Partly, F | Yes |
 | Fix wording | Not stable, by policy | `docs/en/release-policy.md` | `docs/en/release-policy.md` | Yes |
-| Ready event | One JSON line on stdout with `event: "ready"`, `executable`, `version`, `healthcheck_path`, `admin_enabled`, effective `lifecycle_execution` (`enabled` or `disabled`), `message`, `listen`, `listeners`, optional `trusted_listen` and `trusted_principal`, `transport`, optional `unix_socket`, with disk storage `data_dir` (absolute, symbolic links not resolved) and `data_dir_state` (`created` or `opened`), the limits and timeouts, `backend`, `auth_mode`, optional `identities`, `test_signer`, `signed_urls`, `seed`, `buckets` (`buckets_file` before `0.20.0`), `scheme`, optional `grpc_scheme` with a gRPC listener (added in `0.27.0`), `public_base_url`, `public_virtual_host_enabled`, `cors_fallback`, `signed_host_port`, optional `signed_host_port_signers`, `api_base_url`. `protocol` and `gcs_api` were removed in `0.18.0` | `src/startup.rs` `ReadyEvent`, `ReadyDataDirectory` | N, C, S `runtime-admin-endpoints.md`, S `lifecycle-execution.md`, S `startup-phases.md` | Yes |
-| Data directory notice | One `info` runtime event `data_dir_created` on stderr with the absolute `data_dir`, only when this start initialized the catalog | `src/startup.rs` | S `startup-phases.md`, N | Yes |
-| Stopped event | `{"event":"stopped"}` on stdout | `src/startup.rs` `report_stopped` | N | Yes |
+| Ready event | One JSON line on stdout with `event: "ready"`, `executable`, `version`, `healthcheck_path`, `admin_enabled`, effective `lifecycle_execution` (`enabled` or `disabled`), `message`, `listen`, `listeners`, optional `trusted_listen` and `trusted_principal`, `transport`, optional `unix_socket`, with disk storage `data_dir` (absolute, symbolic links not resolved) and `data_dir_state` (`created` or `opened`), the limits and timeouts, `backend`, `auth_mode`, optional `identities`, `test_signer`, `signed_urls`, `seed`, `buckets` (`buckets_file` before `0.20.0`), `scheme`, optional `grpc_scheme` with a gRPC listener (added in `0.27.0`), `public_base_url`, `public_virtual_host_enabled`, `cors_fallback`, `signed_host_port`, optional `signed_host_port_signers`, `api_base_url`. `protocol` and `gcs_api` were removed in `0.18.0` | `src/app/startup.rs` `ReadyEvent`, `ReadyDataDirectory` | N, C, S `runtime-admin-endpoints.md`, S `lifecycle-execution.md`, S `startup-phases.md` | Yes |
+| Data directory notice | One `info` runtime event `data_dir_created` on stderr with the absolute `data_dir`, only when this start initialized the catalog | `src/app/startup.rs` | S `startup-phases.md`, N | Yes |
+| Stopped event | `{"event":"stopped"}` on stdout | `src/app/startup.rs` `report_stopped` | N | Yes |
 | Runtime events | JSON lines on stderr with `event`, `level` and fields, filtered by `log_level`. About 80 names, written as string literals at each call site; no list exists in code or documents | `src/diagnostics.rs` `emit` | N | Yes |
 | Import output | JSON lines on stdout (`import_page`, `import_summary` from a dry run, `import_complete`); diagnostics on stderr. The help promises JSON Lines, not the names or fields | `src/import/mod.rs`, `src/import/filesystem.rs` | `import fake-gcs-server --help` | Yes |
 

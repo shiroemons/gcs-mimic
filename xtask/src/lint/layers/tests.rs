@@ -193,19 +193,22 @@ fn helper() { super::server::call(); }
 ";
     assert_eq!(layer_findings("src/clock.rs", text), []);
     let reference = "use crate::server::State;\nfn f() { crate::json::call(); }\n";
-    for file in [
-        "src/main.rs",
-        "src/startup.rs",
-        "src/startup/authentication.rs",
-        "src/buckets_cli/prompts.rs",
-        "src/lib.rs",
-    ] {
+    for file in ["src/main.rs", "src/lib.rs"] {
         assert_eq!(layer_findings(file, reference), [], "{file}");
     }
-    // The binary is another crate: its modules have no layer, so their files are skipped.
-    for module in declared_modules(include_str!("../../../../src/main.rs")) {
-        assert!(layer_of(module).is_none(), "binary module {module}");
+    // The binary is another crate and declares no modules of its own; the command line is the
+    // library's highest layer, so it may name every module and no module may name it.
+    assert_eq!(
+        declared_modules(include_str!("../../../../src/main.rs")),
+        Vec::<&str>::new()
+    );
+    for file in ["src/app.rs", "src/app/startup/authentication.rs"] {
+        assert_eq!(layer_findings(file, reference), [], "{file}");
     }
+    assert_eq!(
+        layer_findings("src/server.rs", "fn f() { crate::app::main(); }\n"),
+        [(LAYER_DEPENDENCY, 1)]
+    );
     for file in [
         "src/clock/tests.rs",
         "src/storage/catalog_tests.rs",
