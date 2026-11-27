@@ -89,3 +89,16 @@ jq -e '.result == "PASS" and .pending_metrics == ["startup-10000/server_cpu_seco
 ```
 
 The exclusive window was released immediately after the loop. Disposable fixture catalogs were removed after verifying the recorded results. No SDK/container journey, cgroup, cold-cache, Windows/Linux execution or power-loss test was performed for this slice.
+
+## Concurrent shutdown verification on 2026-11-27
+
+`cargo test --locked --bin gcs-mimic -- startup::tests::` passed all 21 startup
+tests. In `stopping_during_publication_and_journal_maintenance_emits_no_warnings`,
+a loopback publisher held its response and a blocking worker held an admitted
+blob reclamation. Shutdown waited for both. After release, the journal was
+empty, the blob was gone, and the process exited successfully with only
+`stopping` on stderr and `stopped` on stdout.
+
+The same test passed against the semaphore-based shutdown at `cc38f9a13`
+with `cargo test --locked --bin gcs-mimic -- --exact startup::tests::shutdown::stopping_during_publication_and_journal_maintenance_emits_no_warnings`
+(one passed). This checks the event order across the change.

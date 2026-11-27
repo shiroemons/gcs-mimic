@@ -91,8 +91,9 @@ API grants remain unchanged. Bucket creation returns the actual stored record
 without overwriting it. Its two management upload slots and its admission waits,
 bounded by `catalog_wait_timeout_ms`, are independent of the API's catalog and
 connection limits.
-Accepted publication and cancellation cleanup retain their permits until
-completion, and catalog close drains them before releasing directory ownership.
+Accepted publication and cancellation cleanup hold a shutdown tracker token
+until completion. Catalog close stops admission and waits for these tokens
+before closing the readers and writer and releasing directory ownership.
 Local files use shared file staging and one whole-tree publication transaction,
 with dedicated file workers, immutable staging checksums and source-change
 detection. The

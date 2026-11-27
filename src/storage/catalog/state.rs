@@ -14,6 +14,8 @@ pub(super) struct Storage {
     pub(super) data_dir: PathBuf,
     pub(super) data_dir_state: DataDirState,
     pub(super) reclamation: Arc<Semaphore>,
+    #[cfg(test)]
+    pub(super) refused_reclamations: std::sync::atomic::AtomicUsize,
 }
 
 pub(super) struct Writer {

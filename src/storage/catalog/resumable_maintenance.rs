@@ -676,6 +676,9 @@ mod tests {
         let dir = crate::test_support::TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
         let id = BlobId::generate().unwrap();
+        let blob = id.blob_path(&dir.0);
+        fs::create_dir_all(blob.parent().unwrap()).unwrap();
+        fs::write(&blob, b"retired").unwrap();
         let database = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
         database
             .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
@@ -695,11 +698,21 @@ mod tests {
         catalog.0.shutdown.token.cancel();
         catalog.0.shutdown.tasks.drain().await;
         drop(gate);
+        let refused = || {
+            catalog
+                .0
+                .storage
+                .refused_reclamations
+                .load(std::sync::atomic::Ordering::Relaxed)
+        };
+        assert_eq!(refused(), 0);
+        tokio::time::timeout_at(deadline, scheduler).await.unwrap();
+        assert_eq!(refused(), 1);
         // Another publication may also ask for best-effort cleanup after the last owner leaves.
         catalog
             .reclaim_if(super::super::objects::Journaled::SOME)
             .await;
-        tokio::time::timeout_at(deadline, scheduler).await.unwrap();
+        assert_eq!(refused(), 2);
         assert!(catalog.resumable_maintenance_error().is_none());
         let journal = || {
             sql::scalar::<usize>(&database, "SELECT count(*) FROM pending_blob_deletions", [])
@@ -707,8 +720,13 @@ mod tests {
         };
         assert_eq!(journal(), 1);
         catalog.close().await.unwrap();
+        assert_eq!(fs::read(&blob).unwrap(), b"retired");
         let reopened = Catalog::open(&dir.0).await.unwrap();
         assert_eq!(journal(), 0);
+        assert_eq!(
+            fs::metadata(&blob).unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
         reopened.close().await.unwrap();
     }
 

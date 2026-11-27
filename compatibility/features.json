@@ -60174,6 +60174,7 @@
             "authentication_diagnostics_preserve_the_catalog_and_io_causes",
             "close_diagnostics_follow_the_original_startup_failure",
             "a_shutdown_signal_with_failed_catalog_close_reports_only_close",
+            "stopping_during_publication_and_journal_maintenance_emits_no_warnings",
             "a_new_directory_is_reported_before_parent_policy_failure_and_unlocks",
             "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
             "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
@@ -60282,6 +60283,7 @@
         "authentication_diagnostics_preserve_the_catalog_and_io_causes",
         "close_diagnostics_follow_the_original_startup_failure",
         "a_shutdown_signal_with_failed_catalog_close_reports_only_close",
+        "stopping_during_publication_and_journal_maintenance_emits_no_warnings",
         "a_new_directory_is_reported_before_parent_policy_failure_and_unlocks",
         "cancelled_policy_request_still_executes_its_owned_job",
         "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
@@ -60350,6 +60352,14 @@
             "close_diagnostics_follow_the_original_startup_failure",
             "a_shutdown_signal_with_failed_catalog_close_reports_only_close"
           ]
+        },
+        {
+          "command": "cargo test --locked --bin gcs-mimic -- startup::tests::",
+          "result": "PASS",
+          "verified_at": "2026-11-27",
+          "artifact": "docs/en/evidence/startup-phases.md",
+          "description": "All 21 startup tests passed with the shutdown tracker. The exact concurrent notification and reclamation test also passed on cc38f9a13 with semaphore-based shutdown.",
+          "test_ids": ["stopping_during_publication_and_journal_maintenance_emits_no_warnings"]
         },
         {
           "command": "cargo test --locked --lib -- a_new_directory_is_reported_before_parent_policy_failure_and_unlocks",

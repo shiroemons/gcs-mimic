@@ -245,12 +245,14 @@ impl Catalog {
         // An upload reclaims under its own lease after it commits, so this must not line up behind
         // an exclusive job that is waiting for that upload to finish.
         let activity = self.await_activity(Work::UnderWay).await?;
-        let task = self
-            .0
-            .shutdown
-            .tasks
-            .track_cleanup()
-            .ok_or_else(|| object_unavailable(crate::cause::BackendFailure::CatalogClosed))?;
+        let task = self.0.shutdown.tasks.track_cleanup().ok_or_else(|| {
+            #[cfg(test)]
+            self.0
+                .storage
+                .refused_reclamations
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            object_unavailable(crate::cause::BackendFailure::CatalogClosed)
+        })?;
         let permit = self
             .0
             .storage

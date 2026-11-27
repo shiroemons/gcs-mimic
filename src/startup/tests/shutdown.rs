@@ -1,6 +1,33 @@
 use super::*;
 use std::process::Command;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::oneshot;
+
+// The only blocking job on this current-thread runtime is the maintenance pass's blob unlink.
+// Holding the worker before it runs keeps reclamation admitted without locking SQLite.
+fn run_maintenance(
+    catalog: Catalog,
+    entered: oneshot::Sender<()>,
+    release: mpsc::Receiver<()>,
+    finished: oneshot::Receiver<()>,
+) {
+    let gate = Mutex::new(Some((entered, release)));
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .max_blocking_threads(1)
+        .on_thread_start(move || {
+            if let Some((entered, release)) = gate.lock().unwrap().take() {
+                entered.send(()).unwrap();
+                let _ = release.recv();
+            }
+        })
+        .build()
+        .unwrap()
+        .block_on(async {
+            catalog.start_resumable_maintenance();
+            let _ = finished.await;
+        });
+}
 
 #[tokio::test]
 async fn stopping_during_publication_and_journal_maintenance_emits_no_warnings() {
@@ -47,6 +74,24 @@ async fn stopping_during_publication_and_journal_maintenance_emits_no_warnings()
              (1,'//pubsub.googleapis.com/projects/p/topics/topic','{}',0,0);",
         )
         .unwrap();
+    let id = "0123456789abcdef0123456789abcdef";
+    let shard = dir.0.join("blobs/01");
+    fs::create_dir_all(&shard).unwrap();
+    let blob = shard.join(id);
+    fs::write(&blob, b"retired").unwrap();
+    database
+        .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
+        .unwrap();
+    let (entered, reclaiming) = oneshot::channel();
+    let (release, held) = mpsc::channel();
+    let (finish, finished) = oneshot::channel();
+    let worker = catalog.clone();
+    let maintenance = std::thread::spawn(move || run_maintenance(worker, entered, held, finished));
+    tokio::time::timeout(Duration::from_secs(10), reclaiming)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fs::read(&blob).unwrap(), b"retired");
     catalog.start_notifications(&config).await.unwrap();
     let (connection, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
         .await
@@ -59,23 +104,6 @@ async fn stopping_during_publication_and_journal_maintenance_emits_no_warnings()
         request.starts_with("POST ") && request.contains(":publish"),
         "{request}"
     );
-
-    let id = "0123456789abcdef0123456789abcdef";
-    let shard = dir.0.join("blobs/01");
-    fs::create_dir_all(&shard).unwrap();
-    let blob = shard.join(id);
-    fs::write(&blob, b"retired").unwrap();
-    database
-        .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
-        .unwrap();
-    // An absent file with its journal row still locked places the running pass between
-    // unlink and commit. The publisher independently holds its attempt until we reply.
-    database.execute_batch("BEGIN IMMEDIATE").unwrap();
-    catalog.start_resumable_maintenance();
-    crate::test_support::eventually_async("maintenance to unlink the journaled blob", || async {
-        !blob.exists()
-    })
-    .await;
     let stopping = finish_startup(&catalog, shutdown_result(Ok(())));
     tokio::pin!(stopping);
     tokio::select! {
@@ -84,7 +112,7 @@ async fn stopping_during_publication_and_journal_maintenance_emits_no_warnings()
         () = std::future::ready(()) => {}
     }
     assert!(!catalog.is_healthy());
-    database.execute_batch("COMMIT").unwrap();
+    release.send(()).unwrap();
     publisher
         .get_mut()
         .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 20\r\n\r\n{\"messageIds\":[\"1\"]}")
@@ -100,4 +128,10 @@ async fn stopping_during_publication_and_journal_maintenance_emits_no_warnings()
         })
         .unwrap();
     assert_eq!(pending, 0);
+    assert_eq!(
+        fs::metadata(&blob).unwrap_err().kind(),
+        io::ErrorKind::NotFound
+    );
+    finish.send(()).unwrap();
+    maintenance.join().unwrap();
 }

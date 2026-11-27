@@ -606,6 +606,8 @@ impl RecoveredCatalog {
                 data_dir,
                 data_dir_state,
                 reclamation: Arc::new(Semaphore::new(1)),
+                #[cfg(test)]
+                refused_reclamations: Default::default(),
             },
             writer: state::Writer {
                 resources: Mutex::new(Some(Resources { connection, lock })),
