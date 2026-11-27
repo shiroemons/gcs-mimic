@@ -20,12 +20,16 @@ use std::{
 };
 
 pub(super) fn bucket(name: &str, project: &str) -> BucketRecord {
+    bucket_metadata(bucket_record(name, project))
+}
+
+fn bucket_metadata(record: BucketRecord) -> BucketRecord {
     BucketRecord {
         labels: BTreeMap::from([("team".into(), "storage".into())]),
         metageneration: 3,
         time_created: UNIX_EPOCH + Duration::from_millis(42_123),
         updated: UNIX_EPOCH + Duration::from_millis(43_987),
-        ..bucket_record(name, project)
+        ..record
     }
 }
 
@@ -1073,10 +1077,10 @@ async fn indexed_listing_orders_filters_pages_and_limits() {
     for name in [
         "b", "a_z", "aa", "a%z", "a_z2", "a%z2", "a", "aé", "aê", "aé2",
     ] {
-        catalog
-            .insert_bucket(bucket(name, "project"))
-            .await
-            .unwrap();
+        let record = bucket_metadata(BucketRecord::for_test_unchecked_name(
+            name, "project", UNIX_EPOCH,
+        ));
+        catalog.insert_bucket(record).await.unwrap();
     }
     catalog
         .insert_bucket(bucket("a_other", "other-project"))

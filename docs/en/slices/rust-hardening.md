@@ -1164,6 +1164,8 @@ These start DESIGN-098 for parsers:
   `ObjectRecord` fixtures and build bucket records for tests that need catalog
   state. Some tests in `src/storage/catalog` still build fixtures through
   `json::parse_insert`. Parser and cross-adapter tests still exercise JSON input.
+  `BucketRecord::for_test` uses native validation. Catalog tests that need
+  synthetic or legacy stored names use `BucketRecord::for_test_unchecked_name`.
 
 ### Newer Rust
 

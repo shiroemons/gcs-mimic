@@ -237,10 +237,17 @@ impl BucketRecord {
         }
     }
 
+    /// Builds a fixture using the native name, project and timestamp checks.
     #[cfg(test)]
     pub(crate) fn for_test(name: &str, project: &str, now: SystemTime) -> Self {
         let name = name.parse().unwrap();
         Self::default_for(&name, project, now).unwrap()
+    }
+
+    /// Builds a stored-record fixture for catalog tests that exercise legacy or synthetic names.
+    #[cfg(test)]
+    pub(crate) fn for_test_unchecked_name(name: &str, project: &str, now: SystemTime) -> Self {
+        Self::new(name.to_owned(), project, Location::US, now)
     }
 }
 
