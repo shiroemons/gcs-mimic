@@ -236,16 +236,9 @@ impl StoredResponse {
 }
 
 /// A stored rewrite session whose columns disagree, reported at the request column as corrupt.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("invalid rewrite session")]
 struct InvalidRewriteSession;
-
-impl std::fmt::Display for InvalidRewriteSession {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("invalid rewrite session")
-    }
-}
-
-impl std::error::Error for InvalidRewriteSession {}
 
 /// The rules sessions have always been checked by: a `resource` object makes a completed
 /// response, otherwise a string `token` makes one in progress.
@@ -2266,4 +2259,12 @@ mod tests {
         catalog.close().await.unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidRewriteSession;
+    assert_eq!(error.to_string(), "invalid rewrite session");
+    assert!(std::error::Error::source(&error).is_none());
 }
