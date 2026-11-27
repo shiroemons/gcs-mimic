@@ -173,16 +173,9 @@ where
 }
 
 /// A job that panicked; [`catch_job`] has already reported the panic message.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{0} job panicked")]
 pub(crate) struct JobPanicked(&'static str);
-
-impl std::fmt::Display for JobPanicked {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} job panicked", self.0)
-    }
-}
-
-impl std::error::Error for JobPanicked {}
 
 /// Runs one job of a long-lived worker thread and reports its panic.
 ///
@@ -214,28 +207,12 @@ where
 }
 
 /// A blocking job that was cancelled before execution or panicked while running.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum BlockingFailed {
-    Cancelled(tokio::task::JoinError),
-    Panicked(JobPanicked),
-}
-
-impl std::fmt::Display for BlockingFailed {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Cancelled(_) => f.write_str("blocking job cancelled"),
-            Self::Panicked(_) => f.write_str("blocking job panicked"),
-        }
-    }
-}
-
-impl std::error::Error for BlockingFailed {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Cancelled(error) => Some(error),
-            Self::Panicked(error) => Some(error),
-        }
-    }
+    #[error("blocking job cancelled")]
+    Cancelled(#[source] tokio::task::JoinError),
+    #[error("blocking job panicked")]
+    Panicked(#[source] JobPanicked),
 }
 
 /// Awaits a supervised blocking job with one typed worker-failure result.
@@ -810,4 +787,19 @@ pub(crate) mod tests {
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
         assert!(!health.is_down(), "a stopped supervisor is not down");
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = JobPanicked("worker");
+    assert_eq!(error.to_string(), "worker job panicked");
+    assert!(std::error::Error::source(&error).is_none());
+    let error = BlockingFailed::Panicked(JobPanicked("worker"));
+    assert_eq!(error.to_string(), "blocking job panicked");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<JobPanicked>()
+    );
 }
