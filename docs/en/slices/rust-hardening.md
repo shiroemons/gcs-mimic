@@ -404,10 +404,12 @@ gains both rules; AGENTS.md's adapter rule is reworded.
 
 ### Moves
 
-None of these changes behavior. Re-exports keep the paths that `src/main.rs`
-and `tests/` use until the facade slice. Each move fixes the moved code's
-upward references in the same change, because the ratchet refuses findings in
-new files.
+None of these changes behavior. The facade slice runs first: the crate is not
+published and the 1.0.0 contract does not include its Rust paths, so after it
+a move changes only crate paths and the re-exports in `testing`, and code that
+nothing uses is deleted before it would be moved. Each move fixes the moved
+code's upward references in the same change, because the ratchet refuses
+findings in new files.
 
 | What | From → to |
 | --- | --- |
@@ -1245,8 +1247,8 @@ Checked on rustc 1.100.0 on 2026-11-26.
 ## Implementation order
 
 - **Branches.** Each phase is one pull request into `main`, and each slice in
-  it is one commit or a short series. A slice that moves code never also
-  changes its logic.
+  it is one commit or a short series; in Layers and structure each slice is
+  its own pull request. A slice that moves code never also changes its logic.
 - **Phase order.** The phases run in the order below.
   - Golden tests come first, so later phases have something to compare against.
   - After Safety nets and Quick wins, the catalog round-trip, body I/O, error
@@ -1362,20 +1364,24 @@ after job counts.
 
 ### Layers and structure
 
+Each slice is one pull request into `main`. The facade comes first, and the
+slices that remove `text::layer_dependency` findings come before the two that
+remove none, so the rule reaches zero tolerance as early as possible.
+
 | Slice | Scope |
 | --- | --- |
+| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` listener accessors are public for the startup binary. Review consolidating the public paths to `Generation` and `InvalidGeneration`, the five public source exception groups and the two private `ObjectError` groups in `public_source_tests.rs`. |
 | Foundation moves | the RFC 3339 parser, private `fsutil` and `net` |
-| Model value types | `profile`, URL helpers, auth choices, validator callers |
+| Model value types | `profile`, URL helpers, auth choices, validator callers, `AdminGrant` |
 | JSON-owned rules out of `json` | `Projection`, component counting, fixed metadata, bucket insert parsing, the two JSON round trips, authority helpers |
 | Notification renderer | injected at catalog open |
-| `auth` split and `HmacKeys` | — |
-| `fsutil` per OS | `cfg_select!` inside bodies; `scripts/check-cross.sh` and the portability CI job |
-| `service`, part one | the shared request pieces and `State`; ledger IDs under `server::copy` become `service::copy` |
+| `auth` split and `HmacKeys` | `HmacKeys` replaces the `Catalog` that `auth::signature`'s policy, streaming and verification code name; reading the identities document (`DocumentSource`, `Form`, `DocumentKind`, `Setting`) moves to `config`, so `auth` parses bytes |
+| `service`, part one | the shared request pieces and `State`; range and transcoding negotiation into `service::media`, before `server::xml_read` moves into `xml`; ledger IDs under `server::copy` become `service::copy` |
 | gRPC listener | into `server` |
 | JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |
 | Config documents | the parse half moves to the settings layer |
+| `fsutil` per OS | `cfg_select!` inside bodies; `scripts/check-cross.sh` and the portability CI job |
 | Protobuf crate | generated code in its own crate, with the build measurement |
-| Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` listener accessors are public for the startup binary. Review consolidating the public paths to `Generation` and `InvalidGeneration`, the five public source exception groups and the two private `ObjectError` groups in `public_source_tests.rs`. |
 
 ### Last
 
