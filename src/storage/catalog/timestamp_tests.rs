@@ -333,7 +333,11 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             ..crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive)
         };
         let session = catalog
-            .create_resumable_session("timestamp-bucket", "resumable", options.clone(), Some(1))
+            .create_resumable_session(
+                crate::object::ObjectKey::from_parts_unchecked("timestamp-bucket", "resumable"),
+                options.clone(),
+                Some(1),
+            )
             .await
             .unwrap();
         assert_eq!(session.created, transfer.created);
@@ -461,7 +465,11 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
             ..crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive)
         };
         let session = catalog
-            .create_resumable_session("timestamp-bucket", "resumable", options.clone(), Some(1))
+            .create_resumable_session(
+                crate::object::ObjectKey::from_parts_unchecked("timestamp-bucket", "resumable"),
+                options.clone(),
+                Some(1),
+            )
             .await
             .unwrap();
         let lease = catalog
@@ -606,8 +614,7 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
         .unwrap();
     let session = catalog
         .create_resumable_session(
-            "timestamp-0",
-            "pending",
+            crate::object::ObjectKey::from_parts_unchecked("timestamp-0", "pending"),
             ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
             Some(1),
         )

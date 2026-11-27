@@ -165,14 +165,17 @@ mod tests {
     async fn put(catalog: &Catalog, name: &str, key: Option<[u8; 32]>) -> ObjectRecord {
         let body = body(vec![bytes::Bytes::from_static(b"secret")]);
         let permit = catalog
-            .prepare_object_upload("bucket", name, Default::default(), PERMISSIVE)
+            .prepare_object_upload(
+                crate::object::ObjectKey::from_parts_unchecked("bucket", name),
+                Default::default(),
+                PERMISSIVE,
+            )
             .await
             .unwrap();
         catalog
             .put_object_prechecked(
                 crate::storage::ObjectUpload {
-                    bucket: "bucket",
-                    name,
+                    key: crate::object::ObjectKey::from_parts_unchecked("bucket", name),
                     content_type: "text/plain".into(),
                     expected: Default::default(),
                     conditions: Default::default(),

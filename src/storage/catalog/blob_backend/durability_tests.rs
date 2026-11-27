@@ -18,8 +18,7 @@ async fn catalog(data: &Path) -> Catalog {
 async fn session(catalog: &Catalog) -> crate::storage::ResumableSession {
     catalog
         .create_resumable_session(
-            "bucket",
-            "object",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
             ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -204,8 +203,7 @@ async fn failed_creation_directory_sync_never_commits_a_session() {
         fault::arm(&data.0, Step::SessionCreateSync, 0, Fault::Io(kind));
         let error = catalog
             .create_resumable_session(
-                "bucket",
-                "object",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
                 ResumableOptions::new(BucketAccess::Permissive),
                 None,
             )

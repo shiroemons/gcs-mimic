@@ -56,7 +56,11 @@ async fn upload_and_part_times_keep_microseconds_through_listings_replacement_an
         metadata: Default::default(),
     };
     let upload = catalog
-        .begin_xml_multipart("bucket", "value", options, BucketAccess::Permissive)
+        .begin_xml_multipart(
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "value"),
+            options,
+            BucketAccess::Permissive,
+        )
         .await
         .unwrap();
     assert_eq!(upload.created, initiated);

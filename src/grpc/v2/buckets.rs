@@ -1338,8 +1338,7 @@ mod tests {
         }
         catalog
             .begin_xml_multipart(
-                "multipart-only",
-                "parts",
+                crate::object::ObjectKey::from_parts_unchecked("multipart-only", "parts"),
                 crate::storage::xml_multipart::Options {
                     content_type: "text/plain".into(),
                     metadata: Default::default(),
@@ -1350,8 +1349,7 @@ mod tests {
             .unwrap();
         let mut appendable = catalog
             .create_appendable(
-                "appendable-only",
-                "appending",
+                crate::object::ObjectKey::from_parts_unchecked("appendable-only", "appending"),
                 crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
             )
             .await

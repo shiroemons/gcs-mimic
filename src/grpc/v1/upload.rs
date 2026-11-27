@@ -70,13 +70,16 @@ impl Storage {
         let permit = self
             .state
             .catalog
-            .prepare_object_upload(&bucket, &name, conditions, &access)
+            .prepare_object_upload(
+                crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                conditions,
+                &access,
+            )
             .await?;
         let (sender, receiver) = mpsc::channel(2);
         let write = self.state.catalog.put_object_prechecked(
             ObjectUpload {
-                bucket: &bucket,
-                name: &name,
+                key: crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
                 content_type,
                 expected: ExpectedHashes::default(),
                 conditions,

@@ -70,7 +70,11 @@ pub(super) async fn begin(catalog: &Catalog) -> Target {
         metadata: Default::default(),
     };
     catalog
-        .begin_xml_multipart("bucket", "value", options, BucketAccess::Permissive)
+        .begin_xml_multipart(
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "value"),
+            options,
+            BucketAccess::Permissive,
+        )
         .await
         .unwrap()
         .target
@@ -87,7 +91,11 @@ async fn upload_listing_resumes_after_its_key_and_upload_id_markers() {
             metadata: Default::default(),
         };
         let target = catalog
-            .begin_xml_multipart("bucket", name, options, BucketAccess::Permissive)
+            .begin_xml_multipart(
+                crate::object::ObjectKey::from_parts_unchecked("bucket", name),
+                options,
+                BucketAccess::Permissive,
+            )
             .await
             .unwrap()
             .target;

@@ -199,7 +199,11 @@ fn authorize_update(
     conditions: BucketConditions,
     access: &BucketAccess,
 ) -> Result<BucketRecord, CatalogError> {
-    let record = select_bucket(transaction, name)?.ok_or(CatalogError::NotFound)?;
+    let record = select_bucket(
+        transaction,
+        crate::bucket::name::BucketKey::from_unchecked(name),
+    )?
+    .ok_or(CatalogError::NotFound)?;
     check_access(transaction, name, &record.project, access)?;
     let pap = update
         .public_access_prevention

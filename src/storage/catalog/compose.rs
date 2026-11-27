@@ -140,8 +140,7 @@ impl ComposePlan {
         for (name, generation) in &self.keys {
             let source = Catalog::check_derived_source_in_transaction(
                 connection,
-                &self.bucket,
-                name,
+                crate::object::ObjectKey::from_parts_unchecked(&self.bucket, name),
                 Some(*generation),
                 ObjectConditions::default(),
                 &self.read_access,
@@ -170,8 +169,7 @@ impl ComposePlan {
             }
             Catalog::delete_derived_source_in_transaction(
                 connection,
-                &record.bucket,
-                name,
+                crate::object::ObjectKey::from_parts_unchecked(&record.bucket, name),
                 *generation,
                 ObjectConditions::default(),
                 &self.read_access,
@@ -297,7 +295,7 @@ impl Catalog {
                     &read_access.with_permission(crate::auth::Permission::ObjectsDelete),
                 )?;
             }
-            let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
+            let previous = objects::lookup(&transaction, destination.key())?;
             objects::check_publication(
                 previous.as_ref(),
                 destination.conditions,

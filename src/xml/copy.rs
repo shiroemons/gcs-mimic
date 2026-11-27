@@ -164,7 +164,7 @@ pub(super) async fn respond(
             ));
         }
     };
-    if source.bucket == operation.target.bucket && source.name == operation.target.name {
+    if source.bucket == operation.target.bucket.as_str() && source.name == operation.target.name {
         return Err(Error::unsupported(
             "self-copy metadata updates; use the JSON object metadata update API",
         ));
@@ -260,7 +260,7 @@ fn destination(
     // The directive selects metadata; the ACL applies to the destination under either value.
     metadata.acl = acl;
     Ok(DerivedDestination {
-        bucket: operation.target.bucket,
+        bucket: operation.target.bucket.into_inner(),
         name: operation.target.name,
         content_type: String::new(),
         metadata,

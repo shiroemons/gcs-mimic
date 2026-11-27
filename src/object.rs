@@ -1,7 +1,7 @@
 //! Transport-independent object state shared by the catalog and protocol adapters.
 
 use crate::{
-    bucket::StorageClass,
+    bucket::{StorageClass, name::BucketKey},
     cause::{BackendCause, IoCause, Link, TypedSource},
     hashing::Hashes,
 };
@@ -137,6 +137,10 @@ pub struct ObjectRecord {
 }
 
 impl ObjectRecord {
+    pub(crate) fn key(&self) -> ObjectKey<'_> {
+        ObjectKey::from_parts_unchecked(&self.bucket, &self.name)
+    }
+
     pub(crate) fn storage_class_updated(&self) -> SystemTime {
         self.time_storage_class_updated.unwrap_or(self.time_created)
     }
@@ -622,28 +626,65 @@ fn apply_custom_metadata(stored: &mut BTreeMap<String, String>, change: MapPatch
     }
 }
 
+/// A borrowed object identity, independent of which version a caller selects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ObjectKey<'a> {
+    bucket: BucketKey<&'a str>,
+    name: &'a str,
+}
+
+impl<'a> ObjectKey<'a> {
+    /// Stored keys and names already checked by their adapter must retain their exact spelling.
+    pub(crate) fn from_parts_unchecked(bucket: &'a str, name: &'a str) -> Self {
+        Self {
+            bucket: BucketKey::from_unchecked(bucket),
+            name,
+        }
+    }
+
+    pub(crate) fn parts(self) -> (&'a str, &'a str) {
+        (self.bucket.into_inner(), self.name)
+    }
+
+    pub(crate) fn bucket(self) -> BucketKey<&'a str> {
+        self.bucket
+    }
+}
+
 /// The object version a catalog call addresses: optional for live selection, concrete
 /// for soft-deleted versions, appendable takeovers and newly assigned publications.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectTarget<G = Option<i64>> {
-    pub(crate) bucket: String,
+    pub(crate) bucket: BucketKey,
     pub(crate) name: String,
     pub(crate) generation: G,
 }
 
 impl<G> ObjectTarget<G> {
+    /// Takes stored names or names already admitted by the caller.
     pub(crate) fn new(bucket: impl Into<String>, name: impl Into<String>, generation: G) -> Self {
         Self {
-            bucket: bucket.into(),
+            bucket: BucketKey::from_unchecked(bucket.into()),
             name: name.into(),
             generation,
+        }
+    }
+
+    pub(crate) fn key(&self) -> ObjectKey<'_> {
+        ObjectKey {
+            bucket: self.bucket.as_key(),
+            name: &self.name,
         }
     }
 }
 
 impl ObjectTarget<Option<Generation>> {
     pub(crate) fn into_signed_target(self) -> ObjectTarget {
-        ObjectTarget::new(self.bucket, self.name, self.generation.map(Generation::get))
+        ObjectTarget {
+            bucket: self.bucket,
+            name: self.name,
+            generation: self.generation.map(Generation::get),
+        }
     }
 }
 

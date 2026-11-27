@@ -28,8 +28,7 @@ async fn an_uppercase_session_id_names_no_session() {
     let catalog = setup(&dir, clock).await;
     let session = catalog
         .create_resumable_session(
-            "bucket",
-            "object",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
             ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )
@@ -72,7 +71,11 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
         ..gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive)
     };
     let session = catalog
-        .create_resumable_session("bucket", "../name/日本%", options.clone(), Some(9))
+        .create_resumable_session(
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "../name/日本%"),
+            options.clone(),
+            Some(9),
+        )
         .await
         .unwrap();
     assert_eq!(session.id.to_hex().len(), 64);
@@ -145,8 +148,7 @@ async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
     for _ in 0..127 {
         catalog
             .create_resumable_session(
-                "bucket",
-                "name",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
                 gcs_mimic::storage::ResumableOptions::new(
                     gcs_mimic::bucket::BucketAccess::Permissive,
                 ),
@@ -157,14 +159,12 @@ async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
     }
     let (a, b) = tokio::join!(
         catalog.create_resumable_session(
-            "bucket",
-            "a",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "a"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None
         ),
         catalog.create_resumable_session(
-            "bucket",
-            "b",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "b"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None
         )
@@ -181,8 +181,7 @@ async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
     assert!(
         catalog
             .create_resumable_session(
-                "bucket",
-                "rejected",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "rejected"),
                 gcs_mimic::storage::ResumableOptions::new(
                     gcs_mimic::bucket::BucketAccess::Permissive
                 ),
@@ -205,8 +204,7 @@ async fn checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
-            "bucket",
-            "name",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             Some(4),
         )
@@ -266,8 +264,7 @@ async fn a_lease_handed_to_another_catalog_is_unavailable() {
     let other = setup(&other_dir, clock).await;
     let session = issuing
         .create_resumable_session(
-            "bucket",
-            "name",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
             ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             Some(4),
         )
@@ -322,8 +319,7 @@ async fn previous_schema_migrates_and_invalid_session_options_are_rejected_read_
     );
     let session = catalog
         .create_resumable_session(
-            "bucket",
-            "name",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
             gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )

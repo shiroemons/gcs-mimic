@@ -25,7 +25,10 @@ async fn deletion_serializes_with_appendable_finalization_on_disk_and_ram() {
         for index in 0..10 {
             let name = format!("delete-race-{index}");
             let mut writer = catalog
-                .create_appendable("append", &name, options())
+                .create_appendable(
+                    crate::object::ObjectKey::from_parts_unchecked("append", &name),
+                    options(),
+                )
                 .await
                 .unwrap();
             writer
@@ -92,7 +95,10 @@ async fn reserved_publication_reclaims_memory_appendable_without_a_previous_obje
     .unwrap();
     insert_bucket(&catalog).await;
     let mut writer = catalog
-        .create_appendable("append", "reserved", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "reserved"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -148,7 +154,10 @@ fn concurrent_finalization_exceeds_the_blocking_pool_without_stalling() {
         let mut writers = Vec::new();
         for name in ["first", "second", "third"] {
             let mut writer = catalog
-                .create_appendable("append", name, options())
+                .create_appendable(
+                    crate::object::ObjectKey::from_parts_unchecked("append", name),
+                    options(),
+                )
                 .await
                 .unwrap();
             writer.append(0, payload.clone(), size).await.unwrap();
@@ -194,7 +203,10 @@ async fn committed_delete_succeeds_when_data_cleanup_fails() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let writer = catalog
-        .create_appendable("append", "cleanup", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "cleanup"),
+            options(),
+        )
         .await
         .unwrap();
     let path = data_path(&dir.0, &writer.blob_id);
@@ -212,7 +224,10 @@ async fn committed_delete_succeeds_when_data_cleanup_fails() {
         Err(ObjectError::ObjectNotFound)
     );
     let replacement = catalog
-        .create_appendable("append", "cleanup", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "cleanup"),
+            options(),
+        )
         .await
         .unwrap();
     assert!(replacement.record.generation > writer.record.generation);
@@ -240,7 +255,10 @@ async fn committed_appendable_cleanup_failure_keeps_delete_and_stale_creation_su
         .unwrap();
         insert_bucket(&catalog).await;
         let mut writer = catalog
-            .create_appendable("append", "cleanup", options())
+            .create_appendable(
+                crate::object::ObjectKey::from_parts_unchecked("append", "cleanup"),
+                options(),
+            )
             .await
             .unwrap();
         writer
@@ -282,7 +300,10 @@ async fn committed_appendable_cleanup_failure_keeps_delete_and_stale_creation_su
             assert!(data_path(&dir.0, &id).exists());
         }
         let old = catalog
-            .create_appendable("append", "stale", options())
+            .create_appendable(
+                crate::object::ObjectKey::from_parts_unchecked("append", "stale"),
+                options(),
+            )
             .await
             .unwrap();
         catalog
@@ -296,7 +317,10 @@ async fn committed_appendable_cleanup_failure_keeps_delete_and_stale_creation_su
             Fault::Io(io::ErrorKind::PermissionDenied),
         );
         let mut current = catalog
-            .create_appendable("append", "stale", options())
+            .create_appendable(
+                crate::object::ObjectKey::from_parts_unchecked("append", "stale"),
+                options(),
+            )
             .await
             .unwrap();
         current
@@ -307,7 +331,10 @@ async fn committed_appendable_cleanup_failure_keeps_delete_and_stale_creation_su
         assert_eq!(persisted_content(&catalog, "stale").await, b"new");
         assert!(matches!(
             catalog
-                .create_appendable("append", "stale", options())
+                .create_appendable(
+                    crate::object::ObjectKey::from_parts_unchecked("append", "stale"),
+                    options()
+                )
                 .await,
             Err(AppendError::ReplaceUnsupported)
         ));
@@ -332,7 +359,10 @@ async fn appendable_creation_and_acknowledged_prefix_survive_power_loss() {
         // Arm before creation so the file's directory entry and synced bytes are modeled.
         catalog.inject(Step::AppendCommit, 1, crash.fault(snapshot.clone()));
         let mut writer = catalog
-            .create_appendable("append", "durable", options())
+            .create_appendable(
+                crate::object::ObjectKey::from_parts_unchecked("append", "durable"),
+                options(),
+            )
             .await
             .unwrap();
         writer
@@ -395,7 +425,10 @@ async fn ram_and_disk_cancelled_takeover_keeps_slot_registered_until_truncation_
         };
         insert_bucket(&catalog).await;
         let mut writer = catalog
-            .create_appendable("append", "takeover", options())
+            .create_appendable(
+                crate::object::ObjectKey::from_parts_unchecked("append", "takeover"),
+                options(),
+            )
             .await
             .unwrap();
         writer
@@ -465,7 +498,10 @@ async fn ram_appendable_cancelled_finalizer_finishes_owned_publication_and_recla
     .unwrap();
     insert_bucket(&catalog).await;
     let mut writer = catalog
-        .create_appendable("append", "cancelled", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "cancelled"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -533,7 +569,10 @@ async fn ram_appendable_cancelled_creations_leave_no_unreferenced_blob_budget() 
         let worker = catalog.clone();
         let request = tokio::spawn(async move {
             worker
-                .create_appendable("append", "cancelled", options())
+                .create_appendable(
+                    crate::object::ObjectKey::from_parts_unchecked("append", "cancelled"),
+                    options(),
+                )
                 .await
         });
         eventually_async("the creation to join the slot", || async {
@@ -561,7 +600,10 @@ async fn ram_appendable_cancelled_creations_leave_no_unreferenced_blob_budget() 
         .unwrap();
     assert_eq!(rows, 0);
     let mut writer = catalog
-        .create_appendable("append", "usable", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "usable"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -603,7 +645,10 @@ async fn finalization_inherits_default_acl_and_autoclass_class() {
     let mut requested = options();
     requested.metadata.storage_class = Some(crate::bucket::StorageClass::Nearline);
     let mut writer = catalog
-        .create_appendable("auto", "classed", requested)
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("auto", "classed"),
+            requested,
+        )
         .await
         .unwrap();
     assert_eq!(writer.record().storage_class.as_str(), "STANDARD");
@@ -635,7 +680,10 @@ async fn finalization_inherits_default_acl_and_autoclass_class() {
     encrypted.metadata.customer_key_sha256 = Some([7; 32]);
     assert!(matches!(
         catalog
-            .create_appendable("auto", "encrypted", encrypted)
+            .create_appendable(
+                crate::object::ObjectKey::from_parts_unchecked("auto", "encrypted"),
+                encrypted
+            )
             .await
             .err(),
         Some(AppendError::Object(ObjectError::UnsupportedMetadata(_)))
@@ -648,7 +696,10 @@ async fn schema_33_catalog_migrates_to_appendable_objects() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let mut writer = catalog
-        .create_appendable("append", "before", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "before"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -704,7 +755,10 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let mut writer = catalog
-        .create_appendable("append", "crash", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "crash"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -772,7 +826,10 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
         Some(ObjectError::ObjectNotFound)
     );
     let writer = catalog
-        .create_appendable("append", "crash", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "crash"),
+            options(),
+        )
         .await
         .unwrap();
     assert!(writer.record().generation > generation);
@@ -785,7 +842,10 @@ async fn interrupted_finalization_before_publication_stays_appendable() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let mut writer = catalog
-        .create_appendable("append", "pending", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "pending"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -828,7 +888,10 @@ async fn publishing_a_reserved_generation_retires_its_row_atomically() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let mut writer = catalog
-        .create_appendable("append", "atomic", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "atomic"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -848,8 +911,7 @@ async fn publishing_a_reserved_generation_retires_its_row_atomically() {
     let published = catalog
         .put_object_with_mode(
             ObjectUpload {
-                bucket: "append",
-                name: "atomic",
+                key: crate::object::ObjectKey::from_parts_unchecked("append", "atomic"),
                 content_type: record.content_type.clone(),
                 expected: Default::default(),
                 conditions: ObjectConditions {
@@ -900,7 +962,10 @@ async fn writer_slots_are_released_with_their_last_holder() {
     for index in 0..64 {
         let name = format!("object-{index}");
         let mut writer = catalog
-            .create_appendable("append", &name, options())
+            .create_appendable(
+                crate::object::ObjectKey::from_parts_unchecked("append", &name),
+                options(),
+            )
             .await
             .unwrap();
         writer
@@ -921,7 +986,10 @@ async fn writer_slots_are_released_with_their_last_holder() {
     }
 
     let mut first = catalog
-        .create_appendable("append", "shared", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "shared"),
+            options(),
+        )
         .await
         .unwrap();
     let generation = first.record().generation;
@@ -948,7 +1016,10 @@ async fn appendable_objects_do_not_survive_bucket_recreation() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let mut writer = catalog
-        .create_appendable("append", "old", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "old"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -974,7 +1045,10 @@ async fn appendable_objects_do_not_survive_bucket_recreation() {
     assert_eq!(writer.flush().await, Err(AppendError::Superseded));
     assert_eq!(
         catalog
-            .create_appendable("append", "old", options())
+            .create_appendable(
+                crate::object::ObjectKey::from_parts_unchecked("append", "old"),
+                options()
+            )
             .await
             .unwrap()
             .persisted_size(),
@@ -987,7 +1061,10 @@ async fn appendable_size_limit_and_reader_bound_by_persisted_size() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let mut writer = catalog
-        .create_appendable("append", "bounded", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "bounded"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -1065,7 +1142,10 @@ async fn a_dropped_append_cannot_overwrite_bytes_committed_after_a_takeover() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let mut writer = catalog
-        .create_appendable("append", "dropped", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "dropped"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -1110,7 +1190,10 @@ async fn failed_append_write_is_not_received_and_can_be_retried() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let mut writer = catalog
-        .create_appendable("append", "write", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "write"),
+            options(),
+        )
         .await
         .unwrap();
     catalog.inject(Step::AppendWrite, 0, Fault::Io(io::ErrorKind::StorageFull));
@@ -1136,7 +1219,10 @@ async fn failed_append_sync_is_never_published_by_a_retried_flush() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let mut writer = catalog
-        .create_appendable("append", "sync", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "sync"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -1190,7 +1276,10 @@ async fn append_crash_at_each_durable_step_recovers_the_flushed_prefix() {
         let dir = TestDir::new();
         let catalog = catalog_with_bucket(&dir).await;
         let mut writer = catalog
-            .create_appendable("append", "crash", options())
+            .create_appendable(
+                crate::object::ObjectKey::from_parts_unchecked("append", "crash"),
+                options(),
+            )
             .await
             .unwrap();
         writer
@@ -1243,7 +1332,10 @@ async fn finalize_failure_and_crashes_recover_appendable_or_finalized() {
     let dir = TestDir::new();
     let catalog = catalog_with_bucket(&dir).await;
     let mut writer = catalog
-        .create_appendable("append", "final", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked("append", "final"),
+            options(),
+        )
         .await
         .unwrap();
     writer

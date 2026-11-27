@@ -593,8 +593,11 @@ pub(super) fn create_bucket(
     catalog: &Catalog,
     record: &BucketRecord,
 ) -> Result<Bucket, AdminError> {
-    match crate::storage::catalog::select_bucket(transaction, &record.name)
-        .map_err(objects_error)?
+    match crate::storage::catalog::select_bucket(
+        transaction,
+        crate::bucket::name::BucketKey::from_unchecked(record.name.as_str()),
+    )
+    .map_err(objects_error)?
     {
         Some(existing) if existing.project != record.project => Ok(Bucket::OtherProject),
         Some(_) => Ok(Bucket::Existing),
@@ -629,7 +632,10 @@ fn replay_files(
     {
         validate_staged_entry(entry)?;
         let (bucket, name) = (entry.bucket.as_str(), entry.name.as_str());
-        let previous = objects::lookup(transaction, bucket, name)?;
+        let previous = objects::lookup(
+            transaction,
+            crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+        )?;
         let live = previous
             .as_ref()
             .map(|stored| live_object(transaction, &stored.record, entry, now))
@@ -785,7 +791,11 @@ pub(super) fn absent_object(
     name: &str,
     now: SystemTime,
 ) -> Result<Option<LiveObject>, AdminError> {
-    let Some(stored) = objects::lookup(transaction, bucket, name)? else {
+    let Some(stored) = objects::lookup(
+        transaction,
+        crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+    )?
+    else {
         return Ok(None);
     };
     let live = &stored.record;
@@ -811,11 +821,7 @@ pub(super) fn delete_owned(
     access: &BucketAccess,
     journaled: &mut objects::Journaled,
 ) -> Result<bool, AdminError> {
-    let target = ObjectTarget {
-        bucket: bucket.to_owned(),
-        name: name.to_owned(),
-        generation: None,
-    };
+    let target = ObjectTarget::new(bucket, name, None);
     let context = objects::DeleteContext {
         now,
         conditions: ObjectConditions {
@@ -956,9 +962,12 @@ fn confirmed(
         }
     }
     for bucket in &batch.buckets {
-        if crate::storage::catalog::select_bucket(connection, &bucket.0.name)
-            .map_err(objects_error)?
-            .is_none()
+        if crate::storage::catalog::select_bucket(
+            connection,
+            crate::bucket::name::BucketKey::from_unchecked(bucket.0.name.as_str()),
+        )
+        .map_err(objects_error)?
+        .is_none()
         {
             return Ok(false);
         }

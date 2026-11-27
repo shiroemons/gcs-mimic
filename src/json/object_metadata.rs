@@ -18,7 +18,10 @@ impl ObjectMetadataRequest {
     /// named a generation that did not exist with 404 (recorded 2026-11). A query generation
     /// stays the selector, and the body must then repeat it unchanged.
     pub(crate) fn select_target(&self, target: ObjectTarget) -> Result<ObjectTarget, ApiError> {
-        for (key, path) in [("bucket", &target.bucket), ("name", &target.name)] {
+        for (key, path) in [
+            ("bucket", target.bucket.as_str()),
+            ("name", target.name.as_str()),
+        ] {
             if let Some(content) = self.unchanged.get(key).and_then(Value::as_str)
                 && content != path
             {

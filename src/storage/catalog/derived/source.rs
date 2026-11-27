@@ -1,5 +1,6 @@
 use super::super::{BlobBackend, transfer_io::InputReader};
 use super::*;
+use crate::object::ObjectKey;
 use crate::storage::memory::BlobError;
 use std::io;
 
@@ -102,7 +103,7 @@ fn name_component(
     let kind = match (&error, source.conditions.if_generation_match) {
         (ObjectError::ObjectNotFound, _) => ComponentFailureKind::NotFound,
         (ObjectError::PreconditionFailed, Some(required)) => {
-            match objects::lookup(connection, &source.target.bucket, &source.target.name) {
+            match objects::lookup(connection, source.target.key()) {
                 Ok(Some(live)) => ComponentFailureKind::GenerationMismatch {
                     required,
                     actual: live.record.generation.get(),
@@ -115,7 +116,7 @@ fn name_component(
         _ => return error,
     };
     ObjectError::Component(Box::new(ComponentFailure {
-        bucket: source.target.bucket.clone(),
+        bucket: source.target.bucket.as_str().to_owned(),
         name: source.target.name.clone(),
         kind,
     }))
@@ -190,28 +191,20 @@ impl Catalog {
         source: &ObjectRecord,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
-        objects::authorize_generation(
-            connection,
-            &source.bucket,
-            &source.name,
-            source.generation.get(),
-            access,
-        )
+        objects::authorize_generation(connection, source.key(), source.generation.get(), access)
     }
 
     /// Call only from a publication callback: the caller's transaction owns all checks/mutations.
     pub(crate) fn check_derived_source_in_transaction(
         connection: &Connection,
-        bucket: &str,
-        name: &str,
+        key: ObjectKey<'_>,
         generation: Option<i64>,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
         objects::selected(
             connection,
-            bucket,
-            name,
+            key,
             generation,
             conditions,
             super::super::objects::RequestKind::Write,
@@ -224,8 +217,7 @@ impl Catalog {
     /// failure rolls this deletion back together with the destination and deletion journal.
     pub(crate) fn delete_derived_source_in_transaction(
         connection: &sql::WriteTx<'_>,
-        bucket: &str,
-        name: &str,
+        key: ObjectKey<'_>,
         generation: i64,
         conditions: ObjectConditions,
         access: &BucketAccess,
@@ -236,8 +228,7 @@ impl Catalog {
             blob: id,
         } = objects::selected(
             connection,
-            bucket,
-            name,
+            key,
             Some(generation),
             conditions,
             super::super::objects::RequestKind::Write,
@@ -418,8 +409,7 @@ fn pin_source(
         blob: original,
     } = objects::selected(
         transaction,
-        &source.target.bucket,
-        &source.target.name,
+        source.target.key(),
         source.target.generation,
         source.conditions,
         role.request(),

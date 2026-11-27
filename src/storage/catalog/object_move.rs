@@ -61,8 +61,7 @@ impl Catalog {
                     blob: blob_id,
                 } = selected(
                     &transaction,
-                    &bucket,
-                    &source,
+                    crate::object::ObjectKey::from_parts_unchecked(&bucket, &source),
                     None,
                     conditions.source,
                     super::objects::RequestKind::Write,
@@ -70,16 +69,14 @@ impl Catalog {
                 )?;
                 super::objects::authorize_generation(
                     &transaction,
-                    &record.bucket,
-                    &record.name,
+                    record.key(),
                     record.generation.get(),
                     &source_read,
                 )?;
                 let source_acl = super::acl::effective_object_entries(&transaction, &record)?;
                 let previous = check_upload_destination(
                     &transaction,
-                    &bucket,
-                    &destination,
+                    crate::object::ObjectKey::from_parts_unchecked(&bucket, &destination),
                     conditions.destination,
                     &destination_create,
                     now.time,

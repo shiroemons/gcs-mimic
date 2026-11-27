@@ -294,7 +294,11 @@ impl Storage {
         let permit = self
             .state
             .catalog
-            .prepare_object_upload(&bucket, &name, options.conditions, &options.access)
+            .prepare_object_upload(
+                crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                options.conditions,
+                &options.access,
+            )
             .await
             .map_err(|error| match error {
                 // Over WriteObject Cloud Storage words a missing bucket differently from reads.
@@ -307,8 +311,7 @@ impl Storage {
         let producer = body.produce(stream, opening, tx, rpc);
         let write = self.state.catalog.put_object_prechecked(
             ObjectUpload {
-                bucket: &bucket,
-                name: &name,
+                key: crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
                 content_type: options.content_type.clone(),
                 expected: options.expected,
                 conditions: options.conditions,

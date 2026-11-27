@@ -74,8 +74,10 @@ async fn finished_sessions_stay_inside_a_small_memory_catalog_budget() {
             options.metadata.cache_control = Patch::Set("x".repeat(metadata_bytes));
             let session = catalog
                 .create_resumable_session(
-                    "bucket",
-                    &format!("some/typical/object/name-{index}.bin"),
+                    crate::object::ObjectKey::from_parts_unchecked(
+                        "bucket",
+                        &format!("some/typical/object/name-{index}.bin"),
+                    ),
                     options,
                     None,
                 )
@@ -107,8 +109,7 @@ async fn create(catalog: &Catalog, clock: &ManualClock) -> Result<String, Resuma
     clock.advance(std::time::Duration::from_millis(1));
     catalog
         .create_resumable_session(
-            "bucket",
-            "object",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
             crate::storage::ResumableOptions::new(BucketAccess::Permissive),
             None,
         )

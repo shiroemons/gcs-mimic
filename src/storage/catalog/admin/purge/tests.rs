@@ -159,7 +159,11 @@ async fn put(catalog: &Catalog, bucket: &str, name: &str, bytes: &'static [u8]) 
 /// Starts a resumable upload, which stages a file on disk or a draft in RAM.
 async fn start_session(catalog: &Catalog, bucket: &str) -> SessionId {
     catalog
-        .create_resumable_session(bucket, "pending", options(), None)
+        .create_resumable_session(
+            crate::object::ObjectKey::from_parts_unchecked(bucket, "pending"),
+            options(),
+            None,
+        )
         .await
         .unwrap()
         .id
@@ -306,8 +310,7 @@ async fn sessions(catalog: &Catalog) {
     start_session(catalog, TARGET).await;
     let upload = catalog
         .begin_xml_multipart(
-            TARGET,
-            "parts",
+            crate::object::ObjectKey::from_parts_unchecked(TARGET, "parts"),
             Options {
                 content_type: "text/plain".into(),
                 metadata: Default::default(),
@@ -332,7 +335,10 @@ async fn sessions(catalog: &Catalog) {
         .await
         .unwrap();
     let mut writer = catalog
-        .create_appendable(TARGET, "append", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked(TARGET, "append"),
+            options(),
+        )
         .await
         .unwrap();
     writer
@@ -605,7 +611,10 @@ async fn purge_refuses_without_changes_a_missing_name_an_import_and_writers() {
     assert_eq!(refusal, PurgeError::WriterBusy);
     drop(lease);
     let writer = catalog
-        .create_appendable(TARGET, "append", options())
+        .create_appendable(
+            crate::object::ObjectKey::from_parts_unchecked(TARGET, "append"),
+            options(),
+        )
         .await
         .unwrap();
     let refusal = admin.purge_bucket(&target()).await.unwrap_err();

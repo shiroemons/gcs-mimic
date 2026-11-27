@@ -26,7 +26,7 @@ impl RewriteNames {
     /// Adds the source version a call reads. There is no reverse conversion, so a version
     /// can never be passed in and then ignored.
     pub(crate) fn source_at(&self, generation: Option<i64>) -> ObjectTarget {
-        ObjectTarget::new(&self.source.bucket, &self.source.name, generation)
+        ObjectTarget::new(self.source.bucket.as_str(), &self.source.name, generation)
     }
 }
 
@@ -126,9 +126,15 @@ mod tests {
             assert!(!binding.accepts(&names, &changed, None), "{key}");
         }
         let edits: [fn(&mut RewriteNames); 4] = [
-            |names| names.source.bucket = "different".into(),
+            |names| {
+                names.source.bucket =
+                    crate::bucket::name::BucketKey::from_unchecked("different".into())
+            },
             |names| names.source.name = "different".into(),
-            |names| names.destination.bucket = "different".into(),
+            |names| {
+                names.destination.bucket =
+                    crate::bucket::name::BucketKey::from_unchecked("different".into())
+            },
             |names| names.destination.name = "different".into(),
         ];
         for edit in edits {

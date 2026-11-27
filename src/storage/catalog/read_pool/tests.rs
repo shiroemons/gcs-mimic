@@ -76,8 +76,7 @@ async fn a_new_binding_does_not_recompile_a_pooled_read() {
     for record in [&first, &second] {
         super::super::acl::object_granted(
             &reader.connection,
-            "bucket",
-            &record.name,
+            crate::object::ObjectKey::from_parts_unchecked("bucket", &record.name),
             record.generation.get(),
             &access,
         )

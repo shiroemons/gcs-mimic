@@ -123,8 +123,7 @@ impl Catalog {
             let snapshot = sql::read_snapshot(connection)?;
             let (record, finality) = match objects::selected(
                 &snapshot,
-                &target.bucket,
-                &target.name,
+                target.key(),
                 target.generation,
                 conditions,
                 objects::RequestKind::Read,

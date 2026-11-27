@@ -2,6 +2,7 @@ use super::*;
 use crate::bucket::{
     ClassLocationConflict, Location, LocationKind, Versioning,
     lifecycle::{BucketLifecycle, LifecycleRules},
+    name::BucketKey,
 };
 use std::num::NonZeroU64;
 
@@ -49,7 +50,7 @@ impl Catalog {
         let access = access.clone();
         self.run_read(move |connection| {
             let snapshot = sql::read_snapshot(connection)?;
-            let record = select_bucket(&snapshot, &name)?;
+            let record = select_bucket(&snapshot, BucketKey::from_unchecked(name.as_str()))?;
             if let Some(record) = &record {
                 check_access(&snapshot, &name, &record.project, &access)?;
             }
@@ -378,7 +379,7 @@ impl rusqlite::ToSql for Cors<'_> {
 /// Reads one bucket through the cached statement that request paths share.
 pub(in crate::storage) fn select_bucket(
     connection: &Connection,
-    name: &str,
+    name: BucketKey<&str>,
 ) -> rusqlite::Result<Option<BucketRecord>> {
     connection
         .prepare_cached(SELECT_BUCKET)?

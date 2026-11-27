@@ -180,8 +180,7 @@ fn restore_candidate(
             return Err(
                 match objects::selected(
                     connection,
-                    bucket,
-                    name,
+                    crate::object::ObjectKey::from_parts_unchecked(bucket, name),
                     Some(*generation),
                     Default::default(),
                     objects::RequestKind::Write,
@@ -195,7 +194,10 @@ fn restore_candidate(
         result => result?,
     };
     source.record.check_retention(now.time)?;
-    let previous = objects::lookup(connection, bucket, name)?;
+    let previous = objects::lookup(
+        connection,
+        crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+    )?;
     objects::check_publication(
         previous.as_ref(),
         request.conditions,
@@ -318,8 +320,7 @@ impl Catalog {
                 (Ok(stored), Some(check)) => {
                     if !super::acl::object_granted(
                         &snapshot,
-                        &bucket,
-                        &name,
+                        crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
                         stored.record.generation.get(),
                         check.access,
                     )? {

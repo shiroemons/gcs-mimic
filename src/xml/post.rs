@@ -709,8 +709,7 @@ pub(crate) async fn respond(
         .map_err(|error| Error::from(error).for_caller(caller))?;
     let permit = ctx
         .await_catalog(state.catalog.prepare_object_upload(
-            &bucket,
-            &name,
+            crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
             ObjectConditions::default(),
             &access,
         ))
@@ -719,8 +718,7 @@ pub(crate) async fn respond(
     let (sender, receiver) = upload_channel();
     let upload = state.catalog.put_object_prechecked(
         ObjectUpload {
-            bucket: &bucket,
-            name: &name,
+            key: crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
             content_type,
             expected: ExpectedHashes::default(),
             conditions: ObjectConditions::default(),

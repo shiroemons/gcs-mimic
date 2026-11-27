@@ -430,8 +430,7 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
             .publish_derived(&first.id, ram_destination("value"), move |connection, _| {
                 Catalog::delete_derived_source_in_transaction(
                     connection,
-                    "test-bucket",
-                    "value",
+                    crate::object::ObjectKey::from_parts_unchecked("test-bucket", "value"),
                     source_generation.get(),
                     Default::default(),
                     PERMISSIVE,

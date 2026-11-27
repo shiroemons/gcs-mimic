@@ -254,9 +254,12 @@ fn replay_live_files(
             continue;
         }
         validate_staged_entry(entry)?;
-        let live = objects::lookup(transaction, bucket, name)?
-            .map(|stored| live_object(transaction, &stored.record, entry, now))
-            .transpose()?;
+        let live = objects::lookup(
+            transaction,
+            crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+        )?
+        .map(|stored| live_object(transaction, &stored.record, entry, now))
+        .transpose()?;
         let file = staged_body(entry);
         let record = seed_records::get(transaction, bucket, name)?;
         let mut published = false;

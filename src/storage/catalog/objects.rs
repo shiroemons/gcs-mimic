@@ -10,7 +10,7 @@ use crate::{
     hashing::{Hasher, Hashes},
     notification::NotificationMode,
     object::{
-        ChecksumConflict, ExpectedHashes, Hold, ObjectConditions, ObjectError,
+        ChecksumConflict, ExpectedHashes, Hold, ObjectConditions, ObjectError, ObjectKey,
         ObjectMetadataUpdate, ObjectRecord, ObjectTarget, UploadChunk,
     },
 };
@@ -175,8 +175,7 @@ pub(super) use upload::{
 /// A streamed upload's destination and everything its publication checks and records,
 /// apart from the body and the admission permit.
 pub(crate) struct ObjectUpload<'a> {
-    pub(crate) bucket: &'a str,
-    pub(crate) name: &'a str,
+    pub(crate) key: ObjectKey<'a>,
     pub(crate) content_type: String,
     pub(crate) expected: ExpectedHashes,
     pub(crate) conditions: ObjectConditions,
@@ -206,19 +205,13 @@ impl Catalog {
         }
         let revision = self.0.reads.cache.revision();
         let inner = self.0.clone();
-        let ObjectTarget {
-            bucket,
-            name,
-            generation,
-        } = target;
         let access = access.clone();
         self.run_read_on(move |connection, path| {
             let snapshot = sql::read_snapshot(connection)?;
             let StoredObject { record, .. } = selected(
                 &snapshot,
-                &bucket,
-                &name,
-                generation,
+                target.key(),
+                target.generation,
                 conditions,
                 RequestKind::Read,
                 &access,
@@ -266,21 +259,17 @@ impl Catalog {
         validate: impl FnOnce(&ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
         access: &BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
-        let ObjectTarget {
-            bucket,
-            name,
-            generation,
-        } = target;
         let clock = self.0.policy.clock.clone();
         let access = access.clone();
         let principals = self.0.policy.principals.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
+            let key = target.key();
+            let (bucket, name) = key.parts();
             let StoredObject { mut record, .. } = selected(
                 &transaction,
-                &bucket,
-                &name,
-                generation,
+                key,
+                target.generation,
                 conditions,
                 RequestKind::Mutation,
                 &access,
@@ -292,15 +281,15 @@ impl Catalog {
                     Some(std::borrow::Cow::Borrowed(entries.as_slice()))
                 }
                 crate::acl::AclRequest::Predefined(acl) => Some(std::borrow::Cow::Owned(
-                    super::acl::predefined_object_entries(&transaction, &bucket, *acl)?,
+                    super::acl::predefined_object_entries(&transaction, bucket, *acl)?,
                 )),
             };
             if let Some(entries) = requested {
                 super::acl::replace_resource_acl(
                     &transaction,
                     super::acl::ResolvedAclTarget::Object {
-                        bucket: &bucket,
-                        name: &name,
+                        bucket,
+                        name,
                         generation: record.generation.get(),
                     },
                     &entries,
@@ -452,16 +441,10 @@ pub(super) fn open_selected_in(
     conditions: ObjectConditions,
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-    let ObjectTarget {
-        bucket,
-        name,
-        generation,
-    } = target;
     let StoredObject { record, blob: id } = selected(
         connection,
-        bucket,
-        name,
-        *generation,
+        target.key(),
+        target.generation,
         conditions,
         RequestKind::Read,
         access,
@@ -470,7 +453,7 @@ pub(super) fn open_selected_in(
     // may already be gone, and the failed open sends the read to the serialized path.
     let file = catalog.0.storage.backend.open(&id)?;
     let remaining = record.size;
-    let publicly_readable = publicly_readable(connection, bucket, name, record.generation.get())?;
+    let publicly_readable = publicly_readable(connection, target.key(), record.generation.get())?;
     Ok((
         record,
         ObjectReader {
@@ -488,18 +471,17 @@ pub(super) fn open_selected_in(
 /// and the ACL again.
 fn publicly_readable(
     connection: &Connection,
-    bucket: &str,
-    name: &str,
+    key: ObjectKey<'_>,
     generation: i64,
 ) -> Result<bool, ObjectError> {
+    let (bucket, _) = key.parts();
     Ok(super::policies::read_policy(connection, bucket)?.allows(
         None,
         crate::auth::OBJECTS_GET,
         super::policies::policy_public_access(connection, bucket)?,
     ) || super::acl::object_granted(
         connection,
-        bucket,
-        name,
+        key,
         generation,
         &BucketAccess::Policy {
             identity: None,
@@ -579,26 +561,24 @@ fn delete_authorized(
     context: DeleteContext<'_>,
     authority: BucketAuthority<'_>,
 ) -> Result<Deleted, ObjectError> {
-    let ObjectTarget {
-        bucket,
-        name,
-        generation,
-    } = target;
     let DeleteContext {
         now,
         conditions,
         access,
     } = context;
     let stored = match &authority.publication {
-        Ok(publication) => publication.lookup_generation(transaction, bucket, name, *generation)?,
-        Err(_) => lookup_generation(transaction, bucket, name, *generation)?,
+        Ok(publication) => {
+            publication.lookup_generation(transaction, target.key(), target.generation)?
+        }
+        Err(_) => lookup_generation(transaction, target.key(), target.generation)?,
     }
     .ok_or(ObjectError::ObjectNotFound)?;
     check_conditions(Some(&stored.record), conditions, RequestKind::Mutation)?;
     let publication = authority.publication?;
     let record = &stored.record;
     // Deleting a live version in a versioned bucket only makes it noncurrent.
-    let retirement = if publication.versioning == Versioning::Enabled && generation.is_none() {
+    let retirement = if publication.versioning == Versioning::Enabled && target.generation.is_none()
+    {
         Retirement::Noncurrent
     } else {
         Retirement::Removed
@@ -653,13 +633,13 @@ pub(super) fn authorized_bucket<'a>(
 
 pub(super) fn lookup(
     connection: &Connection,
-    bucket: &str,
-    name: &str,
+    key: ObjectKey<'_>,
 ) -> Result<Option<StoredObject>, ObjectError> {
+    let (_, name) = key.parts();
     sql::row(
         connection,
         SELECT_LIVE_OBJECT,
-        params![bucket, name],
+        params![key.bucket(), name],
         read_object,
     )
     .optional()
@@ -668,23 +648,22 @@ pub(super) fn lookup(
 
 pub(super) fn selected(
     connection: &Connection,
-    bucket: &str,
-    name: &str,
+    key: ObjectKey<'_>,
     generation: Option<i64>,
     conditions: ObjectConditions,
     request: RequestKind,
     access: &BucketAccess,
 ) -> Result<StoredObject, ObjectError> {
+    let (bucket, _) = key.parts();
     let object_acl = object_acl_authority(connection, bucket, access)?;
-    let record = lookup_generation(connection, bucket, name, generation)?;
+    let record = lookup_generation(connection, key, generation)?;
     if let Some(check) = object_acl {
         let granted = record
             .as_ref()
             .map(|stored| {
                 super::acl::object_granted(
                     connection,
-                    bucket,
-                    name,
+                    key,
                     stored.record.generation.get(),
                     check.access,
                 )
@@ -702,10 +681,10 @@ pub(super) fn selected(
 
 fn lookup_generation(
     connection: &Connection,
-    bucket: &str,
-    name: &str,
+    key: ObjectKey<'_>,
     generation: Option<i64>,
 ) -> Result<Option<StoredObject>, ObjectError> {
+    let (bucket, name) = key.parts();
     match generation {
         Some(generation) => Ok(sql::row(
             connection,
@@ -714,7 +693,7 @@ fn lookup_generation(
             read_object,
         )
         .optional()?),
-        None => lookup(connection, bucket, name),
+        None => lookup(connection, key),
     }
 }
 
@@ -753,13 +732,13 @@ pub(super) fn object_acl_authority<'a>(
 /// Rechecks a pinned source without selecting a newer generation.
 pub(super) fn authorize_generation(
     connection: &Connection,
-    bucket: &str,
-    name: &str,
+    key: ObjectKey<'_>,
     generation: i64,
     access: &BucketAccess,
 ) -> Result<(), ObjectError> {
+    let (bucket, _) = key.parts();
     if let Some(check) = object_acl_authority(connection, bucket, access)?
-        && !super::acl::object_granted(connection, bucket, name, generation, check.access)?
+        && !super::acl::object_granted(connection, key, generation, check.access)?
     {
         return Err(check.refusal());
     }
@@ -768,14 +747,14 @@ pub(super) fn authorize_generation(
 
 pub(super) fn check_upload_destination(
     connection: &Connection,
-    bucket: &str,
-    name: &str,
+    key: ObjectKey<'_>,
     conditions: ObjectConditions,
     access: &BucketAccess,
     now: std::time::SystemTime,
 ) -> Result<Option<StoredObject>, ObjectError> {
+    let (bucket, _) = key.parts();
     let (_, permission) = authorized_bucket(connection, bucket, access)?;
-    let previous = lookup(connection, bucket, name)?;
+    let previous = lookup(connection, key)?;
     check_publication(previous.as_ref(), conditions, permission, now)?;
     Ok(previous)
 }

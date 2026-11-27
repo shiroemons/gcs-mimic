@@ -298,8 +298,7 @@ async fn a_key_on_an_unfinalized_appendable_object_is_refused() {
     let catalog = &storage.state.catalog;
     let mut writer = catalog
         .create_appendable(
-            "grpc-io",
-            "growing",
+            crate::object::ObjectKey::from_parts_unchecked("grpc-io", "growing"),
             ResumableOptions::new(BucketAccess::Permissive),
         )
         .await

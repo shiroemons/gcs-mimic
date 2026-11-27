@@ -96,7 +96,7 @@ pub(super) async fn list(
             )?))
         }
         Listing::Uploads => {
-            let request = UploadsRequest::parse(path.target.bucket, &mut query)?;
+            let request = UploadsRequest::parse(path.target.bucket.into_inner(), &mut query)?;
             let page = ctx
                 .await_catalog(ctx.state.catalog.list_xml_uploads(request.query(), access))
                 .await

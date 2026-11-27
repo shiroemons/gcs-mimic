@@ -1333,7 +1333,11 @@ async fn prepared_upload_skips_advisory_repeat_but_rechecks_publication() {
             .unwrap();
         let conditions = ObjectConditions::default();
         let permit = catalog
-            .prepare_object_upload("bucket", "object", conditions, PERMISSIVE)
+            .prepare_object_upload(
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                conditions,
+                PERMISSIVE,
+            )
             .await
             .unwrap();
         catalog
@@ -1348,8 +1352,7 @@ async fn prepared_upload_skips_advisory_repeat_but_rechecks_publication() {
         let error = catalog
             .put_object_prechecked(
                 ObjectUpload {
-                    bucket: "bucket",
-                    name: "object",
+                    key: crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
                     content_type: "text/plain".into(),
                     expected,
                     conditions,
@@ -1393,8 +1396,7 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
         async move {
             let permit = catalog
                 .prepare_object_upload(
-                    "bucket",
-                    "object",
+                    crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
                     ObjectConditions::default(),
                     &project_access(allow_overwrite),
                 )
@@ -1409,8 +1411,7 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
     let publish = |body, permit, allow_overwrite| {
         catalog.put_object_prechecked(
             ObjectUpload {
-                bucket: "bucket",
-                name: "object",
+                key: crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
                 content_type: "text/plain".into(),
                 expected: ExpectedHashes::default(),
                 conditions: ObjectConditions::default(),
@@ -1451,7 +1452,11 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
     ] {
         assert_eq!(
             catalog
-                .check_upload("bucket", "object", conditions, &project_access(false))
+                .check_upload(
+                    crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                    conditions,
+                    &project_access(false)
+                )
                 .await
                 .unwrap_err(),
             error
@@ -1460,8 +1465,7 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
     assert!(
         catalog
             .check_upload(
-                "bucket",
-                "fresh",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "fresh"),
                 Default::default(),
                 &project_access(false)
             )
@@ -1539,8 +1543,7 @@ async fn publish(
     catalog
         .put_object_prechecked(
             ObjectUpload {
-                bucket: "bucket",
-                name,
+                key: crate::object::ObjectKey::from_parts_unchecked("bucket", name),
                 content_type: "text/plain".into(),
                 expected: ExpectedHashes::default(),
                 conditions: ObjectConditions::default(),
@@ -1575,7 +1578,11 @@ async fn assert_all_forbidden(catalog: &Catalog, access: &BucketAccess, current:
     let denied = || ObjectError::Denied(access.denied("bucket"));
     assert_eq!(
         catalog
-            .check_upload("bucket", "object", conditions, access)
+            .check_upload(
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                conditions,
+                access
+            )
             .await,
         Err(denied())
     );
@@ -1680,7 +1687,11 @@ async fn pap_is_rechecked_after_upload_admission_and_before_reads() {
             .await
             .unwrap();
         let permit = catalog
-            .prepare_object_upload("bucket", "fresh", Default::default(), &create)
+            .prepare_object_upload(
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "fresh"),
+                Default::default(),
+                &create,
+            )
             .await
             .unwrap();
         if parent {
@@ -1881,7 +1892,11 @@ async fn revoked_bucket_binding_is_rechecked_inside_operations() {
             .await
             .unwrap();
         let permit = catalog
-            .prepare_object_upload("bucket", "fresh", Default::default(), &create)
+            .prepare_object_upload(
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "fresh"),
+                Default::default(),
+                &create,
+            )
             .await
             .unwrap();
         // These accesses passed advisory authorization; transaction rechecks must observe
@@ -1935,7 +1950,11 @@ async fn operations_recheck_the_authorized_project_after_bucket_recreation() {
     // The advisory check passes in the authorized project; the bucket is then deleted and
     // recreated under another project before the body completes.
     let permit = catalog
-        .prepare_object_upload("bucket", "object", Default::default(), &access)
+        .prepare_object_upload(
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            Default::default(),
+            &access,
+        )
         .await
         .unwrap();
     let current = recreate_bucket(&catalog, "other-project").await;
@@ -1994,7 +2013,11 @@ async fn missing_bucket_access_reauthorizes_against_the_actual_project() {
     // Still missing: the caller holds the permission somewhere, so it learns 404.
     assert_eq!(
         catalog
-            .check_upload("bucket", "object", conditions, &access)
+            .check_upload(
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                conditions,
+                &access
+            )
             .await,
         Err(ObjectError::BucketNotFound)
     );
@@ -2020,7 +2043,11 @@ async fn missing_bucket_access_reauthorizes_against_the_actual_project() {
     // Created later in a project where the caller lacks the permission.
     create_bucket(&catalog, "project").await;
     let permit = catalog
-        .prepare_object_upload("bucket", "object", conditions, &access)
+        .prepare_object_upload(
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            conditions,
+            &access,
+        )
         .await
         .unwrap();
     let current = recreate_bucket(&catalog, "other-project").await;

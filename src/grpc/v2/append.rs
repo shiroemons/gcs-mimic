@@ -298,7 +298,10 @@ impl Storage {
                 let writer = self
                     .state
                     .catalog
-                    .create_appendable(&bucket, &name, *options)
+                    .create_appendable(
+                        crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                        *options,
+                    )
                     .await
                     .map_err(|e| append_status(e, caller))?;
                 Ok(OpenedWriter {

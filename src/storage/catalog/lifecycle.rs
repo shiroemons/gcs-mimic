@@ -799,8 +799,7 @@ fn plan_version(
 ) -> Result<(LifecycleCounts, Option<(ObjectRecord, PlannedAction)>), ObjectError> {
     let object = match objects::selected(
         transaction,
-        &target.bucket,
-        &target.name,
+        target.key(),
         Some(target.generation),
         Default::default(),
         objects::RequestKind::Read,

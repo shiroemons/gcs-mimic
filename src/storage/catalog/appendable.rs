@@ -24,7 +24,8 @@ use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{
-        Generation, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, Patch, UploadChunk,
+        Generation, ObjectConditions, ObjectError, ObjectKey, ObjectRecord, ObjectTarget, Patch,
+        UploadChunk,
     },
     storage::{BlobError, BlobId},
 };
@@ -722,8 +723,7 @@ impl AppendWriter {
         };
         let publish = catalog.put_object_with_mode(
             ObjectUpload {
-                bucket: &self.bucket,
-                name: &self.name,
+                key: crate::object::ObjectKey::from_parts_unchecked(&self.bucket, &self.name),
                 content_type: self.record.content_type.clone(),
                 expected: Default::default(),
                 // Ordinary writes may have created the name since the appendable generation began.
@@ -904,8 +904,7 @@ impl Catalog {
     /// allocator so finalization can publish it without renumbering.
     pub(crate) async fn create_appendable(
         &self,
-        bucket: &str,
-        name: &str,
+        key: ObjectKey<'_>,
         options: ResumableOptions,
     ) -> Result<AppendWriter, AppendError> {
         let activity = Arc::new(
@@ -935,10 +934,11 @@ impl Catalog {
         .await
         .map_err(object_unavailable)?
         .map_err(object_unavailable)?;
+        let (bucket, name) = key.parts();
         let slot = SlotHandle::new(self, bucket, name);
         let mut guard = slot.lock().await;
         let result = self
-            .insert_appendable(bucket, name, &blob_id, &handle, options)
+            .insert_appendable(key, &blob_id, &handle, options)
             .await;
         let (stale, created) = match result {
             Ok(value) => value,
@@ -973,12 +973,12 @@ impl Catalog {
 
     async fn insert_appendable(
         &self,
-        bucket: &str,
-        name: &str,
+        key: ObjectKey<'_>,
         blob_id: &BlobId,
         handle: &str,
         options: ResumableOptions,
     ) -> Result<(Option<Unreferenced>, ObjectRecord), AppendError> {
+        let (bucket, name) = key.parts();
         let (bucket, name, blob_id, handle) = (
             bucket.to_owned(),
             name.to_owned(),
@@ -1002,7 +1002,7 @@ impl Catalog {
             let stale = stale.map(|id| unreference(&transaction, backend.kind(), &id)).transpose()?;
             let current = match current {
                 Some(record) => Some(record),
-                None => lookup(&transaction, &bucket, &name)?.map(|stored| stored.record),
+                None => lookup(&transaction, ObjectKey::from_parts_unchecked(&bucket, &name))?.map(|stored| stored.record),
             };
             check_conditions(current.as_ref(), options.conditions, super::objects::RequestKind::Write)?;
             if current.is_some() {

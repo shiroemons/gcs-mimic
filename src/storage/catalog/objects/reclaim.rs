@@ -350,7 +350,8 @@ mod tests {
             .unwrap();
         let live = catalog
             .run_upload::<_, ObjectError>(|connection| {
-                let id = lookup(connection, "bucket", "live")?.unwrap().blob;
+                let key = crate::object::ObjectKey::from_parts_unchecked("bucket", "live");
+                let id = lookup(connection, key)?.unwrap().blob;
                 sql::exec_on_writer(connection, JOURNAL_NEW_DELETION, [&id])?;
                 Ok(id)
             })

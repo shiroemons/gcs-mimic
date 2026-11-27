@@ -347,7 +347,7 @@ pub(crate) async fn respond(
 /// The upload an object path and upload ID name.
 fn upload_target(path: ReadRequest, upload_id: String) -> storage::Target {
     storage::Target {
-        bucket: path.target.bucket,
+        bucket: path.target.bucket.into_inner(),
         name: path.target.name,
         id: upload_id,
     }
@@ -387,8 +387,7 @@ async fn write_upload(
             };
             let upload = ctx
                 .await_catalog(ctx.state.catalog.begin_xml_multipart(
-                    &path.target.bucket,
-                    &path.target.name,
+                    path.target.key(),
                     options,
                     access,
                 ))

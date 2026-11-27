@@ -475,7 +475,10 @@ async fn a_short_blob_fails_on_a_hit_as_on_a_miss() {
     put(&catalog, "object", &b"contents"[..]).await;
     let blob = catalog
         .run(|connection| {
-            let stored = super::super::objects::lookup(connection, "bucket", "object")?;
+            let stored = super::super::objects::lookup(
+                connection,
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            )?;
             Ok::<_, ObjectError>(stored.unwrap().blob)
         })
         .await

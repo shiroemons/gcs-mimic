@@ -1154,7 +1154,10 @@ fn publish_checked_entry(
     let authority = objects::BucketAuthority::load(transaction, bucket, &access)?;
     let publication = authority.publication?;
     let storage_class = publication.storage_class(entry.request.metadata.storage_class)?;
-    let previous = publication.lookup(transaction, bucket, name)?;
+    let previous = publication.lookup(
+        transaction,
+        crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+    )?;
     objects::check_publication(
         previous.as_ref(),
         entry

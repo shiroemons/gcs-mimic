@@ -775,8 +775,7 @@ mod tests {
             .unwrap();
         let session = catalog
             .create_resumable_session(
-                "bucket",
-                "first",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "first"),
                 ResumableOptions::new(BucketAccess::Permissive),
                 None,
             )
@@ -785,8 +784,7 @@ mod tests {
         clock.advance(Duration::from_secs(1));
         let later = catalog
             .create_resumable_session(
-                "bucket",
-                "later",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "later"),
                 ResumableOptions::new(BucketAccess::Permissive),
                 None,
             )
@@ -865,8 +863,7 @@ mod tests {
             .unwrap();
         let session = catalog
             .create_resumable_session(
-                "bucket",
-                "object",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
                 super::super::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
                 None,
             )
@@ -874,8 +871,7 @@ mod tests {
             .unwrap();
         let multipart = catalog
             .begin_xml_multipart(
-                "bucket",
-                "multipart",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "multipart"),
                 super::super::xml_multipart::Options {
                     content_type: "text/plain".into(),
                     metadata: Default::default(),

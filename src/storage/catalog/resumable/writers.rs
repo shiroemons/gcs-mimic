@@ -648,8 +648,7 @@ mod tests {
             .unwrap();
         let session = catalog
             .create_resumable_session(
-                "bucket",
-                "object",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
                 ResumableOptions::new(BucketAccess::Permissive),
                 None,
             )

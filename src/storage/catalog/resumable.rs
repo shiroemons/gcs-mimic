@@ -11,7 +11,7 @@ use crate::{
     bucket::BucketAccess,
     cause::BackendCause,
     hashing::{Hasher, HasherState, Hashes},
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate},
+    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectKey, ObjectMetadataUpdate},
     storage::failure::object_unavailable,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -396,7 +396,10 @@ fn stage_session(
     // publication; no recording shows when Cloud Storage refuses it.
     super::objects::BucketPublication::load(transaction, &request.bucket)?
         .check_class(request.options.metadata.storage_class)?;
-    let previous = super::objects::lookup(transaction, &request.bucket, &request.name)?;
+    let previous = super::objects::lookup(
+        transaction,
+        crate::object::ObjectKey::from_parts_unchecked(&request.bucket, &request.name),
+    )?;
     let now = catalog.0.policy.clock.now();
     super::objects::check_publication(
         previous.as_ref(),
@@ -535,8 +538,7 @@ fn running_hash(
 impl Catalog {
     pub(crate) async fn create_resumable_session(
         &self,
-        bucket: &str,
-        name: &str,
+        key: ObjectKey<'_>,
         options: ResumableOptions,
         total: Option<u64>,
     ) -> Result<ResumableSession, ResumableError> {
@@ -544,12 +546,12 @@ impl Catalog {
         // for `ifGenerationMatch=0` over a live object); they are checked when the upload
         // finalizes, from the copy the session keeps.
         self.check_upload(
-            bucket,
-            name,
+            key,
             crate::object::ObjectConditions::default(),
             &options.access,
         )
         .await?;
+        let (bucket, name) = key.parts();
         let activity = self
             .await_activity(Work::New)
             .await
@@ -1019,7 +1021,11 @@ mod tests {
             let options = ResumableOptions::new(BucketAccess::Permissive);
             assert!(
                 catalog
-                    .create_resumable_session("bucket", "object", options.clone(), None)
+                    .create_resumable_session(
+                        crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                        options.clone(),
+                        None
+                    )
                     .await
                     .is_err()
             );
@@ -1048,7 +1054,11 @@ mod tests {
             );
             assert!(
                 catalog
-                    .create_resumable_session("bucket", "object", options, None)
+                    .create_resumable_session(
+                        crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+                        options,
+                        None
+                    )
                     .await
                     .is_err()
             );

@@ -131,11 +131,11 @@ pub(crate) async fn create_session(
     )
     .await?;
     let session = ctx
-        .await_catalog(
-            state
-                .catalog
-                .create_resumable_session(bucket, name, options, total),
-        )
+        .await_catalog(state.catalog.create_resumable_session(
+            crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+            options,
+            total,
+        ))
         .await?;
     Ok(session.id)
 }

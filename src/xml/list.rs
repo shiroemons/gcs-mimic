@@ -266,7 +266,7 @@ pub(crate) async fn respond(
         .await
         .map_err(|error| Error::from(error).for_caller(ctx.caller))?;
     let params = parse(
-        operation.target.bucket.clone(),
+        operation.target.bucket.as_str().to_owned(),
         request.uri().query().unwrap_or_default(),
         request.headers(),
     )?;

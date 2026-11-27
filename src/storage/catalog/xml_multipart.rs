@@ -9,7 +9,7 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     cause::{Link, TypedSource},
     hashing::Hashes,
-    object::{ObjectError, ObjectRecord},
+    object::{ObjectError, ObjectKey, ObjectRecord},
     storage::failure::object_unavailable,
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -264,11 +264,11 @@ fn part(connection: &Connection, id: &str, number: u16) -> Result<Part, Error> {
 impl Catalog {
     pub(crate) async fn begin_xml_multipart(
         &self,
-        bucket: &str,
-        name: &str,
+        key: ObjectKey<'_>,
         options: Options,
         access: BucketAccess,
     ) -> Result<Upload, Error> {
+        let (bucket, name) = key.parts();
         let mut stored = resumable::ResumableOptions::new(BucketAccess::Permissive);
         stored.content_type = options.content_type;
         stored.metadata = options.metadata;

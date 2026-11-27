@@ -94,7 +94,11 @@ impl Storage {
         let session = self
             .state
             .catalog
-            .create_resumable_session(&bucket, &name, options, total)
+            .create_resumable_session(
+                crate::object::ObjectKey::from_parts_unchecked(&bucket, &name),
+                options,
+                total,
+            )
             .await
             .map_err(session_status)?;
         Ok(Response::new(pb::StartResumableWriteResponse {
@@ -202,8 +206,7 @@ impl Storage {
         self.state
             .catalog
             .check_upload(
-                &session.bucket,
-                &session.name,
+                crate::object::ObjectKey::from_parts_unchecked(&session.bucket, &session.name),
                 options.conditions,
                 &options.access,
             )

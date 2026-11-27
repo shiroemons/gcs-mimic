@@ -56,8 +56,7 @@ async fn idle_maintenance_reads_the_committed_deadline_without_cleanup_or_a_wake
     let catalog = open_with_object(&dir).await;
     let session = catalog
         .create_resumable_session(
-            "bucket",
-            "object",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
             ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -155,8 +154,7 @@ async fn session_ids_read_the_committed_upload() {
     let catalog = open_with_object(&dir).await;
     let written = catalog
         .create_resumable_session(
-            "bucket",
-            "resumed",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "resumed"),
             ResumableOptions::new(BucketAccess::Permissive),
             Some(7),
         )

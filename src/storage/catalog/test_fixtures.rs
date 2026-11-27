@@ -79,8 +79,7 @@ pub(crate) fn permissive_upload<'a>(
     max_bytes: u64,
 ) -> ObjectUpload<'a> {
     ObjectUpload {
-        bucket,
-        name,
+        key: crate::object::ObjectKey::from_parts_unchecked(bucket, name),
         content_type: "text/plain".into(),
         expected: Default::default(),
         conditions: Default::default(),

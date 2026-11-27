@@ -348,7 +348,7 @@ fn destination(
         .unwrap_or_else(|| content_type::DEFAULT.to_owned());
     Ok(DerivedDestination {
         component_count: source.component_count,
-        bucket: request.names.destination.bucket.clone(),
+        bucket: request.names.destination.bucket.as_str().to_owned(),
         name: request.names.destination.name.clone(),
         content_type,
         metadata,

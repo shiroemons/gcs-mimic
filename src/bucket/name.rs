@@ -2,6 +2,61 @@
 
 use crate::config::CompatProfile;
 
+/// A catalog bucket identifier, including legacy names and internal retained-bucket keys.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct BucketKey<S = String>(S);
+
+impl<S: AsRef<str>> BucketKey<S> {
+    /// Stored and already admitted names retain their exact spelling.
+    pub(crate) fn from_unchecked(name: S) -> Self {
+        Self(name)
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        self.0.as_ref()
+    }
+
+    pub(crate) fn as_key(&self) -> BucketKey<&str> {
+        BucketKey(self.as_str())
+    }
+
+    pub(crate) fn into_inner(self) -> S {
+        self.0
+    }
+}
+
+impl<S: std::fmt::Debug> std::fmt::Debug for BucketKey<S> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl<S: AsRef<str>> std::ops::Deref for BucketKey<S> {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<S: AsRef<str>> AsRef<str> for BucketKey<S> {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<S: AsRef<str>> std::fmt::Display for BucketKey<S> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl From<BucketKey> for String {
+    fn from(key: BucketKey) -> Self {
+        key.into_inner()
+    }
+}
+
 /// A bucket name under the native Cloud Storage rules. The fake-gcs-server profile admits a
 /// superset ([`validate_for_profile`]), so catalog records keep `String`; this type names
 /// buckets the local administration tools create and the sync engine maps to directories.

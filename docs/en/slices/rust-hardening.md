@@ -1045,11 +1045,12 @@ time its original text, completions the same TEXT. JSON in TEXT columns keeps
 its bytes through `#[serde(transparent)]` and `#[serde(into = "i64",
 try_from = "i64")]`.
 
-- **Buckets.** `BucketKey(String)` is the stored bucket name, never
+- **Buckets.** `BucketKey<String>` is the stored bucket name, never
   re-validated when read. `AdmittedBucket` is a request's name, admitted under
   the server's compatibility profile; `BucketName` converts into it.
-- **Objects.** `ObjectKey<'a> { bucket: &BucketKey, name: &str }` replaces
-  the 83 `(bucket, name)` parameter pairs. `ObjectTarget` is its owned form.
+- **Objects.** `ObjectKey<'a>` groups a `BucketKey<&'a str>` and an object name.
+  This can borrow the strings on public bucket and object records directly.
+  `ObjectTarget` owns the names and carries the generation selection.
 - **Generations.** `Generation` and a new `Metageneration` come from one macro
   with SQL and serde conversions; a value of 0 or less fails decoding.
   Precondition values stay `i64`, because 0 and negatives mean something there.

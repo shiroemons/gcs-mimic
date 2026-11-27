@@ -229,8 +229,7 @@ impl CopyReplay {
             {
                 objects::authorize_generation(
                     connection,
-                    &source.bucket,
-                    &source.name,
+                    crate::object::ObjectKey::from_parts_unchecked(&source.bucket, &source.name),
                     source.generation,
                     &self.source_access,
                 )?;
@@ -333,8 +332,7 @@ impl UploadReplay {
         let acl_access = access.with_permission(crate::auth::Permission::ObjectsGetIam);
         let visible = match objects::authorize_generation(
             connection,
-            &record.bucket,
-            &record.name,
+            record.key(),
             record.generation.get(),
             &acl_access,
         ) {
@@ -460,7 +458,10 @@ fn copy_source_generation(
         }
         None => match source.generation {
             Some(generation) => generation,
-            None => match objects::lookup(connection, source.bucket, source.name)? {
+            None => match objects::lookup(
+                connection,
+                crate::object::ObjectKey::from_parts_unchecked(source.bucket, source.name),
+            )? {
                 Some(stored) => stored.record.generation.get(),
                 None => return Err(check.refusal()),
             },
@@ -468,8 +469,7 @@ fn copy_source_generation(
     };
     objects::authorize_generation(
         connection,
-        source.bucket,
-        source.name,
+        crate::object::ObjectKey::from_parts_unchecked(source.bucket, source.name),
         generation,
         source.access,
     )?;
@@ -572,7 +572,12 @@ impl Catalog {
             return match check {
                 UploadCheck::Bucket => self.check_upload_bucket(bucket, access).await,
                 UploadCheck::Object { name, conditions } => {
-                    self.check_upload(bucket, name, conditions, access).await
+                    self.check_upload(
+                        crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+                        conditions,
+                        access,
+                    )
+                    .await
                 }
             };
         };
@@ -641,7 +646,10 @@ impl Catalog {
             if replay.cached(&snapshot, now)?.is_none()
                 && let Some((name, conditions)) = &object
             {
-                let previous = objects::lookup(&snapshot, &bucket, name)?;
+                let previous = objects::lookup(
+                    &snapshot,
+                    crate::object::ObjectKey::from_parts_unchecked(&bucket, name),
+                )?;
                 objects::check_publication(
                     previous.as_ref(),
                     *conditions,

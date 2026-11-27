@@ -203,8 +203,7 @@ async fn shared_reclamation_preserves_cancelled_session_cleanup_markers() {
     let (dir, catalog, _admin, _bucket, _name) = setup().await;
     let session = catalog
         .create_resumable_session(
-            "test-bucket",
-            "cancelled",
+            crate::object::ObjectKey::from_parts_unchecked("test-bucket", "cancelled"),
             super::super::ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -305,8 +304,7 @@ async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bod
                 "resumable" => {
                     let session = worker
                         .create_resumable_session(
-                            "test-bucket",
-                            "object",
+                            crate::object::ObjectKey::from_parts_unchecked("test-bucket", "object"),
                             super::super::ResumableOptions::new(BucketAccess::Permissive),
                             Some(3),
                         )
@@ -1563,7 +1561,11 @@ async fn disk_full_during_resumable_retirement_preserves_the_same_session_and_by
     let mut options = super::super::ResumableOptions::new(BucketAccess::Permissive);
     options.content_type = "text/plain".into();
     let session = catalog
-        .create_resumable_session(bucket.as_str(), name.as_str(), options, Some(5))
+        .create_resumable_session(
+            crate::object::ObjectKey::from_parts_unchecked(bucket.as_str(), name.as_str()),
+            options,
+            Some(5),
+        )
         .await
         .unwrap();
     fail_retirement_with_disk_full(&catalog).await;

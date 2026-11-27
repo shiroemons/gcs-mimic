@@ -9,7 +9,11 @@ async fn session(catalog: &Catalog) -> crate::storage::ResumableSession {
     let mut options = ResumableOptions::new(BucketAccess::Permissive);
     options.content_type = "application/test".into();
     catalog
-        .create_resumable_session("test-bucket", "value", options, None)
+        .create_resumable_session(
+            crate::object::ObjectKey::from_parts_unchecked("test-bucket", "value"),
+            options,
+            None,
+        )
         .await
         .unwrap()
 }
@@ -405,7 +409,11 @@ async fn ram_resumable_session_limit_and_expiry_recycle_all_staging_capacity() {
     options.content_type = "application/test".into();
     assert!(
         catalog
-            .create_resumable_session("test-bucket", "value", options, None)
+            .create_resumable_session(
+                crate::object::ObjectKey::from_parts_unchecked("test-bucket", "value"),
+                options,
+                None
+            )
             .await
             .is_err()
     );

@@ -54,6 +54,12 @@ pub(crate) struct DerivedDestination {
     pub component_count: Option<i64>,
 }
 
+impl DerivedDestination {
+    pub(crate) fn key(&self) -> crate::object::ObjectKey<'_> {
+        crate::object::ObjectKey::from_parts_unchecked(&self.bucket, &self.name)
+    }
+}
+
 struct TransferPublication<P, C> {
     checkpoint: Checkpoint,
     pinned: Option<(BlobId, Hashes)>,
@@ -197,7 +203,7 @@ where
     }
     let bucket = authority.publication?;
     let storage_class = bucket.storage_class(destination.storage_class)?;
-    let previous = bucket.lookup(transaction, &destination.bucket, &destination.name)?;
+    let previous = bucket.lookup(transaction, destination.key())?;
     objects::check_publication(
         previous.as_ref(),
         destination.conditions,

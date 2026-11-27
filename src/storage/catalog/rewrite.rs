@@ -79,8 +79,7 @@ fn check_continuation(
         check_incarnations(connection, session)?;
         super::objects::authorize_generation(
             connection,
-            &session.binding.source.bucket,
-            &session.binding.source.name,
+            session.binding.source.key(),
             session.binding.source.generation,
             access.0,
         )?;
@@ -317,9 +316,9 @@ fn encode(
     let conditions = start.source_conditions;
     serde_json::to_string(&StoredRequest {
         path: [
-            binding.source.bucket.clone(),
+            binding.source.bucket.as_str().to_owned(),
             binding.source.name.clone(),
-            binding.destination.bucket.clone(),
+            binding.destination.bucket.as_str().to_owned(),
             binding.destination.name.clone(),
         ],
         generation: binding.source.generation,
@@ -564,8 +563,7 @@ fn check_source_generation(
     )]
     let source = Catalog::check_derived_source_in_transaction(
         connection,
-        &session.binding.source.bucket,
-        &session.binding.source.name,
+        session.binding.source.key(),
         Some(session.binding.source.generation),
         session.source_conditions,
         access,
@@ -577,12 +575,9 @@ fn check_source_generation(
         other => other,
     })?;
     let live_changed = !session.binding.parameters.contains_key("sourceGeneration")
-        && super::objects::lookup(
-            connection,
-            &session.binding.source.bucket,
-            &session.binding.source.name,
-        )?
-        .is_none_or(|stored| stored.record.generation.get() != session.binding.source.generation);
+        && super::objects::lookup(connection, session.binding.source.key())?.is_none_or(|stored| {
+            stored.record.generation.get() != session.binding.source.generation
+        });
     if live_changed
         || source.generation.get() != session.binding.source.generation
         || source.metageneration.get() != session.source_metageneration
@@ -641,16 +636,16 @@ impl Catalog {
             let snapshot = sql::read_snapshot(connection)?;
             super::objects::check_upload_destination(
                 &snapshot,
-                &destination.bucket,
-                &destination.name,
+                destination.key(),
                 conditions,
                 &access,
                 clock.now(),
             )?;
-            let Some(from) = super::buckets::select_bucket(&snapshot, &source)? else {
+            let source_key = crate::bucket::name::BucketKey::from_unchecked(source.as_str());
+            let Some(from) = super::buckets::select_bucket(&snapshot, source_key)? else {
                 return Ok(None);
             };
-            let to = super::buckets::select_bucket(&snapshot, &destination.bucket)?
+            let to = super::buckets::select_bucket(&snapshot, destination.bucket.as_key())?
                 .ok_or(ObjectError::BucketNotFound)?;
             Ok(Some(RewriteBuckets {
                 access: access.clone(),
@@ -731,8 +726,7 @@ impl Catalog {
                         .check_class(start.destination.storage_class)?;
                     super::objects::check_upload_destination(
                         connection,
-                        &start.destination.bucket,
-                        &start.destination.name,
+                        start.destination.key(),
                         buckets.conditions,
                         &buckets.access,
                         catalog.0.policy.clock.now(),
@@ -1200,7 +1194,8 @@ mod tests {
             ("remote", None, NonZeroU64::new(2)),
         ] {
             let (segment, mut start) = start_request(&catalog).await;
-            start.binding.destination.bucket = bucket.into();
+            start.binding.destination.bucket =
+                crate::bucket::name::BucketKey::from_unchecked(bucket.into());
             start.destination.bucket = bucket.into();
             let buckets = catalog
                 .rewrite_buckets(
@@ -1404,7 +1399,8 @@ mod tests {
                 .await
                 .unwrap();
             let (segment, mut start) = start_request(&catalog).await;
-            start.binding.destination.bucket = name.into();
+            start.binding.destination.bucket =
+                crate::bucket::name::BucketKey::from_unchecked(name.into());
             start.destination.bucket = name.into();
             if !recreate {
                 start.destination.access = grant_create(&catalog, name).await;

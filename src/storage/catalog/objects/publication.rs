@@ -135,9 +135,9 @@ impl BucketPublication {
     pub(in crate::storage::catalog) fn lookup(
         &self,
         connection: &Connection,
-        bucket: &str,
-        name: &str,
+        key: ObjectKey<'_>,
     ) -> Result<Option<StoredObject>, ObjectError> {
+        let (bucket, name) = key.parts();
         const LIVE: &str = concat!(
             "SELECT ",
             object_columns!("?3 * 1000000"),
@@ -155,10 +155,10 @@ impl BucketPublication {
     pub(super) fn lookup_generation(
         &self,
         connection: &Connection,
-        bucket: &str,
-        name: &str,
+        key: ObjectKey<'_>,
         generation: Option<i64>,
     ) -> Result<Option<StoredObject>, ObjectError> {
+        let (bucket, name) = key.parts();
         const VERSION: &str = concat!(
             "SELECT ",
             object_columns!("?4 * 1000000"),
@@ -172,7 +172,7 @@ impl BucketPublication {
                 read_object,
             )
             .optional()?),
-            None => self.lookup(connection, bucket, name),
+            None => self.lookup(connection, key),
         }
     }
 
@@ -275,7 +275,7 @@ impl PublicationDefaults {
             generation,
         } = target;
         ObjectRecord {
-            bucket,
+            bucket: bucket.into_inner(),
             name,
             generation,
             metageneration: Metageneration::INITIAL,

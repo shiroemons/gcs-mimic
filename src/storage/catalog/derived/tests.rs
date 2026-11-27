@@ -729,8 +729,7 @@ async fn callback_source_deletion_rolls_back_with_destination_and_checks_holds()
         .publish_derived(&transfer.id, destination("target"), move |connection, _| {
             Catalog::delete_derived_source_in_transaction(
                 connection,
-                "bucket",
-                "source",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
                 generation.get(),
                 Default::default(),
                 PERMISSIVE,
@@ -774,8 +773,7 @@ async fn callback_source_deletion_rolls_back_with_destination_and_checks_holds()
         .publish_derived(&transfer.id, destination("target"), move |connection, _| {
             Catalog::delete_derived_source_in_transaction(
                 connection,
-                "bucket",
-                "source",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
                 generation.get(),
                 Default::default(),
                 PERMISSIVE,
@@ -896,8 +894,7 @@ async fn validation_sees_same_name_source_before_retirement_and_completion_sees_
             move |connection, destination| {
                 let source = Catalog::check_derived_source_in_transaction(
                     connection,
-                    "bucket",
-                    "same",
+                    crate::object::ObjectKey::from_parts_unchecked("bucket", "same"),
                     Some(generation.get()),
                     Default::default(),
                     PERMISSIVE,
@@ -909,8 +906,7 @@ async fn validation_sees_same_name_source_before_retirement_and_completion_sees_
             move |connection, destination| {
                 let live = Catalog::check_derived_source_in_transaction(
                     connection,
-                    "bucket",
-                    "same",
+                    crate::object::ObjectKey::from_parts_unchecked("bucket", "same"),
                     None,
                     Default::default(),
                     PERMISSIVE,
@@ -1314,8 +1310,7 @@ async fn injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs() {
     );
     let session = catalog
         .create_resumable_session(
-            "bucket",
-            "upload",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "upload"),
             crate::storage::ResumableOptions::new(BucketAccess::Permissive),
             None,
         )
@@ -1540,8 +1535,7 @@ async fn committed_callback_deletion_reclaims_source_blob_without_restart() {
         .publish_derived(&transfer.id, destination("copy"), move |connection, _| {
             Catalog::delete_derived_source_in_transaction(
                 connection,
-                "bucket",
-                "source",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
                 original.generation.get(),
                 Default::default(),
                 PERMISSIVE,
@@ -1575,9 +1569,12 @@ async fn callback_reclamation_failure_preserves_success_and_maintenance_retries(
     let id = catalog
         .run(|connection| {
             Ok::<_, ObjectError>(
-                objects::lookup(connection, "bucket", "source")?
-                    .unwrap()
-                    .blob,
+                objects::lookup(
+                    connection,
+                    crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
+                )?
+                .unwrap()
+                .blob,
             )
         })
         .await
@@ -1589,8 +1586,7 @@ async fn callback_reclamation_failure_preserves_success_and_maintenance_retries(
         .publish_derived(&transfer.id, destination("copy"), move |connection, _| {
             Catalog::delete_derived_source_in_transaction(
                 connection,
-                "bucket",
-                "source",
+                crate::object::ObjectKey::from_parts_unchecked("bucket", "source"),
                 original.generation.get(),
                 Default::default(),
                 PERMISSIVE,

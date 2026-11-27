@@ -18,7 +18,7 @@ use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     acl::{AclEntry, AclKind, AclRole, AclTarget, Entity, MAX_ENTRIES, project_private},
     bucket::{BucketAccess, BucketConditions, CatalogError},
-    object::{ObjectConditions, ObjectError},
+    object::{ObjectConditions, ObjectError, ObjectKey},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -110,13 +110,8 @@ pub(super) fn effective_object_entries(
     record: &crate::object::ObjectRecord,
 ) -> Result<Vec<AclEntry>, CatalogError> {
     let row = bucket_row(connection, &record.bucket)?.ok_or(CatalogError::NotFound)?;
-    let mut entries = stored_object_entries(
-        connection,
-        &record.bucket,
-        &record.name,
-        record.generation.get(),
-    )?
-    .unwrap_or_else(|| project_private(&row.project));
+    let mut entries = stored_object_entries(connection, record.key(), record.generation.get())?
+        .unwrap_or_else(|| project_private(&row.project));
     if let Some(owner) = &record.owner {
         owner.preserve_grant(&mut entries);
     }
@@ -311,7 +306,8 @@ pub(crate) struct ObjectAclSnapshot {
 
 impl ObjectAclSnapshot {
     /// Whether the snapshot was recorded for this object generation.
-    pub(crate) fn matches_resource(&self, bucket: &str, name: &str, generation: i64) -> bool {
+    pub(crate) fn matches_resource(&self, key: ObjectKey<'_>, generation: i64) -> bool {
+        let (bucket, name) = key.parts();
         self.bucket == bucket && self.name == name && self.generation == generation
     }
 
@@ -495,11 +491,11 @@ pub(super) const OBJECT_GRANT_INPUTS: &str = "SELECT o.owner, e.entries FROM obj
 
 pub(super) fn object_granted(
     connection: &Connection,
-    bucket: &str,
-    name: &str,
+    key: ObjectKey<'_>,
     generation: i64,
     access: &BucketAccess,
 ) -> Result<bool, CatalogError> {
+    let (bucket, name) = key.parts();
     let BucketAccess::Policy {
         identity,
         permission,
@@ -555,10 +551,10 @@ pub(super) fn object_granted(
 
 fn stored_object_entries(
     connection: &Connection,
-    bucket: &str,
-    name: &str,
+    key: ObjectKey<'_>,
     generation: i64,
 ) -> Result<Option<Vec<AclEntry>>, CatalogError> {
+    let (bucket, name) = key.parts();
     const SELECT: &str = "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3";
     sql::optional_scalar::<String>(connection, SELECT, params![bucket, name, generation])?
         .map(|entries| decode(&entries, AclKind::Object))
@@ -604,8 +600,13 @@ fn target_access(
             bucket,
             name,
             generation,
-        } => super::objects::authorize_generation(connection, bucket, name, generation, access)
-            .map_err(object_access_error),
+        } => super::objects::authorize_generation(
+            connection,
+            crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+            generation,
+            access,
+        )
+        .map_err(object_access_error),
         ResolvedAclTarget::Bucket { bucket, .. } => {
             check_access(connection, bucket, project, access).map(|_| ())
         }
@@ -671,7 +672,11 @@ pub(super) fn replace_resource_acl(
                     let mut current = match target {
                         ResolvedAclTarget::Object {
                             name, generation, ..
-                        } => stored_object_entries(connection, bucket, name, generation)?,
+                        } => stored_object_entries(
+                            connection,
+                            crate::object::ObjectKey::from_parts_unchecked(bucket, name),
+                            generation,
+                        )?,
                         ResolvedAclTarget::Bucket { scope, .. } => {
                             stored_bucket_entries(connection, bucket, scope)?
                         }
@@ -786,10 +791,10 @@ fn load(
         AclTarget::Object {
             name, generation, ..
         } => {
+            let key = ObjectKey::from_parts_unchecked(bucket, name);
             let super::objects::StoredObject { record, .. } = selected(
                 connection,
-                bucket,
-                name,
+                key,
                 *generation,
                 ObjectConditions::default(),
                 super::objects::RequestKind::Read,
@@ -798,9 +803,8 @@ fn load(
             if row.uniform_access {
                 return Err(AclError::UniformAccess);
             }
-            let mut entries =
-                stored_object_entries(connection, bucket, name, record.generation.get())?
-                    .unwrap_or_else(|| project_private(&row.project));
+            let mut entries = stored_object_entries(connection, key, record.generation.get())?
+                .unwrap_or_else(|| project_private(&row.project));
             if let Some(owner) = &record.owner {
                 owner.preserve_grant(&mut entries);
             }

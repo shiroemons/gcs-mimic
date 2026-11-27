@@ -120,8 +120,7 @@ pub(crate) async fn execute(
     if replay.is_none() {
         await_upload_catalog(
             catalog.check_upload(
-                &destination.bucket,
-                &destination.name,
+                destination.key(),
                 destination.conditions,
                 &destination.access,
             ),

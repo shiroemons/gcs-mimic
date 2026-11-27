@@ -226,7 +226,8 @@ async fn add_acl(
     let AclSubjects::Object(object) = &rendered.subjects else {
         return Err(mismatch());
     };
-    if !snapshot.matches_resource(&object.bucket, &object.name, object.generation) {
+    let key = crate::object::ObjectKey::from_parts_unchecked(&object.bucket, &object.name);
+    if !snapshot.matches_resource(key, object.generation) {
         return Err(mismatch());
     }
     let access = ctx.authorize(auth::OBJECTS_GET_IAM, &object.bucket).await?;

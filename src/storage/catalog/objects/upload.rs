@@ -181,7 +181,10 @@ impl UploadCommit {
         }
         let bucket = authority.publication?;
         let storage_class = bucket.storage_class(self.metadata.storage_class)?;
-        let previous = bucket.lookup(transaction, &self.bucket, &self.name)?;
+        let previous = bucket.lookup(
+            transaction,
+            ObjectKey::from_parts_unchecked(&self.bucket, &self.name),
+        )?;
         // Rechecked under the write lock so a concurrent create cannot be overwritten.
         check_publication(
             previous.as_ref(),
@@ -321,18 +324,17 @@ impl Catalog {
     /// for. Publication repeats every part of it inside its own transaction.
     pub(crate) async fn check_upload(
         &self,
-        bucket: &str,
-        name: &str,
+        key: ObjectKey<'_>,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
-        let bucket = bucket.to_owned();
-        let name = name.to_owned();
+        let (bucket, name) = key.parts();
+        let target = ObjectTarget::new(bucket, name, ());
         let access = access.clone();
         let clock = self.0.policy.clock.clone();
         self.run_serialized_read(SerializedRead::AdvisoryUpload, move |connection| {
             let snapshot = sql::read_snapshot(connection)?;
-            check_upload_destination(&snapshot, &bucket, &name, conditions, &access, clock.now())
+            check_upload_destination(&snapshot, target.key(), conditions, &access, clock.now())
                 .map(drop)
         })
         .await
@@ -347,25 +349,19 @@ impl Catalog {
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     ) -> Result<ObjectRecord, ObjectError> {
         let permit = self
-            .prepare_object_upload(
-                upload.bucket,
-                upload.name,
-                upload.conditions,
-                &upload.access,
-            )
+            .prepare_object_upload(upload.key, upload.conditions, &upload.access)
             .await?;
         self.put_object_prechecked(upload, body, permit).await
     }
 
     pub(crate) async fn prepare_object_upload(
         &self,
-        bucket: &str,
-        name: &str,
+        key: ObjectKey<'_>,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<UploadGuard, ObjectError> {
         let permit = self.wait_object_upload().await?;
-        self.check_upload(bucket, name, conditions, access).await?;
+        self.check_upload(key, conditions, access).await?;
         Ok(permit)
     }
 
@@ -442,8 +438,7 @@ impl Catalog {
         owner: OwnerAssignment,
     ) -> Result<ObjectRecord, ObjectError> {
         let ObjectUpload {
-            bucket,
-            name,
+            key,
             content_type,
             expected,
             conditions,
@@ -451,6 +446,7 @@ impl Catalog {
             metadata,
             access,
         } = upload;
+        let (bucket, name) = key.parts();
         crate::object::validate_fixed_metadata("contentType", &content_type)?;
         metadata.validate()?;
         let catalog = self.clone();

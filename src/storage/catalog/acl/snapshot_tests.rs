@@ -119,8 +119,7 @@ async fn page_projection_preserves_generation_order_owner_and_access_restriction
                 .run::<_, CatalogError>(move |connection| {
                     match super::super::objects::authorize_generation(
                         connection,
-                        "bucket",
-                        "object",
+                        crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
                         generation.get(),
                         &checked,
                     ) {
@@ -292,8 +291,7 @@ async fn setup(data: &TestDir, backend: &str) -> (Catalog, Auth, crate::object::
     let record = catalog
         .put_object_prechecked(
             ObjectUpload {
-                bucket: "bucket",
-                name: "object",
+                key: crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
                 content_type: "text/plain".into(),
                 expected: ExpectedHashes::default(),
                 conditions: Default::default(),
@@ -536,10 +534,22 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 .iter()
                 .any(|entry| entry.entity.as_str() == "user-uploader@example.test")
         );
-        assert!(snapshot.matches_resource("bucket", "object", record.generation.get()));
-        assert!(!snapshot.matches_resource("other", "object", record.generation.get()));
-        assert!(!snapshot.matches_resource("bucket", "other", record.generation.get()));
-        assert!(!snapshot.matches_resource("bucket", "object", record.generation.get() + 1));
+        assert!(snapshot.matches_resource(
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            record.generation.get()
+        ));
+        assert!(!snapshot.matches_resource(
+            crate::object::ObjectKey::from_parts_unchecked("other", "object"),
+            record.generation.get()
+        ));
+        assert!(!snapshot.matches_resource(
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "other"),
+            record.generation.get()
+        ));
+        assert!(!snapshot.matches_resource(
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
+            record.generation.get() + 1
+        ));
         assert!(
             catalog
                 .object_acl_snapshot(snapshot.clone(), &access)

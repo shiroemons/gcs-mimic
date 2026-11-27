@@ -6,8 +6,7 @@ use crate::test_support::eventually_async;
 async fn create(catalog: &Catalog) -> appendable::AppendWriter {
     catalog
         .create_appendable(
-            "test-bucket",
-            "growing",
+            crate::object::ObjectKey::from_parts_unchecked("test-bucket", "growing"),
             resumable::ResumableOptions::new(BucketAccess::Permissive),
         )
         .await

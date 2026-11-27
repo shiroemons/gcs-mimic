@@ -410,8 +410,7 @@ pub(crate) async fn respond(
     }
     let permit = ctx
         .await_catalog(state.catalog.prepare_object_upload(
-            &operation.target.bucket,
-            &operation.target.name,
+            operation.target.key(),
             conditions,
             &access,
         ))
@@ -420,8 +419,7 @@ pub(crate) async fn respond(
     let (sender, body) = upload_channel();
     let upload = state.catalog.put_object_prechecked(
         ObjectUpload {
-            bucket: &operation.target.bucket,
-            name: &operation.target.name,
+            key: operation.target.key(),
             content_type,
             expected,
             conditions,

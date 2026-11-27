@@ -11,8 +11,7 @@ async fn create(
     clock.advance(Duration::from_millis(1));
     catalog
         .create_resumable_session(
-            "bucket",
-            "name",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "name"),
             ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
             None,
         )

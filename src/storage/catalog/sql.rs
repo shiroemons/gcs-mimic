@@ -35,6 +35,30 @@ revision_integer!(
     crate::object::generation::Metageneration,
 );
 
+impl<S: AsRef<str>> rusqlite::ToSql for crate::bucket::name::BucketKey<S> {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::Borrowed(self.as_str().into()))
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn bucket_keys_bind_the_original_text() {
+    use crate::bucket::name::BucketKey;
+    use rusqlite::{
+        ToSql,
+        types::{ToSqlOutput, ValueRef},
+    };
+
+    for raw in ["legacy_bucket#42", "a%z", "aé"] {
+        let owned = BucketKey::from_unchecked(raw.to_owned());
+        let borrowed = owned.as_key();
+        let expected = ToSqlOutput::Borrowed(ValueRef::Text(raw.as_bytes()));
+        assert_eq!(owned.to_sql().unwrap(), expected);
+        assert_eq!(borrowed.to_sql().unwrap(), expected);
+    }
+}
+
 #[cfg(test)]
 #[test]
 fn revision_columns_keep_integer_bytes_and_reject_nonpositive_values() {

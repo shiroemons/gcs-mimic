@@ -96,8 +96,7 @@ async fn appendable_with_bytes(dir: &TestDir, bytes: &'static [u8]) -> (Catalog,
         .unwrap();
     let mut writer = catalog
         .create_appendable(
-            "bucket",
-            "object",
+            crate::object::ObjectKey::from_parts_unchecked("bucket", "object"),
             ResumableOptions::new(BucketAccess::Permissive),
         )
         .await
