@@ -2,7 +2,8 @@ use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     json,
-    server::{DeadlineWatch, RequestBody},
+    server::DeadlineWatch,
+    service::body::RequestBody,
     storage::{
         Catalog,
         fault::{self, Fault, Step},

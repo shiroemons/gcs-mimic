@@ -10,10 +10,10 @@ use crate::{
         generation::{Generation, Metageneration},
     },
     server::{
-        ObjectCtx, RequestBody,
+        ObjectCtx,
         copy::{self, CopyBudget, CopyJob},
     },
-    service::body::{ResponseBody, boxed},
+    service::body::{RequestBody, ResponseBody, boxed},
     storage::DerivedDestination,
 };
 use hyper::{HeaderMap, Request, Response};

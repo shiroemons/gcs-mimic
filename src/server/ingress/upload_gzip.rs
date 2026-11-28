@@ -11,11 +11,11 @@
 //! Storage would read the body to its end and could then answer for its decoding instead.
 
 use super::{
-    DecodedBody, Decoding, RequestBody, RequestCtx, UploadDecoder, bad_request,
-    has_single_gzip_coding,
+    RequestCtx, UploadDecoder, bad_request, has_single_gzip_coding,
     members::{self, Members},
     without_coding,
 };
+use crate::service::body::{DecodedBody, Decoding, RequestBody};
 use crate::{
     json::ApiError,
     server::{CHUNK_BYTES, chunk_body, gzip::GzipError},
@@ -68,10 +68,7 @@ pub(super) async fn request(
         body,
     } = chunk_body::checked_channel("Gzip producer ended before validated EOF");
     let decoding = Arc::new(Decoding::default());
-    let decoded = DecodedBody {
-        body,
-        decoding: Arc::clone(&decoding),
-    };
+    let decoded = DecodedBody::new(body, Arc::clone(&decoding));
     let outcome = UploadDecoder(Some(Arc::clone(&decoding)));
     let expanded = ctx
         .config
@@ -219,7 +216,7 @@ async fn stream(
             }
             // Input only ever blocks, so every other error is a decode failure.
             Err(error) => {
-                let _ = decoding.undecodable.set(());
+                decoding.mark_undecodable();
                 return Err(error.into());
             }
         }
@@ -289,7 +286,7 @@ mod tests {
             .await
             .unwrap_err();
             assert!(
-                decoding.undecodable.get().is_none(),
+                !decoding.is_undecodable(),
                 "a budget is not a decode failure"
             );
             assert_eq!(error.to_string(), message);

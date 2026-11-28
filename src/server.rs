@@ -49,7 +49,7 @@ use crate::service::{
         AfterResponse, Expiry, ExpiryClaim, ObjectActivity, RequestStage, RequestStep,
         ResponseWork, claim_expiry, expiry_claimed,
     },
-    body::{ResponseBody, boxed, empty_response},
+    body::{RequestBody, ResponseBody, boxed, empty_response},
     chunk_body,
 };
 pub(crate) use crate::xml::CorsWarnings;
@@ -156,7 +156,6 @@ pub(crate) mod unix;
 pub(crate) mod upload_drive;
 mod xml_read;
 pub(crate) use context::{DeadlineWatch, ObjectCtx, RequestCtx};
-pub(crate) use ingress::RequestBody;
 #[cfg(test)]
 pub(crate) use routing::bucket_answer;
 

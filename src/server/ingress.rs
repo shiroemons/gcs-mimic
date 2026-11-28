@@ -1,136 +1,24 @@
-//! Transport input normalization before API routing and authentication: the request body every
-//! adapter reads, the JSON method override, and the transport gzip that Cloud Storage's front end
-//! removes before it routes a JSON API request.
+//! Transport input normalization before API routing and authentication: the JSON method override,
+//! and the transport gzip that Cloud Storage's front end removes before it routes a JSON API
+//! request.
 
-use super::{RESOURCE_BODY_LIMIT, RequestCtx, ResponseBody, boxed};
-use crate::service::activity::{BodyRead, ObjectActivity};
+use super::{RESOURCE_BODY_LIMIT, RequestCtx};
+use crate::service::body::{Decoding, RequestBody, ResponseBody, boxed};
 use crate::{auth::Caller, json::ApiError, json::JsonErrorResponse};
 use http_body_util::{BodyExt, Full};
 use hyper::{
     HeaderMap, Method, Request, Response, StatusCode,
-    body::{Body, Bytes, Frame, Incoming, SizeHint},
+    body::{Body, Bytes},
     header::{CONTENT_ENCODING, CONTENT_LENGTH, HeaderValue, TRANSFER_ENCODING},
 };
 use std::{
     io::{self, Read},
-    pin::Pin,
-    sync::{Arc, OnceLock},
-    task::{Context, Poll},
+    sync::Arc,
 };
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::Semaphore;
 
 mod members;
 mod upload_gzip;
-
-/// Synthetic batch parts and decoded metadata use the same dispatch as network input.
-pub(crate) enum RequestBody {
-    Transport(TransportBody),
-    Buffered(Full<Bytes>),
-    Decoded(DecodedBody),
-}
-
-/// A request body arriving from the client. Every adapter reads through here, so the
-/// connection's watchdog learns from one place when a request is waiting on the client:
-/// a stalled body on any route is then bounded by body inactivity, not by the request deadline.
-#[must_use = "dropping the body ends transport body-read tracking"]
-pub(crate) struct TransportBody<B = Incoming> {
-    body: B,
-    activity: watch::Sender<ObjectActivity>,
-}
-
-impl<B> TransportBody<B> {
-    fn report(&self, read: BodyRead) {
-        self.activity
-            .send_if_modified(|progress| progress.set_body_read(read));
-    }
-}
-
-impl<B> Drop for TransportBody<B> {
-    fn drop(&mut self) {
-        self.report(BodyRead::NotPending);
-    }
-}
-
-impl<B> Body for TransportBody<B>
-where
-    B: Body<Data = Bytes> + Unpin,
-    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    type Data = Bytes;
-    type Error = io::Error;
-
-    fn poll_frame(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
-        let this = self.get_mut();
-        let polled = Pin::new(&mut this.body).poll_frame(cx);
-        match &polled {
-            // Only here does the request wait on the client, so only this starts its silence.
-            Poll::Pending => this.report(BodyRead::Pending),
-            Poll::Ready(Some(Ok(_))) => {
-                // A delivered frame is the server's until it asks for the next one, so work
-                // between frames, such as a write that waits for the disk, counts against the
-                // request deadline instead of the client's silence. Notifying even when the
-                // state is unchanged makes every frame renew the limit.
-                this.activity.send_modify(|progress| {
-                    progress.set_body_read(BodyRead::NotPending);
-                });
-            }
-            Poll::Ready(Some(Err(_)) | None) => this.report(BodyRead::NotPending),
-        }
-        // xtask-lint: allow(text::io_error_other) -- The request body exposes io::Error and retains the transport error as its payload.
-        polled.map(|frame| frame.map(|result| result.map_err(io::Error::other)))
-    }
-
-    fn is_end_stream(&self) -> bool {
-        self.body.is_end_stream()
-    }
-
-    fn size_hint(&self) -> SizeHint {
-        self.body.size_hint()
-    }
-}
-
-impl RequestBody {
-    pub(super) fn transport(body: Incoming, activity: watch::Sender<ObjectActivity>) -> Self {
-        Self::Transport(TransportBody { body, activity })
-    }
-}
-
-impl Body for RequestBody {
-    type Data = Bytes;
-    type Error = io::Error;
-
-    fn poll_frame(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
-        match self.get_mut() {
-            Self::Transport(body) => Pin::new(body).poll_frame(cx),
-            Self::Buffered(body) => Pin::new(body)
-                .poll_frame(cx)
-                .map(|frame| frame.map(|result| result.map_err(|never| match never {}))),
-            Self::Decoded(body) => Pin::new(body).poll_frame(cx),
-        }
-    }
-
-    fn is_end_stream(&self) -> bool {
-        match self {
-            Self::Transport(body) => body.is_end_stream(),
-            Self::Buffered(body) => body.is_end_stream(),
-            Self::Decoded(body) => body.is_end_stream(),
-        }
-    }
-
-    fn size_hint(&self) -> SizeHint {
-        match self {
-            Self::Transport(body) => body.size_hint(),
-            Self::Buffered(body) => body.size_hint(),
-            Self::Decoded(body) => body.size_hint(),
-        }
-    }
-}
 
 fn bad_request(message: &'static str) -> ApiError {
     ApiError::new(StatusCode::BAD_REQUEST, "badRequest", message)
@@ -308,50 +196,6 @@ fn without_coding(mut parts: hyper::http::request::Parts, decoded: Bytes) -> Req
     Request::from_parts(parts, RequestBody::Buffered(Full::new(decoded)))
 }
 
-/// What became of a streamed upload's decoding, shared by its decoder, its body and its
-/// [`UploadDecoder`].
-#[derive(Default)]
-struct Decoding {
-    /// The decoder found that the body does not decode.
-    undecodable: OnceLock<()>,
-    /// The handler read that failure from the body.
-    reported: OnceLock<()>,
-}
-
-/// The decoded body of a streamed upload.
-pub(crate) struct DecodedBody {
-    body: super::chunk_body::CheckedBody,
-    decoding: Arc<Decoding>,
-}
-
-impl Body for DecodedBody {
-    type Data = Bytes;
-    type Error = io::Error;
-
-    fn poll_frame(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
-        let this = self.get_mut();
-        let polled = Pin::new(&mut this.body).poll_frame(cx);
-        // The decoder records the failure before it sends the error that reports it, so an
-        // error read after the record is that failure.
-        if matches!(polled, Poll::Ready(Some(Err(_)))) && this.decoding.undecodable.get().is_some()
-        {
-            let _ = this.decoding.reported.set(());
-        }
-        polled
-    }
-
-    fn is_end_stream(&self) -> bool {
-        self.body.is_end_stream()
-    }
-
-    fn size_hint(&self) -> SizeHint {
-        self.body.size_hint()
-    }
-}
-
 /// The decoder streaming an upload's body, if [`expand`] started one. A handler that reads a
 /// body that does not decode answers for a failed read; Cloud Storage's front end answers
 /// [`ApiError::undecodable_body`] instead, so [`Self::settle`] puts that answer in its place. A
@@ -361,10 +205,7 @@ pub(super) struct UploadDecoder(Option<Arc<Decoding>>);
 
 impl UploadDecoder {
     pub(super) fn settle(self, response: Response<ResponseBody>) -> Response<ResponseBody> {
-        if self
-            .0
-            .is_some_and(|decoding| decoding.reported.get().is_some())
-        {
+        if self.0.is_some_and(|decoding| decoding.is_reported()) {
             return boxed(ApiError::undecodable_body().into_response());
         }
         response
@@ -412,58 +253,17 @@ mod tests {
     use crate::{
         auth::Auth,
         config::Config,
-        server::{ObjectActivity, State, WorkPools},
+        server::{State, WorkPools},
+        service::activity::ObjectActivity,
         storage::Catalog,
     };
-    use std::{collections::VecDeque, convert::Infallible, io::Write, sync::Arc, time::Duration};
-
-    type Polled = Poll<Option<Result<Frame<Bytes>, Infallible>>>;
+    use std::{io::Write, sync::Arc, time::Duration};
+    use tokio::sync::watch;
 
     /// Bounds an answer that must not wait for a decoder permit. A wait for a held permit never
     /// ends, while a loaded runner can take seconds over an answer that waits for none, so only a
     /// limit far beyond that tells the two apart.
     const HANG_GUARD: Duration = Duration::from_secs(20);
-
-    /// Answers each poll with the next scripted result.
-    struct Scripted(VecDeque<Polled>);
-
-    impl Body for Scripted {
-        type Data = Bytes;
-        type Error = Infallible;
-
-        fn poll_frame(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Polled {
-            self.0.pop_front().unwrap_or(Poll::Ready(None))
-        }
-    }
-
-    fn client_paced(progress: &watch::Receiver<ObjectActivity>) -> bool {
-        matches!(
-            progress.borrow().step(),
-            super::super::RequestStep::ClientPaced
-        )
-    }
-
-    /// A slow write between frames is the server's work, so only a wait on the client counts as
-    /// the client's silence, and every delivered frame still renews the limit.
-    #[test]
-    fn only_a_wait_on_the_client_counts_as_its_silence() {
-        let frame = || Poll::Ready(Some(Ok(Frame::data(Bytes::from_static(b"chunk")))));
-        let (activity, mut progress) = watch::channel(ObjectActivity::default());
-        let mut body = TransportBody {
-            body: Scripted(VecDeque::from([frame(), frame(), Poll::Pending, frame()])),
-            activity,
-        };
-        let mut cx = Context::from_waker(std::task::Waker::noop());
-        for (poll, waits_on_client) in [(1, false), (2, false), (3, true), (4, false)] {
-            let _ = Pin::new(&mut body).poll_frame(&mut cx);
-            assert!(
-                progress.has_changed().unwrap(),
-                "poll {poll} restarts the watch's count"
-            );
-            progress.mark_unchanged();
-            assert_eq!(client_paced(&progress), waits_on_client, "poll {poll}");
-        }
-    }
 
     #[test]
     fn work_pools_scale_with_blocking_threads_and_do_not_share_permits() {

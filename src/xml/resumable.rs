@@ -4,7 +4,7 @@
 
 use super::{Error, HeaderKind, ObjectPath, Validators, XmlCode, accepted_parameter, put};
 use crate::object::ObjectKey;
-use crate::server::RequestBody as Incoming;
+use crate::service::body::RequestBody as Incoming;
 use crate::{
     auth,
     bucket::name::BucketKey,
