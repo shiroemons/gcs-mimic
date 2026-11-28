@@ -268,3 +268,19 @@ with the conversion and the authority helpers in their new places. No test
 reaches the defensive size branch in `bucket_init::records()`, so its
 equivalence with the former `serde_json::to_vec` measurement rests on the
 entry's field types and on `preserve_order`.
+
+## Notification renderer, 2026-11-28
+
+`just check` passed on the source in which `notification::event` renders a
+`JSON_API_V1` payload through `notification::JsonApiObject`, which the JSON
+adapter implements for `ObjectRecord` with the former `noAcl` rendering and
+empty endpoint, and encodes it with the foundation `base64::encode`. Its Rust
+lane passed 4,192 tests with the same Pub/Sub case ignored; no test was added,
+because the payload is unchanged. The payload field order test in
+`json::object_tests` and the notification outbox tests, which build their
+expected data through `json::object_resource` and `json::base64`, passed
+through the trait. The production gate counted zero new violations, 43
+ratcheted findings and nine reasoned suppressions on the host, after the two
+`notification::event` layer findings left the baseline, and zero new Clippy
+violations for the three other targets. The ledger check validated 611
+feature rows.
