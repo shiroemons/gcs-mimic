@@ -26546,14 +26546,15 @@
             "legacy_profile_reports_no_owner_under_uniform_access",
             "legacy_profile_reports_no_owner_under_uniform_access_to_a_strict_caller"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["a_stored_resource_names_its_version_only_with_every_identity_field"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "Strict callers without getIamPolicy get no ACL fields instead of an error, a local choice without production projection parity. After an ACL change, a completed resumable session's later answers list the current entries with the etags of its stored resource's metageneration (inferred, not recorded)."
       ],
       "implemented_in": "39ea714194c25fa06b1a6c6a933f0d946bb2db9e",
-      "last_verified": "2026-11-17"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "BEHAVIOR-COMMON-006",
