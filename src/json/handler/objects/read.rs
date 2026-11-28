@@ -1,19 +1,21 @@
 //! JSON API object reads: media downloads and metadata.
 
 use crate::json::JsonErrorResponse;
-use crate::server::RequestBody as Incoming;
+use crate::service::body::RequestBody as Incoming;
 use crate::service::object_headers::{self, EtagConditions};
 use crate::storage::ObjectReader;
 use crate::{
     bucket::BucketAccess,
     json,
     json::ApiError,
-    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
-    server::{
-        ALLOWED_RESOURCES_VARY, ObjectCtx, QueryPrecondition, ResponseBody, ValidatedRead, acl,
-        boxed, empty_response, invalid_etag_header, not_modified_response, read_metadata_response,
+    json::handler::{
+        ALLOWED_RESOURCES_VARY, QueryPrecondition, ValidatedRead, acl, invalid_etag_header,
+        not_modified_response, read_metadata_response,
     },
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     service::{
+        body::{ResponseBody, boxed, empty_response},
+        context::ObjectCtx,
         gzip,
         media::{self, body_read_ahead, insert_content_range, insert_unsatisfied_content_range},
         object_body::object_body,

@@ -1,10 +1,20 @@
-use super::RequestBody as Incoming;
-use super::*;
+//! JSON notification configuration handlers.
+
+use super::{json_response, require_empty_body};
+use crate::bounded_body::RESOURCE_BODY_LIMIT;
 use crate::json::notifications::{
     NotificationRequest, notification_list, notification_not_found, notification_resource,
     parse_notification_head, topic_not_found, topic_unverifiable,
 };
-use crate::service::object_headers;
+use crate::service::body::{RequestBody as Incoming, empty_response};
+use crate::service::{access::bucket_access, object_headers, state::State};
+use crate::{
+    auth::Caller,
+    bucket::{BucketAccess, CatalogError},
+    json::{self, ApiError},
+};
+use http_body_util::Full;
+use hyper::{Request, Response, StatusCode, body::Bytes};
 
 /// Serve `storage.notifications.*`. Configurations are persisted per bucket and read back;
 /// gcs-mimic never publishes Pub/Sub messages for them.

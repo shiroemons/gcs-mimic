@@ -3,7 +3,8 @@
 use crate::json::JsonErrorResponse;
 use crate::{
     json::ApiError,
-    server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
+    json::handler::json_response,
+    server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx},
     storage::admin::AdminError,
 };
 use http_body_util::Full;

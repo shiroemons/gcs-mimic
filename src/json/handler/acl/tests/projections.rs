@@ -4,7 +4,8 @@ use crate::{
     auth::{Auth, Caller, ListenerRole, Registry},
     config::{Config, RequestEndpoints},
     profile::CompatProfile,
-    server::{ObjectActivity, RequestBody, RequestCtx, State, routing},
+    server::routing,
+    service::{activity::ObjectActivity, body::RequestBody, context::RequestCtx, state::State},
     storage::{
         AclChange, Catalog,
         fault::Step,

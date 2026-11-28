@@ -12,9 +12,9 @@ use super::{ApiError, JsonErrorResponse, parse_error};
 use crate::{
     auth::Caller,
     error::golden_tests::{Transcript, http_response},
+    json::handler::{anonymous_error, bucket_answer},
     json::{ResponseFormat, with_format},
     profile::CompatProfile,
-    server::{anonymous_error, bucket_answer},
     storage::failure::test_support::{self as domain, Case, case, every_variant},
 };
 use constructors::{KindCoverage, constructor_cases};

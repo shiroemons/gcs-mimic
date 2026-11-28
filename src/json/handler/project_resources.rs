@@ -1,12 +1,13 @@
 //! Dispatch for project-scoped JSON resources: HMAC keys and the service agent.
-use super::RequestBody as Incoming;
 use super::{
-    EmptyJsonBody, RESOURCE_BODY_LIMIT, State, authorize_project, empty_response, json_response,
-    require_empty_body, validate_bodyless_post,
+    EmptyJsonBody, authorize_project, json_response, require_empty_body, validate_bodyless_post,
 };
 use crate::auth::{AuthFailure, Caller, Permission};
+use crate::bounded_body::RESOURCE_BODY_LIMIT;
 use crate::json::ApiError;
 use crate::json::{self, Fields, ProjectRequest};
+use crate::service::body::{RequestBody as Incoming, empty_response};
+use crate::service::state::State;
 use crate::storage::hmac_keys::HmacKeyListQuery;
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Bytes};

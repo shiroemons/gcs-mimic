@@ -1,14 +1,16 @@
 //! JSON API bucket operations: one handler per operation after shared authorization and
 //! request validation.
 
-use super::RequestBody as Incoming;
 use super::{
-    EmptyJsonBody, QueryPrecondition, RESOURCE_BODY_LIMIT, State, ValidatedRead,
+    EmptyJsonBody, QueryPrecondition, ValidatedRead,
     acl::{self, AclSubjects, BucketVersion, Rendered},
-    authorize_project, bucket_access, empty_response, json_response_selected,
-    read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
+    authorize_project, json_response_selected, read_metadata_response, require_empty_body,
+    response_fields, validate_bodyless_post,
 };
+use crate::bounded_body::RESOURCE_BODY_LIMIT;
+use crate::service::body::{RequestBody as Incoming, empty_response};
 use crate::service::object_headers;
+use crate::service::{access::bucket_access, state::State};
 use crate::{
     acl::Projection,
     auth::{self, Caller},

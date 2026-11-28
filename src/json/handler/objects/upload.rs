@@ -2,7 +2,7 @@
 
 use super::{AclSource, Written, idempotency_token};
 use crate::object::ObjectKey;
-use crate::server::RequestBody as Incoming;
+use crate::service::body::RequestBody as Incoming;
 use crate::service::object_headers;
 use crate::service::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, stream_upload, upload_channel,
@@ -13,7 +13,7 @@ use crate::{
     json::ApiError,
     json::{self, UploadRequest},
     object::{ExpectedHashes, ObjectError, ObjectRecord, UploadChunk},
-    server::ObjectCtx,
+    service::context::ObjectCtx,
     storage::{ObjectUpload, ReplayInvocation, UploadCheck},
 };
 use hyper::{

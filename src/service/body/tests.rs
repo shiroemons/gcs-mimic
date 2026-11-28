@@ -20,6 +20,24 @@ fn client_paced(progress: &watch::Receiver<ObjectActivity>) -> bool {
     matches!(progress.borrow().step(), RequestStep::ClientPaced)
 }
 
+#[test]
+fn body_presence_compares_content_length_numerically() {
+    for (value, expected) in [
+        ("0", false),
+        ("00", false),
+        (" 00 ", false),
+        ("01", true),
+        ("invalid", true),
+    ] {
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("content-length", value.parse().unwrap());
+        assert_eq!(has_body(&headers), expected, "{value}");
+        headers.insert("transfer-encoding", "chunked".parse().unwrap());
+        assert!(has_body(&headers));
+    }
+    assert!(!has_body(&hyper::HeaderMap::new()));
+}
+
 /// A slow write between frames is the server's work, so only a wait on the client counts as
 /// the client's silence, and every delivered frame still renews the limit.
 #[test]

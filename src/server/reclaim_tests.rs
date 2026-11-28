@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::auth::Auth;
+use crate::storage::Catalog;
 use crate::test_support::TestDir;
 use http_body_util::Empty;
 use std::task::{Context, Waker};

@@ -1,9 +1,10 @@
-//! Pure JSON bucket and object API building blocks; no catalog, authorization or socket access.
+//! The JSON API adapter. Its request parsers and resource renderers are pure, with no catalog,
+//! authorization or socket access; [`handler`] runs the parsed operations against the catalog.
 //!
 //! [`route`] parses raw paths and queries into [`BucketRequest`]; other routes return `None`.
 //! [`crate::bounded_body::read_body`] bounds collection before [`parse_insert`] creates a shared
 //! bucket record.
-//! The caller performs catalog operations and atomic condition checks, then renders metadata
+//! The handlers perform catalog operations and atomic condition checks, then render metadata
 //! with [`bucket_resource_with_profile`] / [`bucket_list_with_profile`] using its advertised endpoint.
 //! [`encode_page_token`] creates project/prefix-bound continuation cursors.
 //! [`error`] renders the [`ApiError`] as the JSON error envelope and its HTTP responses.
@@ -24,6 +25,7 @@ mod envelope;
 mod error;
 mod fields;
 mod format;
+pub(crate) mod handler;
 mod iam;
 mod integer;
 mod multipart;

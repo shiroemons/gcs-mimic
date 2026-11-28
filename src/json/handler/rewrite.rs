@@ -1,19 +1,26 @@
-use super::RequestBody as Incoming;
-use super::*;
+//! The JSON objects.rewrite handler: one detached step of a rewrite session per call.
+
+use super::{json_response, reject_headers};
+use crate::bounded_body::RESOURCE_BODY_LIMIT;
+use crate::service::body::{RequestBody as Incoming, ResponseBody, boxed};
+use crate::service::context::ObjectCtx;
 use crate::service::object_headers::{self, EtagConditions};
 use crate::{
+    auth,
+    bucket::{BucketAccess, CatalogError},
     csek::CopyKeys,
-    json::rewrite::RewriteRequest,
-    object::{ObjectConditions, content_type, generation::Generation},
+    json::{self, ApiError, rewrite::RewriteRequest},
+    object::{ObjectConditions, ObjectError, content_type, generation::Generation},
     service::activity::begin_catalog_wait,
     storage::{
-        DerivedDestination,
+        Catalog, DerivedDestination,
         rewrite::{
             RewriteBinding, RewriteError, RewriteProgress, RewriteSession, RewriteStart,
             RewriteStep,
         },
     },
 };
+use hyper::{Request, Response, StatusCode};
 use serde_json::Value;
 
 /// The parameters a new rewrite session binds: the request's, then the response defaults it

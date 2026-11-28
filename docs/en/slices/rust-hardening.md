@@ -340,7 +340,7 @@ Pending the evidence below:
   be repeated under the no-live-contact policy.
 - **Wording for anonymous gRPC v2 denials.** `grpc::v2::status::anonymous`
   returns “Login Required”. The JSON, XML and gRPC v1 adapters name the denied
-  permission and the anonymous caller in `server::anonymous_error`,
+  permission and the anonymous caller in `json::handler::anonymous_error`,
   `xml::Error::for_caller` and `grpc::v1::access_status`. No pinned source
   specifies that wording. Choose whether v2 keeps its shorter message or names
   the permission too.
@@ -455,10 +455,11 @@ findings in new files.
 | gRPC HTTP/2 connection serving | `grpc` → `server::grpc_listener` |
 | Read pieces both object reads use (`server::gzip`, `body_read_ahead`, the `Content-Range` writers, `object_body`) | `service::gzip`, `service::media`, `service::object_body` |
 | JSON handlers in `server`; `server::xml_read` | `json::handler`; `xml::read` |
+| The Discovery resumable alias marker (`ProtocolUpload`, the upload path prefixes, `session_path_prefix`); `has_body` | `server::routing` → `json::resumable`; `server` → `service::body` |
 
 `RequestBody` lives in `service::body` with the response body, so `xml` reads
 it without reaching `server` or `json`. `RequestCtx` no longer rebases JSON
-links: `rebase_stored_links` stays in `server` with the JSON rewrite and
+links: `rebase_stored_links` lives in `json::handler` with the JSON rewrite and
 resumable handlers that use it, and `xml::Authentication::new` builds the XML
 authentication inputs from a `RequestCtx`.
 
@@ -1408,7 +1409,8 @@ remove none, so the rule reaches zero tolerance as early as possible.
 | `service`, part two | the resumable engine that `xml::resumable` drives (`SessionTarget`, `Transfer`, `create_session`, `transfer`) into `service::resumable`. The stored JSON completion goes behind two traits: `StoredCompletion`, which the JSON adapter implements for `ObjectRecord` with `object_resource_keyed`, and `CompletionAnswer`, which the JSON session handler implements for `ResumableOptions`, with an `AnswerView` that applies `rebase_stored_links`, `add_full_projection_to_stored` and `Fields`, so XML session URIs answer through the same options as before. `SessionUri` names which API's session URI a request uses, in place of an optional object name. The header rules both adapters reach through the engine move to `service::object_headers` (`single`, `unsigned`, `upload_content_type` and the unsupported and conditional header checks) and `service::resumable::session_headers` (`Content-Range`, `final_options`); `json::request_key` becomes `csek::request_key`, beside a new `csek::source_key`. Ledger IDs under `server::resumable::tests` become `service::resumable::tests` |
 | gRPC listener | the HTTP/2 connection driver (`serve_connection`, `Transport`, the connection phases, stream tracking and the HTTP/2 builder) into `server::grpc_listener`; `grpc` keeps `StorageRouter`, which the driver hands each call. The connection tests, the TLS transport tests and the call metadata tests, which drive calls through both, move to `server::grpc_listener::tests`, and ledger IDs under `grpc::tests::transport` follow them. The Storage service memory tests stay in `grpc::tests` |
 | XML read | `server::xml_read` into `xml::read`, after the read pieces it shares with the JSON read move to `service`: `server::gzip` with its tests into `service::gzip`, `body_read_ahead` and the `Content-Range` writers into `service::media`, and `object_body` into `service::object_body`. The two routed read tests drive JSON writes and XML reads through `server::routing`, so they stay in the transport as `server::xml_read_tests`, and ledger IDs under `server::xml_read::tests` follow them |
-| JSON handlers and `server.rs` files | `json::handler`, the transport split |
+| JSON handlers | the JSON operation handlers (`acl`, `buckets`, `notifications`, `objects`, `project_resources`, `resumable` and `rewrite`), the JSON route parser with its table of refused routes, the per-route dispatch of `server::routing` and the request checks and resource responses those handlers share in `src/server.rs` into `json::handler`. `server::routing` still classifies the target and parses the JSON route, then hands it to `json::handler::respond`. `ProtocolUpload` and `session_path_prefix`, which the router sets and the session handler reads, move to `json::resumable`, and `has_body`, which the probes also read, to `service::body`. The handler tests move with their modules, and the unit tests of `has_body`, `require_empty_body` and `not_modified_response` leave `server::protocol_tests` for theirs. The ACL projection tests still send requests through `server::routing`, which becomes crate-visible for that test driver |
+| `server.rs` files | the transport split |
 | Config documents | the parse half moves to the settings layer |
 | `fsutil` per OS | `cfg_select!` inside bodies; `scripts/check-cross.sh` and the portability CI job |
 | Protobuf crate | generated code in its own crate, with the build measurement |
