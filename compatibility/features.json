@@ -56255,7 +56255,8 @@
           "test_ids": [
             "guide-resumable-host"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["a_session_opened_through_one_host_completes_through_another"]}
       ],
       "sdk_evidence": [
         {
@@ -56276,7 +56277,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "DESIGN-058",
@@ -64724,7 +64725,8 @@
           ]
         },
         {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["auth::error_text_and_sources", "config::auth::error_text_and_sources"]},
-        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["service::media::error_text_and_sources", "service::copy::error_text_and_sources"]}
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["service::media::error_text_and_sources", "service::copy::error_text_and_sources"]},
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["service::resumable::tests::json_completion_keeps_the_text_stored_in_sqlite", "json::error::golden_tests::every_error_keeps_its_json_response"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [],
@@ -65717,7 +65719,8 @@
           "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/ledger-test-ids.md",
           "test_ids": ["config_input::tests::default_seed_is_adopted_only_when_present_and_disjoint", "bucket_init::tests::initializer_location_normalizes_names_and_defaults"]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["a_session_opened_through_one_host_completes_through_another"]}
       ],
       "sdk_evidence": [
         {
@@ -65756,7 +65759,7 @@
         "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-25"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "UX-004",
