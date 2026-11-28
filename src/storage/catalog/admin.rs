@@ -1,10 +1,9 @@
 //! Trusted local administration; never construct this authority from an API request.
 //!
-//! Administrative grants are minted only here: Clippy's `disallowed_methods` rejects
-//! `AdminGrant::new` in the rest of the crate, and code outside the crate cannot name the type:
+//! Administrative grants are minted only here: `cargo xtask lint` rejects `AdminGrant::new` in
+//! the crate's other production code, and code outside the crate cannot name the type:
 //! ```compile_fail
-//! use gcs_mimic::bucket::admin_grant::{AdminGrant, Origin};
-//! let grant = AdminGrant { origin: Origin::Seed };
+//! use gcs_mimic::bucket::admin_grant::AdminGrant;
 //! ```
 //! Raw staging handles and SQL callback entry points stay inside the crate:
 //! ```compile_fail
@@ -461,16 +460,13 @@ impl Catalog {
     }
     /// Operator-owned input only; API handlers must continue through their auth profile.
     pub fn admin(&self, origin: Origin) -> Admin {
+        let notification_mode = match origin {
+            Origin::Seed | Origin::Import => NotificationMode::Suppress,
+            Origin::Api | Origin::BucketInit => NotificationMode::Emit,
+        };
         Admin {
             catalog: self.clone(),
-            grant: mint(
-                origin,
-                if matches!(origin, Origin::Seed | Origin::Import) {
-                    NotificationMode::Suppress
-                } else {
-                    NotificationMode::Emit
-                },
-            ),
+            grant: mint(origin, notification_mode),
         }
     }
 
@@ -571,7 +567,7 @@ impl Catalog {
 impl Admin {
     pub(crate) fn with_notification_mode(self, mode: NotificationMode) -> Self {
         Self {
-            grant: self.grant.with_notification_mode(mode),
+            grant: mint(self.grant.origin(), mode),
             ..self
         }
     }
