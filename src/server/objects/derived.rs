@@ -9,11 +9,8 @@ use crate::{
     json,
     json::ApiError,
     object::{ObjectError, ObjectRecord, ObjectTarget, generation::Generation},
-    server::{
-        ObjectCtx, RESOURCE_BODY_LIMIT,
-        copy::{self, CopyBudget, CopyJob},
-        reject_headers,
-    },
+    server::{ObjectCtx, RESOURCE_BODY_LIMIT, reject_headers},
+    service::copy::{self, CopyBudget, CopyJob},
     storage::{CopyReplay, CopyReplaySource, DerivedDestination, ReplayInvocation},
 };
 use hyper::Request;

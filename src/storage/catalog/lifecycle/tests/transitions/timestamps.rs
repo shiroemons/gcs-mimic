@@ -111,16 +111,16 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
                     .await
                     .unwrap();
                 let (activity, _updates) = tokio::sync::watch::channel(Default::default());
-                crate::server::copy::execute(
+                crate::service::copy::execute(
                     &catalog,
-                    crate::server::copy::CopyJob {
+                    crate::service::copy::CopyJob {
                         source,
                         source_access: BucketAccess::Permissive,
                         destination,
                         source_location: None,
                         replay: None,
                     },
-                    crate::server::copy::CopyBudget {
+                    crate::service::copy::CopyBudget {
                         config: &Default::default(),
                         deadline: crate::time_limit::TimeLimit::DISABLED.deadline(),
                         activity: &activity,

@@ -45,16 +45,16 @@ async fn md5_availability_survives_restart_without_component_count() {
     assert_eq!(reopened, record);
     let selected = source(&catalog, "multipart").await;
     let (activity, _updates) = tokio::sync::watch::channel(Default::default());
-    let copy = crate::server::copy::execute(
+    let copy = crate::service::copy::execute(
         &catalog,
-        crate::server::copy::CopyJob {
+        crate::service::copy::CopyJob {
             source: selected,
             source_access: BucketAccess::Permissive,
             destination: destination("copy"),
             source_location: None,
             replay: None,
         },
-        crate::server::copy::CopyBudget {
+        crate::service::copy::CopyBudget {
             config: &crate::config::Config::default(),
             deadline: tokio::time::Instant::now() + std::time::Duration::from_secs(10),
             activity: &activity,

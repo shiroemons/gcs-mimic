@@ -12793,7 +12793,7 @@
           "test_ids": [
             "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
             "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants",
-            "server::copy::tests::copy_rechecks_source_read_grant_before_publication"
+            "service::copy::tests::copy_rechecks_source_read_grant_before_publication"
           ],
           "result": "PASS"
         },
@@ -12883,14 +12883,14 @@
           "id": "COPY-REQUEST-CONTROL",
           "description": "Deterministic slow streaming exceeds the catalog wait budget without false failure; handler drop and advance failure reclaim transfers; source/destination replacement and class changes during streaming honor selected boundaries; publication admission timeout cannot later commit. Shutdown/reopen reclaims an interrupted transfer without publishing a destination. A failed advisory create-if-absent check never begins a transfer; publication-timeout regression has an outer bounded failure.",
           "test_ids": [
-            "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
-            "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
-            "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
-            "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
-            "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
-            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
-            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
-            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+            "service::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+            "service::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+            "service::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+            "service::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+            "service::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+            "service::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+            "service::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "service::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
           ],
           "result": "PASS"
         },
@@ -12942,19 +12942,19 @@
         "storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object",
         "TestObjectCopyJSON",
         "TestObjectCopyHighLevelCopierUsesRewrite",
-        "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
-        "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
-        "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
-        "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
-        "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
-        "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
-        "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+        "service::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+        "service::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+        "service::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+        "service::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+        "service::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+        "service::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+        "service::copy::tests::shutdown_during_copy_recovers_without_a_destination",
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
         "getting-started:copy-rewrite-compose:native",
         "getting-started:copy-rewrite-compose:docker",
-        "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer",
-        "server::copy::tests::copy_rechecks_source_read_grant_before_publication",
+        "service::copy::tests::copy_advisory_failure_does_not_begin_a_transfer",
+        "service::copy::tests::copy_rechecks_source_read_grant_before_publication",
         "a_configured_rewrite_limit_preserves_copy_and_compose_capacity_after_restart",
         "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
       ],
@@ -13006,14 +13006,14 @@
             "storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart",
             "storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries",
             "storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object",
-            "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
-            "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
-            "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
-            "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
-            "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
-            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
-            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
-            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+            "service::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+            "service::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+            "service::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+            "service::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+            "service::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+            "service::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+            "service::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "service::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
           ]
         },
         {
@@ -13052,7 +13052,7 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/derived-objects-checks.txt",
           "test_ids": [
-            "server::copy::tests::copy_rechecks_source_read_grant_before_publication",
+            "service::copy::tests::copy_rechecks_source_read_grant_before_publication",
             "a_configured_rewrite_limit_preserves_copy_and_compose_capacity_after_restart",
             "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
           ]
@@ -33452,7 +33452,7 @@
           "test_ids": [
             "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
             "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants",
-            "server::copy::tests::copy_rechecks_source_read_grant_before_publication"
+            "service::copy::tests::copy_rechecks_source_read_grant_before_publication"
           ],
           "result": "PASS"
         },
@@ -33542,14 +33542,14 @@
           "id": "COPY-REQUEST-CONTROL",
           "description": "Deterministic slow streaming exceeds the catalog wait budget without false failure; handler drop and advance failure reclaim transfers; source/destination replacement and class changes during streaming honor selected boundaries; publication admission timeout cannot later commit. Shutdown/reopen reclaims an interrupted transfer without publishing a destination. A failed advisory create-if-absent check never begins a transfer; publication-timeout regression has an outer bounded failure.",
           "test_ids": [
-            "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
-            "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
-            "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
-            "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
-            "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
-            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
-            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
-            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+            "service::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+            "service::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+            "service::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+            "service::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+            "service::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+            "service::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+            "service::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "service::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
           ],
           "result": "PASS"
         }
@@ -33587,19 +33587,19 @@
         "storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object",
         "TestObjectCopyJSON",
         "TestObjectCopyHighLevelCopierUsesRewrite",
-        "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
-        "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
-        "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
-        "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
-        "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
-        "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
-        "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+        "service::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+        "service::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+        "service::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+        "service::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+        "service::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+        "service::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+        "service::copy::tests::shutdown_during_copy_recovers_without_a_destination",
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
         "getting-started:copy-rewrite-compose:native",
         "getting-started:copy-rewrite-compose:docker",
-        "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer",
-        "server::copy::tests::copy_rechecks_source_read_grant_before_publication",
+        "service::copy::tests::copy_advisory_failure_does_not_begin_a_transfer",
+        "service::copy::tests::copy_rechecks_source_read_grant_before_publication",
         "a_configured_rewrite_limit_preserves_copy_and_compose_capacity_after_restart",
         "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
       ],
@@ -33647,14 +33647,14 @@
             "storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart",
             "storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries",
             "storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object",
-            "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
-            "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
-            "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
-            "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
-            "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
-            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
-            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
-            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+            "service::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+            "service::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+            "service::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+            "service::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+            "service::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+            "service::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+            "service::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "service::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
           ]
         },
         {
@@ -33693,7 +33693,7 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/derived-objects-checks.txt",
           "test_ids": [
-            "server::copy::tests::copy_rechecks_source_read_grant_before_publication",
+            "service::copy::tests::copy_rechecks_source_read_grant_before_publication",
             "a_configured_rewrite_limit_preserves_copy_and_compose_capacity_after_restart",
             "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
           ]
@@ -64339,7 +64339,7 @@
             "percent::error_text_and_sources",
             "app::seed_cli::error_text_and_sources",
             "app::seed_cli::retains_the_underlying_diagnostic_source",
-            "server::copy::error_text_and_sources",
+            "service::copy::error_text_and_sources",
             "server::host::error_text_and_sources",
             "server::ingress::error_text_and_sources",
             "server::ingress::members::error_text_and_sources",
@@ -64479,7 +64479,7 @@
         "percent::error_text_and_sources",
         "app::seed_cli::error_text_and_sources",
         "app::seed_cli::retains_the_underlying_diagnostic_source",
-        "server::copy::error_text_and_sources",
+        "service::copy::error_text_and_sources",
         "server::host::error_text_and_sources",
         "server::ingress::error_text_and_sources",
         "server::ingress::members::error_text_and_sources",
@@ -64662,7 +64662,7 @@
             "percent::error_text_and_sources",
             "app::seed_cli::error_text_and_sources",
             "app::seed_cli::retains_the_underlying_diagnostic_source",
-            "server::copy::error_text_and_sources",
+            "service::copy::error_text_and_sources",
             "server::host::error_text_and_sources",
             "server::ingress::error_text_and_sources",
             "server::ingress::members::error_text_and_sources",

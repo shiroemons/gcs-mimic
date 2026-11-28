@@ -93,7 +93,7 @@ leaf_sources!(
 
 // A copy checkpoint that tests arm and then abandon.
 #[cfg(test)]
-leaf_sources!(crate::server::copy::CheckpointError);
+leaf_sources!(crate::service::copy::CheckpointError);
 
 #[cfg(test)]
 mod tests;

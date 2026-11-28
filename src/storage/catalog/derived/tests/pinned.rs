@@ -12,16 +12,16 @@ async fn copy(
     name: &str,
 ) -> Result<ObjectRecord, ObjectError> {
     let (activity, _updates) = tokio::sync::watch::channel(Default::default());
-    crate::server::copy::execute(
+    crate::service::copy::execute(
         catalog,
-        crate::server::copy::CopyJob {
+        crate::service::copy::CopyJob {
             source: selected,
             source_access: BucketAccess::Permissive,
             destination: destination(name),
             source_location: None,
             replay: None,
         },
-        crate::server::copy::CopyBudget {
+        crate::service::copy::CopyBudget {
             config: &crate::config::Config::default(),
             activity: &activity,
             deadline: crate::test_support::hang_deadline(),

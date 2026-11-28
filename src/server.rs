@@ -131,7 +131,6 @@ fn report_connection_task_failure(error: &tokio::task::JoinError) {
 
 mod acl;
 mod admin;
-pub(crate) mod copy;
 mod gzip;
 mod notifications;
 mod project_resources;

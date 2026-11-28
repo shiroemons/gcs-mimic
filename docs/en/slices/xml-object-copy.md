@@ -104,7 +104,7 @@ The framing regression on 2026-11-04 passed `cargo check --locked` and
 | `xml_copy_obeys_object_size_limit_and_preserves_existing_destination` | Copy above the configured size cap preserves existing destination metadata and bytes |
 | `xml_copy_v4_signature_binds_source_and_destination_conditions` | Valid signed copy, source/condition tampering rejection and create-only replay failure |
 
-Shared `server::copy::tests` separately cover pinning during source replacement,
+Shared `service::copy::tests` separately cover pinning during source replacement,
 publication-time grant/condition changes, cancellation, deadline admission and
 shutdown recovery. `storage::catalog::derived::tests` cover source deletion with
 restart, staged transfer recovery and atomic publication failures. These checks
