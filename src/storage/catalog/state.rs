@@ -57,7 +57,7 @@ pub(super) struct AdminState {
     /// which is what `close` waits for. Callers past the permits wait for one like any other slot.
     pub(super) publication_requests: Arc<Semaphore>,
     pub(super) file_workers: admin::FileWorkers,
-    pub(super) grant: Option<admin::AdminGrant>,
+    pub(super) grant: Option<crate::bucket::AdminGrant>,
     /// Shared with the task that runs the passes, which waits on it without holding the catalog.
     pub(super) seed_watch: Arc<admin::seed_watch::SeedWatch>,
     #[cfg(test)]

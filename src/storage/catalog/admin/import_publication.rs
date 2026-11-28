@@ -66,10 +66,7 @@ impl Admin {
                                 scope: super::super::acl::BucketScope::Bucket,
                             },
                             entries,
-                            &BucketAccess::Admin(AdminGrant {
-                                origin,
-                                notification_mode: crate::notification::NotificationMode::Suppress,
-                            }),
+                            &mint(origin, NotificationMode::Suppress).access(),
                             principals.as_ref(),
                         )?;
                     }

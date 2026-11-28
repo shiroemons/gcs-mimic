@@ -424,7 +424,7 @@ findings in new files.
 | `DestinationLocation`, `derived_component_count` | `json::derived_metadata` → `object::derived` |
 | `validate_fixed_metadata`, `parse_insert_with_profile` | `json` → `object`, `bucket::resource` |
 | Bucket defaults built by rendering JSON (`admin.rs`, `import/filesystem.rs`) | build the record through `bucket::resource` |
-| `AdminGrant` | `storage::admin` → `bucket` |
+| `AdminGrant`, `Origin` | `storage::admin` → `bucket`; minting stays in `storage::admin`, which Clippy's `disallowed_methods` enforces |
 | Range and transcoding negotiation (`range_request`, `Transcoding`, `Gunzip` and their helpers) | `json::objects` → `service::media` |
 | JSON_API_V1 notification payload | the outbox receives a renderer at catalog open |
 | HMAC lookup in `auth::signature` | an `HmacKeys` trait implemented by `Catalog` |
