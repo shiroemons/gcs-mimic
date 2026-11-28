@@ -155,7 +155,7 @@ async fn publication_keeps_unset_holds_and_default_object_acl_json() {
         .await
         .unwrap();
     let resource =
-        crate::json::object_resource(&record, "http://localhost", crate::json::Projection::NoAcl)
+        crate::json::object_resource(&record, "http://localhost", crate::acl::Projection::NoAcl)
             .unwrap();
     assert!(resource.get("eventBasedHold").is_none());
     assert!(resource.get("temporaryHold").is_none());

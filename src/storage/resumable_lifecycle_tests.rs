@@ -578,7 +578,7 @@ async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_s
     let completion = gcs_mimic::json::object_resource(
         &object,
         "http://local",
-        gcs_mimic::json::Projection::NoAcl,
+        gcs_mimic::acl::Projection::NoAcl,
     )
     .unwrap();
     // Inject the durable state after the combined Object/COMPLETE transaction commits.

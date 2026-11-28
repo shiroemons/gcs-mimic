@@ -3,9 +3,9 @@
 use super::{InvalidOptions, ResumableOptions};
 use crate::storage::failure::unavailable;
 use crate::{
+    acl::Projection,
     auth::{Identity, OBJECTS_CREATE},
     bucket::{BucketAccess, CatalogError},
-    json::Projection,
     object::{
         CustomTime, ExpectedHashes, Hold, MapPatch, ObjectConditions, ObjectMetadataUpdate, Patch,
         WriteMode,

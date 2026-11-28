@@ -99,7 +99,7 @@ pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
             project: Some("project".into()),
         },
         origin: Some("https://example.test".into()),
-        projection: crate::json::Projection::Full,
+        projection: crate::acl::Projection::Full,
         response_fields: Some("id,name".into()),
     }
 }

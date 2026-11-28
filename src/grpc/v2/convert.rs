@@ -555,7 +555,7 @@ mod tests {
     fn keyless(record: &ObjectRecord) -> Result<pb::Object, ObjectConversionError> {
         object(record, StoredHashes::keyless(record.customer_key_sha256))
     }
-    use crate::json::{self, Projection};
+    use crate::{acl::Projection, json};
     use std::{
         collections::BTreeMap,
         time::{Duration as StdDuration, UNIX_EPOCH},

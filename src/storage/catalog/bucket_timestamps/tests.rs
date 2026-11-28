@@ -50,7 +50,7 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
             let resource = crate::json::bucket_resource(
                 &record,
                 "http://localhost",
-                crate::json::Projection::NoAcl,
+                crate::acl::Projection::NoAcl,
             )
             .unwrap();
             assert_eq!(resource["timeCreated"], rendered);

@@ -173,7 +173,7 @@ pub(super) async fn respond(
         super::context::rebase_stored_links(ctx.endpoints, resource);
         // Cloud Storage answered a full projection rewrite with the destination's `acl`
         // (recorded 2026-11-17, case obj-full-projection-writes).
-        if projection == json::Projection::Full {
+        if projection == crate::acl::Projection::Full {
             super::acl::add_full_projection_to_stored(
                 state,
                 super::acl::AclReader::Caller(ctx.caller),
@@ -317,7 +317,7 @@ async fn execute(
             let mut value = json::object_resource_keyed(
                 record,
                 &base,
-                json::Projection::NoAcl,
+                crate::acl::Projection::NoAcl,
                 keys.destination,
             )
             .map_err(ObjectError::backend)?;

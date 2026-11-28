@@ -72,7 +72,7 @@ async fn legacy_bucket_revisions_remain_readable_after_reopen() {
     assert_eq!(zero.metageneration, 0);
     assert_eq!(negative.metageneration, -3);
     let json =
-        crate::json::bucket_resource(&zero, "http://localhost", crate::json::Projection::NoAcl)
+        crate::json::bucket_resource(&zero, "http://localhost", crate::acl::Projection::NoAcl)
             .unwrap();
     assert_eq!(json["generation"], "0");
     let page = catalog

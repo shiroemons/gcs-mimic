@@ -714,7 +714,7 @@ impl CompletionView {
     /// Parses the initiation's field selection, so a bad one fails before any byte is stored.
     fn of(options: &ResumableOptions) -> Result<Self, ServiceError> {
         Ok(Self {
-            acl_reader: (options.projection == json::Projection::Full)
+            acl_reader: (options.projection == crate::acl::Projection::Full)
                 .then(|| options.access.clone()),
             fields: options
                 .response_fields

@@ -411,7 +411,7 @@ async fn metadata(
         )?,
         subjects: acl::AclSubjects::Object((&record).into()),
     };
-    if params.projection == json::Projection::Full {
+    if params.projection == crate::acl::Projection::Full {
         acl::add_full_projection(
             ctx.state,
             ctx.caller,

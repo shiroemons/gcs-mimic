@@ -53,7 +53,7 @@ impl Written {
     fn keyed(
         record: &ObjectRecord,
         ctx: ObjectCtx<'_>,
-        projection: json::Projection,
+        projection: crate::acl::Projection,
         key: Option<CustomerKey>,
         acl: AclSource,
     ) -> Result<Self, ApiError> {
@@ -95,7 +95,7 @@ pub(super) async fn respond(
     // live, so a concurrent create cannot be overwritten.
     let access = ctx.authorize(permission, bucket).await?;
     let query = ctx.uri.parameters()?;
-    let acl_full = operation.projection() == json::Projection::Full;
+    let acl_full = operation.projection() == crate::acl::Projection::Full;
     if query.contains_key("predefinedAcl") || query.contains_key("destinationPredefinedAcl") {
         check_predefined_acl(ctx, bucket, &operation, &access).await?;
     }
@@ -291,7 +291,7 @@ async fn restore(
     let value = json::object_resource(
         &record,
         ctx.endpoints.api_base_url(),
-        json::Projection::NoAcl,
+        crate::acl::Projection::NoAcl,
     )?;
     Ok(Written::object(value, &record, AclSource::Live))
 }
@@ -392,11 +392,11 @@ async fn list(
     }
     let value = json::object_list(&page, params, ctx.endpoints.api_base_url())?;
     let subjects = match params.projection {
-        json::Projection::Full => AclSubjects::Objects {
+        crate::acl::Projection::Full => AclSubjects::Objects {
             bucket: params.query.bucket.clone(),
             items: page.items.iter().map(ObjectVersion::from).collect(),
         },
-        json::Projection::NoAcl => AclSubjects::None,
+        crate::acl::Projection::NoAcl => AclSubjects::None,
     };
     Ok(Written::live(value, subjects))
 }

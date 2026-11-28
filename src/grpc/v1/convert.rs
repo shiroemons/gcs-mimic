@@ -311,7 +311,7 @@ mod tests {
         }
     }
     use crate::grpc::test_support::assert_code;
-    use crate::json::{self, Projection};
+    use crate::{acl::Projection, json};
 
     #[test]
     fn storage_class_and_holds_keep_legacy_wire_values() {
