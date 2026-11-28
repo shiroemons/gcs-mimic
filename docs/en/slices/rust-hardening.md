@@ -423,7 +423,7 @@ findings in new files.
 | `Projection` | `json::query` → `acl` |
 | `DestinationLocation`, `derived_component_count` | `json::derived_metadata` → `object::derived` |
 | `validate_fixed_metadata`; bucket initialization's bucket conversion | `json` → `object`; `bucket::resource::parse_insert`, which the JSON body parser `json::parse_insert_with_profile` reaches through `service::parse_bucket` |
-| Bucket defaults built by rendering JSON (`admin.rs`, `import/filesystem.rs`) | build the record through `bucket::resource` |
+| Bucket defaults built by rendering JSON (`admin.rs`, `import/filesystem.rs`) | `BucketRecord::default_for` builds the record directly; the 2026-11-26 typed validator change removed both round trips |
 | `AdminGrant`, `Origin` | `storage::admin` → `bucket`; minting stays in `storage::admin`, which Clippy's `disallowed_methods` enforces |
 | Range and transcoding negotiation (`range_request`, `Transcoding`, `Gunzip` and their helpers) | `json::objects` → `service::media` |
 | JSON_API_V1 notification payload | the outbox receives a renderer at catalog open |
@@ -1375,7 +1375,7 @@ remove none, so the rule reaches zero tolerance as early as possible.
 | Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` accessors that the integration tests read stay public. Review consolidating the public paths to `Generation` and `InvalidGeneration`, the five public source exception groups and the two private `ObjectError` groups in `public_source_tests.rs`. |
 | Foundation moves | the RFC 3339 parser; `fsutil` and `net` became private with the public facade |
 | Model value types | `profile`, URL helpers, `TrustedCaller`, validator callers, `AdminGrant` |
-| JSON-owned rules out of `json` | `Projection`, component counting, fixed metadata, bucket insert parsing, the two JSON round trips, authority helpers |
+| JSON-owned rules out of `json` | `Projection`, component counting, bucket initialization's bucket conversion, authority helpers; fixed metadata and the two JSON round trips had already left `json` |
 | Notification renderer | injected at catalog open |
 | `auth` split and `HmacKeys` | `HmacKeys` replaces the `Catalog` that `auth::signature`'s policy, streaming and verification code name; reading the identities document (`DocumentSource`, `Form`, `DocumentKind`, `Setting`) moves to `config`, so `auth` parses bytes; `AuthProfile` and `Verification` then move to `auth`, since the identities they carry no longer name `DocumentSource` |
 | `service`, part one | the shared request pieces and `State`; range and transcoding negotiation into `service::media`, before `server::xml_read` moves into `xml`; ledger IDs under `server::copy` become `service::copy` |
