@@ -447,3 +447,30 @@ nine reasoned suppressions on the host. The layer finding of `grpc/mod.rs` on
 moved to `src/server/grpc_listener/tests.rs` with the same count of 5. The
 cross-target checks counted zero new Clippy violations for the three other
 targets. The ledger check validated 611 feature rows.
+
+## XML read, 2026-11-28
+
+`just check` passed on the source in which the XML object GET, HEAD and
+DELETE live in `xml::read` instead of `server::xml_read`. The read pieces that
+the JSON and XML reads share moved to `service` first: `server::gzip` to
+`service::gzip`, `body_read_ahead` and the two `Content-Range` writers to
+`service::media`, and the `object_body` wrapper to `service::object_body`.
+Their bodies are unchanged; the gzip items became crate-visible.
+
+Its Rust lane passed 4,193 tests with the same Pub/Sub case ignored; no test
+was added or removed, and no assertion changed. The four gzip tests moved with
+their module from `server::gzip::tests` to `service::gzip::tests`. The two
+routed read tests, `xml_read_validators_wrap_routed_public_and_virtual_host_responses`
+and `encrypted_head_validators_do_not_bypass_data_key_checks`, create objects
+through the JSON API and read them through `server::routing`, so they stay in
+the transport as `server::xml_read_tests`; they import what they use instead
+of the adapter's glob.
+
+BEHAVIOR-OBJECT-017, EXT-XML-012 and EXT-XML-017 record this run for the moved
+tests they list.
+
+The production gate counted zero new violations, 5 ratcheted findings and nine
+reasoned suppressions on the host; the `text::io_error_other` exception of the
+gzip error moved with its file. The cross-target checks counted zero new Clippy
+violations for the three other targets. The ledger check validated 611 feature
+rows.

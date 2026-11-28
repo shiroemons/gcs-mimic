@@ -32924,14 +32924,15 @@
           "test_ids": [
             "anonymous_json_media_read_of_a_public_object_carries_the_public_header_set"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["gzip_budget_resumes_optional_headers_deflate_trailers_and_member_boundaries", "gzip_budget_one_never_hides_corruption_at_member_boundaries", "gzip_decode_bounds_input_and_output_across_members"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "Expansion is limited by max_object_bytes and can abort after 200 headers; stored hashes do not describe expanded bytes, as on Cloud Storage. A doubly compressed object (application/gzip stored with contentEncoding gzip) is gunzipped for every client, as recorded 2026-11-13 (case obj-gzip-double); provider exactness beyond the observed headers is unverified."
       ],
       "implemented_in": "b894ed0",
-      "last_verified": "2026-11-25"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "BEHAVIOR-OBJECT-018",
@@ -40717,7 +40718,8 @@
             "TestXMLReadsStrict",
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["server::xml_read_tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses", "server::xml_read_tests::encrypted_head_validators_do_not_bypass_data_key_checks"]}
       ],
       "sdk_evidence": [
         {
@@ -40849,7 +40851,7 @@
         "SPEC-XML-RESPONSE-OVERRIDES: public/permissive overrides, control-character 400, incomplete header grammar validation and duplicate decoded names are explicit local choices pending provider clarification; empty values, padded content types, non-ASCII dispositions, ignored S3-only and unknown response-* parameters and the authenticated HEAD override follow Cloud Storage (case xml-response-override-edges, recorded 2026-11-13)."
       ],
       "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "EXT-XML-013",
@@ -41333,7 +41335,8 @@
             "TestV4RSAVirtualHostedURLs",
             "TestXMLReadsStrict"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["server::xml_read_tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses", "server::xml_read_tests::encrypted_head_validators_do_not_bypass_data_key_checks"]}
       ],
       "sdk_evidence": [
         {
@@ -41420,7 +41423,7 @@
         "SPEC-XML-RESPONSE-OVERRIDES: public/permissive overrides, control-character 400, incomplete header grammar validation and duplicate decoded names are explicit local choices pending provider clarification; empty values, padded content types, non-ASCII dispositions, ignored S3-only and unknown response-* parameters and the authenticated HEAD override follow Cloud Storage (case xml-response-override-edges, recorded 2026-11-13)."
       ],
       "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "EXT-XML-018",
