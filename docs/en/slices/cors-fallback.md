@@ -124,7 +124,7 @@ not allow, such as one with an unsupported method.
 | Permissive default allowing a cross-origin XML GET on a bucket without rules with one info note, strict default refusing it, stored rules unaffected and the ready field per mode | `the_cors_fallback_default_follows_the_auth_mode_and_notes_what_it_allows` |
 | Refuse legacy header lists in every auth mode/profile with removal or explicit native fallback advice, without echoing values | `refused_flags_report_every_original_key_before_startup`, `config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls` |
 | Allow-all headers, stored-rule precedence and denials | `xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules` |
-| Bounded once-per-bucket warning memory | `xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded` |
+| Bounded once-per-bucket warning memory | `service::cors_warnings::tests::unconfigured_warning_is_once_per_bucket_and_bounded` |
 | Server preflight, GET/HEAD, missing bucket, stored rules, unchanged JSON and ready field | `allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json` |
 | Server warning emitted once per bucket and not for Origin-less requests | `unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback` |
 | Ready event field set and default | `process_shutdown_reports_stopped_and_releases_catalog_for_restart`, `api_origin_ready_and_resumable_locations_use_bound_addresses` |
