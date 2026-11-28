@@ -345,12 +345,22 @@ Pending the evidence below:
   specifies that wording. Choose whether v2 keeps its shorter message or names
   the permission too.
 - **Retrying an invalidated XML upload.** A final metadata refusal in
-  `server::resumable::transfer` invalidates the session. A later PUT then
+  `service::resumable::transfer` invalidates the session. A later PUT then
   returns 204 from `xml::resumable::session`. A client treating 2xx as
   completion can report success without an object. Choose whether to keep
   204 for both cancellation and invalidation or return an error for
   invalidation. The historical observation covers cancellation only and
   cannot be repeated under the no-live-contact policy.
+- **JSON response options on an XML session URI.** The resumable engine
+  answers every request on a completed session through the response options
+  its initiation set (`CompletionAnswer`), whichever API's session URI the
+  request uses. A session that a JSON initiation opened with `fields` or
+  `projection=full` and that a request on its XML session URI completes is
+  answered from the selected resource. A selection without `generation`,
+  `metageneration`, `size`, `crc32c` or `etag` makes `xml::resumable` answer
+  503, and `projection=full` reads the object ACL that the XML answer drops.
+  No pinned SDK continues a JSON session at an XML session URI. Choose whether
+  the XML answer keeps these options or is made from the stored resource.
 
 Found by the error goldens, which pin them as they are today. Each goes to the
 owner with the error slice that touches it:
@@ -441,7 +451,7 @@ findings in new files.
 | JSON_API_V1 notification payload | `notification::JsonApiObject`, which the JSON adapter implements for `ObjectRecord`; the payload's base64 encoder is the foundation `base64::encode` |
 | HMAC lookup in `auth::signature` | an `HmacKeys` trait implemented by `Catalog` |
 | Shared request pieces in `server` (access checks, request context, request activity, request and response bodies, `chunk_body`, `object_body`, uploads, copy, `State` with the XML CORS warnings and the gRPC read handles) | `service` |
-| The resumable engine (`server::resumable`), with its JSON completion rendering behind a trait | `service` |
+| The resumable engine (`server::resumable`), with its JSON completion rendering and answers behind traits | `service` |
 | gRPC HTTP/2 connection serving | `grpc` → `server::grpc_listener` |
 | JSON handlers in `server`; `server::xml_read` | `json::handler`; `xml::read` |
 
@@ -1394,7 +1404,7 @@ remove none, so the rule reaches zero tolerance as early as possible.
 | Notification renderer | a `notification` trait that the JSON adapter implements. A renderer injected at catalog open was planned first; `Catalog::open` cannot name `json` to supply a default, and nothing swaps the rendering at run time |
 | `auth` split and `HmacKeys` | `HmacKeys` replaces the `Catalog` that `auth::signature`'s policy, streaming and verification code name; reading the identities document (`DocumentSource`, `Form`, `DocumentKind`, `Setting`) moves to `config`, so `auth` parses bytes; `AuthProfile` and `Verification` then move to `auth`, since the identities they carry no longer name `DocumentSource`. `AuthProfile<D>` is generic over its identity document: validation selects a `DocumentSource` and loading parses the bytes that `config` reads. `IdentityError`, which names the setting, moves to `config` with the reading, the 16 MiB limit and the read failures, so `RegistryError` holds only what parsing rejects. `src/auth/mod.rs` then splits as "File splits" describes; the registry's `IdentityUse` and `strict_only` go to `registry`, which parses with them |
 | `service`, part one | the shared request pieces and `State`; range and transcoding negotiation into `service::media`, before `server::xml_read` moves into `xml`. Uploads move after the request context, because the catalog wait of `drive_upload` holds an `ObjectCtx`, and `await_session_upload` moves with them. Ledger IDs under `server::copy` become `service::copy` |
-| `service`, part two | the resumable engine that `xml::resumable` drives (`SessionTarget`, `Transfer`, `create_session`, `transfer`); the stored JSON completion (`object_resource_keyed`, `Fields`, `rebase_object_links`, `add_full_projection_to_stored`) behind a trait the JSON adapter implements; the `json::resumable` header helpers and `json::request_key` that both adapters use, into a lower module |
+| `service`, part two | the resumable engine that `xml::resumable` drives (`SessionTarget`, `Transfer`, `create_session`, `transfer`) into `service::resumable`. The stored JSON completion goes behind two traits: `StoredCompletion`, which the JSON adapter implements for `ObjectRecord` with `object_resource_keyed`, and `CompletionAnswer`, which the JSON session handler implements for `ResumableOptions` with `Fields`, `rebase_stored_links` and `add_full_projection_to_stored`, so XML session URIs answer through the same options as before. The header rules both adapters reach through the engine move to `service::object_headers` (`single`, `unsigned`, `upload_content_type` and the unsupported and conditional header checks) and `service::resumable::headers` (`Content-Range`, `final_options`); `json::request_key` becomes `csek::request_key`. Ledger IDs under `server::resumable::tests` become `service::resumable::tests` |
 | gRPC listener | into `server` |
 | JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |
 | Config documents | the parse half moves to the settings layer |
