@@ -184,6 +184,10 @@ fn a_session_opened_through_one_host_completes_through_another() {
     assert_eq!(completed["generation"], retried["generation"]);
     assert_eq!(completed["md5Hash"], retried["md5Hash"]);
     assert_object_links(&finish(PUBLISHED), &origin(PUBLISHED));
+    // A cancellation that the completed session refuses answers with the stored resource too.
+    let refused = server.send("DELETE", session, CONTAINER, "", b"").json_ok();
+    assert_object_links(&refused, &origin(CONTAINER));
+    assert_eq!(completed["generation"], refused["generation"]);
 }
 
 #[test]
