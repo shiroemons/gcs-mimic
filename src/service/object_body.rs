@@ -8,8 +8,10 @@
 
 use crate::cause::IoCause;
 use crate::service::activity::{ObjectActivity, record_progress};
+use crate::service::body::ResponseBody;
 use crate::storage::{FrameLimit, ObjectFrames, ObjectReader};
 use bytes::Bytes;
+use http_body_util::BodyExt;
 use hyper::body::{Body, Frame};
 use std::{
     pin::Pin,
@@ -20,6 +22,15 @@ use tokio::sync::watch;
 pub(crate) struct ObjectBody {
     frames: ObjectFrames,
     activity: watch::Sender<ObjectActivity>,
+}
+
+/// The response body of a media read, which sends `reader`'s bytes and records each frame as
+/// the request's progress.
+pub(crate) fn object_body(
+    reader: ObjectReader,
+    activity: &watch::Sender<ObjectActivity>,
+) -> ResponseBody {
+    ObjectBody::new(reader, activity.clone()).boxed_unsync()
 }
 
 impl ObjectBody {

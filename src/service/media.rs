@@ -1,14 +1,16 @@
-//! How a media read selects the stored bytes it sends: the `Range` it honors and whether it
-//! gunzips the stored representation. The JSON and XML reads negotiate the same way and answer
-//! the outcome in their own formats.
+//! How a media read selects the stored bytes it sends: the `Range` it honors, whether it
+//! gunzips the stored representation and whether opening the object fetches its body. The JSON
+//! and XML reads negotiate the same way, mark the selected range with the same `Content-Range`
+//! and answer the rest of the outcome in their own formats.
 
+use super::body::RequestBody;
 use crate::{
     decimal::Grammar,
     http_header::{TextOrder, sole},
     input::InputError,
     object::ObjectRecord,
 };
-use hyper::HeaderMap;
+use hyper::{HeaderMap, Method, Request};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RangeRequest<'a> {
@@ -221,6 +223,53 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, InputError> {
         }
     }
     Ok(gzip.or(wildcard).unwrap_or(false))
+}
+
+/// What a download should fetch while it opens the object.
+pub(crate) fn body_read_ahead(request: &Request<RequestBody>) -> crate::object::ReadAhead {
+    use crate::object::ReadAhead;
+    const WITHOUT_FULL_BODY: [&str; 5] = [
+        "range",
+        "if-match",
+        "if-none-match",
+        "if-modified-since",
+        "if-unmodified-since",
+    ];
+    let headers = request.headers();
+    if request.method() == Method::GET
+        && !WITHOUT_FULL_BODY
+            .iter()
+            .any(|name| headers.contains_key(*name))
+    {
+        ReadAhead::Body
+    } else {
+        ReadAhead::None
+    }
+}
+
+/// Insert `Content-Range` for a satisfiable range. Decimal positions always form a valid header
+/// value, so the conversion cannot fail in practice.
+pub(crate) fn insert_content_range(
+    headers: &mut hyper::HeaderMap,
+    offset: u64,
+    length: u64,
+    size: u64,
+) {
+    if let Ok(value) = hyper::header::HeaderValue::try_from(format!(
+        "bytes {}-{}/{}",
+        offset,
+        offset + length - 1,
+        size
+    )) {
+        headers.insert("content-range", value);
+    }
+}
+
+/// Insert `Content-Range` for an unsatisfiable range request.
+pub(crate) fn insert_unsatisfied_content_range(headers: &mut hyper::HeaderMap, size: u64) {
+    if let Ok(value) = hyper::header::HeaderValue::try_from(format!("bytes */{size}")) {
+        headers.insert("content-range", value);
+    }
 }
 
 #[cfg(test)]
