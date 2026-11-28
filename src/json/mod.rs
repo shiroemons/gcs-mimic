@@ -9,7 +9,8 @@
 //! [`error`] renders the [`ApiError`] as the JSON error envelope and its HTTP responses.
 //! The supported subset and deviations are recorded in `docs/en/slices/json-bucket-crud.md`.
 
-// The submodules name the ACL projection through this module, which does not re-export it.
+// Private, so the submodules can name the ACL projection as `super::Projection` while the
+// adapter does not re-export it.
 use crate::acl::Projection;
 
 pub(crate) mod acl;

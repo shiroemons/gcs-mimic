@@ -1,5 +1,7 @@
-use super::{ApiError, EtagConditions, FieldSelection, ResponseCache, Schema, integer::take_int64};
-use crate::acl::Projection;
+use super::{
+    ApiError, EtagConditions, FieldSelection, Projection, ResponseCache, Schema,
+    integer::take_int64,
+};
 use crate::page_token::decode_page_token;
 use crate::{
     bucket::{

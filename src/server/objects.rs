@@ -13,6 +13,7 @@ use super::{
     retention_access, validate_bodyless_post,
 };
 use crate::{
+    acl::Projection,
     auth,
     bucket::{BucketAccess, CatalogError},
     csek::CustomerKey,
@@ -53,7 +54,7 @@ impl Written {
     fn keyed(
         record: &ObjectRecord,
         ctx: ObjectCtx<'_>,
-        projection: crate::acl::Projection,
+        projection: Projection,
         key: Option<CustomerKey>,
         acl: AclSource,
     ) -> Result<Self, ApiError> {
@@ -95,7 +96,7 @@ pub(super) async fn respond(
     // live, so a concurrent create cannot be overwritten.
     let access = ctx.authorize(permission, bucket).await?;
     let query = ctx.uri.parameters()?;
-    let acl_full = operation.projection() == crate::acl::Projection::Full;
+    let acl_full = operation.projection() == Projection::Full;
     if query.contains_key("predefinedAcl") || query.contains_key("destinationPredefinedAcl") {
         check_predefined_acl(ctx, bucket, &operation, &access).await?;
     }
@@ -288,11 +289,7 @@ async fn restore(
             },
         )
         .await?;
-    let value = json::object_resource(
-        &record,
-        ctx.endpoints.api_base_url(),
-        crate::acl::Projection::NoAcl,
-    )?;
+    let value = json::object_resource(&record, ctx.endpoints.api_base_url(), Projection::NoAcl)?;
     Ok(Written::object(value, &record, AclSource::Live))
 }
 
@@ -392,11 +389,11 @@ async fn list(
     }
     let value = json::object_list(&page, params, ctx.endpoints.api_base_url())?;
     let subjects = match params.projection {
-        crate::acl::Projection::Full => AclSubjects::Objects {
+        Projection::Full => AclSubjects::Objects {
             bucket: params.query.bucket.clone(),
             items: page.items.iter().map(ObjectVersion::from).collect(),
         },
-        crate::acl::Projection::NoAcl => AclSubjects::None,
+        Projection::NoAcl => AclSubjects::None,
     };
     Ok(Written::live(value, subjects))
 }
