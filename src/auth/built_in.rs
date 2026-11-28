@@ -5,7 +5,6 @@
 //! always wins over the implicit grants.
 
 use super::{Identity, ProjectGrant, Registry, RegistryError, Role, acl_identity, test_signer};
-use crate::config::TrustedCaller;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -15,6 +14,18 @@ use std::{
 /// real Google account, and the ID differs from the test signer and from the permissive creator
 /// `local-user@gcs-mimic.invalid`.
 pub(crate) const TRUSTED_APP_ID: &str = "trusted-app@gcs-mimic.invalid";
+
+/// Who a request without credentials on the trusted listener acts as.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TrustedCaller {
+    /// No trusted listener, so every such request is anonymous.
+    Anonymous,
+    /// The registered identity that `trusted_principal` names. Loading resolves it where it
+    /// resolves the built-in one, and configuration reports a name it did not find.
+    Named(String),
+    /// The built-in application identity, when `trusted_listen` names no principal.
+    BuiltIn,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BuiltIn {

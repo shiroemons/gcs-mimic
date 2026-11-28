@@ -42,12 +42,13 @@ impl SigningKeys {
 
 #[cfg(test)]
 mod tests {
+    use crate::auth::TrustedCaller;
     use crate::auth::{
         Auth, AuthMode, IdentityUse, Profile, Registry, SignedUrls, TestSigner, TestSignerChoice,
         signature::{HostPortPolicy, SignedHostPort},
         test_signer,
     };
-    use crate::config::{AuthProfile, DocumentSource, TrustedCaller, Verification};
+    use crate::config::{AuthProfile, DocumentSource, Verification};
     use serde_json::json;
     use std::assert_matches;
     use std::collections::BTreeSet;

@@ -34,9 +34,9 @@ mod test_support;
 mod unix_tests;
 pub use assemble::Config;
 pub(crate) use assemble::{Tls, TlsIdentity};
+pub(crate) use auth::AuthProfile;
 #[cfg(test)]
 pub(crate) use auth::Verification;
-pub(crate) use auth::{AuthProfile, TrustedCaller};
 pub(crate) use document::DocumentSource;
 pub(crate) use document::{DocumentKind, Form};
 pub(crate) use domains::VirtualHostDomains;
@@ -365,7 +365,10 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix
 mod tests {
     use super::test_support::{assert_precedence, assert_rejected};
     use super::*;
-    use crate::{auth::TestSignerChoice, test_support::TestDir};
+    use crate::{
+        auth::{TestSignerChoice, TrustedCaller},
+        test_support::TestDir,
+    };
 
     #[test]
     fn a_withdrawn_value_fails_with_its_own_fix() {
