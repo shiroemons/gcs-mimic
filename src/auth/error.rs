@@ -39,16 +39,12 @@ impl From<AuthFailure> for AuthError {
 #[error("invalid upload identity snapshot")]
 pub(crate) struct InvalidUploadSnapshot;
 
-/// Why an identity document is invalid or could not be read. `Display` names, for an invalid
-/// entry, its index; token values are never included. Configuration, which reads the document,
-/// adds the setting that supplied it.
+/// Why an identity document is invalid. `Display` names, for an invalid entry, its index; token
+/// values are never included. Configuration, which reads and bounds the document, adds the
+/// setting that supplied it.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RegistryError {
-    #[error("exceeds {MAX_REGISTRY_MIB} MiB")]
-    TooLarge,
-    #[error(transparent)]
-    Io(std::io::Error),
-    /// The file is not valid JSON.
+    /// The document is not valid JSON.
     #[error(transparent)]
     Syntax(serde_json::Error),
     /// The identity document as a whole is invalid.

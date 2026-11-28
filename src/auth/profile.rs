@@ -1,5 +1,6 @@
 //! The authentication profile that one valid configuration selects. Configuration validation
-//! selects it and reads its identity document; loading parses the document's bytes.
+//! selects it, configuration reads its identity document when it loads, and `auth` parses the
+//! document's bytes.
 
 use super::{TestSignerChoice, TrustedCaller, signature::SignedHostPort};
 
@@ -13,8 +14,9 @@ pub(crate) struct Verification {
 }
 
 /// Only valid pairings of `auth_mode`, `signed_urls` and the identity document exist as values,
-/// so loading a profile needs no checks of its own. Outside tests configuration validation is the
-/// only constructor, and it is also what keeps strict mode from lacking every caller: that rule
+/// so loading a profile needs no checks of its own. Outside tests only configuration validation
+/// chooses a variant, and [`try_map_identities`](Self::try_map_identities) keeps it and its other
+/// fields. Validation is also what keeps strict mode from lacking every caller: that rule
 /// spans the identity document, `trusted` and the test signer choice, so a variant of its own
 /// would repeat those fields in a form that must agree with them.
 ///

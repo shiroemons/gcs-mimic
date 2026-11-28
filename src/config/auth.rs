@@ -7,9 +7,8 @@ use super::{
     Form, Setting, Settings, Validation,
 };
 use crate::auth::{
-    Auth, AuthMode, AuthProfile, BuiltIn, MAX_REGISTRY_BYTES, MAX_REGISTRY_MIB, RegistryError,
-    SignedUrls, TRUSTED_APP_ID, TestSigner, TestSignerChoice, TrustedCaller, Verification,
-    signature::SignedHostPort, test_signer,
+    Auth, AuthMode, AuthProfile, BuiltIn, RegistryError, SignedUrls, TRUSTED_APP_ID, TestSigner,
+    TestSignerChoice, TrustedCaller, Verification, signature::SignedHostPort, test_signer,
 };
 use std::{borrow::Cow, collections::BTreeSet, fmt};
 
@@ -133,8 +132,9 @@ fn built_in_only(config: &ConfigDraft) -> bool {
         || config.test_signer == Some(TestSigner::Enabled)
 }
 
-/// The profile the configuration selects, or every setting that contradicts it. Outside tests this
-/// is the only constructor of an [`AuthProfile`].
+/// The profile the configuration selects, or every setting that contradicts it. Outside tests
+/// only this chooses an [`AuthProfile`] variant; reading the document keeps the variant and its
+/// other fields.
 fn select_profile(config: &ConfigDraft) -> Result<AuthProfile<DocumentSource>, Vec<Mismatch>> {
     let verification = Verification {
         test_signer: TestSignerChoice::select(
@@ -192,57 +192,70 @@ fn select_profile(config: &ConfigDraft) -> Result<AuthProfile<DocumentSource>, V
     }
 }
 
+/// The identity document is trusted and read once at startup, and every lookup goes through an
+/// index, so its size is all that needs a bound: it is held in memory while it parses.
+const MAX_REGISTRY_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_REGISTRY_MIB: u64 = MAX_REGISTRY_BYTES / (1024 * 1024);
+
 /// Why the identity document could not be loaded, with the setting that supplied it:
 /// `identity_file` for a file and `identities` for the inline document.
 #[derive(Debug, thiserror::Error)]
-pub(crate) struct IdentityError {
-    /// `None` when strict mode started without a document, with built-in identities only.
-    form: Option<Form>,
-    source: RegistryError,
+enum IdentityError {
+    /// The document, in either form, exceeds [`MAX_REGISTRY_BYTES`].
+    TooLarge(Form),
+    /// The identity file could not be read; no other form is read from disk.
+    Read(#[source] std::io::Error),
+    /// The document, or strict mode's built-in identities, did not load.
+    Registry {
+        /// `None` when strict mode started without a document, with built-in identities only.
+        form: Option<Form>,
+        source: RegistryError,
+    },
 }
 
 impl IdentityError {
     /// The setting that supplied the document. Without one only the built-in identities exist,
     /// so a failure concerns the strict profile itself.
-    pub(crate) fn setting(&self) -> Setting {
-        self.form.map_or(Setting::AuthMode, |form| {
+    fn setting(&self) -> Setting {
+        let form = match self {
+            Self::TooLarge(form) => Some(*form),
+            Self::Read(_) => Some(Form::File),
+            Self::Registry { form, .. } => *form,
+        };
+        form.map_or(Setting::AuthMode, |form| {
             DocumentKind::Identities.setting(form)
         })
     }
 }
 
-// Startup diagnostics include the setting and the registry's message, and expose the registry error.
+// Startup diagnostics include the setting and the cause's message, and expose the cause.
 impl fmt::Display for IdentityError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let setting = self.setting().as_str();
-        match &self.source {
-            RegistryError::TooLarge => write!(f, "{setting} exceeds {MAX_REGISTRY_MIB} MiB"),
-            source @ (RegistryError::Io(_)
-            | RegistryError::Syntax(_)
-            | RegistryError::Invalid(_)
-            | RegistryError::InvalidEntry { .. }
-            | RegistryError::PublicKey { .. }
-            | RegistryError::Project { .. }) => write!(f, "{setting}: {source}"),
+        match self {
+            Self::TooLarge(_) => write!(f, "{setting} exceeds {MAX_REGISTRY_MIB} MiB"),
+            Self::Read(source) => write!(f, "{setting}: {source}"),
+            Self::Registry { source, .. } => write!(f, "{setting}: {source}"),
         }
     }
 }
 
 /// The identity document's bytes. Inline text is held to the same limit as a file, so both forms
 /// accept the same documents.
-fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, RegistryError> {
+fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, IdentityError> {
     let bytes = match source {
         DocumentSource::File(path) => crate::bounded_file::read(path, MAX_REGISTRY_BYTES)
             .map(Cow::Owned)
             .map_err(|error| match error {
-                crate::bounded_file::ReadError::Limit => RegistryError::TooLarge,
-                crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
+                crate::bounded_file::ReadError::Limit => IdentityError::TooLarge(Form::File),
+                crate::bounded_file::ReadError::Io(error) => IdentityError::Read(error),
             })?,
         DocumentSource::Inline(text) => Cow::Borrowed(text.as_bytes()),
         // Only a buckets document is parsed ahead, but its text is the document either way.
         DocumentSource::Parsed(document) => Cow::Borrowed(document.bytes()),
     };
     if u64::try_from(bytes.len()).map_or(true, |length| length > MAX_REGISTRY_BYTES) {
-        return Err(RegistryError::TooLarge);
+        return Err(IdentityError::TooLarge(source.form()));
     }
     Ok(bytes)
 }
@@ -253,13 +266,11 @@ fn load_profile(
     profile: &AuthProfile<DocumentSource>,
     implicit_projects: &BTreeSet<String>,
 ) -> Result<Auth, IdentityError> {
-    profile
-        .try_map_identities(read_identities)
-        .and_then(|profile| Auth::load(&profile, implicit_projects))
-        .map_err(|source| IdentityError {
-            form: profile.identities().map(DocumentSource::form),
-            source,
-        })
+    let read = profile.try_map_identities(read_identities)?;
+    Auth::load(&read, implicit_projects).map_err(|source| IdentityError::Registry {
+        form: profile.identities().map(DocumentSource::form),
+        source,
+    })
 }
 
 impl Validation {
@@ -310,36 +321,31 @@ impl ConfigurationReport {
         let Some(profile) = self.auth_profile.clone() else {
             return Auth::permissive();
         };
-        // Only strict mode has built-in identities with implicit roles.
-        let (document, implicit_projects) = match &profile {
+        // Only strict mode has built-in identities with implicit roles, and only a built-in
+        // identity's implicit roles need the buckets document, so nothing else reads it here.
+        let implicit_projects = match &profile {
             AuthProfile::Strict {
-                identities,
                 verification,
                 trusted,
-            } => {
-                // Only a built-in identity's implicit roles need the buckets document, so nothing
-                // else reads it here.
-                let projects = match (trusted, verification.test_signer) {
-                    (TrustedCaller::BuiltIn, _)
-                    | (_, TestSignerChoice::Fixed(TestSigner::Enabled))
-                    | (_, TestSignerChoice::WhenDeclared) => {
-                        self.parse_buckets_document();
-                        self.implicit_projects()
-                    }
-                    (
-                        TrustedCaller::Anonymous | TrustedCaller::Named(_),
-                        TestSignerChoice::Fixed(TestSigner::Disabled),
-                    ) => BTreeSet::new(),
-                };
-                (identities.as_ref(), projects)
-            }
-            AuthProfile::VerifyingPermissive { identities, .. } => {
-                (identities.as_ref(), BTreeSet::new())
-            }
-            AuthProfile::Permissive => (None, BTreeSet::new()),
+                ..
+            } => match (trusted, verification.test_signer) {
+                (TrustedCaller::BuiltIn, _)
+                | (_, TestSignerChoice::Fixed(TestSigner::Enabled))
+                | (_, TestSignerChoice::WhenDeclared) => {
+                    self.parse_buckets_document();
+                    self.implicit_projects()
+                }
+                (
+                    TrustedCaller::Anonymous | TrustedCaller::Named(_),
+                    TestSignerChoice::Fixed(TestSigner::Disabled),
+                ) => BTreeSet::new(),
+            },
+            AuthProfile::VerifyingPermissive { .. } | AuthProfile::Permissive => BTreeSet::new(),
         };
         // The setting that supplied the identity document, which messages name.
-        let registry = document.map(|source| DocumentKind::Identities.setting(source.form()));
+        let registry = profile
+            .identities()
+            .map(|source| DocumentKind::Identities.setting(source.form()));
         match load_profile(&profile, &implicit_projects) {
             Ok(auth) => {
                 self.warn_strict_test_signer(&auth, registry, &implicit_projects);
@@ -488,16 +494,24 @@ mod tests;
 #[cfg(test)]
 #[test]
 fn error_text_and_sources() {
-    let error = IdentityError {
+    let error = IdentityError::Registry {
         form: None,
         source: RegistryError::Invalid("invalid principal".into()),
     };
     assert_eq!(error.to_string(), "auth_mode: invalid principal");
-    assert!(std::ptr::eq(
+    assert!(
         std::error::Error::source(&error)
             .unwrap()
-            .downcast_ref()
-            .unwrap(),
-        &error.source
-    ));
+            .is::<RegistryError>()
+    );
+    let error = IdentityError::Read(std::io::ErrorKind::PermissionDenied.into());
+    assert_eq!(error.to_string(), "identity_file: permission denied");
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<std::io::Error>()
+    );
+    let error = IdentityError::TooLarge(Form::Inline);
+    assert_eq!(error.to_string(), "identities exceeds 16 MiB");
+    assert!(std::error::Error::source(&error).is_none());
 }
