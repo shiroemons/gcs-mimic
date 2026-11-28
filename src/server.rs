@@ -18,7 +18,7 @@ use crate::{
 #[cfg(unix)]
 use handshake::establish;
 use handshake::{Established, ListenerProtocol, Secured, establish_tcp};
-use http_body_util::{BodyExt, Full, combinators::UnsyncBoxBody};
+use http_body_util::{BodyExt, Full};
 use hyper::{
     Method, Request, Response, StatusCode,
     body::{Bytes, Incoming},
@@ -44,6 +44,10 @@ use tokio::{
 };
 
 pub(crate) use crate::grpc::v2::ReadHandles;
+use crate::service::{
+    body::{ResponseBody, boxed, empty_response},
+    chunk_body,
+};
 pub(crate) use crate::xml::CorsWarnings;
 
 pub struct State {
@@ -212,7 +216,6 @@ mod acl;
 pub(crate) use acl::may_read as may_read_acl;
 pub(crate) use acl::readable_object_acls;
 mod admin;
-pub(crate) mod chunk_body;
 pub(crate) mod copy;
 mod gzip;
 mod notifications;
@@ -1938,12 +1941,6 @@ async fn discard_lingering_input(
     }
 }
 
-pub(crate) type ResponseBody = UnsyncBoxBody<Bytes, IoCause>;
-
-pub(crate) fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
-    response.map(|body| body.map_err(|never| match never {}).boxed_unsync())
-}
-
 pub(crate) fn anonymous_error(error: ApiError, caller: Option<Caller<'_>>) -> ApiError {
     if matches!(caller, Some(Caller::Anonymous)) && error.status() == StatusCode::FORBIDDEN {
         error.for_anonymous_caller()
@@ -2388,12 +2385,6 @@ fn json_response_selected(
     if let Some(etag) = etag {
         response.headers_mut().insert("etag", etag);
     }
-    response
-}
-
-pub(crate) fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
-    let mut response = Response::new(Full::new(Bytes::new()));
-    *response.status_mut() = status;
     response
 }
 

@@ -490,7 +490,7 @@ New error types must not be `&'static str`, even for rejected client input:
 strings do not implement `Error` and cannot preserve a cause chain. Use a
 typed error with `Display` and `Error`; it may hold a static message.
 The unused `http-body-util` channel feature is disabled. Producer-driven
-response bodies use `server::chunk_body` to preserve the final queued frame.
+response bodies use `service::chunk_body` to preserve the final queued frame.
 
 #### Per-file ratchet
 

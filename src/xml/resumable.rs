@@ -10,10 +10,13 @@ use crate::{
     bucket::name::BucketKey,
     input::InputError,
     server::{
-        ObjectCtx, ResponseBody, boxed, empty_response,
+        ObjectCtx,
         resumable::{self, SessionTarget, Transfer},
     },
-    service::ServiceError,
+    service::{
+        ServiceError,
+        body::{ResponseBody, boxed, empty_response},
+    },
     storage::{ResumableError, ResumableOptions},
 };
 use hyper::{
