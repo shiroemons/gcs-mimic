@@ -6,8 +6,8 @@ use crate::service::body::RequestBody as Incoming;
 use crate::{
     auth,
     object::generation::Generation,
-    server::ObjectCtx,
     service::body::{ResponseBody, boxed},
+    service::context::ObjectCtx,
     storage::{ObjectListCursor, ObjectListPage, ObjectListQuery},
 };
 use hyper::header::HeaderValue;

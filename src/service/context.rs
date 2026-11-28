@@ -3,33 +3,21 @@
 //! Handlers receive these structs instead of long parameter lists, so adding shared
 //! request state changes one definition rather than every signature on the call path.
 
-use super::{State, bucket_access};
-use crate::service::activity::{ObjectActivity, await_upload_catalog};
 use crate::{
-    auth::{Caller, ListenerRole, signature::Resource},
+    auth::{AuthError, Caller, ListenerRole},
     bucket::{BucketAccess, CatalogError},
-    config::{ApiBaseSource, Config, RequestEndpoints},
-    json,
-    json::ApiError,
+    config::{Config, RequestEndpoints},
     object::ObjectError,
+    service::{
+        access::bucket_access,
+        activity::{ObjectActivity, await_upload_catalog},
+        state::State,
+    },
     time_limit::TimeLimit,
-    xml,
 };
-use hyper::{HeaderMap, Request};
-use serde_json::Value;
+use hyper::HeaderMap;
 use std::{future::Future, sync::Arc};
 use tokio::{sync::watch, time::Instant};
-
-/// Moves the links of an object resource stored by an earlier request to this request's origin.
-/// The stored links name the Host that finished the work, and a retry can arrive through another
-/// address: a browser finishes on a published port, a peer asks through the service name. An
-/// explicit base left them correct, so the stored response stays exactly as it was.
-pub(crate) fn rebase_stored_links(endpoints: &RequestEndpoints, resource: &mut Value) {
-    match endpoints.api_base_source() {
-        ApiBaseSource::Explicit => {}
-        ApiBaseSource::Derived => json::rebase_object_links(resource, endpoints.api_base_url()),
-    }
-}
 
 /// What every handler needs from the connection that dispatched its request.
 #[derive(Clone, Copy)]
@@ -64,7 +52,7 @@ impl<'a> RequestCtx<'a> {
         self,
         headers: &'r HeaderMap,
         query: Option<&'r str>,
-    ) -> impl Future<Output = Result<Option<Caller<'a>>, ApiError>> + Send + use<'a, 'r> {
+    ) -> impl Future<Output = Result<Option<Caller<'a>>, AuthError>> + Send + use<'a, 'r> {
         let RequestCtx {
             state, listener, ..
         } = self;
@@ -73,29 +61,6 @@ impl<'a> RequestCtx<'a> {
                 .auth
                 .authenticate_request(headers, query, state.clock.as_ref(), listener)
                 .await
-                .map_err(ApiError::from)
-        }
-    }
-
-    /// The inputs of an XML authentication of `request` against the signature `resource`.
-    pub(crate) fn xml_authentication<'r, B>(
-        self,
-        request: &'r Request<B>,
-        resource: &'r Resource,
-    ) -> xml::Authentication<'a, 'r>
-    where
-        'a: 'r,
-    {
-        let state: &'a State = self.state;
-        xml::Authentication {
-            auth: &state.auth,
-            catalog: &state.catalog,
-            method: request.method(),
-            uri: request.uri(),
-            headers: request.headers(),
-            clock: state.clock.as_ref(),
-            resource,
-            listener: self.listener,
         }
     }
 

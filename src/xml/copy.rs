@@ -9,11 +9,11 @@ use crate::{
         content_type,
         generation::{Generation, Metageneration},
     },
-    server::{
-        ObjectCtx,
-        copy::{self, CopyBudget, CopyJob},
+    server::copy::{self, CopyBudget, CopyJob},
+    service::{
+        body::{RequestBody, ResponseBody, boxed},
+        context::ObjectCtx,
     },
-    service::body::{RequestBody, ResponseBody, boxed},
     storage::DerivedDestination,
 };
 use hyper::{HeaderMap, Request, Response};

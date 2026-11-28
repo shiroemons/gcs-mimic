@@ -7,7 +7,7 @@ use crate::{
     auth,
     bucket::name::BucketKey,
     object::ObjectConditions,
-    server::RequestCtx,
+    service::context::RequestCtx,
     service::{
         access::bucket_access,
         body::{RequestBody, ResponseBody, boxed, empty_response},
@@ -52,7 +52,8 @@ async fn authenticate_and_execute(
         auth::signature::Resource::PathStyle,
         ObjectPath::signature_resource,
     );
-    let caller = super::authenticate_target(ctx.xml_authentication(&request, &resource)).await?;
+    let caller =
+        super::authenticate_target(super::Authentication::new(ctx, &request, &resource)).await?;
     super::extension_headers::normalize(&mut request, super::extension_headers::Route::Bucket)?;
     execute(request, selected, ctx, caller).await
 }

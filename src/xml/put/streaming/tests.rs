@@ -2,8 +2,8 @@ use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     auth::signature::{STREAMING_PAYLOAD, timestamp},
-    server::{DeadlineWatch, RequestCtx},
     service::body::RequestBody,
+    service::context::{DeadlineWatch, RequestCtx},
     storage::{
         Catalog,
         fault::{self, Fault, Step},

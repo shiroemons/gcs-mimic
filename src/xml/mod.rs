@@ -63,6 +63,31 @@ pub(crate) struct Authentication<'auth, 'request> {
     pub(crate) listener: crate::auth::ListenerRole,
 }
 
+impl<'auth, 'request> Authentication<'auth, 'request> {
+    /// The inputs of an XML authentication of `request` against the signature `resource`, as
+    /// the listener that accepted the connection of `ctx` would authenticate it.
+    pub(crate) fn new<B>(
+        ctx: crate::service::context::RequestCtx<'auth>,
+        request: &'request hyper::Request<B>,
+        resource: &'request crate::auth::signature::Resource,
+    ) -> Self
+    where
+        'auth: 'request,
+    {
+        let state: &'auth crate::service::state::State = ctx.state;
+        Self {
+            auth: &state.auth,
+            catalog: &state.catalog,
+            method: request.method(),
+            uri: request.uri(),
+            headers: request.headers(),
+            clock: state.clock.as_ref(),
+            resource,
+            listener: ctx.listener,
+        }
+    }
+}
+
 pub(crate) async fn authenticate_target<'a>(
     authentication: Authentication<'a, '_>,
 ) -> Result<Option<crate::auth::Caller<'a>>, Error> {

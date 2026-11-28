@@ -50,6 +50,7 @@ use crate::service::{
     },
     body::{RequestBody, ResponseBody, boxed, empty_response},
     chunk_body,
+    context::{DeadlineWatch, ObjectCtx, RequestCtx},
     object_body::ObjectBody,
     state::State,
 };
@@ -59,7 +60,6 @@ pub(crate) use crate::bounded_body::RESOURCE_BODY_LIMIT;
 mod batch;
 mod browser;
 mod buckets;
-mod context;
 mod handshake;
 mod host;
 mod ingress;
@@ -71,7 +71,6 @@ mod transport;
 pub(crate) mod unix;
 pub(crate) mod upload_drive;
 mod xml_read;
-pub(crate) use context::{DeadlineWatch, ObjectCtx, RequestCtx};
 #[cfg(test)]
 pub(crate) use routing::bucket_answer;
 
@@ -1528,6 +1527,22 @@ async fn discard_lingering_input(
     tokio::select! {
         _ = tokio::time::timeout(LINGER_TIME, linger) => {},
         _ = stopping.wait_for(|stopping| *stopping) => {},
+    }
+}
+
+/// Moves the links of an object resource stored by an earlier request to this request's origin.
+/// The stored links name the Host that finished the work, and a retry can arrive through another
+/// address: a browser finishes on a published port, a peer asks through the service name. An
+/// explicit base left them correct, so the stored response stays exactly as it was.
+fn rebase_stored_links(
+    endpoints: &crate::config::RequestEndpoints,
+    resource: &mut serde_json::Value,
+) {
+    match endpoints.api_base_source() {
+        crate::config::ApiBaseSource::Explicit => {}
+        crate::config::ApiBaseSource::Derived => {
+            json::rebase_object_links(resource, endpoints.api_base_url());
+        }
     }
 }
 
