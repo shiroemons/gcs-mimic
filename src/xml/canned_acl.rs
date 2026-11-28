@@ -6,7 +6,7 @@ use crate::{
     acl::{AnonymousCannedAcl, InvalidCannedAcl, PredefinedObjectAcl, refuse_anonymous_canned_acl},
     bucket::{BucketAccess, UniformAccess},
     object::ObjectError,
-    server::ObjectCtx,
+    service::context::ObjectCtx,
 };
 use hyper::HeaderMap;
 

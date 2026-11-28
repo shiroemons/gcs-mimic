@@ -21,8 +21,8 @@ use crate::{
         ExpectedHashes, MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate,
         ObjectRecord, Patch, UploadChunk, content_type, media_headers::CUSTOM_METADATA_PREFIX,
     },
-    server::{ObjectCtx, RequestCtx},
     service::body::{ResponseBody, boxed},
+    service::context::{ObjectCtx, RequestCtx},
     storage::ObjectUpload,
 };
 use http_body_util::Full;

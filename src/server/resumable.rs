@@ -492,7 +492,7 @@ pub(super) async fn session_response(
                 mut resource,
                 options,
             } => {
-                super::context::rebase_stored_links(ctx.endpoints, &mut resource);
+                super::rebase_stored_links(ctx.endpoints, &mut resource);
                 let resource = CompletionView::of(&options)?.respond(ctx, resource).await?;
                 boxed(json_response(&resource))
             }
@@ -628,7 +628,7 @@ pub(crate) async fn transfer(
             .into_value()
             .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion))?;
         drop(lease);
-        super::context::rebase_stored_links(ctx.endpoints, &mut completion);
+        super::rebase_stored_links(ctx.endpoints, &mut completion);
         return view.respond(ctx, completion).await.map(Transfer::Complete);
     }
     if status_only {

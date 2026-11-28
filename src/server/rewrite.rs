@@ -171,7 +171,7 @@ pub(super) async fn respond(
     }
     if let Some(resource) = &mut progress.resource {
         // A repeated call on a finished rewrite answers from its stored resource.
-        super::context::rebase_stored_links(ctx.endpoints, resource);
+        super::rebase_stored_links(ctx.endpoints, resource);
         // Cloud Storage answered a full projection rewrite with the destination's `acl`
         // (recorded 2026-11-17, case obj-full-projection-writes).
         if projection == crate::acl::Projection::Full {

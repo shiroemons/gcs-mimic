@@ -695,7 +695,7 @@ async fn refuse_authenticated(
         .await
     {
         Ok(_) => refusal,
-        Err(error) => error,
+        Err(error) => ApiError::from(error),
     };
     boxed(error.into_response())
 }
@@ -761,7 +761,7 @@ async fn respond_xml_object(
         .filter(|_| head || delete || request.method() == Method::GET)
         .map(|read| (read.target.bucket.clone(), read.target.name.clone()));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
-    let auth_inputs = ctx.xml_authentication(&request, &resource);
+    let auth_inputs = xml::Authentication::new(ctx, &request, &resource);
     let authentication = if put && !multipart {
         xml::authenticate_upload_target(auth_inputs).await
     } else {
@@ -817,7 +817,8 @@ async fn respond_xml_resumable(
             xml::resumable::session(request, object, ctx.object(None, deadline)).await
         }
         xml::resumable::Route::Start => {
-            match xml::authenticate_target(ctx.xml_authentication(&request, resource)).await {
+            match xml::authenticate_target(xml::Authentication::new(ctx, &request, resource)).await
+            {
                 Ok(caller) => match xml::extension_headers::normalize(
                     &mut request,
                     xml::extension_headers::Route::Object,
