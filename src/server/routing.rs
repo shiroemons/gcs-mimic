@@ -9,7 +9,7 @@ use super::admin::AdminRoute;
 use super::json_route::JsonRoute;
 use super::{
     DeadlineWatch, RequestCtx, ResponseBody, acl, anonymous_error, boxed, buckets, empty_response,
-    notifications, objects, probe, project_resources, resumable, rewrite, unknown_route, xml_read,
+    notifications, objects, probe, project_resources, resumable, rewrite, unknown_route,
 };
 use crate::json::JsonErrorResponse;
 use crate::{
@@ -783,7 +783,7 @@ async fn respond_xml_object(
                 Ok(operation) if put => {
                     xml::put::respond(request, operation, object_ctx, streaming).await
                 }
-                Ok(operation) => xml_read::respond(request, operation, object_ctx).await,
+                Ok(operation) => xml::read::respond(request, operation, object_ctx).await,
                 Err(error) => Err(error),
             }
         }

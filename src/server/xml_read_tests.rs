@@ -1,4 +1,6 @@
-use super::*;
+//! The XML object read through the routes, after objects created through the JSON API.
+
+use crate::service::body::RequestBody as Incoming;
 use crate::{
     auth::Auth,
     config::{Config, VirtualHostDomains},
@@ -6,6 +8,7 @@ use crate::{
     storage::Catalog,
 };
 use http_body_util::{BodyExt, Full};
+use hyper::{Request, StatusCode};
 
 #[tokio::test]
 async fn xml_read_validators_wrap_routed_public_and_virtual_host_responses() {

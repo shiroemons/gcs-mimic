@@ -70,7 +70,6 @@ mod routing;
 mod transport;
 #[cfg(unix)]
 pub(crate) mod unix;
-mod xml_read;
 #[cfg(test)]
 pub(crate) use routing::bucket_answer;
 
@@ -1105,6 +1104,8 @@ mod protocol_tests;
 mod reclaim_tests;
 #[cfg(test)]
 mod upload_frame_tests;
+#[cfg(test)]
+mod xml_read_tests;
 
 /// hyper returns 431 when the HTTP/1 request head is still incomplete at the read buffer limit.
 /// A head that completes in the same read can reach about twice the limit.

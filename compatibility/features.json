@@ -40339,8 +40339,8 @@
           "result": "PASS",
           "test_ids": [
             "http_conditions::tests::xml_read_conditions_follow_rfc_precedence_and_second_precision",
-            "server::xml_read::tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
-            "server::xml_read::tests::encrypted_head_validators_do_not_bypass_data_key_checks"
+            "server::xml_read_tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
+            "server::xml_read_tests::encrypted_head_validators_do_not_bypass_data_key_checks"
           ]
         },
         {
@@ -40448,8 +40448,8 @@
         "obj-range-head",
         "xml_response_overrides_reject_injection_and_duplicates_and_ignore_unknown_names",
         "http_conditions::tests::xml_read_conditions_follow_rfc_precedence_and_second_precision",
-        "server::xml_read::tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
-        "server::xml_read::tests::encrypted_head_validators_do_not_bypass_data_key_checks",
+        "server::xml_read_tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
+        "server::xml_read_tests::encrypted_head_validators_do_not_bypass_data_key_checks",
         "wire_parity_http::xml_listing_matches_the_recorded_document",
         "wire_parity_http::xml_delete_rejects_an_unknown_x_goog_header",
         "wire_parity_http::xml_range_errors_of_a_public_object_are_private",
@@ -40509,8 +40509,8 @@
           "artifact": "docs/en/slices/xml-read-validators.md",
           "test_ids": [
             "http_conditions::tests::xml_read_conditions_follow_rfc_precedence_and_second_precision",
-            "server::xml_read::tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
-            "server::xml_read::tests::encrypted_head_validators_do_not_bypass_data_key_checks"
+            "server::xml_read_tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
+            "server::xml_read_tests::encrypted_head_validators_do_not_bypass_data_key_checks"
           ]
         },
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["wire_parity_http::xml_object_errors_and_headers_match_the_recorded_responses","wire_parity_http::xml_range_errors_of_a_public_object_are_private","wire_parity_http::xml_delete_rejects_an_unknown_x_goog_header","wire_parity_http::xml_listing_matches_the_recorded_document"]},
@@ -41043,8 +41043,8 @@
           "result": "PASS",
           "test_ids": [
             "http_conditions::tests::xml_read_conditions_follow_rfc_precedence_and_second_precision",
-            "server::xml_read::tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
-            "server::xml_read::tests::encrypted_head_validators_do_not_bypass_data_key_checks"
+            "server::xml_read_tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
+            "server::xml_read_tests::encrypted_head_validators_do_not_bypass_data_key_checks"
           ]
         },
         {
@@ -41112,8 +41112,8 @@
         "obj-range-head",
         "xml_response_overrides_reject_injection_and_duplicates_and_ignore_unknown_names",
         "http_conditions::tests::xml_read_conditions_follow_rfc_precedence_and_second_precision",
-        "server::xml_read::tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
-        "server::xml_read::tests::encrypted_head_validators_do_not_bypass_data_key_checks",
+        "server::xml_read_tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
+        "server::xml_read_tests::encrypted_head_validators_do_not_bypass_data_key_checks",
         "TestV4RSASignedDownload",
         "TestV4RSASignedDownload/ResponseOverrides",
         "TestV4RSAVirtualHostedURLs",
@@ -41158,8 +41158,8 @@
           "artifact": "docs/en/slices/xml-read-validators.md",
           "test_ids": [
             "http_conditions::tests::xml_read_conditions_follow_rfc_precedence_and_second_precision",
-            "server::xml_read::tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
-            "server::xml_read::tests::encrypted_head_validators_do_not_bypass_data_key_checks"
+            "server::xml_read_tests::xml_read_validators_wrap_routed_public_and_virtual_host_responses",
+            "server::xml_read_tests::encrypted_head_validators_do_not_bypass_data_key_checks"
           ]
         },
         {
