@@ -831,7 +831,7 @@ fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), InputEr
 
 /// The `Content-Type` an upload stores, checked with the rest of its headers without consuming
 /// or collecting the body. Callers read the destination customer-supplied key separately with
-/// [`super::request_key`].
+/// [`crate::csek::request_key`].
 pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ServiceError> {
     unsupported_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
     validate_read_condition_headers(headers, EtagConditions::Unsupported)?;

@@ -804,7 +804,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     ] {
         let headers = header_map([(name, value)]);
         assert!(upload_content_type(&headers).is_ok(), "{name}");
-        let error = ApiError::from(super::request_key(&headers).unwrap_err());
+        let error = ApiError::from(crate::csek::request_key(&headers).unwrap_err());
         assert_eq!(
             (error.status(), error.reason()),
             (StatusCode::BAD_REQUEST, reason),

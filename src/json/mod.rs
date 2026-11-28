@@ -54,7 +54,7 @@ pub(crate) use buckets::{
     soft_deleted_bucket_list, soft_deleted_bucket_resource, storage_layout_resource,
 };
 pub(crate) use compose::ComposeParams;
-pub(crate) use csek::{copy_keys, object_resource_keyed, request_key};
+pub(crate) use csek::{copy_keys, object_resource_keyed};
 pub(crate) use derived_metadata::{
     DerivedMetadata, derived_metadata, derived_metadata_of, derived_resource,
 };
