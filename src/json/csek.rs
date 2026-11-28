@@ -3,22 +3,17 @@
 
 use super::ApiError;
 use crate::{
-    csek::{CopyKeys, CustomerKey, SOURCE_PREFIX, StoredHashes},
+    csek::{CopyKeys, CustomerKey, StoredHashes},
     object::ObjectRecord,
 };
 use hyper::HeaderMap;
 use serde_json::{Map, Value, json};
 
-/// The copy/rewrite source key: `x-goog-copy-source-encryption-*`.
-pub(crate) fn source_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, ApiError> {
-    CustomerKey::from_headers(headers, SOURCE_PREFIX).map_err(ApiError::from)
-}
-
 /// Both keys of a copy or rewrite; the destination is parsed first, so its failure wins.
 pub(crate) fn copy_keys(headers: &HeaderMap) -> Result<CopyKeys, ApiError> {
     Ok(CopyKeys {
         destination: crate::csek::request_key(headers)?,
-        source: source_key(headers)?,
+        source: crate::csek::source_key(headers)?,
     })
 }
 

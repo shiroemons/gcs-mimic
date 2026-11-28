@@ -293,6 +293,11 @@ pub(crate) fn request_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, Cs
     CustomerKey::from_headers(headers, DESTINATION_PREFIX)
 }
 
+/// The copy or rewrite source key: `x-goog-copy-source-encryption-*`.
+pub(crate) fn source_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, CsekError> {
+    CustomerKey::from_headers(headers, SOURCE_PREFIX)
+}
+
 /// Whether `name` is one of the three key headers under `prefix`. Other names sharing the
 /// prefix (for example `x-goog-encryption-kms-key-name`) are not customer-supplied keys.
 pub(crate) fn is_key_header(name: &str, prefix: &str) -> bool {

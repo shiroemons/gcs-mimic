@@ -247,11 +247,8 @@ pub(super) fn content_type_and_hashes(
 
 pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Error> {
     let mut metadata = ObjectMetadataUpdate {
-        customer_key_sha256: crate::csek::CustomerKey::from_headers(
-            headers,
-            crate::csek::DESTINATION_PREFIX,
-        )?
-        .map(crate::csek::CustomerKey::sha256),
+        customer_key_sha256: crate::csek::request_key(headers)?
+            .map(crate::csek::CustomerKey::sha256),
         acl: super::canned_acl::parse(headers)?.into(),
         ..Default::default()
     };
