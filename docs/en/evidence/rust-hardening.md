@@ -310,3 +310,56 @@ ratcheted findings and nine reasoned suppressions on the host, after the
 layer findings of `src/auth/mod.rs` and `src/auth/signature/{policy,streaming,verify}.rs`
 left the baseline, and zero new Clippy violations for the three other
 targets. The ledger check validated 611 feature rows.
+
+## `service`, part one, 2026-11-28
+
+`just check` passed on the source in which the request pieces that the JSON,
+XML and gRPC adapters share live in `service` instead of `server`:
+
+- range and transcoding negotiation in `service::media`;
+- the request and response bodies in `service::body`, with `chunk_body` and
+  `object_body`;
+- request activity and catalog waits in `service::activity`;
+- `State` and its work pools in `service::state`, with the XML CORS warnings in
+  `service::cors_warnings` and the gRPC read handles in `service::read_handles`;
+- the bucket, ACL and retention access checks in `service::access`;
+- the request context in `service::context`;
+- upload driving, `stream_upload` and `await_session_upload` in
+  `service::upload_drive`;
+- the copy engine in `service::copy`.
+
+`AclAccess` moved to the `acl` model, where `AclKind::permission` selects the
+IAM permission of an ACL read or write for the JSON handlers, the
+`projection=full` renderers, the upload replay snapshot and the shared checks.
+A review compared each moved body with the original and found no behavior
+change.
+
+Its Rust lane passed 4,193 tests with the same Pub/Sub case ignored; no test
+was added or removed. The tests moved with the code they cover:
+
+- The tests of `server::deadline_claim_tests` now live in
+  `service::activity::tests` and `server::deadline_tests`.
+- The body, CORS warning, read-handle and work-pool tests live in the modules
+  that own those types.
+- The range tests moved from `json::object_tests` to `service::media::tests`,
+  and the copy tests to `service::copy::tests`.
+
+Three tests changed their setup only:
+
+- `ObjectActivity` keeps its fields private, so the inactivity-limit test
+  builds its request stages through the test-only `ObjectActivity::in_stage`.
+- A batch part test starts its object deadline through `start_object`.
+- The four `await_session_upload` tests in
+  `service::upload_drive::session_wait_tests` start their request deadline
+  through `TimeLimit::deadline` on the paused clock.
+
+Their assertions are unchanged. JSON-OBJECTS-003, JSON-OBJECTS-005,
+RPC-STORAGE-016, BEHAVIOR-OBJECT-014, BEHAVIOR-OBJECT-016,
+BEHAVIOR-OBJECT-023, BEHAVIOR-RPC-004, DESIGN-100, DESIGN-105 and AUDIT-010
+record this run for the moved and changed tests they list.
+
+The production gate counted zero new violations, 7 ratcheted findings and
+nine reasoned suppressions on the host. The 32 layer findings of the gRPC and
+XML adapters on `server` left the baseline. The cross-target checks counted
+zero new Clippy violations for the three other targets. The ledger check
+validated 611 feature rows.

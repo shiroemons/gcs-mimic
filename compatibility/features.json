@@ -13056,7 +13056,8 @@
             "a_configured_rewrite_limit_preserves_copy_and_compose_capacity_after_restart",
             "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["service::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget", "service::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer", "service::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement", "service::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check", "service::copy::tests::composite_count_uses_the_destination_class_selected_at_commit", "service::copy::tests::timed_out_publication_admission_never_commits_after_the_response", "service::copy::tests::shutdown_during_copy_recovers_without_a_destination", "service::copy::tests::copy_advisory_failure_does_not_begin_a_transfer", "service::copy::tests::copy_rechecks_source_read_grant_before_publication"]}
       ],
       "sdk_evidence": [
         {
@@ -13080,7 +13081,7 @@
         "Local full projection/replay uses the originally visible ACL snapshot and current ACL-read permission; provider-exact full projection/permission/cache/error parity remains pending under SPEC-013. Whole method stays PARTIAL."
       ],
       "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
-      "last_verified": "2026-11-13",
+      "last_verified": "2026-11-28",
       "http_method": "POST",
       "path": "b/{sourceBucket}/o/{sourceObject}/copyTo/b/{destinationBucket}/o/{destinationObject}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -14640,7 +14641,8 @@
             "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["only_a_nonzero_suffix_of_an_empty_object_is_an_empty_suffix"]}
       ],
       "sdk_evidence": [
         {
@@ -14767,7 +14769,7 @@
         "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-11-13",
+      "last_verified": "2026-11-28",
       "http_method": "GET",
       "path": "b/{bucket}/o/{object}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -23786,7 +23788,8 @@
         {"command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]},
         {"command": "cargo test --locked --offline --lib grpc::v2::bidi_read::tests", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status"]},
         {"command": "RUST_TEST_THREADS=8 just check", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status"]},
-        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
+        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]},
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["read_handle_table_evicts_the_oldest_entry_at_its_bound"]}
       ],
       "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; ordinary NewMultiRangeDownloader with WithGRPCBidiReads, 600 Add calls, Wait, Close and bounded backpressure", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}, {"language": "Java", "toolchain": "openjdk 27.0.1", "sdk": "com.google.cloud:google-cloud-storage", "version": "2.78.0", "transport": "Storage v2 gRPC; blobReadSession with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.java.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Java)"]}, {"language": "Python", "toolchain": "3.15.2", "sdk": "google-cloud-storage", "version": "3.17.1", "transport": "Storage v2 gRPC; AsyncMultiRangeDownloader with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.python.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Python)"]}, {"language": "Rust", "toolchain": "1.100.0", "sdk": "google-cloud-storage", "version": "1.22.0", "transport": "Storage v2 gRPC; Storage::open_object with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.rust.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Rust)"]}],
       "known_deviations": ["No test pins how a BidiReadObject stream evaluates a metageneration condition of 0, a negative condition or a match together with a not-match."],
@@ -23800,7 +23803,7 @@
         {"text": "A read_handle together with a generation or metageneration condition answers UNIMPLEMENTED with ErrorInfo, and a client reopens without the handle to apply conditions. The proto does not say whether a condition applies to the generation a handle reopens or to the live object.", "gap": "SPEC-GRPC-LOCAL-CHOICES", "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle"]}
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-18"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "RPC-STORAGE-017",
@@ -32432,7 +32435,8 @@
           "test_ids": [
             "service::upload_drive::session_wait_tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["service::upload_drive::session_wait_tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"]}
       ],
       "sdk_evidence": [
         {
@@ -32457,7 +32461,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "8d7a25b7eaf8a08e1a6f39b2bb05ac0d618d03e5",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "BEHAVIOR-OBJECT-015",
@@ -32692,12 +32696,13 @@
             "obj_range_http_strict_authorization_precedes_range_evaluation",
             "object_range_reader_seeks_sparse_blob_and_bounds_every_chunk"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["only_a_nonzero_suffix_of_an_empty_object_is_an_empty_suffix"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "BEHAVIOR-OBJECT-017",
@@ -33697,7 +33702,8 @@
             "a_configured_rewrite_limit_preserves_copy_and_compose_capacity_after_restart",
             "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["service::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget", "service::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer", "service::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement", "service::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check", "service::copy::tests::composite_count_uses_the_destination_class_selected_at_commit", "service::copy::tests::timed_out_publication_admission_never_commits_after_the_response", "service::copy::tests::shutdown_during_copy_recovers_without_a_destination", "service::copy::tests::copy_advisory_failure_does_not_begin_a_transfer", "service::copy::tests::copy_rechecks_source_read_grant_before_publication"]}
       ],
       "sdk_evidence": [
         {
@@ -33719,7 +33725,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "BEHAVIOR-OBJECT-024",
@@ -39803,7 +39809,8 @@
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc::v2::bidi_read -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_errors_report_every_submitted_read_id"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc_io_read_failures_use_shared_storage_status -- --test-threads=1", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["grpc_io_read_failures_use_shared_storage_status"]},
         {"command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]},
-        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
+        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]},
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["read_handle_table_evicts_the_oldest_entry_at_its_bound"]}
       ],
       "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; interleaved ranges, 600 Add calls with backpressure and generation-stable handles", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}],
       "known_deviations": ["Every acceptance case passes; the row stays PARTIAL only until its status change to IMPLEMENTED is reviewed."],
@@ -39815,7 +39822,7 @@
         {"text": "A routing_token, the only input of a redirect, returns UNIMPLEMENTED: the emulator never redirects a stream.", "gap": "SPEC-GRPC-UNMODELED-SETTINGS", "test_ids": ["routing_token_and_read_mask_stay_unimplemented"]}
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-18"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "BEHAVIOR-RPC-005",
@@ -63047,12 +63054,13 @@
             "allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json",
             "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["service::cors_warnings::tests::unconfigured_warning_is_once_per_bucket_and_bounded"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": "5eb3efdd0b7b4b83d1b419151e1a9d627ed035cf",
-      "last_verified": "2026-11-11"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "DESIGN-101",
@@ -64715,7 +64723,8 @@
             "url::error_text_and_sources"
           ]
         },
-        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["auth::error_text_and_sources", "config::auth::error_text_and_sources"]}
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["auth::error_text_and_sources", "config::auth::error_text_and_sources"]},
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["service::media::error_text_and_sources", "service::copy::error_text_and_sources"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [],
@@ -69018,7 +69027,8 @@
             "a_stored_wake_taken_by_a_connection_that_leaves_reaches_the_next_in_line",
             "transfer_timeout_precedence_and_bounds"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["a_pending_request_body_moves_any_request_to_the_inactivity_limit", "the_timeout_reply_names_the_limit_that_expired", "only_a_wait_on_the_client_counts_as_its_silence", "work_pools_scale_with_blocking_threads_and_do_not_share_permits"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [
@@ -69028,7 +69038,7 @@
         "A media or multipart upload streams its body to its handler, so a caller the handler refuses before reading the body keeps its 401 or 403 when the body starts a gzip member but is cut short or followed by other bytes later; Cloud Storage answered such anonymous uploads 400 'Could not decompress request body.' (observed 2026-11-25). JSON bodies keep the local 16 MiB compressed and expanded limits (413), and a gzip body on a resumable session request keeps its refusal; neither was probed."
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-25"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "AUDIT-011",
