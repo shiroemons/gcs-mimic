@@ -504,3 +504,31 @@ The production gate counted zero new violations, 5 ratcheted findings and nine
 reasoned suppressions on the host, and the test-clock baseline did not change.
 The cross-target checks counted zero new Clippy violations for the three other
 targets. The ledger check validated 611 feature rows.
+
+## `server.rs` split, 2026-11-28
+
+`just check` passed on the source in which `src/server.rs` keeps only the
+module declarations, the public re-exports and `Shared`. The accept loop, the
+HTTP/1 connection, the deadline policy, the slot reclaim and the probes moved
+into `server::accept`, `server::connection`, `server::deadline`,
+`server::slots` and `server::probe`, and `unknown_route` into
+`server::routing`. Their bodies are unchanged; items that a sibling module or
+a test now reaches became `pub(super)`. The management, batch and ingress
+modules import the service items and `RESOURCE_BODY_LIMIT` from `service` and
+`bounded_body` instead of through `server`.
+
+Its Rust lane passed 4,193 tests with the same Pub/Sub case ignored; no test
+was added or removed, and no assertion changed. `server::deadline_tests`,
+`server::drain_tests`, `server::reclaim_tests` and
+`server::upload_frame_tests` became the `tests` modules of `deadline`,
+`accept`, `slots` and `connection`, and only their imports changed.
+
+No ledger test ID changed, because the ledger names these tests without a
+module path. BEHAVIOR-RPC-005 and AUDIT-010 record this run for the moved
+tests they list.
+
+The production gate counted zero new violations, 5 ratcheted findings and nine
+reasoned suppressions on the host. The test-clock baseline row of the drain
+tests moved to `src/server/accept/tests.rs` with the same count. The
+cross-target checks counted zero new Clippy violations for the three other
+targets. The ledger check validated 611 feature rows.
