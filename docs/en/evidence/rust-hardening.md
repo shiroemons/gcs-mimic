@@ -363,3 +363,57 @@ nine reasoned suppressions on the host. The 32 layer findings of the gRPC and
 XML adapters on `server` left the baseline. The cross-target checks counted
 zero new Clippy violations for the three other targets. The ledger check
 validated 611 feature rows.
+
+## `service`, part two, 2026-11-28
+
+`just check` passed on the source in which the resumable engine that the JSON
+and XML session URIs share lives in `service` instead of `server`:
+
+- the engine (`create_session`, `transfer`, chunk planning, the 308 reply and
+  the session write) in `service::resumable`, with the session URI's
+  `Content-Range` parsing and `final_options` in
+  `service::resumable::session_headers`;
+- the object request header rules that the engine applies to every session
+  request (`single`, `unsigned`, `upload_content_type`,
+  `validate_keyed_object_headers`, `EtagConditions` and
+  `validate_read_condition_headers`) in `service::object_headers`;
+- the destination and source customer-key readers in `csek::request_key` and
+  `csek::source_key`, which the JSON and XML handlers call instead of their
+  own copies.
+
+The stored JSON completion stays with the JSON API behind traits that the
+engine defines. The JSON adapter implements `StoredCompletion` for
+`ObjectRecord`. The JSON session handler implements `CompletionAnswer` for
+`ResumableOptions`; its `AnswerView` rebases stored links, adds the full
+projection's ACL and applies the field selection. XML session URIs answer
+through the same view as before. `SessionUri` replaces the optional object
+name that told the two session URIs apart. A review compared each moved body
+with the original and found no behavior change.
+
+Its Rust lane passed 4,193 tests with the same Pub/Sub case ignored; no test
+was added or removed. Three tests moved with the code they cover:
+
+- `json_completion_keeps_the_text_stored_in_sqlite` moved with the completion
+  renderer from `server::resumable::tests` to `service::resumable::tests`.
+- `a_non_text_first_resumable_header_wins_over_repetition` moved with `single`
+  to `service::object_headers::tests`.
+- `final_metadata_errors_follow_the_request_header_order` moved with
+  `final_options` to `service::resumable::session_headers::tests`.
+
+Two tests changed:
+
+- `a_session_opened_through_one_host_completes_through_another` also cancels
+  the completed session through another address and checks the links of the
+  stored resource that the refusal answers with. Passing `Links::ThisRequest`
+  on that path made it fail; that change was reverted.
+- `json::error::golden_tests::every_error_keeps_its_json_response` calls
+  `final_options` at its new path; its golden output is unchanged.
+
+DESIGN-057, UX-003 and DESIGN-105 record this run for the moved and changed
+tests they list.
+
+The production gate counted zero new violations, 6 ratcheted findings and
+nine reasoned suppressions on the host. The layer finding of
+`xml/resumable.rs` on `server` left the baseline. The cross-target checks
+counted zero new Clippy violations for the three other targets. The ledger
+check validated 611 feature rows.
