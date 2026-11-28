@@ -926,7 +926,7 @@ fn stored_text(text: &str) -> rusqlite::types::Value {
 
 async fn patch_stored_bucket(catalog: &Catalog, name: &str, body: &[u8]) {
     let update =
-        crate::json::parse_bucket_patch(body, crate::config::CompatProfile::Native).unwrap();
+        crate::json::parse_bucket_patch(body, crate::profile::CompatProfile::Native).unwrap();
     catalog
         .patch_bucket(name, update, Default::default(), PERMISSIVE)
         .await

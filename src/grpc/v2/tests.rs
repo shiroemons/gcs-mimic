@@ -30,7 +30,7 @@ async fn grpc_auth_metadata_handoff() {
         .metadata_mut()
         .insert("authorization", "Basic garbage".parse().unwrap());
     let storage = Storage {
-        compat_profile: crate::config::CompatProfile::Native,
+        compat_profile: crate::profile::CompatProfile::Native,
         state: Arc::new(state),
         max_object_bytes: 1024 * 1024 * 1024,
     };
@@ -38,7 +38,7 @@ async fn grpc_auth_metadata_handoff() {
     state = Arc::try_unwrap(storage.state).ok().unwrap();
     state.auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"a@example.invalid","tokens":["tok-a"],"project_roles":{"p":["roles/storage.admin"]}}]}"#).unwrap());
     let storage = Storage {
-        compat_profile: crate::config::CompatProfile::Native,
+        compat_profile: crate::profile::CompatProfile::Native,
         state: Arc::new(state),
         max_object_bytes: 1024 * 1024 * 1024,
     };
@@ -91,7 +91,7 @@ async fn routed_call<M: prost::Message>(
             service(
                 state.clone(),
                 1024 * 1024,
-                crate::config::CompatProfile::Native,
+                crate::profile::CompatProfile::Native,
             ),
             request,
         )
@@ -324,7 +324,7 @@ async fn grpc_calls_need_routing_metadata_and_ignore_unknown_keys() {
 
 #[tokio::test]
 async fn grpc_names_follow_the_configured_bucket_profile() {
-    use crate::config::CompatProfile;
+    use crate::profile::CompatProfile;
     let dir = TestDir::new();
     let state = Arc::new(State::for_test(
         Catalog::open(&dir.0).await.unwrap(),
@@ -435,7 +435,7 @@ async fn call<M: prost::Message, R: prost::Message + Default>(
                 service(
                     state.clone(),
                     1024 * 1024,
-                    crate::config::CompatProfile::Native,
+                    crate::profile::CompatProfile::Native,
                 ),
                 request,
             )

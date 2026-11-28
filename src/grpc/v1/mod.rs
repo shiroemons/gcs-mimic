@@ -40,13 +40,13 @@ use tonic::{Request, Response, Status, Streaming};
 pub(crate) struct Storage {
     state: Arc<State>,
     max_object_bytes: u64,
-    compat_profile: crate::config::CompatProfile,
+    compat_profile: crate::profile::CompatProfile,
 }
 
 pub(crate) fn service(
     state: Arc<State>,
     max_object_bytes: u64,
-    compat_profile: crate::config::CompatProfile,
+    compat_profile: crate::profile::CompatProfile,
 ) -> pb::storage_server::StorageServer<Storage> {
     pb::storage_server::StorageServer::new(Storage {
         state,

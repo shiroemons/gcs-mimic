@@ -77,7 +77,7 @@ pub(super) async fn respond(
         }
     }
     let configuration = BucketConfiguration::parse(&bytes)?;
-    if ctx.config.compat_profile() == crate::config::CompatProfile::FakeGcsServer
+    if ctx.config.compat_profile() == crate::profile::CompatProfile::FakeGcsServer
         && (configuration.location.is_some() || configuration.storage_class.is_some())
     {
         return Err(Error::unsupported(

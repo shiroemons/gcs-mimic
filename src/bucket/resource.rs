@@ -11,9 +11,9 @@ use super::{
     SoftDeletePolicy, SoftDeleteRetention, UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest,
     Versioning, cors_from_value, lifecycle::LifecycleRules, valid_label, validate_storage_class,
 };
-use crate::config::CompatProfile;
 use crate::input::InputError;
 use crate::object::Patch;
+use crate::profile::CompatProfile;
 use crate::time_format::timestamp;
 use serde_json::{Map, Value, json};
 use std::{collections::BTreeMap, time::SystemTime};

@@ -5,7 +5,7 @@
 //! rendered deep inside the protocol handlers, so the routing layer selects the format once per
 //! request with [`with_format`] instead of threading it through every handler signature.
 
-use crate::config::CompatProfile;
+use crate::profile::CompatProfile;
 use serde_json::Value;
 use std::future::Future;
 

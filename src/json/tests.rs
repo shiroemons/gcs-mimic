@@ -2,9 +2,9 @@ use super::*;
 use crate::bounded_body::read_body;
 use crate::bucket::name::validate as validate_bucket_name;
 use crate::bucket::{BucketRecord, CatalogError, Rpo, UniformAccess};
-use crate::config::CompatProfile;
 use crate::object::generation::Generation;
 use crate::page_token::{decode_page_token, encode_page_token};
+use crate::profile::CompatProfile;
 use crate::time_format::{http_date, timestamp, timestamp_micros};
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
@@ -406,7 +406,7 @@ fn object_and_project_query_booleans_use_the_same_parser() {
             &format!("/storage/v1/projects/p/hmacKeys?showDeletedKeys={wire}")
                 .parse()
                 .unwrap(),
-            crate::config::CompatProfile::Native,
+            crate::profile::CompatProfile::Native,
         )
         .unwrap()
         .map(|(request, _)| request)
@@ -1594,7 +1594,7 @@ fn bucket_location_defaults_and_unsupported_placement() {
             body.to_string().as_bytes(),
             "p",
             UNIX_EPOCH,
-            crate::config::CompatProfile::Native,
+            crate::profile::CompatProfile::Native,
             "asia-northeast1",
         )
         .unwrap();

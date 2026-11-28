@@ -5,10 +5,10 @@ use crate::{
         BucketConditions,
         name::{BucketKey, MAX_BUCKET_NAME_BYTES},
     },
-    config::CompatProfile,
     decimal::Grammar,
     object::generation::Generation,
     percent::{Decoding, RequestUri, decode},
+    profile::CompatProfile,
 };
 use hyper::{Method, StatusCode};
 use std::collections::BTreeMap;

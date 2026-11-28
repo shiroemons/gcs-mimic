@@ -472,7 +472,7 @@ mod tests {
             let mut headers = hyper::HeaderMap::new();
             headers.insert("host", origin.authority().as_str().parse().unwrap());
             let config = crate::config::ConfigDraft {
-                compat_profile: crate::config::CompatProfile::FakeGcsServer,
+                compat_profile: crate::profile::CompatProfile::FakeGcsServer,
                 xml_virtual_host_domains: origin.dns_name().map_or_default(|name| crate::config::VirtualHostDomains::of(&[name])),
                 public_base_url: Some(origin), ..Default::default()
             }.build();

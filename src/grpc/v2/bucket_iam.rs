@@ -10,7 +10,7 @@ use tonic::{Request, Response, Status};
 
 /// The bucket of an IAM resource. Managed folders and objects are valid IAM resources
 /// without a local policy store, so they are unsupported rather than malformed.
-fn iam_bucket(resource: &str, profile: crate::config::CompatProfile) -> Result<&str, Status> {
+fn iam_bucket(resource: &str, profile: crate::profile::CompatProfile) -> Result<&str, Status> {
     if let Some((bucket, child)) = resource
         .strip_prefix("projects/_/buckets/")
         .and_then(|rest| rest.split_once('/'))

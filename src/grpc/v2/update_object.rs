@@ -370,7 +370,7 @@ mod tests {
         record.object_retention_enabled = true;
         catalog.insert_bucket(record).await.unwrap();
         let s = Storage {
-            compat_profile: crate::config::CompatProfile::Native,
+            compat_profile: crate::profile::CompatProfile::Native,
             state: Arc::new(crate::server::State::for_test(
                 catalog,
                 Auth::strict(registry(&[

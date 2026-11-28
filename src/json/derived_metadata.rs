@@ -178,7 +178,7 @@ mod tests {
             let body = serde_json::json!({"storageClass":class}).to_string();
             let error = super::super::buckets::parse_bucket_patch(
                 body.as_bytes(),
-                crate::config::CompatProfile::Native,
+                crate::profile::CompatProfile::Native,
             )
             .unwrap_err();
             assert_eq!(error.status().as_u16(), 400, "{class}");

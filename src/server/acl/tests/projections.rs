@@ -2,7 +2,8 @@ use super::super::{AclSubjects, BucketVersion, Rendered, add_full_projection};
 use crate::{
     acl::{AclRole, AclTarget},
     auth::{Auth, Caller, ListenerRole, Registry},
-    config::{CompatProfile, Config, RequestEndpoints},
+    config::{Config, RequestEndpoints},
+    profile::CompatProfile,
     server::{ObjectActivity, RequestBody, RequestCtx, State, routing},
     storage::{
         AclChange, Catalog,

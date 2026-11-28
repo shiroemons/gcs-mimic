@@ -544,7 +544,7 @@ mod tests {
         (
             dir,
             Storage {
-                compat_profile: crate::config::CompatProfile::Native,
+                compat_profile: crate::profile::CompatProfile::Native,
                 max_object_bytes: 1024 * 1024 * 1024,
                 state: Arc::new(crate::server::State::for_test(catalog, auth)),
             },
@@ -2583,7 +2583,7 @@ mod tests {
             ("viewer", "p", "roles/storage.bucketViewer"),
         ]));
         let storage = Storage {
-            compat_profile: crate::config::CompatProfile::Native,
+            compat_profile: crate::profile::CompatProfile::Native,
             max_object_bytes: 1024,
             state: Arc::new(crate::server::State::for_test(
                 Catalog::open(&dir.0).await.unwrap(),
@@ -2673,7 +2673,7 @@ mod tests {
             ("editor", "p", "roles/storage.editor"),
         ]));
         let storage = Storage {
-            compat_profile: crate::config::CompatProfile::Native,
+            compat_profile: crate::profile::CompatProfile::Native,
             max_object_bytes: 1024,
             state: Arc::new(crate::server::State::for_test(
                 Catalog::open(&dir.0).await.unwrap(),

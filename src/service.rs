@@ -4,11 +4,11 @@ use crate::{
     auth::InvalidProjectId,
     bounded_body::BodyError,
     bucket::{BucketRecord, CatalogError, resource},
-    config::CompatProfile,
     csek::CsekError,
     input::InputError,
     multipart::MultipartError,
     object::{ObjectError, media_headers::StoredHeaderError, upload_headers::UploadHeaderError},
+    profile::CompatProfile,
     storage::ResumableError,
     time_format::TimeOutOfRange,
 };

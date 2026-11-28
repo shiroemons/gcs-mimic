@@ -15,9 +15,10 @@ use crate::json::JsonErrorResponse;
 use crate::{
     auth::Caller,
     bucket::{BucketAccess, CatalogError, CorsRule, cors::CorsRequest},
-    config::{CompatProfile, Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
+    config::{Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
     json::ApiError,
     json::{self, ObjectRequest},
+    profile::CompatProfile,
     storage::failure::wording::safe_backend_cause,
     xml,
 };

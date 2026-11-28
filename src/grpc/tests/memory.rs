@@ -18,7 +18,7 @@ type V2 = pb::storage_server::StorageServer<v2::Storage>;
 #[tokio::test]
 async fn ram_grpc_reserved_destinations_never_create_objects() {
     let state = state(1024 * 1024).await;
-    let mut service = v2::service(state.clone(), 1024, crate::config::CompatProfile::Native);
+    let mut service = v2::service(state.clone(), 1024, crate::profile::CompatProfile::Native);
     let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
         &mut service,
         "WriteObject",
@@ -216,7 +216,7 @@ async fn ram_grpc_v2_framing_shares_io_permissions_history_and_derived_publicati
     let mut service = v2::service(
         state.clone(),
         4 * 1024 * 1024,
-        crate::config::CompatProfile::Native,
+        crate::profile::CompatProfile::Native,
     );
     let content = vec![37; 512 * 1024 + 3];
     let (code, written): (_, Vec<pb::WriteObjectResponse>) = call(
@@ -412,7 +412,7 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
     let mut service = v2::service(
         state.clone(),
         4 * 1024 * 1024,
-        crate::config::CompatProfile::Native,
+        crate::profile::CompatProfile::Native,
     );
     let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
         &mut service,
@@ -560,7 +560,7 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
 #[tokio::test]
 async fn ram_grpc_restore_reuses_retained_source_permissions_and_live_conditions() {
     let state = state(8192).await;
-    let mut service = v2::service(state.clone(), 8192, crate::config::CompatProfile::Native);
+    let mut service = v2::service(state.clone(), 8192, crate::profile::CompatProfile::Native);
     let (code, written): (_, Vec<pb::WriteObjectResponse>) = call(
         &mut service,
         "WriteObject",
@@ -626,7 +626,7 @@ async fn ram_grpc_restore_reuses_retained_source_permissions_and_live_conditions
 #[tokio::test]
 async fn ram_grpc_appendable_and_legacy_share_the_same_catalog_and_readers() {
     let state = state(8192).await;
-    let mut service = v2::service(state.clone(), 8192, crate::config::CompatProfile::Native);
+    let mut service = v2::service(state.clone(), 8192, crate::profile::CompatProfile::Native);
     let ordinary = pb::BidiWriteObjectRequest {
         first_message: Some(
             pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec("bidi")),
@@ -703,7 +703,7 @@ async fn ram_grpc_appendable_and_legacy_share_the_same_catalog_and_readers() {
     let mut legacy = v1::service(
         state.clone(),
         8192,
-        crate::config::CompatProfile::FakeGcsServer,
+        crate::profile::CompatProfile::FakeGcsServer,
     );
     let insert = v1::pb::InsertObjectRequest {
         first_message: Some(
@@ -791,7 +791,7 @@ async fn strict_anonymous_object_denials_ask_for_credentials_on_both_grpc_versio
     let mut service = v2::service(
         state.clone(),
         1024 * 1024,
-        crate::config::CompatProfile::Native,
+        crate::profile::CompatProfile::Native,
     );
     let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
         &mut service,
@@ -847,7 +847,7 @@ async fn strict_anonymous_object_denials_ask_for_credentials_on_both_grpc_versio
     let mut legacy = v1::service(
         state.clone(),
         8192,
-        crate::config::CompatProfile::FakeGcsServer,
+        crate::profile::CompatProfile::FakeGcsServer,
     );
     let (code, _): (_, Vec<v1::pb::Object>) = rpc(
         &mut legacy,
@@ -922,7 +922,7 @@ async fn strict_anonymous_publication_denials_ask_for_credentials_on_both_grpc_v
     let mut service = v2::service(
         state.clone(),
         1024 * 1024,
-        crate::config::CompatProfile::Native,
+        crate::profile::CompatProfile::Native,
     );
     for name in ["existing", "private-source"] {
         let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
@@ -977,7 +977,7 @@ async fn strict_anonymous_publication_denials_ask_for_credentials_on_both_grpc_v
     let mut legacy = v1::service(
         state.clone(),
         8192,
-        crate::config::CompatProfile::FakeGcsServer,
+        crate::profile::CompatProfile::FakeGcsServer,
     );
     let insert = v1::pb::InsertObjectRequest {
         first_message: Some(

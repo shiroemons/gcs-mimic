@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    config::CompatProfile,
     grpc::{generated::google::storage::v2 as pb, test_support::routed_rpc_status, v2},
+    profile::CompatProfile,
 };
 use prost::Message;
 use tonic::{Code, Status};

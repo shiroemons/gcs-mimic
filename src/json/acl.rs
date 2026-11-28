@@ -15,7 +15,7 @@ use crate::{
         validate_role,
     },
     bucket::BucketConditions,
-    config::CompatProfile,
+    profile::CompatProfile,
     storage::AclProjection,
 };
 use hyper::Method;

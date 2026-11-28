@@ -11,7 +11,6 @@ use crate::time_format::{TimeOutOfRange, timestamp};
 use crate::{
     auth,
     bucket::name::BucketKey,
-    config::CompatProfile,
     csek::CustomerKey,
     http_header::{TextOrder, sole},
     input::InputError,
@@ -19,6 +18,7 @@ use crate::{
         IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget,
         media_headers::CUSTOM_METADATA_PREFIX, retention::UnlockedOverride,
     },
+    profile::CompatProfile,
     service::ServiceError,
 };
 use hyper::{HeaderMap, Method, StatusCode};

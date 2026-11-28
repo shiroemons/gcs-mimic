@@ -56,7 +56,7 @@ async fn open(
                 crate::grpc::v2::service(
                     state.clone(),
                     1024 * 1024,
-                    crate::config::CompatProfile::Native,
+                    crate::profile::CompatProfile::Native,
                 ),
                 request,
             )

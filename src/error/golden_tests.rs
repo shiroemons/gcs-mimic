@@ -11,7 +11,7 @@ pub(crate) const UPDATE_VARIABLE: &str = "GCSM_UPDATE_GOLDENS";
 
 /// Bucket inputs that reached the adapters through the corresponding shared error.
 pub(crate) fn bucket_service_errors() -> Vec<(&'static str, crate::service::ServiceError)> {
-    use crate::{config::CompatProfile, service::parse_bucket};
+    use crate::{profile::CompatProfile, service::parse_bucket};
     use serde_json::json;
     use std::time::{Duration, UNIX_EPOCH};
 

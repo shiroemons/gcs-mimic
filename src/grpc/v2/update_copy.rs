@@ -306,7 +306,7 @@ impl<'a> RewriteTarget<'a> {
     fn resolve(
         r: &'a pb::RewriteObjectRequest,
         binding: Option<&'a RewriteBinding>,
-        profile: crate::config::CompatProfile,
+        profile: crate::profile::CompatProfile,
     ) -> Result<Self, Status> {
         let sb = if r.source_bucket.is_empty() {
             binding.map_or("", |b| b.source.bucket.as_str())

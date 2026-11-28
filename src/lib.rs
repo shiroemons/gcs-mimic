@@ -38,6 +38,7 @@ mod notification;
 mod object;
 mod page_token;
 mod percent;
+mod profile;
 mod project;
 mod seed;
 mod serde_util;

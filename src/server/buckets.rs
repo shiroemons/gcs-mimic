@@ -11,11 +11,11 @@ use super::{
 use crate::{
     auth::{self, Caller},
     bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError, UniformAccess},
-    config::CompatProfile,
     http_conditions::EtagError,
     json::ApiError,
     json::{self, BucketRequest, WriteMode},
     object::generation::Generation,
+    profile::CompatProfile,
     storage::failure::unavailable,
 };
 use http_body_util::Full;

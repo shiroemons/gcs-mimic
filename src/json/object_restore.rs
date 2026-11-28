@@ -9,9 +9,9 @@ use super::{
 };
 use crate::{
     bucket::name::BucketKey,
-    config::CompatProfile,
     object::ObjectTarget,
     percent::{Decoding, RequestUri, decode},
+    profile::CompatProfile,
 };
 use hyper::Method;
 

@@ -79,6 +79,7 @@ const LAYERS: [Layer; 8] = [
             "url",
             "notification",
             "time_format",
+            "profile",
             "input",
         ],
     },
