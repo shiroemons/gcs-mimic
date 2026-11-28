@@ -62,3 +62,14 @@ pub(crate) fn object_resource_keyed(
 ) -> Result<Value, crate::time_format::TimeOutOfRange> {
     super::objects::object_resource_fields(object, base_url, projection, key).map(Value::Object)
 }
+
+impl crate::service::resumable::StoredCompletion for ObjectRecord {
+    fn to_stored_completion(
+        &self,
+        base_url: &str,
+        projection: super::Projection,
+        key: Option<CustomerKey>,
+    ) -> Result<Value, crate::time_format::TimeOutOfRange> {
+        object_resource_keyed(self, base_url, projection, key)
+    }
+}

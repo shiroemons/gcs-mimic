@@ -433,8 +433,9 @@ async fn every_error_keeps_its_json_response() {
         );
         let options =
             crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive);
-        let error =
-            ApiError::from(crate::json::resumable::final_options(&headers, options).unwrap_err());
+        let error = ApiError::from(
+            crate::service::resumable::final_options(&headers, options).unwrap_err(),
+        );
         golden.transcript.case("resumable headers", label);
         golden
             .transcript

@@ -9,11 +9,11 @@ use crate::{
     auth,
     bucket::name::BucketKey,
     input::InputError,
-    server::resumable::{self, SessionTarget, Transfer},
     service::{
         ServiceError,
         body::{ResponseBody, boxed, empty_response},
         context::ObjectCtx,
+        resumable::{self, SessionTarget, Transfer},
     },
     storage::{ResumableError, ResumableOptions},
 };
