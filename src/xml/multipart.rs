@@ -1,12 +1,11 @@
 //! XML multipart protocol adapter; storage owns session transitions and durable bytes.
 
 use super::{Error, ReadRequest, XmlCode, accepted_parameter, put};
-use crate::server::upload_drive::{
-    CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
+use crate::service::upload_drive::{
+    CatalogWait, DriveError, UploadEnd, drive_upload, stream_upload, upload_channel,
 };
 use crate::{
     object::{ObjectError, media_headers::CUSTOM_METADATA_PREFIX},
-    server::stream_upload,
     service::body::{RequestBody, ResponseBody, boxed, empty_response},
     service::context::ObjectCtx,
     storage::xml_multipart as storage,

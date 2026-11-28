@@ -3,8 +3,8 @@
 use super::{AclSource, Written, idempotency_token};
 use crate::object::ObjectKey;
 use crate::server::RequestBody as Incoming;
-use crate::server::upload_drive::{
-    CatalogWait, UploadEnd, UploadSender, drive_upload, upload_channel,
+use crate::service::upload_drive::{
+    CatalogWait, UploadEnd, UploadSender, drive_upload, stream_upload, upload_channel,
 };
 use crate::{
     bucket::BucketAccess,
@@ -12,7 +12,7 @@ use crate::{
     json::ApiError,
     json::{self, UploadRequest},
     object::{ExpectedHashes, ObjectError, ObjectRecord, UploadChunk},
-    server::{ObjectCtx, stream_upload},
+    server::ObjectCtx,
     storage::{ObjectUpload, ReplayInvocation, UploadCheck},
 };
 use hyper::{
@@ -123,7 +123,7 @@ pub(super) async fn insert(
     };
     let record = drive_upload(CatalogWait::Upload(ctx), upload, &sender, producer)
         .await
-        .map_err(crate::server::upload_drive::DriveError::into_error::<ApiError>)?;
+        .map_err(crate::service::upload_drive::DriveError::into_error::<ApiError>)?;
     Written::keyed(&record, ctx, params.projection, key, acl)
 }
 
@@ -261,5 +261,5 @@ async fn stream_multipart<B: Body<Data = Bytes> + Unpin>(
     };
     drive_upload(CatalogWait::Upload(ctx), upload, &sender, streaming)
         .await
-        .map_err(crate::server::upload_drive::DriveError::into_error::<ApiError>)
+        .map_err(crate::service::upload_drive::DriveError::into_error::<ApiError>)
 }

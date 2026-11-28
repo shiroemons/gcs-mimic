@@ -25,6 +25,7 @@ pub(crate) mod media;
 pub(crate) mod object_body;
 pub(crate) mod read_handles;
 pub(crate) mod state;
+pub(crate) mod upload_drive;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ServiceError {

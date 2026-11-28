@@ -1,5 +1,6 @@
-use super::{CHUNK_BYTES, ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response};
+use super::{ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response};
 use crate::service::activity::record_progress;
+use crate::service::upload_drive::CHUNK_BYTES;
 use crate::{
     object::{ObjectError, ObjectRecord},
     storage::{ObjectReader, failure::object_unavailable},

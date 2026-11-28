@@ -1,10 +1,10 @@
 use super::RequestBody as Incoming;
-use super::upload_drive::{CatalogWait, UploadEnd, UploadSender, drive_upload, upload_channel};
-use super::{
-    ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response, json_response, stream_upload,
-};
+use super::{ObjectCtx, ResponseBody, boxed, empty_response, json_response};
 use crate::json::JsonErrorResponse;
 use crate::object::ObjectKey;
+use crate::service::upload_drive::{
+    CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, stream_upload, upload_channel,
+};
 use crate::{
     bucket::{BucketAccess, name::BucketKey},
     cause::BackendFailure,
@@ -16,15 +16,11 @@ use crate::{
         resumable_cancel::Cancellation,
     },
     object::{ObjectError, ObjectRecord, media_headers::CUSTOM_METADATA_PREFIX},
-    service::{
-        ServiceError,
-        activity::{CatalogWaitLimit, begin_catalog_wait},
-    },
+    service::ServiceError,
     storage::{
         ChunkEnd, ChunkWait, Overrun, Progress, ResumableChunk, ResumableError, ResumableOptions,
         SessionLease, SessionState, Written, failure::object_unavailable,
     },
-    time_limit::TimeLimit,
 };
 use hyper::{Request, Response, StatusCode, header::HeaderValue};
 use tokio::sync::watch;
@@ -769,147 +765,12 @@ async fn stream_chunk(
         producer,
     )
     .await
-    .map_err(crate::server::upload_drive::DriveError::into_error::<ResumableError>)
-}
-
-pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
-    operation: impl std::future::Future<Output = Result<T, E>>,
-    mut progress: watch::Receiver<ChunkWait>,
-    timeout: TimeLimit,
-    deadline: tokio::time::Instant,
-    activity: &watch::Sender<ObjectActivity>,
-) -> Result<T, E> {
-    let _wait = begin_catalog_wait(activity).await;
-    tokio::pin!(operation);
-    loop {
-        // Only a catalog wait has a budget; a transfer runs until the request deadline.
-        let budget = if *progress.borrow_and_update() == ChunkWait::Catalog {
-            timeout
-        } else {
-            TimeLimit::DISABLED
-        };
-        let limit = CatalogWaitLimit::starting_now(budget, deadline);
-        tokio::select! {
-            biased;
-            result = &mut operation => break result,
-            Ok(()) = progress.changed() => {},
-            _ = tokio::time::sleep_until(limit.deadline()) => {
-                break Err(object_unavailable(limit.expired()).into());
-            }
-        }
-    }
+    .map_err(DriveError::into_error::<ResumableError>)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::assert_matches;
-    use std::time::Duration;
-    use tokio::{sync::oneshot, task::JoinHandle, time::advance};
-
-    const BUDGET: Duration = Duration::from_millis(200);
-    const REQUEST: Duration = Duration::from_secs(10);
-
-    type Waiting = (
-        JoinHandle<Result<(), ApiError>>,
-        watch::Sender<ChunkWait>,
-        oneshot::Sender<()>,
-    );
-
-    async fn wait(waiting: ChunkWait) -> Waiting {
-        wait_within(waiting, REQUEST).await
-    }
-
-    // Returns once the task is waiting, so its deadlines start before any advance.
-    async fn wait_within(waiting: ChunkWait, request: Duration) -> Waiting {
-        let (progress, updates) = watch::channel(waiting);
-        let (finish, finished) = oneshot::channel();
-        let deadline = tokio::time::Instant::now() + request;
-        let task = tokio::spawn(async move {
-            let (activity, _updates) = watch::channel(ObjectActivity::default());
-            let operation = async {
-                finished
-                    .await
-                    .map_err(|_| ApiError::from(ObjectError::Unavailable("dropped".into())))
-            };
-            let budget = TimeLimit::from_millis(BUDGET.as_millis() as u64);
-            await_session_upload(operation, updates, budget, deadline, &activity).await
-        });
-        settle().await;
-        (task, progress, finish)
-    }
-
-    async fn settle() {
-        for _ in 0..8 {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    // Checks completion before awaiting: an idle paused runtime would otherwise
-    // auto-advance to whichever later deadline is pending.
-    async fn timed_out(task: JoinHandle<Result<(), ApiError>>) -> BackendFailure {
-        settle().await;
-        assert!(task.is_finished());
-        let error = task.await.unwrap().unwrap_err();
-        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
-        error
-            .backend_failure()
-            .expect("expected a classified upload timeout")
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn work_outside_catalog_waits_uses_the_request_deadline() {
-        let (task, _progress, finish) = wait(ChunkWait::Transfer).await;
-        advance(BUDGET * 10).await;
-        settle().await;
-        assert!(!task.is_finished());
-        finish.send(()).unwrap();
-        task.await.unwrap().unwrap();
-
-        let (task, _progress, _finish) = wait(ChunkWait::Transfer).await;
-        advance(REQUEST - Duration::from_millis(1)).await;
-        settle().await;
-        assert!(!task.is_finished());
-        advance(Duration::from_millis(1)).await;
-        assert_matches!(timed_out(task).await, BackendFailure::FinalizationTimeout);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn catalog_wait_times_out_after_its_budget() {
-        let (task, _progress, _finish) = wait(ChunkWait::Catalog).await;
-        advance(BUDGET - Duration::from_millis(1)).await;
-        settle().await;
-        assert!(!task.is_finished());
-        advance(Duration::from_millis(1)).await;
-        assert_matches!(timed_out(task).await, BackendFailure::UploadWaitTimeout);
-    }
-
-    /// A larger catalog budget would not have helped, so the reply advises the request deadline.
-    #[tokio::test(start_paused = true)]
-    async fn a_catalog_wait_the_request_deadline_ends_reports_finalization() {
-        let (task, _progress, _finish) = wait_within(ChunkWait::Catalog, BUDGET / 2).await;
-        advance(BUDGET / 2 - Duration::from_millis(1)).await;
-        settle().await;
-        assert!(!task.is_finished());
-        advance(Duration::from_millis(1)).await;
-        assert_matches!(timed_out(task).await, BackendFailure::FinalizationTimeout);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn each_catalog_wait_starts_a_new_budget() {
-        let (task, progress, _finish) = wait(ChunkWait::Catalog).await;
-        advance(BUDGET - Duration::from_millis(1)).await;
-        progress.send_replace(ChunkWait::Transfer);
-        settle().await;
-        advance(BUDGET * 5).await;
-        progress.send_replace(ChunkWait::Catalog);
-        settle().await;
-        advance(BUDGET - Duration::from_millis(1)).await;
-        settle().await;
-        assert!(!task.is_finished());
-        advance(Duration::from_millis(1)).await;
-        assert_matches!(timed_out(task).await, BackendFailure::UploadWaitTimeout);
-    }
 
     /// `resumable_sessions.completion` holds the rendered resource as JSON text, and a retry
     /// after an upgrade reads it back, so the text an earlier release wrote is fixed. The JSON

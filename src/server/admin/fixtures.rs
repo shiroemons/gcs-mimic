@@ -2,7 +2,7 @@
 
 use crate::config::Config;
 use crate::json::JsonErrorResponse;
-use crate::server::upload_drive::{
+use crate::service::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
 };
 use crate::{
