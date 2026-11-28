@@ -648,7 +648,7 @@ pub(crate) struct ConfigurationReport {
     pub(crate) diagnostics: Diagnostics,
     pub(super) invalid: BTreeSet<Setting>,
     /// Set by validation only when the authentication settings are valid and agree.
-    pub(super) auth_profile: Option<AuthProfile>,
+    pub(super) auth_profile: Option<AuthProfile<DocumentSource>>,
     /// The inputs validation read, so that a diagnostic after loading can still name the one
     /// that caused it.
     pub(super) settings: Settings,
@@ -739,7 +739,7 @@ pub(super) struct Validation {
     pub(super) draft: ConfigDraft,
     pub(super) diagnostics: Diagnostics,
     pub(super) invalid: BTreeSet<Setting>,
-    pub(super) auth_profile: Option<AuthProfile>,
+    pub(super) auth_profile: Option<AuthProfile<DocumentSource>>,
 }
 
 fn settings_valid(invalid: &BTreeSet<Setting>, settings: &[Setting]) -> bool {

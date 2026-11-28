@@ -1,7 +1,8 @@
 use super::*;
 use crate::config::Config;
 use crate::{
-    config::{AuthProfile, BucketsMode, read_public_base_url, test_support::assert_precedence},
+    auth::AuthProfile,
+    config::{BucketsMode, read_public_base_url, test_support::assert_precedence},
     diagnostics::DiagnosticSource,
     test_support::TestDir,
 };

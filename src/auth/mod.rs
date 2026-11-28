@@ -19,6 +19,8 @@ pub(crate) use denied::Denied;
 mod jwt;
 mod policy;
 pub(crate) mod policy_input;
+mod profile;
+pub(crate) use profile::{AuthProfile, Verification};
 mod project;
 pub(crate) use project::InvalidProjectId;
 pub(crate) use project::{ProjectId, valid_project_id, validate_project_id};
@@ -33,7 +35,6 @@ pub(crate) use policy::PublicAccess;
 pub(crate) use policy::{Binding, Member, MemberRef, Policy};
 pub(crate) use roles::Role;
 
-use crate::config::{AuthProfile, DocumentKind, DocumentSource, Form, Setting};
 use hyper::{HeaderMap, header::AUTHORIZATION};
 use serde_json::Value;
 use std::{
@@ -177,9 +178,10 @@ impl FromIterator<Permission> for ProjectGrant {
 }
 
 /// The file is trusted and read once at startup, and every lookup goes through an index, so its
-/// size is all that needs a bound: it is held in memory while it parses.
-const MAX_REGISTRY_BYTES: u64 = 16 * 1024 * 1024;
-const MAX_REGISTRY_MIB: u64 = MAX_REGISTRY_BYTES / (1024 * 1024);
+/// size is all that needs a bound: it is held in memory while it parses. Configuration reads the
+/// document and holds either form to this limit.
+pub(crate) const MAX_REGISTRY_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_REGISTRY_MIB: u64 = MAX_REGISTRY_BYTES / (1024 * 1024);
 /// The longest email address; object owners and ACL entities store the id with little to spare.
 const MAX_ID_BYTES: usize = 254;
 /// A registered token arrives in the same header as a JWT, so the same bound fits both.
@@ -528,8 +530,9 @@ impl<'a> Caller<'a> {
 #[error("invalid upload identity snapshot")]
 pub(crate) struct InvalidUploadSnapshot;
 
-/// Why an identity document is invalid. `Display` names, for an invalid entry, its index; token
-/// values are never included. [`IdentityError`] adds the setting that supplied the document.
+/// Why an identity document is invalid or could not be read. `Display` names, for an invalid
+/// entry, its index; token values are never included. Configuration, which reads the document,
+/// adds the setting that supplied it.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RegistryError {
     #[error("exceeds {MAX_REGISTRY_MIB} MiB")]
@@ -573,48 +576,6 @@ impl RegistryError {
     }
 }
 
-/// Why the identity document could not be loaded, with the setting that supplied it:
-/// `identity_file` for a file and `identities` for the inline document.
-#[derive(Debug, thiserror::Error)]
-pub(crate) struct IdentityError {
-    /// `None` when strict mode started without a document, with built-in identities only.
-    form: Option<Form>,
-    source: RegistryError,
-}
-
-impl IdentityError {
-    fn new(document: Option<&DocumentSource>, source: RegistryError) -> Self {
-        Self {
-            form: document.map(DocumentSource::form),
-            source,
-        }
-    }
-
-    /// The setting that supplied the document. Without one only the built-in identities exist,
-    /// so a failure concerns the strict profile itself.
-    pub(crate) fn setting(&self) -> Setting {
-        self.form.map_or(Setting::AuthMode, |form| {
-            DocumentKind::Identities.setting(form)
-        })
-    }
-}
-
-// Startup diagnostics include the setting and the registry's message, and expose the registry error.
-impl fmt::Display for IdentityError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let setting = self.setting().as_str();
-        match &self.source {
-            RegistryError::TooLarge => write!(f, "{setting} exceeds {MAX_REGISTRY_MIB} MiB"),
-            source @ (RegistryError::Io(_)
-            | RegistryError::Syntax(_)
-            | RegistryError::Invalid(_)
-            | RegistryError::InvalidEntry { .. }
-            | RegistryError::PublicKey { .. }
-            | RegistryError::Project { .. }) => write!(f, "{setting}: {source}"),
-        }
-    }
-}
-
 /// Local principal registry loaded from the strict-mode identity document.
 #[derive(Debug)]
 pub(crate) struct Registry {
@@ -631,26 +592,6 @@ pub(crate) struct Registry {
     trusted: Option<usize>,
 }
 
-/// The identity document's bytes. Inline text is held to the same limit as a file, so both forms
-/// accept the same documents.
-fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, RegistryError> {
-    let bytes = match source {
-        DocumentSource::File(path) => crate::bounded_file::read(path, MAX_REGISTRY_BYTES)
-            .map(Cow::Owned)
-            .map_err(|error| match error {
-                crate::bounded_file::ReadError::Limit => RegistryError::TooLarge,
-                crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
-            })?,
-        DocumentSource::Inline(text) => Cow::Borrowed(text.as_bytes()),
-        // Only a buckets document is parsed ahead, but its text is the document either way.
-        DocumentSource::Parsed(document) => Cow::Borrowed(document.bytes()),
-    };
-    if u64::try_from(bytes.len()).map_or(true, |length| length > MAX_REGISTRY_BYTES) {
-        return Err(RegistryError::TooLarge);
-    }
-    Ok(bytes)
-}
-
 impl Registry {
     /// The projects the identity file names: those its identities hold roles in and those it
     /// lists for public access prevention.
@@ -662,26 +603,16 @@ impl Registry {
             .map(String::as_str)
     }
 
-    /// Strict mode's principals, with the built-in test signer when `signer` settles to enabled.
+    /// Strict mode's principals from the identity document's bytes, with the built-in test signer
+    /// when `signer` settles to enabled.
     fn load_principals(
-        source: Option<&DocumentSource>,
-        signer: TestSignerChoice,
-        trusted: &TrustedCaller,
-        projects: &BTreeSet<String>,
-    ) -> Result<(Self, TestSigner), IdentityError> {
-        Self::assemble_principals(source, signer, trusted, projects)
-            .map_err(|error| IdentityError::new(source, error))
-    }
-
-    /// [`Self::load_principals`] before its failure names the identity document.
-    fn assemble_principals(
-        source: Option<&DocumentSource>,
+        document: Option<&[u8]>,
         signer: TestSignerChoice,
         trusted: &TrustedCaller,
         projects: &BTreeSet<String>,
     ) -> Result<(Self, TestSigner), RegistryError> {
-        let mut registry = match source {
-            Some(source) => Self::parse(&read_identities(source)?)?,
+        let mut registry = match document {
+            Some(bytes) => Self::parse(bytes)?,
             None => Self::without_document(),
         };
         let signer = signer.settle(|| registry.declares(test_signer::ID));
@@ -696,16 +627,11 @@ impl Registry {
     /// The keys permissive verification accepts: an optional identity document's and the
     /// built-in test signer's when `signer` settles to enabled.
     fn load_signing_keys(
-        source: Option<&DocumentSource>,
+        document: Option<&[u8]>,
         signer: TestSignerChoice,
-    ) -> Result<(SigningKeys, TestSigner), IdentityError> {
-        let mut keys = match source {
-            Some(source) => {
-                read_identities(source)
-                    .and_then(|bytes| Self::parse_for(&bytes, IdentityUse::SigningKeys))
-                    .map_err(|error| IdentityError::new(Some(source), error))?
-                    .signing_keys
-            }
+    ) -> Result<(SigningKeys, TestSigner), RegistryError> {
+        let mut keys = match document {
+            Some(bytes) => Self::parse_for(bytes, IdentityUse::SigningKeys)?.signing_keys,
             None => SigningKeys::default(),
         };
         let signer = signer.settle(|| keys.contains(test_signer::ID));
@@ -1090,34 +1016,32 @@ impl Auth {
         }
     }
 
-    /// Loads the profile that configuration validation selected, reading its identity document
-    /// once and adding the built-in test signer when the profile's choice settles to enabled.
+    /// Loads the profile that configuration validation selected from its identity document's
+    /// bytes, adding the built-in test signer when the profile's choice settles to enabled.
     /// Validation owns the pairing rules and selects that choice; only the document's contents
     /// can fail here, and only whether it declares the signer can settle the choice.
     ///
     /// `implicit_projects` are the projects where a built-in identity that the document does not
     /// declare holds its implicit role.
     pub(crate) fn load(
-        profile: &AuthProfile,
+        profile: &AuthProfile<impl AsRef<[u8]>>,
         implicit_projects: &BTreeSet<String>,
-    ) -> Result<Self, IdentityError> {
+    ) -> Result<Self, RegistryError> {
+        let document = profile.identities().map(AsRef::as_ref);
         let (profile, test_signer, verification) = match profile {
             AuthProfile::Permissive => return Ok(Self::permissive()),
-            AuthProfile::VerifyingPermissive {
-                identities,
-                verification,
-            } => {
+            AuthProfile::VerifyingPermissive { verification, .. } => {
                 let (keys, signer) =
-                    Registry::load_signing_keys(identities.as_ref(), verification.test_signer)?;
+                    Registry::load_signing_keys(document, verification.test_signer)?;
                 (Profile::VerifyingPermissive(keys), signer, verification)
             }
             AuthProfile::Strict {
-                identities,
                 verification,
                 trusted,
+                ..
             } => {
                 let (registry, signer) = Registry::load_principals(
-                    identities.as_ref(),
+                    document,
                     verification.test_signer,
                     trusted,
                     implicit_projects,
@@ -2355,28 +2279,20 @@ mod tests {
                 valid(r#"{"id":"a","tokens":["t"],"project_roles":{"":["roles/storage.admin"]}}"#),
             ),
         ] {
-            // Either setting supplies the same document, and the failure names the one used.
-            let dir = TestDir::new();
-            let path = dir.0.join("identities.json");
-            std::fs::write(&path, &document).unwrap();
-            for (source, setting) in [
-                (DocumentSource::File(path), "identity_file: "),
-                (DocumentSource::Inline(document.into()), "identities: "),
-            ] {
-                let error = Registry::load_principals(
-                    Some(&source),
-                    TestSignerChoice::WhenDeclared,
-                    &TrustedCaller::Anonymous,
-                    &BTreeSet::new(),
-                )
-                .unwrap_err()
-                .to_string();
-                assert!(error.starts_with(setting), "{case}: {error}");
-                assert!(
-                    !error.contains("\"t\""),
-                    "{case}: tokens must not be echoed"
-                );
-            }
+            // Configuration names the setting that supplied the document; the failure itself
+            // names no token.
+            let error = Registry::load_principals(
+                Some(document.as_bytes()),
+                TestSignerChoice::WhenDeclared,
+                &TrustedCaller::Anonymous,
+                &BTreeSet::new(),
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(
+                !error.contains("\"t\""),
+                "{case}: tokens must not be echoed"
+            );
         }
     }
 
@@ -2450,50 +2366,6 @@ mod tests {
         let full = Identity::from_upload_snapshot(&identity.upload_snapshot()).unwrap();
         assert!(full.allows(OBJECTS_CREATE, "project-4999"));
     }
-
-    /// An inline document is held to the limit a file is, and each failure names its setting.
-    #[test]
-    fn registry_file_read_is_bounded() {
-        let dir = TestDir::new();
-        let path = dir.0.join("identity.json");
-        let mut document = r#"{"identities":[{"id":"a","tokens":["t"]}]}"#.to_owned();
-        let limit = usize::try_from(MAX_REGISTRY_BYTES).unwrap();
-        document.push_str(&" ".repeat(limit - document.len()));
-        let load = |source: &DocumentSource| {
-            Registry::load_principals(
-                Some(source),
-                TestSignerChoice::WhenDeclared,
-                &TrustedCaller::Anonymous,
-                &BTreeSet::new(),
-            )
-            .map(|(registry, _)| registry)
-        };
-        std::fs::write(&path, &document).unwrap();
-        let file = DocumentSource::File(path.clone());
-        assert_eq!(load(&file).unwrap().len(), 1);
-        assert_eq!(
-            load(&DocumentSource::Inline(document.as_str().into()))
-                .unwrap()
-                .len(),
-            1
-        );
-        document.push(' ');
-        std::fs::write(&path, &document).unwrap();
-        assert_eq!(
-            load(&file).unwrap_err().to_string(),
-            "identity_file exceeds 16 MiB"
-        );
-        assert_eq!(
-            load(&DocumentSource::Inline(document.into()))
-                .unwrap_err()
-                .to_string(),
-            "identities exceeds 16 MiB"
-        );
-        std::fs::remove_file(&path).unwrap();
-        let error = load(&file).unwrap_err();
-        assert!(error.to_string().starts_with("identity_file: "));
-        assert!(std::error::Error::source(&error).is_some());
-    }
 }
 
 #[cfg(test)]
@@ -2519,13 +2391,4 @@ fn error_text_and_sources() {
             .unwrap()
             .is::<crate::cause::BackendCause>()
     );
-    let error = IdentityError::new(None, RegistryError::Invalid("invalid principal".into()));
-    assert_eq!(error.to_string(), "auth_mode: invalid principal");
-    assert!(std::ptr::eq(
-        std::error::Error::source(&error)
-            .unwrap()
-            .downcast_ref()
-            .unwrap(),
-        &error.source
-    ));
 }
