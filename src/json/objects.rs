@@ -1076,6 +1076,12 @@ pub(crate) fn object_resource(
     object_resource_fields(object, base_url, projection, None).map(Value::Object)
 }
 
+impl crate::notification::JsonApiObject for ObjectRecord {
+    fn json_api_object(&self) -> Result<Value, TimeOutOfRange> {
+        object_resource(self, "", Projection::NoAcl)
+    }
+}
+
 pub(super) fn object_resource_fields(
     object: &ObjectRecord,
     base_url: &str,
