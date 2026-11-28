@@ -1,3 +1,9 @@
+use crate::{
+    http_header::{TextOrder, sole},
+    net::{TrailingDot, normalized_host},
+};
+use hyper::HeaderMap;
+
 /// XML virtual-host base domains: distinct lowercase DNS names, at most 32, longest first so that
 /// the most specific configured suffix owns a host that several of them match.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -39,6 +45,55 @@ impl std::ops::Deref for VirtualHostDomains {
     fn deref(&self) -> &[String] {
         &self.0
     }
+}
+
+pub(crate) fn bucket_for_authority(host: &str, domains: &[String]) -> Option<String> {
+    let authority: hyper::http::uri::Authority = host.parse().ok()?;
+    split_virtual_host(&authority, domains).map(|(bucket, _)| bucket)
+}
+
+/// The bucket a host selects, and the configured domain it selects that bucket under.
+fn split_virtual_host<'d>(
+    authority: &hyper::http::uri::Authority,
+    domains: &'d [String],
+) -> Option<(String, &'d str)> {
+    if authority.as_str().contains('@')
+        || (authority.as_str().contains(':') && authority.port_u16().is_none())
+    {
+        return None;
+    }
+    let host = normalized_host(authority.host(), TrailingDot::Preserve);
+    for domain in domains {
+        if host == *domain {
+            return None;
+        }
+        if let Some(bucket) = host.strip_suffix(domain).and_then(|s| s.strip_suffix('.')) {
+            return Some((bucket.to_owned(), domain));
+        }
+    }
+    None
+}
+
+/// The API's authority behind a host that selects a virtual bucket: the configured domain, which
+/// the configuration already lowercased, and the port the client reached it through.
+pub(crate) fn virtual_host_api_authority(
+    authority: &hyper::http::uri::Authority,
+    domains: &[String],
+) -> Option<hyper::http::uri::Authority> {
+    let (_, domain) = split_virtual_host(authority, domains)?;
+    let port = authority.as_str().strip_prefix(authority.host())?;
+    format!("{domain}{port}").parse().ok()
+}
+
+pub(crate) fn request_authority(headers: &HeaderMap) -> Option<hyper::http::uri::Authority> {
+    let host = sole(headers, "host").text(TextOrder::ValueFirst).ok()??;
+    let authority: hyper::http::uri::Authority = host.parse().ok()?;
+    if authority.as_str().contains('@')
+        || (authority.as_str() != authority.host() && authority.port_u16().is_none())
+    {
+        return None;
+    }
+    Some(authority)
 }
 
 #[cfg(test)]

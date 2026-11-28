@@ -39,8 +39,10 @@ pub(crate) use auth::AuthProfile;
 pub(crate) use auth::Verification;
 pub(crate) use document::DocumentSource;
 pub(crate) use document::{DocumentKind, Form};
-pub(crate) use domains::VirtualHostDomains;
 use domains::{DomainLimit, Inserted};
+pub(crate) use domains::{
+    VirtualHostDomains, bucket_for_authority, request_authority, virtual_host_api_authority,
+};
 pub(crate) use draft::ConfigDraft;
 pub(crate) use draft::ConfigurationReport;
 use draft::{Settings, Validation, unknown_setting};
