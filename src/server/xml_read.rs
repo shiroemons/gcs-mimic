@@ -2,7 +2,7 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    ObjectCtx, ResponseBody, body_read_ahead, boxed, empty_response, gzip, insert_content_range,
+    ObjectCtx, ResponseBody, body_read_ahead, boxed, empty_response, insert_content_range,
     object_body,
 };
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
     bucket::BucketAccess,
     csek::{CsekError, CustomerKey, StoredHashes},
     object::{ObjectConditions, ObjectError, ObjectRecord},
-    service::media,
+    service::{gzip, media},
     storage::ObjectReader,
     xml,
 };
