@@ -1,9 +1,20 @@
-//! Pub/Sub payload encoding reuses the JSON object's supported metadata representation.
+//! Pub/Sub payload encoding reuses the JSON object's supported metadata representation, which the
+//! JSON adapter supplies through [`JsonApiObject`].
 
 use super::{NotificationConfig, NotificationError, PayloadFormat};
-use crate::{bucket::CatalogError, cause::BackendCause, object::ObjectRecord};
+use crate::{
+    bucket::CatalogError, cause::BackendCause, object::ObjectRecord, time_format::TimeOutOfRange,
+};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
+
+/// The object resource that a `JSON_API_V1` payload carries. The JSON adapter owns that
+/// representation and implements this for `ObjectRecord`, so the notification model names only
+/// the interface and stays below the adapters that render it.
+pub(crate) trait JsonApiObject {
+    /// The `noAcl` resource rendered without an endpoint; the payload drops its links.
+    fn json_api_object(&self) -> Result<Value, TimeOutOfRange>;
+}
 
 crate::choice::string_enum! {
     table
@@ -167,9 +178,7 @@ impl Message<'_> {
         )]);
         match config.payload_format {
             PayloadFormat::JsonApiV1 => {
-                let mut payload =
-                    crate::json::object_resource(self.object, "", crate::acl::Projection::NoAcl)
-                        .map_err(invalid_time)?;
+                let mut payload = self.object.json_api_object().map_err(invalid_time)?;
                 // Notification metadata has no listener-dependent URLs.
                 if let Some(fields) = payload.as_object_mut() {
                     // shift_remove keeps the recorded order of the remaining fields.
@@ -186,7 +195,7 @@ impl Message<'_> {
                 }
                 message.insert(
                     "data".into(),
-                    Value::String(crate::json::base64(payload.to_string().as_bytes())),
+                    Value::String(crate::base64::encode(payload.to_string().as_bytes())),
                 );
             }
             PayloadFormat::None => {}

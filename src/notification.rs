@@ -40,7 +40,7 @@ impl NotificationMode {
     }
 }
 
-pub(crate) use event::{Event, EventTypes, Message};
+pub(crate) use event::{Event, EventTypes, JsonApiObject, Message};
 pub(crate) use publisher::{Endpoint, TopicCheckError};
 pub(crate) use topic::Topic;
 

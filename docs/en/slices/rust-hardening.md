@@ -427,7 +427,7 @@ findings in new files.
 | Bucket defaults built by rendering JSON (`admin.rs`, `import/filesystem.rs`) | `BucketRecord::default_for` builds the record directly; the 2026-11-26 typed validator change removed both round trips |
 | `AdminGrant`, `Origin` | `storage::admin` → `bucket`; minting stays in `storage::admin`, which Clippy's `disallowed_methods` enforces |
 | Range and transcoding negotiation (`range_request`, `Transcoding`, `Gunzip` and their helpers) | `json::objects` → `service::media` |
-| JSON_API_V1 notification payload | the outbox receives a renderer at catalog open |
+| JSON_API_V1 notification payload | `notification::JsonApiObject`, which the JSON adapter implements for `ObjectRecord`; the payload's base64 encoder is the foundation `base64::encode` |
 | HMAC lookup in `auth::signature` | an `HmacKeys` trait implemented by `Catalog` |
 | Shared request pieces in `server` (access checks, request context, response bodies, `chunk_body`, `object_body`, uploads, copy, the resumable engine, `State`) | `service` |
 | gRPC HTTP/2 connection serving | `grpc` → `server::grpc_listener` |
@@ -1377,7 +1377,7 @@ remove none, so the rule reaches zero tolerance as early as possible.
 | Foundation moves | the RFC 3339 parser; `fsutil` and `net` became private with the public facade |
 | Model value types | `profile`, URL helpers, `TrustedCaller`, validator callers, `AdminGrant` |
 | JSON-owned rules out of `json` | `Projection`, component counting, bucket initialization's bucket conversion, authority helpers; fixed metadata and the two JSON round trips had already left `json` |
-| Notification renderer | injected at catalog open |
+| Notification renderer | a `notification` trait that the JSON adapter implements. A renderer injected at catalog open was planned first; `Catalog::open` cannot name `json` to supply a default, and nothing swaps the rendering at run time |
 | `auth` split and `HmacKeys` | `HmacKeys` replaces the `Catalog` that `auth::signature`'s policy, streaming and verification code name; reading the identities document (`DocumentSource`, `Form`, `DocumentKind`, `Setting`) moves to `config`, so `auth` parses bytes; `AuthProfile` and `Verification` then move to `auth`, since the identities they carry no longer name `DocumentSource` |
 | `service`, part one | the shared request pieces and `State`; range and transcoding negotiation into `service::media`, before `server::xml_read` moves into `xml`; ledger IDs under `server::copy` become `service::copy` |
 | gRPC listener | into `server` |
