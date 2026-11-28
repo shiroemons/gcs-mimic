@@ -77,7 +77,7 @@ pub(super) async fn insert(
     let content_type = json::upload_content_type(request.headers())?;
     // A media upload verifies no declared hash; see `upload_content_type`.
     let expected = ExpectedHashes::default();
-    let key = json::request_key(request.headers())?;
+    let key = crate::csek::request_key(request.headers())?;
     let replay = Replay::of(&request, ctx, key)?;
     if content_length(request.headers()).is_some_and(|length| length > max_bytes) {
         return Err(ObjectError::TooLarge.into());
@@ -154,7 +154,7 @@ pub(super) async fn multipart(
     let max_bytes = ctx.config.max_object_bytes();
     let catalog = &ctx.state.catalog;
     json::upload_content_type(request.headers())?;
-    let key = json::request_key(request.headers())?;
+    let key = crate::csek::request_key(request.headers())?;
     let boundary = crate::multipart::multipart_boundary(request.headers())?;
     let replay = Replay::of(&request, ctx, key)?;
     if content_length(request.headers()).is_some_and(|length| {

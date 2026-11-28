@@ -38,7 +38,7 @@ pub(super) async fn initiate(
     let response_fields = ctx.uri.parameters()?.get("fields").cloned();
     let resumable::UploadHeaders { mime, total } =
         resumable::headers(request.headers(), config.max_object_bytes())?;
-    let key = json::request_key(request.headers())?;
+    let key = crate::csek::request_key(request.headers())?;
     let origin = resumable::single(request.headers(), "origin")?.map(str::to_owned);
     let metadata_type = resumable::single(request.headers(), "content-type")?.map(str::to_owned);
     let json_type = metadata_type.as_ref().is_some_and(|v| {
@@ -570,7 +570,7 @@ pub(crate) async fn transfer(
     let session = &lease.session;
     // Chunks may repeat the initiation key (as SDKs do) but never introduce or replace one;
     // a mismatch rejects only this request and leaves the session usable.
-    if let Some(key) = json::request_key(&headers)? {
+    if let Some(key) = crate::csek::request_key(&headers)? {
         crate::csek::check_data(session.options.metadata.customer_key_sha256, Some(key))?;
     }
     let position = SessionPosition {

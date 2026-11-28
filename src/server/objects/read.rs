@@ -74,7 +74,7 @@ async fn media(
         conditions,
         ..
     } = target;
-    let key = json::request_key(request.headers())?;
+    let key = crate::csek::request_key(request.headers())?;
     let (record, mut reader) = ctx
         .state
         .catalog
@@ -381,7 +381,7 @@ async fn metadata(
         requested,
         conditions,
     } = target;
-    let key = json::request_key(request.headers())?;
+    let key = crate::csek::request_key(request.headers())?;
     let catalog = &ctx.state.catalog;
     let record = if params.soft_deleted {
         let ObjectTarget {

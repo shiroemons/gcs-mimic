@@ -205,7 +205,7 @@ pub(super) async fn compose(
         predefined_acl,
     } = params;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
-    let key = json::request_key(request.headers())?;
+    let key = crate::csek::request_key(request.headers())?;
     reject_headers(
         request.headers(),
         &[

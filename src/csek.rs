@@ -288,6 +288,11 @@ pub(crate) fn check_metadata(
     Ok(StoredHashes::for_key(stored, supplied))
 }
 
+/// The key for the addressed (or destination) object: `x-goog-encryption-*`.
+pub(crate) fn request_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, CsekError> {
+    CustomerKey::from_headers(headers, DESTINATION_PREFIX)
+}
+
 /// Whether `name` is one of the three key headers under `prefix`. Other names sharing the
 /// prefix (for example `x-goog-encryption-kms-key-name`) are not customer-supplied keys.
 pub(crate) fn is_key_header(name: &str, prefix: &str) -> bool {
