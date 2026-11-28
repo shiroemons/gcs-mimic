@@ -2,7 +2,7 @@
 
 use crate::{
     auth::{Caller, Registry},
-    server::State,
+    service::state::State,
 };
 use std::sync::Arc;
 use tonic::{Code, Request, Status};

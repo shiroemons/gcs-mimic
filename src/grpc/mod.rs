@@ -33,7 +33,8 @@ pub(crate) const LIST_PAGE_BYTES: usize = 2 * 1024 * 1024;
 
 use crate::{
     config::{Config, GrpcScheme},
-    server::{CountingIo, IdleTurn, ReadActivity, SlotReclaim, State},
+    server::{CountingIo, IdleTurn, ReadActivity, SlotReclaim},
+    service::state::State,
     task::SupervisedExecutor,
     time_limit::TimeLimit,
 };

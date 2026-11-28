@@ -214,7 +214,7 @@ async fn grpc_list_soft_deleted_objects_strict() {
     catalog.insert_bucket(bucket).await.unwrap();
     let s = Storage {
         compat_profile: crate::profile::CompatProfile::Native,
-        state: Arc::new(crate::server::State::for_test(
+        state: Arc::new(crate::service::state::State::for_test(
             catalog,
             Auth::strict(registry(&[
                 ("viewer", "p", "roles/storage.objectViewer"),

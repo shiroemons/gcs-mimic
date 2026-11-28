@@ -41,7 +41,6 @@ mod name_encoding;
 mod render_tests;
 #[cfg(test)]
 mod test_support;
-pub(crate) use cors::CorsWarnings;
 pub(crate) use cors::{cors, note_default_cors_fallback, warn_unconfigured_cors};
 pub(crate) mod post;
 pub(crate) mod put;

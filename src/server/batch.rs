@@ -65,7 +65,6 @@ const REQUEST_LIMIT: usize = 10_000_000;
 /// of about 5 KiB each under `projection=full`: a limit a real response could reach would report a
 /// completed operation as a failure.
 const PART_RESPONSE_LIMIT: usize = 1024 * 1024 * 1024;
-pub(super) const BATCH_CONCURRENCY: usize = 2;
 const BOUNDARY: &str = "gcs_mimic_batch_response";
 const RESPONSE_CONTENT_TYPE: HeaderValue =
     HeaderValue::from_static("multipart/mixed; boundary=gcs_mimic_batch_response");

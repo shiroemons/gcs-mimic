@@ -4,7 +4,7 @@ use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     auth::{Auth, Registry},
     clock::SystemClock,
-    server::State,
+    service::state::State,
     storage::Catalog,
 };
 use bytes::Bytes;

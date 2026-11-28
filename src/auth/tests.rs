@@ -345,7 +345,8 @@ async fn resource_acl_echo_requires_read_permission_and_changes_require_set_perm
 async fn object_resource_acl_echo_and_replacement_keep_read_and_write_permissions_separate() {
     use crate::{
         object::UploadChunk,
-        server::{State, Stop, TcpListeners, serve},
+        server::{Stop, TcpListeners, serve},
+        service::state::State,
         storage::Catalog,
         test_support::TestDir,
         tls::ListenerSecurity,

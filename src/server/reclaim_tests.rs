@@ -1,6 +1,7 @@
 //! A full server takes back one idle connection per waiting client, the oldest first.
 
 use super::*;
+use crate::auth::Auth;
 use crate::test_support::TestDir;
 use http_body_util::Empty;
 use std::task::{Context, Waker};

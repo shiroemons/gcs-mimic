@@ -301,7 +301,7 @@ async fn storage_over(catalog: Catalog, strict: bool) -> Storage {
     };
     Storage {
         compat_profile: crate::profile::CompatProfile::Native,
-        state: Arc::new(crate::server::State::for_test(catalog, auth)),
+        state: Arc::new(crate::service::state::State::for_test(catalog, auth)),
         max_object_bytes: 1024 * 1024,
     }
 }

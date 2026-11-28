@@ -32,7 +32,7 @@ use crate::{
         generation::Generation,
     },
     page_token::{self, PageTokenError},
-    server::State,
+    service::state::State,
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status, Streaming};

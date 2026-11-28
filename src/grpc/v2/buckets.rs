@@ -546,7 +546,7 @@ mod tests {
             Storage {
                 compat_profile: crate::profile::CompatProfile::Native,
                 max_object_bytes: 1024 * 1024 * 1024,
-                state: Arc::new(crate::server::State::for_test(catalog, auth)),
+                state: Arc::new(crate::service::state::State::for_test(catalog, auth)),
             },
         )
     }
@@ -2184,7 +2184,7 @@ mod tests {
         use prost::Message;
         let dir = TestDir::new();
         let storage = fixtures::storage_with(
-            Arc::new(crate::server::State::for_test(
+            Arc::new(crate::service::state::State::for_test(
                 Catalog::open(&dir.0).await.unwrap(),
                 Auth::permissive(),
             )),
@@ -2268,7 +2268,7 @@ mod tests {
     async fn grpc_bucket_list_acl_views_keep_per_bucket_permissions_and_uniform_access() {
         let dir = TestDir::new();
         let storage = fixtures::storage_with(
-            Arc::new(crate::server::State::for_test(
+            Arc::new(crate::service::state::State::for_test(
                 Catalog::open(&dir.0).await.unwrap(),
                 Auth::strict(registry(&[
                     ("admin", "p", "roles/storage.admin"),
@@ -2585,7 +2585,7 @@ mod tests {
         let storage = Storage {
             compat_profile: crate::profile::CompatProfile::Native,
             max_object_bytes: 1024,
-            state: Arc::new(crate::server::State::for_test(
+            state: Arc::new(crate::service::state::State::for_test(
                 Catalog::open(&dir.0).await.unwrap(),
                 auth,
             )),
@@ -2675,7 +2675,7 @@ mod tests {
         let storage = Storage {
             compat_profile: crate::profile::CompatProfile::Native,
             max_object_bytes: 1024,
-            state: Arc::new(crate::server::State::for_test(
+            state: Arc::new(crate::service::state::State::for_test(
                 Catalog::open(&dir.0).await.unwrap(),
                 auth,
             )),

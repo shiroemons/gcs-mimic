@@ -677,7 +677,7 @@ async fn probe_exists(catalog: &Catalog) -> Result<bool, CatalogError> {
 
 #[tokio::test]
 async fn panicked_operation_rolls_back_and_keeps_the_catalog_ready() {
-    use crate::server::State;
+    use crate::service::state::State;
     use std::sync::atomic::Ordering;
 
     let dir = crate::test_support::TestDir::new();

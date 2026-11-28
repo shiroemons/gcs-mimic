@@ -8,7 +8,8 @@ use crate::{
         DiagnosticSource, Diagnostics, Event, combine_shutdown_results as merge_close_result,
     },
     seed::{SeedError, SeedOutcome},
-    server::{self, State},
+    server,
+    service::state::State,
     storage::{
         Catalog, CatalogOpenError, CatalogOpenFailure, CatalogOptions, DataDirState, MemoryBudget,
         RecoveredCatalog, admin::AdminError,

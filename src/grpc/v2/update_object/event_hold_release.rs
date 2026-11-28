@@ -66,7 +66,10 @@ async fn update_object_releasing_the_event_based_hold_restarts_the_retention_per
     catalog.insert_bucket(bucket).await.unwrap();
     let storage = Storage {
         compat_profile: crate::profile::CompatProfile::Native,
-        state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),
+        state: Arc::new(crate::service::state::State::for_test(
+            catalog,
+            Auth::permissive(),
+        )),
         max_object_bytes: 1024,
     };
     upload_to(&storage, BUCKET, "kept", 3).await;

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 const PATH: &str = "/google.storage.v2.Storage/BidiReadObject";
 
-pub(super) async fn setup() -> (TestDir, Arc<crate::server::State>) {
+pub(super) async fn setup() -> (TestDir, Arc<crate::service::state::State>) {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     catalog
@@ -19,7 +19,10 @@ pub(super) async fn setup() -> (TestDir, Arc<crate::server::State>) {
         .await
         .unwrap();
     crate::grpc::test_support::put_keyed(&catalog, "bidi-refusals", "object", b"abc", None).await;
-    let state = Arc::new(crate::server::State::for_test(catalog, Auth::permissive()));
+    let state = Arc::new(crate::service::state::State::for_test(
+        catalog,
+        Auth::permissive(),
+    ));
     (dir, state)
 }
 
@@ -43,7 +46,7 @@ pub(super) fn opening(spec: pb::BidiReadObjectSpec) -> pb::BidiReadObjectRequest
 
 /// Runs one stream over the wire, with an optional `x-goog-fieldmask` header.
 pub(super) async fn stream(
-    state: &Arc<crate::server::State>,
+    state: &Arc<crate::service::state::State>,
     messages: &[pb::BidiReadObjectRequest],
     fieldmask: Option<&'static str>,
 ) -> (Status, Vec<pb::BidiReadObjectResponse>) {

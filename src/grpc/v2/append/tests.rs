@@ -75,7 +75,7 @@ async fn setup(strict: bool) -> (TestDir, Storage) {
     };
     let storage = Storage {
         compat_profile: crate::profile::CompatProfile::Native,
-        state: Arc::new(crate::server::State::for_test(catalog, auth)),
+        state: Arc::new(crate::service::state::State::for_test(catalog, auth)),
         max_object_bytes: 1024 * 1024,
     };
     (dir, storage)

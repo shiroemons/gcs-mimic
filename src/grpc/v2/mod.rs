@@ -1,6 +1,5 @@
 mod append;
 mod bidi_read;
-pub(crate) use bidi_read::ReadHandles;
 mod bucket_iam;
 mod bucket_update;
 mod buckets;
@@ -27,7 +26,7 @@ use crate::{
     auth::{AuthError, Caller, ListenerRole},
     bucket::name::BucketKey,
     object::ObjectKey,
-    server::State,
+    service::state::State,
 };
 use routing::{Route, Routes};
 use std::{pin::Pin, sync::Arc};
