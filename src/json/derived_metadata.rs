@@ -3,39 +3,6 @@ use crate::bucket::StorageClass;
 use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord};
 use serde_json::{Map, Value};
 
-/// Rewrite preserves composite identity in the same location/class and collapses its component
-/// count to one when either changes; adapters retain the source snapshot for this decision.
-/// Whether a copy's destination bucket shares the source bucket's location.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DestinationLocation {
-    Same,
-    Different,
-}
-
-impl DestinationLocation {
-    pub(crate) fn of(source: Option<&str>, destination: &str) -> Self {
-        if source == Some(destination) {
-            Self::Same
-        } else {
-            Self::Different
-        }
-    }
-}
-
-pub(crate) fn derived_component_count(
-    source: &ObjectRecord,
-    destination_class: crate::bucket::StorageClass,
-    location: DestinationLocation,
-) -> Option<i64> {
-    source.component_count.map(|count| {
-        if location == DestinationLocation::Same && destination_class == source.storage_class {
-            count
-        } else {
-            1
-        }
-    })
-}
-
 /// The resource a copy or rewrite body supplies, or `None` when the destination inherits the
 /// source metadata. Cloud Storage treats a blank or `null` body, `{}`, and a resource whose only
 /// field is a `null` or empty `metadata` map as no resource at all (recorded 2026-11-13 for a
@@ -370,27 +337,6 @@ mod tests {
         assert_eq!(
             derived_metadata(b" \nnull\t", &source).unwrap(),
             derived_metadata(b"", &source).unwrap()
-        );
-        source.component_count = Some(3);
-        assert_eq!(
-            derived_component_count(&source, source.storage_class, DestinationLocation::Same),
-            Some(3)
-        );
-        assert_eq!(
-            derived_component_count(
-                &source,
-                crate::bucket::StorageClass::Nearline,
-                DestinationLocation::Same
-            ),
-            Some(1)
-        );
-        assert_eq!(
-            derived_component_count(
-                &source,
-                source.storage_class,
-                DestinationLocation::Different
-            ),
-            Some(1)
         );
         assert_eq!(class, Some(source.storage_class));
         assert_eq!(inherit.event_based_hold, None);

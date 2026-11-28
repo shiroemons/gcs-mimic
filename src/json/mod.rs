@@ -55,8 +55,7 @@ pub(crate) use buckets::{
 pub(crate) use compose::ComposeParams;
 pub(crate) use csek::{copy_keys, object_resource_keyed, request_key};
 pub(crate) use derived_metadata::{
-    DerivedMetadata, DestinationLocation, derived_component_count, derived_metadata,
-    derived_metadata_of, derived_resource,
+    DerivedMetadata, derived_metadata, derived_metadata_of, derived_resource,
 };
 pub(crate) use envelope::{
     Call as EnvelopeCall, RESOURCE_CACHE_CONTROL, ResponseCache, apply as apply_envelope,
