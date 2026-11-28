@@ -417,3 +417,33 @@ nine reasoned suppressions on the host. The layer finding of
 `xml/resumable.rs` on `server` left the baseline. The cross-target checks
 counted zero new Clippy violations for the three other targets. The ledger
 check validated 611 feature rows.
+
+## gRPC listener, 2026-11-28
+
+`just check` passed on the source in which the gRPC listener's HTTP/2
+connection driver lives in `server::grpc_listener` instead of `grpc`:
+`serve_connection`, `Transport`, the connection phases, stream tracking, the
+response body guard, the HTTP/2 builder, the shutdown grace and the client
+advice. `grpc` keeps `StorageRouter`, which the driver hands each call. A line
+diff against `main` found the moved code identical except for four visibility
+changes: `serve_connection` is visible only to `server`, and `StorageRouter`,
+its `new` and its `route` are crate-visible for the driver.
+
+Its Rust lane passed 4,193 tests with the same Pub/Sub case ignored; no test
+was added or removed, and no test body changed. 33 tests moved from
+`grpc::tests` to `server::grpc_listener::tests`: the 26 connection tests, the
+3 TLS transport tests under `transport` and the 4 call metadata tests under
+`call_metadata`. The Storage memory tests and
+`upload_chunks_split_message_data_at_channel_chunk_size` stay in
+`grpc::tests`. `a_panicking_read_resets_its_http2_stream` calls the stream
+reset helper at its new path.
+
+BEHAVIOR-RPC-001, BEHAVIOR-RPC-005 and DESIGN-104 record this run for the 25
+moved tests they list.
+
+The production gate counted zero new violations, 5 ratcheted findings and
+nine reasoned suppressions on the host. The layer finding of `grpc/mod.rs` on
+`server` left the baseline, and the test-clock row of the connection tests
+moved to `src/server/grpc_listener/tests.rs` with the same count of 5. The
+cross-target checks counted zero new Clippy violations for the three other
+targets. The ledger check validated 611 feature rows.
