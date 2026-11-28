@@ -5,8 +5,6 @@ text::layer_dependency	src/auth/signature/streaming.rs	1
 text::layer_dependency	src/auth/signature/verify.rs	1
 text::layer_dependency	src/config/auth.rs	1
 text::layer_dependency	src/config/document.rs	2
-text::layer_dependency	src/config/draft.rs	1
-text::layer_dependency	src/config/runtime.rs	3
 text::layer_dependency	src/config_input/options.rs	2
 text::layer_dependency	src/grpc/mod.rs	1
 text::layer_dependency	src/grpc/v1/mod.rs	2

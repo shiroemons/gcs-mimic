@@ -1055,7 +1055,7 @@ impl Validation {
             .ok()
             .and_then(|api| api.authority().cloned())
             .is_some_and(|a| {
-                crate::xml::bucket_for_authority(a.as_str(), &config.xml_virtual_host_domains)
+                crate::config::bucket_for_authority(a.as_str(), &config.xml_virtual_host_domains)
                     .is_some()
             })
         {

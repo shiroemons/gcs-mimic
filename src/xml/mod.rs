@@ -439,45 +439,7 @@ pub(crate) fn unselectable_bucket(
 
 pub(crate) fn virtual_bucket(headers: &HeaderMap, domains: &[String]) -> Option<String> {
     let host = sole(headers, "host").text(TextOrder::ValueFirst).ok()??;
-    bucket_for_authority(host, domains)
-}
-
-pub(crate) fn bucket_for_authority(host: &str, domains: &[String]) -> Option<String> {
-    let authority: hyper::http::uri::Authority = host.parse().ok()?;
-    split_virtual_host(&authority, domains).map(|(bucket, _)| bucket)
-}
-
-/// The bucket a host selects, and the configured domain it selects that bucket under.
-fn split_virtual_host<'d>(
-    authority: &hyper::http::uri::Authority,
-    domains: &'d [String],
-) -> Option<(String, &'d str)> {
-    if authority.as_str().contains('@')
-        || (authority.as_str().contains(':') && authority.port_u16().is_none())
-    {
-        return None;
-    }
-    let host = normalized_host(authority.host(), TrailingDot::Preserve);
-    for domain in domains {
-        if host == *domain {
-            return None;
-        }
-        if let Some(bucket) = host.strip_suffix(domain).and_then(|s| s.strip_suffix('.')) {
-            return Some((bucket.to_owned(), domain));
-        }
-    }
-    None
-}
-
-/// The API's authority behind a host that selects a virtual bucket: the configured domain, which
-/// the configuration already lowercased, and the port the client reached it through.
-pub(crate) fn virtual_host_api_authority(
-    authority: &hyper::http::uri::Authority,
-    domains: &[String],
-) -> Option<hyper::http::uri::Authority> {
-    let (_, domain) = split_virtual_host(authority, domains)?;
-    let port = authority.as_str().strip_prefix(authority.host())?;
-    format!("{domain}{port}").parse().ok()
+    crate::config::bucket_for_authority(host, domains)
 }
 
 fn legacy_public_authority<'a>(
@@ -491,17 +453,6 @@ fn legacy_public_authority<'a>(
         .public_base_url
         .as_ref()
         .map(crate::url::PublicOrigin::authority)
-}
-
-pub(crate) fn request_authority(headers: &HeaderMap) -> Option<hyper::http::uri::Authority> {
-    let host = sole(headers, "host").text(TextOrder::ValueFirst).ok()??;
-    let authority: hyper::http::uri::Authority = host.parse().ok()?;
-    if authority.as_str().contains('@')
-        || (authority.as_str() != authority.host() && authority.port_u16().is_none())
-    {
-        return None;
-    }
-    Some(authority)
 }
 
 fn public_authority_matches(request: &str, public: &str) -> bool {
@@ -550,7 +501,7 @@ fn legacy_virtual_bucket(
             .map(str::to_owned);
         LegacyHost::PublicDomain(bucket)
     } else {
-        LegacyHost::Other(bucket_for_authority(
+        LegacyHost::Other(crate::config::bucket_for_authority(
             authority.as_str(),
             &endpoints.xml_virtual_host_domains,
         ))
@@ -616,7 +567,7 @@ pub(crate) fn select_object_with_endpoints(
     let public = legacy_public_authority(config, endpoints);
     let legacy_authority = if public.is_some() {
         Some(
-            request_authority(headers)
+            crate::config::request_authority(headers)
                 .ok_or_else(|| Error::invalid("Require one valid Host authority."))?,
         )
     } else {
@@ -632,8 +583,11 @@ pub(crate) fn select_object_with_endpoints(
     if let Some(authority) = uri.authority()
         && (public.is_some()
             || virtual_bucket.is_some()
-            || bucket_for_authority(authority.as_str(), &endpoints.xml_virtual_host_domains)
-                .is_some())
+            || crate::config::bucket_for_authority(
+                authority.as_str(),
+                &endpoints.xml_virtual_host_domains,
+            )
+            .is_some())
         && !sole(headers, "host")
             .value()
             .ok()
