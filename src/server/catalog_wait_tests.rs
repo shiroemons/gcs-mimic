@@ -2,6 +2,7 @@
 //! a different setting.
 
 use super::*;
+use crate::{cause::BackendFailure, service::activity::await_upload_catalog};
 
 const BUDGET_MS: u64 = 200;
 

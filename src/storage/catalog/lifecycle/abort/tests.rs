@@ -641,7 +641,8 @@ async fn assert_missing_xml_operations(
     use crate::{
         auth::Auth,
         config::{Config, RequestEndpoints},
-        server::{ObjectActivity, ObjectCtx, RequestBody, State},
+        server::{ObjectCtx, RequestBody, State},
+        service::activity::ObjectActivity,
         xml::{self, ErrorBody, ReadRequest},
     };
     use http_body_util::{BodyExt, Full};

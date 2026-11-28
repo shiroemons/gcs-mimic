@@ -17,7 +17,7 @@ text::layer_dependency	src/xml/canned_acl.rs	1
 text::layer_dependency	src/xml/copy.rs	1
 text::layer_dependency	src/xml/cors.rs	2
 text::layer_dependency	src/xml/list.rs	2
-text::layer_dependency	src/xml/multipart.rs	3
+text::layer_dependency	src/xml/multipart.rs	2
 text::layer_dependency	src/xml/post.rs	3
 text::layer_dependency	src/xml/put.rs	3
 text::layer_dependency	src/xml/put/streaming.rs	2

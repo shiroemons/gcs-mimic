@@ -4,7 +4,7 @@
 //! each part's response leaves as soon as it is ready instead of accumulating with the others.
 
 use super::{
-    ObjectActivity, RequestBody, RequestCtx, ResponseBody, State, boxed,
+    RequestBody, RequestCtx, ResponseBody, State, boxed,
     chunk_body::{self, ChunkSender, Completion},
 };
 use crate::json::JsonErrorResponse;
@@ -13,6 +13,9 @@ use crate::{
     config::{Config, RequestEndpoints},
     json,
     json::ApiError,
+    service::activity::{
+        BatchPartWork, ObjectActivity, batch_part_expired, new_batch_part_activity, record_progress,
+    },
 };
 use http_body_util::BodyExt;
 use hyper::body::{Frame, SizeHint};
@@ -191,7 +194,7 @@ impl PartRunner {
             sender,
             completion,
         } = self;
-        let activity = super::new_batch_part_activity();
+        let activity = new_batch_part_activity();
         for Part {
             id,
             mut request,
@@ -220,7 +223,7 @@ impl PartRunner {
             if sender.send(Ok(Bytes::from(rendered))).await.is_err() {
                 return;
             }
-            super::record_progress(&connection);
+            record_progress(&connection);
         }
         completion.mark();
         let closing = format!("--{BOUNDARY}--\r\n");
@@ -236,7 +239,7 @@ async fn render_part(
     ctx: RequestCtx<'_>,
     connection: &watch::Sender<ObjectActivity>,
 ) -> Vec<u8> {
-    let _work = super::BatchPartWork::begin(connection);
+    let _work = BatchPartWork::begin(connection);
     // Each part starts its own deadline, without an earlier part's state.
     ctx.activity.send_replace(ObjectActivity::default());
     // Each part renders in the layout its own (inherited-or-overridden) prettyPrint selects, not
@@ -246,7 +249,7 @@ async fn render_part(
         let response = tokio::select! {
             biased;
             response = dispatch(request, target, ctx) => response,
-            expiry = super::batch_part_expired(ctx.activity, ctx.config.request_timeout()) => {
+            expiry = batch_part_expired(ctx.activity, ctx.config.request_timeout()) => {
                 super::batch_part_timeout(expiry)
             }
         };
@@ -383,6 +386,7 @@ mod tests {
     use super::*;
     use crate::{
         auth::Auth,
+        service::activity::{Expiry, begin_catalog_wait},
         storage::Catalog,
         test_support::{TestDir, eventually_async},
         time_limit::TimeLimit,
@@ -801,16 +805,16 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_part_expires_after_silence_but_not_during_a_catalog_wait() {
         const LIMIT: u64 = 1000;
-        let activity = super::super::new_batch_part_activity();
-        let expired = super::super::batch_part_expired(&activity, TimeLimit::from_millis(LIMIT));
+        let activity = new_batch_part_activity();
+        let expired = batch_part_expired(&activity, TimeLimit::from_millis(LIMIT));
         tokio::pin!(expired);
         let almost = Duration::from_millis(LIMIT - 1);
         assert!(tokio::time::timeout(almost, &mut expired).await.is_err());
         // Progress renews the limit.
-        super::super::record_progress(&activity);
+        record_progress(&activity);
         assert!(tokio::time::timeout(almost, &mut expired).await.is_err());
         {
-            let _wait = super::super::begin_catalog_wait(&activity).await;
+            let _wait = begin_catalog_wait(&activity).await;
             assert!(
                 tokio::time::timeout(Duration::from_millis(100 * LIMIT), &mut expired)
                     .await
@@ -821,14 +825,14 @@ mod tests {
         let expiry = tokio::time::timeout(Duration::from_millis(2), &mut expired)
             .await
             .unwrap();
-        assert_eq!(expiry, super::super::Expiry::Request);
+        assert_eq!(expiry, Expiry::Request);
     }
 
     #[tokio::test(start_paused = true)]
     async fn progress_at_the_deadline_wins_until_a_full_silent_interval() {
-        let activity = super::super::new_batch_part_activity();
+        let activity = new_batch_part_activity();
         let limit = TimeLimit::from_millis(100);
-        let expired = super::super::batch_part_expired(&activity, limit);
+        let expired = batch_part_expired(&activity, limit);
         tokio::pin!(expired);
         let mut poll = || {
             expired
@@ -837,27 +841,27 @@ mod tests {
         };
         assert!(poll().is_pending());
         tokio::time::advance(Duration::from_millis(100)).await;
-        super::super::record_progress(&activity);
+        record_progress(&activity);
         assert!(poll().is_pending());
         tokio::time::advance(Duration::from_millis(99)).await;
         assert!(poll().is_pending());
         tokio::time::advance(Duration::from_millis(1)).await;
-        assert_eq!(poll(), Poll::Ready(super::super::Expiry::Request));
+        assert_eq!(poll(), Poll::Ready(Expiry::Request));
     }
 
     #[tokio::test(start_paused = true)]
     async fn an_enforced_object_deadline_expires_a_part_despite_progress() {
-        let activity = super::super::new_batch_part_activity();
+        let activity = new_batch_part_activity();
         let deadline = TimeLimit::from_millis(1500).deadline();
-        activity.send_modify(|progress| progress.deadline = Some(deadline));
-        let expired = super::super::batch_part_expired(&activity, TimeLimit::from_millis(1000));
+        activity.send_modify(|progress| progress.start_object(Some(deadline)));
+        let expired = batch_part_expired(&activity, TimeLimit::from_millis(1000));
         tokio::pin!(expired);
         assert!(
             tokio::time::timeout(Duration::from_millis(900), &mut expired)
                 .await
                 .is_err()
         );
-        super::super::record_progress(&activity);
+        record_progress(&activity);
         assert!(
             tokio::time::timeout(Duration::from_millis(599), &mut expired)
                 .await
@@ -866,7 +870,7 @@ mod tests {
         let expiry = tokio::time::timeout(Duration::from_millis(2), &mut expired)
             .await
             .unwrap();
-        assert_eq!(expiry, super::super::Expiry::ObjectRequest);
+        assert_eq!(expiry, Expiry::ObjectRequest);
         let reply = super::super::batch_part_timeout(expiry);
         let body = reply.into_body().collect().await.unwrap().to_bytes();
         let body = String::from_utf8(body.to_vec()).unwrap();

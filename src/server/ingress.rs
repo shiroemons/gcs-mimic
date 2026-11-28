@@ -2,7 +2,8 @@
 //! adapter reads, the JSON method override, and the transport gzip that Cloud Storage's front end
 //! removes before it routes a JSON API request.
 
-use super::{BodyRead, ObjectActivity, RESOURCE_BODY_LIMIT, RequestCtx, ResponseBody, boxed};
+use super::{RESOURCE_BODY_LIMIT, RequestCtx, ResponseBody, boxed};
+use crate::service::activity::{BodyRead, ObjectActivity};
 use crate::{auth::Caller, json::ApiError, json::JsonErrorResponse};
 use http_body_util::{BodyExt, Full};
 use hyper::{
@@ -39,11 +40,8 @@ pub(crate) struct TransportBody<B = Incoming> {
 
 impl<B> TransportBody<B> {
     fn report(&self, read: BodyRead) {
-        self.activity.send_if_modified(|progress| {
-            let changed = progress.body_read != read;
-            progress.body_read = read;
-            changed
-        });
+        self.activity
+            .send_if_modified(|progress| progress.set_body_read(read));
     }
 }
 
@@ -75,8 +73,9 @@ where
                 // between frames, such as a write that waits for the disk, counts against the
                 // request deadline instead of the client's silence. Notifying even when the
                 // state is unchanged makes every frame renew the limit.
-                this.activity
-                    .send_modify(|progress| progress.body_read = BodyRead::NotPending);
+                this.activity.send_modify(|progress| {
+                    progress.set_body_read(BodyRead::NotPending);
+                });
             }
             Poll::Ready(Some(Err(_)) | None) => this.report(BodyRead::NotPending),
         }

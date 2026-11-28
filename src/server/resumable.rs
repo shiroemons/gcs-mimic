@@ -16,7 +16,10 @@ use crate::{
         resumable_cancel::Cancellation,
     },
     object::{ObjectError, ObjectRecord, media_headers::CUSTOM_METADATA_PREFIX},
-    service::ServiceError,
+    service::{
+        ServiceError,
+        activity::{CatalogWaitLimit, begin_catalog_wait},
+    },
     storage::{
         ChunkEnd, ChunkWait, Overrun, Progress, ResumableChunk, ResumableError, ResumableOptions,
         SessionLease, SessionState, Written, failure::object_unavailable,
@@ -776,7 +779,7 @@ pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
     deadline: tokio::time::Instant,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Result<T, E> {
-    let _wait = super::begin_catalog_wait(activity).await;
+    let _wait = begin_catalog_wait(activity).await;
     tokio::pin!(operation);
     loop {
         // Only a catalog wait has a budget; a transfer runs until the request deadline.
@@ -785,7 +788,7 @@ pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
         } else {
             TimeLimit::DISABLED
         };
-        let limit = super::CatalogWaitLimit::starting_now(budget, deadline);
+        let limit = CatalogWaitLimit::starting_now(budget, deadline);
         tokio::select! {
             biased;
             result = &mut operation => break result,

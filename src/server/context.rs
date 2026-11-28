@@ -3,7 +3,8 @@
 //! Handlers receive these structs instead of long parameter lists, so adding shared
 //! request state changes one definition rather than every signature on the call path.
 
-use super::{ObjectActivity, State, await_upload_catalog, bucket_access};
+use super::{State, bucket_access};
+use crate::service::activity::{ObjectActivity, await_upload_catalog};
 use crate::{
     auth::{Caller, ListenerRole, signature::Resource},
     bucket::{BucketAccess, CatalogError},
