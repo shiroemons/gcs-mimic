@@ -1,6 +1,12 @@
-use super::{ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response};
-use crate::service::activity::record_progress;
-use crate::service::upload_drive::CHUNK_BYTES;
+//! Gzip on the object paths that the JSON and XML APIs share: a read of an object stored with
+//! `Content-Encoding: gzip`, sent as stored or gunzipped by a bounded worker with the headers
+//! Cloud Storage sends for each, and the failures of gunzipping an upload sent with transport
+//! gzip.
+
+use super::activity::{ObjectActivity, record_progress};
+use super::body::{ResponseBody, boxed, empty_response};
+use super::context::ObjectCtx;
+use super::upload_drive::CHUNK_BYTES;
 use crate::{
     object::{ObjectError, ObjectRecord},
     storage::{ObjectReader, failure::object_unavailable},
@@ -13,7 +19,7 @@ use std::io::{self, BufRead, BufReader, Read};
 use tokio::sync::watch;
 
 #[derive(Debug, thiserror::Error)]
-pub(super) enum GzipError {
+pub(crate) enum GzipError {
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error("gzip decoder worker failed")]
@@ -82,7 +88,7 @@ impl<R: BufRead> Read for Input<R> {
 /// Cloud Storage marks a gunzipped download with these two fields and sends no length,
 /// encoding or range headers for the expanded bytes, on both the JSON and XML APIs
 /// (observed 2026-10-31). The stored-object hashes stay, describing the stored bytes.
-pub(super) fn insert_transcoded_headers(headers: &mut HeaderMap) {
+pub(crate) fn insert_transcoded_headers(headers: &mut HeaderMap) {
     for name in [
         "content-encoding",
         "content-length",
@@ -112,7 +118,7 @@ pub(super) fn insert_transcoded_headers(headers: &mut HeaderMap) {
 /// A doubly compressed object gunzipped for a client that accepts gzip: Cloud Storage sends it
 /// with `accept-ranges: none` and neither a validator nor the gunzipped markers (recorded
 /// 2026-11-13 on the JSON API).
-pub(super) fn insert_gunzipped_despite_accept_headers(headers: &mut HeaderMap) {
+pub(crate) fn insert_gunzipped_despite_accept_headers(headers: &mut HeaderMap) {
     for name in [
         "content-encoding",
         "content-length",
@@ -129,7 +135,7 @@ pub(super) fn insert_gunzipped_despite_accept_headers(headers: &mut HeaderMap) {
 /// field only on the compressed response and never on a gunzipped one; the XML API sends it
 /// on every representation, gunzipped included (both observed 2026-10-31). Callers decide
 /// which representations get it.
-pub(super) fn insert_negotiated_vary(headers: &mut HeaderMap) {
+pub(crate) fn insert_negotiated_vary(headers: &mut HeaderMap) {
     headers.append("vary", HeaderValue::from_static("Accept-Encoding"));
 }
 
@@ -140,7 +146,7 @@ const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 /// header (observed 2026-10-31). Only the leading magic bytes are checked, so a body that
 /// breaks later still fails mid-stream. An empty object has nothing to contradict.
 /// A failed probe read is a backend failure; it keeps its I/O cause for diagnostics.
-pub(super) async fn is_plain(
+pub(crate) async fn is_plain(
     reader: &mut ObjectReader,
     stored_size: u64,
 ) -> Result<bool, ObjectError> {
@@ -156,7 +162,7 @@ pub(super) async fn is_plain(
 
 /// The 11-byte `Bad Request` Cloud Storage sends for a gunzipping read of non-gzip bytes,
 /// with the headers the gunzipped response would have carried.
-pub(super) fn plain_body_rejection(mut headers: HeaderMap) -> Response<ResponseBody> {
+pub(crate) fn plain_body_rejection(mut headers: HeaderMap) -> Response<ResponseBody> {
     const BODY: &str = "Bad Request";
     insert_transcoded_headers(&mut headers);
     headers.insert(
@@ -171,7 +177,7 @@ pub(super) fn plain_body_rejection(mut headers: HeaderMap) -> Response<ResponseB
 }
 
 /// HEAD sends the selected headers without starting the bounded decompression worker.
-pub(super) fn response(
+pub(crate) fn response(
     ctx: ObjectCtx<'_>,
     record: &ObjectRecord,
     reader: ObjectReader,

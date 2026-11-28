@@ -11,11 +11,11 @@ use crate::{
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     server::{
         ALLOWED_RESOURCES_VARY, ObjectCtx, QueryPrecondition, ResponseBody, ValidatedRead, acl,
-        body_read_ahead, boxed, empty_response, gzip, insert_content_range,
+        body_read_ahead, boxed, empty_response, insert_content_range,
         insert_unsatisfied_content_range, invalid_etag_header, not_modified_response, object_body,
         read_metadata_response,
     },
-    service::media,
+    service::{gzip, media},
 };
 use http_body_util::{BodyExt, Full};
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
