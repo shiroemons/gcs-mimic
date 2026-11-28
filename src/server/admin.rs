@@ -264,7 +264,7 @@ mod tests {
         .unwrap();
         let registry = auth::Registry::parse(br#"{"identities":[{"id":"manager","tokens":["manager"]},{"id":"ordinary","tokens":["ordinary"],"project_roles":{"local":["roles/storage.admin"]}}]}"#).unwrap();
         let mut auth = auth::Auth::strict(registry);
-        auth.trust(&crate::config::TrustedCaller::Named("manager".into()));
+        auth.trust(&crate::auth::TrustedCaller::Named("manager".into()));
         assert_eq!(auth.trusted_principal(), Some("manager"));
         let state = std::sync::Arc::new(super::super::State::for_test(catalog, auth));
         let config = std::sync::Arc::new(

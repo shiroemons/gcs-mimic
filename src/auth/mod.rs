@@ -13,6 +13,7 @@ pub(crate) use acl_identity::validate_local_creator_email;
 mod built_in;
 pub(crate) use built_in::BuiltIn;
 pub(crate) use built_in::TRUSTED_APP_ID;
+pub(crate) use built_in::TrustedCaller;
 pub(crate) mod denied;
 pub(crate) use denied::Denied;
 mod jwt;
@@ -32,7 +33,7 @@ pub(crate) use policy::PublicAccess;
 pub(crate) use policy::{Binding, Member, MemberRef, Policy};
 pub(crate) use roles::Role;
 
-use crate::config::{AuthProfile, DocumentKind, DocumentSource, Form, Setting, TrustedCaller};
+use crate::config::{AuthProfile, DocumentKind, DocumentSource, Form, Setting};
 use hyper::{HeaderMap, header::AUTHORIZATION};
 use serde_json::Value;
 use std::{

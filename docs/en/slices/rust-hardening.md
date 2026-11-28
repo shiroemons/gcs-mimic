@@ -416,7 +416,7 @@ findings in new files.
 | `string_enum!`, `InvalidChoice` | `config` → `choice` |
 | RFC 3339 parser (`parse_timestamp` and its helpers) | `import::codec` → `time_format` |
 | `CompatProfile` | `config` → `profile` |
-| `AuthProfile`, `TrustedCaller` | `config` → `auth` |
+| `TrustedCaller`; `AuthProfile` and `Verification` once `auth` no longer reads `DocumentSource` | `config` → `auth` |
 | `validate_dns_name`; `reserved_path` | `config`; `xml` → `url` |
 | `bucket_for_authority`, `request_authority`, `virtual_host_api_authority` | `xml` → `config::domains` |
 | `json::validate_project`, `json::validate_bucket_name` | callers use `auth::validate_project_id` and `bucket::name::validate` |
@@ -1374,10 +1374,10 @@ remove none, so the rule reaches zero tolerance as early as possible.
 | --- | --- |
 | Public facade | `app`, `testing`, private modules, `pub(crate)`, dead code. The `Config` accessors that the integration tests read stay public. Review consolidating the public paths to `Generation` and `InvalidGeneration`, the five public source exception groups and the two private `ObjectError` groups in `public_source_tests.rs`. |
 | Foundation moves | the RFC 3339 parser; `fsutil` and `net` became private with the public facade |
-| Model value types | `profile`, URL helpers, auth choices, validator callers, `AdminGrant` |
+| Model value types | `profile`, URL helpers, `TrustedCaller`, validator callers, `AdminGrant` |
 | JSON-owned rules out of `json` | `Projection`, component counting, fixed metadata, bucket insert parsing, the two JSON round trips, authority helpers |
 | Notification renderer | injected at catalog open |
-| `auth` split and `HmacKeys` | `HmacKeys` replaces the `Catalog` that `auth::signature`'s policy, streaming and verification code name; reading the identities document (`DocumentSource`, `Form`, `DocumentKind`, `Setting`) moves to `config`, so `auth` parses bytes |
+| `auth` split and `HmacKeys` | `HmacKeys` replaces the `Catalog` that `auth::signature`'s policy, streaming and verification code name; reading the identities document (`DocumentSource`, `Form`, `DocumentKind`, `Setting`) moves to `config`, so `auth` parses bytes; `AuthProfile` and `Verification` then move to `auth`, since the identities they carry no longer name `DocumentSource` |
 | `service`, part one | the shared request pieces and `State`; range and transcoding negotiation into `service::media`, before `server::xml_read` moves into `xml`; ledger IDs under `server::copy` become `service::copy` |
 | gRPC listener | into `server` |
 | JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |

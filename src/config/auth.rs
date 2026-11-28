@@ -7,7 +7,7 @@ use super::{
 };
 use crate::auth::{
     Auth, AuthMode, BuiltIn, SignedUrls, TRUSTED_APP_ID, TestSigner, TestSignerChoice,
-    signature::SignedHostPort, test_signer,
+    TrustedCaller, signature::SignedHostPort, test_signer,
 };
 use std::{borrow::Cow, collections::BTreeSet};
 
@@ -20,25 +20,12 @@ pub(crate) struct Verification {
     pub(crate) signed_host_port: Option<SignedHostPort>,
 }
 
-/// Who a request without credentials on the trusted listener acts as.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum TrustedCaller {
-    /// No trusted listener, so every such request is anonymous.
-    Anonymous,
-    /// The registered identity that `trusted_principal` names. Loading resolves it where it
-    /// resolves the built-in one, and configuration reports a name it did not find.
-    Named(String),
-    /// The built-in application identity, when `trusted_listen` names no principal.
-    BuiltIn,
-}
-
-impl TrustedCaller {
-    fn select(config: &ConfigDraft) -> Self {
-        match (config.trusted_listen, &config.trusted_principal) {
-            (None, _) => Self::Anonymous,
-            (Some(_), Some(principal)) => Self::Named(principal.clone()),
-            (Some(_), None) => Self::BuiltIn,
-        }
+/// The caller that the `trusted_listen` and `trusted_principal` settings select.
+fn trusted_caller(config: &ConfigDraft) -> TrustedCaller {
+    match (config.trusted_listen, &config.trusted_principal) {
+        (None, _) => TrustedCaller::Anonymous,
+        (Some(_), Some(principal)) => TrustedCaller::Named(principal.clone()),
+        (Some(_), None) => TrustedCaller::BuiltIn,
     }
 }
 
@@ -174,7 +161,7 @@ impl AuthProfile {
     /// built-in identity, the trusted listener's application or an explicitly enabled test
     /// signer, so the server has a caller to authorize.
     fn built_in_only(config: &ConfigDraft) -> bool {
-        TrustedCaller::select(config) == TrustedCaller::BuiltIn
+        trusted_caller(config) == TrustedCaller::BuiltIn
             || config.test_signer == Some(TestSigner::Enabled)
     }
 
@@ -208,7 +195,7 @@ impl AuthProfile {
             (AuthMode::Strict, None | Some(SignedUrls::Verify), identities) => Ok(Self::Strict {
                 identities: identities.cloned(),
                 verification,
-                trusted: TrustedCaller::select(config),
+                trusted: trusted_caller(config),
             }),
             (AuthMode::Permissive, Some(SignedUrls::Verify), identities) => {
                 Ok(Self::VerifyingPermissive {
