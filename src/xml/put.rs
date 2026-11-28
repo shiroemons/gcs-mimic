@@ -13,8 +13,10 @@ use crate::{
         MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, TextTokenError,
         content_type, upload_headers::custom_metadata_headers,
     },
-    service::body::{ResponseBody, boxed, empty_response},
-    service::context::ObjectCtx,
+    service::{
+        body::{ResponseBody, boxed, empty_response},
+        context::ObjectCtx,
+    },
     storage::ObjectUpload,
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes};

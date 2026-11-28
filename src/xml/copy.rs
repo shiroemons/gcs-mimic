@@ -9,10 +9,10 @@ use crate::{
         content_type,
         generation::{Generation, Metageneration},
     },
-    service::copy::{self, CopyBudget, CopyJob},
     service::{
         body::{RequestBody, ResponseBody, boxed},
         context::ObjectCtx,
+        copy::{self, CopyBudget, CopyJob},
     },
     storage::DerivedDestination,
 };

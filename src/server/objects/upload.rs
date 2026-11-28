@@ -4,7 +4,7 @@ use super::{AclSource, Written, idempotency_token};
 use crate::object::ObjectKey;
 use crate::server::RequestBody as Incoming;
 use crate::service::upload_drive::{
-    CatalogWait, UploadEnd, UploadSender, drive_upload, stream_upload, upload_channel,
+    CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, stream_upload, upload_channel,
 };
 use crate::{
     bucket::BucketAccess,
@@ -123,7 +123,7 @@ pub(super) async fn insert(
     };
     let record = drive_upload(CatalogWait::Upload(ctx), upload, &sender, producer)
         .await
-        .map_err(crate::service::upload_drive::DriveError::into_error::<ApiError>)?;
+        .map_err(DriveError::into_error::<ApiError>)?;
     Written::keyed(&record, ctx, params.projection, key, acl)
 }
 
@@ -261,5 +261,5 @@ async fn stream_multipart<B: Body<Data = Bytes> + Unpin>(
     };
     drive_upload(CatalogWait::Upload(ctx), upload, &sender, streaming)
         .await
-        .map_err(crate::service::upload_drive::DriveError::into_error::<ApiError>)
+        .map_err(DriveError::into_error::<ApiError>)
 }

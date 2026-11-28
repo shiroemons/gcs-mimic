@@ -85,7 +85,7 @@ pub(crate) struct WorkPools {
 }
 
 impl WorkPools {
-    pub(crate) fn new(config: &Config) -> Self {
+    fn new(config: &Config) -> Self {
         Self {
             gzip_decoders: Arc::new(Semaphore::new(
                 config.max_blocking_threads().div_ceil(4).max(1),
@@ -93,12 +93,6 @@ impl WorkPools {
             unauthenticated_gzip_decoders: Arc::new(Semaphore::new(1)),
             batches: Arc::new(Semaphore::new(BATCH_CONCURRENCY)),
         }
-    }
-}
-
-impl Default for WorkPools {
-    fn default() -> Self {
-        Self::new(&Config::default())
     }
 }
 
