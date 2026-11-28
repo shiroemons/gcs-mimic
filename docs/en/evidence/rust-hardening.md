@@ -474,3 +474,33 @@ reasoned suppressions on the host; the `text::io_error_other` exception of the
 gzip error moved with its file. The cross-target checks counted zero new Clippy
 violations for the three other targets. The ledger check validated 611 feature
 rows.
+
+## JSON handlers, 2026-11-28
+
+`just check` passed on the source in which the JSON API operation handlers live
+in `json::handler` instead of `server`: `acl`, `buckets`, `notifications`,
+`objects` with its submodules, `project_resources`, `resumable` and `rewrite`,
+the route parser as `json::handler::route` with its table of refused routes,
+the per-route dispatch of `server::routing`, and the request checks and
+resource responses that `src/server.rs` held for them. `server::routing` hands
+a parsed JSON route to `json::handler::respond`. `ProtocolUpload` and
+`session_path_prefix` moved to `json::resumable`, and `has_body` to
+`service::body`. Their bodies are unchanged; `JsonRoute`, `json_response`,
+`refuse_authenticated` and `ALLOWED_RESOURCES_VARY` became crate-visible.
+
+Its Rust lane passed 4,193 tests with the same Pub/Sub case ignored; no test
+was added or removed, and no assertion changed. The handler tests moved with
+their modules, and the unsupported-route test reads the pinned Discovery
+inventory through one more `..`. The unit tests of `has_body`,
+`require_empty_body` and `not_modified_response` moved from
+`server::protocol_tests` to `service::body::tests` and `json::handler::tests`.
+The ACL projection tests still send requests through `server::routing`, which
+became crate-visible for its test-only driver.
+
+No ledger test ID changed. BEHAVIOR-COMMON-005 records this run for the moved
+ACL test it lists.
+
+The production gate counted zero new violations, 5 ratcheted findings and nine
+reasoned suppressions on the host, and the test-clock baseline did not change.
+The cross-target checks counted zero new Clippy violations for the three other
+targets. The ledger check validated 611 feature rows.
