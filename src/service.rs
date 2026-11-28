@@ -15,6 +15,8 @@ use crate::{
 use serde_json::{Map, Value};
 use std::time::SystemTime;
 
+pub(crate) mod media;
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ServiceError {
     #[error(transparent)]
