@@ -51,8 +51,7 @@ pub(super) async fn respond(
     {
         return Err(xml::Error::unsupported(&name));
     }
-    let key =
-        crate::csek::CustomerKey::from_headers(request.headers(), crate::csek::DESTINATION_PREFIX)?;
+    let key = crate::csek::request_key(request.headers())?;
     // Reads and DELETE have no payload; consume framing before any mutation or response.
     xml::empty_body(request.body_mut()).await?;
     if delete {

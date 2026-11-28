@@ -178,8 +178,7 @@ pub(super) async fn respond(
         ctx,
     )
     .await?;
-    let key =
-        crate::csek::CustomerKey::from_headers(request.headers(), crate::csek::SOURCE_PREFIX)?;
+    let key = crate::csek::source_key(request.headers())?;
     let target = ObjectTarget::from_bucket(source.bucket, source.name, source.generation);
     let source = ctx
         .await_catalog(ctx.state.catalog.resolve_derived_source_keyed(

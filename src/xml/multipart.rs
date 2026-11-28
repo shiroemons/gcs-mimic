@@ -450,8 +450,7 @@ fn check_customer_key(
     upload: &storage::Upload,
     ctx: ObjectCtx<'_>,
 ) -> Result<(), Error> {
-    let key =
-        crate::csek::CustomerKey::from_headers(request.headers(), crate::csek::DESTINATION_PREFIX)?;
+    let key = crate::csek::request_key(request.headers())?;
     crate::csek::check_data(upload.options.metadata.customer_key_sha256, key)
         .map_err(|error| put::storage_error(ObjectError::CustomerEncryption(error), ctx.caller))
 }
