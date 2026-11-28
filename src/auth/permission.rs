@@ -1,6 +1,7 @@
 //! The permissions that roles grant and the project grants that hold them.
 
 use super::*;
+use std::fmt;
 
 // `untestable` excludes a permission from bucket testIamPermissions, not authorization.
 macro_rules! permissions {

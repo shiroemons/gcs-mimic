@@ -1,6 +1,8 @@
 //! The local principal registry that the identity document declares.
 
 use super::*;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// The longest email address; object owners and ACL entities store the id with little to spare.
 pub(super) const MAX_ID_BYTES: usize = 254;

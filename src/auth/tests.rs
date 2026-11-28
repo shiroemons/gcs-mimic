@@ -1,8 +1,12 @@
 use super::*;
+use super::{authenticate::looks_like_jwt, registry::MAX_TOKEN_BYTES};
 use crate::object::MapPatch;
 use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
 use crate::test_support::TestDir;
+use hyper::{HeaderMap, header::AUTHORIZATION};
+use serde_json::Value;
 use std::assert_matches;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[test]
 fn registry_errors_keep_their_diagnostics_and_sources() {

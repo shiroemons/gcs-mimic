@@ -1,6 +1,12 @@
 //! The active authentication profile and how it resolves a request's caller.
 
 use super::*;
+use hyper::{HeaderMap, header::AUTHORIZATION};
+use std::{
+    borrow::Cow,
+    collections::BTreeSet,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 /// The documented 401 body cannot explain JWT setup failures, so log guidance once.
 static WARNED_SELF_SIGNED_JWT: AtomicBool = AtomicBool::new(false);

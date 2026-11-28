@@ -1,6 +1,8 @@
 //! Registered local principals and the caller a request acts as.
 
 use super::*;
+use serde_json::Value;
+use std::{collections::BTreeMap, sync::Arc};
 
 /// A registered local principal with its project-scoped permissions expanded at load time.
 #[derive(Clone, Debug, PartialEq, Eq)]

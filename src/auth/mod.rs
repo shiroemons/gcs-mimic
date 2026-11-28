@@ -12,21 +12,21 @@ mod acl_identity;
 pub(crate) use acl_identity::validate_local_creator_email;
 mod authenticate;
 pub use authenticate::Auth;
-pub(crate) use authenticate::*;
 mod built_in;
 pub(crate) use built_in::BuiltIn;
 pub(crate) use built_in::TRUSTED_APP_ID;
 pub(crate) use built_in::TrustedCaller;
 mod choices;
-pub(crate) use choices::*;
+pub(crate) use choices::{AuthMode, SignedUrls, TestSigner, TestSignerChoice};
 pub(crate) mod denied;
 pub(crate) use denied::Denied;
 mod error;
-pub(crate) use error::*;
+pub(crate) use error::{AuthError, AuthFailure, InvalidUploadSnapshot, RegistryError};
 mod identity;
-pub(crate) use identity::*;
+pub(crate) use identity::{Caller, Identity, ListenerRole};
 mod jwt;
 mod permission;
+// The permissions macro defines a constant for each permission that code checks by name.
 pub(crate) use permission::*;
 mod policy;
 pub(crate) mod policy_input;
@@ -36,7 +36,7 @@ mod project;
 pub(crate) use project::InvalidProjectId;
 pub(crate) use project::{ProjectId, valid_project_id, validate_project_id};
 mod registry;
-pub(crate) use registry::*;
+pub(crate) use registry::{Registry, valid_principal_id};
 pub(crate) mod roles;
 pub(crate) mod signature;
 mod signing_keys;
@@ -48,17 +48,11 @@ pub(crate) use policy::PublicAccess;
 pub(crate) use policy::{Binding, Member, MemberRef, Policy};
 pub(crate) use roles::Role;
 
-use hyper::{HeaderMap, header::AUTHORIZATION};
-use serde_json::Value;
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, BTreeSet, HashMap},
-    fmt,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+// What one file here, or `signature` and `signing_keys`, uses from another.
+use authenticate::{Profile, jwt_shaped, lenient_decode};
+#[cfg(test)]
+use registry::IdentityUse;
+use registry::{MAX_ID_BYTES, visible_ascii};
 
 #[cfg(test)]
 mod tests;
