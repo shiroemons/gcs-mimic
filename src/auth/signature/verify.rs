@@ -6,7 +6,6 @@ use crate::{
     auth::{Profile, Registry, SigningKeys, test_signer},
     bucket::CatalogError,
     cause::BackendCause,
-    storage::Catalog,
 };
 use ring::hmac;
 use std::{
@@ -151,14 +150,25 @@ pub(super) fn v2_scheme(keys: &SigningKeys, signer: &str) -> Scheme {
     }
 }
 
+/// The store of the HMAC keys that verify signatures. The catalog keeps them; verification names
+/// only this lookup, so `auth` stays below `storage`.
+pub(crate) trait HmacKeys {
+    /// The service account and secret of the ACTIVE key that `access_id` names. Each lookup
+    /// reads fresh signing material, so a revocation takes effect without a secret cache.
+    fn active_hmac_key(
+        &self,
+        access_id: &str,
+    ) -> impl Future<Output = Result<Option<(String, String)>, CatalogError>> + Send;
+}
+
 /// The ACTIVE HMAC secret an access ID names, and whom it makes the caller. The ACTIVE key
 /// alone is enough when a verified signature authorizes nothing by identity.
 pub(super) async fn hmac_secret<'a>(
-    catalog: &Catalog,
+    keys: &impl HmacKeys,
     signers: &Signers<'a>,
     access_id: &str,
 ) -> Result<(Option<Caller<'a>>, String), VerificationError> {
-    let (signer, secret) = catalog
+    let (signer, secret) = keys
         .active_hmac_key(access_id)
         .await
         .map_err(VerificationError::Catalog)?
@@ -221,7 +231,7 @@ impl Auth {
 
     pub(crate) async fn authenticate_xml_resource<'a>(
         &'a self,
-        catalog: &Catalog,
+        keys: &impl HmacKeys,
         request: SignedRequest<'_>,
         clock: &dyn Clock,
     ) -> Result<Option<Caller<'a>>, VerificationError> {
@@ -254,16 +264,16 @@ impl Auth {
             }
             SignatureKind::V4 => v4::prepare(method, uri, headers, now)?,
         };
-        self.verify_prepared(catalog, prepared).await
+        self.verify_prepared(keys, prepared).await
     }
 
     /// The caller is `None` when a verified signature leaves access permissive.
     pub(super) async fn verify_prepared<'a>(
         &'a self,
-        catalog: &Catalog,
+        keys: &impl HmacKeys,
         prepared: v4::Prepared,
     ) -> Result<Option<Caller<'a>>, VerificationError> {
-        let (caller, key) = self.verification_key(catalog, &prepared).await?;
+        let (caller, key) = self.verification_key(keys, &prepared).await?;
         let host_port = self.host_port.for_signature(&prepared);
         self.verifiers
             .run(move || {
@@ -275,10 +285,10 @@ impl Auth {
         Ok(caller)
     }
 
-    /// RSA keys come from the active signers; HMAC keys from the catalog.
+    /// RSA keys come from the active signers; HMAC keys from the key store.
     async fn verification_key<'a>(
         &'a self,
-        catalog: &Catalog,
+        keys: &impl HmacKeys,
         prepared: &Prepared,
     ) -> Result<(Option<Caller<'a>>, Key), VerificationError> {
         // Every caller has checked that signatures are verified; this keeps the same answer.
@@ -297,11 +307,11 @@ impl Auth {
                 ))
             }
             Scheme::HmacSha1 => {
-                let (caller, secret) = hmac_secret(catalog, &signers, &prepared.signer).await?;
+                let (caller, secret) = hmac_secret(keys, &signers, &prepared.signer).await?;
                 Ok((caller, Key::Hmac(legacy_hmac_key(&secret))))
             }
             Scheme::HmacV4(scope) => {
-                let (caller, secret) = hmac_secret(catalog, &signers, &prepared.signer).await?;
+                let (caller, secret) = hmac_secret(keys, &signers, &prepared.signer).await?;
                 Ok((caller, Key::Hmac(scope.signing_key(&secret))))
             }
         }
@@ -371,6 +381,7 @@ fn warn_portless_host() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::Catalog;
     use std::assert_matches;
 
     /// Verifies the string to sign over the request as sent, which the published vectors cover.

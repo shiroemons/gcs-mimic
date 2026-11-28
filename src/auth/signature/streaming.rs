@@ -1,7 +1,6 @@
 //! AWS's specific HMAC chunk chain, linked by the Google XML header contract.
 
 use super::*;
-use crate::storage::Catalog;
 use ring::hmac;
 
 pub(crate) const STREAMING_PAYLOAD: &str = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
@@ -109,7 +108,7 @@ impl Streaming {
 impl Auth {
     pub(crate) async fn authenticate_streaming<'a>(
         &'a self,
-        catalog: &Catalog,
+        keys: &impl HmacKeys,
         method: &Method,
         uri: &Uri,
         headers: &HeaderMap,
@@ -127,7 +126,7 @@ impl Auth {
         let signers = self
             .signers()
             .ok_or(Failure::UnknownSigner(KeyLookup::Ignored))?;
-        let (caller, secret) = verify::hmac_secret(catalog, &signers, &prepared.signer).await?;
+        let (caller, secret) = verify::hmac_secret(keys, &signers, &prepared.signer).await?;
         let state = Streaming::new(scope.signing_key(&secret), scope, &prepared.signature);
         // The seed signs the canonical request; the chunk chain starts from the seed signature
         // alone, so a lenient host form does not change how chunks verify.

@@ -1,12 +1,11 @@
 //! Policy signatures authenticate the exact submitted base64 field, never a canonical request.
 
 use super::*;
-use crate::storage::Catalog;
 
 impl Auth {
     pub(crate) async fn authenticate_policy_v2<'a>(
         &'a self,
-        catalog: &Catalog,
+        keys: &impl HmacKeys,
         signer: &str,
         signature: &str,
         policy: &str,
@@ -18,7 +17,7 @@ impl Auth {
             return Err(Failure::Malformed.into());
         }
         self.verify_prepared(
-            catalog,
+            keys,
             v4::Prepared {
                 signer: signer.into(),
                 scheme: verify::v2_scheme(signers.keys(), signer),
@@ -33,7 +32,7 @@ impl Auth {
 
     pub(crate) async fn authenticate_policy<'a>(
         &'a self,
-        catalog: &Catalog,
+        keys: &impl HmacKeys,
         algorithm: &str,
         credential: &str,
         date: &str,
@@ -61,6 +60,6 @@ impl Auth {
             portless: None,
             signature: unhex(signature)?,
         };
-        self.verify_prepared(catalog, prepared).await
+        self.verify_prepared(keys, prepared).await
     }
 }
