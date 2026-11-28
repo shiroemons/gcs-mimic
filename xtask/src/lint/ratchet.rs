@@ -370,4 +370,22 @@ mod tests {
             assert!(Baseline::parse(&text, FILE).is_err(), "{text}");
         }
     }
+
+    /// The layer rules are zero tolerance: a baseline row for either fails to load, and
+    /// `--baseline` records none, so no file can keep an edge that the layer table forbids.
+    #[test]
+    fn the_layer_rules_take_no_baseline_row() {
+        for rule in [
+            super::super::ADAPTER_DEPENDENCY,
+            super::super::LAYER_DEPENDENCY,
+        ] {
+            let text = format!("{rule}\tsrc/config/auth.rs\t1");
+            assert!(Baseline::parse(&text, FILE).is_err(), "{text}");
+            assert_eq!(
+                Baseline::from_findings(&[Finding::new(rule, "src/config/auth.rs", 1)]),
+                Baseline::from_findings(&[]),
+                "{rule}"
+            );
+        }
+    }
 }

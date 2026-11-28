@@ -346,8 +346,7 @@ It prints every rejected occurrence in server production code. Rules are zero
 tolerance unless the [Rules](#rules) table marks them "per-file ratchet"; those
 use per-file baseline counts, and no new finding may increase them. Text rules share
 `xtask/lint-baseline.txt`; Clippy uses `xtask/lint-baseline.<triple>.txt`.
-`text::layer_dependency` is the one ratcheted rule, so only
-`xtask/lint-baseline.txt` has rows; every Clippy baseline file is empty.
+No rule is ratcheted today, so every baseline file holds only its header line.
 The other exceptions are:
 
 - a reasoned `#[expect(<lint>, reason = "...")]` for a Clippy or rustc lint
@@ -432,7 +431,7 @@ and `cargo::unused_dependencies`.
 | `text::diagnostics_in_io_error` | `io::Error::other` or `io::Error::new` whose arguments name `Diagnostics`; startup diagnostics keep their own error type. |
 | `text::immediately_invoked_closure` | `(\|\| ..)()` and `(move \|\| ..)()`, a closure called where it is written. |
 | `text::adapter_dependency` | One adapter (`src/json`, `src/xml`, `src/grpc`) naming another: `crate::` or `$crate::` paths, top-level members of `use crate::{..}` groups, and `super::` or `self::` paths resolved from the file's module path. Adapters that depend on each other cannot be reasoned about or replaced separately; move the shared piece to a lower module in the same change. |
-| `text::layer_dependency` | A module naming a module in a higher layer of the [module layer table](design.md#implemented-foundation-and-extension-boundaries), found the same way; a re-export counts where it is written. An upward reference ties a lower module to everything above it, and a cycle through it keeps either side from being changed or tested alone. A per-file ratchet over the references that existed when the rule arrived; kept apart from the adapter rule so a file cannot trade one forbidden edge for the other under an unchanged count. The gate also fails when `src/lib.rs` declares a module outside `#[cfg(test)]` that `xtask/src/lint/layers.rs` gives no layer, or a layer names an undeclared module. |
+| `text::layer_dependency` | A module naming a module in a higher layer of the [module layer table](design.md#implemented-foundation-and-extension-boundaries), found the same way; a re-export counts where it is written. An upward reference ties a lower module to everything above it, and a cycle through it keeps either side from being changed or tested alone. The gate also fails when `src/lib.rs` declares a module outside `#[cfg(test)]` that `xtask/src/lint/layers.rs` gives no layer, or a layer names an undeclared module. |
 | `text::sync_without_flush` | `.sync_all().await` or `.sync_data().await` after an awaited write in the same function with no `.flush().await` or `.shutdown().await` in between. |
 
 Drop guards use `#[must_use = "..."]` to explain what ends when the guard is

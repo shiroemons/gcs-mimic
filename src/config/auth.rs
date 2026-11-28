@@ -468,7 +468,8 @@ impl ConfigurationReport {
         if self.valid(&[Setting::BucketsFile, Setting::Buckets])
             && let Some(source) = &self.draft.buckets
         {
-            match crate::bucket_init::parse_document(source, self.draft.max_buckets_per_batch) {
+            match super::buckets_document::parse_document(source, self.draft.max_buckets_per_batch)
+            {
                 Ok(document) => self.draft.buckets = Some(DocumentSource::Parsed(document)),
                 Err(diagnostics) => self.diagnostics.errors.extend(diagnostics.errors),
             }

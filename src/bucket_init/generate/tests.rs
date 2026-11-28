@@ -516,7 +516,7 @@ fn name_only_buckets_are_written_as_names_where_the_setting_takes_them() {
     assert!(document.render(Format::Json).unwrap().starts_with('{'));
     // The names stand for exactly the document the parser checked.
     assert_eq!(
-        super::super::shorthand::document("app-uploads,app-exports").unwrap(),
+        crate::config::buckets_document::shorthand::document("app-uploads,app-exports").unwrap(),
         serde_json::to_string(&document).unwrap()
     );
     let settled = Document::new(vec![bucket("app-uploads", []), bucket("null", [])]);
