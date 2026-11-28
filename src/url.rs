@@ -3,9 +3,57 @@
 
 use crate::{
     bucket::name::{InvalidBucketName, validate as validate_bucket_name},
-    config::InvalidDnsName,
     object::name::validate as validate_object_name,
 };
+
+/// A host or virtual-host domain that is not a plain DNS name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot")]
+pub struct InvalidDnsName;
+
+pub(crate) fn validate_dns_name(value: &str) -> Result<(), InvalidDnsName> {
+    if value.is_empty()
+        || value.len() > 253
+        || value.parse::<std::net::IpAddr>().is_ok()
+        || !value.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+    {
+        return Err(InvalidDnsName);
+    }
+    Ok(())
+}
+
+/// Whether `path` lies under a JSON API or emulator namespace, which neither an XML path-style
+/// request nor a public object URL may claim.
+pub(crate) fn reserved_path(path: &str) -> bool {
+    [
+        "/storage/v1",
+        "/upload/storage/v1",
+        "/download/storage/v1",
+        "/batch/storage/v1",
+        "/_internal",
+    ]
+    .iter()
+    .any(|prefix| {
+        path == *prefix
+            || path
+                .strip_prefix(prefix)
+                .is_some_and(|tail| tail.starts_with('/'))
+    })
+}
 
 /// Why a base URL, public origin or object URL was rejected. `Display` is the operator-facing
 /// diagnostic that CLI output and configuration reports show verbatim.
@@ -98,7 +146,7 @@ impl PublicOrigin {
             {
                 return Err(UrlError::AmbiguousNumericHost);
             }
-            crate::config::validate_dns_name(host)?;
+            validate_dns_name(host)?;
             OriginHost::Dns(crate::net::normalized_host(
                 host,
                 crate::net::TrailingDot::Preserve,
@@ -236,7 +284,7 @@ pub fn public_object_url(base_url: &str, bucket: &str, object: &str) -> Result<S
     validate_object_name(object)
         .map_err(|_| UrlError::InvalidObject("Invalid object name".into()))?;
     let path = format!("/{bucket}/{}", encode_object_name(object));
-    if crate::xml::reserved_path(&path) {
+    if reserved_path(&path) {
         return Err(UrlError::ReservedNamespace);
     }
     Ok(format!("{base}{path}"))
@@ -257,13 +305,13 @@ pub(crate) fn virtual_host_object_url(
         return Err(UrlError::VirtualHostPathPrefix);
     }
     let authority = uri.authority().ok_or(UrlError::MissingAuthority)?;
-    crate::config::validate_dns_name(authority.host())?;
-    crate::config::validate_dns_name(bucket).map_err(|_| UrlError::VirtualHostBucketNotDns)?;
+    validate_dns_name(authority.host())?;
+    validate_dns_name(bucket).map_err(|_| UrlError::VirtualHostBucketNotDns)?;
     let host = format!(
         "{bucket}.{}",
         crate::net::normalized_host(authority.host(), crate::net::TrailingDot::Preserve)
     );
-    crate::config::validate_dns_name(&host)?;
+    validate_dns_name(&host)?;
     if authority.as_str().contains(':') && authority.port_u16().is_none() {
         return Err(UrlError::InvalidVirtualHostPort);
     }
@@ -653,4 +701,15 @@ mod tests {
         }
         assert!(public_object_url("http://localhost", "bucket", &"a".repeat(1024)).is_ok());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = InvalidDnsName;
+    assert_eq!(
+        error.to_string(),
+        "virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }

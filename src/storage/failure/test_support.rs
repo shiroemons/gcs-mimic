@@ -784,7 +784,7 @@ pub(crate) fn url_cases() -> Vec<Case<UrlError>> {
             case("InvalidOriginAuthority", UrlError::InvalidOriginAuthority),
             case(
                 "InvalidDnsName",
-                UrlError::InvalidDnsName(crate::config::InvalidDnsName),
+                UrlError::InvalidDnsName(crate::url::InvalidDnsName),
             ),
             case(
                 "InvalidBucket",

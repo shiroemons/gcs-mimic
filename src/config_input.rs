@@ -759,7 +759,7 @@ fn safe_url(value: &str) -> bool {
         crate::url::normalize_base_url(value).is_ok()
             && uri.authority().is_some_and(|a| {
                 a.host().trim_matches(['[', ']']).parse::<IpAddr>().is_ok()
-                    || crate::config::validate_dns_name(a.host()).is_ok()
+                    || crate::url::validate_dns_name(a.host()).is_ok()
             })
             && !value.chars().any(char::is_control)
     })

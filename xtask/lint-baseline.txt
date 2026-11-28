@@ -26,7 +26,6 @@ text::layer_dependency	src/storage/catalog/policies.rs	1
 text::layer_dependency	src/storage/catalog/resumable.rs	2
 text::layer_dependency	src/storage/catalog/resumable/options.rs	1
 text::layer_dependency	src/storage/catalog/rewrite.rs	3
-text::layer_dependency	src/url.rs	6
 text::layer_dependency	src/xml/buckets.rs	1
 text::layer_dependency	src/xml/canned_acl.rs	1
 text::layer_dependency	src/xml/copy.rs	1

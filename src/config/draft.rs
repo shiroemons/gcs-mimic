@@ -1,6 +1,7 @@
 use super::*;
 
 use super::assemble::{Listeners, Tls, api_base};
+use crate::url::validate_dns_name;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ConfigDraft {
