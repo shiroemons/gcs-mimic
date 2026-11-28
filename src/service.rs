@@ -15,6 +15,7 @@ use crate::{
 use serde_json::{Map, Value};
 use std::time::SystemTime;
 
+pub(crate) mod activity;
 pub(crate) mod body;
 pub(crate) mod chunk_body;
 pub(crate) mod media;

@@ -1,4 +1,5 @@
 use super::{CHUNK_BYTES, ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response};
+use crate::service::activity::record_progress;
 use crate::{
     object::{ObjectError, ObjectRecord},
     storage::{ObjectReader, failure::object_unavailable},
@@ -238,13 +239,13 @@ fn body(
                 if sender.send(Ok(bytes)).await.is_err() {
                     return Ok(());
                 }
-                super::record_progress(&activity);
+                record_progress(&activity);
             }
         };
         // RequestFinished clears the deadline on response cancellation or completion.
         let result = tokio::select! {
             result = stream => result,
-            _ = progress.wait_for(|state| state.deadline.is_none()) => Ok(()),
+            _ = progress.wait_for(|state| state.deadline().is_none()) => Ok(()),
         };
         if let Err(error) = result {
             let error = io::Error::from(error);

@@ -188,7 +188,7 @@ fn only_a_response_that_keeps_the_connection_open_takes_a_place_in_line() {
             Some(response) => drop(finished.attach(response)),
             None => drop(finished),
         }
-        let stage = progress.borrow().stage;
+        let stage = progress.borrow().stage();
         assert_eq!(stage, RequestStage::Finished(after), "{case}");
         let (_phase, _) =
             ConnectionPhase::after_request(after, &place, TimeLimit::from_millis(600_000));

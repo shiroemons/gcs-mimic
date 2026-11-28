@@ -6,8 +6,8 @@
 //! keeps one frame in flight, and bytes already in memory or the page cache need no switch at all.
 //! A client that stops reading stops the polling, so nothing is read ahead of it.
 
-use super::{ObjectActivity, record_progress};
 use crate::cause::IoCause;
+use crate::service::activity::{ObjectActivity, record_progress};
 use crate::storage::{FrameLimit, ObjectFrames, ObjectReader};
 use bytes::Bytes;
 use hyper::body::{Body, Frame};

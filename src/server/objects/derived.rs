@@ -231,7 +231,7 @@ pub(super) async fn compose(
     .await?;
     body.destination.customer_key_sha256 = key.map(CustomerKey::sha256);
     body.destination.acl = predefined_acl.into();
-    let _wait = crate::server::begin_catalog_wait(ctx.activity).await;
+    let _wait = crate::service::activity::begin_catalog_wait(ctx.activity).await;
     let record = ctx
         .state
         .catalog

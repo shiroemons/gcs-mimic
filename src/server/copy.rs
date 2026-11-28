@@ -1,4 +1,4 @@
-use super::{ObjectActivity, await_upload_catalog, begin_catalog_wait};
+use crate::service::activity::{ObjectActivity, await_upload_catalog, begin_catalog_wait};
 use crate::{
     bucket::BucketAccess,
     cause::BackendFailure,

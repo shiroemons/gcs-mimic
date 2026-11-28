@@ -4,6 +4,7 @@ use crate::{
     csek::CopyKeys,
     json::rewrite::RewriteRequest,
     object::{ObjectConditions, content_type, generation::Generation},
+    service::activity::begin_catalog_wait,
     storage::{
         DerivedDestination,
         rewrite::{
