@@ -79,8 +79,8 @@ pub struct ErrorInfo {
     /// `{"instanceLimit": "100/request"}`, should be returned as,
     /// `{"instanceLimitPerRequest": "100"}`, if the client exceeds the number of
     /// instances that can be created in a single (batch) request.
-    #[prost(map = "string, string", tag = "3")]
-    pub metadata: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "3")]
+    pub metadata: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
@@ -201,8 +201,8 @@ pub mod quota_failure {
         ///
         /// When a quota is enforced globally, the quota_dimensions would always be
         /// empty.
-        #[prost(map = "string, string", tag = "6")]
-        pub quota_dimensions: ::std::collections::HashMap<
+        #[prost(btree_map = "string, string", tag = "6")]
+        pub quota_dimensions: ::prost::alloc::collections::BTreeMap<
             ::prost::alloc::string::String,
             ::prost::alloc::string::String,
         >,

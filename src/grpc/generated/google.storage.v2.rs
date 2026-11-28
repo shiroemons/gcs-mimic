@@ -1721,8 +1721,8 @@ pub struct Bucket {
     #[prost(bool, tag = "14")]
     pub default_event_based_hold: bool,
     /// Optional. User-provided labels, in key/value pairs.
-    #[prost(map = "string, string", tag = "15")]
-    pub labels: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "15")]
+    pub labels: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
@@ -2373,8 +2373,8 @@ pub struct ObjectContexts {
     /// The maximum key or value size is `256` characters.
     /// The maximum number of entries is `50`.
     /// The maximum total serialized size of all entries is `25KiB`.
-    #[prost(map = "string, message", tag = "1")]
-    pub custom: ::std::collections::HashMap<
+    #[prost(btree_map = "string, message", tag = "1")]
+    pub custom: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ObjectCustomContextPayload,
     >,
@@ -2519,8 +2519,8 @@ pub struct Object {
     #[prost(message, optional, tag = "21")]
     pub retention_expire_time: ::core::option::Option<::prost_types::Timestamp>,
     /// Optional. User-provided metadata, in key/value pairs.
-    #[prost(map = "string, string", tag = "22")]
-    pub metadata: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "22")]
+    pub metadata: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,

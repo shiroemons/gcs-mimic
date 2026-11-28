@@ -21,11 +21,7 @@ pub(super) fn bucket(record: &BucketRecord) -> pb::Bucket {
         location: record.location.as_str().into(),
         location_type: record.location.kind().as_str().into(),
         storage_class: record.storage_class.as_str().into(),
-        labels: record
-            .labels
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect(),
+        labels: record.labels.clone(),
         default_event_based_hold: record.default_event_based_hold,
         versioning: Some(pb::bucket::Versioning {
             enabled: record.versioning.is_enabled(),
@@ -150,13 +146,7 @@ pub(super) fn bucket_update(
     let omitted = OmittedSettings::from(profile);
     let class = bucket.storage_class.clone();
     let mut update = BucketMetadataUpdate {
-        labels: MapPatch::Replace(
-            bucket
-                .labels
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect(),
-        ),
+        labels: MapPatch::Replace(bucket.labels.clone()),
         default_event_based_hold: Some(bucket.default_event_based_hold),
         versioning: bucket
             .versioning
@@ -226,11 +216,7 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
         content_disposition: record.content_disposition.clone().unwrap_or_default(),
         content_language: record.content_language.clone().unwrap_or_default(),
         cache_control: record.cache_control.clone().unwrap_or_default(),
-        metadata: record
-            .metadata
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect(),
+        metadata: record.metadata.clone(),
         crc32c: record
             .customer_key_sha256
             .is_none()

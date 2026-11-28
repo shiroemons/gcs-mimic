@@ -14,7 +14,7 @@ use crate::{
         unix_nanos::UnixNanos,
     },
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use tonic::Status;
 
 /// An UpdateObject `update_mask` path, parsed once before it is applied.
@@ -178,7 +178,7 @@ fn replacement(object: &pb::Object) -> Result<ObjectMetadataUpdate, Status> {
 /// stored map, keeping the keys it left out, and cleared the map for a request with none
 /// (recorded 2026-11-17, case obj-gaps-empty-metadata-key), as a JSON PATCH does. The pinned Go
 /// SDK relies on the second to delete every key.
-fn masked_metadata(entries: &HashMap<String, String>) -> MapPatch {
+fn masked_metadata(entries: &BTreeMap<String, String>) -> MapPatch {
     if entries.is_empty() {
         return MapPatch::Clear;
     }

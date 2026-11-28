@@ -112,7 +112,7 @@ protocの固定値は`src/grpc/codegen/protoc.json`で管理し、日次検査�
 通常ビルドやリリースにはprotocを追加しません。上流APIの変更を自動発見する仕組みは未実装です。
 コミット済みの生成コードは`src/grpc/generated`のワークスペースクレート`grpc-generated`で、
 依存はprost・prost-types・tonic・tonic-prostだけです。手書きの`Cargo.toml`と`lib.rs`以外は生成物なので、
-比較ではこの2つを除きます。
+比較ではこの2つを除きます。protobufのmapはすべて`BTreeMap`で生成するため、エンコード結果のエントリはキー順に並びます。
 ローカルでは`bash scripts/test-grpc-codegen.sh`でハッシュ不一致・生成物のずれの拒否を確認し、
 protoc 36.2を用意して`CARGO_BUILD_JOBS=4 bash scripts/check-grpc-codegen.sh`で実際に再生成します。
 固定版と配布アーカイブのSHA-256は2026-11-04に公式リリースで確認しています。

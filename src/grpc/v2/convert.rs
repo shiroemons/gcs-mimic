@@ -312,11 +312,7 @@ pub(crate) fn bucket(
                 terminal_storage_class_update_time,
             }
         }),
-        labels: record
-            .labels
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect(),
+        labels: record.labels.clone(),
         // Cloud Storage keeps bucket times to the millisecond (create_time and update_time
         // recorded 2026-11-17), the precision JSON renders, so every bucket time is floored alike.
         create_time: Some(millis(record.time_created)),
@@ -441,11 +437,7 @@ pub(crate) fn object(
         content_disposition: record.content_disposition.clone().unwrap_or_default(),
         content_language: record.content_language.clone().unwrap_or_default(),
         cache_control: record.cache_control.clone().unwrap_or_default(),
-        metadata: record
-            .metadata
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect(),
+        metadata: record.metadata.clone(),
         // Cloud Storage returned these three at millisecond precision over gRPC while
         // `finalize_time` kept its microseconds (observed 2026-11-01).
         create_time: Some(millis(record.time_created)),
