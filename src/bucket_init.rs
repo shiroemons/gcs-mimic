@@ -614,7 +614,8 @@ impl Entry {
 }
 
 /// Only the writable field: `effectiveTime` is output-only and has no meaning in a definition.
-/// The value stays untyped so the JSON API parser applies the same validation as an insert.
+/// The value stays untyped so `bucket::resource::parse_insert` applies the same validation as a
+/// JSON API insert.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct SoftDeletePolicy {
@@ -1745,7 +1746,7 @@ fn records(
                 "Cannot encode bucket resource; use supported native settings.",
             )
         })?;
-        // A `Value` renders the bytes that `serde_json::to_vec` writes for the entry.
+        // The limit counts the compact JSON rendering of the entry.
         if let Err(fix) = check_resource_size(value.to_string().as_bytes()) {
             error(
                 &mut diagnostics,
