@@ -1,8 +1,8 @@
 //! The authority of trusted local administration: seeding, bucket initialization and offline
 //! import. [`BucketAccess`](super::BucketAccess) carries it, so it lives beside the bucket model.
-//! Only `storage::admin` mints a grant, for operator-owned input; Clippy's `disallowed_methods`
-//! rejects [`AdminGrant::new`] anywhere else, so API requests keep authorizing through their
-//! profile.
+//! Only `storage::admin` mints a grant, for operator-owned input, and decides its notification
+//! mode; Clippy's `disallowed_methods` rejects [`AdminGrant::new`] in other production code, so
+//! API requests keep authorizing through their profile.
 
 use crate::notification::NotificationMode;
 
@@ -45,13 +45,6 @@ impl AdminGrant {
         match self.origin {
             Origin::Import => NotificationMode::Suppress,
             Origin::Api | Origin::Seed | Origin::BucketInit => self.notification_mode,
-        }
-    }
-
-    pub(crate) fn with_notification_mode(self, notification_mode: NotificationMode) -> Self {
-        Self {
-            notification_mode,
-            ..self
         }
     }
 
