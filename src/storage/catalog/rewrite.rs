@@ -890,8 +890,8 @@ impl Catalog {
                 if validate_session.deadline<=UnixMillis::try_from(clock.now())? {return Err(ObjectError::DerivedTransferExpired);}
                 let source = check_source(connection,&validate_session,&source_access)?;
                 let same_location: bool = sql::scalar(connection, "SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1", params![source.bucket,record.bucket])?;
-                let location = if same_location { crate::json::DestinationLocation::Same } else { crate::json::DestinationLocation::Different };
-                record.component_count = crate::json::derived_component_count(&source,record.storage_class,location);
+                let location = if same_location { crate::object::derived::DestinationLocation::Same } else { crate::object::derived::DestinationLocation::Different };
+                record.component_count = crate::object::derived::derived_component_count(&source,record.storage_class,location);
                 Ok(())
             },move |connection,record| {
                 let response=StoredResponse::Complete { offset: record.size, resource: render(record)? };

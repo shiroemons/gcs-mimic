@@ -10,6 +10,7 @@ use unix_nanos::UnixNanos;
 
 pub(crate) mod content_type;
 mod custom_time;
+pub(crate) mod derived;
 pub(crate) mod generation;
 mod idempotency;
 pub(crate) mod media_headers;

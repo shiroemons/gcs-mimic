@@ -3,8 +3,10 @@ use crate::{
     bucket::BucketAccess,
     cause::BackendFailure,
     config::Config,
-    json,
-    object::{ObjectError, ObjectRecord},
+    object::{
+        ObjectError, ObjectRecord,
+        derived::{DestinationLocation, derived_component_count},
+    },
     storage::{
         Catalog, CopyReplay, DerivedDestination, DerivedSource, DerivedTransfer,
         failure::object_unavailable,
@@ -168,10 +170,10 @@ pub(crate) async fn execute(
                             statement.query_row([&destination.bucket], |row| row.get(0))
                         })
                         .map_err(ObjectError::backend)?;
-                    destination.component_count = json::derived_component_count(
+                    destination.component_count = derived_component_count(
                         &source_record,
                         destination.storage_class,
-                        json::DestinationLocation::of(source_location.as_deref(), &location),
+                        DestinationLocation::of(source_location.as_deref(), &location),
                     );
                 }
                 Ok(())
@@ -195,6 +197,7 @@ mod tests {
     use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload, version};
     use crate::{
         bucket::BucketAccess,
+        json,
         object::{ObjectConditions, UploadChunk},
         storage::DerivedTransfer,
         test_support::{TestDir, UploadCleanup, blob_count},
