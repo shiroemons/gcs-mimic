@@ -51,7 +51,6 @@ use crate::service::{
     body::{RequestBody, ResponseBody, boxed, empty_response},
     chunk_body,
     context::{DeadlineWatch, ObjectCtx, RequestCtx},
-    object_body::ObjectBody,
     state::State,
 };
 
@@ -1569,35 +1568,6 @@ fn authorize_project(
     }
 }
 
-/// What a download should fetch while it opens the object.
-fn body_read_ahead(request: &Request<RequestBody>) -> crate::object::ReadAhead {
-    use crate::object::ReadAhead;
-    const WITHOUT_FULL_BODY: [&str; 5] = [
-        "range",
-        "if-match",
-        "if-none-match",
-        "if-modified-since",
-        "if-unmodified-since",
-    ];
-    let headers = request.headers();
-    if request.method() == Method::GET
-        && !WITHOUT_FULL_BODY
-            .iter()
-            .any(|name| headers.contains_key(*name))
-    {
-        ReadAhead::Body
-    } else {
-        ReadAhead::None
-    }
-}
-
-fn object_body(
-    reader: crate::storage::ObjectReader,
-    activity: &watch::Sender<ObjectActivity>,
-) -> ResponseBody {
-    ObjectBody::new(reader, activity.clone()).boxed_unsync()
-}
-
 /// Whether a POST that takes no body also accepts an empty JSON object as one.
 #[derive(Clone, Copy)]
 pub(crate) enum EmptyJsonBody {
@@ -1865,26 +1835,6 @@ fn json_response_body(value: &serde_json::Value, body: String) -> Response<Full<
         response.headers_mut().insert("etag", etag);
     }
     response
-}
-
-/// Insert `Content-Range` for a satisfiable range. Decimal positions always form a valid header
-/// value, so the conversion cannot fail in practice.
-fn insert_content_range(headers: &mut hyper::HeaderMap, offset: u64, length: u64, size: u64) {
-    if let Ok(value) = hyper::header::HeaderValue::try_from(format!(
-        "bytes {}-{}/{}",
-        offset,
-        offset + length - 1,
-        size
-    )) {
-        headers.insert("content-range", value);
-    }
-}
-
-/// Insert `Content-Range` for an unsatisfiable range request.
-fn insert_unsatisfied_content_range(headers: &mut hyper::HeaderMap, size: u64) {
-    if let Ok(value) = hyper::header::HeaderValue::try_from(format!("bytes */{size}")) {
-        headers.insert("content-range", value);
-    }
 }
 
 fn unknown_route() -> ApiError {

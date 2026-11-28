@@ -1,16 +1,17 @@
 //! XML API object GET, HEAD and DELETE.
 
 use super::RequestBody as Incoming;
-use super::{
-    ObjectCtx, ResponseBody, body_read_ahead, boxed, empty_response, insert_content_range,
-    object_body,
-};
+use super::{ObjectCtx, ResponseBody, boxed, empty_response};
 use crate::{
     auth,
     bucket::BucketAccess,
     csek::{CsekError, CustomerKey, StoredHashes},
     object::{ObjectConditions, ObjectError, ObjectRecord},
-    service::{gzip, media},
+    service::{
+        gzip,
+        media::{self, body_read_ahead, insert_content_range},
+        object_body::object_body,
+    },
     storage::ObjectReader,
     xml,
 };
