@@ -642,7 +642,7 @@ mod tests {
             .await
             .unwrap()
             .into_inner();
-        let merged = std::collections::HashMap::from([
+        let merged = std::collections::BTreeMap::from([
             ("keep".into(), "yes".into()),
             ("added".into(), "yes".into()),
         ]);

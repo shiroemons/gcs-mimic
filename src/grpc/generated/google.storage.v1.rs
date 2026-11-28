@@ -82,8 +82,8 @@ pub struct Bucket {
     #[prost(bool, tag = "14")]
     pub default_event_based_hold: bool,
     /// User-provided labels, in key/value pairs.
-    #[prost(map = "string, string", tag = "15")]
-    pub labels: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "15")]
+    pub labels: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
@@ -445,8 +445,8 @@ pub struct Channel {
     #[prost(string, tag = "7")]
     pub address: ::prost::alloc::string::String,
     /// Additional parameters controlling delivery channel behavior. Optional.
-    #[prost(map = "string, string", tag = "8")]
-    pub params: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "8")]
+    pub params: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
@@ -747,8 +747,8 @@ pub struct Notification {
     pub event_types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// An optional list of additional attributes to attach to each Cloud PubSub
     /// message published for this notification subscription.
-    #[prost(map = "string, string", tag = "3")]
-    pub custom_attributes: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "3")]
+    pub custom_attributes: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
@@ -890,8 +890,8 @@ pub struct Object {
     #[prost(message, optional, tag = "20")]
     pub retention_expiration_time: ::core::option::Option<::prost_types::Timestamp>,
     /// User-provided metadata, in key/value pairs.
-    #[prost(map = "string, string", tag = "21")]
-    pub metadata: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "21")]
+    pub metadata: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,

@@ -7,7 +7,7 @@ use crate::{
     grpc::v2::object_io::{named_object_status, naming_object, object_status},
     storage::failure::test_support::{self as domain, Case, copies},
 };
-use std::{collections::HashMap, fmt::Write as _};
+use std::fmt::Write as _;
 
 const GOLDEN: &str = "src/grpc/v2/status/golden_tests/statuses.txt";
 
@@ -39,10 +39,7 @@ fn rendering(status: &Status) -> String {
         return text;
     }
     let rpc = RpcStatus::decode(details).unwrap();
-    let canonical = canonical_status(&rpc);
-    assert_eq!(canonical.len(), details.len());
-    assert_same_details(&RpcStatus::decode(canonical.as_slice()).unwrap(), &rpc);
-    let hex: String = canonical.iter().map(|byte| format!("{byte:02x}")).collect();
+    let hex: String = details.iter().map(|byte| format!("{byte:02x}")).collect();
     let _ = writeln!(text, "details: {} bytes\n  hex: {hex}", details.len());
     let _ = writeln!(
         text,
@@ -69,9 +66,7 @@ fn rendering(status: &Status) -> String {
                     "    reason {:?}, domain {:?}",
                     info.reason, info.domain
                 );
-                let mut entries: Vec<_> = info.metadata.iter().collect();
-                entries.sort();
-                for (key, value) in entries {
+                for (key, value) in &info.metadata {
                     let _ = writeln!(text, "    metadata {key}: {value:?}");
                 }
             }
@@ -79,72 +74,6 @@ fn rendering(status: &Status) -> String {
         }
     }
     text
-}
-
-/// The details' bytes with each `ErrorInfo`'s metadata entries in key order. The metadata is a
-/// hash map, which the encoder writes in an order that differs between runs; every other field
-/// keeps the bytes the server sent.
-fn canonical_status(rpc: &RpcStatus) -> Vec<u8> {
-    let details = rpc
-        .details
-        .iter()
-        .map(|detail| prost_types::Any {
-            type_url: detail.type_url.clone(),
-            value: if detail.type_url == ERROR_INFO_TYPE {
-                canonical_error_info(&ErrorInfo::decode(detail.value.as_slice()).unwrap())
-            } else {
-                detail.value.clone()
-            },
-        })
-        .collect();
-    RpcStatus {
-        code: rpc.code,
-        message: rpc.message.clone(),
-        details,
-    }
-    .encode_to_vec()
-}
-
-/// Checks that the canonical details decode to what the server sent: the same bytes, except
-/// that an `ErrorInfo` compares by value because only its entry order may differ.
-fn assert_same_details(canonical: &RpcStatus, sent: &RpcStatus) {
-    assert_eq!(
-        (canonical.code, &canonical.message, canonical.details.len()),
-        (sent.code, &sent.message, sent.details.len())
-    );
-    for (ours, theirs) in canonical.details.iter().zip(&sent.details) {
-        assert_eq!(ours.type_url, theirs.type_url);
-        if ours.type_url == ERROR_INFO_TYPE {
-            assert_eq!(
-                ErrorInfo::decode(ours.value.as_slice()).unwrap(),
-                ErrorInfo::decode(theirs.value.as_slice()).unwrap()
-            );
-        } else {
-            assert_eq!(ours.value, theirs.value);
-        }
-    }
-}
-
-/// Concatenated messages merge, so appending one single-entry message per key encodes the map
-/// entries in key order after the other fields.
-fn canonical_error_info(info: &ErrorInfo) -> Vec<u8> {
-    let mut bytes = ErrorInfo {
-        reason: info.reason.clone(),
-        domain: info.domain.clone(),
-        metadata: HashMap::new(),
-    }
-    .encode_to_vec();
-    let mut entries: Vec<_> = info.metadata.iter().collect();
-    entries.sort();
-    for (key, value) in entries {
-        ErrorInfo {
-            metadata: HashMap::from([(key.clone(), value.clone())]),
-            ..Default::default()
-        }
-        .encode(&mut bytes)
-        .unwrap();
-    }
-    bytes
 }
 
 struct Golden {
@@ -227,7 +156,7 @@ async fn every_error_keeps_its_storage_v2_status() {
         transcript: Transcript::new(
             module_path!(),
             "every_error_keeps_its_storage_v2_status",
-            "The Storage v2 status of each error: code, message and details. ErrorInfo metadata is shown and encoded in key order, because the server writes its hash map in an order that varies.",
+            "The Storage v2 status of each error: code, message and details. The details are the bytes the server sends; ErrorInfo metadata is a sorted map, so it is encoded and shown in key order.",
         ),
     };
     golden.objects();

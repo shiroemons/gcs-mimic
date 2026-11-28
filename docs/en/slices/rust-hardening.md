@@ -498,11 +498,11 @@ the prost and tonic crates (`prost`, `prost-types`, `tonic` and
 incremental build after editing a non-protobuf file) as a fact.
 
 The same slice generates protobuf maps as `BTreeMap` (`btree_map` in
-`src/grpc/codegen`). Map fields are encoded in `HashMap` order today, so the
-bytes of an object with two or more custom metadata entries, stored as a gRPC
-completion, and of an `ErrorInfo.metadata` detail change from run to run.
+`src/grpc/codegen`). Before it, map fields were encoded in `HashMap` order, so
+the bytes of an object with two or more custom metadata entries, stored as a
+gRPC completion, and of an `ErrorInfo.metadata` detail changed from run to run.
 Protobuf leaves map order unspecified and decoding accepts any order, so
-nothing that reads them changes; the persisted-format and error goldens then
+nothing that reads them changes; the persisted-format and error goldens now
 pin several entries instead of one entry and a re-encoded detail.
 
 A further split waits until after `1.0.0`:

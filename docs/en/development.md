@@ -692,7 +692,9 @@ The committed Rust is the `grpc-generated` workspace crate in
 `src/grpc/generated`, which depends only on prost, prost-types, tonic and
 tonic-prost; the workspace manifest pins those for it and the server alike.
 Its `Cargo.toml` and `lib.rs` are written by hand and the generator writes
-every other file, so the comparison skips those two.
+every other file, so the comparison skips those two. The generator makes every
+protobuf map a `BTreeMap`, so an encoded message writes its map entries in key
+order and a stored completion or error detail has the same bytes on every run.
 
 ```sh
 bash scripts/test-grpc-codegen.sh

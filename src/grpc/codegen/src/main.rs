@@ -37,11 +37,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&output)?;
     // Object data uses bytes::Bytes so decoded payloads and read chunks pass to and
     // from the body streams without an extra copy into or out of a Vec.
+    // Every map is a BTreeMap, so an encoded message writes its entries in key order and
+    // the bytes of a stored completion or an error detail do not change from run to run.
     // Generate legacy first so shared packages retain the v2 foundation output; the
     // `grpc-generated` crate root includes it next to the module file of the v2 pass.
     tonic_prost_build::configure()
         .build_client(false)
         .bytes(".google.storage.v1.ChecksummedData.content")
+        .btree_map(".")
         .generate_default_stubs(true)
         .extern_path(".google.api", "crate::google::api")
         .extern_path(".google.iam.v1", "crate::google::iam::v1")
@@ -53,6 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_prost_build::configure()
         .build_client(false)
         .bytes(".google.storage.v2.ChecksummedData.content")
+        .btree_map(".")
         .out_dir(&output)
         .include_file("mod.rs")
         .compile_protos(

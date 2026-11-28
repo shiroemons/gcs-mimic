@@ -1,4 +1,4 @@
-# The Storage v2 status of each error: code, message and details. ErrorInfo metadata is shown and encoded in key order, because the server writes its hash map in an order that varies.
+# The Storage v2 status of each error: code, message and details. The details are the bytes the server sends; ErrorInfo metadata is a sorted map, so it is encoded and shown in key order.
 # Written by grpc::v2::status::golden_tests::every_error_keeps_its_storage_v2_status. Regenerate with GCSM_UPDATE_GOLDENS=1 cargo test --lib grpc::v2::status::golden_tests,
 # which rewrites this file and fails; review the diff and run the test again without it.
 

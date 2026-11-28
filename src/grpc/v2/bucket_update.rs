@@ -208,12 +208,7 @@ fn apply_path(
 ) -> Result<(), Status> {
     match path {
         UpdatePath::Labels => {
-            update.labels = MapPatch::Replace(
-                b.labels
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect(),
-            );
+            update.labels = MapPatch::Replace(b.labels.clone());
         }
         UpdatePath::Label(key) => {
             let value = b.labels.get(&key).cloned();

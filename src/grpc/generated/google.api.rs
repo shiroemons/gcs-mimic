@@ -221,8 +221,8 @@ pub struct JavaSettings {
     ///        - google.pubsub.v1.Publisher: TopicAdmin
     ///        - google.pubsub.v1.Subscriber: SubscriptionAdmin
     /// ```
-    #[prost(map = "string, string", tag = "2")]
-    pub service_class_names: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "2")]
+    pub service_class_names: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
@@ -323,8 +323,8 @@ pub struct DotnetSettings {
     /// would cause a naming conflict. (Neither name is
     /// fully-qualified.)
     /// Example: Subscriber to SubscriberServiceApi.
-    #[prost(map = "string, string", tag = "2")]
-    pub renamed_services: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "2")]
+    pub renamed_services: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
@@ -333,8 +333,8 @@ pub struct DotnetSettings {
     /// named from different services would cause naming collisions.
     /// Example entry:
     /// "datalabeling.googleapis.com/Dataset": "DataLabelingDataset"
-    #[prost(map = "string, string", tag = "3")]
-    pub renamed_resources: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "3")]
+    pub renamed_resources: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
@@ -384,8 +384,8 @@ pub struct GoSettings {
     ///      renamed_services:
     ///        Publisher: TopicAdmin
     /// ```
-    #[prost(map = "string, string", tag = "2")]
-    pub renamed_services: ::std::collections::HashMap<
+    #[prost(btree_map = "string, string", tag = "2")]
+    pub renamed_services: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
