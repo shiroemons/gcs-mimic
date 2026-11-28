@@ -245,3 +245,26 @@ project identifier test passed from the policy input test module. The
 reasoned exception on the one function that mints administrative grants made
 `cargo xtask lint` report its `AdminGrant::new` call as a disallowed method,
 so the `clippy.toml` entry resolves the crate-local path.
+
+## JSON-owned rules, 2026-11-28
+
+`just check` passed on the source that moves `Projection` to `acl`, the
+derived component count to `object::derived`, and the virtual-host
+authority helpers to `config::domains`, and that converts bucket
+initialization entries through `bucket::resource::parse_insert` instead of
+the JSON body parser. Its Rust lane passed 4,192 tests with the same Pub/Sub
+case ignored; the new test is the `object::derived` component count test.
+The production gate counted zero new violations, 45 ratcheted findings and
+nine reasoned suppressions on the host, after twelve layer findings in
+`storage::catalog::resumable`, its options, `storage::catalog::rewrite`,
+`bucket_init`, `config::draft`, `config::runtime` and
+`notification::event` left the baseline, and zero new Clippy violations for
+the three other targets. The ledger check validated 611 feature rows.
+
+The moved bodies of `bucket_for_authority`, `split_virtual_host`,
+`virtual_host_api_authority` and `request_authority` were identical to the
+originals. The initializer tests and the XML authentication suite passed
+with the conversion and the authority helpers in their new places. No test
+reaches the defensive size branch in `bucket_init::records()`, so its
+equivalence with the former `serde_json::to_vec` measurement rests on the
+entry's field types and on `preserve_order`.
