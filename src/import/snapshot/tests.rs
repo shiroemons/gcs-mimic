@@ -57,7 +57,7 @@ fn pinned_source_export_imports_selected_bodies_and_metadata_after_restart() {
                     let resource = crate::json::bucket_resource(
                         &settings,
                         "http://localhost",
-                        crate::json::Projection::NoAcl,
+                        crate::acl::Projection::NoAcl,
                     )
                     .unwrap();
                     assert_eq!(
@@ -272,7 +272,7 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
             let resource = crate::json::bucket_resource(
                 &settings,
                 "http://localhost",
-                crate::json::Projection::NoAcl,
+                crate::acl::Projection::NoAcl,
             )
             .unwrap();
             // The catalog keeps the nanoseconds; the JSON rendering shows milliseconds.

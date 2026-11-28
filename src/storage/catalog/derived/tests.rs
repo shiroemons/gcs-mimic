@@ -920,7 +920,7 @@ async fn validation_sees_same_name_source_before_retirement_and_completion_sees_
         .unwrap();
     assert_eq!(record.component_count, Some(2));
     let value =
-        crate::json::object_resource(&record, "http://localhost", crate::json::Projection::NoAcl)
+        crate::json::object_resource(&record, "http://localhost", crate::acl::Projection::NoAcl)
             .unwrap();
     assert_eq!(value["componentCount"], 2);
     assert!(value.get("md5Hash").is_none());

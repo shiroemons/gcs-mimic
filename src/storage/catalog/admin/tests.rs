@@ -1543,7 +1543,7 @@ async fn finalize_session(
                 crate::json::object_resource(
                     record,
                     "http://localhost",
-                    crate::json::Projection::NoAcl,
+                    crate::acl::Projection::NoAcl,
                 )
                 .map_err(ObjectError::backend)
             },

@@ -31,7 +31,7 @@ pub(crate) struct RewriteRequest {
     pub(crate) predefined_acl: Option<PredefinedObjectAcl>,
     /// Whether the finished rewrite's resource carries `acl` and `owner`, as the Go SDK's Copier
     /// asks for.
-    pub(crate) projection: query::Projection,
+    pub(crate) projection: super::Projection,
     /// The parameters a rewrite token binds, by their JSON API names, as the session stores
     /// them: numbers in canonical decimal, every other bound parameter as sent, keys in
     /// ascending order. The text and the order are part of the stored session bytes.

@@ -582,8 +582,13 @@ mod tests {
         let policy = json::parse_policy(br#"{"etag":"AQ==","bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#).unwrap();
         for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
             check(
-                &json::bucket_resource_with_profile(&bucket, base, json::Projection::Full, profile)
-                    .unwrap(),
+                &json::bucket_resource_with_profile(
+                    &bucket,
+                    base,
+                    crate::acl::Projection::Full,
+                    profile,
+                )
+                .unwrap(),
                 "",
                 Schema::Bucket,
             );
@@ -592,7 +597,7 @@ mod tests {
                     std::slice::from_ref(&bucket),
                     Some("cursor"),
                     base,
-                    json::Projection::Full,
+                    crate::acl::Projection::Full,
                     profile,
                 )
                 .unwrap(),
@@ -601,7 +606,7 @@ mod tests {
             );
         }
         check(
-            &json::object_resource(&object, base, json::Projection::Full).unwrap(),
+            &json::object_resource(&object, base, crate::acl::Projection::Full).unwrap(),
             "",
             Schema::Object,
         );

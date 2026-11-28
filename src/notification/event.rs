@@ -168,7 +168,7 @@ impl Message<'_> {
         match config.payload_format {
             PayloadFormat::JsonApiV1 => {
                 let mut payload =
-                    crate::json::object_resource(self.object, "", crate::json::Projection::NoAcl)
+                    crate::json::object_resource(self.object, "", crate::acl::Projection::NoAcl)
                         .map_err(invalid_time)?;
                 // Notification metadata has no listener-dependent URLs.
                 if let Some(fields) = payload.as_object_mut() {

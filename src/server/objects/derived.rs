@@ -267,5 +267,11 @@ pub(super) async fn compose(
                 error
             }
         })?;
-    Written::keyed(&record, ctx, json::Projection::NoAcl, key, AclSource::Live)
+    Written::keyed(
+        &record,
+        ctx,
+        crate::acl::Projection::NoAcl,
+        key,
+        AclSource::Live,
+    )
 }

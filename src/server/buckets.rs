@@ -58,7 +58,8 @@ pub(super) async fn respond<'a>(
     let access = authorize(ctx, &operation).await?;
     validate_request(&request, &operation)?;
     let fields = response_fields(ctx.uri, operation.fields())?;
-    let acl_full = operation.projection() == json::Projection::Full && operation.renders_acl();
+    let acl_full =
+        operation.projection() == crate::acl::Projection::Full && operation.renders_acl();
     // A write that turns uniform bucket-level access off answers without ACL fields, as one that
     // turns it on does (recorded 2026-10-31), so the state before the write matters too.
     let acl_full = acl_full
@@ -144,17 +145,17 @@ fn without_acl(value: Value) -> Rendered {
 fn rendered_bucket(
     record: &BucketRecord,
     base_url: &str,
-    projection: json::Projection,
+    projection: crate::acl::Projection,
     profile: CompatProfile,
 ) -> Result<Rendered, ApiError> {
     Ok(Rendered {
         value: json::bucket_resource_with_profile(record, base_url, projection, profile)?,
         subjects: match projection {
-            json::Projection::Full => AclSubjects::Bucket {
+            crate::acl::Projection::Full => AclSubjects::Bucket {
                 project: record.project.clone(),
                 version: record.into(),
             },
-            json::Projection::NoAcl => AclSubjects::None,
+            crate::acl::Projection::NoAcl => AclSubjects::None,
         },
     })
 }
@@ -281,7 +282,12 @@ async fn lock_retention_policy(
             access,
         )
         .await?;
-    rendered_bucket(&record, ctx.base_url, json::Projection::NoAcl, ctx.profile)
+    rendered_bucket(
+        &record,
+        ctx.base_url,
+        crate::acl::Projection::NoAcl,
+        ctx.profile,
+    )
 }
 
 /// Restores a soft-deleted bucket. Ruby's generated client repeats the URL query in a
@@ -293,7 +299,7 @@ async fn restore(
     access: &BucketAccess,
     bucket: &str,
     generation: Generation,
-    projection: json::Projection,
+    projection: crate::acl::Projection,
 ) -> Result<Rendered, ApiError> {
     validate_bodyless_post(request, ctx.uri.parameters()?, EmptyJsonBody::Refused).await?;
     let record = ctx
@@ -561,7 +567,7 @@ async fn get(
         return Ok(empty_response(StatusCode::NOT_MODIFIED));
     }
     let mut resource = rendered_bucket(&record, ctx.base_url, params.projection, profile)?;
-    if params.projection == json::Projection::Full {
+    if params.projection == crate::acl::Projection::Full {
         acl::add_full_projection(state, caller, &mut resource, ctx.base_url).await?;
     }
     read_metadata_response(
@@ -605,11 +611,11 @@ async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Rendered, 
     Ok(Rendered {
         value,
         subjects: match params.projection {
-            json::Projection::Full => AclSubjects::Buckets {
+            crate::acl::Projection::Full => AclSubjects::Buckets {
                 project: params.project,
                 items: page.items.iter().map(BucketVersion::from).collect(),
             },
-            json::Projection::NoAcl => AclSubjects::None,
+            crate::acl::Projection::NoAcl => AclSubjects::None,
         },
     })
 }

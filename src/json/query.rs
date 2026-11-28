@@ -1,4 +1,5 @@
 use super::{ApiError, EtagConditions, FieldSelection, ResponseCache, Schema, integer::take_int64};
+use crate::acl::Projection;
 use crate::page_token::decode_page_token;
 use crate::{
     bucket::{
@@ -89,13 +90,6 @@ pub(crate) fn query_param<'a>(
             .then(|| component(value))
             .flatten()
     })
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Projection {
-    #[default]
-    NoAcl,
-    Full,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

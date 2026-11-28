@@ -3,7 +3,8 @@ use crate::clock::ManualClock;
 use crate::object::ObjectKey;
 use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
 use crate::{
-    json::{self, Projection},
+    acl::Projection,
+    json,
     object::{ComposeSource, ObjectError, ObjectMetadataUpdate, UploadChunk},
 };
 use bytes::Bytes;

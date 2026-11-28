@@ -9,6 +9,9 @@
 //! [`error`] renders the [`ApiError`] as the JSON error envelope and its HTTP responses.
 //! The supported subset and deviations are recorded in `docs/en/slices/json-bucket-crud.md`.
 
+// The submodules name the ACL projection through this module, which does not re-export it.
+use crate::acl::Projection;
+
 pub(crate) mod acl;
 mod buckets;
 mod checksum;
@@ -100,8 +103,7 @@ pub(crate) use query::decode_bucket_segment;
 #[cfg(test)]
 pub(crate) use query::route;
 pub(crate) use query::{
-    BucketRequest, GetParams, InsertParams, ListParams, Projection, SoftDeletedListParams,
-    route_with_profile,
+    BucketRequest, GetParams, InsertParams, ListParams, SoftDeletedListParams, route_with_profile,
 };
 
 #[cfg(test)]

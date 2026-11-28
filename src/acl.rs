@@ -11,6 +11,16 @@ use std::{fmt, str::FromStr};
 /// The documented per-resource ACL entry limit.
 pub(crate) const MAX_ENTRIES: usize = 100;
 
+/// Whether a rendered bucket or object asks for its ACL entries and owner: `full` does and
+/// `noAcl` does not. The adapters parse it from their requests, and a resumable session keeps
+/// the one its final response renders with.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Projection {
+    #[default]
+    NoAcl,
+    Full,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AclKind {
     Bucket,

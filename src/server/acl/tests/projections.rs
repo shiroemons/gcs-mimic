@@ -222,7 +222,7 @@ async fn deleting_a_listed_bucket_omits_only_its_acl_fields() {
         &page.items,
         None,
         base,
-        crate::json::Projection::Full,
+        crate::acl::Projection::Full,
         CompatProfile::Native,
     )
     .unwrap();
