@@ -48448,12 +48448,13 @@
             "config::tests::authentication_profile_precedence_and_validation",
             "auth_http_startup_rejects_invalid_profiles_and_registries"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["config::auth::tests::registry_file_read_is_bounded", "config::auth::tests::load_failures_name_the_setting_and_the_entry_without_echoing_tokens", "auth::tests::registry_validation_rejects_invalid_files_without_partial_load", "auth::signing_keys::tests::load_selects_the_profile_and_its_signers"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": "1153d399dfb858d59e7c815150a02a6ae3c92ea7",
-      "last_verified": "2026-11-08"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "DESIGN-002",
@@ -48926,7 +48927,8 @@
           "test_ids": [
             "guide-compose-strict-auth"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["config::auth::tests::registry_file_read_is_bounded", "auth::tests::registry_validation_rejects_invalid_files_without_partial_load"]}
       ],
       "sdk_evidence": [
         {
@@ -48948,7 +48950,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "1153d399dfb858d59e7c815150a02a6ae3c92ea7",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "DESIGN-004",
@@ -49312,12 +49314,13 @@
             "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
             "auth_http_startup_rejects_invalid_profiles_and_registries"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["auth::tests::registry_validation_rejects_invalid_files_without_partial_load"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": "1153d399dfb858d59e7c815150a02a6ae3c92ea7",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "DESIGN-009",
@@ -52398,7 +52401,8 @@
             "TestV4RSAVirtualHostedURLs",
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["auth::signing_keys::tests::load_selects_the_profile_and_its_signers"]}
       ],
       "sdk_evidence": [
         {
@@ -52494,7 +52498,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "15aeea6c5bd518c464e4a1b6291c33768cd3a611",
-      "last_verified": "2026-11-08"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "DESIGN-034",
@@ -64291,6 +64295,7 @@
             "acl::error_text_and_sources",
             "auth::acl_identity::error_text_and_sources",
             "auth::error_text_and_sources",
+            "config::auth::error_text_and_sources",
             "auth::policy::error_text_and_sources",
             "auth::policy_input::error_text_and_sources",
             "auth::roles::error_text_and_sources",
@@ -64447,6 +64452,7 @@
         "cause::error_text_and_sources",
         "choice::error_text_and_sources",
         "url::error_text_and_sources",
+        "config::auth::error_text_and_sources",
         "config::notifications::error_text_and_sources",
         "config::runtime::error_text_and_sources",
         "config_input::options::error_text_and_sources",
@@ -64708,7 +64714,8 @@
           "test_ids": [
             "url::error_text_and_sources"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["auth::error_text_and_sources", "config::auth::error_text_and_sources"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [],
