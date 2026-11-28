@@ -1,7 +1,7 @@
 use crate::{
     auth::{
-        AuthProfile, BUCKETS_CREATE, MAX_REGISTRY_BYTES, TRUSTED_APP_ID, TestSigner,
-        TestSignerChoice, TrustedCaller, Verification, signature::HostPortPolicy, test_signer,
+        AuthProfile, BUCKETS_CREATE, TRUSTED_APP_ID, TestSigner, TestSignerChoice, TrustedCaller,
+        Verification, signature::HostPortPolicy, test_signer,
     },
     config::{Config, ConfigurationReport, DocumentSource},
     diagnostics::{Diagnostic, DiagnosticSource},
@@ -112,7 +112,7 @@ fn registry_file_read_is_bounded() {
     let dir = TestDir::new();
     let path = dir.0.join("identity.json");
     let mut document = r#"{"identities":[{"id":"a","tokens":["t"]}]}"#.to_owned();
-    let limit = usize::try_from(MAX_REGISTRY_BYTES).unwrap();
+    let limit = usize::try_from(super::MAX_REGISTRY_BYTES).unwrap();
     document.push_str(&" ".repeat(limit - document.len()));
     let load = |source: DocumentSource| {
         super::load_profile(

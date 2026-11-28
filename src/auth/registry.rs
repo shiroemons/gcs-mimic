@@ -2,11 +2,6 @@
 
 use super::*;
 
-/// The file is trusted and read once at startup, and every lookup goes through an index, so its
-/// size is all that needs a bound: it is held in memory while it parses. Configuration reads the
-/// document and holds either form to this limit.
-pub(crate) const MAX_REGISTRY_BYTES: u64 = 16 * 1024 * 1024;
-pub(crate) const MAX_REGISTRY_MIB: u64 = MAX_REGISTRY_BYTES / (1024 * 1024);
 /// The longest email address; object owners and ACL entities store the id with little to spare.
 pub(super) const MAX_ID_BYTES: usize = 254;
 /// A registered token arrives in the same header as a JWT, so the same bound fits both.

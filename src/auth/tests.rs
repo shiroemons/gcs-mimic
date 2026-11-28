@@ -8,8 +8,6 @@ use std::assert_matches;
 fn registry_errors_keep_their_diagnostics_and_sources() {
     use RegistryError::*;
     let cases = [
-        TooLarge,
-        Io(std::io::Error::other("read failed")),
         Syntax(serde_json::from_slice::<bool>(b"").unwrap_err()),
         Invalid("missing identities".into()),
         InvalidEntry {
@@ -28,8 +26,6 @@ fn registry_errors_keep_their_diagnostics_and_sources() {
     ];
     for error in cases {
         let expected = match &error {
-            TooLarge => "exceeds 16 MiB",
-            Io(_) => "read failed",
             Syntax(_) => "EOF while parsing a value at line 1 column 0",
             Invalid(_) => "missing identities",
             InvalidEntry { .. } => "identities[2]: missing id",
