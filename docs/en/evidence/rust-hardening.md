@@ -560,3 +560,33 @@ nine reasoned suppressions on the host. The test-clock baseline did not
 change. The cross-target checks counted zero new Clippy violations and zero
 ratcheted findings for the three other targets. The ledger check validated
 611 feature rows.
+
+## `fsutil` per OS, 2026-11-28
+
+`just check` passed on the source in which `src/fsutil.rs` keeps the shared
+types and the functions that pick a platform's module with `cfg_select!`:
+`open_directory`, `stat_identity`, `uncached_identity`, `sync_ordered`,
+`clone_into`, `read_at`, `read_cached_at` and `read_source_metadata`.
+`fsutil::unix` took the errno reset, `NodeId`, the descriptor-relative open,
+the exclusive rename with its link fallback and the xattr read.
+`fsutil::linux` took `statx`, the `FICLONE` clone and `preadv2`.
+`fsutil::apple` took `F_BARRIERFSYNC` and the macOS `fclonefileat` clone.
+`fsutil::windows` took the directory handle, the file identity and
+`MoveFileExW`. The bodies are unchanged apart from paths and visibility.
+
+Its Rust lane passed 4,194 tests with the same Pub/Sub case ignored; no test
+was added or removed, and no assertion changed. The rename fallback and xattr
+errno tests moved to `fsutil::unix::tests`, and the lookup tests call the
+parent's `uncached_identity`. The host runs the macOS code; the Linux and
+Windows modules were compiled and linted for their targets by
+`scripts/check-cross.sh`, whose tests run on those platforms only in CI.
+
+No ledger test ID changed, because the ledger names these tests without a
+module path. DESIGN-072 records this run for the moved xattr errno test and
+the lookup test whose call changed.
+
+The production gate counted zero new violations, zero ratcheted findings and
+nine reasoned suppressions on the host. The test-clock baseline did not
+change. The cross-target checks counted zero new Clippy violations and zero
+ratcheted findings for Windows MSVC, Linux GNU and Linux musl. The ledger
+check validated 611 feature rows.
