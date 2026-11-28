@@ -38927,7 +38927,8 @@
             "TestGRPCBuckets",
             "TestGRPCBucketsStrict"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["grpc_timeout_never_ends_a_call_on_the_server", "grpc_compressed_requests_are_refused_before_the_call", "grpc_compressed_flag_without_an_encoding_is_a_protocol_error", "grpc_responses_stay_uncompressed_whatever_the_client_accepts"]}
       ],
       "sdk_evidence": [
         {
@@ -39032,7 +39033,7 @@
         }
       ],
       "implemented_in": "3e8d13d",
-      "last_verified": "2026-11-18"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "BEHAVIOR-RPC-002",
@@ -39882,13 +39883,14 @@
         {"command":"cargo test --locked --offline --lib grpc_listener_configuration_precedence_and_diagnostics","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["grpc_listener_configuration_precedence_and_diagnostics"]},
         {"command":"cargo test --locked --offline --bin gcs-mimic grpc_listener_disabled_by_default_and_bound_after_initialization","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["grpc_listener_disabled_by_default_and_bound_after_initialization"]},
         {"command":"cargo test --locked --offline --lib grpc::","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound"]},
-        {"command":"GCS_MIMIC_GO_TEST_RUN=TestGRPCFoundation bash scripts/sdk-go.sh","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"]}
+        {"command":"GCS_MIMIC_GO_TEST_RUN=TestGRPCFoundation bash scripts/sdk-go.sh","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"]},
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["grpc_idle_connection_closes_with_goaway", "grpc_idle_never_cuts_in_flight_streams", "grpc_silent_open_stream_is_bounded", "grpc_active_stream_survives_past_bound", "grpc_dead_peer_is_detected_by_keepalive", "grpc_goaway_has_bounded_grace", "grpc_idle_connection_outlives_the_handshake_deadline", "grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone", "grpc_disabled_and_largest_limits_keep_every_phase_open", "grpc_stream_limit_defaults_to_100_streams_per_connection", "grpc_stream_limit_follows_the_setting", "grpc_idle_connection_gives_its_slot_to_a_waiting_client", "grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client", "grpc_open_stream_is_not_reclaimed_until_it_ends", "grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace", "grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace", "grpc_shutdown_grace_is_never_zero", "grpc_response_drop_releases_stream_count"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "scoped_differences": [{"text":"Emulator rejections of unsupported RPCs, fields and values carry ErrorInfo reason badRequest and domain global, the JSON rejection contract; a valid Google RPC has no provider counterpart for this rejection.","gap":"SPEC-GRPC-ERRORINFO","test_ids":["grpc::v2::status::tests::unsupported_errors_keep_their_details"]}],
       "implemented_in": "bdb8900",
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "EXT-XML-001",
@@ -64170,7 +64172,8 @@
             "TestGRPCTLSStrict",
             "TestGRPCTLSUntrustedCA"
           ]
-        }
+        },
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["server::grpc_listener::tests::transport::grpc_tls_handshake_bytes_never_pass_for_the_preface", "server::grpc_listener::tests::transport::grpc_tls_preface_counts_decrypted_bytes", "server::grpc_listener::tests::transport::grpc_panicking_handler_is_reported_and_spares_other_streams_and_connections"]}
       ],
       "sdk_evidence": [
         {
@@ -64192,7 +64195,7 @@
       ],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-11-18"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "DESIGN-105",
