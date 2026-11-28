@@ -1,4 +1,6 @@
-//! Errors returned where the protocol adapters call shared request handling.
+//! Request handling that the JSON, XML and gRPC adapters share: the server state, request
+//! context and activity, request and response bodies, access checks, media negotiation,
+//! upload driving and copies, and the errors it returns to the adapters.
 
 use crate::{
     auth::InvalidProjectId,

@@ -172,7 +172,7 @@ impl ObjectActivity {
 
     /// Records whether the handler waits on the client for request body bytes, returning whether
     /// that changed.
-    pub(crate) fn set_body_read(&mut self, read: BodyRead) -> bool {
+    pub(super) fn set_body_read(&mut self, read: BodyRead) -> bool {
         std::mem::replace(&mut self.body_read, read) != read
     }
 
@@ -191,7 +191,7 @@ impl ObjectActivity {
 
     /// Forgets the object request, keeping only a claimed expiry: a batch can go on to its next
     /// part, whose catalog wait must not start behind the timeout reply.
-    pub(crate) fn finish_object(&mut self) {
+    pub(super) fn finish_object(&mut self) {
         let stage = match self.stage {
             RequestStage::Expired(expiry) => RequestStage::Expired(expiry),
             RequestStage::Running
@@ -385,26 +385,26 @@ async fn claim_catalog_wait(activity: &watch::Sender<ObjectActivity>) {
 /// are raised by different settings, so a timeout names the one that ended the wait; raising
 /// `catalog_wait_timeout_ms` cannot outlast the request deadline.
 #[derive(Clone, Copy)]
-pub(crate) struct CatalogWaitLimit {
+pub(super) struct CatalogWaitLimit {
     budget: tokio::time::Instant,
     request: tokio::time::Instant,
 }
 
 impl CatalogWaitLimit {
     /// A wait that starts now. A disabled `budget` leaves only the request deadline.
-    pub(crate) fn starting_now(budget: TimeLimit, request: tokio::time::Instant) -> Self {
+    pub(super) fn starting_now(budget: TimeLimit, request: tokio::time::Instant) -> Self {
         Self {
             budget: budget.deadline(),
             request,
         }
     }
 
-    pub(crate) fn deadline(self) -> tokio::time::Instant {
+    pub(super) fn deadline(self) -> tokio::time::Instant {
         self.budget.min(self.request)
     }
 
     /// The failure of a wait that reached [`Self::deadline`].
-    pub(crate) fn expired(self) -> BackendFailure {
+    pub(super) fn expired(self) -> BackendFailure {
         if self.budget < self.request {
             BackendFailure::UploadWaitTimeout
         } else {

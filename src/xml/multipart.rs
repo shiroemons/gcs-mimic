@@ -6,8 +6,10 @@ use crate::service::upload_drive::{
 };
 use crate::{
     object::{ObjectError, media_headers::CUSTOM_METADATA_PREFIX},
-    service::body::{RequestBody, ResponseBody, boxed, empty_response},
-    service::context::ObjectCtx,
+    service::{
+        body::{RequestBody, ResponseBody, boxed, empty_response},
+        context::ObjectCtx,
+    },
     storage::xml_multipart as storage,
 };
 use hyper::{
