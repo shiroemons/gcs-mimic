@@ -3,7 +3,7 @@
 //! Versioned bucket initialization with complete validation before create-missing.
 
 use crate::{
-    auth::{Policy, validate_project_id},
+    auth::{Policy, valid_project_id},
     bounded_file::{self, ReadError},
     bucket::BucketRecord,
     cause::MemoryBudget,
@@ -908,7 +908,7 @@ fn project(
     diagnostics: &mut Collected,
 ) -> Result<Option<String>, Diagnostics> {
     Ok(match value(raw)?.as_str() {
-        Some(project) if validate_project_id(project).is_ok() => Some(project.into()),
+        Some(project) if valid_project_id(project) => Some(project.into()),
         _ => {
             error(
                 diagnostics,
@@ -1585,7 +1585,7 @@ fn validate(
     for (_, raw) in root.0.iter().filter(|(key, _)| key == "project") {
         project(raw, "project", &mut diagnostics)?;
     }
-    if validate_project_id(seed_project).is_err() {
+    if !valid_project_id(seed_project) {
         error(
             &mut diagnostics,
             Reason::Project,
