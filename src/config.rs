@@ -323,36 +323,6 @@ fn read_config(path: &str) -> Result<Vec<(String, Box<RawValue>)>, ConfigReadErr
     })
 }
 
-/// A host or virtual-host domain that is not a plain DNS name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot")]
-pub struct InvalidDnsName;
-
-pub(crate) fn validate_dns_name(value: &str) -> Result<(), InvalidDnsName> {
-    if value.is_empty()
-        || value.len() > 253
-        || value.parse::<std::net::IpAddr>().is_ok()
-        || !value.split('.').all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && label
-                    .as_bytes()
-                    .first()
-                    .is_some_and(u8::is_ascii_alphanumeric)
-                && label
-                    .as_bytes()
-                    .last()
-                    .is_some_and(u8::is_ascii_alphanumeric)
-                && label
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        })
-    {
-        return Err(InvalidDnsName);
-    }
-    Ok(())
-}
-
 fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix> {
     value
         .parse::<u64>()
@@ -3032,15 +3002,4 @@ mod tests {
                 .is_empty()
         );
     }
-}
-
-#[cfg(test)]
-#[test]
-fn error_text_and_sources() {
-    let error = InvalidDnsName;
-    assert_eq!(
-        error.to_string(),
-        "virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot"
-    );
-    assert!(std::error::Error::source(&error).is_none());
 }

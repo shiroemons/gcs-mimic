@@ -403,23 +403,6 @@ fn document_response(body: impl Into<Bytes>) -> Response<Full<Bytes>> {
 /// The `Cache-Control` Cloud Storage sends with XML API lists, errors and private objects.
 pub(crate) const PRIVATE_CACHE_CONTROL: &str = "private, max-age=0";
 
-pub(crate) fn reserved_path(path: &str) -> bool {
-    [
-        "/storage/v1",
-        "/upload/storage/v1",
-        "/download/storage/v1",
-        "/batch/storage/v1",
-        "/_internal",
-    ]
-    .iter()
-    .any(|prefix| {
-        path == *prefix
-            || path
-                .strip_prefix(prefix)
-                .is_some_and(|tail| tail.starts_with('/'))
-    })
-}
-
 /// The XML error for a path-style target whose bucket segment no bucket can be named, which
 /// selects no object. Cloud Storage answered such a segment with 400 `InvalidBucketName`
 /// naming it, and one that decodes to a name with a slash with 404 `NoSuchBucket` (recorded
@@ -429,7 +412,7 @@ pub(crate) fn unselectable_bucket(
     path: &str,
     profile: crate::profile::CompatProfile,
 ) -> Option<Error> {
-    if reserved_path(path) {
+    if crate::url::reserved_path(path) {
         return None;
     }
     let segment = path.strip_prefix('/')?.split('/').next()?;
@@ -667,7 +650,7 @@ pub(crate) fn select_object_with_endpoints(
         });
     }
     let path = uri.path();
-    if reserved_path(path) && reserved_goes_to_json {
+    if crate::url::reserved_path(path) && reserved_goes_to_json {
         return Ok(None);
     }
     let Some(path) = path.strip_prefix('/') else {
