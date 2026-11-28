@@ -39,11 +39,6 @@ pub(crate) fn directory_names_within(
     directory_names_after(directory, after, limit)
 }
 
-/// The identity of `file` as its handle reports it, which no attribute cache on this side answers.
-pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
-    Ok(super::stat_identity(file)?)
-}
-
 pub(crate) fn open_directory_nofollow(_: &Path) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }
