@@ -64699,6 +64699,15 @@
             "lint::layers::tests::the_library_exposes_only_the_app_and_testing_modules",
             "config_input::options::error_text_and_sources"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-11-28",
+          "artifact": "docs/en/evidence/rust-hardening.md",
+          "test_ids": [
+            "url::error_text_and_sources"
+          ]
         }
       ],
       "sdk_evidence": [],

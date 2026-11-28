@@ -223,3 +223,25 @@ and cause. Two new codec tests confirmed that the Go zero time still reads as
 unset and that names still escape as Go's `PathEscape` does. A Clippy probe
 added to the parser module and then removed confirmed that the module rejects
 `unwrap` and `expect`.
+
+## Model value types, 2026-11-28
+
+`just check` passed on the source that moves `CompatProfile` to `profile`,
+`TrustedCaller` to `auth`, the DNS name and reserved path checks to `url`, and
+`AdminGrant` with its `Origin` to `bucket`, and that checks project IDs with the
+`auth` validators instead of a JSON wrapper. Its Rust lane passed
+4,191 tests with the same Pub/Sub case ignored. The production gate counted
+zero new violations, 57 ratcheted findings and nine reasoned suppressions on
+the host, after twelve layer findings in `bucket`, `bucket::name`,
+`bucket::resource`, `auth::built_in`, `auth::policy_input`, `url` and
+`storage::catalog::policies` left the baseline, and zero new Clippy
+violations for the three other targets. The ledger check validated 611
+feature rows.
+
+The moved `validate_dns_name` and `reserved_path` bodies were identical to
+the originals. The `InvalidDnsName` text test passed from `url`, and the
+project identifier test passed from the policy input test module. The
+`storage::admin` compile-fail doctests passed. A probe that removed the
+reasoned exception on the one function that mints administrative grants made
+`cargo xtask lint` report its `AdminGrant::new` call as a disallowed method,
+so the `clippy.toml` entry resolves the crate-local path.
