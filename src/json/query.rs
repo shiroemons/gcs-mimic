@@ -869,12 +869,8 @@ fn project(query: &mut BTreeMap<String, String>) -> Result<String, ApiError> {
     let project = query
         .remove("project")
         .ok_or_else(|| ApiError::required("Required parameter: project").at_parameter("project"))?;
-    validate_project(&project)?;
+    crate::auth::validate_project_id(&project)?;
     Ok(project)
-}
-
-pub(crate) fn validate_project(project: &str) -> Result<(), ApiError> {
-    Ok(crate::auth::validate_project_id(project)?)
 }
 
 pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Projection, ApiError> {

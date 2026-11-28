@@ -124,28 +124,29 @@ pub(crate) fn parse_member(member: &str) -> Result<Member, PolicyInputError> {
     }
 }
 
-#[test]
-fn convenience_members_and_json_queries_share_project_identifier_rules() {
-    for (project, valid) in [
-        ("project".to_owned(), true),
-        ("é".into(), true),
-        ("a".repeat(256), true),
-        ("".into(), false),
-        ("a".repeat(257), false),
-        ("has space".into(), false),
-        ("has\tcontrol".into(), false),
-    ] {
-        assert_eq!(super::valid_project_id(&project), valid);
-        assert_eq!(crate::json::validate_project(&project).is_ok(), valid);
-        for prefix in ["projectOwner", "projectEditor", "projectViewer"] {
-            assert_eq!(parse_member(&format!("{prefix}:{project}")).is_ok(), valid);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// JSON queries check the project with `validate_project_id`, as convenience members do.
+    #[test]
+    fn convenience_members_and_json_queries_share_project_identifier_rules() {
+        for (project, valid) in [
+            ("project".to_owned(), true),
+            ("é".into(), true),
+            ("a".repeat(256), true),
+            ("".into(), false),
+            ("a".repeat(257), false),
+            ("has space".into(), false),
+            ("has\tcontrol".into(), false),
+        ] {
+            assert_eq!(crate::auth::valid_project_id(&project), valid);
+            assert_eq!(crate::auth::validate_project_id(&project).is_ok(), valid);
+            for prefix in ["projectOwner", "projectEditor", "projectViewer"] {
+                assert_eq!(parse_member(&format!("{prefix}:{project}")).is_ok(), valid);
+            }
+        }
+    }
 
     #[test]
     fn typed_policies_share_role_member_and_occurrence_validation() {

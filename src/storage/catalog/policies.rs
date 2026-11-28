@@ -266,7 +266,7 @@ pub(super) fn install_parent_policy(
         [],
     )?;
     for project in projects {
-        crate::json::validate_project(project)
+        crate::auth::validate_project_id(project)
             .map_err(|_| CatalogError::InvalidMetadata("Invalid parent policy project".into()))?;
         sql::exec(
             &transaction,
