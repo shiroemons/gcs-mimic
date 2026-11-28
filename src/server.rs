@@ -51,6 +51,7 @@ use crate::service::{
     },
     body::{RequestBody, ResponseBody, boxed, empty_response},
     chunk_body,
+    object_body::ObjectBody,
 };
 pub(crate) use crate::xml::CorsWarnings;
 
@@ -222,7 +223,6 @@ mod admin;
 pub(crate) mod copy;
 mod gzip;
 mod notifications;
-mod object_body;
 mod project_names;
 mod project_resources;
 pub(crate) mod resumable;
@@ -1692,7 +1692,7 @@ fn object_body(
     reader: crate::storage::ObjectReader,
     activity: &watch::Sender<ObjectActivity>,
 ) -> ResponseBody {
-    object_body::ObjectBody::new(reader, activity.clone()).boxed_unsync()
+    ObjectBody::new(reader, activity.clone()).boxed_unsync()
 }
 
 /// Whether a POST that takes no body also accepts an empty JSON object as one.
