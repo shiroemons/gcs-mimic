@@ -82,7 +82,10 @@ async fn media(
         .open_object_keyed(object, conditions, access, key, body_read_ahead(request))
         .await?;
     object_headers::validate_read_condition_headers(request.headers(), EtagConditions::MediaRead)?;
-    json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
+    object_headers::validate_keyed_object_headers(
+        request.headers(),
+        &[crate::csek::DESTINATION_PREFIX],
+    )?;
     let mut headers = crate::object::media_headers::object_media_headers(&record)?;
     insert_provider_headers(&record, &mut headers)?;
     crate::csek::insert_response_headers(&record, &mut headers);
@@ -400,7 +403,10 @@ async fn metadata(
         catalog.get_object(object, conditions, access).await?
     };
     object_headers::validate_read_condition_headers(request.headers(), EtagConditions::Supported)?;
-    json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
+    object_headers::validate_keyed_object_headers(
+        request.headers(),
+        &[crate::csek::DESTINATION_PREFIX],
+    )?;
     // Metadata needs no key; a supplied key must match and then reveals hashes.
     crate::csek::check_metadata(record.customer_key_sha256, key)
         .map_err(ObjectError::CustomerEncryption)?;
