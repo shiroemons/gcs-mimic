@@ -4,15 +4,15 @@
 //! its own initiation and session URI.
 //!
 //! A session stores the JSON API object resource when it completes, whichever API's session URI
-//! completes it, and every later answer is made from that resource through the response options
-//! its initiation set. The JSON API owns both, so the engine reaches them only through
-//! [`StoredCompletion`] and [`CompletionAnswer`], as the notification payload reaches its
-//! resource through `notification::JsonApiObject`.
+//! completes it, and every answer is made from that resource through the response options its
+//! initiation set. The JSON API owns both, so the engine reaches them only through
+//! [`StoredCompletion`], [`CompletionAnswer`] and [`AnswerView`], as the notification payload
+//! reaches its resource through `notification::JsonApiObject`.
 
-mod headers;
+mod session_headers;
 
 #[cfg(test)]
-pub(crate) use headers::final_options;
+pub(crate) use session_headers::final_options;
 
 use super::ServiceError;
 use super::body::{RequestBody as Incoming, ResponseBody, boxed, empty_response};
@@ -33,9 +33,9 @@ use crate::{
     },
     time_format::TimeOutOfRange,
 };
-use headers::Range;
 use hyper::{Request, Response, StatusCode, header::HeaderValue};
 use serde_json::Value;
+use session_headers::Range;
 use tokio::sync::watch;
 
 /// Renders the object resource a completed session stores. The JSON adapter owns that
@@ -57,15 +57,18 @@ pub(crate) trait StoredCompletion {
 /// implements this for `ResumableOptions`.
 pub(crate) trait CompletionAnswer {
     /// What the answers take from the options; the engine holds it while a chunk is written.
-    type View: Send + Sync;
+    type View: AnswerView;
 
     /// Prepared before a chunk stores any byte, so options the adapter cannot apply fail the
     /// request without creating the object.
     fn view(&self) -> Result<Self::View, ServiceError>;
+}
 
+/// The part of a session's options that its answers apply, held apart from the session.
+pub(crate) trait AnswerView: Send + Sync {
     /// The answer made from the stored `resource`.
     fn respond(
-        view: &Self::View,
+        &self,
         ctx: ObjectCtx<'_>,
         resource: Value,
         links: Links,
@@ -215,7 +218,7 @@ fn chunk_framing(
     headers: &hyper::HeaderMap,
     max_bytes: u64,
 ) -> Result<(Option<Range>, Option<u64>), ServiceError> {
-    let range = headers::range(headers)?;
+    let range = session_headers::range(headers)?;
     let length = single(headers, "content-length")?
         .map(unsigned)
         .transpose()?;
@@ -335,7 +338,7 @@ fn plan_chunk(
     length: Option<u64>,
     session: &SessionPosition<'_>,
     max_bytes: u64,
-    target: &SessionTarget<'_>,
+    uri: SessionUri<'_>,
 ) -> Result<ChunkPlan, Refusal> {
     let Extent {
         start,
@@ -396,7 +399,7 @@ fn plan_chunk(
         return Err(match (total, session.total) {
             // Only an open total reaches here with a known session total: the chunk overruns it.
             (None, Some(declared))
-                if *session.state == SessionState::Active && target.name.is_none() =>
+                if *session.state == SessionState::Active && uri.range_refusal_fails_session() =>
             {
                 Refusal::Overrun(Overrun {
                     received: length,
@@ -414,12 +417,13 @@ fn plan_chunk(
         ChunkKind::OpenData => true,
     };
     if kind == ChunkKind::Data && !finalize && !length.is_multiple_of(256 * 1024) {
-        let message = if target.name.is_some() || length >= 256 * 1024 {
-            "Nonfinal chunk must be a multiple of 256 KiB".into()
-        } else {
-            format!(
+        let message = match uri {
+            SessionUri::Json if length < 256 * 1024 => format!(
                 "Invalid request.  The number of bytes uploaded is required to be equal or greater than 262144, except for the final request (it's recommended to be the exact multiple of 262144).  The received request contained {length} bytes, which does not meet this requirement."
-            )
+            ),
+            SessionUri::Json | SessionUri::Xml { .. } => {
+                "Nonfinal chunk must be a multiple of 256 KiB".into()
+            }
         };
         return Err(InputError::session_protocol(message).into());
     }
@@ -436,8 +440,39 @@ fn plan_chunk(
 pub(crate) struct SessionTarget<'a> {
     pub(crate) bucket: &'a str,
     pub(crate) id: &'a str,
-    /// The object an XML session URI names; the JSON URI names only the bucket.
-    pub(crate) name: Option<&'a str>,
+    pub(crate) uri: SessionUri<'a>,
+}
+
+/// Which API's session URI a request uses. The engine applies each API's recorded session rules
+/// by this, not by the session, which either initiation may have opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SessionUri<'a> {
+    /// `/upload/storage/v1/b/BUCKET/o?upload_id=`, which names only the bucket.
+    Json,
+    /// `/BUCKET/OBJECT?upload_id=`, which names the object as well.
+    Xml { name: &'a str },
+}
+
+impl SessionUri<'_> {
+    /// Whether the URI names an object other than the session's, which makes the session
+    /// unknown at this URI.
+    pub(crate) fn names_other_object(self, session_name: &str) -> bool {
+        match self {
+            Self::Json => false,
+            Self::Xml { name } => name != session_name,
+        }
+    }
+
+    /// Whether a refused `Content-Range` that breaks the syntax or overruns the total fails the
+    /// whole session, not just this request. Cloud Storage failed the JSON session on a malformed
+    /// range (recorded 2026-11-13) and on an overrun (recorded 2026-11-15, case
+    /// obj-resumable-declared-length); no recording shows it for the XML session URI.
+    fn range_refusal_fails_session(self) -> bool {
+        match self {
+            Self::Json => true,
+            Self::Xml { .. } => false,
+        }
+    }
 }
 
 /// The result of one chunk or status request against a session.
@@ -455,9 +490,10 @@ async fn session_framing(
     ctx: ObjectCtx<'_>,
 ) -> Result<(Option<Range>, Option<u64>), ServiceError> {
     let framing = chunk_framing(headers, ctx.config.max_object_bytes());
-    // The recordings prove a terminal JSON session failure for malformed syntax and for a
-    // chunk that overruns its declared total.
-    if target.name.is_none() && framing.is_err() && headers::range_fails_session(headers) {
+    if target.uri.range_refusal_fails_session()
+        && framing.is_err()
+        && session_headers::range_fails_session(headers)
+    {
         let lease = ctx
             .await_session_writer(
                 ctx.state
@@ -480,13 +516,13 @@ pub(crate) async fn transfer(
     ctx: ObjectCtx<'_>,
 ) -> Result<Transfer, ServiceError> {
     let ObjectCtx { state, config, .. } = ctx;
-    let SessionTarget { bucket, id, name } = target;
+    let SessionTarget { bucket, id, uri } = target;
     let headers = request.headers().clone();
     let (range, length) = session_framing(&headers, &target, ctx).await?;
     let mut lease = ctx
         .await_session_writer(state.catalog.lock_resumable_session(id, bucket))
         .await?;
-    if name.is_some_and(|name| name != lease.session.name) {
+    if uri.names_other_object(&lease.session.name) {
         return Err(ResumableError::NotFound.into());
     }
     let session = &lease.session;
@@ -506,7 +542,7 @@ pub(crate) async fn transfer(
         length,
         &position,
         config.max_object_bytes(),
-        &target,
+        uri,
     ) {
         Ok(plan) => plan,
         Err(refusal) => return Err(refuse(refusal, &lease, ctx).await),
@@ -515,7 +551,7 @@ pub(crate) async fn transfer(
     // Validate the override before any bytes can be acknowledged.
     single(&headers, "x-guploader-no-308")?;
     // PHP repeats whole-object hashes on every data chunk; checkpoint them for completion.
-    let options = match headers::final_options(&headers, session.options.clone()) {
+    let options = match session_headers::final_options(&headers, session.options.clone()) {
         Ok(options) => options,
         Err(error) => {
             if plan.finalize && !session.state.is_complete() {
@@ -546,7 +582,8 @@ pub(crate) async fn transfer(
             .into_value()
             .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion))?;
         drop(lease);
-        return ResumableOptions::respond(&view, ctx, completion, Links::Stored)
+        return view
+            .respond(ctx, completion, Links::Stored)
             .await
             .map(Transfer::Complete);
     }
@@ -581,11 +618,10 @@ pub(crate) async fn transfer(
         .catalog
         .write_resumable_session(lease, chunk, body, permit, render);
     match stream_chunk(request.into_body(), ctx, upload, sender, progress).await? {
-        Written::Complete(resource) => {
-            ResumableOptions::respond(&view, ctx, resource, Links::ThisRequest)
-                .await
-                .map(Transfer::Complete)
-        }
+        Written::Complete(resource) => view
+            .respond(ctx, resource, Links::ThisRequest)
+            .await
+            .map(Transfer::Complete),
         Written::Open(progress) => incomplete(progress, &headers).map(Transfer::Incomplete),
     }
 }
@@ -625,8 +661,8 @@ fn completion_renderer(
     }
 }
 
-/// Streams the chunk body into the session write and returns its completion response, or
-/// `None` while the upload stays incomplete.
+/// Streams the chunk body into the session write and returns where the write ended: the
+/// completed resource, or the progress of a session that stays open.
 async fn stream_chunk(
     body: Incoming,
     ctx: ObjectCtx<'_>,

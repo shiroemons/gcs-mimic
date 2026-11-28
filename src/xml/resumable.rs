@@ -13,7 +13,7 @@ use crate::{
         ServiceError,
         body::{ResponseBody, boxed, empty_response},
         context::ObjectCtx,
-        resumable::{self, SessionTarget, Transfer},
+        resumable::{self, SessionTarget, SessionUri, Transfer},
     },
     storage::{ResumableError, ResumableOptions},
 };
@@ -181,7 +181,7 @@ pub(crate) async fn session(
     let target = SessionTarget {
         bucket: bucket.into_inner(),
         id: &id,
-        name: Some(&name),
+        uri: SessionUri::Xml { name: &name },
     };
     let result = match *request.method() {
         Method::PUT => resumable::transfer(request, target, ctx).await.map(Some),
@@ -218,7 +218,7 @@ async fn cancel(
     let session = ctx
         .await_catalog(catalog.resumable_session(target.id, target.bucket))
         .await?;
-    if target.name.is_some_and(|name| name != session.name) {
+    if target.uri.names_other_object(&session.name) {
         return Err(ResumableError::NotFound.into());
     }
     ctx.await_session_writer(catalog.cancel_resumable_session(target.id, target.bucket))

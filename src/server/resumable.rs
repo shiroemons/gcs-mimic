@@ -7,7 +7,9 @@ use super::{ObjectCtx, ResponseBody, boxed, empty_response, json_response};
 use crate::json::JsonErrorResponse;
 use crate::object::ObjectKey;
 use crate::service::object_headers;
-use crate::service::resumable::{self, CompletionAnswer, Links, SessionTarget, Transfer};
+use crate::service::resumable::{
+    self, AnswerView, CompletionAnswer, Links, SessionTarget, SessionUri, Transfer,
+};
 use crate::{
     bucket::{BucketAccess, name::BucketKey},
     json::ApiError,
@@ -127,9 +129,10 @@ pub(super) async fn session_response(
                 boxed(ApiError::from(ResumableError::Cancelled).into_response())
             }
             Cancellation::Completed { resource, options } => {
-                let view = options.view()?;
-                let resource =
-                    ResumableOptions::respond(&view, ctx, resource, Links::Stored).await?;
+                let resource = options
+                    .view()?
+                    .respond(ctx, resource, Links::Stored)
+                    .await?;
                 boxed(json_response(&resource))
             }
         });
@@ -137,7 +140,7 @@ pub(super) async fn session_response(
     let target = SessionTarget {
         bucket,
         id,
-        name: None,
+        uri: SessionUri::Json,
     };
     Ok(match resumable::transfer(request, target, ctx).await? {
         // The shared 308 carries `no-store` for the XML adapter; the JSON front end sends the
@@ -179,9 +182,11 @@ impl CompletionAnswer for ResumableOptions {
                 .transpose()?,
         })
     }
+}
 
+impl AnswerView for CompletionView {
     async fn respond(
-        view: &CompletionView,
+        &self,
         ctx: ObjectCtx<'_>,
         mut resource: serde_json::Value,
         links: Links,
@@ -190,7 +195,7 @@ impl CompletionAnswer for ResumableOptions {
             Links::ThisRequest => {}
             Links::Stored => super::rebase_stored_links(ctx.endpoints, &mut resource),
         }
-        if let Some(initiator) = &view.acl_reader {
+        if let Some(initiator) = &self.acl_reader {
             super::acl::add_full_projection_to_stored(
                 ctx.state,
                 crate::service::access::acl::AclReader::Initiator(initiator),
@@ -199,7 +204,7 @@ impl CompletionAnswer for ResumableOptions {
             )
             .await?;
         }
-        if let Some(fields) = &view.fields {
+        if let Some(fields) = &self.fields {
             fields.apply(&mut resource);
         }
         Ok(resource)
