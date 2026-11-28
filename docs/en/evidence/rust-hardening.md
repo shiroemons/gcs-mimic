@@ -532,3 +532,31 @@ reasoned suppressions on the host. The test-clock baseline row of the drain
 tests moved to `src/server/accept/tests.rs` with the same count. The
 cross-target checks counted zero new Clippy violations for the three other
 targets. The ledger check validated 611 feature rows.
+
+## Config documents, 2026-11-28
+
+`just check` passed on the source in which the read and parse of the buckets
+document live in the settings layer. `ParsedDocument`, `parse_document`, the
+file read, the parse as one JSON value and the document limits moved from
+`bucket_init` to `config::buckets_document`, and the `buckets` shorthand
+moved to `config::buckets_document::shorthand`. Their bodies are unchanged;
+the limits and helpers that `bucket_init` and its tests reach became
+`pub(crate)`.
+
+Its Rust lane passed 4,194 tests with the same Pub/Sub case ignored. The one
+added test, `lint::ratchet::tests::the_layer_rules_take_no_baseline_row`,
+checks that a baseline row for either layer rule fails to load and that
+`--baseline` records none. The shorthand tests moved with their file, and no
+assertion changed.
+
+No ledger test ID changed, because the ledger names the shorthand tests
+without a module path. DESIGN-062 records this run for them. With its last
+five findings gone, `text::layer_dependency` graduated to zero tolerance:
+`RATCHETED_TEXT_RULES` is empty and `xtask/lint-baseline.txt` holds only its
+header. DESIGN-105-LAYERS passes on this run.
+
+The production gate counted zero new violations, zero ratcheted findings and
+nine reasoned suppressions on the host. The test-clock baseline did not
+change. The cross-target checks counted zero new Clippy violations and zero
+ratcheted findings for the three other targets. The ledger check validated
+611 feature rows.
