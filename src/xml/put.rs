@@ -1,8 +1,8 @@
 use super::{ConditionMessages, Error, HeaderKind, ReadRequest, XmlCode};
-use crate::server::upload_drive::{
-    CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
-};
 use crate::service::body::RequestBody as Incoming;
+use crate::service::upload_drive::{
+    CatalogWait, DriveError, UploadEnd, drive_upload, stream_upload, upload_channel,
+};
 use crate::{
     auth::{self, Caller},
     bucket::{InvalidStorageClass, StorageClass},
@@ -13,7 +13,6 @@ use crate::{
         MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, TextTokenError,
         content_type, upload_headers::custom_metadata_headers,
     },
-    server::stream_upload,
     service::body::{ResponseBody, boxed, empty_response},
     service::context::ObjectCtx,
     storage::ObjectUpload,

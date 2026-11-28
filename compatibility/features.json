@@ -32281,7 +32281,7 @@
             "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
             "retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation",
             "finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout",
-            "server::resumable::tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"
+            "service::upload_drive::session_wait_tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"
           ]
         },
         {
@@ -32361,7 +32361,7 @@
         "resumable_sigkill_after_final_checkpoint_restores_active_staging",
         "resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object",
         "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot",
-        "server::resumable::tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"
+        "service::upload_drive::session_wait_tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"
       ],
       "verification": [
         {
@@ -32430,7 +32430,7 @@
           "verified_at": "2026-11-25",
           "artifact": "tests/evidence/catalog-wait-timeout-remedy.txt",
           "test_ids": [
-            "server::resumable::tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"
+            "service::upload_drive::session_wait_tests::a_catalog_wait_the_request_deadline_ends_reports_finalization"
           ]
         }
       ],

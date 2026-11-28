@@ -4,8 +4,4 @@ text::layer_dependency	src/config/document.rs	2
 text::layer_dependency	src/config_input/options.rs	2
 text::layer_dependency	src/grpc/mod.rs	1
 text::layer_dependency	src/xml/copy.rs	1
-text::layer_dependency	src/xml/multipart.rs	2
-text::layer_dependency	src/xml/post.rs	1
-text::layer_dependency	src/xml/put.rs	2
-text::layer_dependency	src/xml/put/streaming.rs	2
 text::layer_dependency	src/xml/resumable.rs	1

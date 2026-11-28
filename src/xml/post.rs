@@ -6,10 +6,10 @@
 
 use super::{Error, Namespace, ObjectPath, XmlCode, XmlWriter, put::storage_error, writer::Quotes};
 use crate::object::ObjectKey;
-use crate::server::upload_drive::{
+use crate::service::body::RequestBody as Incoming;
+use crate::service::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
 };
-use crate::service::body::RequestBody as Incoming;
 use crate::{
     auth::{
         self, Caller,

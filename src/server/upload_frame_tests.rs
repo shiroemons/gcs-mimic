@@ -1,6 +1,7 @@
 //! Pins the bound that lets `stream_upload` forward request body frames without copying.
 
 use super::*;
+use crate::{object::UploadChunk, service::upload_drive::stream_upload};
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::sync::mpsc;

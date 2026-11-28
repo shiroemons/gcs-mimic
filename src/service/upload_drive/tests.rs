@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     auth::Auth,
     config::{Config, RequestEndpoints},
-    server::{ObjectActivity, RequestBody, State},
+    service::{activity::ObjectActivity, state::State},
     storage::Catalog,
     test_support::TestDir,
 };
@@ -70,7 +70,7 @@ async fn terminal_chunk_reaches_a_consumer_started_by_the_first_poll() {
             let body = RequestBody::Buffered(http_body_util::Full::new(bytes::Bytes::from(
                 vec![0; 128 * 1024],
             )));
-            crate::server::stream_upload(body, &sender, 128 * 1024, None).await?;
+            super::stream_upload(body, &sender, 128 * 1024, None).await?;
             Ok::<_, ObjectError>(UploadEnd::Eof)
         };
         let result = tokio::time::timeout(

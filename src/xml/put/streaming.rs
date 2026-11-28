@@ -1,8 +1,8 @@
 //! Incremental signed-chunk decoding keeps unverified bytes in the existing staging upload.
 
 use super::*;
-use crate::{auth::signature::Streaming, server::Streamed};
-use crate::{object::UploadChunk, server::upload_drive::UploadSender};
+use crate::{auth::signature::Streaming, service::upload_drive::Streamed};
+use crate::{object::UploadChunk, service::upload_drive::UploadSender};
 use http_body_util::BodyExt;
 use ring::digest;
 

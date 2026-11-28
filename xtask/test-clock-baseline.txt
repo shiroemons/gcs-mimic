@@ -2,8 +2,8 @@
 src/grpc/tests.rs	5
 src/import/filesystem/tests.rs	1
 src/server/drain_tests.rs	2
-src/server/upload_drive/tests.rs	2
 src/service/activity/tests.rs	1
+src/service/upload_drive/tests.rs	2
 src/storage/catalog/admin/publication/reseed/tests.rs	3
 src/storage/catalog/admin/reset/tests.rs	1
 src/storage/catalog/admin/tests.rs	4

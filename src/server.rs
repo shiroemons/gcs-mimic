@@ -8,7 +8,7 @@ use crate::{
     http_conditions::{EtagError, etag_not_modified},
     json,
     json::ApiError,
-    object::{ObjectError, UploadChunk},
+    object::ObjectError,
     storage::Catalog,
     time_limit::TimeLimit,
     tls::ListenerSecurity,
@@ -69,7 +69,6 @@ mod routing;
 mod transport;
 #[cfg(unix)]
 pub(crate) mod unix;
-pub(crate) mod upload_drive;
 mod xml_read;
 #[cfg(test)]
 pub(crate) use routing::bucket_answer;
@@ -1662,82 +1661,6 @@ async fn validate_bodyless_post(
         )));
     }
     Ok(())
-}
-
-/// How `stream_upload` stopped reading a body.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Streamed {
-    /// The body ended after this many bytes, all forwarded to the catalog.
-    Complete(u64),
-    /// The catalog stopped accepting the body first and reports its own failure, so the bytes
-    /// counted so far say nothing about the body's size.
-    Stopped,
-}
-
-/// The largest chunk a body producer hands on at once.
-const CHUNK_BYTES: usize = 64 * 1024;
-
-pub(crate) async fn stream_upload(
-    mut body: RequestBody,
-    sender: &upload_drive::UploadSender,
-    max_bytes: u64,
-    expected_sha256: Option<[u8; 32]>,
-) -> Result<Streamed, ObjectError> {
-    let mut size = 0_u64;
-    let mut sha256 = expected_sha256.map(Sha256Check::new);
-    while let Some(frame) = body.frame().await {
-        let frame = frame.map_err(ObjectError::body_aborted)?;
-        let mut bytes = frame
-            .into_data()
-            .map_err(|_| ObjectError::BodyAborted("Upload trailers are unsupported".into()))?;
-        size = size
-            .checked_add(bytes.len() as u64)
-            .filter(|size| *size <= max_bytes)
-            .ok_or(ObjectError::TooLarge)?;
-        if let Some(check) = &mut sha256 {
-            check.update(&bytes);
-        }
-        // HTTP/1 frames stay below twice CONNECTION_READ_BUFFER, so passing them on without a
-        // copy keeps what the two-slot channel retains bounded; larger frames are still split
-        // into 64 KiB chunks.
-        while !bytes.is_empty() {
-            let part = bytes.split_to(bytes.len().min(CHUNK_BYTES));
-            if sender.send(Ok(UploadChunk::Data(part))).await.is_err() {
-                // Preserve the catalog's original failure when it stops accepting the body.
-                return Ok(Streamed::Stopped);
-            }
-        }
-    }
-    sha256.map(Sha256Check::verify).transpose()?;
-    Ok(Streamed::Complete(size))
-}
-
-/// A SHA-256 the client declared for a body, checked against the bytes as they stream past.
-pub(crate) struct Sha256Check {
-    hasher: ring::digest::Context,
-    expected: [u8; 32],
-}
-
-impl Sha256Check {
-    pub(crate) fn new(expected: [u8; 32]) -> Self {
-        Self {
-            hasher: ring::digest::Context::new(&ring::digest::SHA256),
-            expected,
-        }
-    }
-
-    pub(crate) fn update(&mut self, bytes: &[u8]) {
-        self.hasher.update(bytes);
-    }
-
-    /// `ChecksumMismatch` when the streamed bytes hash to another value.
-    pub(crate) fn verify(self) -> Result<(), ObjectError> {
-        if self.hasher.finish().as_ref() == self.expected {
-            Ok(())
-        } else {
-            Err(ObjectError::ChecksumMismatch)
-        }
-    }
 }
 
 /// Rejects headers that do not apply to a derived write (copy, compose or rewrite), naming the

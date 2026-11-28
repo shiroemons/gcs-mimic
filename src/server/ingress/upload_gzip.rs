@@ -18,7 +18,8 @@ use super::{
 use crate::service::body::{DecodedBody, Decoding, RequestBody};
 use crate::{
     json::ApiError,
-    server::{CHUNK_BYTES, chunk_body, gzip::GzipError},
+    server::gzip::GzipError,
+    service::{chunk_body, upload_drive::CHUNK_BYTES},
 };
 use bytes::{Buf, Bytes};
 use http_body_util::BodyExt;
