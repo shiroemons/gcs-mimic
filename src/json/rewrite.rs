@@ -8,8 +8,8 @@ use crate::percent::{Decoding, RequestUri, decode};
 use crate::{
     acl::PredefinedObjectAcl,
     bucket::name::BucketKey,
-    config::CompatProfile,
     object::{ObjectConditions, ObjectTarget, generation::Generation},
+    profile::CompatProfile,
     storage::rewrite::{RewriteNames, RewriteProgress},
 };
 use hyper::Method;

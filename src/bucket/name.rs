@@ -1,6 +1,6 @@
 //! Native Cloud Storage bucket-name rules.
 
-use crate::config::CompatProfile;
+use crate::profile::CompatProfile;
 
 /// A catalog bucket identifier, including legacy names and internal retained-bucket keys.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

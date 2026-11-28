@@ -8,9 +8,10 @@ use crate::{
     bucket::BucketRecord,
     cause::MemoryBudget,
     clock::Clock,
-    config::{CompatProfile, DocumentKind, DocumentSource, Form, Setting},
+    config::{DocumentKind, DocumentSource, Form, Setting},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     json::{parse_insert_with_profile, validate_project},
+    profile::CompatProfile,
     storage::{
         Catalog,
         admin::{

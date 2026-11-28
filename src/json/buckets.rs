@@ -10,9 +10,9 @@ use crate::bucket::{
     StorageClass, UniformAccess, Versioning, VersioningUpdate, cors_value, valid_label,
 };
 use crate::bucket::{autoclass::AutoclassState, lifecycle::LifecycleRules};
-use crate::config::CompatProfile;
 use crate::etag::bucket_etag;
 use crate::object::{MapPatch, Patch};
+use crate::profile::CompatProfile;
 use crate::time_format::timestamp;
 use serde_json::{Map, Value, json};
 use std::{collections::BTreeMap, time::SystemTime};

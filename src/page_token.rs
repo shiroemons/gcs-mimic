@@ -5,8 +5,8 @@
 use crate::{
     auth::InvalidProjectId,
     bucket::name::{MAX_BUCKET_NAME_BYTES, ProfileNameError},
-    config::CompatProfile,
     object::name::MAX_OBJECT_NAME_BYTES,
+    profile::CompatProfile,
     storage::{ObjectListCursor, ObjectListQuery},
 };
 use serde::{Serialize, de::DeserializeOwned};

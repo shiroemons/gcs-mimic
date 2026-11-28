@@ -5,7 +5,6 @@ use super::{
 use crate::percent::RequestUri;
 use crate::{
     bucket::{BucketAccess, name::BucketKey},
-    config::CompatProfile,
     decimal::Grammar,
     http_header::{TextError, TextOrder, sole},
     input::InputError,
@@ -13,6 +12,7 @@ use crate::{
         ChecksumConflict, ExpectedHashes, ObjectError, check_custom_metadata_size, content_type,
         upload_headers::{self, HashHeader},
     },
+    profile::CompatProfile,
     service::ServiceError,
     storage::ResumableOptions,
 };

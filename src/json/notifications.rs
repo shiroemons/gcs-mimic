@@ -6,11 +6,11 @@
 use super::{ApiError, EtagConditions, Fields, Schema, buckets::encode_segment, query};
 use crate::percent::{self, Decoding, RequestUri};
 use crate::{
-    config::CompatProfile,
     error::Report,
     notification::{
         self, EventTypes, NotificationConfig, NotificationRecord, PayloadFormat, Topic,
     },
+    profile::CompatProfile,
 };
 use hyper::{Method, StatusCode};
 use serde_json::{Map, Value, json};

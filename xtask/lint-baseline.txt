@@ -6,8 +6,6 @@ text::layer_dependency	src/auth/signature/policy.rs	1
 text::layer_dependency	src/auth/signature/streaming.rs	1
 text::layer_dependency	src/auth/signature/verify.rs	1
 text::layer_dependency	src/bucket.rs	1
-text::layer_dependency	src/bucket/name.rs	1
-text::layer_dependency	src/bucket/resource.rs	1
 text::layer_dependency	src/bucket_init.rs	1
 text::layer_dependency	src/config/auth.rs	1
 text::layer_dependency	src/config/document.rs	2

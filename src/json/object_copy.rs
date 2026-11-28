@@ -10,9 +10,9 @@ use super::{
 use crate::{
     acl::PredefinedObjectAcl,
     bucket::name::BucketKey,
-    config::CompatProfile,
     object::{ObjectConditions, generation::Generation},
     percent::{Decoding, RequestUri, decode},
+    profile::CompatProfile,
 };
 use hyper::Method;
 

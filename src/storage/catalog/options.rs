@@ -71,8 +71,8 @@ impl CatalogOptions {
     pub(super) fn with_config(mut self, config: &Config) -> Self {
         self.session_limits = config.into();
         self.default_soft_delete_retention = match config.compat_profile() {
-            crate::config::CompatProfile::FakeGcsServer => None,
-            crate::config::CompatProfile::Native => config.default_soft_delete_retention_seconds(),
+            crate::profile::CompatProfile::FakeGcsServer => None,
+            crate::profile::CompatProfile::Native => config.default_soft_delete_retention_seconds(),
         };
         self.lifecycle = config.lifecycle_execution();
         self.pubsub_endpoint

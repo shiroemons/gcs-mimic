@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 pub(super) fn route_test_permissions(
     method: &Method,
     uri: &Uri,
-    profile: crate::config::CompatProfile,
+    profile: crate::profile::CompatProfile,
 ) -> Option<Result<BucketRequest, ApiError>> {
     let segment = query::bucket_subresource(uri.path(), "/iam/testPermissions")?;
     Some(parse_test_permissions(method, segment, uri, profile))
@@ -23,7 +23,7 @@ fn parse_test_permissions(
     method: &Method,
     segment: &str,
     uri: &Uri,
-    profile: crate::config::CompatProfile,
+    profile: crate::profile::CompatProfile,
 ) -> Result<BucketRequest, ApiError> {
     let bucket = query::path_bucket(segment, profile, query::BucketCheck::ForProfile)?.into_inner();
     if *method != Method::GET {

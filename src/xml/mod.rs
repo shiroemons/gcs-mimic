@@ -427,7 +427,7 @@ pub(crate) fn reserved_path(path: &str) -> bool {
 /// to the routes that serve them.
 pub(crate) fn unselectable_bucket(
     path: &str,
-    profile: crate::config::CompatProfile,
+    profile: crate::profile::CompatProfile,
 ) -> Option<Error> {
     if reserved_path(path) {
         return None;
@@ -501,7 +501,7 @@ fn legacy_public_authority<'a>(
     config: &Config,
     endpoints: &'a EndpointSnapshot,
 ) -> Option<&'a hyper::http::uri::Authority> {
-    if config.compat_profile() != crate::config::CompatProfile::FakeGcsServer {
+    if config.compat_profile() != crate::profile::CompatProfile::FakeGcsServer {
         return None;
     }
     endpoints

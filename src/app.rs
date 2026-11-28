@@ -293,7 +293,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     }
     let (config, mut diagnostics) = report.into_config()?;
     // The fake-gcs-server profile keeps project-owner objects, as fake-gcs-server does.
-    if config.compat_profile() == crate::config::CompatProfile::Native
+    if config.compat_profile() == crate::profile::CompatProfile::Native
         && let Some(email) = config.local_creator_email()
     {
         auth = auth.with_local_creator_email(email);

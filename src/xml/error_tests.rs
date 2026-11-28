@@ -363,7 +363,7 @@ fn object_paths_name_their_bucket_source() {
     }
     .build();
     let legacy_public = crate::config::ConfigDraft {
-        compat_profile: crate::config::CompatProfile::FakeGcsServer,
+        compat_profile: crate::profile::CompatProfile::FakeGcsServer,
         public_base_url: Some(
             crate::url::PublicOrigin::parse("http://storage.local:4443").unwrap(),
         ),

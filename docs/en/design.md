@@ -95,7 +95,7 @@ paging policy and calls `app::main`, so it is not checked.
 | Layer | Modules |
 | --- | --- |
 | foundation | `base64`, `hex`, `percent`, `decimal`, `cause`, `choice`, `clock`, `hashing`, `serde_util`, `error`, `task`, `diagnostics`, `fsutil`, `bounded_body`, `bounded_file`, `time_limit`, `memory_limit`, `fd_limit`, `net`, `match_glob`, `source_tree`, `mime`, `http_conditions`, `http_header`, `sync` |
-| model | `project`, `acl`, `bucket`, `object`, `metadata_error`, `etag`, `csek`, `auth`, `url`, `notification`, `time_format`, `input` |
+| model | `project`, `acl`, `bucket`, `object`, `metadata_error`, `etag`, `csek`, `auth`, `url`, `notification`, `time_format`, `profile`, `input` |
 | settings | `config`, `config_input`, `tls` |
 | storage | `storage`, `import`, `seed`, `bucket_init` |
 | service | `page_token`, `multipart`, `service` |

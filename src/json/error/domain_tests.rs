@@ -395,7 +395,7 @@ fn bucket_validation_preserves_the_rejected_setting() {
     );
     let patch = br#"{"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":-1}}]}, "defaultEventBasedHold":true}"#;
     let error =
-        crate::json::parse_bucket_patch(patch, crate::config::CompatProfile::Native).unwrap_err();
+        crate::json::parse_bucket_patch(patch, crate::profile::CompatProfile::Native).unwrap_err();
     assert_eq!(error.status(), StatusCode::BAD_REQUEST);
 }
 

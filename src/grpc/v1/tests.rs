@@ -105,7 +105,7 @@ async fn storage(dir: &TestDir, auth: Auth) -> Storage {
     Storage {
         state: Arc::new(crate::server::State::for_test(catalog, auth)),
         max_object_bytes: 1024 * 1024,
-        compat_profile: crate::config::CompatProfile::FakeGcsServer,
+        compat_profile: crate::profile::CompatProfile::FakeGcsServer,
     }
 }
 
@@ -722,7 +722,7 @@ async fn legacy_updates_releasing_the_event_based_hold_restart_the_retention_per
     let storage = Storage {
         state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),
         max_object_bytes: 1024,
-        compat_profile: crate::config::CompatProfile::FakeGcsServer,
+        compat_profile: crate::profile::CompatProfile::FakeGcsServer,
     };
     let patch = |held: bool| {
         Request::new(pb::PatchObjectRequest {

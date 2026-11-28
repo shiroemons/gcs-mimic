@@ -524,8 +524,8 @@ mod tests {
     #[test]
     fn fields_rendered_resource_paths_match_pinned_schemas() {
         use crate::{
-            config::CompatProfile,
             json,
+            profile::CompatProfile,
             storage::{ObjectListCursor, ObjectListPage},
         };
 

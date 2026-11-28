@@ -9,8 +9,8 @@ use super::{
 use crate::percent::{Decoding, RequestUri, decode};
 use crate::{
     bucket::name::BucketKey,
-    config::CompatProfile,
     object::ObjectConditions,
+    profile::CompatProfile,
     storage::{MoveConditions, MoveNames},
 };
 use hyper::Method;

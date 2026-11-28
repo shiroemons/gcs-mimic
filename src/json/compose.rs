@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 pub(crate) fn route(
     method: &hyper::Method,
     uri: &crate::percent::RequestUri,
-    profile: crate::config::CompatProfile,
+    profile: crate::profile::CompatProfile,
 ) -> Option<Result<crate::json::ObjectRequest, ApiError>> {
     let path = uri
         .as_uri()
@@ -29,7 +29,7 @@ fn parse(
     bucket: &str,
     name: &str,
     uri: &crate::percent::RequestUri,
-    profile: crate::config::CompatProfile,
+    profile: crate::profile::CompatProfile,
 ) -> Result<crate::json::ObjectRequest, ApiError> {
     if method != hyper::Method::POST {
         return Err(ApiError::method_not_allowed(

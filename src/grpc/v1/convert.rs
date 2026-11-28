@@ -3,8 +3,8 @@ use crate::{
     bucket::{
         BucketMetadataUpdate, BucketRecord, RetentionPolicyUpdate, Versioning, VersioningUpdate,
     },
-    config::CompatProfile,
     object::{MapPatch, ObjectError, ObjectRecord},
+    profile::CompatProfile,
     project::ProjectNumber,
 };
 use serde_json::{Map, Value, json};
