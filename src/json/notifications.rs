@@ -3,8 +3,9 @@
 //! Routing, request validation and rendering only; persistence and authorization live in the
 //! catalog. Configurations are stored and read back, but no Pub/Sub message is ever published.
 
-use super::{ApiError, EtagConditions, Fields, Schema, buckets::encode_segment, query};
+use super::{ApiError, Fields, Schema, buckets::encode_segment, query};
 use crate::percent::{self, Decoding, RequestUri};
+use crate::service::object_headers::EtagConditions;
 use crate::{
     error::Report,
     notification::{

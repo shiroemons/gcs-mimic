@@ -3,6 +3,7 @@
 use super::{AclSource, Written, idempotency_token};
 use crate::object::ObjectKey;
 use crate::server::RequestBody as Incoming;
+use crate::service::object_headers;
 use crate::service::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, stream_upload, upload_channel,
 };
@@ -74,7 +75,7 @@ pub(super) async fn insert(
     let mut metadata = crate::object::ObjectMetadataUpdate::default();
     json::declare_content_encoding(&mut metadata, content_encoding)?;
     let max_bytes = ctx.config.max_object_bytes();
-    let content_type = json::upload_content_type(request.headers())?;
+    let content_type = object_headers::upload_content_type(request.headers())?;
     // A media upload verifies no declared hash; see `upload_content_type`.
     let expected = ExpectedHashes::default();
     let key = crate::csek::request_key(request.headers())?;
@@ -153,7 +154,7 @@ pub(super) async fn multipart(
     }
     let max_bytes = ctx.config.max_object_bytes();
     let catalog = &ctx.state.catalog;
-    json::upload_content_type(request.headers())?;
+    object_headers::upload_content_type(request.headers())?;
     let key = crate::csek::request_key(request.headers())?;
     let boundary = crate::multipart::multipart_boundary(request.headers())?;
     let replay = Replay::of(&request, ctx, key)?;

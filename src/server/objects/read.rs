@@ -2,6 +2,7 @@
 
 use crate::json::JsonErrorResponse;
 use crate::server::RequestBody as Incoming;
+use crate::service::object_headers::{self, EtagConditions};
 use crate::storage::ObjectReader;
 use crate::{
     bucket::BucketAccess,
@@ -80,7 +81,7 @@ async fn media(
         .catalog
         .open_object_keyed(object, conditions, access, key, body_read_ahead(request))
         .await?;
-    json::validate_read_condition_headers(request.headers(), json::EtagConditions::MediaRead)?;
+    object_headers::validate_read_condition_headers(request.headers(), EtagConditions::MediaRead)?;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let mut headers = crate::object::media_headers::object_media_headers(&record)?;
     insert_provider_headers(&record, &mut headers)?;
@@ -398,7 +399,7 @@ async fn metadata(
     } else {
         catalog.get_object(object, conditions, access).await?
     };
-    json::validate_read_condition_headers(request.headers(), json::EtagConditions::Supported)?;
+    object_headers::validate_read_condition_headers(request.headers(), EtagConditions::Supported)?;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     // Metadata needs no key; a supplied key must match and then reveals hashes.
     crate::csek::check_metadata(record.customer_key_sha256, key)

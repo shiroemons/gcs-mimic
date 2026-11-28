@@ -11,13 +11,9 @@ use crate::{
     auth,
     bucket::name::BucketKey,
     csek::CustomerKey,
-    input::InputError,
-    object::{
-        IdempotencyToken, ObjectConditions, ObjectRecord, ObjectTarget,
-        media_headers::CUSTOM_METADATA_PREFIX, retention::UnlockedOverride,
-    },
+    object::{ObjectConditions, ObjectRecord, ObjectTarget, retention::UnlockedOverride},
     profile::CompatProfile,
-    service::{ServiceError, media::UnsatisfiableRange},
+    service::{media::UnsatisfiableRange, object_headers::EtagConditions},
 };
 use hyper::{HeaderMap, Method, StatusCode};
 use serde_json::{Map, Value, json};
@@ -805,64 +801,6 @@ pub(super) fn match_and_not_match(conditions: &ObjectConditions) -> bool {
             && conditions.if_metageneration_not_match.is_some()
 }
 
-/// `keys` lists the customer-supplied key header prefixes the caller parses itself.
-fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), InputError> {
-    IdempotencyToken::validate_opaque(headers).map_err(|_| {
-        InputError::parameter("Expected a single non-empty x-goog-gcs-idempotency-token header")
-    })?;
-    for key in headers.keys() {
-        let name = key.as_str();
-        if keys
-            .iter()
-            .any(|prefix| crate::csek::is_key_header(name, prefix))
-        {
-            continue;
-        }
-        if name.starts_with(crate::csek::DESTINATION_PREFIX)
-            || name.starts_with(crate::csek::SOURCE_PREFIX)
-            || name.starts_with(CUSTOM_METADATA_PREFIX)
-            || matches!(name, "x-goog-user-project" | "x-http-method-override")
-        {
-            return Err(InputError::unsupported_object(name));
-        }
-    }
-    Ok(())
-}
-
-/// The `Content-Type` an upload stores, checked with the rest of its headers without consuming
-/// or collecting the body. Callers read the destination customer-supplied key separately with
-/// [`crate::csek::request_key`].
-pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ServiceError> {
-    unsupported_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
-    validate_read_condition_headers(headers, EtagConditions::Unsupported)?;
-    if let Some(mime) = super::resumable::single(headers, "x-upload-content-type")? {
-        crate::object::validate_fixed_metadata("contentType", mime)
-            .map_err(crate::object::ObjectError::from)?;
-        let mut advisory = HeaderMap::new();
-        advisory.insert(
-            "content-type",
-            mime.parse()
-                .map_err(|_| InputError::parameter("Invalid upload content type"))?,
-        );
-        crate::object::upload_headers::content_type(&advisory)?;
-    }
-    // `Content-MD5` is not examined: Cloud Storage stored a JSON upload whose header named the
-    // wrong digest (recorded 200 with the computed hashes).
-    for name in [
-        "content-encoding",
-        "content-range",
-        "x-upload-content-length",
-    ] {
-        if headers.contains_key(name) {
-            return Err(InputError::unsupported_object(name).into());
-        }
-    }
-    // `X-Goog-Hash` is not examined either. Recorded JSON media uploads that named a wrong,
-    // malformed or unknown-algorithm hash all stored the computed hashes with 200, so only a
-    // multipart metadata `crc32c`/`md5Hash` is verified on this route.
-    crate::object::upload_headers::content_type(headers).map_err(Into::into)
-}
-
 /// Reject unsupported encryption headers explicitly. `If-Range` is not one: Cloud Storage
 /// honored the `Range` of a media read without evaluating it.
 // shortcut: GET/DELETE tokens do not deduplicate retries; add replay storage for strict retry fidelity.
@@ -875,48 +813,7 @@ pub(crate) fn validate_keyed_object_headers(
     headers: &HeaderMap,
     keys: &[&str],
 ) -> Result<(), ApiError> {
-    unsupported_headers(headers, keys)?;
-    Ok(())
-}
-
-/// Whether a route evaluates `If-Match` and `If-None-Match` against an ETag it serves.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum EtagConditions {
-    Supported,
-    /// A JSON media read: the entity tags are evaluated, while `If-Modified-Since`,
-    /// `If-Unmodified-Since` and `If-Range` are ignored as Cloud Storage ignored them.
-    MediaRead,
-    MatchOnly,
-    /// Accepted and not evaluated, matching an observed Cloud Storage write that ignores both.
-    Ignored,
-    Unsupported,
-}
-
-/// Keep unsupported conditional headers explicit on routes without validators.
-pub(crate) fn validate_read_condition_headers(
-    headers: &HeaderMap,
-    etags: EtagConditions,
-) -> Result<(), InputError> {
-    if matches!(etags, EtagConditions::Supported | EtagConditions::MatchOnly) {
-        for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
-            if (name == "if-modified-since" && headers.contains_key("if-none-match"))
-                || (name == "if-unmodified-since" && headers.contains_key("if-match"))
-            {
-                continue;
-            }
-            if headers.contains_key(name) {
-                return Err(InputError::unsupported_object(name));
-            }
-        }
-    }
-    for name in ["if-match", "if-none-match"] {
-        if headers.contains_key(name)
-            && (etags == EtagConditions::Unsupported
-                || (etags == EtagConditions::MatchOnly && name == "if-none-match"))
-        {
-            return Err(InputError::unsupported_object(name));
-        }
-    }
+    crate::service::object_headers::unsupported_headers(headers, keys)?;
     Ok(())
 }
 

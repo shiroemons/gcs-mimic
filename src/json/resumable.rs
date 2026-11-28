@@ -1,12 +1,10 @@
-use super::{
-    ApiError, ObjectInsertParams, multipart::MultipartMetadata, multipart_metadata_of,
-    upload_content_type,
-};
+use super::{ApiError, ObjectInsertParams, multipart::MultipartMetadata, multipart_metadata_of};
 use crate::percent::RequestUri;
+use crate::service::object_headers::{single, unsigned, upload_content_type};
 use crate::{
     bucket::{BucketAccess, name::BucketKey},
     decimal::Grammar,
-    http_header::{TextError, TextOrder, sole},
+    http_header::TextOrder,
     input::InputError,
     object::{
         ChecksumConflict, ExpectedHashes, ObjectError, check_custom_metadata_size, content_type,
@@ -79,47 +77,6 @@ fn parse_session(
     // The session URI repeats the initiation query (`name`, preconditions), which Cloud
     // Storage accepts and ignores on later requests.
     Ok(UploadSession { bucket, upload_id })
-}
-
-pub(crate) fn single<'a>(
-    headers: &'a HeaderMap,
-    name: &str,
-) -> Result<Option<&'a str>, InputError> {
-    sole(headers, name)
-        .text(TextOrder::ValueFirst)
-        .map_err(|error| match error {
-            TextError::Invalid(_) => InputError::parameter(format!("Invalid {name}")),
-            TextError::Repeated(_) => InputError::parameter(format!("Duplicate {name}")),
-        })
-}
-
-#[cfg(test)]
-#[test]
-fn a_non_text_first_resumable_header_wins_over_repetition() {
-    let mut headers = HeaderMap::new();
-    headers.append(
-        "content-range",
-        hyper::header::HeaderValue::from_bytes(&[0xff]).unwrap(),
-    );
-    headers.append(
-        "content-range",
-        hyper::header::HeaderValue::from_static("bytes */0"),
-    );
-    assert_eq!(
-        single(&headers, "content-range").unwrap_err().message,
-        "Invalid content-range"
-    );
-}
-
-pub(crate) fn unsigned(value: &str) -> Result<u64, InputError> {
-    if !Grammar::Digits.admits(value) {
-        return Err(InputError::parameter(
-            "Expected an unsigned decimal integer",
-        ));
-    }
-    value
-        .parse()
-        .map_err(|_| InputError::parameter("Upload integer overflow"))
 }
 
 /// What a resumable initiation declares in its headers. `X-Goog-Hash` is not among them:

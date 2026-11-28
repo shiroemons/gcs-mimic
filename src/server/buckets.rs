@@ -8,6 +8,7 @@ use super::{
     authorize_project, bucket_access, empty_response, json_response_selected,
     read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
 };
+use crate::service::object_headers;
 use crate::{
     acl::Projection,
     auth::{self, Caller},
@@ -246,7 +247,10 @@ fn validate_request(
     request: &Request<Incoming>,
     operation: &BucketRequest,
 ) -> Result<(), ApiError> {
-    json::validate_read_condition_headers(request.headers(), operation.etag_conditions())?;
+    object_headers::validate_read_condition_headers(
+        request.headers(),
+        operation.etag_conditions(),
+    )?;
     if !operation.accepts_body() {
         require_empty_body(request.headers())?;
     }

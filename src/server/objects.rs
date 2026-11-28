@@ -12,6 +12,7 @@ use super::{
     boxed, empty_response, json_response_selected, require_empty_body, response_fields, resumable,
     validate_bodyless_post,
 };
+use crate::service::object_headers;
 use crate::{
     acl::{AclAccess, AclKind, Projection},
     auth,
@@ -190,7 +191,7 @@ async fn check_predefined_acl(
 /// Header and body checks that precede every operation's own validation.
 fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<(), ApiError> {
     if let Some(etags) = operation.etag_conditions() {
-        json::validate_read_condition_headers(headers, etags)?;
+        object_headers::validate_read_condition_headers(headers, etags)?;
     }
     if !operation.accepts_body() {
         require_empty_body(headers)?;

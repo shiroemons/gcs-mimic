@@ -1,6 +1,6 @@
 //! Request handling that the JSON, XML and gRPC adapters share: the server state, request
-//! context and activity, request and response bodies, access checks, media negotiation,
-//! upload driving and copies, and the errors it returns to the adapters.
+//! context and activity, request and response bodies, access checks, media negotiation, object
+//! request header rules, upload driving and copies, and the errors it returns to the adapters.
 
 use crate::{
     auth::InvalidProjectId,
@@ -26,6 +26,7 @@ pub(crate) mod copy;
 pub(crate) mod cors_warnings;
 pub(crate) mod media;
 pub(crate) mod object_body;
+pub(crate) mod object_headers;
 pub(crate) mod read_handles;
 pub(crate) mod state;
 pub(crate) mod upload_drive;
