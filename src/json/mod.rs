@@ -83,14 +83,14 @@ pub(crate) use object_metadata::{
     ObjectMetadataRequest, object_metadata_from_map, resource_object,
 };
 pub(crate) use object_move::ObjectMoveParams;
+pub(crate) use objects::base64;
 #[cfg(test)]
 pub(crate) use objects::route_object;
-pub(crate) use objects::{EtagConditions, base64, validate_read_condition_headers};
 pub(crate) use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, UploadRequest,
     add_derived_owner, object_resource, rebase_object_links, route_object_with_profile,
-    unsupported_upload_type, upload_content_type, validate_keyed_object_headers,
-    validate_object_get_headers, validate_object_name,
+    unsupported_upload_type, validate_keyed_object_headers, validate_object_get_headers,
+    validate_object_name,
 };
 pub(crate) use projects::{
     ProjectRequest, hmac_key_list, hmac_key_metadata, hmac_key_resource, parse_hmac_key_update,

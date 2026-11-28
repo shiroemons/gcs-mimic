@@ -252,9 +252,10 @@ Pending the evidence below:
     one `PreconditionPolicy` shared by JSON and XML. Otherwise keep today's
     behavior and record each route's policy as a local choice.
 
-- **Error precedence for repeated, non-text fields.** `json::resumable::single`
-  checks the first value's text before reporting repetition. It reads resumable
-  headers and `x-upload-content-type` on JSON media and multipart uploads.
+- **Error precedence for repeated, non-text fields.**
+  `service::object_headers::single` checks the first value's text before
+  reporting repetition. It reads resumable headers and `x-upload-content-type`
+  on JSON media and multipart uploads.
   XML PUT and POST, batch, XML read precondition headers, and
   `upload_headers::content_type` (including JSON uploads' `Content-Type`)
   report repetition first. A JSON upload can therefore use different precedence
@@ -1179,7 +1180,7 @@ literal object-name spelling in
 | `text/plain; charset=utf-8` | `mime::TEXT_PLAIN_UTF8` |
 | Percent unescaping in import | `percent::decode_bytes` |
 | XML resumable ETag | `xml::Validators`, shared with `object_etag` |
-| Same name, different constants or functions | `UNIFORM_ACCESS_UPDATE_BUCKET_ACL`, `UNIFORM_ACCESS_UPDATE_OBJECT_ACL`, `json::upload_content_type`, `object::upload_headers::content_type` |
+| Same name, different constants or functions | `UNIFORM_ACCESS_UPDATE_BUCKET_ACL`, `UNIFORM_ACCESS_UPDATE_OBJECT_ACL`, `service::object_headers::upload_content_type`, `object::upload_headers::content_type` |
 
 ### Robustness helpers
 

@@ -1,5 +1,6 @@
 use super::RequestBody as Incoming;
 use super::*;
+use crate::service::object_headers::{self, EtagConditions};
 use crate::{
     csek::CopyKeys,
     json::rewrite::RewriteRequest,
@@ -122,7 +123,10 @@ pub(super) async fn respond(
             &destination_access,
         )?;
     }
-    json::validate_read_condition_headers(request.headers(), json::EtagConditions::Unsupported)?;
+    object_headers::validate_read_condition_headers(
+        request.headers(),
+        EtagConditions::Unsupported,
+    )?;
     json::validate_keyed_object_headers(
         request.headers(),
         &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],

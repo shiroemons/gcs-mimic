@@ -2,6 +2,7 @@ use super::RequestBody as Incoming;
 use super::{ObjectCtx, ResponseBody, boxed, empty_response, json_response};
 use crate::json::JsonErrorResponse;
 use crate::object::ObjectKey;
+use crate::service::object_headers;
 use crate::service::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, stream_upload, upload_channel,
 };
@@ -39,8 +40,9 @@ pub(super) async fn initiate(
     let resumable::UploadHeaders { mime, total } =
         resumable::headers(request.headers(), config.max_object_bytes())?;
     let key = crate::csek::request_key(request.headers())?;
-    let origin = resumable::single(request.headers(), "origin")?.map(str::to_owned);
-    let metadata_type = resumable::single(request.headers(), "content-type")?.map(str::to_owned);
+    let origin = object_headers::single(request.headers(), "origin")?.map(str::to_owned);
+    let metadata_type =
+        object_headers::single(request.headers(), "content-type")?.map(str::to_owned);
     let json_type = metadata_type.as_ref().is_some_and(|v| {
         v.split(';')
             .next()
@@ -140,7 +142,7 @@ pub(super) fn incomplete(
     progress: Progress,
     headers: &hyper::HeaderMap,
 ) -> Result<Response<ResponseBody>, ServiceError> {
-    let override_status = resumable::single(headers, "x-guploader-no-308")? == Some("yes");
+    let override_status = object_headers::single(headers, "x-guploader-no-308")? == Some("yes");
     let mut response = empty_response(if override_status {
         StatusCode::OK
     } else {
@@ -249,8 +251,8 @@ fn chunk_framing(
     max_bytes: u64,
 ) -> Result<(Option<Range>, Option<u64>), ServiceError> {
     let range = resumable::range(headers)?;
-    let length = resumable::single(headers, "content-length")?
-        .map(resumable::unsigned)
+    let length = object_headers::single(headers, "content-length")?
+        .map(object_headers::unsigned)
         .transpose()?;
     if length.is_some_and(|n| n > max_bytes) {
         return Err(ObjectError::TooLarge.into());
@@ -591,7 +593,7 @@ pub(crate) async fn transfer(
     };
     let status_only = plan.kind == ChunkKind::Status && !plan.finalize;
     // Validate the override before any bytes can be acknowledged.
-    resumable::single(&headers, "x-guploader-no-308")?;
+    object_headers::single(&headers, "x-guploader-no-308")?;
     // PHP repeats whole-object hashes on every data chunk; checkpoint them for completion.
     let options = match resumable::final_options(&headers, session.options.clone()) {
         Ok(options) => options,

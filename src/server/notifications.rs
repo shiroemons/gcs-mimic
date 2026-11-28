@@ -4,6 +4,7 @@ use crate::json::notifications::{
     NotificationRequest, notification_list, notification_not_found, notification_resource,
     parse_notification_head, topic_not_found, topic_unverifiable,
 };
+use crate::service::object_headers;
 
 /// Serve `storage.notifications.*`. Configurations are persisted per bucket and read back;
 /// gcs-mimic never publishes Pub/Sub messages for them.
@@ -22,7 +23,10 @@ pub(super) async fn respond(
         operation.bucket(),
     )
     .await?;
-    json::validate_read_condition_headers(request.headers(), operation.etag_conditions())?;
+    object_headers::validate_read_condition_headers(
+        request.headers(),
+        operation.etag_conditions(),
+    )?;
     if !operation.accepts_body() {
         require_empty_body(request.headers())?;
     }
