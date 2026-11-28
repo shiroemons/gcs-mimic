@@ -692,7 +692,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::chunk_body;
+    use crate::service::chunk_body;
     use http_body_util::Full;
 
     fn wire(metadata: &[u8], media: &[u8]) -> Vec<u8> {

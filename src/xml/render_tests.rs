@@ -2,7 +2,7 @@
 //! out rather than derived, so a change to how documents are assembled cannot move a byte.
 
 use super::*;
-use crate::server::ResponseBody;
+use crate::service::body::ResponseBody;
 use crate::storage::{ObjectListCursor, ObjectListPage};
 use test_support::object_record;
 

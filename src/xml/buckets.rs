@@ -7,7 +7,8 @@ use crate::{
     auth,
     bucket::name::BucketKey,
     object::ObjectConditions,
-    server::{RequestBody, RequestCtx, ResponseBody, boxed, bucket_access, empty_response},
+    server::{RequestBody, RequestCtx, bucket_access},
+    service::body::{ResponseBody, boxed, empty_response},
 };
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri};
 

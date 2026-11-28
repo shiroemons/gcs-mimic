@@ -13,7 +13,7 @@ max-fn-params-bools = 0
 # Channel checks for a queued frame before it checks for a dropped sender, so a producer
 # that sends its last chunk and drops between those checks loses that chunk and the
 # response ends short of its Content-Length. The channel feature stays disabled;
-# use crate::server::chunk_body instead.
+# use crate::service::chunk_body instead.
 
 # `disallowed_methods` is allowed in `[workspace.lints]` and enabled only by `cargo xtask lint`
 # for production code, so tests may spawn tasks, run ad-hoc SQL and acquire raw locks.
