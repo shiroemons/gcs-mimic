@@ -1,5 +1,6 @@
 use super::*;
 use crate::profile::CompatProfile;
+use hyper::Method;
 
 #[tokio::test]
 async fn a_revoked_json_destination_grant_prevents_session_registration() {

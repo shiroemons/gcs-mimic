@@ -1,16 +1,18 @@
 //! JSON API objects derived from stored objects: copy and compose.
 
 use super::{AclSource, Written, idempotency_token};
-use crate::server::RequestBody as Incoming;
+use crate::service::body::RequestBody as Incoming;
 use crate::service::object_headers;
 use crate::{
     auth,
+    bounded_body::RESOURCE_BODY_LIMIT,
     bucket::BucketAccess,
     csek::{CopyKeys, CustomerKey},
     json,
     json::ApiError,
+    json::handler::reject_headers,
     object::{ObjectError, ObjectRecord, ObjectTarget, generation::Generation},
-    server::{ObjectCtx, RESOURCE_BODY_LIMIT, reject_headers},
+    service::context::ObjectCtx,
     service::copy::{self, CopyBudget, CopyJob},
     storage::{CopyReplay, CopyReplaySource, DerivedDestination, ReplayInvocation},
 };

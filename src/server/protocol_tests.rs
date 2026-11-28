@@ -3,6 +3,7 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json::JsonErrorResponse;
+use crate::storage::Catalog;
 
 #[tokio::test]
 async fn http1_enforces_the_request_head_buffer_limit() {
@@ -25,50 +26,6 @@ async fn http1_enforces_the_request_head_buffer_limit() {
             response.starts_with(&format!("HTTP/1.1 {status} ")),
             "{response:?} ({result:?})"
         );
-    }
-}
-
-#[test]
-fn body_presence_compares_content_length_numerically() {
-    for (value, expected) in [
-        ("0", false),
-        ("00", false),
-        (" 00 ", false),
-        ("01", true),
-        ("invalid", true),
-    ] {
-        let mut headers = hyper::HeaderMap::new();
-        headers.insert("content-length", value.parse().unwrap());
-        assert_eq!(has_body(&headers), expected, "{value}");
-        headers.insert("transfer-encoding", "chunked".parse().unwrap());
-        assert!(has_body(&headers));
-    }
-    assert!(!has_body(&hyper::HeaderMap::new()));
-}
-
-/// Bodiless JSON methods read the declared length as a number, as Cloud Storage accepted
-/// `Content-Length: 00` on them.
-#[test]
-fn bodiless_json_methods_accept_any_spelling_of_a_zero_length() {
-    assert!(require_empty_body(&hyper::HeaderMap::new()).is_ok());
-    for (name, value, accepted) in [
-        ("content-length", "0", true),
-        ("content-length", "00", true),
-        ("content-length", "000", true),
-        ("content-length", "5", false),
-        ("content-length", "05", false),
-        ("transfer-encoding", "chunked", false),
-    ] {
-        let mut headers = hyper::HeaderMap::new();
-        headers.insert(name, value.parse().unwrap());
-        match require_empty_body(&headers) {
-            Ok(()) => assert!(accepted, "{name}: {value}"),
-            Err(error) => {
-                assert!(!accepted, "{name}: {value}");
-                assert_eq!(error.status(), StatusCode::BAD_REQUEST);
-                assert_eq!(error.message(), "This method requires an empty body");
-            }
-        }
     }
 }
 
@@ -126,14 +83,6 @@ async fn failing_maintenance_turns_readiness_off() {
     }
     drop(state);
     catalog.close().await.unwrap();
-}
-
-#[test]
-fn not_modified_response_tolerates_missing_representation_headers() {
-    let response = not_modified_response(None, None);
-    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
-    assert!(!response.headers().contains_key("etag"));
-    assert!(!response.headers().contains_key("cache-control"));
 }
 
 #[tokio::test]

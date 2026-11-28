@@ -1,15 +1,11 @@
 use crate::json::JsonErrorResponse;
 use crate::{
-    auth::{self, Caller, ListenerRole},
-    bucket::{BucketAccess, CatalogError},
+    auth::ListenerRole,
     cause::IoCause,
     config::{Config, ConnectionScheme, GrpcScheme},
     diagnostics::Diagnostics,
-    http_conditions::{EtagError, etag_not_modified},
     json,
     json::ApiError,
-    object::ObjectError,
-    storage::Catalog,
     time_limit::TimeLimit,
     tls::ListenerSecurity,
     xml,
@@ -43,14 +39,13 @@ use tokio::{
 };
 
 use crate::service::{
-    access::bucket_access,
     activity::{
         AfterResponse, Expiry, ExpiryClaim, ObjectActivity, RequestStage, RequestStep,
         ResponseWork, claim_expiry, expiry_claimed,
     },
-    body::{RequestBody, ResponseBody, boxed, empty_response},
+    body::{RequestBody, ResponseBody, boxed, empty_response, has_body},
     chunk_body,
-    context::{DeadlineWatch, ObjectCtx, RequestCtx},
+    context::{DeadlineWatch, RequestCtx},
     state::State,
 };
 
@@ -58,20 +53,16 @@ pub(crate) use crate::bounded_body::RESOURCE_BODY_LIMIT;
 
 mod batch;
 mod browser;
-mod buckets;
 // Crate-visible for the test helper that the gRPC handler tests reset a panicking stream with.
 pub(crate) mod grpc_listener;
 mod handshake;
 mod host;
 mod ingress;
-mod json_route;
-mod objects;
-mod routing;
+// Crate-visible for the routed test driver that the JSON handler tests send requests through.
+pub(crate) mod routing;
 mod transport;
 #[cfg(unix)]
 pub(crate) mod unix;
-#[cfg(test)]
-pub(crate) use routing::bucket_answer;
 
 #[cfg(test)]
 tokio::task_local! { static ACCEPT_FAULTS: Arc<std::sync::Mutex<std::collections::VecDeque<i32>>>; }
@@ -129,13 +120,7 @@ fn report_connection_task_failure(error: &tokio::task::JoinError) {
     );
 }
 
-mod acl;
 mod admin;
-mod notifications;
-mod project_resources;
-pub(crate) mod resumable;
-mod rewrite;
-mod unsupported;
 
 /// The longest pause in client input that lingering close waits through. An
 /// interrupted local upload keeps sending without pauses, while an idle client
@@ -221,33 +206,6 @@ const OBJECT_REQUEST_TIMED_OUT: &str = "The request timed out: it did not finish
 /// A copy, rewrite, compose or media read past its whole-request limit: a server-side timeout.
 fn object_request_timed_out() -> ApiError {
     ApiError::service_unavailable(OBJECT_REQUEST_TIMED_OUT)
-}
-
-/// Whether the request declares a body: any `Transfer-Encoding`, or a `Content-Length` that is
-/// not the number zero. `Content-Length: 00` declares none, as hyper frames it.
-pub(crate) fn has_body(headers: &hyper::HeaderMap) -> bool {
-    headers.contains_key(hyper::header::TRANSFER_ENCODING)
-        || headers
-            .get(hyper::header::CONTENT_LENGTH)
-            .is_some_and(|length| {
-                length
-                    .to_str()
-                    .ok()
-                    .and_then(|value| value.trim().parse::<u64>().ok())
-                    .is_none_or(|length| length != 0)
-            })
-}
-
-/// Refuses a declared body on a JSON method that takes none, read as [`has_body`] reads it.
-/// Cloud Storage accepted `Content-Length: 00` on a bucket read, an object read and an object
-/// delete (recorded 2026-11-15).
-fn require_empty_body(headers: &hyper::HeaderMap) -> Result<(), ApiError> {
-    if has_body(headers) {
-        return Err(ApiError::invalid_argument(
-            "This method requires an empty body",
-        ));
-    }
-    Ok(())
 }
 
 impl DeadlineReply {
@@ -1531,311 +1489,6 @@ async fn discard_lingering_input(
         _ = tokio::time::timeout(LINGER_TIME, linger) => {},
         _ = stopping.wait_for(|stopping| *stopping) => {},
     }
-}
-
-/// Moves the links of an object resource stored by an earlier request to this request's origin.
-/// The stored links name the Host that finished the work, and a retry can arrive through another
-/// address: a browser finishes on a published port, a peer asks through the service name. An
-/// explicit base left them correct, so the stored response stays exactly as it was.
-fn rebase_stored_links(
-    endpoints: &crate::config::RequestEndpoints,
-    resource: &mut serde_json::Value,
-) {
-    match endpoints.api_base_source() {
-        crate::config::ApiBaseSource::Explicit => {}
-        crate::config::ApiBaseSource::Derived => {
-            json::rebase_object_links(resource, endpoints.api_base_url());
-        }
-    }
-}
-
-pub(crate) fn anonymous_error(error: ApiError, caller: Option<Caller<'_>>) -> ApiError {
-    if matches!(caller, Some(Caller::Anonymous)) && error.status() == StatusCode::FORBIDDEN {
-        error.for_anonymous_caller()
-    } else {
-        error
-    }
-}
-
-/// Authorize a project-scoped collection request such as buckets.insert or buckets.list.
-fn authorize_project(
-    caller: Option<Caller<'_>>,
-    permission: auth::Permission,
-    project: &str,
-) -> Result<(), ApiError> {
-    match caller {
-        Some(caller) => Ok(caller.authorize(permission, Some(project))?),
-        None => Ok(()),
-    }
-}
-
-/// Whether a POST that takes no body also accepts an empty JSON object as one.
-#[derive(Clone, Copy)]
-pub(crate) enum EmptyJsonBody {
-    /// An official client sends `{}` here: google-cloud-cpp 3.13.0 does on objects.restore.
-    Accepted,
-    /// No pinned client sends one here, so it stays an unknown body.
-    Refused,
-}
-
-/// The declared type of a body sent to a POST that takes none.
-#[derive(Clone, Copy)]
-enum BodylessPostType {
-    Form,
-    Json,
-    Other,
-}
-
-async fn validate_bodyless_post(
-    request: Request<RequestBody>,
-    expected: &std::collections::BTreeMap<String, String>,
-    empty_json: EmptyJsonBody,
-) -> Result<(), ApiError> {
-    // Ruby's generated client repeats URL query parameters in form-encoded POST bodies, and the
-    // C++ client sends an empty JSON object to restore. Neither carries a value the URL query
-    // lacks; any other body could, so it is still refused.
-    let declared = match request
-        .headers()
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(';').next())
-    {
-        Some("application/x-www-form-urlencoded") => BodylessPostType::Form,
-        Some("application/json") => BodylessPostType::Json,
-        _ => BodylessPostType::Other,
-    };
-    let body = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
-    let accepted = body.is_empty()
-        || match declared {
-            BodylessPostType::Form => {
-                std::str::from_utf8(&body)
-                    .ok()
-                    .and_then(|body| crate::percent::parse_query(body).ok())
-                    .as_ref()
-                    == Some(expected)
-            }
-            BodylessPostType::Json => match empty_json {
-                EmptyJsonBody::Accepted => {
-                    serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&body)
-                        .is_ok_and(|members| members.is_empty())
-                }
-                EmptyJsonBody::Refused => false,
-            },
-            BodylessPostType::Other => false,
-        };
-    if !accepted {
-        let example = expected
-            .first_key_value()
-            .map_or_default(|(key, value)| format!("{key}={value}"));
-        let allowed = match empty_json {
-            EmptyJsonBody::Accepted => "an empty body, an empty JSON object,",
-            EmptyJsonBody::Refused => "an empty body,",
-        };
-        return Err(ApiError::invalid_argument(format!(
-            "Use {allowed} or form parameters identical to the URL query, for example {example}"
-        )));
-    }
-    Ok(())
-}
-
-/// Rejects headers that do not apply to a derived write (copy, compose or rewrite), naming the
-/// first of `names` the request carries.
-fn reject_headers(headers: &hyper::HeaderMap, names: &[&str]) -> Result<(), ApiError> {
-    match names.iter().find(|name| headers.contains_key(**name)) {
-        Some(name) => Err(ApiError::unsupported_object(name)),
-        None => Ok(()),
-    }
-}
-
-/// An `If-Match` or `If-None-Match` header that does not parse as entity tags.
-fn invalid_etag_header() -> ApiError {
-    ApiError::invalid_parameter("Invalid ETag precondition header")
-}
-
-fn not_modified_response(
-    etag: Option<&hyper::header::HeaderValue>,
-    cache_control: Option<&hyper::header::HeaderValue>,
-) -> Response<Full<Bytes>> {
-    let mut response = empty_response(StatusCode::NOT_MODIFIED);
-    let headers = response.headers_mut();
-    if let Some(etag) = etag {
-        headers.insert("etag", etag.clone());
-    }
-    if let Some(cache_control) = cache_control {
-        headers.insert("cache-control", cache_control.clone());
-    }
-    response
-}
-
-/// Whether a metadata read's query preconditions (`ifGenerationNotMatch`,
-/// `ifMetagenerationNotMatch`) already select a `304 Not Modified` response.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum QueryPrecondition {
-    NotModified,
-    Unmatched,
-}
-
-/// Varied on first by a publicly readable JSON media response, ahead of the CORS fields.
-const ALLOWED_RESOURCES_VARY: &str = "X-Goog-Allowed-Resources";
-
-/// The `Cache-Control` of IAM policy reads, whose provider value has not been recorded.
-const IAM_POLICY_CACHE_CONTROL: &str = "no-cache";
-
-/// What a metadata read that evaluates `If-Match` and `If-None-Match` returns, which sets its
-/// `Cache-Control` and the form of a failed `If-Match`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ValidatedRead {
-    Object,
-    Bucket,
-    Policy,
-    /// A bucket, default object or object ACL listing, validated by its owner's entity tag.
-    AclList,
-}
-
-impl ValidatedRead {
-    fn cache_control(self) -> &'static str {
-        match self {
-            Self::Object | Self::Bucket | Self::AclList => json::RESOURCE_CACHE_CONTROL,
-            Self::Policy => IAM_POLICY_CACHE_CONTROL,
-        }
-    }
-
-    /// Whether a failed `If-Match` names the header and carries the ETag, as Cloud Storage
-    /// answered an object metadata read (case obj-download-validators) and the ACL listings
-    /// (case bkt-probe-collection-validators). No failing bucket or policy read was recorded.
-    fn names_failed_if_match(self) -> bool {
-        match self {
-            Self::Object | Self::AclList => true,
-            Self::Bucket | Self::Policy => false,
-        }
-    }
-}
-
-fn read_metadata_response(
-    headers: &hyper::HeaderMap,
-    etag: &str,
-    mut value: serde_json::Value,
-    fields: &json::Fields,
-    query: QueryPrecondition,
-    read: ValidatedRead,
-) -> Result<Response<Full<Bytes>>, ApiError> {
-    let not_modified = match etag_not_modified(headers, etag) {
-        Ok(not_modified) => not_modified || query == QueryPrecondition::NotModified,
-        Err(EtagError::Invalid) => return Err(invalid_etag_header()),
-        Err(EtagError::PreconditionFailed) => {
-            // The header form of the failure carries a shorter message than the query form.
-            let error = ApiError::new(
-                StatusCode::PRECONDITION_FAILED,
-                "conditionNotMet",
-                "Precondition Failed",
-            );
-            if !read.names_failed_if_match() {
-                return Err(error);
-            }
-            let mut response = error.at_if_match().into_response();
-            if let Ok(etag) = etag.parse() {
-                response.headers_mut().insert("etag", etag);
-            }
-            return Ok(response);
-        }
-    };
-    // ETags are rendered locally from base64 (JSON) or a quoted policy revision, so the
-    // conversion always succeeds; omitting the validator is safer than panicking if that ever
-    // changes.
-    let etag = hyper::header::HeaderValue::from_str(etag).ok();
-    let mut response = if not_modified {
-        empty_response(StatusCode::NOT_MODIFIED)
-    } else {
-        fields.apply(&mut value);
-        json_response(&value)
-    };
-    let response_headers = response.headers_mut();
-    if let Some(etag) = etag {
-        response_headers.insert("etag", etag);
-    }
-    response_headers.insert(
-        "cache-control",
-        hyper::header::HeaderValue::from_static(read.cache_control()),
-    );
-    Ok(response)
-}
-
-/// The `fields` selection a response applies, read from the request query as the operation
-/// says.
-fn response_fields(
-    uri: &crate::percent::RequestUri,
-    selection: json::FieldSelection<'_>,
-) -> Result<json::Fields, ApiError> {
-    match selection {
-        json::FieldSelection::Ignored => Ok(json::Fields::whole()),
-        json::FieldSelection::Query(schema) => json::Fields::from_query(uri, schema),
-        json::FieldSelection::Parsed(fields) => Ok(fields.clone()),
-    }
-}
-
-/// A `200 OK` JSON API resource with the cache headers its operation records.
-fn json_response_cached(
-    value: &serde_json::Value,
-    cache: json::ResponseCache,
-) -> Response<Full<Bytes>> {
-    let mut response = json_response(value);
-    let headers = response.headers_mut();
-    match cache {
-        json::ResponseCache::Unrecorded => {}
-        json::ResponseCache::Resource => {
-            headers.insert(
-                "cache-control",
-                hyper::header::HeaderValue::from_static(json::RESOURCE_CACHE_CONTROL),
-            );
-        }
-        json::ResponseCache::NoStore => {
-            headers.insert(
-                "cache-control",
-                hyper::header::HeaderValue::from_static(
-                    crate::object::media_headers::NO_STORE_CACHE_CONTROL,
-                ),
-            );
-            headers.insert(
-                "pragma",
-                hyper::header::HeaderValue::from_static("no-cache"),
-            );
-        }
-    }
-    response
-}
-
-/// A resource response narrowed by `fields`. The `ETag` header still names the whole resource,
-/// as Cloud Storage sends it with a field-selected body.
-fn json_response_selected(
-    value: &mut serde_json::Value,
-    fields: &json::Fields,
-    cache: json::ResponseCache,
-) -> Response<Full<Bytes>> {
-    let etag = json::etag_header(value);
-    fields.apply(value);
-    let mut response = json_response_cached(value, cache);
-    if let Some(etag) = etag {
-        response.headers_mut().insert("etag", etag);
-    }
-    response
-}
-
-/// A `200 OK` JSON API resource.
-fn json_response(value: &serde_json::Value) -> Response<Full<Bytes>> {
-    json_response_body(value, json::render_body(value))
-}
-
-/// `body` must be `value` rendered in the current request's JSON format.
-fn json_response_body(value: &serde_json::Value, body: String) -> Response<Full<Bytes>> {
-    let mut response = Response::new(Full::new(Bytes::from(body)));
-    response.headers_mut().insert(
-        "content-type",
-        hyper::header::HeaderValue::from_static("application/json; charset=UTF-8"),
-    );
-    if let Some(etag) = json::etag_header(value) {
-        response.headers_mut().insert("etag", etag);
-    }
-    response
 }
 
 fn unknown_route() -> ApiError {

@@ -5,13 +5,14 @@ mod derived;
 mod read;
 mod upload;
 
-use super::RequestBody as Incoming;
 use super::{
-    EmptyJsonBody, ObjectCtx, RESOURCE_BODY_LIMIT, ResponseBody,
+    EmptyJsonBody,
     acl::{self, AclSubjects, ObjectVersion, Rendered},
-    boxed, empty_response, json_response_selected, require_empty_body, response_fields, resumable,
-    validate_bodyless_post,
+    json_response_selected, require_empty_body, response_fields, resumable, validate_bodyless_post,
 };
+use crate::bounded_body::RESOURCE_BODY_LIMIT;
+use crate::service::body::{RequestBody as Incoming, ResponseBody, boxed, empty_response};
+use crate::service::context::ObjectCtx;
 use crate::service::object_headers;
 use crate::{
     acl::{AclAccess, AclKind, Projection},

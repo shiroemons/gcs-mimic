@@ -181,7 +181,7 @@ async fn run_lifecycle(
         ));
     }
     let outcome = ctx.state.catalog.run_lifecycle_now().await?;
-    Ok(super::json_response(&encode(&outcome)?))
+    Ok(crate::json::handler::json_response(&encode(&outcome)?))
 }
 
 /// Renders a management result. The outcome types hold only integers, booleans and fixed

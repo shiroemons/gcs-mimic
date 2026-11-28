@@ -1,11 +1,12 @@
 //! JSON ACL handlers and the ACL fields of `projection=full` resources.
 
-use super::RequestBody as Incoming;
 use super::{
-    QueryPrecondition, State, ValidatedRead, empty_response, json_response_selected,
-    read_metadata_response, require_empty_body,
+    QueryPrecondition, ValidatedRead, json_response_selected, read_metadata_response,
+    require_empty_body,
 };
 use crate::object::ObjectKey;
+use crate::service::body::{RequestBody as Incoming, empty_response};
+use crate::service::state::State;
 use crate::{
     acl::{AclAccess, AclEntry, AclKind, AclOwner, AclTarget},
     auth::Caller,

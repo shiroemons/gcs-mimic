@@ -6,24 +6,18 @@
 
 use super::RequestBody as Incoming;
 use super::admin::AdminRoute;
-use super::json_route::JsonRoute;
-use super::{
-    DeadlineWatch, RequestCtx, ResponseBody, acl, anonymous_error, boxed, buckets, empty_response,
-    notifications, objects, probe, project_resources, resumable, rewrite, unknown_route,
-};
+use super::{DeadlineWatch, RequestCtx, ResponseBody, boxed, empty_response, probe, unknown_route};
 use crate::json::JsonErrorResponse;
+use crate::json::handler::{refuse_authenticated, route::JsonRoute};
+use crate::json::resumable::{PROTOCOL_PREFIX, ProtocolUpload, UPLOAD_PREFIX};
 use crate::{
-    auth::Caller,
     bucket::{BucketAccess, CatalogError, CorsRule, cors::CorsRequest},
     config::{Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
-    json::ApiError,
-    json::{self, ObjectRequest},
-    profile::CompatProfile,
+    json::{self, ApiError},
     storage::failure::wording::safe_backend_cause,
     xml,
 };
-use http_body_util::{BodyExt, Full};
-use hyper::{HeaderMap, Method, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
+use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};
 
 /// How the server reads one request target. Decided once, before the timeout reply and the
 /// router look at it, so the two can never disagree about which API answers.
@@ -142,7 +136,7 @@ impl Target {
 
 /// Runs the connection's classification and routing together for handler tests.
 #[cfg(test)]
-pub(super) async fn respond(
+pub(crate) async fn respond(
     mut request: Request<Incoming>,
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
@@ -170,25 +164,6 @@ pub(super) async fn respond_classified(
         None => {}
     }
     response
-}
-
-/// The JSON upload path, under which the media, multipart and resumable uploads live.
-const UPLOAD_PREFIX: &str = "/upload/storage/v1/b/";
-/// The Discovery resumable protocol path, an alias of [`UPLOAD_PREFIX`].
-const PROTOCOL_PREFIX: &str = "/resumable/upload/storage/v1/b/";
-
-/// What a request on the Discovery resumable protocol path asks for, kept as a request
-/// extension once the path is rewritten.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProtocolUpload {
-    /// `uploadType=resumable` initiation, served as on `/upload/storage/v1`, whose session URI
-    /// keeps the alias path.
-    Resumable,
-    /// A request on the session URI such an initiation returned, served as the same request on
-    /// the `/upload/storage/v1` session URI.
-    Session,
-    /// Any other upload type, which only `/upload/storage/v1` serves.
-    Other,
 }
 
 /// `storage.objects.insert` defines its resumable protocol at
@@ -242,16 +217,6 @@ fn protocol_upload(
 
 fn is_unsupported_protocol_upload(request: &Request<Incoming>) -> bool {
     request.extensions().get::<ProtocolUpload>() == Some(&ProtocolUpload::Other)
-}
-
-/// The path, up to the bucket, of the session URI a JSON resumable initiation returns: the
-/// Discovery alias for an initiation sent there, whose session requests are rewritten like it.
-pub(super) fn session_path_prefix<B>(request: &Request<B>) -> &'static str {
-    if request.extensions().get::<ProtocolUpload>() == Some(&ProtocolUpload::Resumable) {
-        PROTOCOL_PREFIX
-    } else {
-        UPLOAD_PREFIX
-    }
 }
 
 async fn route(
@@ -542,7 +507,7 @@ fn apply_cors(headers: &mut HeaderMap, cors: HeaderMap, default_vary: Option<&'s
         .get_all("vary")
         .iter()
         .cloned()
-        .partition(|value| value == super::ALLOWED_RESOURCES_VARY);
+        .partition(|value| value == crate::json::handler::ALLOWED_RESOURCES_VARY);
     headers.remove("vary");
     headers.extend(cors);
     if let Some(vary) = default_vary
@@ -616,130 +581,7 @@ async fn respond_unselected(
             probe(&request, ctx.state).unwrap_or_else(|| unknown_route().into_response()),
         );
     };
-    match route {
-        JsonRoute::Acl(parsed) => respond_acl(request, ctx, parsed).await,
-        JsonRoute::Unsupported(route) => respond_unsupported(&request, ctx, route).await,
-        JsonRoute::Notifications(parsed) => respond_notifications(request, ctx, parsed).await,
-        JsonRoute::Session(parsed) => respond_session(request, ctx, parsed).await,
-        JsonRoute::Rewrite(parsed) => respond_rewrite(request, ctx, parsed).await,
-        JsonRoute::Object(parsed) => Box::pin(respond_json_object(request, ctx, parsed)).await,
-        JsonRoute::Project(parsed) => respond_project(request, ctx, parsed).await,
-        JsonRoute::Bucket(parsed) => {
-            respond_bucket(request, ctx, ctx.config.compat_profile(), parsed).await
-        }
-    }
-}
-
-/// The session URI is its own capability, so the request carries no caller.
-async fn respond_session(
-    request: Request<Incoming>,
-    ctx: RequestCtx<'_>,
-    parsed: Result<json::resumable::UploadSession, ApiError>,
-) -> Response<ResponseBody> {
-    let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
-    let result = match parsed {
-        Ok(json::resumable::UploadSession { bucket, upload_id }) => {
-            resumable::session_response(
-                request,
-                bucket.as_str(),
-                &upload_id,
-                ctx.object(None, deadline),
-            )
-            .await
-        }
-        Err(error) => Err(error),
-    };
-    ctx.finish_object_request();
-    result.unwrap_or_else(|error| boxed(error.into_response()))
-}
-
-/// Authenticates the request, then takes its parsed operation. Authentication answers first,
-/// so a caller without credentials learns nothing about which requests would parse.
-async fn authenticated<'a, T>(
-    request: &Request<Incoming>,
-    ctx: RequestCtx<'a>,
-    parsed: Result<T, ApiError>,
-) -> Result<(T, Option<Caller<'a>>), ApiError> {
-    let caller = ctx
-        .authenticate(request.headers(), request.uri().query())
-        .await?;
-    Ok((parsed?, caller))
-}
-
-/// Runs an authenticated operation, reporting a refusal to an anonymous caller as Cloud
-/// Storage does.
-async fn dispatch<'a, T, R, F, Fut>(
-    request: Request<Incoming>,
-    ctx: RequestCtx<'a>,
-    parsed: Result<T, ApiError>,
-    run: F,
-) -> Result<R, ApiError>
-where
-    F: FnOnce(Request<Incoming>, T, Option<Caller<'a>>) -> Fut,
-    Fut: Future<Output = Result<R, ApiError>>,
-{
-    let (operation, caller) = authenticated(&request, ctx, parsed).await?;
-    run(request, operation, caller)
-        .await
-        .map_err(|error| anonymous_error(error, caller))
-}
-
-/// Answers `refusal` once the request authenticates.
-async fn refuse_authenticated(
-    request: &Request<Incoming>,
-    ctx: RequestCtx<'_>,
-    refusal: ApiError,
-) -> Response<ResponseBody> {
-    let error = match ctx
-        .authenticate(request.headers(), request.uri().query())
-        .await
-    {
-        Ok(_) => refusal,
-        Err(error) => ApiError::from(error),
-    };
-    boxed(error.into_response())
-}
-
-async fn respond_acl(
-    request: Request<Incoming>,
-    ctx: RequestCtx<'_>,
-    parsed: Result<json::acl::AclRequest, ApiError>,
-) -> Response<ResponseBody> {
-    let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
-    let result = dispatch(request, ctx, parsed, |request, operation, caller| {
-        acl::respond(request, operation, caller, state, base)
-    })
-    .await;
-    boxed(result.unwrap_or_else(ApiError::into_response))
-}
-
-async fn respond_unsupported(
-    request: &Request<Incoming>,
-    ctx: RequestCtx<'_>,
-    route: &str,
-) -> Response<ResponseBody> {
-    let refusal = ApiError::unsupported_message(format!(
-        "gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."
-    ));
-    refuse_authenticated(request, ctx, refusal).await
-}
-
-async fn respond_notifications(
-    request: Request<Incoming>,
-    ctx: RequestCtx<'_>,
-    parsed: Result<(json::notifications::NotificationRequest, json::Fields), ApiError>,
-) -> Response<ResponseBody> {
-    let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
-    let result = dispatch(
-        request,
-        ctx,
-        parsed,
-        |request, (operation, fields), caller| {
-            notifications::respond(request, operation, fields, caller, state, base)
-        },
-    )
-    .await;
-    boxed(result.unwrap_or_else(ApiError::into_response))
+    json::handler::respond(request, ctx, route).await
 }
 
 async fn respond_xml_object(
@@ -836,139 +678,11 @@ async fn respond_xml_resumable(
     result.unwrap_or_else(|error| boxed(error.response(error_body)))
 }
 
-async fn respond_rewrite(
-    request: Request<Incoming>,
-    ctx: RequestCtx<'_>,
-    parsed: Result<json::rewrite::RewriteRequest, ApiError>,
-) -> Response<ResponseBody> {
-    let parsed = authenticated(&request, ctx, parsed).await;
-    let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
-    let result = match parsed {
-        Ok((operation, caller)) => {
-            rewrite::respond(request, operation, ctx.object(caller, deadline))
-                .await
-                .map_err(|error| anonymous_error(error, caller))
-        }
-        Err(error) => Err(error),
-    };
-    ctx.finish_object_request();
-    result.unwrap_or_else(|error| boxed(error.into_response()))
-}
-
-async fn respond_json_object(
-    request: Request<Incoming>,
-    ctx: RequestCtx<'_>,
-    parsed: Result<ObjectRequest, ApiError>,
-) -> Response<ResponseBody> {
-    let parsed = authenticated(&request, ctx, parsed).await;
-    let operation = parsed.as_ref().ok().map(|(operation, _)| operation);
-    let media = operation.is_some_and(ObjectRequest::is_media_read);
-    let target = operation
-        .and_then(ObjectRequest::named_object)
-        .map(|target| (target.bucket.clone(), target.name.clone()));
-    let transfer = operation.is_some_and(ObjectRequest::transfers_data);
-    let deadline = ctx.start_object_deadline(if transfer {
-        DeadlineWatch::Enforced
-    } else {
-        DeadlineWatch::CatalogOnly
-    });
-    let result = match parsed {
-        Ok((operation, caller)) => {
-            objects::respond(request, operation, ctx.object(caller, deadline))
-                .await
-                .map_err(|error| anonymous_error(error, caller))
-        }
-        Err(error) => Err(error),
-    };
-    // A successful media download keeps its deadline while the response body streams.
-    if !media || result.is_err() {
-        ctx.finish_object_request();
-    }
-    result.unwrap_or_else(|error| {
-        let error = match &target {
-            Some((bucket, name)) => error.naming_object(bucket.as_str(), name),
-            None => error,
-        };
-        boxed(if media {
-            error.into_media_response()
-        } else {
-            error.into_response()
-        })
-    })
-}
-
-async fn respond_project(
-    request: Request<Incoming>,
-    ctx: RequestCtx<'_>,
-    parsed: Result<(json::ProjectRequest, json::Fields), ApiError>,
-) -> Response<ResponseBody> {
-    let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
-    let result = dispatch(
-        request,
-        ctx,
-        parsed,
-        |request, (operation, fields), caller| {
-            project_resources::respond(request, operation, fields, caller, state, base)
-        },
-    )
-    .await;
-    boxed(result.unwrap_or_else(ApiError::into_response))
-}
-
-async fn respond_bucket(
-    request: Request<Incoming>,
-    ctx: RequestCtx<'_>,
-    profile: CompatProfile,
-    parsed: Result<json::BucketRequest, ApiError>,
-) -> Response<ResponseBody> {
-    let result = dispatch(request, ctx, parsed, |request, operation, caller| {
-        buckets::respond(request, operation, caller, ctx)
-    })
-    .await;
-    boxed(bucket_answer(result, profile).await)
-}
-
-/// What a bucket route answers for `result`, in fake-gcs-server's reasons and body layout under
-/// its profile. The error goldens call it directly, since the route itself needs a request and a
-/// catalog.
-pub(crate) async fn bucket_answer(
-    result: Result<Response<Full<Bytes>>, ApiError>,
-    profile: CompatProfile,
-) -> Response<Full<Bytes>> {
-    let response = result
-        .map_err(|error| {
-            if profile == CompatProfile::FakeGcsServer {
-                error.for_legacy_bucket()
-            } else {
-                error
-            }
-        })
-        .unwrap_or_else(ApiError::into_response);
-    if profile == CompatProfile::FakeGcsServer && response.status() != StatusCode::NOT_MODIFIED {
-        return legacy_bucket_body(response).await;
-    }
-    response
-}
-
-/// fake-gcs-server ends bucket bodies with a newline and labels them plain JSON.
-async fn legacy_bucket_body(response: Response<Full<Bytes>>) -> Response<Full<Bytes>> {
-    let (mut parts, body) = response.into_parts();
-    let Ok(collected) = body.collect().await;
-    let bytes = collected.to_bytes();
-    let mut bytes = bytes.try_into_mut().unwrap_or_else(bytes::BytesMut::from);
-    if !bytes.ends_with(b"\n") {
-        bytes.extend_from_slice(b"\n");
-    }
-    parts
-        .headers
-        .insert("content-type", HeaderValue::from_static("application/json"));
-    Response::from_parts(parts, Full::new(bytes.freeze()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::VirtualHostDomains;
+    use crate::json::resumable::session_path_prefix;
 
     fn classify(
         config: &Config,

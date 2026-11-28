@@ -32,6 +32,21 @@ pub(crate) fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
     response
 }
 
+/// Whether the request declares a body: any `Transfer-Encoding`, or a `Content-Length` that is
+/// not the number zero. `Content-Length: 00` declares none, as hyper frames it.
+pub(crate) fn has_body(headers: &hyper::HeaderMap) -> bool {
+    headers.contains_key(hyper::header::TRANSFER_ENCODING)
+        || headers
+            .get(hyper::header::CONTENT_LENGTH)
+            .is_some_and(|length| {
+                length
+                    .to_str()
+                    .ok()
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+                    .is_none_or(|length| length != 0)
+            })
+}
+
 /// Synthetic batch parts and decoded metadata use the same dispatch as network input.
 pub(crate) enum RequestBody {
     Transport(TransportBody),

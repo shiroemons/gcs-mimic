@@ -68,7 +68,7 @@ mod tests {
     #[test]
     fn pinned_discovery_routes_are_explicit_and_do_not_shadow_objects() {
         let inventory: serde_json::Value = serde_json::from_str(include_str!(
-            "../../compatibility/upstream/json-methods.json"
+            "../../../compatibility/upstream/json-methods.json"
         ))
         .unwrap();
         let implemented = [

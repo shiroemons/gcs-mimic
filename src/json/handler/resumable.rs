@@ -2,10 +2,11 @@
 //! answers a completed session makes from the resource it stores. The engine behind every
 //! session URI is `service::resumable`.
 
-use super::RequestBody as Incoming;
-use super::{ObjectCtx, ResponseBody, boxed, empty_response, json_response};
+use super::json_response;
 use crate::json::JsonErrorResponse;
 use crate::object::ObjectKey;
+use crate::service::body::{RequestBody as Incoming, ResponseBody, boxed, empty_response};
+use crate::service::context::ObjectCtx;
 use crate::service::object_headers;
 use crate::service::resumable::{
     self, AnswerView, CompletionAnswer, Links, SessionTarget, SessionUri, Transfer,
@@ -49,7 +50,7 @@ pub(super) async fn initiate(
         ));
     }
     let base = ctx.endpoints.api_base_url();
-    let prefix = super::routing::session_path_prefix(&request);
+    let prefix = json::resumable::session_path_prefix(&request);
     let location_base = format!("{base}{prefix}{bucket}/o");
     let query = request.uri().query().unwrap_or_default().to_owned();
     location_base

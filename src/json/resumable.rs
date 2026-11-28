@@ -7,7 +7,36 @@ use crate::{
     profile::CompatProfile,
     storage::ResumableOptions,
 };
-use hyper::{HeaderMap, Method};
+use hyper::{HeaderMap, Method, Request};
+
+/// The JSON upload path, under which the media, multipart and resumable uploads live.
+pub(crate) const UPLOAD_PREFIX: &str = "/upload/storage/v1/b/";
+/// The Discovery resumable protocol path, an alias of [`UPLOAD_PREFIX`].
+pub(crate) const PROTOCOL_PREFIX: &str = "/resumable/upload/storage/v1/b/";
+
+/// What a request on the Discovery resumable protocol path asks for, kept as a request
+/// extension once the path is rewritten.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProtocolUpload {
+    /// `uploadType=resumable` initiation, served as on `/upload/storage/v1`, whose session URI
+    /// keeps the alias path.
+    Resumable,
+    /// A request on the session URI such an initiation returned, served as the same request on
+    /// the `/upload/storage/v1` session URI.
+    Session,
+    /// Any other upload type, which only `/upload/storage/v1` serves.
+    Other,
+}
+
+/// The path, up to the bucket, of the session URI a JSON resumable initiation returns: the
+/// Discovery alias for an initiation sent there, whose session requests are rewritten like it.
+pub(crate) fn session_path_prefix<B>(request: &Request<B>) -> &'static str {
+    if request.extensions().get::<ProtocolUpload>() == Some(&ProtocolUpload::Resumable) {
+        PROTOCOL_PREFIX
+    } else {
+        UPLOAD_PREFIX
+    }
+}
 
 /// The resumable session a request continues.
 #[derive(Clone, Debug, PartialEq, Eq)]
