@@ -1,0 +1,20 @@
+[package]
+name = "grpc-generated"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+license.workspace = true
+
+# The generator writes every other file in this directory; only this manifest and the crate
+# root are written by hand.
+[lib]
+path = "lib.rs"
+
+[dependencies]
+prost.workspace = true
+prost-types.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
+
+[lints]
+workspace = true

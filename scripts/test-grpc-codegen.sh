@@ -9,6 +9,9 @@ cp scripts/check-grpc-codegen.sh "$fixture/scripts/"
 printf 'proto\n' > "$fixture/src/grpc/proto/test.proto"
 printf 'generated\n' > "$fixture/src/grpc/generated/test.rs"
 cp "$fixture/src/grpc/generated/test.rs" "$fixture/baseline/"
+# The hand-written crate manifest and root sit next to the output, which the generator never writes.
+printf 'manifest\n' > "$fixture/src/grpc/generated/Cargo.toml"
+printf 'root\n' > "$fixture/src/grpc/generated/lib.rs"
 (
   cd "$fixture"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -45,4 +48,14 @@ if ! grep -q '^diff ' "$fixture/drift.log"; then
   sed -n '1,100p' "$fixture/drift.log" >&2
   exit 1
 fi
-printf 'Codegen checks: matching output accepted; changed proto and stale generated output rejected\n'
+cp "$fixture/baseline/test.rs" "$fixture/src/grpc/generated/"
+printf 'removed\n' > "$fixture/src/grpc/generated/old.rs"
+if bash "$fixture/scripts/check-grpc-codegen.sh" > "$fixture/leftover.log" 2>&1; then
+  echo 'Codegen check accepted a generated file the generator no longer writes' >&2
+  exit 1
+fi
+if ! grep -q '^Only in .*: old.rs' "$fixture/leftover.log"; then
+  sed -n '1,100p' "$fixture/leftover.log" >&2
+  exit 1
+fi
+printf 'Codegen checks: matching output and hand-written crate files accepted; changed proto, stale and leftover generated output rejected\n'

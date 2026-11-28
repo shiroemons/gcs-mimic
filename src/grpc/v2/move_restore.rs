@@ -6,6 +6,7 @@ use super::{
 };
 use crate::{
     auth::{self, Caller},
+    grpc::conditions::SourceConditions as _,
     object::{
         ObjectConditions,
         generation::{Generation, InvalidGeneration},

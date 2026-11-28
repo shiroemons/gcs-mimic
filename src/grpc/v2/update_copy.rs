@@ -11,7 +11,10 @@ use crate::{
     auth::{self, Caller},
     bucket::{BucketAccess, name::BucketKey},
     csek::{CopyKeys, CustomerKey},
-    grpc::validate::{self, NegativeGeneration},
+    grpc::{
+        conditions::SourceConditions as _,
+        validate::{self, NegativeGeneration},
+    },
     object::{
         ComposeSource, ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectKey,
         content_type, generation::Generation,

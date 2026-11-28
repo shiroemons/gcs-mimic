@@ -198,10 +198,14 @@ fn inline_modules(masked: &str) -> Vec<(Range<usize>, &str)> {
         .collect()
 }
 
+/// The workspace crate of generated protobuf code. The gRPC adapter re-exports it as
+/// `grpc::generated`, so a file that names the crate itself names `grpc`.
+const GENERATED_CRATE: &str = "grpc_generated";
+
 /// Top-level modules named from the crate root, `$crate`, `super` or `self`, with the offset
 /// of the name that selects each one. A path that stays below the crate root names the
 /// module it stays in; one that reaches the root names the segment after it, or each member
-/// of a `{..}` group there.
+/// of a `{..}` group there. Each use of [`GENERATED_CRATE`] names `grpc`.
 fn references<'a>(
     file_path: &[&'a str],
     inline: &[(Range<usize>, &'a str)],
@@ -237,6 +241,7 @@ fn references<'a>(
             }
         }
     }
+    found.extend(words(masked, GENERATED_CRATE).map(|at| ("grpc", at)));
     found
 }
 

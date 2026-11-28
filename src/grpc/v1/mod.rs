@@ -4,21 +4,7 @@ mod convert;
 pub(super) mod tests;
 mod upload;
 
-#[expect(
-    clippy::allow_attributes,
-    reason = "which lints fire in generated code varies by target and cfg(test), so an \
-              expectation on them could go unfulfilled"
-)]
-#[allow(
-    clippy::all,
-    dead_code,
-    unreachable_pub,
-    rustdoc::broken_intra_doc_links,
-    reason = "generated upstream code keeps its own style and documentation links"
-)]
-pub(crate) mod pb {
-    include!("../generated/google.storage.v1.rs");
-}
+pub(crate) use super::generated::storage_v1 as pb;
 
 use crate::{
     auth::{BUCKETS_LIST, Caller, ListenerRole},

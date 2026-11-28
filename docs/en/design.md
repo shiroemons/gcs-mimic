@@ -80,8 +80,9 @@ The library's modules form the layers below, from the lowest to the highest. A m
 name modules in its own layer and in lower layers, and the three adapters may not name each
 other. `cargo xtask lint` takes the modules a production file names from `crate::` and
 `$crate::` paths, the top-level members of `use crate::{..}` groups and `super::` or `self::`
-paths resolved from the file's module path, so a re-export counts where it is written.
-`text::adapter_dependency` rejects one adapter naming another, and `text::layer_dependency`
+paths resolved from the file's module path, so a re-export counts where it is written. A use
+of the generated protobuf crate, `grpc_generated`, counts as naming `grpc`, which re-exports
+it as `grpc::generated`. `text::adapter_dependency` rejects one adapter naming another, and `text::layer_dependency`
 rejects a reference to a higher layer. Both are zero tolerance: no production file breaks
 either, and neither takes a baseline row. The table lists exactly the modules that
 `src/lib.rs` declares outside `#[cfg(test)]`: the gate fails when a declared module has no
@@ -474,7 +475,7 @@ defines fields, errors, limits, acceptance functions and verification.
 | Blob store | Streaming temporary and immutable blob files with bounded buffers |
 | Optional adapters | Local Pub/Sub, inventory exports, caches, analytics/ML fixtures and MCP |
 
-Start with one application crate and clear modules. Split crates only where actual boundaries make it useful. The implementation uses Tokio, Hyper, Serde, Rustls (tokio-rustls), SQLite (rusqlite) and tonic/prost for gRPC. Verify and adopt the latest stable Rust and latest non-yanked stable releases of chosen dependencies at bootstrap. Track updates daily, including intentional major-version migrations, and record exact toolchain/lockfile/image inputs for reproducibility. Follow the [dependency policy](dependency-policy.md). These library choices are not benchmark conclusions.
+Start with one application crate and clear modules. Split crates only where actual boundaries make it useful. The generated protobuf code is such a boundary: the `grpc-generated` workspace crate in `src/grpc/generated` holds it, so a change to the server does not recompile it. It belongs to the gRPC adapter, which re-exports it as `grpc::generated`, and the layer rules count any use of it as naming `grpc`. The implementation uses Tokio, Hyper, Serde, Rustls (tokio-rustls), SQLite (rusqlite) and tonic/prost for gRPC. Verify and adopt the latest stable Rust and latest non-yanked stable releases of chosen dependencies at bootstrap. Track updates daily, including intentional major-version migrations, and record exact toolchain/lockfile/image inputs for reproducibility. Follow the [dependency policy](dependency-policy.md). These library choices are not benchmark conclusions.
 
 Store object data on disk by default. Keep a bounded in-memory backend only for small tests, with an explicit byte limit. Catalog entries should be indexed by bucket/name/generation, with keyset pagination instead of loading and sorting every object. Use bounded caches and queues so catalog growth does not imply unbounded resident memory.
 

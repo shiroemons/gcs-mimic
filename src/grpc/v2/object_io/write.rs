@@ -69,7 +69,7 @@ impl Storage {
         let admitted = routing::Admitted::of(&extensions)?;
         let mut position = MessagePosition::First;
         let mut stream = input.map(|result| {
-            let message = pb::BidiWriteObjectRequest::from(result?);
+            let message = convert::bidi_write_request(result?);
             if position == MessagePosition::First {
                 routing::write(admitted, message.first_message.as_ref())?;
                 position = MessagePosition::Later;
@@ -80,7 +80,7 @@ impl Storage {
             .receive_write(&mut stream, caller, WriteRpc::WriteObject, admitted)
             .await?;
         Ok(Response::new(pb::WriteObjectResponse {
-            write_status: answer.write_status.map(Into::into),
+            write_status: answer.write_status.map(convert::write_status),
             persisted_data_checksums: answer.persisted_data_checksums,
         }))
     }

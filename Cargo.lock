@@ -334,6 +334,7 @@ dependencies = [
  "crc32c",
  "flate2",
  "getrandom 0.4.3",
+ "grpc-generated",
  "http-body-util",
  "httpdate",
  "hyper",
@@ -389,6 +390,16 @@ name = "grpc-codegen"
 version = "0.0.0"
 dependencies = [
  "tonic-prost-build",
+]
+
+[[package]]
+name = "grpc-generated"
+version = "0.0.0"
+dependencies = [
+ "prost",
+ "prost-types",
+ "tonic",
+ "tonic-prost",
 ]
 
 [[package]]
