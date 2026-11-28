@@ -246,7 +246,8 @@ impl Storage {
         use crate::acl::AclKind;
         let name = bucket.bucket_id.as_str();
         let readable =
-            crate::server::may_read_acl(&self.state, caller, AclKind::Bucket, name).await?;
+            crate::service::access::acl::may_read(&self.state, caller, AclKind::Bucket, name)
+                .await?;
         if !readable {
             return Ok(());
         }

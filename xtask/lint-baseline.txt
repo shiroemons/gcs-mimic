@@ -3,12 +3,6 @@ text::layer_dependency	src/config/auth.rs	1
 text::layer_dependency	src/config/document.rs	2
 text::layer_dependency	src/config_input/options.rs	2
 text::layer_dependency	src/grpc/mod.rs	1
-text::layer_dependency	src/grpc/v1/mod.rs	1
-text::layer_dependency	src/grpc/v2/bucket_iam.rs	1
-text::layer_dependency	src/grpc/v2/buckets.rs	1
-text::layer_dependency	src/grpc/v2/mod.rs	1
-text::layer_dependency	src/grpc/v2/object_io/resource.rs	1
-text::layer_dependency	src/grpc/v2/update_object.rs	1
 text::layer_dependency	src/xml/buckets.rs	1
 text::layer_dependency	src/xml/canned_acl.rs	1
 text::layer_dependency	src/xml/copy.rs	1

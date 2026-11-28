@@ -4,7 +4,7 @@ use super::{Storage, iam, names, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
-    server::bucket_access,
+    service::access::bucket_access,
 };
 use tonic::{Request, Response, Status};
 

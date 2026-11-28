@@ -43,6 +43,7 @@ use tokio::{
 };
 
 use crate::service::{
+    access::bucket_access,
     activity::{
         AfterResponse, Expiry, ExpiryClaim, ObjectActivity, RequestStage, RequestStep,
         ResponseWork, claim_expiry, expiry_claimed,
@@ -131,16 +132,12 @@ fn report_connection_task_failure(error: &tokio::task::JoinError) {
 }
 
 mod acl;
-pub(crate) use acl::may_read as may_read_acl;
-pub(crate) use acl::readable_object_acls;
 mod admin;
 pub(crate) mod copy;
 mod gzip;
 mod notifications;
 mod project_resources;
 pub(crate) mod resumable;
-mod retention_access;
-pub(crate) use retention_access::authorize_update as authorize_retention_update;
 mod rewrite;
 mod unsupported;
 
@@ -1540,31 +1537,6 @@ pub(crate) fn anonymous_error(error: ApiError, caller: Option<Caller<'_>>) -> Ap
     } else {
         error
     }
-}
-
-/// Resolve the owning project of `bucket` and authorize `permission` against it.
-///
-/// The returned access must be passed to the catalog operation, which re-validates it against
-/// the owner it observes in its own transaction: the bucket can be deleted and recreated under
-/// another project after this lookup. Permissive mode skips the catalog. Anonymous callers
-/// have no project grants and are evaluated against bucket policy.
-pub(crate) async fn bucket_access(
-    state: &State,
-    caller: Option<Caller<'_>>,
-    permission: auth::Permission,
-    bucket: &str,
-) -> Result<BucketAccess, CatalogError> {
-    let Some(caller) = caller else {
-        return Ok(BucketAccess::Permissive);
-    };
-    let identity = match caller {
-        Caller::Anonymous => None,
-        Caller::Principal(identity) => Some(identity),
-    };
-    state
-        .catalog
-        .bucket_access(bucket, identity, permission)
-        .await
 }
 
 /// Authorize a project-scoped collection request such as buckets.insert or buckets.list.

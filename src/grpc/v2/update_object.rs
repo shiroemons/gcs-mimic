@@ -54,7 +54,7 @@ impl Storage {
         // Cloud Storage compares whatever conditions arrive: a metageneration match of 0 and a
         // match beside a not-match fail as conditions that do not hold (recorded 2026-11-18).
         let c = ObjectConditions::from(&r);
-        crate::server::authorize_retention_update(
+        crate::service::access::retention::authorize_update(
             &self.state.catalog,
             &access,
             bucket,

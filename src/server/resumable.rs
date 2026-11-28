@@ -127,7 +127,7 @@ pub(crate) async fn create_session(
     total: Option<u64>,
 ) -> Result<crate::storage::SessionId, ServiceError> {
     let state = ctx.state;
-    super::retention_access::authorize_upload(
+    crate::service::access::retention::authorize_upload(
         &state.catalog,
         &options.access,
         key.bucket().into_inner(),
@@ -735,7 +735,7 @@ impl CompletionView {
         if let Some(initiator) = &self.acl_reader {
             super::acl::add_full_projection_to_stored(
                 ctx.state,
-                super::acl::AclReader::Initiator(initiator),
+                crate::service::access::acl::AclReader::Initiator(initiator),
                 &mut resource,
                 ctx.endpoints.api_base_url(),
             )

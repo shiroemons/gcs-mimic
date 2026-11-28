@@ -106,10 +106,14 @@ impl Storage {
             .iter()
             .map(|object| (object.name.clone(), object.generation))
             .collect();
-        let Some(acl) =
-            crate::server::readable_object_acls(&self.state, caller, bucket, generations)
-                .await
-                .map_err(|e| access_status(e, caller))?
+        let Some(acl) = crate::service::access::acl::readable_object_acls(
+            &self.state,
+            caller,
+            bucket,
+            generations,
+        )
+        .await
+        .map_err(|e| access_status(e, caller))?
         else {
             return Ok(());
         };
