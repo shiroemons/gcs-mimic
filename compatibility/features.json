@@ -62972,7 +62972,7 @@
           "description": "With none, one bounded cors_unconfigured warning per bucket for Origin-bearing XML requests; no warning for Origin-less requests or with allow-all.",
           "result": "PASS",
           "test_ids": [
-            "xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
+            "service::cors_warnings::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
             "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback"
           ]
         },
@@ -62995,7 +62995,7 @@
         "api_origin_ready_and_resumable_locations_use_bound_addresses",
         "xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules",
         "allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json",
-        "xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
+        "service::cors_warnings::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
         "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback",
         "xml_cors_lookup_failure_does_not_precede_authentication",
         "xml_cors_lookup_failure_does_not_apply_the_allow_all_fallback"
@@ -63022,7 +63022,7 @@
             "api_origin_ready_and_resumable_locations_use_bound_addresses",
             "xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules",
             "allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json",
-            "xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
+            "service::cors_warnings::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
             "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback"
           ]
         },

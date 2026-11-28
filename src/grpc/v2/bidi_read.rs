@@ -15,19 +15,15 @@ use crate::{
         validate::{self, NegativeGeneration},
     },
     object::{ObjectConditions, ObjectError, ObjectRecord, generation::Generation},
+    service::read_handles::{Handle, HandleToken},
     storage::{Finality, ObjectReader},
 };
 use prost::Message;
-use std::{
-    collections::VecDeque,
-    sync::Mutex,
-    time::{Duration, SystemTime},
-};
+use std::{collections::VecDeque, time::Duration};
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming};
 
 const MAX_RANGES: usize = 100;
-const MAX_HANDLES: usize = 1024;
 const HANDLE_TTL: Duration = Duration::from_secs(600);
 const READ_ERROR_TYPE: &str = "type.googleapis.com/google.storage.v2.BidiReadObjectError";
 
@@ -37,61 +33,6 @@ struct Selected {
     size: u64,
     /// An appendable generation snapshot: reads stop at the size persisted when it was opened.
     finality: Finality,
-}
-
-#[derive(Clone, Copy)]
-struct HandleToken([u8; 32]);
-
-impl HandleToken {
-    fn matches(self, other: &[u8]) -> bool {
-        other.len() == self.0.len()
-            && self
-                .0
-                .iter()
-                .zip(other)
-                .fold(0, |difference, (a, b)| difference | (a ^ b))
-                == 0
-    }
-}
-
-#[derive(Clone)]
-struct Handle {
-    token: HandleToken,
-    bucket: String,
-    name: String,
-    generation: i64,
-    size: u64,
-    finality: Finality,
-    project: Option<String>,
-    expires: SystemTime,
-}
-
-/// Read snapshots belong to one server state and survive individual gRPC connections.
-#[derive(Default)]
-pub(crate) struct ReadHandles(Mutex<VecDeque<Handle>>);
-
-impl ReadHandles {
-    fn insert(&self, handle: Handle, now: SystemTime) {
-        let mut entries = crate::sync::lock(&self.0);
-        entries.retain(|entry| entry.expires > now);
-        if entries.len() == MAX_HANDLES {
-            entries.pop_front();
-        }
-        entries.push_back(handle);
-    }
-
-    fn find(&self, token: &[u8], now: SystemTime) -> Option<Handle> {
-        let mut entries = crate::sync::lock(&self.0);
-        entries.retain(|entry| entry.expires > now);
-        entries
-            .iter()
-            .find(|entry| entry.token.matches(token))
-            .cloned()
-    }
-
-    fn remove(&self, token: HandleToken) {
-        crate::sync::lock(&self.0).retain(|entry| !entry.token.matches(&token.0));
-    }
 }
 
 fn project(access: &BucketAccess) -> Option<&str> {
@@ -309,8 +250,7 @@ impl Storage {
                 reader,
                 finality,
             };
-            let mut token = HandleToken([0; 32]);
-            getrandom::fill(&mut token.0)
+            let token = HandleToken::random()
                 .map_err(|_| Status::internal("Cannot create read handle; retry the read"))?;
             let now = self.state.clock.now();
             let expires = now.checked_add(HANDLE_TTL).ok_or_else(|| {
@@ -349,7 +289,7 @@ impl Storage {
                 )
             },
             read_handle: Some(pb::BidiReadHandle {
-                handle: token.0.to_vec(),
+                handle: token.as_bytes().to_vec(),
             }),
             ..Default::default()
         };
@@ -622,11 +562,11 @@ mod tests {
         add_ranges(queue, &ranges, size).map_err(|failure| failure.into_status(queued_ids(queue)))
     }
 
-    async fn readable_state() -> Arc<crate::server::State> {
+    async fn readable_state() -> Arc<crate::service::state::State> {
         readable_state_with_budget(1024 * 1024).await
     }
 
-    async fn readable_state_with_budget(budget: u64) -> Arc<crate::server::State> {
+    async fn readable_state_with_budget(budget: u64) -> Arc<crate::service::state::State> {
         use crate::{
             auth::Auth,
             clock::SystemClock,
@@ -659,7 +599,10 @@ mod tests {
             )
             .await
             .unwrap();
-        Arc::new(crate::server::State::for_test(catalog, Auth::permissive()))
+        Arc::new(crate::service::state::State::for_test(
+            catalog,
+            Auth::permissive(),
+        ))
     }
 
     /// The generation BidiReadObject parses from `spec` before resuming its handle.
@@ -668,7 +611,7 @@ mod tests {
     }
 
     async fn issued_spec(
-        state: &Arc<crate::server::State>,
+        state: &Arc<crate::service::state::State>,
         object: &str,
     ) -> pb::BidiReadObjectSpec {
         let spec = pb::BidiReadObjectSpec {
@@ -886,7 +829,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            token.0.as_slice(),
+            token.as_bytes().as_slice(),
             spec.read_handle.as_ref().unwrap().handle
         );
         assert_eq!(resumed.record.generation.get(), spec.generation);
@@ -905,35 +848,6 @@ mod tests {
         for state in states {
             state.catalog.close().await.unwrap();
         }
-    }
-
-    #[test]
-    fn read_handle_table_evicts_the_oldest_entry_at_its_bound() {
-        let handles = ReadHandles::default();
-        let now = SystemTime::now();
-        let token = |index: usize| {
-            let mut bytes = [0; 32];
-            bytes[..8].copy_from_slice(&u64::try_from(index).unwrap().to_le_bytes());
-            HandleToken(bytes)
-        };
-        for index in 0..=MAX_HANDLES {
-            handles.insert(
-                Handle {
-                    token: token(index),
-                    bucket: "bucket".into(),
-                    name: "object".into(),
-                    generation: 1,
-                    size: 0,
-                    finality: Finality::Finalized,
-                    project: None,
-                    expires: now + HANDLE_TTL,
-                },
-                now,
-            );
-        }
-        assert!(handles.find(&token(0).0, now).is_none());
-        assert!(handles.find(&token(MAX_HANDLES).0, now).is_some());
-        assert_eq!(handles.0.lock().unwrap().len(), MAX_HANDLES);
     }
 
     #[tokio::test]
@@ -1127,19 +1041,6 @@ mod tests {
         assert_eq!(rpc.message, error.message());
         let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
         assert_eq!(detail.read_range_errors[0].read_id, 7);
-    }
-
-    #[test]
-    fn handle_tokens_reject_every_changed_byte_and_wrong_length() {
-        let token = HandleToken([0xa5; 32]);
-        assert!(token.matches(&token.0));
-        for index in 0..32 {
-            let mut changed = token.0;
-            changed[index] ^= 1;
-            assert!(!token.matches(&changed));
-        }
-        assert!(!token.matches(&token.0[..31]));
-        assert!(!token.matches(&[0xa5; 33]));
     }
 
     #[test]

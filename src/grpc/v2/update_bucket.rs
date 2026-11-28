@@ -848,7 +848,7 @@ mod tests {
         catalog.insert_bucket(definition).await.unwrap();
         let s = Storage {
             compat_profile: crate::profile::CompatProfile::Native,
-            state: std::sync::Arc::new(crate::server::State::for_test(
+            state: std::sync::Arc::new(crate::service::state::State::for_test(
                 catalog,
                 crate::auth::Auth::strict(fixtures::registry(&[
                     ("admin", "p", "roles/storage.admin"),

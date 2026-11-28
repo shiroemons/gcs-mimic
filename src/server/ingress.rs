@@ -251,10 +251,7 @@ fn decode(compressed: &[u8], cap: usize) -> Result<Vec<u8>, DecodeError> {
 mod tests {
     use super::*;
     use crate::{
-        auth::Auth,
-        config::Config,
-        server::{State, WorkPools},
-        service::activity::ObjectActivity,
+        auth::Auth, config::Config, server::State, service::activity::ObjectActivity,
         storage::Catalog,
     };
     use std::{io::Write, sync::Arc, time::Duration};
@@ -264,28 +261,6 @@ mod tests {
     /// ends, while a loaded runner can take seconds over an answer that waits for none, so only a
     /// limit far beyond that tells the two apart.
     const HANG_GUARD: Duration = Duration::from_secs(20);
-
-    #[test]
-    fn work_pools_scale_with_blocking_threads_and_do_not_share_permits() {
-        for (threads, expected) in [(1, 1), (8, 2), (16, 4)] {
-            let config = crate::config::ConfigDraft {
-                max_blocking_threads: threads,
-                ..Default::default()
-            }
-            .build();
-            let pools = WorkPools::new(&config);
-            assert_eq!(pools.gzip_decoders.available_permits(), expected);
-            assert_eq!(pools.unauthenticated_gzip_decoders.available_permits(), 1);
-            assert_eq!(pools.batches.available_permits(), 2);
-            let other = WorkPools::new(&config);
-            assert!(!Arc::ptr_eq(&pools.gzip_decoders, &other.gzip_decoders));
-            assert!(!Arc::ptr_eq(
-                &pools.unauthenticated_gzip_decoders,
-                &other.unauthenticated_gzip_decoders
-            ));
-            assert!(!Arc::ptr_eq(&pools.batches, &other.batches));
-        }
-    }
 
     #[tokio::test]
     async fn gzip_metadata_admission_uses_the_server_pool() {

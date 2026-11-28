@@ -6,33 +6,16 @@ use hyper::{
     HeaderMap, Method,
     header::{HeaderName, HeaderValue},
 };
-use std::{collections::BTreeSet, sync::Mutex};
 
 /// Methods the allow-all fallback grants; PATCH is omitted because no XML route accepts it.
 const ALLOW_ALL_METHODS: &str = "HEAD, GET, POST, PUT, DELETE";
-/// Bounds the remembered bucket names so the warning memory does not grow with the catalog.
-const WARNED_BUCKET_LIMIT: usize = 64;
-
-/// Remembers one CORS fallback log per bucket and State, up to 64 buckets: the unconfigured-CORS
-/// warning where the fallback is off, or the note where the permissive default allowed a request.
-/// The effective fallback is fixed for a process, so only one of them can ever use the set.
-#[derive(Default)]
-pub(crate) struct CorsWarnings(Mutex<BTreeSet<String>>);
-
-impl CorsWarnings {
-    /// Records `bucket` and says whether this is its first logged fallback.
-    fn claim(&self, bucket: &str) -> bool {
-        let mut warned = crate::sync::lock(&self.0);
-        warned.len() < WARNED_BUCKET_LIMIT && warned.insert(bucket.to_owned())
-    }
-}
 
 /// Browsers only report a generic CORS failure, so the server log is the one place that can say
 /// the bucket needs CORS rules. The rules come first because Cloud Storage needs them too, and
 /// strict mode, the production-like setup, is where this mostly fires; the fallback is only the
 /// fake-gcs-server shortcut that hides the refusal.
 pub(crate) fn warn_unconfigured_cors(
-    state: &crate::server::State,
+    state: &crate::service::state::State,
     bucket: &str,
     headers: &HeaderMap,
 ) {
@@ -55,7 +38,7 @@ pub(crate) fn warn_unconfigured_cors(
 /// The permissive default allows what Cloud Storage refuses, so say so once per bucket: an app
 /// that works locally would otherwise fail in production without a hint. An explicit allow-all
 /// was chosen knowingly and stays silent.
-pub(crate) fn note_default_cors_fallback(state: &crate::server::State, bucket: &str) {
+pub(crate) fn note_default_cors_fallback(state: &crate::service::state::State, bucket: &str) {
     if state.xml_cors_warned_buckets.claim(bucket) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Info,
@@ -552,33 +535,21 @@ mod tests {
         assert!(cors(&preflight, &Method::OPTIONS, &[], true).is_empty());
     }
 
-    #[test]
-    fn unconfigured_warning_is_once_per_bucket_and_bounded() {
-        let warned = CorsWarnings::default();
-        assert!(warned.claim("bucket-a"));
-        assert!(!warned.claim("bucket-a"));
-        for index in 1..WARNED_BUCKET_LIMIT {
-            assert!(warned.claim(&format!("bucket-{index}")));
-        }
-        assert!(!warned.claim("bucket-over-limit"));
-        assert_eq!(warned.0.lock().unwrap().len(), WARNED_BUCKET_LIMIT);
-    }
-
     #[tokio::test]
     async fn warning_buckets_are_independent_for_each_server_state() {
         let dir = crate::test_support::TestDir::new();
         let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
-        let first = crate::server::State::for_test(catalog.clone(), Default::default());
-        let second = crate::server::State::for_test(catalog.clone(), Default::default());
+        let first = crate::service::state::State::for_test(catalog.clone(), Default::default());
+        let second = crate::service::state::State::for_test(catalog.clone(), Default::default());
         let headers = request("https://app.example", None, None);
         warn_unconfigured_cors(&first, "bucket-a", &headers);
         warn_unconfigured_cors(&first, "bucket-a", &headers);
-        assert!(second.xml_cors_warned_buckets.0.lock().unwrap().is_empty());
+        assert!(second.xml_cors_warned_buckets.buckets().is_empty());
         warn_unconfigured_cors(&second, "bucket-a", &headers);
         for state in [&first, &second] {
             assert_eq!(
-                *state.xml_cors_warned_buckets.0.lock().unwrap(),
-                BTreeSet::from(["bucket-a".into()])
+                state.xml_cors_warned_buckets.buckets(),
+                std::collections::BTreeSet::from(["bucket-a".into()])
             );
         }
         catalog.close().await.unwrap();

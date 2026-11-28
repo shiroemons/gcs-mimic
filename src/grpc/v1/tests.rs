@@ -103,7 +103,7 @@ async fn storage(dir: &TestDir, auth: Auth) -> Storage {
         catalog.insert_bucket(bucket(name, project)).await.unwrap();
     }
     Storage {
-        state: Arc::new(crate::server::State::for_test(catalog, auth)),
+        state: Arc::new(crate::service::state::State::for_test(catalog, auth)),
         max_object_bytes: 1024 * 1024,
         compat_profile: crate::profile::CompatProfile::FakeGcsServer,
     }
@@ -720,7 +720,10 @@ async fn legacy_updates_releasing_the_event_based_hold_restart_the_retention_per
     upload.metadata.event_based_hold = Some(true);
     catalog.put_object(upload, rx).await.unwrap();
     let storage = Storage {
-        state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),
+        state: Arc::new(crate::service::state::State::for_test(
+            catalog,
+            Auth::permissive(),
+        )),
         max_object_bytes: 1024,
         compat_profile: crate::profile::CompatProfile::FakeGcsServer,
     };

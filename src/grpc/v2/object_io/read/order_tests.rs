@@ -177,7 +177,7 @@ async fn a_missing_bucket_is_authorized_before_the_generation_and_the_conditions
     let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
     let auth =
         crate::auth::Auth::strict(crate::grpc::test_support::registry(&[("nobody", "", "")]));
-    let state = std::sync::Arc::new(crate::server::State::for_test(catalog, auth));
+    let state = std::sync::Arc::new(crate::service::state::State::for_test(catalog, auth));
     let ungranted = crate::grpc::test_support::storage_with(state, 1024);
     let nobody = crate::grpc::test_support::caller(&ungranted, "nobody").await;
     assert_code(

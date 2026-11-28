@@ -371,7 +371,7 @@ mod tests {
         catalog.insert_bucket(record).await.unwrap();
         let s = Storage {
             compat_profile: crate::profile::CompatProfile::Native,
-            state: Arc::new(crate::server::State::for_test(
+            state: Arc::new(crate::service::state::State::for_test(
                 catalog,
                 Auth::strict(registry(&[
                     ("admin", "p", "roles/storage.objectAdmin"),

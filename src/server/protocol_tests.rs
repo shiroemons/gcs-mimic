@@ -1,6 +1,7 @@
 //! HTTP framing and response-envelope contracts shared by the adapters.
 
 use super::*;
+use crate::auth::Auth;
 use crate::json::JsonErrorResponse;
 
 #[tokio::test]

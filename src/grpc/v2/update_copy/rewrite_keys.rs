@@ -234,7 +234,10 @@ async fn grpc_rewrite_continuations_repeat_both_keys_across_a_restart() {
     s.state.catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let s = Storage {
-        state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),
+        state: Arc::new(crate::service::state::State::for_test(
+            catalog,
+            Auth::permissive(),
+        )),
         ..s
     };
     let keyed = |token: &str, source: Option<&[u8; 32]>, destination: Option<&[u8; 32]>| {

@@ -12,7 +12,7 @@ use std::sync::Arc;
 const KEY: [u8; 32] = [3; 32];
 const OTHER: [u8; 32] = [4; 32];
 
-async fn setup() -> (TestDir, Arc<crate::server::State>) {
+async fn setup() -> (TestDir, Arc<crate::service::state::State>) {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     catalog
@@ -21,7 +21,10 @@ async fn setup() -> (TestDir, Arc<crate::server::State>) {
         .unwrap();
     put_keyed(&catalog, "bidi-csek", "secret", b"abc", Some(&KEY)).await;
     put_keyed(&catalog, "bidi-csek", "plain", b"abc", None).await;
-    let state = Arc::new(crate::server::State::for_test(catalog, Auth::permissive()));
+    let state = Arc::new(crate::service::state::State::for_test(
+        catalog,
+        Auth::permissive(),
+    ));
     (dir, state)
 }
 
@@ -36,7 +39,7 @@ fn spec(object: &str, key: Option<&[u8; 32]>) -> pb::BidiReadObjectSpec {
 
 /// Runs one BidiReadObject stream over the wire and returns its final status and responses.
 async fn open(
-    state: &Arc<crate::server::State>,
+    state: &Arc<crate::service::state::State>,
     spec: pb::BidiReadObjectSpec,
 ) -> (Status, Vec<pb::BidiReadObjectResponse>) {
     routed_rpc_status(

@@ -64,7 +64,10 @@ pub mod seed {
 }
 
 pub mod server {
-    pub use crate::server::{State, Stop, TcpListeners, serve};
+    pub use crate::{
+        server::{Stop, TcpListeners, serve},
+        service::state::State,
+    };
 }
 
 pub mod storage {

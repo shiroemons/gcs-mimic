@@ -17,7 +17,8 @@ use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
     auth::{Auth, Registry},
     clock::{Clock, ManualClock},
-    server::{State, Stop, TcpListeners, serve},
+    server::{Stop, TcpListeners, serve},
+    service::state::State,
     storage::{Catalog, SessionState},
     tls::ListenerSecurity,
 };

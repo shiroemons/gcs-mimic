@@ -1,5 +1,6 @@
 use super::*;
 #[cfg(unix)]
+use crate::auth::Auth;
 use crate::config::Scheme;
 use crate::test_support::TestDir;
 

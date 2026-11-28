@@ -10,7 +10,7 @@ use tonic::codegen::tokio_stream::StreamExt;
 
 /// The metadata ReadObject returns in its first response under `paths`.
 async fn read_object_metadata(
-    state: &std::sync::Arc<crate::server::State>,
+    state: &std::sync::Arc<crate::service::state::State>,
     paths: &[&str],
 ) -> pb::Object {
     let storage = crate::grpc::test_support::storage_with(state.clone(), 1024 * 1024);
@@ -31,7 +31,7 @@ async fn read_object_metadata(
 
 /// The metadata of the first BidiReadObject response.
 async fn first_metadata(
-    state: &std::sync::Arc<crate::server::State>,
+    state: &std::sync::Arc<crate::service::state::State>,
     read_mask: Option<prost_types::FieldMask>,
     fieldmask: Option<&'static str>,
 ) -> pb::Object {

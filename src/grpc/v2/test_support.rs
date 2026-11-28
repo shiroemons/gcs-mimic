@@ -50,7 +50,10 @@ pub(super) async fn setup() -> (Storage, TestDir) {
     (
         Storage {
             compat_profile: crate::profile::CompatProfile::Native,
-            state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),
+            state: Arc::new(crate::service::state::State::for_test(
+                catalog,
+                Auth::permissive(),
+            )),
             max_object_bytes: 8 * 1024 * 1024,
         },
         dir,

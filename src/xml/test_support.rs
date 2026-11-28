@@ -3,8 +3,8 @@ use crate::{
     bucket::BucketRecord,
     clock::{Clock, SystemClock},
     config::{Config, RequestEndpoints},
-    server::State,
     service::activity::ObjectActivity,
+    service::state::State,
     storage::{Catalog, admin::LocalAdmin},
     test_support::TestDir,
 };
