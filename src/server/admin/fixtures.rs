@@ -12,7 +12,10 @@ use crate::{
     json::handler::json_response,
     notification::NotificationMode,
     object::{ExpectedHashes, ObjectError, Patch, UploadChunk, content_type},
-    server::{DeadlineWatch, RequestBody, RequestCtx},
+    service::{
+        body::RequestBody,
+        context::{DeadlineWatch, RequestCtx},
+    },
     storage::admin::{
         AdminError, BucketName, Generation, ImportedIdentity, ObjectName, Publication, PublishMode,
     },

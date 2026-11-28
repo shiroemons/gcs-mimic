@@ -3,7 +3,8 @@
 use crate::{
     config::{Config, EndpointSnapshot},
     json::ApiError,
-    server::{RequestBody, RequestCtx, browser, host},
+    server::{browser, host},
+    service::{body::RequestBody, context::RequestCtx},
     url::PublicOrigin,
 };
 use hyper::{Request, StatusCode};
@@ -134,7 +135,7 @@ mod tests {
         use crate::{
             auth::Auth,
             config::ConnectionScheme,
-            server::{ObjectActivity, State},
+            service::{activity::ObjectActivity, state::State},
             storage::Catalog,
         };
         let dir = crate::test_support::TestDir::new();
@@ -185,7 +186,7 @@ mod tests {
         use crate::{
             auth::Auth,
             config::RequestEndpoints,
-            server::{ObjectActivity, State},
+            service::{activity::ObjectActivity, state::State},
             storage::Catalog,
         };
         let dir = crate::test_support::TestDir::new();

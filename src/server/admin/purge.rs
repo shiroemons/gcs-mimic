@@ -5,10 +5,14 @@
 
 use crate::json::JsonErrorResponse;
 use crate::{
+    bounded_body::RESOURCE_BODY_LIMIT,
     json,
     json::ApiError,
     json::handler::json_response,
-    server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx},
+    service::{
+        body::RequestBody,
+        context::{DeadlineWatch, RequestCtx},
+    },
     storage::admin::{AdminError, BucketName, InvalidBucketName, PurgeError},
 };
 use http_body_util::Full;

@@ -1,9 +1,18 @@
 //! HTTP framing and response-envelope contracts shared by the adapters.
 
-use super::*;
+use super::{connection::http1_builder, probe::probe, routing::unknown_route};
 use crate::auth::Auth;
 use crate::json::JsonErrorResponse;
+use crate::service::{body::RequestBody, state::State};
 use crate::storage::Catalog;
+use http_body_util::{BodyExt, Full};
+use hyper::{
+    Request, Response, StatusCode,
+    body::{Bytes, Incoming},
+};
+use hyper_util::rt::TokioIo;
+use std::convert::Infallible;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[tokio::test]
 async fn http1_enforces_the_request_head_buffer_limit() {

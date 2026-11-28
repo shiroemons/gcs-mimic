@@ -4,9 +4,8 @@
 //! [`JsonRoute::parse`] is part of the wire contract: earlier routes claim overlapping paths, so
 //! the routes are tried in a fixed sequence.
 
-use super::RequestBody as Incoming;
 use super::admin::AdminRoute;
-use super::{DeadlineWatch, RequestCtx, ResponseBody, boxed, empty_response, probe, unknown_route};
+use super::probe::probe;
 use crate::json::JsonErrorResponse;
 use crate::json::handler::{refuse_authenticated, route::JsonRoute};
 use crate::json::resumable::{PROTOCOL_PREFIX, ProtocolUpload, UPLOAD_PREFIX};
@@ -14,6 +13,11 @@ use crate::{
     bucket::{BucketAccess, CatalogError, CorsRule, cors::CorsRequest},
     config::{Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
     json::{self, ApiError},
+    service::{
+        body::{RequestBody as Incoming, ResponseBody, boxed, empty_response},
+        context::{DeadlineWatch, RequestCtx},
+        state::State,
+    },
     storage::failure::wording::safe_backend_cause,
     xml,
 };
@@ -427,7 +431,7 @@ impl BucketCors {
 }
 
 /// The rules of the bucket an Origin-bearing request names, and whether it exists.
-async fn origin_bucket_cors(state: &super::State, bucket: &str) -> BucketCors {
+async fn origin_bucket_cors(state: &State, bucket: &str) -> BucketCors {
     match state
         .catalog
         .get_bucket(bucket, &BucketAccess::Permissive)
@@ -443,7 +447,7 @@ async fn origin_bucket_cors(state: &super::State, bucket: &str) -> BucketCors {
 }
 
 /// Whether a bucket has CORS rules, without reading them; a failed lookup counts as none.
-async fn bucket_has_cors(state: &super::State, bucket: &str) -> bool {
+async fn bucket_has_cors(state: &State, bucket: &str) -> bool {
     match state.catalog.bucket_has_cors(bucket).await {
         Ok(has_rules) => has_rules,
         Err(error) => {
@@ -472,7 +476,7 @@ fn cors_lookup_failure(bucket: &str, error: &CatalogError) -> serde_json::Value 
 /// Logs once per bucket what its lack of rules did to an Origin-bearing request: a warning
 /// where no fallback applies, or a note where only the permissive default let it through.
 fn note_bucket_without_rules(
-    state: &super::State,
+    state: &State,
     bucket: &str,
     headers: &HeaderMap,
     fallback: CorsFallbackChoice,
@@ -582,6 +586,10 @@ async fn respond_unselected(
         );
     };
     json::handler::respond(request, ctx, route).await
+}
+
+pub(super) fn unknown_route() -> ApiError {
+    ApiError::new(StatusCode::NOT_FOUND, "notFound", "Route not found")
 }
 
 async fn respond_xml_object(

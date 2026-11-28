@@ -2,7 +2,10 @@
 //! connection and bounds each phase of it, from the client preface through idle periods and open
 //! streams to GOAWAY. Which service answers a call is `grpc::StorageRouter`'s choice.
 
-use super::{CountingIo, IdleTurn, ReadActivity, SlotReclaim};
+use super::{
+    connection::{CountingIo, ReadActivity},
+    slots::{IdleTurn, SlotReclaim},
+};
 use crate::{
     config::{Config, GrpcScheme},
     diagnostics::Event,

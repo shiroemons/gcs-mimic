@@ -1,7 +1,11 @@
 //! Opt-in local management never confers Google API permissions.
 
-use super::{RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, ResponseBody, boxed, empty_response};
+use crate::bounded_body::RESOURCE_BODY_LIMIT;
 use crate::json::JsonErrorResponse;
+use crate::service::{
+    body::{RequestBody, ResponseBody, boxed, empty_response},
+    context::RequestCtx,
+};
 use crate::{auth, config::EndpointError, json::ApiError};
 use http_body_util::Full;
 use hyper::{Method, Request, Response, StatusCode, body::Bytes};
@@ -266,7 +270,7 @@ mod tests {
         let mut auth = auth::Auth::strict(registry);
         auth.trust(&crate::auth::TrustedCaller::Named("manager".into()));
         assert_eq!(auth.trusted_principal(), Some("manager"));
-        let state = std::sync::Arc::new(super::super::State::for_test(catalog, auth));
+        let state = std::sync::Arc::new(crate::service::state::State::for_test(catalog, auth));
         let config = std::sync::Arc::new(
             crate::config::ConfigDraft {
                 admin_enabled: true,
@@ -280,7 +284,8 @@ mod tests {
             .snapshot(&config, "http://localhost")
             .unwrap()
             .without_request();
-        let (activity, _) = tokio::sync::watch::channel(super::super::ObjectActivity::default());
+        let (activity, _) =
+            tokio::sync::watch::channel(crate::service::activity::ObjectActivity::default());
         let public = RequestCtx {
             uri: &crate::percent::EMPTY_REQUEST_URI,
             state: &state,

@@ -4,10 +4,11 @@
 
 use crate::json::JsonErrorResponse;
 use crate::{
+    bounded_body::RESOURCE_BODY_LIMIT,
     json::ApiError,
     json::handler::json_response,
     seed::{DEFAULT_WAIT, MAX_WAIT},
-    server::{RESOURCE_BODY_LIMIT, RequestBody, RequestCtx},
+    service::{body::RequestBody, context::RequestCtx},
     storage::admin::seed_watch::WaitError,
 };
 use http_body_util::Full;

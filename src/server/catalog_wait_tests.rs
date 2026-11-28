@@ -1,8 +1,14 @@
 //! A catalog wait that times out names the limit that ended it, because each limit is raised by
 //! a different setting.
 
-use super::*;
-use crate::{cause::BackendFailure, service::activity::await_upload_catalog};
+use crate::{
+    cause::BackendFailure,
+    json::ApiError,
+    service::activity::{ObjectActivity, await_upload_catalog},
+    time_limit::TimeLimit,
+};
+use hyper::StatusCode;
+use tokio::sync::watch;
 
 const BUDGET_MS: u64 = 200;
 

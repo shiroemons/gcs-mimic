@@ -4,7 +4,7 @@ use crate::service::body::RequestBody as Incoming;
 use crate::{
     auth::Auth,
     config::{Config, VirtualHostDomains},
-    server::{ObjectActivity, RequestCtx, State},
+    service::{activity::ObjectActivity, context::RequestCtx, state::State},
     storage::Catalog,
 };
 use http_body_util::{BodyExt, Full};

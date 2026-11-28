@@ -3,18 +3,22 @@
 //! The envelope is bounded by contract and read whole; the response has no size of its own, so
 //! each part's response leaves as soon as it is ready instead of accumulating with the others.
 
-use super::{
-    RequestBody, RequestCtx, ResponseBody, State, boxed,
-    chunk_body::{self, ChunkSender, Completion},
-};
+use super::deadline::batch_part_timeout;
 use crate::json::JsonErrorResponse;
 use crate::{
     auth::ListenerRole,
     config::{Config, RequestEndpoints},
     json,
     json::ApiError,
-    service::activity::{
-        BatchPartWork, ObjectActivity, batch_part_expired, new_batch_part_activity, record_progress,
+    service::{
+        activity::{
+            BatchPartWork, ObjectActivity, batch_part_expired, new_batch_part_activity,
+            record_progress,
+        },
+        body::{RequestBody, ResponseBody, boxed},
+        chunk_body::{self, ChunkSender, Completion},
+        context::{DeadlineWatch, RequestCtx},
+        state::State,
     },
 };
 use http_body_util::BodyExt;
@@ -101,7 +105,7 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
     if request.headers().contains_key("content-encoding") {
         return Err(invalid("Compressed batch envelopes are unsupported"));
     }
-    let deadline = ctx.start_object_deadline(super::DeadlineWatch::CatalogOnly);
+    let deadline = ctx.start_object_deadline(DeadlineWatch::CatalogOnly);
     let admission =
         tokio::time::timeout_at(deadline, ctx.state.pools.batches.clone().acquire_owned())
             .await
@@ -249,7 +253,7 @@ async fn render_part(
             biased;
             response = dispatch(request, target, ctx) => response,
             expiry = batch_part_expired(ctx.activity, ctx.config.request_timeout()) => {
-                super::batch_part_timeout(expiry)
+                batch_part_timeout(expiry)
             }
         };
         let mut output = Vec::new();
@@ -870,7 +874,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(expiry, Expiry::ObjectRequest);
-        let reply = super::super::batch_part_timeout(expiry);
+        let reply = super::super::deadline::batch_part_timeout(expiry);
         let body = reply.into_body().collect().await.unwrap().to_bytes();
         let body = String::from_utf8(body.to_vec()).unwrap();
         assert!(body.contains("object_request_timeout_ms"), "{body}");
@@ -1080,7 +1084,7 @@ mod tests {
         assert_eq!(length, body.len() - 2);
         assert!(body.contains("responseTooLarge"));
         assert!(body.contains("operation may have completed"));
-        let mut response = crate::server::empty_response(StatusCode::OK);
+        let mut response = crate::service::body::empty_response(StatusCode::OK);
         response.headers_mut().insert(
             "x-header",
             hyper::header::HeaderValue::from_static("header-only"),

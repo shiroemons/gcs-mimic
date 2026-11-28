@@ -33,7 +33,7 @@ pub(super) enum ListenerProtocol {
 impl ListenerProtocol {
     fn report_silence(self) {
         match self {
-            Self::Http => super::warn_connection_timeout(
+            Self::Http => super::deadline::warn_connection_timeout(
                 "request headers were not received before header_read_timeout_ms",
             ),
             // The HTTP/2 driver never started, so there is no peer to send GOAWAY to.

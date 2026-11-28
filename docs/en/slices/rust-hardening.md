@@ -465,8 +465,10 @@ authentication inputs from a `RequestCtx`.
 
 ### File splits
 
-- `src/server.rs` (2,480 lines) splits into `accept`, `slots`, `connection`,
-  `deadline` and `probe` under `src/server/`.
+- `src/server.rs` (2,480 lines when planned) splits into `accept`, `slots`,
+  `connection`, `deadline` and `probe` under `src/server/`. It keeps the module
+  declarations, the public re-exports and `Shared`, the context every
+  connection task gets from the accept loop.
 - `src/auth/mod.rs` splits into `permission`, `identity`, `choices`, `error`,
   `registry` and `authenticate`, with its inline tests in `auth/tests.rs`.
   The module path does not change, so its ledger IDs stay.
@@ -1410,7 +1412,7 @@ remove none, so the rule reaches zero tolerance as early as possible.
 | gRPC listener | the HTTP/2 connection driver (`serve_connection`, `Transport`, the connection phases, stream tracking and the HTTP/2 builder) into `server::grpc_listener`; `grpc` keeps `StorageRouter`, which the driver hands each call. The connection tests, the TLS transport tests and the call metadata tests, which drive calls through both, move to `server::grpc_listener::tests`, and ledger IDs under `grpc::tests::transport` follow them. The Storage service memory tests stay in `grpc::tests` |
 | XML read | `server::xml_read` into `xml::read`, after the read pieces it shares with the JSON read move to `service`: `server::gzip` with its tests into `service::gzip`, `body_read_ahead` and the `Content-Range` writers into `service::media`, and `object_body` into `service::object_body`. The two routed read tests drive JSON writes and XML reads through `server::routing`, so they stay in the transport as `server::xml_read_tests`, and ledger IDs under `server::xml_read::tests` follow them |
 | JSON handlers | the JSON operation handlers (`acl`, `buckets`, `notifications`, `objects`, `project_resources`, `resumable` and `rewrite`), the JSON route parser with its table of refused routes, the per-route dispatch of `server::routing` and the request checks and resource responses those handlers share in `src/server.rs` into `json::handler`. `server::routing` still classifies the target and parses the JSON route, then hands it to `json::handler::respond`. `ProtocolUpload` and `session_path_prefix`, which the router sets and the session handler reads, move to `json::resumable`, and `has_body`, which the probes also read, to `service::body`. The handler tests move with their modules, and the unit tests of `has_body`, `require_empty_body` and `not_modified_response` leave `server::protocol_tests` for theirs. The ACL projection tests still send requests through `server::routing`, which becomes crate-visible for that test driver |
-| `server.rs` files | the transport split |
+| `server.rs` files | the transport split. `accept` takes the listeners, the accept loop, the connection start and the drain. `connection` takes the HTTP/1 service, the request end marker, the read counter that both connection servers wrap their streams in, the connection watch and the lingering close. `deadline` takes the phase limits, the timeout replies and the timeout warning that the handshake also emits. `slots` takes the slot reclaim and the idle line, and `probe` the probes. The watch stays in `connection` because it drives the hyper connection, so the new modules name each other in one direction: `accept` names `connection`, `connection` names `deadline` and `slots`, and `deadline` names `slots`. `unknown_route` moves to `server::routing`, which answers unknown routes. The management, batch and ingress modules import the service items and `RESOURCE_BODY_LIMIT` from `service` and `bounded_body` instead of through `server`. `server::deadline_tests`, `server::drain_tests`, `server::reclaim_tests` and `server::upload_frame_tests` become the `tests` of `deadline`, `accept`, `slots` and `connection`, and the test-clock baseline row follows `drain_tests`. The ledger names those tests without a module path, so no test ID changes |
 | Config documents | the parse half moves to the settings layer |
 | `fsutil` per OS | `cfg_select!` inside bodies; `scripts/check-cross.sh` and the portability CI job |
 | Protobuf crate | generated code in its own crate, with the build measurement |
