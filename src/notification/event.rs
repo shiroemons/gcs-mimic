@@ -8,12 +8,12 @@ use crate::{
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 
-/// The object resource that a `JSON_API_V1` payload carries. The JSON adapter owns that
+/// Renders the object resource that a `JSON_API_V1` payload carries. The JSON adapter owns that
 /// representation and implements this for `ObjectRecord`, so the notification model names only
-/// the interface and stays below the adapters that render it.
+/// the interface and stays below the JSON adapter that renders it.
 pub(crate) trait JsonApiObject {
     /// The `noAcl` resource rendered without an endpoint; the payload drops its links.
-    fn json_api_object(&self) -> Result<Value, TimeOutOfRange>;
+    fn to_json_api_object(&self) -> Result<Value, TimeOutOfRange>;
 }
 
 crate::choice::string_enum! {
@@ -121,7 +121,7 @@ pub(crate) struct Message<'a> {
     pub(crate) replacement: Option<i64>,
 }
 
-fn invalid_time(error: crate::time_format::TimeOutOfRange) -> CatalogError {
+fn invalid_time(error: TimeOutOfRange) -> CatalogError {
     // Notification diagnostics historically include the status of the metadata conversion.
     let status = BackendCause::with_source("503 Service Unavailable", error);
     CatalogError::Corrupt(BackendCause::with_source(
@@ -178,7 +178,7 @@ impl Message<'_> {
         )]);
         match config.payload_format {
             PayloadFormat::JsonApiV1 => {
-                let mut payload = self.object.json_api_object().map_err(invalid_time)?;
+                let mut payload = self.object.to_json_api_object().map_err(invalid_time)?;
                 // Notification metadata has no listener-dependent URLs.
                 if let Some(fields) = payload.as_object_mut() {
                     // shift_remove keeps the recorded order of the remaining fields.
