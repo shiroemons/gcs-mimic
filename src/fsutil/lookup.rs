@@ -24,7 +24,7 @@
 //! Creating, removing or renaming an entry changes the directory's modification and change
 //! times, so a directory that changed during the pass is read again rather than judged by its
 //! old names. The directory is asked past the attribute cache a Linux FUSE or NFS mount keeps
-//! ([`imp::uncached_identity`]), which a rename made on the host does not invalidate. A listing
+//! ([`super::uncached_identity`]), which a rename made on the host does not invalidate. A listing
 //! is kept only when the directory reported the same before and after it was read, and only once
 //! the directory's last change is old enough that a later one cannot fall in the same timestamp
 //! tick ([`FileIdentity::settled_at`]); a directory that just changed is read again for each
@@ -231,7 +231,7 @@ impl Lookup {
     /// listing read just before a change that left the directory's timestamps as they were.
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) fn keep_listing(&self, parent: &File, names: &[&str]) -> io::Result<()> {
-        let state = imp::uncached_identity(parent)?;
+        let state = super::uncached_identity(parent)?;
         self.listings().keep(Listing {
             state,
             names: names.iter().map(OsString::from).collect(),
@@ -267,7 +267,7 @@ impl Lookup {
     #[cfg(all(test, unix))]
     pub(super) fn listed(&self, parent: &File, name: &OsStr) -> io::Result<bool> {
         let read_ns = signed_nanos(self.clock.now());
-        let state = imp::uncached_identity(parent)?;
+        let state = super::uncached_identity(parent)?;
         if let Some(listing) = self.listings().find(state) {
             return Ok(listing.names.contains(name));
         }
@@ -294,7 +294,7 @@ impl Lookup {
         })?;
         if let Some(names) = names
             && state.settled_at(read_ns)
-            && imp::uncached_identity(parent)? == state
+            && super::uncached_identity(parent)? == state
         {
             self.listings().keep(Listing { state, names });
         }
@@ -486,10 +486,10 @@ mod listing_tests {
     fn a_directory_reports_its_uncached_identity_as_fstat_does() {
         let listed = Listed::new(&["Actual"]);
         listed.settle();
-        let before = imp::uncached_identity(&listed.parent).unwrap();
+        let before = super::super::uncached_identity(&listed.parent).unwrap();
         assert_eq!(before, super::super::stat_identity(&listed.parent).unwrap());
         fs::rename(listed.dir.0.join("Actual"), listed.dir.0.join("actual")).unwrap();
-        let after = imp::uncached_identity(&listed.parent).unwrap();
+        let after = super::super::uncached_identity(&listed.parent).unwrap();
         assert_eq!(after, super::super::stat_identity(&listed.parent).unwrap());
         assert_ne!(after, before);
     }

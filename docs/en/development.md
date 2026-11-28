@@ -300,8 +300,15 @@ hooks and the Unix pre-exec test. Do not allow unsafe for an entire crate or tes
 module. Cross-target checks must include Windows: native Unix checks do not
 compile its `cfg(windows)` branches.
 
-`src/fsutil.rs` holds descriptor-based filesystem operations. Keep new
-OS-specific unsafe calls there, each with a narrow
+`src/fsutil` holds descriptor-based filesystem operations. `src/fsutil.rs`
+keeps the types every platform shares and picks a platform's module with
+`cfg_select!` inside a function body. `unix` holds what Unix platforms share,
+including a step that Linux and macOS spell with different calls inside one
+shared body, such as the exclusive rename and the xattr read; a `cfg_select!`
+there picks the spelling. `linux`, `apple` and `windows` hold the operations
+only that platform has. Put a new OS-specific unsafe call in the module of the
+platform that makes it, or in `unix` when it spells one step of a shared Unix
+body, each with a narrow
 `#[expect(unsafe_code, reason = "...")]` and a `// SAFETY:` comment that
 documents pointer/handle ownership and platform preconditions, and verify all
 affected platforms. Do not add an exception before it is needed.

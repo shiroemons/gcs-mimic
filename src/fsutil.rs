@@ -1,9 +1,21 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 //! Descriptor-based filesystem operations; OS-specific unsafe stays in this module.
+//!
+//! This file holds the types every platform shares and the functions whose body picks a
+//! platform's module with `cfg_select!`. `unix` holds what Unix platforms share, including a
+//! step that Linux and macOS spell with different calls inside one shared body, such as the
+//! exclusive rename and the xattr read: a `cfg_select!` there picks the spelling. `linux`,
+//! `apple` and `windows` hold the operations only that platform has, and `unsupported` answers
+//! the descriptor-relative lookups where no Unix descriptor exists. The platform modules name
+//! `unix` and the shared types, never each other, and only this file chooses between them.
 
 use std::{collections::VecDeque, ffi::OsString, fs::File, io};
 mod lookup;
 
+#[cfg(target_vendor = "apple")]
+mod apple;
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
@@ -12,60 +24,25 @@ use unix as imp;
 mod unsupported;
 #[cfg(not(unix))]
 use unsupported as imp;
+#[cfg(windows)]
+mod windows;
 
 pub(crate) use imp::directory_at;
 use imp::directory_names_within;
-pub(crate) use imp::uncached_identity;
 pub(crate) use imp::{directory_names_after, open_directory_nofollow, open_regular_at};
 pub(crate) use lookup::Lookup;
 #[cfg(all(test, unix))]
 pub(crate) use lookup::Matching;
-
-/// `readdir` signals both the end of the stream and a failure with a null entry and sets
-/// errno only on failure, so errno must be cleared before each call; a stale value would
-/// turn a clean end into an error. Each libc names its thread-local errno accessor
-/// differently, and a Unix target without a known accessor must not build.
 #[cfg(unix)]
-#[expect(
-    unsafe_code,
-    reason = "errno is reachable only through the libc accessor"
-)]
-fn clear_errno() {
-    #[cfg(any(target_os = "solaris", target_os = "illumos"))]
-    use libc::___errno as errno;
-    #[cfg(any(target_os = "android", target_os = "openbsd", target_os = "netbsd"))]
-    use libc::__errno as errno;
-    #[cfg(any(target_os = "linux", target_os = "dragonfly"))]
-    use libc::__errno_location as errno;
-    #[cfg(any(target_vendor = "apple", target_os = "freebsd"))]
-    use libc::__error as errno;
-    #[cfg(not(any(
-        target_os = "linux",
-        target_os = "dragonfly",
-        target_os = "android",
-        target_os = "openbsd",
-        target_os = "netbsd",
-        target_vendor = "apple",
-        target_os = "freebsd",
-        target_os = "solaris",
-        target_os = "illumos",
-    )))]
-    compile_error!("directory listing needs this target's errno accessor; add it to clear_errno");
-    // SAFETY: the accessor returns a valid pointer to the calling thread's errno.
-    unsafe {
-        *errno() = 0;
-    }
-}
+pub(crate) use unix::{NodeId, rename_noreplace};
+#[cfg(windows)]
+pub(crate) use windows::move_write_through;
 
 pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS);
+    cfg_select! {
+        windows => { windows::open_directory(path) }
+        _ => { File::open(path) }
     }
-    options.open(path)
 }
 
 /// What a spelling-checked lookup of a directory found. Only tests ask it, and only which answer
@@ -344,48 +321,6 @@ impl std::fmt::Debug for IdentityField {
     }
 }
 
-/// The file-system object a path or handle resolved to: equal values name the same inode on the
-/// same device, whatever its size or times.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg(unix)]
-pub(crate) struct NodeId {
-    pub(crate) device: u64,
-    pub(crate) inode: u64,
-}
-
-#[cfg(unix)]
-impl FileIdentity {
-    pub(crate) fn node(&self) -> NodeId {
-        NodeId {
-            device: self.device,
-            inode: self.inode,
-        }
-    }
-}
-
-#[cfg(unix)]
-impl From<&std::fs::Metadata> for FileIdentity {
-    fn from(metadata: &std::fs::Metadata) -> Self {
-        use std::os::unix::fs::MetadataExt;
-        Self {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-            size: metadata.len(),
-            modified_ns: i128::from(metadata.mtime()) * 1_000_000_000
-                + i128::from(metadata.mtime_nsec()),
-            changed_ns: i128::from(metadata.ctime()) * 1_000_000_000
-                + i128::from(metadata.ctime_nsec()),
-        }
-    }
-}
-
-#[cfg(unix)]
-impl From<&std::fs::Metadata> for NodeId {
-    fn from(metadata: &std::fs::Metadata) -> Self {
-        FileIdentity::from(metadata).node()
-    }
-}
-
 #[cfg(unix)]
 pub(crate) fn sync_dir(path: &std::path::Path) -> io::Result<()> {
     sync_ordered(&File::open(path)?)
@@ -400,31 +335,12 @@ pub(crate) fn sync_dir(path: &std::path::Path) -> io::Result<()> {
 /// the cost: a power loss can still drop the latest commits, as before, but cannot keep a
 /// commit whose blob was lost. A filesystem without barriers gets the full flush instead.
 /// Elsewhere fsync already reaches the device.
-#[cfg(target_vendor = "apple")]
-#[expect(
-    unsafe_code,
-    reason = "std has no F_BARRIERFSYNC, so it is only reachable through fcntl"
-)]
+#[cfg(unix)]
 pub(crate) fn sync_ordered(file: &File) -> io::Result<()> {
-    use std::os::fd::AsRawFd;
-    loop {
-        // SAFETY: the descriptor stays open for the whole call, which takes no pointers.
-        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) } != -1 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        match error.raw_os_error() {
-            Some(libc::EINTR) => {}
-            Some(libc::ENOTSUP | libc::EOPNOTSUPP | libc::EINVAL) => return file.sync_all(),
-            _ => return Err(error),
-        }
+    cfg_select! {
+        target_vendor = "apple" => { apple::sync_ordered(file) }
+        _ => { file.sync_all() }
     }
-}
-
-/// See the Apple version: fsync here already makes the bytes durable.
-#[cfg(all(unix, not(target_vendor = "apple")))]
-pub(crate) fn sync_ordered(file: &File) -> io::Result<()> {
-    file.sync_all()
 }
 
 #[derive(Debug)]
@@ -479,83 +395,22 @@ thread_local! {
     static CLONE_UNSUPPORTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-#[cfg_attr(
-    windows,
-    expect(
-        unsafe_code,
-        reason = "the volume serial and file index come only from GetFileInformationByHandle"
-    )
-)]
 pub(crate) fn stat_identity(file: &File) -> Result<FileIdentity, FsError> {
-    #[cfg(unix)]
-    {
-        Ok(FileIdentity::from(&file.metadata()?))
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::Storage::FileSystem::{
-            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
-        };
-        let mut information = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
-        // SAFETY: the live file handle and writable output allocation are valid for this call.
-        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), information.as_mut_ptr()) }
-            == 0
-        {
-            return Err(io::Error::last_os_error().into());
-        }
-        // SAFETY: a successful call initialized every field of the output structure.
-        let information = unsafe { information.assume_init() };
-        let modified = (u64::from(information.ftLastWriteTime.dwHighDateTime) << 32)
-            | u64::from(information.ftLastWriteTime.dwLowDateTime);
-        Ok(FileIdentity {
-            device: u64::from(information.dwVolumeSerialNumber),
-            inode: (u64::from(information.nFileIndexHigh) << 32)
-                | u64::from(information.nFileIndexLow),
-            size: (u64::from(information.nFileSizeHigh) << 32)
-                | u64::from(information.nFileSizeLow),
-            modified_ns: i128::from(modified) * 100 - 11_644_473_600_000_000_000,
-            changed_ns: windows_change_time(file)?,
-        })
+    cfg_select! {
+        unix => { Ok(FileIdentity::from(&file.metadata()?)) }
+        windows => { windows::stat_identity(file) }
     }
 }
 
-#[cfg(windows)]
-#[expect(
-    unsafe_code,
-    reason = "the change time comes only from GetFileInformationByHandleEx"
-)]
-fn windows_change_time(file: &File) -> Result<i128, FsError> {
-    use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
-    };
-    const BASIC_INFO_SIZE: u32 = {
-        let size = std::mem::size_of::<FILE_BASIC_INFO>();
-        assert!(size <= u32::MAX as usize);
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "the const assertion bounds the size to a DWORD"
-        )]
-        {
-            size as u32
-        }
-    };
-    let mut basic = std::mem::MaybeUninit::<FILE_BASIC_INFO>::uninit();
-    // SAFETY: the output buffer matches FileBasicInfo and the file handle remains live.
-    if unsafe {
-        GetFileInformationByHandleEx(
-            file.as_raw_handle(),
-            FileBasicInfo,
-            basic.as_mut_ptr().cast(),
-            BASIC_INFO_SIZE,
-        )
-    } == 0
-    {
-        return Err(io::Error::last_os_error().into());
+/// The identity of `file` as its filesystem reports it now. Linux asks the filesystem itself,
+/// past the attribute cache that a FUSE, virtiofs or NFS mount answers `fstat` from. Other
+/// platforms have no such request, so a lookup there sees what a network mount's attribute
+/// cache answers.
+pub(crate) fn uncached_identity(file: &File) -> io::Result<FileIdentity> {
+    cfg_select! {
+        target_os = "linux" => { linux::uncached_identity(file) }
+        _ => { Ok(stat_identity(file)?) }
     }
-    // SAFETY: successful FileBasicInfo initialized the structure.
-    Ok(i128::from(unsafe { basic.assume_init() }.ChangeTime) * 100 - 11_644_473_600_000_000_000)
 }
 
 fn validate_name(name: &std::ffi::OsStr) -> io::Result<()> {
@@ -575,63 +430,6 @@ fn validate_name(name: &std::ffi::OsStr) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
-fn component(name: &std::ffi::OsStr) -> io::Result<std::ffi::CString> {
-    use std::os::unix::ffi::OsStrExt;
-    validate_name(name)?;
-    std::ffi::CString::new(name.as_bytes())
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
-}
-
-/// Whether `open_at` opens an existing regular file read-only or creates a new one.
-#[cfg(unix)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FileOpen {
-    Existing,
-    #[cfg_attr(
-        not(target_os = "linux"),
-        expect(dead_code, reason = "only a Linux clone creates its entry first")
-    )]
-    CreateNew,
-}
-
-#[cfg(unix)]
-#[expect(
-    unsafe_code,
-    reason = "openat on a pinned descriptor has no safe std equivalent"
-)]
-fn open_at(directory: &File, name: &std::ffi::CStr, open: FileOpen) -> io::Result<File> {
-    use std::os::fd::{AsRawFd, FromRawFd};
-    let flags = libc::O_CLOEXEC
-        | libc::O_NOFOLLOW
-        | libc::O_NONBLOCK
-        | match open {
-            FileOpen::Existing => libc::O_RDONLY,
-            FileOpen::CreateNew => libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
-        };
-    // SAFETY: directory is live and name is a validated terminated single component.
-    let fd = unsafe {
-        libc::openat(
-            directory.as_raw_fd(),
-            name.as_ptr(),
-            flags,
-            0o600 as libc::c_uint,
-        )
-    };
-    if fd < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: successful openat transfers a new descriptor to exactly one File owner.
-    let file = unsafe { File::from_raw_fd(fd) };
-    if !file.metadata()?.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "expected a regular file",
-        ));
-    }
-    Ok(file)
-}
-
 fn regular_source(src: &File) -> io::Result<()> {
     if src.metadata()?.is_file() {
         Ok(())
@@ -643,42 +441,8 @@ fn regular_source(src: &File) -> io::Result<()> {
     }
 }
 
-/// Clones `src` into `dst`, an empty regular file open for writing, and syncs it. `Ok(false)`
-/// means the filesystem cannot clone; `dst` is then still empty.
-#[cfg(target_os = "linux")]
-#[expect(unsafe_code, reason = "FICLONE has no safe std equivalent")]
-fn clone_onto(src: &File, dst: &File) -> io::Result<bool> {
-    use std::os::fd::AsRawFd;
-    #[cfg(test)]
-    if FAIL_CLONE_SYNC.replace(false) {
-        return Err(io::ErrorKind::Other.into());
-    }
-    #[cfg(test)]
-    if CLONE_UNSUPPORTED.get() {
-        return Ok(false);
-    }
-    // SAFETY: FICLONE receives the two live regular-file descriptors, with an empty target.
-    if unsafe { libc::ioctl(dst.as_raw_fd(), libc::FICLONE as _, src.as_raw_fd()) } == 0 {
-        dst.sync_all()?;
-        return Ok(true);
-    }
-    let error = io::Error::last_os_error();
-    if copy_fallback(&error) {
-        Ok(false)
-    } else {
-        Err(error)
-    }
-}
-
 /// Creates a clone without copying; Unsupported leaves no new entry.
 /// Mutable-source staging can then fall back to its own single-pass copy and hash.
-#[cfg_attr(
-    any(target_os = "linux", target_os = "macos"),
-    expect(
-        unsafe_code,
-        reason = "fclonefileat and unlinkat have no safe std equivalent"
-    )
-)]
 pub(crate) fn clone_into(
     src: &File,
     directory: &File,
@@ -686,74 +450,20 @@ pub(crate) fn clone_into(
 ) -> Result<(), CloneFailure> {
     validate_name(name)?;
     regular_source(src)?;
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        use std::os::fd::AsRawFd;
-        let name = component(name)?;
-        #[cfg(target_os = "macos")]
-        {
-            #[cfg(test)]
-            if CLONE_UNSUPPORTED.get() {
-                return Err(CloneFailure::NotCreated(FsError::Unsupported));
-            }
-            // SAFETY: live descriptors and a validated destination component; clone creates a new entry.
-            if unsafe {
-                libc::fclonefileat(src.as_raw_fd(), directory.as_raw_fd(), name.as_ptr(), 0)
-            } == 0
-            {
-                #[cfg(test)]
-                if FAIL_CLONE_SYNC.replace(false) {
-                    return Err(CloneFailure::Created(
-                        io::Error::from(io::ErrorKind::Other).into(),
-                    ));
-                }
-                open_at(directory, &name, FileOpen::Existing)
-                    .and_then(|file| file.sync_all())
-                    .map_err(|error| CloneFailure::Created(error.into()))?;
-                return Ok(());
-            }
-            let error = io::Error::last_os_error();
-            if !copy_fallback(&error) {
-                return Err(error.into());
-            }
-            Err(CloneFailure::NotCreated(FsError::Unsupported))
-        }
-        #[cfg(target_os = "linux")]
-        {
-            let dst = open_at(directory, &name, FileOpen::CreateNew)?;
-            if clone_onto(src, &dst).map_err(|error| CloneFailure::Created(error.into()))? {
-                return Ok(());
-            }
-            // SAFETY: only this call owns the newly created target; the component and directory are live.
-            if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
-                return Err(CloneFailure::Created(io::Error::last_os_error().into()));
-            }
+    cfg_select! {
+        target_os = "linux" => { linux::clone_into(src, directory, name) }
+        target_os = "macos" => { apple::clone_into(src, directory, name) }
+        _ => {
+            let _ = directory;
             Err(CloneFailure::NotCreated(FsError::Unsupported))
         }
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        let _ = directory;
-        Err(CloneFailure::NotCreated(FsError::Unsupported))
-    }
-}
-
-#[cfg(unix)]
-fn copy_fallback(error: &io::Error) -> bool {
-    matches!(
-        error.raw_os_error(),
-        Some(libc::EXDEV | libc::EINVAL | libc::ENOSYS | libc::ENOTSUP | libc::ENOTTY)
-    )
 }
 
 pub(crate) fn read_at(file: &File, bytes: &mut [u8], offset: u64) -> io::Result<usize> {
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::FileExt::read_at(file, bytes, offset)
-    }
-    #[cfg(windows)]
-    {
-        std::os::windows::fs::FileExt::seek_read(file, bytes, offset)
+    cfg_select! {
+        unix => { std::os::unix::fs::FileExt::read_at(file, bytes, offset) }
+        windows => { std::os::windows::fs::FileExt::seek_read(file, bytes, offset) }
     }
 }
 
@@ -767,33 +477,16 @@ pub(crate) const READS_CACHED_PAGES: bool = cfg!(all(
 /// fails `RWF_NOWAIT` rather than block, which makes this safe to call on an async worker. `None`
 /// covers every other outcome, including a file system without support and the end of the file,
 /// and sends the caller to [`read_at`], which also reports any real failure.
-#[cfg(all(target_os = "linux", any(target_env = "gnu", target_env = "musl")))]
-#[expect(unsafe_code, reason = "std has no wrapper for preadv2")]
 pub(crate) fn read_cached_at(file: &File, bytes: &mut [u8], offset: u64) -> Option<usize> {
-    use std::os::fd::AsRawFd;
-
-    let vector = libc::iovec {
-        iov_base: bytes.as_mut_ptr().cast(),
-        iov_len: bytes.len(),
-    };
-    let offset = libc::off_t::try_from(offset).ok()?;
-    // SAFETY: the one vector describes `bytes`, which stays exclusively borrowed for the call and
-    // receives at most its length, and `file` keeps the descriptor open.
-    let read = unsafe {
-        libc::preadv2(
-            file.as_raw_fd(),
-            &raw const vector,
-            1,
-            offset,
-            libc::RWF_NOWAIT,
-        )
-    };
-    usize::try_from(read).ok().filter(|read| *read > 0)
-}
-
-#[cfg(not(all(target_os = "linux", any(target_env = "gnu", target_env = "musl"))))]
-pub(crate) fn read_cached_at(_file: &File, _bytes: &mut [u8], _offset: u64) -> Option<usize> {
-    None
+    cfg_select! {
+        all(target_os = "linux", any(target_env = "gnu", target_env = "musl")) => {
+            linux::read_cached_at(file, bytes, offset)
+        }
+        _ => {
+            let _ = (file, bytes, offset);
+            None
+        }
+    }
 }
 
 /// The directories, by device and inode number, for which tests take the platform's answer to be
@@ -936,116 +629,6 @@ fn failing_open(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
     Err(io::ErrorKind::NotFound.into())
 }
 
-/// Renames `source` to `destination` unless an entry already has that name.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-#[expect(unsafe_code, reason = "an exclusive rename has no safe std equivalent")]
-fn rename_at(
-    source_directory: libc::c_int,
-    source: &std::ffi::CStr,
-    destination_directory: libc::c_int,
-    destination: &std::ffi::CStr,
-) -> Result<(), FsError> {
-    // SAFETY: the C strings remain live and the descriptors belong to the caller or AT_FDCWD.
-    let result = unsafe {
-        #[cfg(target_os = "linux")]
-        {
-            // musl 1.2.5 has no renameat2 wrapper.
-            libc::syscall(
-                libc::SYS_renameat2,
-                source_directory,
-                source.as_ptr(),
-                destination_directory,
-                destination.as_ptr(),
-                libc::RENAME_NOREPLACE,
-            )
-        }
-        #[cfg(target_os = "macos")]
-        {
-            libc::renameatx_np(
-                source_directory,
-                source.as_ptr(),
-                destination_directory,
-                destination.as_ptr(),
-                libc::RENAME_EXCL,
-            )
-        }
-    };
-    if result == 0 {
-        return Ok(());
-    }
-    let error = io::Error::last_os_error();
-    if matches!(
-        error.raw_os_error(),
-        Some(libc::ENOSYS | libc::ENOTSUP | libc::EINVAL)
-    ) {
-        return Err(FsError::Unsupported);
-    }
-    Err(error.into())
-}
-
-/// Refuses to replace an existing entry. A fallback crash may leave both names, which
-/// startup's staging recovery handles before admitting requests.
-#[cfg(unix)]
-pub(crate) fn rename_noreplace(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        let source = std::ffi::CString::new(from.as_os_str().as_bytes())?;
-        let destination = std::ffi::CString::new(to.as_os_str().as_bytes())?;
-        match rename_at(libc::AT_FDCWD, &source, libc::AT_FDCWD, &destination) {
-            Ok(()) => return Ok(()),
-            Err(FsError::Unsupported) => {}
-            Err(FsError::Io(error)) => return Err(error),
-        }
-    }
-    link_then_unlink(from, to)
-}
-
-#[cfg(unix)]
-fn link_then_unlink(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
-    std::fs::hard_link(from, to)?;
-    std::fs::remove_file(from)
-}
-
-#[cfg(windows)]
-#[expect(
-    unsafe_code,
-    reason = "MOVEFILE_WRITE_THROUGH is reachable only through MoveFileExW"
-)]
-pub(crate) fn move_write_through(
-    source: &std::path::Path,
-    destination: &std::path::Path,
-) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_WRITE_THROUGH, MoveFileExW};
-    let wide = |path: &std::path::Path| -> io::Result<Vec<u16>> {
-        let mut wide: Vec<_> = path.as_os_str().encode_wide().collect();
-        if wide.contains(&0) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "NUL in file path",
-            ));
-        }
-        wide.push(0);
-        Ok(wide)
-    };
-    let source = wide(source)?;
-    let destination = wide(destination)?;
-    // SAFETY: terminated UTF-16 buffers remain live for the synchronous call.
-    if unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_WRITE_THROUGH,
-        )
-    } == 0
-    {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
 pub(crate) const SOURCE_METADATA_CAP: usize = crate::bounded_body::RESOURCE_BODY_LIMIT;
 
 /// The field stays private, so a caller cannot supply a smaller allocation. A zeroed allocation
@@ -1080,24 +663,6 @@ pub(crate) enum SourceMetadataError {
     Io(io::Error),
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn classify(error: io::Error) -> Result<Option<usize>, SourceMetadataError> {
-    let errno = error.raw_os_error();
-    #[cfg(target_os = "linux")]
-    let missing = libc::ENODATA;
-    #[cfg(target_os = "macos")]
-    let missing = libc::ENOATTR;
-    if errno == Some(missing) {
-        Ok(None)
-    } else if errno == Some(libc::ENOTSUP) || errno == Some(libc::EOPNOTSUPP) {
-        Err(SourceMetadataError::Unsupported)
-    } else if errno == Some(libc::ERANGE) || errno == Some(libc::E2BIG) {
-        Err(SourceMetadataError::TooLarge)
-    } else {
-        Err(SourceMetadataError::Io(error))
-    }
-}
-
 #[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn checked_length(length: usize) -> Result<Option<usize>, SourceMetadataError> {
     if length > SOURCE_METADATA_CAP {
@@ -1108,57 +673,18 @@ fn checked_length(length: usize) -> Result<Option<usize>, SourceMetadataError> {
 }
 
 /// The dedicated buffer prevents callers from supplying a smaller allocation.
-#[cfg_attr(
-    any(target_os = "linux", target_os = "macos"),
-    expect(
-        unsafe_code,
-        reason = "descriptor xattrs are reachable only through fgetxattr"
-    )
-)]
 pub(crate) fn read_source_metadata<'a>(
     file: &File,
     buffer: &'a mut SourceMetadataBuffer,
 ) -> Result<Option<&'a [u8]>, SourceMetadataError> {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        use std::os::fd::AsRawFd;
-        // SAFETY: the live file descriptor and literal NUL-terminated key are valid;
-        // the exclusive buffer pointer covers exactly the supplied allocation length.
-        let result = unsafe {
-            #[cfg(target_os = "linux")]
-            {
-                libc::fgetxattr(
-                    file.as_raw_fd(),
-                    c"user.metadata".as_ptr(),
-                    buffer.0.as_mut_ptr().cast(),
-                    buffer.0.len(),
-                )
-            }
-            #[cfg(target_os = "macos")]
-            {
-                libc::fgetxattr(
-                    file.as_raw_fd(),
-                    c"user.metadata".as_ptr(),
-                    buffer.0.as_mut_ptr().cast(),
-                    buffer.0.len(),
-                    0,
-                    0,
-                )
-            }
-        };
-        let length = if result < 0 {
-            classify(io::Error::last_os_error())?
-        } else {
-            checked_length(result.unsigned_abs())?
-        };
-        length
-            .map(|length| buffer.0.get(..length).ok_or(SourceMetadataError::TooLarge))
-            .transpose()
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        let _ = (file, &mut buffer.0);
-        Err(SourceMetadataError::Unsupported)
+    cfg_select! {
+        any(target_os = "linux", target_os = "macos") => {
+            unix::read_source_metadata(file, buffer)
+        }
+        _ => {
+            let _ = (file, &mut buffer.0);
+            Err(SourceMetadataError::Unsupported)
+        }
     }
 }
 
@@ -1261,27 +787,6 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"bytes");
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn exclusive_rename_and_link_fallback_preserve_existing_destinations() {
-        for rename in [rename_noreplace, link_then_unlink] {
-            let directory = crate::test_support::TestDir::new();
-            let source = directory.0.join("source");
-            let destination = directory.0.join("destination");
-            std::fs::write(&source, b"first").unwrap();
-            rename(&source, &destination).unwrap();
-            assert!(!source.exists());
-            assert_eq!(std::fs::read(&destination).unwrap(), b"first");
-            std::fs::write(&source, b"second").unwrap();
-            assert_eq!(
-                rename(&source, &destination).unwrap_err().kind(),
-                io::ErrorKind::AlreadyExists
-            );
-            assert_eq!(std::fs::read(&source).unwrap(), b"second");
-            assert_eq!(std::fs::read(&destination).unwrap(), b"first");
-        }
-    }
-
     /// A clone that fails after it created its entry says so and leaves the entry for its caller.
     /// A name that already holds an entry, and a filesystem that cannot clone, such as ext4 or
     /// Docker Desktop's shared folders, create nothing and leave no entry behind.
@@ -1361,46 +866,6 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn metadata_errno_retains_platform_distinctions() {
-        #[cfg(target_os = "linux")]
-        assert_eq!(
-            classify(io::Error::from_raw_os_error(libc::ENODATA)).unwrap(),
-            None
-        );
-        #[cfg(target_os = "macos")]
-        {
-            assert_eq!(
-                classify(io::Error::from_raw_os_error(libc::ENOATTR)).unwrap(),
-                None
-            );
-            std::assert_matches!(
-                classify(io::Error::from_raw_os_error(libc::ENODATA)),
-                Err(SourceMetadataError::Io(_))
-            );
-        }
-        for errno in [libc::ENOTSUP, libc::EOPNOTSUPP] {
-            std::assert_matches!(
-                classify(io::Error::from_raw_os_error(errno)),
-                Err(SourceMetadataError::Unsupported)
-            );
-        }
-        for errno in [libc::EACCES, libc::EPERM, libc::EBADF] {
-            let Err(SourceMetadataError::Io(error)) = classify(io::Error::from_raw_os_error(errno))
-            else {
-                panic!("must preserve I/O error")
-            };
-            assert_eq!(error.raw_os_error(), Some(errno));
-        }
-        for errno in [libc::ERANGE, libc::E2BIG] {
-            std::assert_matches!(
-                classify(io::Error::from_raw_os_error(errno)),
-                Err(SourceMetadataError::TooLarge)
-            );
-        }
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
     fn descriptor_xattr_reads_are_bounded_and_read_only() {
         let directory = crate::test_support::TestDir::new();
         let path = directory.0.join("body");
@@ -1465,50 +930,50 @@ pub(crate) mod test_support {
         )
     )]
     pub(crate) fn set_metadata(file: &fs::File, bytes: &[u8]) -> io::Result<bool> {
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        {
-            use std::os::fd::AsRawFd;
-            // SAFETY: the test owns the live descriptor; the literal key and input
-            // allocation remain valid for the synchronous Linux/macOS ABI call.
-            let result = unsafe {
-                #[cfg(target_os = "linux")]
-                {
-                    libc::fsetxattr(
-                        file.as_raw_fd(),
-                        c"user.metadata".as_ptr(),
-                        bytes.as_ptr().cast(),
-                        bytes.len(),
-                        0,
-                    )
+        cfg_select! {
+            any(target_os = "linux", target_os = "macos") => {
+                use std::os::fd::AsRawFd;
+                // SAFETY: the test owns the live descriptor; the literal key and input
+                // allocation remain valid for the synchronous Linux/macOS ABI call.
+                let result = unsafe {
+                    cfg_select! {
+                        target_os = "linux" => {
+                            libc::fsetxattr(
+                                file.as_raw_fd(),
+                                c"user.metadata".as_ptr(),
+                                bytes.as_ptr().cast(),
+                                bytes.len(),
+                                0,
+                            )
+                        }
+                        target_os = "macos" => {
+                            libc::fsetxattr(
+                                file.as_raw_fd(),
+                                c"user.metadata".as_ptr(),
+                                bytes.as_ptr().cast(),
+                                bytes.len(),
+                                0,
+                                0,
+                            )
+                        }
+                    }
+                };
+                if result == 0 {
+                    return Ok(true);
                 }
-                #[cfg(target_os = "macos")]
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ENOTSUP)
+                    || error.raw_os_error() == Some(libc::EOPNOTSUPP)
                 {
-                    libc::fsetxattr(
-                        file.as_raw_fd(),
-                        c"user.metadata".as_ptr(),
-                        bytes.as_ptr().cast(),
-                        bytes.len(),
-                        0,
-                        0,
-                    )
+                    Ok(false)
+                } else {
+                    Err(error)
                 }
-            };
-            if result == 0 {
-                return Ok(true);
             }
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() == Some(libc::ENOTSUP)
-                || error.raw_os_error() == Some(libc::EOPNOTSUPP)
-            {
+            _ => {
+                let _ = (file, bytes);
                 Ok(false)
-            } else {
-                Err(error)
             }
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        {
-            let _ = (file, bytes);
-            Ok(false)
         }
     }
 }

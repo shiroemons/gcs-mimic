@@ -1,5 +1,7 @@
-use super::{FileOpen, clear_errno, component, open_at};
+use super::FileIdentity;
 mod spelling;
+#[cfg(test)]
+mod tests;
 #[cfg(test)]
 pub(crate) use spelling::{child_directory, child_regular};
 pub(crate) use spelling::{directory_unconfirmed, regular_unconfirmed};
@@ -119,63 +121,6 @@ pub(crate) fn each_name(
     }
 }
 
-/// The identity of `file` as its filesystem reports it now. A Linux FUSE mount, virtiofs and
-/// therefore Docker Desktop's bind mounts included, and an NFS mount answer `fstat` from an
-/// attribute cache for a while, which a rename made on the host or another client does not
-/// invalidate; `AT_STATX_FORCE_SYNC` asks the filesystem instead, at the cost of one attribute
-/// request. A kernel or seccomp profile without `statx` (`ENOSYS`, `EPERM`), or a filesystem
-/// that leaves a field out of its answer, is answered by `fstat` as before.
-#[cfg(target_os = "linux")]
-#[expect(
-    unsafe_code,
-    reason = "statx with AT_STATX_FORCE_SYNC has no safe std equivalent"
-)]
-pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
-    const NEEDED: libc::c_uint =
-        libc::STATX_INO | libc::STATX_SIZE | libc::STATX_MTIME | libc::STATX_CTIME;
-    let mut buffer = std::mem::MaybeUninit::<libc::statx>::zeroed();
-    // SAFETY: the live descriptor, the terminated empty path that AT_EMPTY_PATH names it by, and
-    // the writable buffer are valid for the call, which keeps none of them.
-    let result = unsafe {
-        libc::statx(
-            file.as_raw_fd(),
-            c"".as_ptr(),
-            libc::AT_EMPTY_PATH | libc::AT_STATX_FORCE_SYNC,
-            libc::STATX_BASIC_STATS,
-            buffer.as_mut_ptr(),
-        )
-    };
-    if result != 0 {
-        let error = io::Error::last_os_error();
-        return match error.raw_os_error() {
-            Some(libc::ENOSYS | libc::EPERM) => Ok(super::stat_identity(file)?),
-            Some(_) | None => Err(error),
-        };
-    }
-    // SAFETY: statx succeeded, and the zeroed buffer was valid for every field before it wrote.
-    let status = unsafe { buffer.assume_init() };
-    if status.stx_mask & NEEDED != NEEDED {
-        return Ok(super::stat_identity(file)?);
-    }
-    let nanos = |time: libc::statx_timestamp| {
-        i128::from(time.tv_sec) * 1_000_000_000 + i128::from(time.tv_nsec)
-    };
-    Ok(super::FileIdentity {
-        device: libc::makedev(status.stx_dev_major, status.stx_dev_minor),
-        inode: status.stx_ino,
-        size: status.stx_size,
-        modified_ns: nanos(status.stx_mtime),
-        changed_ns: nanos(status.stx_ctime),
-    })
-}
-
-/// The identity of `file` as `fstat` reports it. Other Unix platforms have no request past a
-/// network mount's attribute cache, so a lookup there sees what that cache answers.
-#[cfg(not(target_os = "linux"))]
-pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
-    Ok(super::stat_identity(file)?)
-}
-
 /// Pins the selected directory without following a replacement symlink.
 pub(crate) fn open_directory_nofollow(path: &Path) -> io::Result<File> {
     // Trailing separators/dots otherwise make the OS follow a final symlink.
@@ -215,4 +160,274 @@ pub(crate) fn directory_at(directory: &File, name: &OsStr) -> io::Result<File> {
     }
     // SAFETY: successful openat transfers exactly one owned descriptor.
     Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+/// `readdir` signals both the end of the stream and a failure with a null entry and sets
+/// errno only on failure, so errno must be cleared before each call; a stale value would
+/// turn a clean end into an error. Each libc names its thread-local errno accessor
+/// differently, and a Unix target without a known accessor must not build.
+#[expect(
+    unsafe_code,
+    reason = "errno is reachable only through the libc accessor"
+)]
+fn clear_errno() {
+    cfg_select! {
+        any(target_os = "solaris", target_os = "illumos") => { use libc::___errno as errno; }
+        any(target_os = "android", target_os = "openbsd", target_os = "netbsd") => {
+            use libc::__errno as errno;
+        }
+        any(target_os = "linux", target_os = "dragonfly") => {
+            use libc::__errno_location as errno;
+        }
+        any(target_vendor = "apple", target_os = "freebsd") => { use libc::__error as errno; }
+        _ => {
+            compile_error!(
+                "directory listing needs this target's errno accessor; add it to clear_errno"
+            );
+        }
+    }
+    // SAFETY: the accessor returns a valid pointer to the calling thread's errno.
+    unsafe {
+        *errno() = 0;
+    }
+}
+
+/// The file-system object a path or handle resolved to: equal values name the same inode on the
+/// same device, whatever its size or times.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct NodeId {
+    pub(crate) device: u64,
+    pub(crate) inode: u64,
+}
+
+impl FileIdentity {
+    pub(crate) fn node(&self) -> NodeId {
+        NodeId {
+            device: self.device,
+            inode: self.inode,
+        }
+    }
+}
+
+impl From<&std::fs::Metadata> for FileIdentity {
+    fn from(metadata: &std::fs::Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt;
+        Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            size: metadata.len(),
+            modified_ns: i128::from(metadata.mtime()) * 1_000_000_000
+                + i128::from(metadata.mtime_nsec()),
+            changed_ns: i128::from(metadata.ctime()) * 1_000_000_000
+                + i128::from(metadata.ctime_nsec()),
+        }
+    }
+}
+
+impl From<&std::fs::Metadata> for NodeId {
+    fn from(metadata: &std::fs::Metadata) -> Self {
+        FileIdentity::from(metadata).node()
+    }
+}
+
+pub(super) fn component(name: &OsStr) -> io::Result<std::ffi::CString> {
+    super::validate_name(name)?;
+    std::ffi::CString::new(name.as_bytes())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+/// Whether `open_at` opens an existing regular file read-only or creates a new one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FileOpen {
+    Existing,
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(dead_code, reason = "only a Linux clone creates its entry first")
+    )]
+    CreateNew,
+}
+
+#[expect(
+    unsafe_code,
+    reason = "openat on a pinned descriptor has no safe std equivalent"
+)]
+pub(super) fn open_at(directory: &File, name: &CStr, open: FileOpen) -> io::Result<File> {
+    let flags = libc::O_CLOEXEC
+        | libc::O_NOFOLLOW
+        | libc::O_NONBLOCK
+        | match open {
+            FileOpen::Existing => libc::O_RDONLY,
+            FileOpen::CreateNew => libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
+        };
+    // SAFETY: directory is live and name is a validated terminated single component.
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            flags,
+            0o600 as libc::c_uint,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: successful openat transfers a new descriptor to exactly one File owner.
+    let file = unsafe { File::from_raw_fd(fd) };
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "expected a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+/// Whether a clone failed only because the filesystem cannot clone, so the caller copies instead.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(super) fn copy_fallback(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(libc::EXDEV | libc::EINVAL | libc::ENOSYS | libc::ENOTSUP | libc::ENOTTY)
+    )
+}
+
+/// Renames `source` to `destination` unless an entry already has that name.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[expect(unsafe_code, reason = "an exclusive rename has no safe std equivalent")]
+fn rename_at(
+    source_directory: libc::c_int,
+    source: &CStr,
+    destination_directory: libc::c_int,
+    destination: &CStr,
+) -> Result<(), super::FsError> {
+    // SAFETY: the C strings remain live and the descriptors belong to the caller or AT_FDCWD.
+    let result = unsafe {
+        cfg_select! {
+            target_os = "linux" => {
+                // musl 1.2.5 has no renameat2 wrapper.
+                libc::syscall(
+                    libc::SYS_renameat2,
+                    source_directory,
+                    source.as_ptr(),
+                    destination_directory,
+                    destination.as_ptr(),
+                    libc::RENAME_NOREPLACE,
+                )
+            }
+            target_os = "macos" => {
+                libc::renameatx_np(
+                    source_directory,
+                    source.as_ptr(),
+                    destination_directory,
+                    destination.as_ptr(),
+                    libc::RENAME_EXCL,
+                )
+            }
+        }
+    };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if matches!(
+        error.raw_os_error(),
+        Some(libc::ENOSYS | libc::ENOTSUP | libc::EINVAL)
+    ) {
+        return Err(super::FsError::Unsupported);
+    }
+    Err(error.into())
+}
+
+/// Refuses to replace an existing entry. A fallback crash may leave both names, which
+/// startup's staging recovery handles before admitting requests.
+pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+    cfg_select! {
+        any(target_os = "linux", target_os = "macos") => {
+            let source = std::ffi::CString::new(from.as_os_str().as_bytes())?;
+            let destination = std::ffi::CString::new(to.as_os_str().as_bytes())?;
+            match rename_at(libc::AT_FDCWD, &source, libc::AT_FDCWD, &destination) {
+                Ok(()) => return Ok(()),
+                Err(super::FsError::Unsupported) => {}
+                Err(super::FsError::Io(error)) => return Err(error),
+            }
+        }
+        _ => {}
+    }
+    link_then_unlink(from, to)
+}
+
+fn link_then_unlink(from: &Path, to: &Path) -> io::Result<()> {
+    std::fs::hard_link(from, to)?;
+    std::fs::remove_file(from)
+}
+
+/// What a failed `fgetxattr` of the source metadata means: no attribute, no support for one, one
+/// too large for the buffer, or an I/O failure.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn classify(error: io::Error) -> Result<Option<usize>, super::SourceMetadataError> {
+    use super::SourceMetadataError;
+    let errno = error.raw_os_error();
+    let missing = cfg_select! {
+        target_os = "linux" => { libc::ENODATA }
+        target_os = "macos" => { libc::ENOATTR }
+    };
+    if errno == Some(missing) {
+        Ok(None)
+    } else if errno == Some(libc::ENOTSUP) || errno == Some(libc::EOPNOTSUPP) {
+        Err(SourceMetadataError::Unsupported)
+    } else if errno == Some(libc::ERANGE) || errno == Some(libc::E2BIG) {
+        Err(SourceMetadataError::TooLarge)
+    } else {
+        Err(SourceMetadataError::Io(error))
+    }
+}
+
+/// The Linux and macOS [`super::read_source_metadata`]: `fgetxattr` of `user.metadata` into the
+/// whole buffer.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[expect(
+    unsafe_code,
+    reason = "descriptor xattrs are reachable only through fgetxattr"
+)]
+pub(super) fn read_source_metadata<'a>(
+    file: &File,
+    buffer: &'a mut super::SourceMetadataBuffer,
+) -> Result<Option<&'a [u8]>, super::SourceMetadataError> {
+    // SAFETY: the live file descriptor and literal NUL-terminated key are valid;
+    // the exclusive buffer pointer covers exactly the supplied allocation length.
+    let result = unsafe {
+        cfg_select! {
+            target_os = "linux" => {
+                libc::fgetxattr(
+                    file.as_raw_fd(),
+                    c"user.metadata".as_ptr(),
+                    buffer.0.as_mut_ptr().cast(),
+                    buffer.0.len(),
+                )
+            }
+            target_os = "macos" => {
+                libc::fgetxattr(
+                    file.as_raw_fd(),
+                    c"user.metadata".as_ptr(),
+                    buffer.0.as_mut_ptr().cast(),
+                    buffer.0.len(),
+                    0,
+                    0,
+                )
+            }
+        }
+    };
+    let length = if result < 0 {
+        classify(io::Error::last_os_error())?
+    } else {
+        super::checked_length(result.unsigned_abs())?
+    };
+    length
+        .map(|length| {
+            buffer
+                .0
+                .get(..length)
+                .ok_or(super::SourceMetadataError::TooLarge)
+        })
+        .transpose()
 }
