@@ -7,8 +7,8 @@ use super::{
 };
 use crate::object::ObjectKey;
 use crate::{
-    acl::{AclAccess, AclEntry, AclOwner, AclTarget},
-    auth::{self, Caller},
+    acl::{AclAccess, AclEntry, AclKind, AclOwner, AclTarget},
+    auth::Caller,
     bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError},
     json::ApiError,
     json::{
@@ -301,7 +301,8 @@ pub(super) async fn add_full_projection(
     match &*subjects {
         AclSubjects::None => Ok(()),
         AclSubjects::Bucket { project, version } => {
-            let access = BucketAccess::for_caller(caller, auth::BUCKETS_GET_IAM, Some(project));
+            let read = AclKind::Bucket.permission(AclAccess::Read);
+            let access = BucketAccess::for_caller(caller, read, Some(project));
             add_buckets(
                 state,
                 &access,
@@ -314,7 +315,8 @@ pub(super) async fn add_full_projection(
         }
         AclSubjects::Buckets { project, items } => {
             let resources = rendered_items(value, items.len())?;
-            let access = BucketAccess::for_caller(caller, auth::BUCKETS_GET_IAM, Some(project));
+            let read = AclKind::Bucket.permission(AclAccess::Read);
+            let access = BucketAccess::for_caller(caller, read, Some(project));
             add_buckets(
                 state,
                 &access,

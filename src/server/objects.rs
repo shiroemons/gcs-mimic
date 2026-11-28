@@ -13,7 +13,7 @@ use super::{
     validate_bodyless_post,
 };
 use crate::{
-    acl::Projection,
+    acl::{AclAccess, AclKind, Projection},
     auth,
     bucket::{BucketAccess, CatalogError},
     csek::CustomerKey,
@@ -231,7 +231,8 @@ async fn add_acl(
     if !snapshot.matches_resource(object.key(), object.generation) {
         return Err(mismatch());
     }
-    let access = ctx.authorize(auth::OBJECTS_GET_IAM, &object.bucket).await?;
+    let read = AclKind::Object.permission(AclAccess::Read);
+    let access = ctx.authorize(read, &object.bucket).await?;
     if let Some(snapshot) = ctx
         .state
         .catalog
