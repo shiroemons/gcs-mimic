@@ -121,7 +121,7 @@ impl Storage {
         bucket: &str,
         permission: crate::auth::Permission,
     ) -> Result<crate::bucket::BucketAccess, Status> {
-        crate::server::bucket_access(&self.state, caller, permission, bucket)
+        crate::service::access::bucket_access(&self.state, caller, permission, bucket)
             .await
             .map_err(|error| access_status(error, caller))
     }

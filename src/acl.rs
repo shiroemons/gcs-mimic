@@ -44,6 +44,24 @@ impl AclKind {
             Self::DefaultObject | Self::Object => "OWNER, READER",
         }
     }
+
+    /// The IAM permission that reading or changing an ACL of this kind requires.
+    pub(crate) fn permission(self, access: AclAccess) -> crate::auth::Permission {
+        match (self, access) {
+            (Self::Object, AclAccess::Read) => crate::auth::OBJECTS_GET_IAM,
+            (Self::Object, AclAccess::Write) => crate::auth::OBJECTS_SET_IAM,
+            (Self::Bucket | Self::DefaultObject, AclAccess::Read) => crate::auth::BUCKETS_GET_IAM,
+            (Self::Bucket | Self::DefaultObject, AclAccess::Write) => crate::auth::BUCKETS_SET_IAM,
+        }
+    }
+}
+
+/// Whether an ACL request reads or changes the ACL, which selects its IAM permission and the
+/// wording of a uniform-access refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AclAccess {
+    Read,
+    Write,
 }
 
 /// The resource whose ACL an operation reads or changes. A request names an object generation

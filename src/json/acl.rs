@@ -11,8 +11,8 @@ use super::{
 use crate::percent::{Decoding, RequestUri, decode};
 use crate::{
     acl::{
-        AclEntry, AclKind, AclOwner, AclRole, AclTarget, Entity, ProjectTeam, parse_entity,
-        validate_role,
+        AclAccess, AclEntry, AclKind, AclOwner, AclRole, AclTarget, Entity, ProjectTeam,
+        parse_entity, validate_role,
     },
     bucket::BucketConditions,
     profile::CompatProfile,
@@ -47,14 +47,6 @@ pub(crate) enum AclWrite {
     /// The decoded path entity; a body entity must repeat it.
     Patch(String),
     Update(String),
-}
-
-/// Whether an ACL request reads or changes the ACL, which selects its IAM permission and the
-/// wording of a uniform-access refusal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AclAccess {
-    Read,
-    Write,
 }
 
 impl AclOperation {

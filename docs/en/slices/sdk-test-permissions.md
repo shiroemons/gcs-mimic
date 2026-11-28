@@ -32,7 +32,7 @@ errors for project-only bucket permissions. Error envelopes for missing input,
 unknown names and absent buckets are local choices pending provider evidence,
 recorded in SPEC-TEST-PERMISSIONS. No real-cloud requests are authorized.
 
-The adapter reuses `server::bucket_access` and `Catalog::bucket_access`;
+The adapter reuses `service::access::bucket_access` and `Catalog::bucket_access`;
 no authorization logic or storage interfaces are added. Each permission uses
 an existing short transaction, so the response is advisory rather than an atomic
 snapshot during policy changes. Duplicate requested permissions are returned once,

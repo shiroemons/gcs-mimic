@@ -2,34 +2,29 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    QueryPrecondition, State, ValidatedRead, bucket_access, empty_response, json_response_selected,
+    QueryPrecondition, State, ValidatedRead, empty_response, json_response_selected,
     read_metadata_response, require_empty_body,
 };
 use crate::object::ObjectKey;
 use crate::{
-    acl::{AclEntry, AclKind, AclOwner, AclTarget},
+    acl::{AclAccess, AclEntry, AclOwner, AclTarget},
     auth::{self, Caller},
     bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError},
     json::ApiError,
     json::{
         self,
-        acl::{AclAccess, AclOperation, AclRequest},
+        acl::{AclOperation, AclRequest},
     },
     object::{ObjectRecord, owner::ObjectOwner},
-    storage::{AclChange, AclError, AclProjection, AclState, MissingBucket, ObjectAcl},
+    service::access::{
+        acl::{AclReader, object_acls},
+        bucket_access,
+    },
+    storage::{AclChange, AclError, AclState, MissingBucket, ObjectAcl},
 };
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Bytes};
 use serde_json::{Map, Value};
-
-fn permission(kind: AclKind, access: AclAccess) -> auth::Permission {
-    match (kind, access) {
-        (AclKind::Object, AclAccess::Read) => auth::OBJECTS_GET_IAM,
-        (AclKind::Object, AclAccess::Write) => auth::OBJECTS_SET_IAM,
-        (AclKind::Bucket | AclKind::DefaultObject, AclAccess::Read) => auth::BUCKETS_GET_IAM,
-        (AclKind::Bucket | AclKind::DefaultObject, AclAccess::Write) => auth::BUCKETS_SET_IAM,
-    }
-}
 
 fn acl_error(error: AclError, access: AclAccess) -> ApiError {
     match error {
@@ -104,7 +99,7 @@ pub(super) async fn respond(
     let access = bucket_access(
         state,
         caller,
-        permission(target.kind(), acl_access),
+        target.kind().permission(acl_access),
         target.bucket(),
     )
     .await?;
@@ -370,19 +365,6 @@ fn resource_members(value: &mut Value) -> Result<&mut Map<String, Value>, ApiErr
         .ok_or_else(|| ApiError::service_unavailable("Rendered resource must be an object"))
 }
 
-pub(crate) async fn may_read(
-    state: &State,
-    caller: Option<Caller<'_>>,
-    kind: AclKind,
-    bucket: &str,
-) -> Result<bool, CatalogError> {
-    match bucket_access(state, caller, permission(kind, AclAccess::Read), bucket).await {
-        Ok(access) => state.catalog.has_bucket_permission(bucket, &access).await,
-        Err(error) if error.is_refusal() => Ok(false),
-        Err(error) => Err(error),
-    }
-}
-
 async fn add_buckets(
     state: &State,
     access: &BucketAccess,
@@ -416,56 +398,6 @@ async fn add_buckets(
         );
     }
     Ok(())
-}
-
-/// The ACLs and owners of the selected object generations, in input order, for every API that
-/// renders them as resource fields (JSON `projection=full`, gRPC read masks).
-///
-/// `None` when the bucket is gone or uses uniform bucket-level access, where ACLs are not part
-/// of the resource. An object whose ACL the caller may not read is marked invisible.
-pub(crate) async fn readable_object_acls(
-    state: &State,
-    caller: Option<Caller<'_>>,
-    bucket: &str,
-    generations: Vec<(String, i64)>,
-) -> Result<Option<AclProjection>, CatalogError> {
-    object_acls(state, AclReader::Caller(caller), bucket, generations).await
-}
-
-/// Whose permission decides whether a response carries the ACL fields of `projection=full`.
-#[derive(Clone, Copy)]
-pub(super) enum AclReader<'a> {
-    /// The request's own caller.
-    Caller(Option<Caller<'a>>),
-    /// The initiator of a resumable session, as its stored access. A session URI is a capability
-    /// that acts for its initiator, so requests on it carry no caller of their own, and passing
-    /// none would read the ACL without any permission check.
-    Initiator(&'a BucketAccess),
-}
-
-impl AclReader<'_> {
-    /// The access checked against each selected generation inside the projection snapshot.
-    fn object_acl_access(self) -> BucketAccess {
-        let read = permission(AclKind::Object, AclAccess::Read);
-        match self {
-            Self::Caller(caller) => BucketAccess::for_caller(caller, read, None),
-            Self::Initiator(access) => access.with_permission(read),
-        }
-    }
-}
-
-async fn object_acls(
-    state: &State,
-    reader: AclReader<'_>,
-    bucket: &str,
-    generations: Vec<(String, i64)>,
-) -> Result<Option<AclProjection>, CatalogError> {
-    let access = reader.object_acl_access();
-    let acl = state
-        .catalog
-        .object_acl_projection(bucket, generations, &access)
-        .await?;
-    Ok(acl.filter(|acl| !acl.uniform_access))
 }
 
 /// Adds `projection=full`'s ACL fields, as the object has them now and as `reader` may read

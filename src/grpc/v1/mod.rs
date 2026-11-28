@@ -357,10 +357,14 @@ impl Storage {
         permission: crate::auth::Permission,
     ) -> Result<(BucketKey<&'a str>, BucketAccess), Status> {
         let key = BucketKey::for_profile(bucket, self.compat_profile)?;
-        let access =
-            crate::server::bucket_access(&self.state, caller, permission, key.into_inner())
-                .await
-                .map_err(|error| access_status(error, caller))?;
+        let access = crate::service::access::bucket_access(
+            &self.state,
+            caller,
+            permission,
+            key.into_inner(),
+        )
+        .await
+        .map_err(|error| access_status(error, caller))?;
         Ok((key, access))
     }
 

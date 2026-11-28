@@ -187,7 +187,7 @@ pub(super) async fn multipart(
         expected,
     } = json::multipart_metadata(&bytes, name, ExpectedHashes::default())?;
     json::declare_content_encoding(&mut metadata, content_encoding)?;
-    crate::server::retention_access::authorize_upload(
+    crate::service::access::retention::authorize_upload(
         &ctx.state.catalog,
         &access,
         bucket.as_str(),

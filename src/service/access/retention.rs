@@ -8,9 +8,9 @@
 //! that names a retention for its destination needs storage.objects.setRetention as an upload
 //! does.
 
-use super::{BucketAccess, Catalog, auth};
 use crate::bucket::CatalogError;
 use crate::object::{ObjectMetadataUpdate, Patch, retention::UnlockedOverride};
+use crate::{auth, bucket::BucketAccess, storage::Catalog};
 
 async fn require(
     catalog: &Catalog,
@@ -26,7 +26,7 @@ async fn require(
     Ok(())
 }
 
-pub(super) async fn authorize_upload(
+pub(crate) async fn authorize_upload(
     catalog: &Catalog,
     access: &BucketAccess,
     bucket: &str,

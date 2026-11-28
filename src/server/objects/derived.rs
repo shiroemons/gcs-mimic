@@ -147,7 +147,7 @@ async fn copy_object(
         expected: declared,
     } = json::derived_metadata(body, &source.object)?;
     let recorded = source.object.hashes().into();
-    crate::server::retention_access::authorize_upload(
+    crate::service::access::retention::authorize_upload(
         &ctx.state.catalog,
         &access,
         params.bucket.as_str(),
@@ -222,7 +222,7 @@ pub(super) async fn compose(
     )?;
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut body = json::compose::parse_compose(&bytes, bucket.as_str())?;
-    crate::server::retention_access::authorize_upload(
+    crate::service::access::retention::authorize_upload(
         &ctx.state.catalog,
         &access,
         bucket.as_str(),

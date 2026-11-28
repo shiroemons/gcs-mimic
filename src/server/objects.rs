@@ -10,7 +10,7 @@ use super::{
     EmptyJsonBody, ObjectCtx, RESOURCE_BODY_LIMIT, ResponseBody,
     acl::{self, AclSubjects, ObjectVersion, Rendered},
     boxed, empty_response, json_response_selected, require_empty_body, response_fields, resumable,
-    retention_access, validate_bodyless_post,
+    validate_bodyless_post,
 };
 use crate::{
     acl::Projection,
@@ -23,6 +23,7 @@ use crate::{
     object::{
         IdempotencyToken, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, TextTokenError,
     },
+    service::access::retention,
     storage::{MoveAccess, RestoreAccess, UploadAclSnapshot},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode};
@@ -422,7 +423,7 @@ async fn update(
     let mut update = json::parse_object_metadata_mutation(&bytes, mode)?;
     update.update.acl = std::mem::take(&mut update.update.acl).with_predefined(predefined_acl)?;
     let target = update.select_target(target)?;
-    retention_access::authorize_update(
+    retention::authorize_update(
         &ctx.state.catalog,
         access,
         target.bucket.as_str(),

@@ -177,7 +177,7 @@ pub(super) async fn respond(
         if projection == crate::acl::Projection::Full {
             super::acl::add_full_projection_to_stored(
                 state,
-                super::acl::AclReader::Caller(ctx.caller),
+                crate::service::access::acl::AclReader::Caller(ctx.caller),
                 resource,
                 ctx.endpoints.api_base_url(),
             )
@@ -259,7 +259,7 @@ async fn execute(
             body.as_ref(),
             destination_access.clone(),
         )?;
-        super::retention_access::authorize_upload(
+        crate::service::access::retention::authorize_upload(
             &catalog,
             &destination_access,
             names.destination.bucket.as_str(),
