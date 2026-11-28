@@ -1,8 +1,9 @@
 //! Trusted local administration; never construct this authority from an API request.
 //!
-//! Administrative grants cannot be constructed by adapters:
+//! Administrative grants are minted only here: Clippy's `disallowed_methods` rejects
+//! `AdminGrant::new` in the rest of the crate, and code outside the crate cannot name the type:
 //! ```compile_fail
-//! use gcs_mimic::storage::admin::{AdminGrant, Origin};
+//! use gcs_mimic::bucket::admin_grant::{AdminGrant, Origin};
 //! let grant = AdminGrant { origin: Origin::Seed };
 //! ```
 //! Raw staging handles and SQL callback entry points stay inside the crate:
@@ -21,9 +22,10 @@ use crate::cause::{BackendCause, IoCause, Link, TypedSource};
 use crate::object::ObjectKey;
 use crate::storage::catalog::sql;
 use crate::{
-    bucket::{BucketAccess, BucketRecord, CatalogError, DefaultBucketError},
+    bucket::{AdminGrant, BucketAccess, BucketRecord, CatalogError, DefaultBucketError},
     clock::Clock,
     fsutil::{FsError, IdentityField},
+    notification::NotificationMode,
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
         ObjectTarget, UploadChunk,
@@ -58,62 +60,27 @@ pub(crate) mod seed_watch;
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Origin {
-    Api,
-    Seed,
-    BucketInit,
-    Import,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AdminGrant {
-    origin: Origin,
-    notification_mode: crate::notification::NotificationMode,
-}
-
 #[derive(Clone, Copy)]
 pub(crate) enum LocalAdmin {
     Disabled,
     Enabled,
 }
 
+/// The one place that mints administrative grants. Its callers serve operator-owned input only:
+/// local administration enabled at startup, seeding, bucket initialization and offline import.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "storage::admin mints the grants of operator-owned administration"
+)]
+fn mint(origin: Origin, notification_mode: NotificationMode) -> AdminGrant {
+    AdminGrant::new(origin, notification_mode)
+}
+
 pub(super) fn startup_grant(mode: LocalAdmin) -> Option<AdminGrant> {
-    matches!(mode, LocalAdmin::Enabled).then_some(AdminGrant {
-        origin: Origin::Seed,
-        notification_mode: crate::notification::NotificationMode::Emit,
-    })
+    matches!(mode, LocalAdmin::Enabled).then(|| mint(Origin::Seed, NotificationMode::Emit))
 }
 
-#[cfg(test)]
-impl AdminGrant {
-    /// The grant that startup seeding holds when local administration is enabled.
-    pub(crate) fn seed() -> Self {
-        Self {
-            origin: Origin::Seed,
-            notification_mode: crate::notification::NotificationMode::Emit,
-        }
-    }
-}
-
-impl AdminGrant {
-    pub(crate) fn origin(&self) -> Origin {
-        self.origin
-    }
-    /// What the grant's operations report. An import reproduces its source and reports nothing,
-    /// whatever mode was stored.
-    pub(crate) fn notification_mode(&self) -> crate::notification::NotificationMode {
-        match self.origin {
-            Origin::Import => crate::notification::NotificationMode::Suppress,
-            Origin::Api | Origin::Seed | Origin::BucketInit => self.notification_mode,
-        }
-    }
-    /// The bucket access every administrative operation of this grant checks.
-    pub(crate) fn access(&self) -> BucketAccess {
-        BucketAccess::Admin(self.clone())
-    }
-}
-
+pub use crate::bucket::admin_grant::Origin;
 pub use crate::bucket::name::{BucketName, InvalidBucketName};
 pub(crate) use crate::object::generation::{Generation, InvalidGeneration};
 pub use crate::object::name::{InvalidObjectName, ObjectName};
@@ -496,14 +463,14 @@ impl Catalog {
     pub fn admin(&self, origin: Origin) -> Admin {
         Admin {
             catalog: self.clone(),
-            grant: AdminGrant {
+            grant: mint(
                 origin,
-                notification_mode: if matches!(origin, Origin::Seed | Origin::Import) {
-                    crate::notification::NotificationMode::Suppress
+                if matches!(origin, Origin::Seed | Origin::Import) {
+                    NotificationMode::Suppress
                 } else {
-                    crate::notification::NotificationMode::Emit
+                    NotificationMode::Emit
                 },
-            },
+            ),
         }
     }
 
@@ -602,12 +569,11 @@ impl Catalog {
 }
 
 impl Admin {
-    pub(crate) fn with_notification_mode(
-        mut self,
-        mode: crate::notification::NotificationMode,
-    ) -> Self {
-        self.grant.notification_mode = mode;
-        self
+    pub(crate) fn with_notification_mode(self, mode: NotificationMode) -> Self {
+        Self {
+            grant: self.grant.with_notification_mode(mode),
+            ..self
+        }
     }
     pub(crate) fn origin(&self) -> Origin {
         self.grant.origin()

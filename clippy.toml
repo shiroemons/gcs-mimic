@@ -41,6 +41,9 @@ disallowed-methods = [
     { path = "rusqlite::Connection::query_row", reason = "prepares on every call; use prepare_cached" },
     { path = "rusqlite::Connection::query_one", reason = "prepares on every call; use prepare_cached" },
     { path = "rusqlite::Connection::prepare", reason = "prepares on every call; use prepare_cached" },
+    # The grant lives in the bucket model, below the storage layer that mints it, so privacy alone
+    # would let an adapter construct it and bypass its authentication profile.
+    { path = "gcs_mimic::bucket::admin_grant::AdminGrant::new", reason = "administrative authority; only storage::admin mints a grant" },
 ]
 
 # gcs-mimic is not published (`publish = false`); its `pub` items exist for the binary and the

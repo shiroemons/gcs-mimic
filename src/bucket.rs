@@ -10,12 +10,14 @@ use std::{
 
 pub(crate) mod lifecycle;
 
+pub(crate) mod admin_grant;
 pub(crate) mod autoclass;
 pub(crate) mod cors;
 pub(crate) mod location;
 pub(crate) mod name;
 pub(crate) mod resource;
 
+pub(crate) use admin_grant::AdminGrant;
 pub(crate) use location::{Location, LocationKind};
 
 crate::choice::string_enum! {
@@ -930,7 +932,7 @@ mod tests {
                 }
             );
         }
-        let admin = BucketAccess::Admin(crate::storage::admin::AdminGrant::seed());
+        let admin = BucketAccess::Admin(AdminGrant::seed());
         for access in [BucketAccess::Permissive, admin] {
             assert_eq!(access.with_permission(Permission::BucketsSetIam), access);
         }
@@ -1150,7 +1152,7 @@ impl BucketConditions {
 pub(crate) enum BucketAccess {
     /// Permissive profile: no authorization applies and overwrites are allowed.
     Permissive,
-    Admin(crate::storage::admin::AdminGrant),
+    Admin(AdminGrant),
     /// Re-evaluate effective grants against the policy selected by the operation transaction.
     Policy {
         identity: Option<crate::auth::Identity>,
