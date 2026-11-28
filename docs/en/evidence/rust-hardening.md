@@ -590,3 +590,61 @@ nine reasoned suppressions on the host. The test-clock baseline did not
 change. The cross-target checks counted zero new Clippy violations and zero
 ratcheted findings for Windows MSVC, Linux GNU and Linux musl. The ledger
 check validated 611 feature rows.
+
+## Protobuf crate, 2026-11-28
+
+`just check` passed on the source in which `src/grpc/generated` is the
+`grpc-generated` workspace crate. A hand-written `Cargo.toml` and `lib.rs` sit
+next to the generated files, and the crate depends only on `prost`,
+`prost-types`, `tonic` and `tonic-prost`. `grpc-codegen` generates every
+protobuf map as a `BTreeMap`. Its Rust lane passed 4,196 tests with the same
+Pub/Sub case ignored, two more than the previous run:
+
+- `grpc::v2::stored::tests::completions_decode_alike_whatever_order_their_metadata_was_written_in`
+  decodes the populated completion text with its two metadata entries
+  swapped, as an earlier release could have stored it, and gets the same
+  object.
+- `lint::layers::tests::naming_the_generated_protobuf_crate_names_the_grpc_adapter`
+  shows that `text::adapter_dependency` and `text::layer_dependency` count a
+  use of `grpc_generated` as naming `grpc`. A JSON or storage file that names
+  the crate is reported, while the gRPC adapter and the transport may name it.
+
+The completion golden now pins the populated record with both of its metadata
+entries. The Storage v2 status golden now pins the detail bytes the server
+sends, ten of them with several `ErrorInfo` metadata entries. Regenerating
+that golden changed only its header line, so those bytes equal the key-order
+encoding the test used to build by re-encoding each detail. Three runs of the
+completion test encoded the populated record to the same text.
+
+`bash scripts/test-grpc-codegen.sh` passed: its fixture accepts matching
+output and the hand-written crate files, and rejects a changed protobuf
+source, a stale generated file and a leftover one.
+`CARGO_BUILD_JOBS=4 bash scripts/check-grpc-codegen.sh` passed with protoc
+36.2 on the host: the 24 pinned digests matched, and the regenerated Rust
+equaled the committed files. DESIGN-096 records both runs. DESIGN-105 records
+the `just check` run for the two added tests and the two goldens that changed.
+It lists the completion test under `DESIGN-105-PROTOCOL` and the lint test
+under `DESIGN-105-LAYERS`.
+
+The production gate counted zero new violations, zero ratcheted findings and
+nine reasoned suppressions on the host. The test-clock baseline did not
+change. The cross-target checks counted zero new Clippy violations and zero
+ratcheted findings for Windows MSVC, Linux GNU and Linux musl. The ledger
+check validated 611 feature rows.
+
+One build measurement was taken on an Apple M4 Pro with 14 logical CPUs, with
+Rust 1.100.0, while no other build or test ran. Each side used a detached
+worktree and an empty target directory, and ran `cargo build --locked
+--offline` once. It then inserted a comment line at the top of
+`src/grpc/v2/convert.rs` and built once more. These are single runs, recorded
+as facts rather than as a baseline.
+
+| Build | `main` before the change (2411dfb1d) | This change |
+| --- | --- | --- |
+| Clean dev build, wall clock | 44.06 s | 46.19 s |
+| Clean dev build, user CPU | 211.18 s | 225.10 s |
+| Incremental build after the edit, wall clock | 4.66 s | 4.00 s |
+| Incremental build after the edit, user CPU | 4.10 s | 3.55 s |
+
+The incremental build recompiled only `gcs-mimic` on both sides. On this
+change that crate no longer contains the generated code.
