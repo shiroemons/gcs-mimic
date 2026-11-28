@@ -284,3 +284,29 @@ ratcheted findings and nine reasoned suppressions on the host, after the two
 `notification::event` layer findings left the baseline, and zero new Clippy
 violations for the three other targets. The ledger check validated 611
 feature rows.
+
+## `auth` split and `HmacKeys`, 2026-11-28
+
+`just check` passed on the source in which `auth::signature` looks up HMAC
+keys through `HmacKeys`, which `Catalog` implements, and `config::auth` reads
+the identity document, holds both forms to 16 MiB and names the setting in
+`IdentityError`, so `Auth::load` parses bytes and `RegistryError` holds only
+what parsing rejects. `AuthProfile<D>` and `Verification` live in
+`auth::profile`, and `src/auth/mod.rs` is split into `permission`, `choices`,
+`error`, `identity`, `registry`, `authenticate` and `auth/tests.rs`, whose
+re-exports are listed except the permission constants that a macro defines.
+A sorted-line comparison of the former `mod.rs` with
+the split files showed only module docs, declarations, re-exports, imports
+and one rewrapped signature. Its Rust lane passed 4,193 tests with the same
+Pub/Sub case ignored, one more than before: `config::auth::error_text_and_sources`
+checks the text and source of each `IdentityError` variant, which
+`auth::error_text_and_sources` and the `RegistryError` text test no longer
+cover. `config::auth::tests::registry_file_read_is_bounded`, moved from
+`auth::tests`, passed with its assertions unchanged. The invalid registry
+documents still fail in `auth` without echoing tokens, and the configuration
+load test names the setting for document, entry, syntax, public key and
+project failures. The production gate counted zero new violations, 39
+ratcheted findings and nine reasoned suppressions on the host, after the
+layer findings of `src/auth/mod.rs` and `src/auth/signature/{policy,streaming,verify}.rs`
+left the baseline, and zero new Clippy violations for the three other
+targets. The ledger check validated 611 feature rows.
