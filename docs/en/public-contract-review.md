@@ -228,7 +228,7 @@ On the reviewed source, every `GCS_MIMIC_[A-Z0-9_]+` name in the repository was 
 
 ### Emulator-only routes
 
-All are under `/_internal`, which is outside the Google namespaces. Defined in `src/server.rs` `probe`, `src/server/admin.rs` and `src/server/admin/`.
+All are under `/_internal`, which is outside the Google namespaces. Defined in `src/server/probe.rs` `probe`, `src/server/admin.rs` and `src/server/admin/`.
 
 | Route | Methods | Availability | Documented in | Agree |
 | --- | --- | --- | --- | --- |

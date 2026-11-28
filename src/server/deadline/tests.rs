@@ -2,7 +2,7 @@
 //! The claims behind them are tested with `service::activity`.
 
 use super::*;
-use crate::service::activity::BodyRead;
+use crate::service::activity::{BodyRead, RequestStage};
 
 /// Every JSON document may reach 16 MiB, so no route's body arrives at once: whichever route
 /// reads it, a pending body waits on the client.

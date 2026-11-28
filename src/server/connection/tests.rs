@@ -2,9 +2,9 @@
 
 use super::*;
 use crate::{object::UploadChunk, service::upload_drive::stream_upload};
+use http_body_util::Full;
 use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
-use tokio::sync::mpsc;
+use tokio::{net::TcpListener, sync::mpsc};
 
 /// Raising the read buffer raises the memory each upload's channel can retain; review that
 /// tradeoff (and `stream_upload`'s zero-copy forwarding) before changing this value.

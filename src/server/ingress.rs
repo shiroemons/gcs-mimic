@@ -2,8 +2,9 @@
 //! and the transport gzip that Cloud Storage's front end removes before it routes a JSON API
 //! request.
 
-use super::{RESOURCE_BODY_LIMIT, RequestCtx};
+use crate::bounded_body::RESOURCE_BODY_LIMIT;
 use crate::service::body::{Decoding, RequestBody, ResponseBody, boxed};
+use crate::service::context::RequestCtx;
 use crate::{auth::Caller, json::ApiError, json::JsonErrorResponse};
 use http_body_util::{BodyExt, Full};
 use hyper::{
@@ -251,7 +252,9 @@ fn decode(compressed: &[u8], cap: usize) -> Result<Vec<u8>, DecodeError> {
 mod tests {
     use super::*;
     use crate::{
-        auth::Auth, config::Config, server::State, service::activity::ObjectActivity,
+        auth::Auth,
+        config::Config,
+        service::{activity::ObjectActivity, state::State},
         storage::Catalog,
     };
     use std::{io::Write, sync::Arc, time::Duration};

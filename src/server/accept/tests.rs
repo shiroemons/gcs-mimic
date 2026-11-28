@@ -1,9 +1,14 @@
+//! The accept loop keeps serving through accept failures and handler panics, and drains before
+//! the catalog closes.
+
 use super::*;
 use crate::auth::Auth;
 #[cfg(unix)]
 use crate::config::Scheme;
 use crate::storage::Catalog;
 use crate::test_support::TestDir;
+use std::sync::atomic::AtomicBool;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[tokio::test]
 #[cfg(unix)]
