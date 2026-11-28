@@ -131,6 +131,16 @@ scale as a fact in the verification record.
   its bytes, where the destination bytes equal the source bytes
   ([design](#single-source-copies)).
 
+### Decided by the owner on 2026-11-28
+
+- **Resumable engine.** It moves in its own slice, `service` part two, after
+  part one has moved the other shared request pieces. Its JSON completion
+  rendering goes behind a trait that the JSON adapter implements, as the
+  notification payload did.
+- **Adapter state in `State`.** The XML CORS warning set (`CorsWarnings`) and
+  the gRPC read-handle table (`ReadHandles`) move to `service` with `State`,
+  which keeps their field names.
+
 ### Decided by this design
 
 These change no documented behavior:
@@ -429,13 +439,16 @@ findings in new files.
 | Range and transcoding negotiation (`range_request`, `Transcoding`, `Gunzip` and their helpers) | `json::objects` → `service::media` |
 | JSON_API_V1 notification payload | `notification::JsonApiObject`, which the JSON adapter implements for `ObjectRecord`; the payload's base64 encoder is the foundation `base64::encode` |
 | HMAC lookup in `auth::signature` | an `HmacKeys` trait implemented by `Catalog` |
-| Shared request pieces in `server` (access checks, request context, response bodies, `chunk_body`, `object_body`, uploads, copy, the resumable engine, `State`) | `service` |
+| Shared request pieces in `server` (access checks, request context, request activity, request and response bodies, `chunk_body`, `object_body`, uploads, copy, `State` with the XML CORS warnings and the gRPC read handles) | `service` |
+| The resumable engine (`server::resumable`), with its JSON completion rendering behind a trait | `service` |
 | gRPC HTTP/2 connection serving | `grpc` → `server::grpc_listener` |
 | JSON handlers in `server`; `server::xml_read` | `json::handler`; `xml::read` |
 
-Before moving the shared server pieces, a slice settles where `RequestBody`
-and JSON link rebasing in `RequestCtx` go, so that `xml` can import them without
-reaching `json`.
+`RequestBody` lives in `service::body` with the response body, so `xml` reads
+it without reaching `server` or `json`. `RequestCtx` no longer rebases JSON
+links: `rebase_stored_links` stays in `server` with the JSON rewrite and
+resumable handlers that use it, and `xml::Authentication::new` builds the XML
+authentication inputs from a `RequestCtx`.
 
 ### File splits
 
@@ -617,7 +630,7 @@ the wire text `storage I/O error (other error)` is unchanged.
 Clippy in Rust 1.100.0 cannot resolve `std::io::Error::other` in `disallowed-methods`.
 The zero-tolerance `text::io_error_other` rule covers it, with two reasoned
 exceptions for HTTP request transport and the gzip chunk body. HTTP and gRPC
-classify blob read failures directly. The HTTP `server::ResponseBody` carries
+classify blob read failures directly. The HTTP `service::body::ResponseBody` carries
 `IoCause`, and gRPC maps the storage error to its status.
 `ObjectReader::next_chunk` preserves each failure's kind when constructing its
 `io::Error`.
@@ -1379,7 +1392,8 @@ remove none, so the rule reaches zero tolerance as early as possible.
 | JSON-owned rules out of `json` | `Projection`, component counting, bucket initialization's bucket conversion, authority helpers; fixed metadata and the two JSON round trips had already left `json` |
 | Notification renderer | a `notification` trait that the JSON adapter implements. A renderer injected at catalog open was planned first; `Catalog::open` cannot name `json` to supply a default, and nothing swaps the rendering at run time |
 | `auth` split and `HmacKeys` | `HmacKeys` replaces the `Catalog` that `auth::signature`'s policy, streaming and verification code name; reading the identities document (`DocumentSource`, `Form`, `DocumentKind`, `Setting`) moves to `config`, so `auth` parses bytes; `AuthProfile` and `Verification` then move to `auth`, since the identities they carry no longer name `DocumentSource`. `AuthProfile<D>` is generic over its identity document: validation selects a `DocumentSource` and loading parses the bytes that `config` reads. `IdentityError`, which names the setting, moves to `config` with the reading, the 16 MiB limit and the read failures, so `RegistryError` holds only what parsing rejects. `src/auth/mod.rs` then splits as "File splits" describes; the registry's `IdentityUse` and `strict_only` go to `registry`, which parses with them |
-| `service`, part one | the shared request pieces and `State`; range and transcoding negotiation into `service::media`, before `server::xml_read` moves into `xml`; ledger IDs under `server::copy` become `service::copy` |
+| `service`, part one | the shared request pieces and `State`; range and transcoding negotiation into `service::media`, before `server::xml_read` moves into `xml`. Uploads move after the request context, because the catalog wait of `drive_upload` holds an `ObjectCtx`, and `await_session_upload` moves with them. Ledger IDs under `server::copy` become `service::copy` |
+| `service`, part two | the resumable engine that `xml::resumable` drives (`SessionTarget`, `Transfer`, `create_session`, `transfer`); the stored JSON completion (`object_resource_keyed`, `Fields`, `rebase_object_links`, `add_full_projection_to_stored`) behind a trait the JSON adapter implements; the `json::resumable` header helpers and `json::request_key` that both adapters use, into a lower module |
 | gRPC listener | into `server` |
 | JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |
 | Config documents | the parse half moves to the settings layer |
