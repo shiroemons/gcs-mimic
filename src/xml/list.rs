@@ -2,7 +2,7 @@
 
 use super::name_encoding::NameEncoding;
 use super::{Error, Namespace, ReadRequest, XmlWriter, accepted_parameter, number};
-use crate::server::RequestBody as Incoming;
+use crate::service::body::RequestBody as Incoming;
 use crate::{
     auth,
     object::generation::Generation,
