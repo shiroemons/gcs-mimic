@@ -17,13 +17,13 @@ use std::{
 };
 use tokio::sync::watch;
 
-pub(super) struct ObjectBody {
+pub(crate) struct ObjectBody {
     frames: ObjectFrames,
     activity: watch::Sender<ObjectActivity>,
 }
 
 impl ObjectBody {
-    pub(super) fn new(reader: ObjectReader, activity: watch::Sender<ObjectActivity>) -> Self {
+    pub(crate) fn new(reader: ObjectReader, activity: watch::Sender<ObjectActivity>) -> Self {
         Self {
             frames: reader.into(),
             activity,
