@@ -56,8 +56,7 @@ mod verify;
 pub(crate) use streaming::{STREAMING_PAYLOAD, Streaming, is_streaming_payload};
 pub(crate) use v2::xml_query;
 pub(crate) use v4::V4Parameter;
-pub(crate) use verify::VerificationError;
-pub(crate) use verify::Verifiers;
+pub(crate) use verify::{HmacKeys, VerificationError, Verifiers};
 
 pub(crate) fn authentication_header(name: &str) -> bool {
     matches!(

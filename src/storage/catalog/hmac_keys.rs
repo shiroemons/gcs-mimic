@@ -7,7 +7,7 @@
 //! it inside the mutating transaction.
 //! Successful deletion bounds retained tombstones to the newest 128 per project.
 use super::{Catalog, CatalogError, UnixMillis, unavailable};
-use crate::auth::ProjectId;
+use crate::auth::{ProjectId, signature::HmacKeys};
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use std::time::SystemTime;
@@ -195,9 +195,9 @@ fn generate_secret() -> Result<String, CatalogError> {
     Ok(crate::base64::encode(&random_bytes::<SECRET_BYTES>()?))
 }
 
-impl Catalog {
+impl HmacKeys for Catalog {
     /// Read fresh signing material; revocation must take effect without a secret cache.
-    pub(crate) async fn active_hmac_key(
+    async fn active_hmac_key(
         &self,
         access_id: &str,
     ) -> Result<Option<(String, String)>, CatalogError> {
@@ -207,6 +207,9 @@ impl Catalog {
                 .map_err(unavailable)
         }).await
     }
+}
+
+impl Catalog {
     pub(crate) async fn create_hmac_key(
         &self,
         project: &ProjectId,
