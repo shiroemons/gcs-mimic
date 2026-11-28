@@ -91,7 +91,8 @@ Proof, in this order:
 1. Golden tests record today's output before the code that produces it moves:
    - error responses for every domain error on all three adapters;
    - stored completion bytes, upload replay documents and fingerprints;
-   - the bucket record that the JSON round trip in `admin.rs` produces.
+   - the bucket record that `admin.rs` builds for a default bucket, which the
+     2026-11-26 typed validator change stopped producing through a JSON round trip.
 2. Existing tests pass unchanged. A negative test is never removed or
    weakened; a test whose body becomes too small to reach its fault point grows
    its body instead.
