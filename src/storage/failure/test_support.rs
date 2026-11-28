@@ -964,8 +964,8 @@ pub(crate) fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
         ));
     }
     for error in [
-        crate::server::copy::CheckpointError::ObserverDropped,
-        crate::server::copy::CheckpointError::Abandoned,
+        crate::service::copy::CheckpointError::ObserverDropped,
+        crate::service::copy::CheckpointError::Abandoned,
     ] {
         let message = "Object storage is unavailable: internal storage failure (private backend details withheld)";
         failures.push((ObjectError::backend(error), message));

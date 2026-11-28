@@ -9,7 +9,7 @@ use crate::{
         content_type,
         generation::{Generation, Metageneration},
     },
-    server::copy::{self, CopyBudget, CopyJob},
+    service::copy::{self, CopyBudget, CopyJob},
     service::{
         body::{RequestBody, ResponseBody, boxed},
         context::ObjectCtx,
