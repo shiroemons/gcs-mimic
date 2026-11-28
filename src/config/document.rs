@@ -23,7 +23,7 @@ pub(crate) enum DocumentSource {
     Inline(Arc<str>),
     /// A buckets document that startup has already read, from either setting, and parsed once,
     /// so that later phases use that version instead of reading the file again.
-    Parsed(crate::bucket_init::ParsedDocument),
+    Parsed(super::buckets_document::ParsedDocument),
 }
 
 impl DocumentSource {
@@ -117,7 +117,7 @@ impl DocumentKind {
             // Every entrance passes here, so the shorthand expands once and later phases see only
             // documents.
             (Self::Buckets, Form::Inline) => DocumentSource::Inline(Arc::from(
-                crate::bucket_init::shorthand::document(value)?.as_ref(),
+                super::buckets_document::shorthand::document(value)?.as_ref(),
             )),
         });
         Ok(())

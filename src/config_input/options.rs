@@ -61,8 +61,8 @@ impl From<String> for Fix {
     }
 }
 
-impl From<crate::bucket_init::shorthand::ShorthandError> for Fix {
-    fn from(error: crate::bucket_init::shorthand::ShorthandError) -> Self {
+impl From<crate::config::buckets_document::shorthand::ShorthandError> for Fix {
+    fn from(error: crate::config::buckets_document::shorthand::ShorthandError) -> Self {
         Self(error.to_string())
     }
 }

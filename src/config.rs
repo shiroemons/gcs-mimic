@@ -19,6 +19,7 @@ use std::{
 
 mod assemble;
 mod auth;
+pub(crate) mod buckets_document;
 mod document;
 mod domains;
 mod draft;

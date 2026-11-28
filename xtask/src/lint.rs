@@ -90,8 +90,8 @@ const IMMEDIATELY_INVOKED_CLOSURE: &str = "text::immediately_invoked_closure";
 const ADAPTER_DEPENDENCY: &str = "text::adapter_dependency";
 const LAYER_DEPENDENCY: &str = "text::layer_dependency";
 /// Text rules whose existing findings are counted per file; see "Graduating a ratcheted rule"
-/// in `docs/en/development.md`. The module layers arrived over existing upward references.
-pub const RATCHETED_TEXT_RULES: [&str; 1] = [LAYER_DEPENDENCY];
+/// in `docs/en/development.md` for dropping one once its last row is gone.
+pub const RATCHETED_TEXT_RULES: [&str; 0] = [];
 
 const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
 

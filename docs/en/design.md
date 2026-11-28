@@ -81,14 +81,12 @@ name modules in its own layer and in lower layers, and the three adapters may no
 other. `cargo xtask lint` takes the modules a production file names from `crate::` and
 `$crate::` paths, the top-level members of `use crate::{..}` groups and `super::` or `self::`
 paths resolved from the file's module path, so a re-export counts where it is written.
-`text::adapter_dependency` rejects one adapter naming another (zero tolerance; nothing does
-today). `text::layer_dependency` rejects a reference to a higher layer; it is ratcheted per
-file over the references that existed when it was introduced, so a file can only lose them,
-and the two rules are separate so that a file cannot trade one forbidden edge for the other
-under an unchanged count. The table lists exactly the modules that `src/lib.rs` declares
-outside `#[cfg(test)]`: the gate fails when a declared module has no layer or a layer names an
-undeclared one, and an `xtask` test keeps this copy equal to the table in
-`xtask/src/lint/layers.rs`. The command line lives in the library as `app`, the highest
+`text::adapter_dependency` rejects one adapter naming another, and `text::layer_dependency`
+rejects a reference to a higher layer. Both are zero tolerance: no production file breaks
+either, and neither takes a baseline row. The table lists exactly the modules that
+`src/lib.rs` declares outside `#[cfg(test)]`: the gate fails when a declared module has no
+layer or a layer names an undeclared one, and an `xtask` test keeps this copy equal to the
+table in `xtask/src/lint/layers.rs`. The command line lives in the library as `app`, the highest
 layer; the binary, `src/main.rs`, is a separate crate that only sets the allocator and
 paging policy and calls `app::main`, so it is not checked.
 

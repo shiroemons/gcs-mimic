@@ -251,7 +251,7 @@ struct BoundStartup {
     seed: SeedOutcome,
     buckets: InitOutcome,
     /// The buckets document initialization read, which a reset to the startup state re-applies.
-    buckets_document: Option<crate::bucket_init::ParsedDocument>,
+    buckets_document: Option<crate::config::buckets_document::ParsedDocument>,
 }
 
 enum PrimaryListener {
