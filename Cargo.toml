@@ -1,5 +1,5 @@
 [workspace]
-members = ["xtask", "src/grpc/codegen"]
+members = ["xtask", "src/grpc/codegen", "src/grpc/generated"]
 resolver = "3"
 
 [workspace.package]
@@ -10,6 +10,11 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 serde_json = "1.0.154"
+# The server and the generated protobuf crate must build against the same releases.
+prost = "0.14.6"
+prost-types = "0.14.6"
+tonic = { version = "0.14.9", default-features = false, features = ["codegen"] }
+tonic-prost = "0.14.9"
 
 [workspace.lints.cargo]
 unused_dependencies = "deny"
@@ -128,10 +133,11 @@ httpdate = "1.0.3"
 hyper = { version = "1.13.0", features = ["http1", "http2", "server", "client"] }
 hyper-util = { version = "0.1.21", features = ["tokio"] }
 http-body-util = "0.1.5"
-tonic = { version = "0.14.9", default-features = false, features = ["codegen"] }
-tonic-prost = "0.14.9"
-prost = "0.14.6"
-prost-types = "0.14.6"
+tonic.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+# The generated protobuf code is its own crate, so a server change does not recompile it.
+grpc-generated = { path = "src/grpc/generated" }
 # Arrow-key prompts for `gcs-mimic buckets new`; only crossterm, without fuzzy search or macros.
 inquire = { version = "0.9.5", default-features = false, features = ["crossterm"] }
 
@@ -139,6 +145,8 @@ inquire = { version = "0.9.5", default-features = false, features = ["crossterm"
 rusqlite = { version = "0.43.0", default-features = false, features = ["trace"] }
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 tokio = { version = "1.54.1", features = ["test-util"] }
+# Tests encode responses with the codec the generated service uses.
+tonic-prost.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"

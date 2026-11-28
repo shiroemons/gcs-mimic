@@ -372,9 +372,9 @@ per rule, and fails on any invalid or stale comment; the compiler checks
 `#[expect]` itself.
 
 The gate covers only server production code: files under `src/` except
-`src/grpc/generated/`, the `src/grpc/codegen/` build tool, `*_tests.rs`,
-`tests.rs`, `test_support.rs` and files inside a `tests/` or `*_tests/`
-module directory. Clippy runs on the `gcs-mimic` library and binary only
+the `src/grpc/generated/` protobuf crate, the `src/grpc/codegen/` build
+tool, `*_tests.rs`, `tests.rs`, `test_support.rs` and files inside a
+`tests/` or `*_tests/` module directory. Clippy runs on the `gcs-mimic` library and binary only
 (`--lib --bins`), so `cfg(test)` code is not compiled; the text rules skip
 each item marked `#[cfg(test)]` or `#[cfg(all(test, ...))]`, including
 attributes stacked before that `cfg`, and files whose first attribute is
@@ -487,10 +487,11 @@ an object or array literal. `text::downcast` sees method calls, not
 `text::diagnostics_in_io_error` sees only a `Diagnostics` named inside the
 call's arguments. The separate `text::io_error_other` rule also catches function
 values passed to `map_err`. `text::layer_dependency` and
-`text::adapter_dependency` see only module names: a name that `src/lib.rs`
-re-exports at the crate root, a path inside a string such
-as `#[serde(with = "..")]`, `use crate::*` and `use crate as alias` are not
-followed. Review still applies the written rules where the tool cannot.
+`text::adapter_dependency` count a use of the generated protobuf crate,
+`grpc_generated`, as naming `grpc`. Otherwise they see only module names: a
+name that `src/lib.rs` re-exports at the crate root, a path inside a string
+such as `#[serde(with = "..")]`, `use crate::*` and `use crate as alias` are
+not followed. Review still applies the written rules where the tool cannot.
 
 New error types must not be `&'static str`, even for rejected client input:
 strings do not implement `Error` and cannot preserve a cause chain. Use a
@@ -686,6 +687,12 @@ Generation and compiler checks use `!cancelled()` alongside the SDK fetch and
 dependency detector, so a failed compiler check does not skip dependency detection.
 Each failed step still fails the job; cancellation stops the remaining checks.
 Ordinary application and release builds still require no protoc.
+
+The committed Rust is the `grpc-generated` workspace crate in
+`src/grpc/generated`, which depends only on prost, prost-types, tonic and
+tonic-prost; the workspace manifest pins those for it and the server alike.
+Its `Cargo.toml` and `lib.rs` are written by hand and the generator writes
+every other file, so the comparison skips those two.
 
 ```sh
 bash scripts/test-grpc-codegen.sh

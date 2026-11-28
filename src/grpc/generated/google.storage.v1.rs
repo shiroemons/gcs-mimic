@@ -2719,9 +2719,7 @@ pub struct UpdateHmacKeyRequest {
 pub struct GetIamPolicyRequest {
     /// The request sent to IAM.
     #[prost(message, optional, tag = "1")]
-    pub iam_request: ::core::option::Option<
-        crate::grpc::generated::google::iam::v1::GetIamPolicyRequest,
-    >,
+    pub iam_request: ::core::option::Option<crate::google::iam::v1::GetIamPolicyRequest>,
     /// A set of parameters common to all Storage API requests.
     #[prost(message, optional, tag = "2")]
     pub common_request_params: ::core::option::Option<CommonRequestParams>,
@@ -2733,9 +2731,7 @@ pub struct GetIamPolicyRequest {
 pub struct SetIamPolicyRequest {
     /// The request sent to IAM.
     #[prost(message, optional, tag = "1")]
-    pub iam_request: ::core::option::Option<
-        crate::grpc::generated::google::iam::v1::SetIamPolicyRequest,
-    >,
+    pub iam_request: ::core::option::Option<crate::google::iam::v1::SetIamPolicyRequest>,
     /// A set of parameters common to all Storage API requests.
     #[prost(message, optional, tag = "2")]
     pub common_request_params: ::core::option::Option<CommonRequestParams>,
@@ -2748,7 +2744,7 @@ pub struct TestIamPermissionsRequest {
     /// The request sent to IAM.
     #[prost(message, optional, tag = "1")]
     pub iam_request: ::core::option::Option<
-        crate::grpc::generated::google::iam::v1::TestIamPermissionsRequest,
+        crate::google::iam::v1::TestIamPermissionsRequest,
     >,
     /// A set of parameters common to all Storage API requests.
     #[prost(message, optional, tag = "2")]
@@ -3063,7 +3059,7 @@ pub mod storage_server {
             &self,
             request: tonic::Request<super::GetIamPolicyRequest>,
         ) -> std::result::Result<
-            tonic::Response<crate::grpc::generated::google::iam::v1::Policy>,
+            tonic::Response<crate::google::iam::v1::Policy>,
             tonic::Status,
         > {
             Err(tonic::Status::unimplemented("Not yet implemented"))
@@ -3073,7 +3069,7 @@ pub mod storage_server {
             &self,
             request: tonic::Request<super::SetIamPolicyRequest>,
         ) -> std::result::Result<
-            tonic::Response<crate::grpc::generated::google::iam::v1::Policy>,
+            tonic::Response<crate::google::iam::v1::Policy>,
             tonic::Status,
         > {
             Err(tonic::Status::unimplemented("Not yet implemented"))
@@ -3084,9 +3080,7 @@ pub mod storage_server {
             &self,
             request: tonic::Request<super::TestIamPermissionsRequest>,
         ) -> std::result::Result<
-            tonic::Response<
-                crate::grpc::generated::google::iam::v1::TestIamPermissionsResponse,
-            >,
+            tonic::Response<crate::google::iam::v1::TestIamPermissionsResponse>,
             tonic::Status,
         > {
             Err(tonic::Status::unimplemented("Not yet implemented"))
@@ -3425,7 +3419,7 @@ pub mod storage_server {
             &self,
             request: tonic::Request<super::GetIamPolicyRequest>,
         ) -> std::result::Result<
-            tonic::Response<crate::grpc::generated::google::iam::v1::Policy>,
+            tonic::Response<crate::google::iam::v1::Policy>,
             tonic::Status,
         > {
             Err(tonic::Status::unimplemented("Not yet implemented"))
@@ -3435,7 +3429,7 @@ pub mod storage_server {
             &self,
             request: tonic::Request<super::SetIamPolicyRequest>,
         ) -> std::result::Result<
-            tonic::Response<crate::grpc::generated::google::iam::v1::Policy>,
+            tonic::Response<crate::google::iam::v1::Policy>,
             tonic::Status,
         > {
             Err(tonic::Status::unimplemented("Not yet implemented"))
@@ -3446,9 +3440,7 @@ pub mod storage_server {
             &self,
             request: tonic::Request<super::TestIamPermissionsRequest>,
         ) -> std::result::Result<
-            tonic::Response<
-                crate::grpc::generated::google::iam::v1::TestIamPermissionsResponse,
-            >,
+            tonic::Response<crate::google::iam::v1::TestIamPermissionsResponse>,
             tonic::Status,
         > {
             Err(tonic::Status::unimplemented("Not yet implemented"))
@@ -4169,7 +4161,7 @@ pub mod storage_server {
                         T: Storage,
                     > tonic::server::UnaryService<super::GetIamPolicyRequest>
                     for GetBucketIamPolicySvc<T> {
-                        type Response = crate::grpc::generated::google::iam::v1::Policy;
+                        type Response = crate::google::iam::v1::Policy;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -4214,7 +4206,7 @@ pub mod storage_server {
                         T: Storage,
                     > tonic::server::UnaryService<super::SetIamPolicyRequest>
                     for SetBucketIamPolicySvc<T> {
-                        type Response = crate::grpc::generated::google::iam::v1::Policy;
+                        type Response = crate::google::iam::v1::Policy;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -4259,7 +4251,7 @@ pub mod storage_server {
                         T: Storage,
                     > tonic::server::UnaryService<super::TestIamPermissionsRequest>
                     for TestBucketIamPermissionsSvc<T> {
-                        type Response = crate::grpc::generated::google::iam::v1::TestIamPermissionsResponse;
+                        type Response = crate::google::iam::v1::TestIamPermissionsResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -5771,7 +5763,7 @@ pub mod storage_server {
                         T: Storage,
                     > tonic::server::UnaryService<super::GetIamPolicyRequest>
                     for GetObjectIamPolicySvc<T> {
-                        type Response = crate::grpc::generated::google::iam::v1::Policy;
+                        type Response = crate::google::iam::v1::Policy;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -5816,7 +5808,7 @@ pub mod storage_server {
                         T: Storage,
                     > tonic::server::UnaryService<super::SetIamPolicyRequest>
                     for SetObjectIamPolicySvc<T> {
-                        type Response = crate::grpc::generated::google::iam::v1::Policy;
+                        type Response = crate::google::iam::v1::Policy;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -5861,7 +5853,7 @@ pub mod storage_server {
                         T: Storage,
                     > tonic::server::UnaryService<super::TestIamPermissionsRequest>
                     for TestObjectIamPermissionsSvc<T> {
-                        type Response = crate::grpc::generated::google::iam::v1::TestIamPermissionsResponse;
+                        type Response = crate::google::iam::v1::TestIamPermissionsResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

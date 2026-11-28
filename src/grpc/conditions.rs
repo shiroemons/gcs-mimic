@@ -36,11 +36,17 @@ object_conditions!(
     v1::InsertObjectSpec,
 );
 
+/// A request that names a source object, whose `if_source_*` fields hold the conditions on it.
+/// It is a trait because the request messages belong to the generated crate.
+pub(crate) trait SourceConditions {
+    /// The conditions on the source object.
+    fn source_conditions(&self) -> ObjectConditions;
+}
+
 macro_rules! source_conditions {
     ($($request:ty),+ $(,)?) => {$(
-        impl $request {
-            /// The conditions on the source object, which the `if_source_*` fields name.
-            pub(crate) fn source_conditions(&self) -> ObjectConditions {
+        impl SourceConditions for $request {
+            fn source_conditions(&self) -> ObjectConditions {
                 ObjectConditions {
                     if_generation_match: self.if_source_generation_match,
                     if_generation_not_match: self.if_source_generation_not_match,

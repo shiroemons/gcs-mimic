@@ -6,8 +6,10 @@ Status: project policy. The project has compiler pins, Cargo.lock, a bounded HTT
 
 ## User requirement
 
-The gRPC runtime uses tonic/tonic-prost and prost/prost-types; the workspace's
-`grpc-codegen` tool adds tonic-prost-build only for explicit regeneration.
+The gRPC runtime uses tonic/tonic-prost and prost/prost-types, declared once in
+the workspace manifest for the server and the `grpc-generated` crate that holds
+the committed generated code; the workspace's `grpc-codegen` tool adds
+tonic-prost-build only for explicit regeneration.
 Daily detection enumerates every workspace member's direct dependencies from
 locked Cargo metadata, so both runtime and generation dependencies are checked.
 Ordinary application/Docker builds use committed code without protoc. Exact

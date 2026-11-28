@@ -45,35 +45,32 @@ impl From<&CorsRule> for pb::bucket::Cors {
 
 /// WriteObject carries the same fields as a BidiWriteObject message, so both share one receive
 /// path.
-impl From<pb::WriteObjectRequest> for pb::BidiWriteObjectRequest {
-    fn from(request: pb::WriteObjectRequest) -> Self {
-        use pb::{bidi_write_object_request as bidi, write_object_request as write};
-        Self {
-            write_offset: request.write_offset,
-            object_checksums: request.object_checksums,
-            finish_write: request.finish_write,
-            common_object_request_params: request.common_object_request_params,
-            first_message: request.first_message.map(|first| match first {
-                write::FirstMessage::UploadId(id) => bidi::FirstMessage::UploadId(id),
-                write::FirstMessage::WriteObjectSpec(spec) => {
-                    bidi::FirstMessage::WriteObjectSpec(spec)
-                }
-            }),
-            data: request
-                .data
-                .map(|write::Data::ChecksummedData(data)| bidi::Data::ChecksummedData(data)),
-            ..Default::default()
-        }
+pub(super) fn bidi_write_request(request: pb::WriteObjectRequest) -> pb::BidiWriteObjectRequest {
+    use pb::{bidi_write_object_request as bidi, write_object_request as write};
+    pb::BidiWriteObjectRequest {
+        write_offset: request.write_offset,
+        object_checksums: request.object_checksums,
+        finish_write: request.finish_write,
+        common_object_request_params: request.common_object_request_params,
+        first_message: request.first_message.map(|first| match first {
+            write::FirstMessage::UploadId(id) => bidi::FirstMessage::UploadId(id),
+            write::FirstMessage::WriteObjectSpec(spec) => bidi::FirstMessage::WriteObjectSpec(spec),
+        }),
+        data: request
+            .data
+            .map(|write::Data::ChecksummedData(data)| bidi::Data::ChecksummedData(data)),
+        ..Default::default()
     }
 }
 
-impl From<pb::bidi_write_object_response::WriteStatus> for pb::write_object_response::WriteStatus {
-    fn from(status: pb::bidi_write_object_response::WriteStatus) -> Self {
-        use pb::bidi_write_object_response::WriteStatus;
-        match status {
-            WriteStatus::PersistedSize(size) => Self::PersistedSize(size),
-            WriteStatus::Resource(resource) => Self::Resource(resource),
-        }
+/// The WriteObject status that a BidiWriteObject status reports, from the shared receive path.
+pub(super) fn write_status(
+    status: pb::bidi_write_object_response::WriteStatus,
+) -> pb::write_object_response::WriteStatus {
+    use pb::{bidi_write_object_response as bidi, write_object_response as write};
+    match status {
+        bidi::WriteStatus::PersistedSize(size) => write::WriteStatus::PersistedSize(size),
+        bidi::WriteStatus::Resource(resource) => write::WriteStatus::Resource(resource),
     }
 }
 

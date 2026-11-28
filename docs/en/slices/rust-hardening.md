@@ -493,8 +493,9 @@ authentication inputs from a `RequestCtx`.
 ### Crate structure
 
 The generated protobuf code moves into a workspace crate that depends only on
-`prost` and `tonic`. The slice records one build measurement (a clean build,
-and an incremental build after editing a non-protobuf file) as a fact.
+the prost and tonic crates (`prost`, `prost-types`, `tonic` and
+`tonic-prost`). The slice records one build measurement (a clean build, and an
+incremental build after editing a non-protobuf file) as a fact.
 
 The same slice generates protobuf maps as `BTreeMap` (`btree_map` in
 `src/grpc/codegen`). Map fields are encoded in `HashMap` order today, so the

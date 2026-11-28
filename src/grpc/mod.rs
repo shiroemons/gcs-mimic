@@ -9,22 +9,10 @@ pub(crate) mod v1;
 pub(crate) mod v2;
 mod validate;
 
-// Generated upstream code retains its own field names and documentation.
-#[expect(
-    clippy::allow_attributes,
-    reason = "which lints fire in generated code varies by target and cfg(test), so an \
-              expectation on them could go unfulfilled"
-)]
-#[allow(
-    clippy::all,
-    dead_code,
-    unreachable_pub,
-    rustdoc::broken_intra_doc_links,
-    reason = "generated upstream code keeps its own style and documentation links"
-)]
-pub(crate) mod generated {
-    include!("generated/mod.rs");
-}
+// The generated protobuf crate belongs to this adapter. The server names it here, and the
+// layer rules count a direct use of the crate as naming `grpc`, so they see which modules use
+// the wire types.
+pub(crate) use grpc_generated as generated;
 
 /// What an object list page aims to take. gRPC clients commonly accept 4 MiB in one message unless
 /// told otherwise, and a page's size is an estimate, so this leaves room below that.

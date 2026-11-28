@@ -55,6 +55,36 @@ fn f() {
     assert_eq!(layer_findings("src/grpc/v2/a.rs", unrelated), []);
 }
 
+/// The generated protobuf crate is the gRPC adapter's: naming it outside `grpc` is naming
+/// `grpc`, wherever the path starts.
+#[test]
+fn naming_the_generated_protobuf_crate_names_the_grpc_adapter() {
+    let text = "\
+use grpc_generated::google::storage::v2::Object;
+fn f() -> ::grpc_generated::google::rpc::Status { x() }
+use grpc_generated as pb;
+";
+    let at = |rule| vec![(rule, 1), (rule, 2), (rule, 3)];
+    assert_eq!(
+        layer_findings("src/json/objects.rs", text),
+        at(ADAPTER_DEPENDENCY)
+    );
+    assert_eq!(
+        layer_findings("src/storage/catalog.rs", text),
+        at(LAYER_DEPENDENCY)
+    );
+    for file in [
+        "src/grpc/mod.rs",
+        "src/grpc/v2/convert.rs",
+        "src/server/ingress.rs",
+    ] {
+        assert_eq!(layer_findings(file, text), [], "{file}");
+    }
+    // Only the whole crate name counts.
+    let unrelated = "let grpc_generated_count = 1;\nuse other_grpc_generated::X;\n";
+    assert_eq!(layer_findings("src/json/objects.rs", unrelated), []);
+}
+
 #[test]
 fn same_and_lower_layers_are_allowed_and_higher_layers_are_reported() {
     let text = "\
