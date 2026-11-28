@@ -48,7 +48,7 @@ mod tests {
         signature::{HostPortPolicy, SignedHostPort},
         test_signer,
     };
-    use crate::config::{AuthProfile, DocumentSource, Verification};
+    use crate::auth::{AuthProfile, Verification};
     use serde_json::json;
     use std::assert_matches;
     use std::collections::BTreeSet;
@@ -104,15 +104,9 @@ mod tests {
 
     #[test]
     fn load_selects_the_profile_and_its_signers() {
-        let dir = crate::test_support::TestDir::new();
-        let path = dir.0.join("identities.json");
-        std::fs::write(
-            &path,
-            json!({"identities":[{"id":"file@example.invalid","public_keys":[PUBLIC]}]})
-                .to_string(),
-        )
-        .unwrap();
-        let auth = Auth::load(&AuthProfile::Permissive, &BTreeSet::new()).unwrap();
+        let document = json!({"identities":[{"id":"file@example.invalid","public_keys":[PUBLIC]}]})
+            .to_string();
+        let auth = Auth::load(&AuthProfile::<&[u8]>::Permissive, &BTreeSet::new()).unwrap();
         assert_matches!(auth.profile, Profile::Permissive);
         assert_eq!(auth.signed_urls(), SignedUrls::Ignore);
         // An explicit host-port setting wins for every signer; without one, the settled signer
@@ -140,7 +134,7 @@ mod tests {
         ] {
             let auth = Auth::load(
                 &AuthProfile::VerifyingPermissive {
-                    identities: identity_file.then(|| DocumentSource::File(path.clone())),
+                    identities: identity_file.then_some(document.as_bytes()),
                     verification: Verification {
                         test_signer: TestSignerChoice::Fixed(test_signer),
                         signed_host_port: configured,
@@ -166,7 +160,7 @@ mod tests {
         // Loading reports only identity file contents; the pairing rules belong to validation.
         let error = Auth::load(
             &AuthProfile::Strict {
-                identities: Some(DocumentSource::File(path)),
+                identities: Some(document.as_bytes()),
                 verification: Verification {
                     test_signer: TestSignerChoice::Fixed(TestSigner::Disabled),
                     signed_host_port: Some(SignedHostPort::Lenient),

@@ -1,24 +1,17 @@
-//! The authentication profile that one valid configuration selects. Validation and loading both
-//! use [`AuthProfile::select`], so the pairing rules live in one place.
+//! The authentication profile that one valid configuration selects, and the identity document it
+//! loads. Validation and loading both use [`select_profile`], so the pairing rules live in one
+//! place; loading reads the document here and hands its bytes to `auth`.
 
 use super::{
     ConfigDraft, ConfigurationReport, Diagnostic, DiagnosticSource, DocumentKind, DocumentSource,
     Form, Setting, Settings, Validation,
 };
 use crate::auth::{
-    Auth, AuthMode, BuiltIn, SignedUrls, TRUSTED_APP_ID, TestSigner, TestSignerChoice,
-    TrustedCaller, signature::SignedHostPort, test_signer,
+    Auth, AuthMode, AuthProfile, BuiltIn, MAX_REGISTRY_BYTES, MAX_REGISTRY_MIB, RegistryError,
+    SignedUrls, TRUSTED_APP_ID, TestSigner, TestSignerChoice, TrustedCaller, Verification,
+    signature::SignedHostPort, test_signer,
 };
-use std::{borrow::Cow, collections::BTreeSet};
-
-/// What a profile that verifies signatures needs besides its identity document.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Verification {
-    pub(crate) test_signer: TestSignerChoice,
-    /// The explicit `signed_host_port`; loading applies the default that the settled test signer
-    /// selects, with [`HostPortPolicy::resolve`](crate::auth::signature::HostPortPolicy::resolve).
-    pub(crate) signed_host_port: Option<SignedHostPort>,
-}
+use std::{borrow::Cow, collections::BTreeSet, fmt};
 
 /// The caller that the `trusted_listen` and `trusted_principal` settings select.
 fn trusted_caller(config: &ConfigDraft) -> TrustedCaller {
@@ -27,30 +20,6 @@ fn trusted_caller(config: &ConfigDraft) -> TrustedCaller {
         (Some(_), Some(principal)) => TrustedCaller::Named(principal.clone()),
         (Some(_), None) => TrustedCaller::BuiltIn,
     }
-}
-
-/// Only valid pairings of `auth_mode`, `signed_urls` and the identity document exist as values,
-/// so loading a profile needs no checks of its own. Outside tests [`AuthProfile::select`] is the
-/// only constructor, and it is also what keeps strict mode from lacking every caller: that rule
-/// spans the identity document, `trusted` and the test signer choice, so a variant of its own
-/// would repeat those fields in a form that must agree with them.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum AuthProfile {
-    /// Credentials are ignored and nothing is authorized.
-    Permissive,
-    /// Signed XML requests verify first, then get permissive access.
-    VerifyingPermissive {
-        identities: Option<DocumentSource>,
-        verification: Verification,
-    },
-    /// Registered principals and their grants authorize every request. Without an identity
-    /// document only built-in identities exist, which validation allows only where one of them
-    /// was asked for.
-    Strict {
-        identities: Option<DocumentSource>,
-        verification: Verification,
-        trusted: TrustedCaller,
-    },
 }
 
 /// A setting that contradicts the profile the others select.
@@ -156,79 +125,148 @@ const PROFILE_SETTINGS: [Setting; 6] = [
     Setting::SignedHostPort,
 ];
 
-impl AuthProfile {
-    /// Whether strict mode may start without an identity document: the settings ask for a
-    /// built-in identity, the trusted listener's application or an explicitly enabled test
-    /// signer, so the server has a caller to authorize.
-    fn built_in_only(config: &ConfigDraft) -> bool {
-        trusted_caller(config) == TrustedCaller::BuiltIn
-            || config.test_signer == Some(TestSigner::Enabled)
-    }
+/// Whether strict mode may start without an identity document: the settings ask for a built-in
+/// identity, the trusted listener's application or an explicitly enabled test signer, so the
+/// server has a caller to authorize.
+fn built_in_only(config: &ConfigDraft) -> bool {
+    trusted_caller(config) == TrustedCaller::BuiltIn
+        || config.test_signer == Some(TestSigner::Enabled)
+}
 
-    /// The profile the configuration selects, or every setting that contradicts it.
-    pub(super) fn select(config: &ConfigDraft) -> Result<Self, Vec<Mismatch>> {
-        let verification = Verification {
-            test_signer: TestSignerChoice::select(
-                config.test_signer,
-                config.auth_mode,
-                config.resolved_signed_urls(),
-            ),
-            signed_host_port: config.signed_host_port,
-        };
-        match (
+/// The profile the configuration selects, or every setting that contradicts it. Outside tests this
+/// is the only constructor of an [`AuthProfile`].
+fn select_profile(config: &ConfigDraft) -> Result<AuthProfile<DocumentSource>, Vec<Mismatch>> {
+    let verification = Verification {
+        test_signer: TestSignerChoice::select(
+            config.test_signer,
             config.auth_mode,
-            config.signed_urls,
-            config.identities.as_ref(),
-        ) {
-            (AuthMode::Strict, Some(SignedUrls::Ignore), identities) => {
-                let mut mismatches = vec![Mismatch::StrictIgnoringSignatures];
-                if identities.is_none() && !Self::built_in_only(config) {
-                    mismatches.push(Mismatch::StrictWithoutIdentities);
-                }
-                Err(mismatches)
+            config.resolved_signed_urls(),
+        ),
+        signed_host_port: config.signed_host_port,
+    };
+    match (
+        config.auth_mode,
+        config.signed_urls,
+        config.identities.as_ref(),
+    ) {
+        (AuthMode::Strict, Some(SignedUrls::Ignore), identities) => {
+            let mut mismatches = vec![Mismatch::StrictIgnoringSignatures];
+            if identities.is_none() && !built_in_only(config) {
+                mismatches.push(Mismatch::StrictWithoutIdentities);
             }
-            (AuthMode::Strict, None | Some(SignedUrls::Verify), None)
-                if !Self::built_in_only(config) =>
-            {
-                Err(vec![Mismatch::StrictWithoutIdentities])
-            }
-            (AuthMode::Strict, None | Some(SignedUrls::Verify), identities) => Ok(Self::Strict {
+            Err(mismatches)
+        }
+        (AuthMode::Strict, None | Some(SignedUrls::Verify), None) if !built_in_only(config) => {
+            Err(vec![Mismatch::StrictWithoutIdentities])
+        }
+        (AuthMode::Strict, None | Some(SignedUrls::Verify), identities) => {
+            Ok(AuthProfile::Strict {
                 identities: identities.cloned(),
                 verification,
                 trusted: trusted_caller(config),
-            }),
-            (AuthMode::Permissive, Some(SignedUrls::Verify), identities) => {
-                Ok(Self::VerifyingPermissive {
-                    identities: identities.cloned(),
-                    verification,
-                })
-            }
-            (AuthMode::Permissive, None | Some(SignedUrls::Ignore), identities) => {
-                let mismatches: Vec<_> = [
-                    identities.map(|source| Mismatch::IdentitiesIgnored(source.form())),
-                    (config.signed_host_port == Some(SignedHostPort::Lenient))
-                        .then_some(Mismatch::LenientIgnored),
-                    (config.test_signer == Some(TestSigner::Enabled))
-                        .then_some(Mismatch::TestSignerIgnored),
-                ]
-                .into_iter()
-                .flatten()
-                .collect();
-                if mismatches.is_empty() {
-                    Ok(Self::Permissive)
-                } else {
-                    Err(mismatches)
-                }
+            })
+        }
+        (AuthMode::Permissive, Some(SignedUrls::Verify), identities) => {
+            Ok(AuthProfile::VerifyingPermissive {
+                identities: identities.cloned(),
+                verification,
+            })
+        }
+        (AuthMode::Permissive, None | Some(SignedUrls::Ignore), identities) => {
+            let mismatches: Vec<_> = [
+                identities.map(|source| Mismatch::IdentitiesIgnored(source.form())),
+                (config.signed_host_port == Some(SignedHostPort::Lenient))
+                    .then_some(Mismatch::LenientIgnored),
+                (config.test_signer == Some(TestSigner::Enabled))
+                    .then_some(Mismatch::TestSignerIgnored),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            if mismatches.is_empty() {
+                Ok(AuthProfile::Permissive)
+            } else {
+                Err(mismatches)
             }
         }
     }
+}
+
+/// Why the identity document could not be loaded, with the setting that supplied it:
+/// `identity_file` for a file and `identities` for the inline document.
+#[derive(Debug, thiserror::Error)]
+pub(crate) struct IdentityError {
+    /// `None` when strict mode started without a document, with built-in identities only.
+    form: Option<Form>,
+    source: RegistryError,
+}
+
+impl IdentityError {
+    /// The setting that supplied the document. Without one only the built-in identities exist,
+    /// so a failure concerns the strict profile itself.
+    pub(crate) fn setting(&self) -> Setting {
+        self.form.map_or(Setting::AuthMode, |form| {
+            DocumentKind::Identities.setting(form)
+        })
+    }
+}
+
+// Startup diagnostics include the setting and the registry's message, and expose the registry error.
+impl fmt::Display for IdentityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let setting = self.setting().as_str();
+        match &self.source {
+            RegistryError::TooLarge => write!(f, "{setting} exceeds {MAX_REGISTRY_MIB} MiB"),
+            source @ (RegistryError::Io(_)
+            | RegistryError::Syntax(_)
+            | RegistryError::Invalid(_)
+            | RegistryError::InvalidEntry { .. }
+            | RegistryError::PublicKey { .. }
+            | RegistryError::Project { .. }) => write!(f, "{setting}: {source}"),
+        }
+    }
+}
+
+/// The identity document's bytes. Inline text is held to the same limit as a file, so both forms
+/// accept the same documents.
+fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, RegistryError> {
+    let bytes = match source {
+        DocumentSource::File(path) => crate::bounded_file::read(path, MAX_REGISTRY_BYTES)
+            .map(Cow::Owned)
+            .map_err(|error| match error {
+                crate::bounded_file::ReadError::Limit => RegistryError::TooLarge,
+                crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
+            })?,
+        DocumentSource::Inline(text) => Cow::Borrowed(text.as_bytes()),
+        // Only a buckets document is parsed ahead, but its text is the document either way.
+        DocumentSource::Parsed(document) => Cow::Borrowed(document.bytes()),
+    };
+    if u64::try_from(bytes.len()).map_or(true, |length| length > MAX_REGISTRY_BYTES) {
+        return Err(RegistryError::TooLarge);
+    }
+    Ok(bytes)
+}
+
+/// Loads `profile`, reading its identity document once; a failure names the setting that
+/// supplied the document.
+fn load_profile(
+    profile: &AuthProfile<DocumentSource>,
+    implicit_projects: &BTreeSet<String>,
+) -> Result<Auth, IdentityError> {
+    profile
+        .try_map_identities(read_identities)
+        .and_then(|profile| Auth::load(&profile, implicit_projects))
+        .map_err(|source| IdentityError {
+            form: profile.identities().map(DocumentSource::form),
+            source,
+        })
 }
 
 impl Validation {
     /// Rejects mismatched profiles, so a registry is never silently ignored or missing and a
     /// signature setting never claims what the profile does not do.
     pub(super) fn check_profile_pairing(&mut self, settings: &Settings) {
-        match AuthProfile::select(&self.draft) {
+        match select_profile(&self.draft) {
             Ok(profile) if !self.any_invalid(&PROFILE_SETTINGS) => {
                 self.auth_profile = Some(profile);
             }
@@ -256,7 +294,7 @@ impl ConfigurationReport {
     /// The profile to load, when the authentication settings are valid; only tests read it,
     /// because loading takes it from the report itself.
     #[cfg(test)]
-    pub(crate) fn auth_profile(&self) -> Option<&AuthProfile> {
+    pub(crate) fn auth_profile(&self) -> Option<&AuthProfile<DocumentSource>> {
         self.auth_profile.as_ref()
     }
 
@@ -302,7 +340,7 @@ impl ConfigurationReport {
         };
         // The setting that supplied the identity document, which messages name.
         let registry = document.map(|source| DocumentKind::Identities.setting(source.form()));
-        match Auth::load(&profile, &implicit_projects) {
+        match load_profile(&profile, &implicit_projects) {
             Ok(auth) => {
                 self.warn_strict_test_signer(&auth, registry, &implicit_projects);
                 self.check_principals(&auth, registry);
@@ -446,3 +484,20 @@ impl ConfigurationReport {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[test]
+fn error_text_and_sources() {
+    let error = IdentityError {
+        form: None,
+        source: RegistryError::Invalid("invalid principal".into()),
+    };
+    assert_eq!(error.to_string(), "auth_mode: invalid principal");
+    assert!(std::ptr::eq(
+        std::error::Error::source(&error)
+            .unwrap()
+            .downcast_ref()
+            .unwrap(),
+        &error.source
+    ));
+}

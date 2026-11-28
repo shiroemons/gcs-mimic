@@ -48352,7 +48352,7 @@
             "config::auth::tests::load_failures_name_the_setting_and_the_entry_without_echoing_tokens",
             "config::auth::tests::unknown_principals_name_the_setting_that_supplied_the_registry",
             "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
-            "auth::tests::registry_file_read_is_bounded",
+            "config::auth::tests::registry_file_read_is_bounded",
             "auth_http_startup_rejects_invalid_profiles_and_registries"
           ]
         }
@@ -48384,7 +48384,7 @@
         "config::auth::tests::load_failures_name_the_setting_and_the_entry_without_echoing_tokens",
         "config::auth::tests::unknown_principals_name_the_setting_that_supplied_the_registry",
         "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
-        "auth::tests::registry_file_read_is_bounded"
+        "config::auth::tests::registry_file_read_is_bounded"
       ],
       "verification": [
         {
@@ -48403,7 +48403,7 @@
             "config::auth::tests::load_failures_name_the_setting_and_the_entry_without_echoing_tokens",
             "config::auth::tests::unknown_principals_name_the_setting_that_supplied_the_registry",
             "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
-            "auth::tests::registry_file_read_is_bounded",
+            "config::auth::tests::registry_file_read_is_bounded",
             "auth_http_startup_rejects_invalid_profiles_and_registries"
           ]
         },
@@ -48843,7 +48843,7 @@
           "result": "PASS",
           "test_ids": [
             "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
-            "auth::tests::registry_file_read_is_bounded",
+            "config::auth::tests::registry_file_read_is_bounded",
             "startup_preserves_safe_identity_and_tls_error_details",
             "auth_http_startup_rejects_invalid_profiles_and_registries"
           ]
@@ -48882,7 +48882,7 @@
         "a_registry_past_the_former_limits_authorizes_uploads_across_a_restart",
         "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
         "startup_preserves_safe_identity_and_tls_error_details",
-        "auth::tests::registry_file_read_is_bounded",
+        "config::auth::tests::registry_file_read_is_bounded",
         "auth_http_startup_rejects_invalid_profiles_and_registries",
         "auth::tests::strict_caller_resolution",
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
@@ -48901,7 +48901,7 @@
           "artifact": "docs/en/evidence/strict-auth-tests.txt",
           "test_ids": [
             "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
-            "auth::tests::registry_file_read_is_bounded",
+            "config::auth::tests::registry_file_read_is_bounded",
             "auth_http_startup_rejects_invalid_profiles_and_registries",
             "auth::tests::strict_caller_resolution",
             "auth_http_strict_rejects_anonymous_and_unsupported_credentials",

@@ -593,7 +593,7 @@ prints its own source has a reasoned suppression at the attribute.
 | Diagnostic compatibility exception | Reason and review point |
 | --- | --- |
 | `fsutil::CloneFailure::{Created, NotCreated}` | Both expose the same concrete `FsError` they display. `Report` joins the equal messages once. Revisit when changing the clone diagnostic contract. |
-| `auth::PolicyDecodeError::Json` and `auth::IdentityError` | The stored-policy and startup diagnostics include the decoder or registry text and expose the cause itself. Keep their prefixed Display until those diagnostics are reviewed. |
+| `auth::PolicyDecodeError::Json` and `config::auth::IdentityError` | The stored-policy and startup diagnostics include the decoder or registry text and expose the cause itself. Keep their prefixed Display until those diagnostics are reviewed. |
 | `GenerateError::Rejected`, `ServerIdentityError::{Certificate, PrivateKey, Identity, Rejected}` | The interactive buckets prompt and the startup TLS diagnostic print these errors directly and expose the same concrete cause. Revisit when changing those diagnostics. Public facade gave `DurationError::Number` its own text, since nothing prints it. |
 | `EventSettingsError::{Endpoint, Topic, ObjectPrefix}`, `ClaimError::Catalog` | Setting and resumable diagnostics display the cause directly and expose it through `source()`. Revisit when changing those diagnostic contracts. |
 | `PurgeError::Admin` | Purge diagnostics prefix the exposed administrative failure. Revisit with the admin diagnostics. |
@@ -1378,7 +1378,7 @@ remove none, so the rule reaches zero tolerance as early as possible.
 | Model value types | `profile`, URL helpers, `TrustedCaller`, validator callers, `AdminGrant` |
 | JSON-owned rules out of `json` | `Projection`, component counting, bucket initialization's bucket conversion, authority helpers; fixed metadata and the two JSON round trips had already left `json` |
 | Notification renderer | a `notification` trait that the JSON adapter implements. A renderer injected at catalog open was planned first; `Catalog::open` cannot name `json` to supply a default, and nothing swaps the rendering at run time |
-| `auth` split and `HmacKeys` | `HmacKeys` replaces the `Catalog` that `auth::signature`'s policy, streaming and verification code name; reading the identities document (`DocumentSource`, `Form`, `DocumentKind`, `Setting`) moves to `config`, so `auth` parses bytes; `AuthProfile` and `Verification` then move to `auth`, since the identities they carry no longer name `DocumentSource` |
+| `auth` split and `HmacKeys` | `HmacKeys` replaces the `Catalog` that `auth::signature`'s policy, streaming and verification code name; reading the identities document (`DocumentSource`, `Form`, `DocumentKind`, `Setting`) moves to `config`, so `auth` parses bytes; `AuthProfile` and `Verification` then move to `auth`, since the identities they carry no longer name `DocumentSource`. `AuthProfile<D>` is generic over its identity document: validation selects a `DocumentSource` and loading parses the bytes that `config` reads. `IdentityError`, which names the setting, moves to `config` with the reading |
 | `service`, part one | the shared request pieces and `State`; range and transcoding negotiation into `service::media`, before `server::xml_read` moves into `xml`; ledger IDs under `server::copy` become `service::copy` |
 | gRPC listener | into `server` |
 | JSON handlers and `server.rs` files | `json::handler`, `xml::read`, the transport split |

@@ -1,12 +1,15 @@
 use crate::{
-    auth::{BUCKETS_CREATE, TRUSTED_APP_ID, TestSigner, signature::HostPortPolicy, test_signer},
+    auth::{
+        AuthProfile, BUCKETS_CREATE, MAX_REGISTRY_BYTES, TRUSTED_APP_ID, TestSigner,
+        TestSignerChoice, TrustedCaller, Verification, signature::HostPortPolicy, test_signer,
+    },
     config::{Config, ConfigurationReport, DocumentSource},
     diagnostics::{Diagnostic, DiagnosticSource},
     test_support::TestDir,
 };
 use serde_json::json;
 use std::assert_matches;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn strings(args: &[&str]) -> Vec<String> {
     args.iter().map(|arg| (*arg).to_owned()).collect()
@@ -78,6 +81,15 @@ fn load_failures_name_the_setting_and_the_entry_without_echoing_tokens() {
             "identities[0]: unknown field: roles",
         ),
         ("{\"identities\":[".to_owned(), ""),
+        ("{}".to_owned(), "missing required field: identities"),
+        (
+            json!({"identities":[{"id":"x","tokens":["secret-token"],"public_keys":["not a key"]}]}).to_string(),
+            "identities[0]: ",
+        ),
+        (
+            json!({"identities":[{"id":"x","tokens":["secret-token"],"project_roles":{"bad project":["roles/storage.admin"]}}]}).to_string(),
+            "identities[0]: project \"bad project\": ",
+        ),
     ] {
         for (flag, value, setting) in sources(&dir, &document) {
             let mut report = report(&["--auth-mode", "strict", flag, &value]);
@@ -92,6 +104,53 @@ fn load_failures_name_the_setting_and_the_entry_without_echoing_tokens() {
             assert!(!errors[0].fix.contains("secret-token"), "{errors:?}");
         }
     }
+}
+
+/// An inline document is held to the limit a file is, and each failure names its setting.
+#[test]
+fn registry_file_read_is_bounded() {
+    let dir = TestDir::new();
+    let path = dir.0.join("identity.json");
+    let mut document = r#"{"identities":[{"id":"a","tokens":["t"]}]}"#.to_owned();
+    let limit = usize::try_from(MAX_REGISTRY_BYTES).unwrap();
+    document.push_str(&" ".repeat(limit - document.len()));
+    let load = |source: DocumentSource| {
+        super::load_profile(
+            &AuthProfile::Strict {
+                identities: Some(source),
+                verification: Verification {
+                    test_signer: TestSignerChoice::WhenDeclared,
+                    signed_host_port: None,
+                },
+                trusted: TrustedCaller::Anonymous,
+            },
+            &BTreeSet::new(),
+        )
+        .map(|auth| auth.identity_count())
+    };
+    let file = || DocumentSource::File(path.clone());
+    std::fs::write(&path, &document).unwrap();
+    assert_eq!(load(file()).unwrap(), Some(1));
+    assert_eq!(
+        load(DocumentSource::Inline(document.as_str().into())).unwrap(),
+        Some(1)
+    );
+    document.push(' ');
+    std::fs::write(&path, &document).unwrap();
+    assert_eq!(
+        load(file()).unwrap_err().to_string(),
+        "identity_file exceeds 16 MiB"
+    );
+    assert_eq!(
+        load(DocumentSource::Inline(document.into()))
+            .unwrap_err()
+            .to_string(),
+        "identities exceeds 16 MiB"
+    );
+    std::fs::remove_file(&path).unwrap();
+    let error = load(file()).unwrap_err();
+    assert!(error.to_string().starts_with("identity_file: "));
+    assert!(std::error::Error::source(&error).is_some());
 }
 
 /// A registry document, with an entry for the built-in signer's ID when `declared`.

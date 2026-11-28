@@ -32,11 +32,11 @@ mod storage;
 mod test_support;
 #[cfg(test)]
 mod unix_tests;
+use crate::auth::AuthProfile;
+#[cfg(test)]
+use crate::auth::Verification;
 pub use assemble::Config;
 pub(crate) use assemble::{Tls, TlsIdentity};
-pub(crate) use auth::AuthProfile;
-#[cfg(test)]
-pub(crate) use auth::Verification;
 pub(crate) use document::DocumentSource;
 pub(crate) use document::{DocumentKind, Form};
 use domains::{DomainLimit, Inserted};
