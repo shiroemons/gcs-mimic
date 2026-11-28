@@ -422,7 +422,7 @@ findings in new files.
 | `json::validate_project`, `json::validate_bucket_name` | callers use `auth::validate_project_id` and `bucket::name::validate` |
 | `Projection` | `json::query` → `acl` |
 | `DestinationLocation`, `derived_component_count` | `json::derived_metadata` → `object::derived` |
-| `validate_fixed_metadata`, `parse_insert_with_profile` | `json` → `object`, `bucket::resource` |
+| `validate_fixed_metadata`; bucket initialization's bucket conversion | `json` → `object`; `bucket::resource::parse_insert`, which the JSON body parser `json::parse_insert_with_profile` reaches through `service::parse_bucket` |
 | Bucket defaults built by rendering JSON (`admin.rs`, `import/filesystem.rs`) | build the record through `bucket::resource` |
 | `AdminGrant`, `Origin` | `storage::admin` → `bucket`; minting stays in `storage::admin`, which Clippy's `disallowed_methods` enforces |
 | Range and transcoding negotiation (`range_request`, `Transcoding`, `Gunzip` and their helpers) | `json::objects` → `service::media` |

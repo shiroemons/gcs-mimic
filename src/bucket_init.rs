@@ -5,12 +5,11 @@
 use crate::{
     auth::{Policy, valid_project_id},
     bounded_file::{self, ReadError},
-    bucket::BucketRecord,
+    bucket::{BucketRecord, resource::parse_insert},
     cause::MemoryBudget,
     clock::Clock,
     config::{DocumentKind, DocumentSource, Form, Setting},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
-    json::parse_insert_with_profile,
     profile::CompatProfile,
     storage::{
         Catalog,
@@ -924,15 +923,7 @@ fn project(
 fn native(field: &str, value: &Value, key: &str, now: SystemTime, diagnostics: &mut Collected) {
     let mut resource = serde_json::Map::from_iter([("name".into(), json!("example-bucket"))]);
     resource.insert(field.into(), value.clone());
-    if parse_insert_with_profile(
-        Value::Object(resource).to_string().as_bytes(),
-        "local-project",
-        now,
-        CompatProfile::Native,
-        "US",
-    )
-    .is_err()
-    {
+    if parse_insert(&resource, "local-project", now, CompatProfile::Native, "US").is_err() {
         diagnostics.record(
             Reason::Native,
             key.into(),
@@ -1748,13 +1739,14 @@ fn records(
             .take()
             .map(|policy| policy.into_policy(&format!("buckets[{index}].iamPolicy")))
             .transpose()?;
-        let encoded = serde_json::to_vec(&entry).map_err(|_| {
+        let value = serde_json::to_value(&entry).map_err(|_| {
             failure(
                 "$",
                 "Cannot encode bucket resource; use supported native settings.",
             )
         })?;
-        if let Err(fix) = check_resource_size(&encoded) {
+        // A `Value` renders the bytes that `serde_json::to_vec` writes for the entry.
+        if let Err(fix) = check_resource_size(value.to_string().as_bytes()) {
             error(
                 &mut diagnostics,
                 Reason::Limit,
@@ -1763,19 +1755,16 @@ fn records(
             );
             continue;
         }
-        match parse_insert_with_profile(
-            &encoded,
-            &project,
-            now,
-            CompatProfile::Native,
-            default_location,
-        ) {
-            Ok(record) => records.push(InitEntry {
+        let parsed = value
+            .as_object()
+            .map(|body| parse_insert(body, &project, now, CompatProfile::Native, default_location));
+        match parsed {
+            Some(Ok(record)) => records.push(InitEntry {
                 record,
                 policy,
                 written,
             }),
-            Err(_) => error(
+            Some(Err(_)) | None => error(
                 &mut diagnostics,
                 Reason::Native,
                 format!("buckets[{index}]"),
@@ -1796,6 +1785,7 @@ mod tests {
     use super::*;
     use crate::clock::ManualClock;
     use crate::diagnostics::test_support::has;
+    use crate::json::parse_insert_with_profile;
     use proptest::prelude::*;
     use std::{
         fs,
