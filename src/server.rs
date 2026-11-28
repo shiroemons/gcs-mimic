@@ -60,6 +60,8 @@ pub(crate) use crate::bounded_body::RESOURCE_BODY_LIMIT;
 mod batch;
 mod browser;
 mod buckets;
+// Crate-visible for the test helper that the gRPC handler tests reset a panicking stream with.
+pub(crate) mod grpc_listener;
 mod handshake;
 mod host;
 mod ingress;
@@ -1042,12 +1044,16 @@ async fn serve_grpc(
     let Established { stream, since } = established;
     match stream {
         Secured::Plain(stream) => {
-            crate::grpc::serve_connection(stream, since, scheme, &config, state, stopping, &slots)
-                .await;
+            grpc_listener::serve_connection(
+                stream, since, scheme, &config, state, stopping, &slots,
+            )
+            .await;
         }
         Secured::Tls(stream) => {
-            crate::grpc::serve_connection(stream, since, scheme, &config, state, stopping, &slots)
-                .await;
+            grpc_listener::serve_connection(
+                stream, since, scheme, &config, state, stopping, &slots,
+            )
+            .await;
         }
     }
 }
