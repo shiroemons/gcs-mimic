@@ -1,4 +1,4 @@
-use super::{ApiError, Projection, WriteMode, query::validate_project};
+use super::{ApiError, Projection, WriteMode};
 use crate::acl::{AnonymousCannedAcl, refuse_anonymous_canned_acl};
 use crate::bucket::resource::{
     LEGACY_LOCATION, UNSUPPORTED_FIELDS, parse_cors, parse_lifecycle, parse_object_retention,
@@ -58,7 +58,7 @@ pub(crate) fn parse_insert_with_profile(
     default_location: &str,
 ) -> Result<BucketRecord, ApiError> {
     // An invalid project is reported before a malformed body.
-    validate_project(project)?;
+    crate::auth::validate_project_id(project)?;
     let value = parse_insert_json(bytes, profile)?;
     let body = value
         .as_object()

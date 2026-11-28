@@ -101,7 +101,7 @@ pub(crate) use query::decode_bucket_segment;
 pub(crate) use query::route;
 pub(crate) use query::{
     BucketRequest, GetParams, InsertParams, ListParams, Projection, SoftDeletedListParams,
-    route_with_profile, validate_project,
+    route_with_profile,
 };
 
 #[cfg(test)]
