@@ -62443,12 +62443,14 @@
       "verification": [
         {"command": "cargo test -p grpc-codegen", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/development.md", "test_ids": ["output_directory_defaults_and_rejects_invalid_arguments"]},
         {"command": "bash scripts/test-grpc-codegen.sh", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/development.md", "test_ids": ["scripts/test-grpc-codegen.sh"]},
-        {"command": "CARGO_BUILD_JOBS=4 bash scripts/check-grpc-codegen.sh", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/development.md", "test_ids": ["scripts/check-grpc-codegen.sh"]}
+        {"command": "CARGO_BUILD_JOBS=4 bash scripts/check-grpc-codegen.sh", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/development.md", "test_ids": ["scripts/check-grpc-codegen.sh"]},
+        {"command": "bash scripts/test-grpc-codegen.sh", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["scripts/test-grpc-codegen.sh"]},
+        {"command": "CARGO_BUILD_JOBS=4 bash scripts/check-grpc-codegen.sh", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["scripts/check-grpc-codegen.sh"]}
       ],
       "sdk_evidence": [],
       "known_deviations": ["Automatic upstream API/Discovery schema change detection and reconciliation of newly discovered features remain unimplemented; compiler freshness and local regeneration integrity alone do not cover upstream API changes."],
       "implemented_in": null,
-      "last_verified": "2026-11-04"
+      "last_verified": "2026-11-28"
     },
     {
       "id": "DESIGN-097",
@@ -64286,7 +64288,9 @@
           "id": "DESIGN-105-PROTOCOL",
           "description": "Multipart and batch parsing, gRPC ReadObject and the smaller adapter changes keep their wire behavior.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": [
+            "grpc::v2::stored::tests::completions_decode_alike_whatever_order_their_metadata_was_written_in"
+          ]
         },
         {
           "id": "DESIGN-105-LAYERS",
@@ -64295,6 +64299,7 @@
           "test_ids": [
             "lint::layers::tests::adapters_may_not_name_each_other",
             "lint::layers::tests::same_and_lower_layers_are_allowed_and_higher_layers_are_reported",
+            "lint::layers::tests::naming_the_generated_protobuf_crate_names_the_grpc_adapter",
             "lint::layers::tests::super_and_self_resolve_from_the_file_path",
             "lint::layers::tests::dollar_crate_in_a_macro_is_reported_where_the_macro_is_written",
             "lint::layers::tests::only_the_top_level_members_of_a_crate_group_are_modules",
@@ -64445,6 +64450,7 @@
         "grpc::v2::status::golden_tests::every_error_keeps_its_storage_v2_status",
         "service::resumable::tests::json_completion_keeps_the_text_stored_in_sqlite",
         "grpc::v2::stored::tests::completion_text_is_a_bare_array_of_protobuf_bytes",
+        "grpc::v2::stored::tests::completions_decode_alike_whatever_order_their_metadata_was_written_in",
         "storage::catalog::upload_replay::tests::completion_documents_keep_their_stored_bytes",
         "storage::catalog::upload_replay::fingerprint::tests::custom_time_and_copy_fingerprints_keep_their_digests",
         "storage::catalog::admin::tests::default_bucket_definition_keeps_every_field",
@@ -64525,6 +64531,7 @@
         "lint::error_format::tests::source_suppression_is_counted_and_expires_when_the_source_is_forwarded",
         "lint::layers::tests::adapters_may_not_name_each_other",
         "lint::layers::tests::same_and_lower_layers_are_allowed_and_higher_layers_are_reported",
+        "lint::layers::tests::naming_the_generated_protobuf_crate_names_the_grpc_adapter",
         "lint::layers::tests::super_and_self_resolve_from_the_file_path",
         "lint::layers::tests::dollar_crate_in_a_macro_is_reported_where_the_macro_is_written",
         "lint::layers::tests::only_the_top_level_members_of_a_crate_group_are_modules",
@@ -64739,7 +64746,8 @@
         {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["auth::error_text_and_sources", "config::auth::error_text_and_sources"]},
         {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["service::media::error_text_and_sources", "service::copy::error_text_and_sources"]},
         {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["service::resumable::tests::json_completion_keeps_the_text_stored_in_sqlite", "json::error::golden_tests::every_error_keeps_its_json_response"]},
-        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["lint::layers::tests::adapters_may_not_name_each_other", "lint::layers::tests::same_and_lower_layers_are_allowed_and_higher_layers_are_reported", "lint::layers::tests::super_and_self_resolve_from_the_file_path", "lint::layers::tests::dollar_crate_in_a_macro_is_reported_where_the_macro_is_written", "lint::layers::tests::only_the_top_level_members_of_a_crate_group_are_modules", "lint::layers::tests::re_exports_are_reported_where_they_are_written", "lint::layers::tests::tests_comments_strings_binary_files_and_the_library_root_are_skipped", "lint::layers::tests::every_library_module_has_exactly_one_layer", "lint::layers::tests::the_design_guide_shows_the_same_layer_table", "lint::layers::tests::both_rules_take_a_reasoned_suppression", "lint::tests::test_items_include_multi_line_attributes_after_the_cfg", "lint::ratchet::tests::the_layer_rules_take_no_baseline_row", "lint::tests::every_gate_rule_has_one_row_in_the_development_guide"]}
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["lint::layers::tests::adapters_may_not_name_each_other", "lint::layers::tests::same_and_lower_layers_are_allowed_and_higher_layers_are_reported", "lint::layers::tests::super_and_self_resolve_from_the_file_path", "lint::layers::tests::dollar_crate_in_a_macro_is_reported_where_the_macro_is_written", "lint::layers::tests::only_the_top_level_members_of_a_crate_group_are_modules", "lint::layers::tests::re_exports_are_reported_where_they_are_written", "lint::layers::tests::tests_comments_strings_binary_files_and_the_library_root_are_skipped", "lint::layers::tests::every_library_module_has_exactly_one_layer", "lint::layers::tests::the_design_guide_shows_the_same_layer_table", "lint::layers::tests::both_rules_take_a_reasoned_suppression", "lint::tests::test_items_include_multi_line_attributes_after_the_cfg", "lint::ratchet::tests::the_layer_rules_take_no_baseline_row", "lint::tests::every_gate_rule_has_one_row_in_the_development_guide"]},
+        {"command": "just check", "result": "PASS", "verified_at": "2026-11-28", "artifact": "docs/en/evidence/rust-hardening.md", "test_ids": ["grpc::v2::stored::tests::completions_decode_alike_whatever_order_their_metadata_was_written_in", "grpc::v2::stored::tests::completion_text_is_a_bare_array_of_protobuf_bytes", "grpc::v2::status::golden_tests::every_error_keeps_its_storage_v2_status", "lint::layers::tests::naming_the_generated_protobuf_crate_names_the_grpc_adapter"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [],
