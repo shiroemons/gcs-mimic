@@ -76,7 +76,11 @@ async fn a_panicking_read_resets_its_http2_stream() {
     let encoder =
         tonic_prost::ProstCodec::<pb::ReadObjectResponse, pb::ReadObjectRequest>::new().encoder();
     let body = EncodeBody::new_server(encoder, stream, None, Default::default(), None);
-    crate::grpc::tests::assert_body_panic_resets_stream(tonic::body::Body::new(body), PANIC).await;
+    crate::server::grpc_listener::tests::assert_body_panic_resets_stream(
+        tonic::body::Body::new(body),
+        PANIC,
+    )
+    .await;
 }
 
 async fn get(

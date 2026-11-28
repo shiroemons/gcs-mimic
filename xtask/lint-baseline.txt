@@ -2,4 +2,3 @@
 text::layer_dependency	src/config/auth.rs	1
 text::layer_dependency	src/config/document.rs	2
 text::layer_dependency	src/config_input/options.rs	2
-text::layer_dependency	src/grpc/mod.rs	1

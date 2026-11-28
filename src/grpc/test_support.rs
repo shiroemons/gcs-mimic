@@ -181,7 +181,7 @@ pub(super) async fn rpc<M: prost::Message, R: prost::Message + Default>(
 /// refusing every RPC asked, including QueryWriteStatus and CancelResumableWrite with a
 /// readable upload ID (2026-11-18, cases grpc-probe-routing and
 /// grpc-probe-inferred-routing).
-pub(super) fn bucket_routing(bucket: &str) -> String {
+pub(crate) fn bucket_routing(bucket: &str) -> String {
     format!("bucket=projects%2F_%2Fbuckets%2F{bucket}")
 }
 
