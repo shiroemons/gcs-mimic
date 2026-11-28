@@ -1,13 +1,14 @@
 //! XML API object GET, HEAD and DELETE.
 
-use super::RequestBody as Incoming;
-use super::{ObjectCtx, ResponseBody, boxed, empty_response};
+use crate::service::body::RequestBody as Incoming;
 use crate::{
     auth,
     bucket::BucketAccess,
     csek::{CsekError, CustomerKey, StoredHashes},
     object::{ObjectConditions, ObjectError, ObjectRecord},
     service::{
+        body::{ResponseBody, boxed, empty_response},
+        context::ObjectCtx,
         gzip,
         media::{self, body_read_ahead, insert_content_range},
         object_body::object_body,
@@ -17,10 +18,7 @@ use crate::{
 };
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};
 
-#[cfg(test)]
-mod tests;
-
-pub(super) async fn respond(
+pub(crate) async fn respond(
     mut request: Request<Incoming>,
     operation: xml::ReadRequest,
     ctx: ObjectCtx<'_>,

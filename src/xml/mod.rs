@@ -44,6 +44,7 @@ mod test_support;
 pub(crate) use cors::{cors, note_default_cors_fallback, warn_unconfigured_cors};
 pub(crate) mod post;
 pub(crate) mod put;
+pub(crate) mod read;
 pub(crate) mod resumable;
 mod writer;
 use writer::{Namespace, XmlWriter};
