@@ -415,7 +415,10 @@ async fn update(
         retention_override,
         predefined_acl,
     } = params;
-    json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
+    object_headers::validate_keyed_object_headers(
+        request.headers(),
+        &[crate::csek::DESTINATION_PREFIX],
+    )?;
     let key = crate::csek::request_key(request.headers())?;
     // If-Match is accepted and not evaluated: Cloud Storage applied metadata PATCH and PUT
     // requests naming a superseded or bogus entity tag (case obj-gaps-json). Only the query

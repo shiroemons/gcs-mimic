@@ -2,6 +2,7 @@
 
 use super::{AclSource, Written, idempotency_token};
 use crate::server::RequestBody as Incoming;
+use crate::service::object_headers;
 use crate::{
     auth,
     bucket::BucketAccess,
@@ -21,7 +22,7 @@ pub(super) async fn copy(
     access: BucketAccess,
     params: json::ObjectCopyParams,
 ) -> Result<Written, ApiError> {
-    json::validate_keyed_object_headers(
+    object_headers::validate_keyed_object_headers(
         request.headers(),
         &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
     )?;
@@ -204,7 +205,10 @@ pub(super) async fn compose(
         conditions,
         predefined_acl,
     } = params;
-    json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
+    object_headers::validate_keyed_object_headers(
+        request.headers(),
+        &[crate::csek::DESTINATION_PREFIX],
+    )?;
     let key = crate::csek::request_key(request.headers())?;
     reject_headers(
         request.headers(),

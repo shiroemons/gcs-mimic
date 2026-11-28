@@ -805,15 +805,7 @@ pub(super) fn match_and_not_match(conditions: &ObjectConditions) -> bool {
 /// honored the `Range` of a media read without evaluating it.
 // shortcut: GET/DELETE tokens do not deduplicate retries; add replay storage for strict retry fidelity.
 pub(crate) fn validate_object_get_headers(headers: &HeaderMap) -> Result<(), ApiError> {
-    validate_keyed_object_headers(headers, &[])
-}
-
-/// As [`validate_object_get_headers`], leaving the listed key header prefixes to the caller.
-pub(crate) fn validate_keyed_object_headers(
-    headers: &HeaderMap,
-    keys: &[&str],
-) -> Result<(), ApiError> {
-    crate::service::object_headers::unsupported_headers(headers, keys)?;
+    crate::service::object_headers::validate_keyed_object_headers(headers, &[])?;
     Ok(())
 }
 

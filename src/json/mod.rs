@@ -89,8 +89,7 @@ pub(crate) use objects::route_object;
 pub(crate) use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, UploadRequest,
     add_derived_owner, object_resource, rebase_object_links, route_object_with_profile,
-    unsupported_upload_type, validate_keyed_object_headers, validate_object_get_headers,
-    validate_object_name,
+    unsupported_upload_type, validate_object_get_headers, validate_object_name,
 };
 pub(crate) use projects::{
     ProjectRequest, hmac_key_list, hmac_key_metadata, hmac_key_resource, parse_hmac_key_update,

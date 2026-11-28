@@ -127,7 +127,7 @@ pub(super) async fn respond(
         request.headers(),
         EtagConditions::Unsupported,
     )?;
-    json::validate_keyed_object_headers(
+    object_headers::validate_keyed_object_headers(
         request.headers(),
         &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
     )?;

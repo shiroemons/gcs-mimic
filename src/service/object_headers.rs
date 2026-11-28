@@ -1,6 +1,6 @@
-//! Request header rules for object uploads and reads. The JSON API applies them on its own
-//! routes, and the resumable engine applies the upload rules to every request on a session URI,
-//! the XML API's included, so they live below the adapters.
+//! Request header rules of the JSON API's object routes, with the conditional header check that
+//! every JSON route applies. The resumable engine applies the upload rules to every request on a
+//! session URI, the XML API's included, so they live below the adapters.
 
 use super::ServiceError;
 use crate::{
@@ -35,8 +35,12 @@ pub(crate) fn unsigned(value: &str) -> Result<u64, InputError> {
         .map_err(|_| InputError::parameter("Upload integer overflow"))
 }
 
+/// Rejects the headers an object route does not support, explicitly rather than ignoring them.
 /// `keys` lists the customer-supplied key header prefixes the caller parses itself.
-pub(crate) fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), InputError> {
+pub(crate) fn validate_keyed_object_headers(
+    headers: &HeaderMap,
+    keys: &[&str],
+) -> Result<(), InputError> {
     IdempotencyToken::validate_opaque(headers).map_err(|_| {
         InputError::parameter("Expected a single non-empty x-goog-gcs-idempotency-token header")
     })?;
@@ -63,7 +67,7 @@ pub(crate) fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<
 /// or collecting the body. Callers read the destination customer-supplied key separately with
 /// [`crate::csek::request_key`].
 pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ServiceError> {
-    unsupported_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
+    validate_keyed_object_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
     validate_read_condition_headers(headers, EtagConditions::Unsupported)?;
     if let Some(mime) = single(headers, "x-upload-content-type")? {
         crate::object::validate_fixed_metadata("contentType", mime)
