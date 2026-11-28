@@ -85,15 +85,12 @@ pub(crate) use object_metadata::{
 pub(crate) use object_move::ObjectMoveParams;
 #[cfg(test)]
 pub(crate) use objects::route_object;
+pub(crate) use objects::{EtagConditions, base64, validate_read_condition_headers};
 pub(crate) use objects::{
-    EtagConditions, Gunzip, Transcoding, base64, object_double_compressed, object_media_negotiable,
-    object_media_transcoding, validate_read_condition_headers,
-};
-pub(crate) use objects::{
-    ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, RangeRequest,
-    UnsatisfiableRange, UploadRequest, add_derived_owner, object_resource, range_request,
-    rebase_object_links, route_object_with_profile, unsupported_upload_type, upload_content_type,
-    validate_keyed_object_headers, validate_object_get_headers, validate_object_name,
+    ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, UploadRequest,
+    add_derived_owner, object_resource, rebase_object_links, route_object_with_profile,
+    unsupported_upload_type, upload_content_type, validate_keyed_object_headers,
+    validate_object_get_headers, validate_object_name,
 };
 pub(crate) use projects::{
     ProjectRequest, hmac_key_list, hmac_key_metadata, hmac_key_resource, parse_hmac_key_update,

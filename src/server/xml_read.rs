@@ -9,8 +9,8 @@ use crate::{
     auth,
     bucket::BucketAccess,
     csek::{CsekError, CustomerKey, StoredHashes},
-    json,
     object::{ObjectConditions, ObjectError, ObjectRecord},
+    service::media,
     storage::ObjectReader,
     xml,
 };
@@ -156,8 +156,8 @@ async fn read(
             headers.remove("content-length");
         }
     }
-    if let json::Transcoding::Gunzipped(reason) =
-        json::object_media_transcoding(request.headers(), &record)?
+    if let media::Transcoding::Gunzipped(reason) =
+        media::object_media_transcoding(request.headers(), &record)?
     {
         let representation = Gunzipped {
             headers,
@@ -173,8 +173,8 @@ async fn read(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
     // Cloud Storage rejects a multi-range request with 400 instead of serving the first range.
-    let requested_range = json::range_request(request.headers());
-    if let json::RangeRequest::Multiple(requested) = requested_range {
+    let requested_range = media::range_request(request.headers());
+    if let media::RangeRequest::Multiple(requested) = requested_range {
         return Ok(range_error(
             request,
             headers,
@@ -184,7 +184,7 @@ async fn read(
     }
     let range = match requested_range.resolve(record.size) {
         Ok(range) => range,
-        Err(json::UnsatisfiableRange) => {
+        Err(media::UnsatisfiableRange) => {
             return Ok(range_error(
                 request,
                 headers,
@@ -200,7 +200,7 @@ async fn read(
                 .map_err(|_| xml::Error::service_unavailable("Cannot seek object data"))?;
         }
         // A compressed stored-gzip HEAD states no length, with or without a Range.
-        if !(head && json::object_media_negotiable(&record)) {
+        if !(head && media::object_media_negotiable(&record)) {
             headers.insert("content-length", length.into());
         }
         insert_content_range(&mut headers, offset, length, record.size);
@@ -247,9 +247,9 @@ async fn gunzipped(
         return Ok(response);
     }
     match reason {
-        json::Gunzip::NotAccepted => gzip::insert_transcoded_headers(&mut headers),
+        media::Gunzip::NotAccepted => gzip::insert_transcoded_headers(&mut headers),
         // Only the JSON API was recorded for this form; the XML read assumes the same headers.
-        json::Gunzip::DespiteAccept => gzip::insert_gunzipped_despite_accept_headers(&mut headers),
+        media::Gunzip::DespiteAccept => gzip::insert_gunzipped_despite_accept_headers(&mut headers),
     }
     headers.extend(overrides);
     Ok(gzip::response(ctx, record, reader, headers, method))
@@ -260,13 +260,13 @@ async fn gunzipped(
 struct Gunzipped {
     headers: HeaderMap,
     overrides: HeaderMap,
-    reason: json::Gunzip,
+    reason: media::Gunzip,
 }
 
 /// The XML API varies a stored-gzip object on `Accept-Encoding`, except a doubly compressed
 /// one, which every client receives gunzipped (recorded 2026-11-13 without `Accept-Encoding`).
 fn varies_on_accept_encoding(record: &ObjectRecord) -> bool {
-    json::object_media_negotiable(record) && !json::object_double_compressed(record)
+    media::object_media_negotiable(record) && !media::object_double_compressed(record)
 }
 
 /// A refused Range keeps the object's validators, generation, hashes and `accept-ranges`, with

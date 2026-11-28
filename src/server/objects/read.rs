@@ -14,6 +14,7 @@ use crate::{
         insert_unsatisfied_content_range, invalid_etag_header, not_modified_response, object_body,
         read_metadata_response,
     },
+    service::media,
 };
 use http_body_util::{BodyExt, Full};
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
@@ -101,7 +102,7 @@ async fn media(
                 .map_err(|_| ApiError::service_unavailable("Invalid stored Cache-Control"))?,
         );
     }
-    let transcode = json::object_media_transcoding(request.headers(), &record)?;
+    let transcode = media::object_media_transcoding(request.headers(), &record)?;
     let etag_outcome = crate::http_conditions::etag_not_modified_first(
         request.headers(),
         &crate::etag::object_etag(&record),
@@ -119,16 +120,16 @@ async fn media(
         return Ok(boxed(response));
     }
     // Cloud Storage refused a ranged read of several ranges instead of ignoring the header.
-    let requested_range = json::range_request(request.headers());
-    if matches!(requested_range, json::RangeRequest::Multiple(_)) {
+    let requested_range = media::range_request(request.headers());
+    if matches!(requested_range, media::RangeRequest::Multiple(_)) {
         return Ok(boxed(multiple_ranges_response(&headers)));
     }
     // A media HEAD sends the GET headers without reading the object (observed 2026-10-31).
     let head = request.method() == Method::HEAD;
-    if let json::Transcoding::Gunzipped(reason) = transcode {
+    if let media::Transcoding::Gunzipped(reason) = transcode {
         return gunzipped(ctx, &record, reader, headers, request.method(), reason).await;
     }
-    let negotiable = json::object_media_negotiable(&record);
+    let negotiable = media::object_media_negotiable(&record);
     if negotiable {
         gzip::insert_negotiated_vary(&mut headers);
         if head {
@@ -203,7 +204,7 @@ async fn compressed_headers(
     }
     // The HTTP/1.1 recording streams private gzip bytes, including partial ranges.
     headers.remove("content-length");
-    if !json::object_media_negotiable(record) {
+    if !media::object_media_negotiable(record) {
         headers.insert(
             "cache-control",
             HeaderValue::from_static(
@@ -222,16 +223,16 @@ async fn gunzipped(
     mut reader: ObjectReader,
     mut headers: HeaderMap,
     method: &Method,
-    reason: json::Gunzip,
+    reason: media::Gunzip,
 ) -> Result<Response<ResponseBody>, ApiError> {
     let head = method == Method::HEAD;
     if !head && gzip::is_plain(&mut reader, record.size).await? {
         return Ok(gzip::plain_body_rejection(headers));
     }
     match reason {
-        json::Gunzip::NotAccepted => gzip::insert_transcoded_headers(&mut headers),
+        media::Gunzip::NotAccepted => gzip::insert_transcoded_headers(&mut headers),
         // The JSON API still varies this response on Accept-Encoding (recorded 2026-11-13).
-        json::Gunzip::DespiteAccept => {
+        media::Gunzip::DespiteAccept => {
             gzip::insert_gunzipped_despite_accept_headers(&mut headers);
             gzip::insert_negotiated_vary(&mut headers);
         }

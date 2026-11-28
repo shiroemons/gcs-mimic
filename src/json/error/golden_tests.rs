@@ -273,10 +273,10 @@ fn endpoint_cases() -> Vec<Case<crate::config::EndpointError>> {
     )
 }
 
-fn range_cases() -> Vec<Case<crate::json::objects::UnsatisfiableRange>> {
+fn range_cases() -> Vec<Case<crate::service::media::UnsatisfiableRange>> {
     vec![case(
         "UnsatisfiableRange",
-        crate::json::objects::UnsatisfiableRange,
+        crate::service::media::UnsatisfiableRange,
     )]
 }
 
