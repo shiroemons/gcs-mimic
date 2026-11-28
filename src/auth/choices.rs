@@ -11,7 +11,7 @@ crate::choice::string_enum! {
 
 crate::choice::string_enum! {
     no_default
-    /// Whether the built-in [`test_signer`] identity exists. Its private key is published, so
+    /// Whether the built-in [`test_signer`](super::test_signer) identity exists. Its private key is published, so
     /// the default depends on the profile; see [`TestSignerChoice::select`].
     pub(crate) enum TestSigner {
         Enabled => "enabled",

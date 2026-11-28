@@ -593,7 +593,7 @@ prints its own source has a reasoned suppression at the attribute.
 | Diagnostic compatibility exception | Reason and review point |
 | --- | --- |
 | `fsutil::CloneFailure::{Created, NotCreated}` | Both expose the same concrete `FsError` they display. `Report` joins the equal messages once. Revisit when changing the clone diagnostic contract. |
-| `auth::PolicyDecodeError::Json` and `config::auth::IdentityError` | The stored-policy and startup diagnostics include the decoder or registry text and expose the cause itself. Keep their prefixed Display until those diagnostics are reviewed. |
+| `auth::PolicyDecodeError::Json` and `config::auth::IdentityError::{Read, Registry}` | The stored-policy and startup diagnostics include the decoder, read or registry text and expose the cause itself. Keep their prefixed Display until those diagnostics are reviewed. |
 | `GenerateError::Rejected`, `ServerIdentityError::{Certificate, PrivateKey, Identity, Rejected}` | The interactive buckets prompt and the startup TLS diagnostic print these errors directly and expose the same concrete cause. Revisit when changing those diagnostics. Public facade gave `DurationError::Number` its own text, since nothing prints it. |
 | `EventSettingsError::{Endpoint, Topic, ObjectPrefix}`, `ClaimError::Catalog` | Setting and resumable diagnostics display the cause directly and expose it through `source()`. Revisit when changing those diagnostic contracts. |
 | `PurgeError::Admin` | Purge diagnostics prefix the exposed administrative failure. Revisit with the admin diagnostics. |
